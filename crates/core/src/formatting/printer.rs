@@ -151,7 +151,7 @@ impl<'a> Printer<'a> {
 
     PrintTracingResult {
       traces: self.traces.expect("Should have set enable_tracing to true when creating the printer."),
-      writer_nodes: self.writer.get_nodes(),
+      writer_nodes: self.writer.nodes(),
     }
   }
 
@@ -188,85 +188,83 @@ impl<'a> Printer<'a> {
       traces.push(Trace {
         nanos: (std::time::Instant::now() - self.start_time).as_nanos(),
         print_node_id: current_node.print_node_id,
-        writer_node_id: self.writer.get_current_node_id(),
+        writer_node_id: self.writer.current_node_id(),
       });
     }
   }
 
   #[inline]
   pub fn get_writer_info(&self) -> WriterInfo {
-    self.writer.get_writer_info()
+    self.writer.writer_info()
   }
 
   pub fn resolved_line_number(&mut self, line_number: LineNumber) -> Option<u32> {
-    let resolved_number = self.resolved_line_numbers.get(line_number.get_unique_id());
-    if resolved_number.is_none() && !self.look_ahead_line_number_save_points.contains_key(&line_number.get_unique_id()) {
-      let save_point = self.get_save_point_for_restoring_condition(line_number.get_name());
-      self.look_ahead_line_number_save_points.insert(line_number.get_unique_id(), save_point);
+    let resolved_number = self.resolved_line_numbers.get(line_number.unique_id());
+    if resolved_number.is_none() && !self.look_ahead_line_number_save_points.contains_key(&line_number.unique_id()) {
+      let save_point = self.get_save_point_for_restoring_condition(line_number.name());
+      self.look_ahead_line_number_save_points.insert(line_number.unique_id(), save_point);
     }
 
     resolved_number.copied()
   }
 
   pub fn resolved_column_number(&mut self, column_number: ColumnNumber) -> Option<u32> {
-    let resolved_number = self.resolved_column_numbers.get(column_number.get_unique_id());
-    if resolved_number.is_none() && !self.look_ahead_column_number_save_points.contains_key(&column_number.get_unique_id()) {
-      let save_point = self.get_save_point_for_restoring_condition(column_number.get_name());
-      self.look_ahead_column_number_save_points.insert(column_number.get_unique_id(), save_point);
+    let resolved_number = self.resolved_column_numbers.get(column_number.unique_id());
+    if resolved_number.is_none() && !self.look_ahead_column_number_save_points.contains_key(&column_number.unique_id()) {
+      let save_point = self.get_save_point_for_restoring_condition(column_number.name());
+      self.look_ahead_column_number_save_points.insert(column_number.unique_id(), save_point);
     }
 
     resolved_number.copied()
   }
 
   pub fn resolved_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) -> Option<bool> {
-    let resolved_is_start_of_line = self.resolved_is_start_of_lines.get(is_start_of_line.get_unique_id());
-    if resolved_is_start_of_line.is_none() && !self.look_ahead_is_start_of_line_save_points.contains_key(&is_start_of_line.get_unique_id()) {
-      let save_point = self.get_save_point_for_restoring_condition(is_start_of_line.get_name());
-      self
-        .look_ahead_is_start_of_line_save_points
-        .insert(is_start_of_line.get_unique_id(), save_point);
+    let resolved_is_start_of_line = self.resolved_is_start_of_lines.get(is_start_of_line.unique_id());
+    if resolved_is_start_of_line.is_none() && !self.look_ahead_is_start_of_line_save_points.contains_key(&is_start_of_line.unique_id()) {
+      let save_point = self.get_save_point_for_restoring_condition(is_start_of_line.name());
+      self.look_ahead_is_start_of_line_save_points.insert(is_start_of_line.unique_id(), save_point);
     }
 
     resolved_is_start_of_line.copied()
   }
 
   pub fn resolved_indent_level(&mut self, indent_level: IndentLevel) -> Option<u8> {
-    let resolved_indent_level = self.resolved_indent_levels.get(indent_level.get_unique_id());
-    if resolved_indent_level.is_none() && !self.look_ahead_indent_level_save_points.contains_key(&indent_level.get_unique_id()) {
-      let save_point = self.get_save_point_for_restoring_condition(indent_level.get_name());
-      self.look_ahead_indent_level_save_points.insert(indent_level.get_unique_id(), save_point);
+    let resolved_indent_level = self.resolved_indent_levels.get(indent_level.unique_id());
+    if resolved_indent_level.is_none() && !self.look_ahead_indent_level_save_points.contains_key(&indent_level.unique_id()) {
+      let save_point = self.get_save_point_for_restoring_condition(indent_level.name());
+      self.look_ahead_indent_level_save_points.insert(indent_level.unique_id(), save_point);
     }
 
     resolved_indent_level.copied()
   }
 
   pub fn resolved_line_start_column_number(&mut self, line_start_column_number: LineStartColumnNumber) -> Option<u32> {
-    let resolved_line_start_column_number = self.resolved_line_start_column_numbers.get(line_start_column_number.get_unique_id());
+    let resolved_line_start_column_number = self.resolved_line_start_column_numbers.get(line_start_column_number.unique_id());
     if resolved_line_start_column_number.is_none()
       && !self
         .look_ahead_line_start_column_number_save_points
-        .contains_key(&line_start_column_number.get_unique_id())
+        .contains_key(&line_start_column_number.unique_id())
     {
-      let save_point = self.get_save_point_for_restoring_condition(line_start_column_number.get_name());
+      let save_point = self.get_save_point_for_restoring_condition(line_start_column_number.name());
       self
         .look_ahead_line_start_column_number_save_points
-        .insert(line_start_column_number.get_unique_id(), save_point);
+        .insert(line_start_column_number.unique_id(), save_point);
     }
 
     resolved_line_start_column_number.copied()
   }
 
   pub fn resolved_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) -> Option<u8> {
-    let resolved_line_start_indent_level = self.resolved_line_start_indent_levels.get(line_start_indent_level.get_unique_id());
+    let resolved_line_start_indent_level = self.resolved_line_start_indent_levels.get(line_start_indent_level.unique_id());
     if resolved_line_start_indent_level.is_none()
       && !self
         .look_ahead_line_start_indent_level_save_points
-        .contains_key(&line_start_indent_level.get_unique_id())
+        .contains_key(&line_start_indent_level.unique_id())
     {
-      let save_point = self.get_save_point_for_restoring_condition(line_start_indent_level.get_name());
+      let save_point = self.get_save_point_for_restoring_condition(line_start_indent_level.name());
       self
         .look_ahead_line_start_indent_level_save_points
-        .insert(line_start_indent_level.get_unique_id(), save_point);
+        .insert(line_start_indent_level.unique_id(), save_point);
     }
 
     resolved_line_start_indent_level.copied()
@@ -274,18 +272,18 @@ impl<'a> Printer<'a> {
 
   pub fn clear_info(&mut self, info: Info) {
     match info {
-      Info::LineNumber(info) => self.resolved_line_numbers.remove(info.get_unique_id()),
-      Info::ColumnNumber(info) => self.resolved_column_numbers.remove(info.get_unique_id()),
-      Info::IsStartOfLine(info) => self.resolved_is_start_of_lines.remove(info.get_unique_id()),
-      Info::IndentLevel(info) => self.resolved_indent_levels.remove(info.get_unique_id()),
-      Info::LineStartColumnNumber(info) => self.resolved_line_start_column_numbers.remove(info.get_unique_id()),
-      Info::LineStartIndentLevel(info) => self.resolved_line_start_indent_levels.remove(info.get_unique_id()),
+      Info::LineNumber(info) => self.resolved_line_numbers.remove(info.unique_id()),
+      Info::ColumnNumber(info) => self.resolved_column_numbers.remove(info.unique_id()),
+      Info::IsStartOfLine(info) => self.resolved_is_start_of_lines.remove(info.unique_id()),
+      Info::IndentLevel(info) => self.resolved_indent_levels.remove(info.unique_id()),
+      Info::LineStartColumnNumber(info) => self.resolved_line_start_column_numbers.remove(info.unique_id()),
+      Info::LineStartIndentLevel(info) => self.resolved_line_start_indent_levels.remove(info.unique_id()),
     }
   }
 
   pub fn resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
     if !self.resolved_conditions.contains_key(&condition_reference.id) && !self.look_ahead_condition_save_points.contains_key(&condition_reference.id) {
-      let save_point = self.get_save_point_for_restoring_condition(condition_reference.get_name());
+      let save_point = self.get_save_point_for_restoring_condition(condition_reference.name());
       self.look_ahead_condition_save_points.insert(condition_reference.id, save_point);
     }
 
@@ -319,7 +317,7 @@ impl<'a> Printer<'a> {
       new_line_group_depth: self.new_line_group_depth,
       force_no_newlines_depth: self.force_no_newlines_depth,
       node: next_node,
-      writer_state: self.writer.get_state(),
+      writer_state: self.writer.state(),
       look_ahead_condition_save_points: self.look_ahead_condition_save_points.clone(),
       look_ahead_line_number_save_points: self.look_ahead_line_number_save_points.clone(),
       look_ahead_column_number_save_points: self.look_ahead_column_number_save_points.clone(),
@@ -353,7 +351,7 @@ impl<'a> Printer<'a> {
 
   #[inline]
   fn is_above_max_width(&self, offset: u32) -> bool {
-    self.writer.get_column_number() + offset > self.max_width
+    self.writer.column_number() + offset > self.max_width
   }
 
   fn update_state_to_save_point(&mut self, save_point: &'a SavePoint<'a>, is_for_new_line: bool) {
@@ -436,12 +434,12 @@ impl<'a> Printer<'a> {
   fn handle_anchor(&mut self, anchor: &Anchor) {
     match anchor {
       Anchor::LineNumber(anchor) => {
-        let id = anchor.get_unique_id();
+        let id = anchor.unique_id();
         if let Some(past_line_number) = self.resolved_line_number_anchors.get(id) {
-          let current_line_number = self.writer.get_line_number();
+          let current_line_number = self.writer.line_number();
           let difference = (current_line_number as isize) - (*past_line_number as isize);
           if difference != 0 {
-            let line_number_id = anchor.get_line_number_id();
+            let line_number_id = anchor.line_number_id();
             if let Some(value) = self.resolved_line_numbers.get(line_number_id) {
               let new_value = ((*value as isize) + difference) as u32;
               self.resolved_line_numbers.insert(line_number_id, new_value);
@@ -456,52 +454,52 @@ impl<'a> Printer<'a> {
   fn handle_targeted_info(&mut self, info: &Info) {
     match info {
       Info::LineNumber(line_number) => {
-        let line_number_id = line_number.get_unique_id();
-        self.resolved_line_numbers.insert(line_number_id, self.writer.get_line_number());
+        let line_number_id = line_number.unique_id();
+        self.resolved_line_numbers.insert(line_number_id, self.writer.line_number());
         let option_save_point = self.look_ahead_line_number_save_points.remove(&line_number_id);
         if let Some(save_point) = option_save_point {
           self.update_state_to_save_point(save_point, false);
         }
       }
       Info::ColumnNumber(column_number) => {
-        let column_number_id = column_number.get_unique_id();
-        self.resolved_column_numbers.insert(column_number_id, self.writer.get_column_number());
+        let column_number_id = column_number.unique_id();
+        self.resolved_column_numbers.insert(column_number_id, self.writer.column_number());
         let option_save_point = self.look_ahead_column_number_save_points.remove(&column_number_id);
         if let Some(save_point) = option_save_point {
           self.update_state_to_save_point(save_point, false);
         }
       }
       Info::IsStartOfLine(is_start_of_line) => {
-        let is_start_of_line_id = is_start_of_line.get_unique_id();
-        self.resolved_is_start_of_lines.insert(is_start_of_line_id, self.writer.get_is_start_of_line());
+        let is_start_of_line_id = is_start_of_line.unique_id();
+        self.resolved_is_start_of_lines.insert(is_start_of_line_id, self.writer.is_start_of_line());
         let option_save_point = self.look_ahead_is_start_of_line_save_points.remove(&is_start_of_line_id);
         if let Some(save_point) = option_save_point {
           self.update_state_to_save_point(save_point, false);
         }
       }
       Info::IndentLevel(indent_level) => {
-        let indent_level_id = indent_level.get_unique_id();
-        self.resolved_indent_levels.insert(indent_level_id, self.writer.get_indent_level());
+        let indent_level_id = indent_level.unique_id();
+        self.resolved_indent_levels.insert(indent_level_id, self.writer.indent_level());
         let option_save_point = self.look_ahead_indent_level_save_points.remove(&indent_level_id);
         if let Some(save_point) = option_save_point {
           self.update_state_to_save_point(save_point, false);
         }
       }
       Info::LineStartColumnNumber(line_start_column_number) => {
-        let line_start_column_number_id = line_start_column_number.get_unique_id();
+        let line_start_column_number_id = line_start_column_number.unique_id();
         self
           .resolved_line_start_column_numbers
-          .insert(line_start_column_number_id, self.writer.get_line_start_column_number());
+          .insert(line_start_column_number_id, self.writer.line_start_column_number());
         let option_save_point = self.look_ahead_line_start_column_number_save_points.remove(&line_start_column_number_id);
         if let Some(save_point) = option_save_point {
           self.update_state_to_save_point(save_point, false);
         }
       }
       Info::LineStartIndentLevel(line_start_indent_level) => {
-        let line_start_indent_level_id = line_start_indent_level.get_unique_id();
+        let line_start_indent_level_id = line_start_indent_level.unique_id();
         self
           .resolved_line_start_indent_levels
-          .insert(line_start_indent_level_id, self.writer.get_line_start_indent_level());
+          .insert(line_start_indent_level_id, self.writer.line_start_indent_level());
         let option_save_point = self.look_ahead_line_start_indent_level_save_points.remove(&line_start_indent_level_id);
         if let Some(save_point) = option_save_point {
           self.update_state_to_save_point(save_point, false);
@@ -516,7 +514,7 @@ impl<'a> Printer<'a> {
     if let Some((condition, save_point)) = self.stored_condition_save_points.get(&condition_id).cloned() {
       if let Some(resolved_condition_value) = self.resolved_conditions.get(&condition_id).and_then(|x| x.to_owned()) {
         self.resolving_save_point.replace(save_point);
-        let mut context = ConditionResolverContext::new(self, save_point.writer_state.get_writer_info(self.writer.get_indent_width()));
+        let mut context = ConditionResolverContext::new(self, save_point.writer_state.writer_info(self.writer.indent_width()));
         let condition_value = condition.resolve(&mut context);
         self.resolving_save_point.take();
         if let Some(condition_value) = condition_value {
@@ -532,11 +530,11 @@ impl<'a> Printer<'a> {
 
   #[inline]
   fn handle_condition(&mut self, condition: &'a Condition, next_node: &Option<PrintItemPath>) {
-    let condition_id = condition.get_unique_id();
+    let condition_id = condition.unique_id();
 
     if condition.store_save_point {
-      let save_point = self.get_save_point_for_restoring_condition(condition.get_name());
-      self.stored_condition_save_points.insert(condition.get_unique_id(), (condition, save_point));
+      let save_point = self.get_save_point_for_restoring_condition(condition.name());
+      self.stored_condition_save_points.insert(condition.unique_id(), (condition, save_point));
     }
 
     let condition_value = condition.resolve(&mut ConditionResolverContext::new(self, self.get_writer_info()));
@@ -656,16 +654,16 @@ impl<'a> Printer<'a> {
         self.force_no_newlines_depth
       );
     }
-    if self.writer.get_indentation_level() != 0 {
+    if self.writer.indentation_level() != 0 {
       panic!(
         "Debug panic! The writer indentation level was not zero after printing. {0}",
-        self.writer.get_indentation_level()
+        self.writer.indentation_level()
       );
     }
-    if self.writer.get_ignore_indent_count() != 0 {
+    if self.writer.ignore_indent_count() != 0 {
       panic!(
         "Debug panic! The writer ignore indent count was not zero after printing. {0}",
-        self.writer.get_ignore_indent_count()
+        self.writer.ignore_indent_count()
       );
     }
   }

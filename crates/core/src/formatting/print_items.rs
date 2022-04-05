@@ -148,22 +148,20 @@ impl PrintItems {
           PrintItem::String(str_text) => text.push_str(&get_line(format!("`{}`", str_text.text), &indent_text)),
           PrintItem::RcPath(path) => text.push_str(&get_items_as_text(path, indent_text.clone())),
           PrintItem::Anchor(Anchor::LineNumber(line_number_anchor)) => {
-            text.push_str(&get_line(format!("Line number anchor: {}", line_number_anchor.get_name()), &indent_text))
+            text.push_str(&get_line(format!("Line number anchor: {}", line_number_anchor.name()), &indent_text))
           }
           PrintItem::Info(info) => {
             let (desc, name) = match info {
-              Info::LineNumber(info) => ("Line number", info.get_name()),
-              Info::ColumnNumber(info) => ("Column number", info.get_name()),
-              Info::IsStartOfLine(info) => ("Is start of line", info.get_name()),
-              Info::IndentLevel(info) => ("Indent level", info.get_name()),
-              Info::LineStartColumnNumber(info) => ("Line start column number", info.get_name()),
-              Info::LineStartIndentLevel(info) => ("Line start indent level", info.get_name()),
+              Info::LineNumber(info) => ("Line number", info.name()),
+              Info::ColumnNumber(info) => ("Column number", info.name()),
+              Info::IsStartOfLine(info) => ("Is start of line", info.name()),
+              Info::IndentLevel(info) => ("Indent level", info.name()),
+              Info::LineStartColumnNumber(info) => ("Line start column number", info.name()),
+              Info::LineStartIndentLevel(info) => ("Line start indent level", info.name()),
             };
             text.push_str(&get_line(format!("{}: {}", desc, name), &indent_text))
           }
-          PrintItem::ConditionReevaluation(reevaluation) => {
-            text.push_str(&get_line(format!("Condition reevaluation: {}", reevaluation.get_name()), &indent_text))
-          }
+          PrintItem::ConditionReevaluation(reevaluation) => text.push_str(&get_line(format!("Condition reevaluation: {}", reevaluation.name()), &indent_text)),
         }
       }
 
@@ -539,9 +537,6 @@ impl From<LineNumberAnchor> for Anchor {
 pub struct LineNumberAnchor {
   id: u32,
   line_number: LineNumber,
-  /// Name for debugging purposes.
-  #[cfg(debug_assertions)]
-  name: &'static str,
 }
 
 impl LineNumberAnchor {
@@ -549,27 +544,22 @@ impl LineNumberAnchor {
     Self {
       id: thread_state::next_line_number_anchor_id(),
       line_number,
-      #[cfg(debug_assertions)]
-      name: line_number.name,
     }
   }
 
   #[inline]
-  pub fn get_unique_id(&self) -> u32 {
+  pub fn unique_id(&self) -> u32 {
     self.id
   }
 
   #[inline]
-  pub fn get_line_number_id(&self) -> u32 {
+  pub fn line_number_id(&self) -> u32 {
     self.line_number.id
   }
 
   #[inline]
-  pub fn get_name(&self) -> &'static str {
-    #[cfg(debug_assertions)]
-    return self.name;
-    #[cfg(not(debug_assertions))]
-    return "line_number_anchor";
+  pub fn name(&self) -> &'static str {
+    self.line_number.name()
   }
 }
 
@@ -653,12 +643,12 @@ impl LineNumber {
   }
 
   #[inline]
-  pub fn get_unique_id(&self) -> u32 {
+  pub fn unique_id(&self) -> u32 {
     self.id
   }
 
   #[inline]
-  pub fn get_name(&self) -> &'static str {
+  pub fn name(&self) -> &'static str {
     #[cfg(debug_assertions)]
     return self.name;
     #[cfg(not(debug_assertions))]
@@ -684,12 +674,12 @@ impl ColumnNumber {
   }
 
   #[inline]
-  pub fn get_unique_id(&self) -> u32 {
+  pub fn unique_id(&self) -> u32 {
     self.id
   }
 
   #[inline]
-  pub fn get_name(&self) -> &'static str {
+  pub fn name(&self) -> &'static str {
     #[cfg(debug_assertions)]
     return self.name;
     #[cfg(not(debug_assertions))]
@@ -715,12 +705,12 @@ impl IsStartOfLine {
   }
 
   #[inline]
-  pub fn get_unique_id(&self) -> u32 {
+  pub fn unique_id(&self) -> u32 {
     self.id
   }
 
   #[inline]
-  pub fn get_name(&self) -> &'static str {
+  pub fn name(&self) -> &'static str {
     #[cfg(debug_assertions)]
     return self.name;
     #[cfg(not(debug_assertions))]
@@ -746,12 +736,12 @@ impl LineStartColumnNumber {
   }
 
   #[inline]
-  pub fn get_unique_id(&self) -> u32 {
+  pub fn unique_id(&self) -> u32 {
     self.id
   }
 
   #[inline]
-  pub fn get_name(&self) -> &'static str {
+  pub fn name(&self) -> &'static str {
     #[cfg(debug_assertions)]
     return self.name;
     #[cfg(not(debug_assertions))]
@@ -777,12 +767,12 @@ impl IndentLevel {
   }
 
   #[inline]
-  pub fn get_unique_id(&self) -> u32 {
+  pub fn unique_id(&self) -> u32 {
     self.id
   }
 
   #[inline]
-  pub fn get_name(&self) -> &'static str {
+  pub fn name(&self) -> &'static str {
     #[cfg(debug_assertions)]
     return self.name;
     #[cfg(not(debug_assertions))]
@@ -808,12 +798,12 @@ impl LineStartIndentLevel {
   }
 
   #[inline]
-  pub fn get_unique_id(&self) -> u32 {
+  pub fn unique_id(&self) -> u32 {
     self.id
   }
 
   #[inline]
-  pub fn get_name(&self) -> &'static str {
+  pub fn name(&self) -> &'static str {
     #[cfg(debug_assertions)]
     return self.name;
     #[cfg(not(debug_assertions))]
@@ -839,7 +829,7 @@ impl ConditionReevaluation {
     }
   }
 
-  pub fn get_name(&self) -> &'static str {
+  pub fn name(&self) -> &'static str {
     #[cfg(debug_assertions)]
     return self.name;
     #[cfg(not(debug_assertions))]
@@ -858,7 +848,7 @@ pub struct Condition {
   /// Name for debugging purposes.
   #[cfg(debug_assertions)]
   name: &'static str,
-  /// If a reference has been created for the condition via `get_reference()`. If so, the printer
+  /// If a reference has been created for the condition via `create_reference()`. If so, the printer
   /// will store the condition and it will be retrievable via a condition resolver.
   pub(super) is_stored: bool,
   pub(super) store_save_point: bool,
@@ -911,12 +901,12 @@ impl Condition {
   }
 
   #[inline]
-  pub fn get_unique_id(&self) -> u32 {
+  pub fn unique_id(&self) -> u32 {
     self.id
   }
 
   #[inline]
-  pub fn get_name(&self) -> &'static str {
+  pub fn name(&self) -> &'static str {
     #[cfg(debug_assertions)]
     return self.name;
     #[cfg(not(debug_assertions))]
@@ -924,12 +914,12 @@ impl Condition {
   }
 
   #[inline]
-  pub fn get_true_path(&self) -> &Option<PrintItemPath> {
+  pub fn true_path(&self) -> &Option<PrintItemPath> {
     &self.true_path
   }
 
   #[inline]
-  pub fn get_false_path(&self) -> &Option<PrintItemPath> {
+  pub fn false_path(&self) -> &Option<PrintItemPath> {
     &self.false_path
   }
 
@@ -938,15 +928,15 @@ impl Condition {
     (self.condition)(context)
   }
 
-  pub fn get_reference(&mut self) -> ConditionReference {
+  pub fn create_reference(&mut self) -> ConditionReference {
     self.is_stored = true;
-    ConditionReference::new(self.get_name(), self.id)
+    ConditionReference::new(self.name(), self.id)
   }
 
   pub fn create_reevaluation(&mut self) -> ConditionReevaluation {
     self.store_save_point = true;
     self.is_stored = true;
-    ConditionReevaluation::new(self.get_name(), self.id)
+    ConditionReevaluation::new(self.name(), self.id)
   }
 }
 
@@ -967,7 +957,7 @@ impl ConditionReference {
   }
 
   #[inline]
-  pub(super) fn get_name(&self) -> &'static str {
+  pub(super) fn name(&self) -> &'static str {
     #[cfg(debug_assertions)]
     return self.name;
     #[cfg(not(debug_assertions))]
@@ -1007,7 +997,7 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
   }
 
   /// Gets if a condition was true, false, or returns None when not yet resolved.
-  /// A condition reference can be retrieved by calling the `get_reference()` on a condition.
+  /// A condition reference can be retrieved by calling the `create_reference()` on a condition.
   pub fn resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
     self.printer.resolved_condition(condition_reference)
   }
@@ -1112,7 +1102,7 @@ impl WriterInfo {
   }
 
   /// Gets the line and column number.
-  pub fn get_line_and_column(&self) -> (u32, u32) {
+  pub fn line_and_column(&self) -> (u32, u32) {
     (self.line_number, self.column_number)
   }
 }

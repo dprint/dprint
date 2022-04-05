@@ -146,7 +146,7 @@ pub fn gen_separated_values(
   let value_datas: Rc<RefCell<Vec<GeneratedValueData>>> = Rc::new(RefCell::new(Vec::new()));
   let multi_line_options = opts.multi_line_options;
   let mut is_start_standalone_line = get_is_start_standalone_line(start_cn, start_lscn);
-  let is_start_standalone_line_ref = is_start_standalone_line.get_reference();
+  let is_start_standalone_line_ref = is_start_standalone_line.create_reference();
   let mut is_multi_line_condition = {
     if opts.force_use_new_lines {
       Condition::new_true()
@@ -161,7 +161,7 @@ pub fn gen_separated_values(
     }
   };
   let is_multi_line_reevaluation = is_multi_line_condition.create_reevaluation();
-  let is_multi_line_condition_ref = is_multi_line_condition.get_reference();
+  let is_multi_line_condition_ref = is_multi_line_condition.create_reference();
   let is_multi_line = is_multi_line_condition_ref.create_resolver();
 
   let mut items = PrintItems::new();

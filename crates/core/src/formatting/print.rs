@@ -160,9 +160,9 @@ mod test {
       format(
         || {
           let mut items = PrintItems::new();
-          assert_eq!(LineNumber::new("").get_unique_id(), 0);
-          assert_eq!(LineNumber::new("").get_unique_id(), 1);
-          assert_eq!(LineNumber::new("").get_unique_id(), 2);
+          assert_eq!(LineNumber::new("").unique_id(), 0);
+          assert_eq!(LineNumber::new("").unique_id(), 1);
+          assert_eq!(LineNumber::new("").unique_id(), 2);
           items.push_str("test");
           items.push_str(&format(
             || {
@@ -170,14 +170,14 @@ mod test {
               // 0 when formatting within a format because these
               // are stored as resolved within the printer using
               // a vector and the id is the index
-              assert_eq!(LineNumber::new("").get_unique_id(), 0);
-              assert_eq!(LineNumber::new("").get_unique_id(), 1);
+              assert_eq!(LineNumber::new("").unique_id(), 0);
+              assert_eq!(LineNumber::new("").unique_id(), 1);
               "test".into()
             },
             get_print_options(),
           ));
           // now ensure it goes back to where it left off
-          assert_eq!(LineNumber::new("").get_unique_id(), 3);
+          assert_eq!(LineNumber::new("").unique_id(), 3);
           items
         },
         get_print_options(),

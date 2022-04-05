@@ -18,10 +18,10 @@ pub struct WriterState<'a> {
 }
 
 impl<'a> WriterState<'a> {
-  pub fn get_writer_info(&self, indent_width: u8) -> WriterInfo {
+  pub fn writer_info(&self, indent_width: u8) -> WriterInfo {
     WriterInfo {
       line_number: self.current_line_number,
-      column_number: self.get_column_number(indent_width),
+      column_number: self.column_number(indent_width),
       indent_level: self.indent_level,
       line_start_indent_level: self.last_line_indent_level,
       indent_width,
@@ -30,7 +30,7 @@ impl<'a> WriterState<'a> {
   }
 
   #[inline]
-  pub fn get_column_number(&self, indent_width: u8) -> u32 {
+  pub fn column_number(&self, indent_width: u8) -> u32 {
     if self.current_line_column == 0 {
       (indent_width as u32) * (self.indent_level as u32)
     } else {
@@ -74,11 +74,11 @@ impl<'a> Writer<'a> {
     }
   }
 
-  pub fn get_writer_info(&self) -> WriterInfo {
-    self.state.get_writer_info(self.indent_width)
+  pub fn writer_info(&self) -> WriterInfo {
+    self.state.writer_info(self.indent_width)
   }
 
-  pub fn get_state(&self) -> WriterState<'a> {
+  pub fn state(&self) -> WriterState<'a> {
     self.state.clone()
   }
 
@@ -137,47 +137,47 @@ impl<'a> Writer<'a> {
 
   #[cfg(debug_assertions)]
   #[inline]
-  pub fn get_indentation_level(&self) -> u8 {
+  pub fn indentation_level(&self) -> u8 {
     self.state.indent_level
   }
 
   #[inline]
-  pub fn get_indent_width(&self) -> u8 {
+  pub fn indent_width(&self) -> u8 {
     self.indent_width
   }
 
   #[cfg(debug_assertions)]
-  pub fn get_ignore_indent_count(&self) -> u8 {
+  pub fn ignore_indent_count(&self) -> u8 {
     self.state.ignore_indent_count
   }
 
   #[inline]
-  pub fn get_column_number(&self) -> u32 {
-    self.state.get_column_number(self.indent_width)
+  pub fn column_number(&self) -> u32 {
+    self.state.column_number(self.indent_width)
   }
 
   #[inline]
-  pub fn get_line_number(&self) -> u32 {
+  pub fn line_number(&self) -> u32 {
     self.state.current_line_number
   }
 
   #[inline]
-  pub fn get_is_start_of_line(&self) -> bool {
-    self.state.expect_newline_next || self.get_column_number() == self.get_line_start_column_number()
+  pub fn is_start_of_line(&self) -> bool {
+    self.state.expect_newline_next || self.column_number() == self.line_start_column_number()
   }
 
   #[inline]
-  pub fn get_indent_level(&self) -> u8 {
+  pub fn indent_level(&self) -> u8 {
     self.state.indent_level
   }
 
   #[inline]
-  pub fn get_line_start_column_number(&self) -> u32 {
+  pub fn line_start_column_number(&self) -> u32 {
     (self.state.last_line_indent_level as u32) * (self.indent_width as u32)
   }
 
   #[inline]
-  pub fn get_line_start_indent_level(&self) -> u8 {
+  pub fn line_start_indent_level(&self) -> u8 {
     self.state.last_line_indent_level
   }
 
@@ -269,12 +269,12 @@ impl<'a> Writer<'a> {
   }
 
   #[cfg(feature = "tracing")]
-  pub fn get_current_node_id(&self) -> Option<u32> {
+  pub fn current_node_id(&self) -> Option<u32> {
     self.state.items.as_ref().map(|node| node.graph_node_id)
   }
 
   #[cfg(feature = "tracing")]
-  pub fn get_nodes(self) -> Vec<&'a GraphNode<'a, WriteItem<'a>>> {
+  pub fn nodes(self) -> Vec<&'a GraphNode<'a, WriteItem<'a>>> {
     self.nodes.expect("Should have set enable_tracing to true.")
   }
 
@@ -282,12 +282,12 @@ impl<'a> Writer<'a> {
   #[allow(dead_code)]
   pub fn to_string_for_debugging(&self) -> String {
     use super::WriteItemsPrinter;
-    let write_items = self.get_items_cloned();
+    let write_items = self.items_cloned();
     WriteItemsPrinter::new(self.indent_width, false, "\n").print(write_items.into_iter())
   }
 
   #[cfg(debug_assertions)]
-  fn get_items_cloned(&self) -> Vec<WriteItem> {
+  fn items_cloned(&self) -> Vec<WriteItem> {
     let mut items = Vec::new();
     let mut current_item = self.state.items;
     while let Some(item) = current_item {

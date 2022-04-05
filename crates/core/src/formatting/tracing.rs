@@ -22,15 +22,15 @@ pub fn get_trace_print_nodes(start_node: Option<PrintItemPath>) -> Vec<TracePrin
     let trace_print_item = match node.get_item() {
       PrintItem::String(text) => TracePrintItem::String(text.text.to_string()),
       PrintItem::Info(info) => TracePrintItem::Info(match info {
-        Info::LineNumber(info) => TraceInfo::LineNumber(TraceInfoInner::new(info.get_unique_id(), info.get_name())),
-        Info::ColumnNumber(info) => TraceInfo::ColumnNumber(TraceInfoInner::new(info.get_unique_id(), info.get_name())),
+        Info::LineNumber(info) => TraceInfo::LineNumber(TraceInfoInner::new(info.unique_id(), info.name())),
+        Info::ColumnNumber(info) => TraceInfo::ColumnNumber(TraceInfoInner::new(info.unique_id(), info.name())),
         Info::IsStartOfLine(info) => TraceInfo::IsStartOfLine(TraceInfoInner {
-          info_id: info.get_unique_id(),
-          name: info.get_name().to_string(),
+          info_id: info.unique_id(),
+          name: info.name().to_string(),
         }),
-        Info::IndentLevel(info) => TraceInfo::IndentLevel(TraceInfoInner::new(info.get_unique_id(), info.get_name())),
-        Info::LineStartColumnNumber(info) => TraceInfo::LineStartColumnNumber(TraceInfoInner::new(info.get_unique_id(), info.get_name())),
-        Info::LineStartIndentLevel(info) => TraceInfo::LineStartIndentLevel(TraceInfoInner::new(info.get_unique_id(), info.get_name())),
+        Info::IndentLevel(info) => TraceInfo::IndentLevel(TraceInfoInner::new(info.unique_id(), info.name())),
+        Info::LineStartColumnNumber(info) => TraceInfo::LineStartColumnNumber(TraceInfoInner::new(info.unique_id(), info.name())),
+        Info::LineStartIndentLevel(info) => TraceInfo::LineStartIndentLevel(TraceInfoInner::new(info.unique_id(), info.name())),
       }),
       PrintItem::Condition(condition) => {
         if let Some(true_path) = condition.get_true_path() {
@@ -40,8 +40,8 @@ pub fn get_trace_print_nodes(start_node: Option<PrintItemPath>) -> Vec<TracePrin
           path_stack.push(false_path);
         }
         TracePrintItem::Condition(TraceCondition {
-          condition_id: condition.get_unique_id(),
-          name: condition.get_name().to_string(),
+          condition_id: condition.unique_id(),
+          name: condition.name().to_string(),
           is_stored: condition.is_stored,
           store_save_point: condition.store_save_point,
           true_path: condition.get_true_path().map(|p| p.get_node_id()),
@@ -54,12 +54,12 @@ pub fn get_trace_print_nodes(start_node: Option<PrintItemPath>) -> Vec<TracePrin
         TracePrintItem::RcPath(path.get_node_id())
       }
       PrintItem::Anchor(Anchor::LineNumber(anchor)) => TracePrintItem::Anchor(TraceLineNumberAnchor {
-        anchor_id: anchor.get_unique_id(),
-        name: anchor.get_name().to_string(),
+        anchor_id: anchor.unique_id(),
+        name: anchor.name().to_string(),
       }),
       PrintItem::ConditionReevaluation(reevaluation) => TracePrintItem::ConditionReevaluation(TraceConditionReevaluation {
         condition_id: reevaluation.condition_id,
-        name: reevaluation.get_name().to_string(),
+        name: reevaluation.name().to_string(),
       }),
     };
 
