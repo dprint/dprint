@@ -52,23 +52,26 @@ pub fn new_line_if_hanging_space_otherwise(opts: NewLineIfHangingSpaceOtherwiseO
   )
 }
 
-pub fn new_line_if_hanging(start_info: Info, end_info: Option<Info>) -> Condition {
+pub fn new_line_if_hanging(start_lsil: LineStartIndentLevel, end_lsil: Option<LineStartIndentLevel>) -> Condition {
   if_true(
     "newlineIfHanging",
-    Rc::new(move |context| condition_helpers::is_hanging_delete(context, &start_info, &end_info)),
+    Rc::new(move |context| condition_helpers::is_hanging(context, start_lsil, end_lsil)),
     Signal::NewLine.into(),
   )
 }
 
 /// This condition can be used to force the printer to jump back to the point
 /// this condition exists at once the provided info is resolved.
-pub fn force_reevaluation_once_resolved(info: Info) -> Condition {
+///
+/// NOTE: Don't use this. I'm going to remove it.
+pub fn force_reevaluation_once_resolved_deprecated(ln: LineNumber) -> Condition {
+  // note: it doesn't really matter what kind the info is (ex. LineNumber), but just that it's an info
   Condition::new(
-    "forceReevaluationOnceInfoResolved",
+    "forceReevaluationOnceoResolved",
     ConditionProperties {
       condition: Rc::new(move |context| {
-        let resolved_info = context.get_resolved_info(&info);
-        if resolved_info.is_some() {
+        let resolved_ln = context.get_resolved_line_number(ln);
+        if resolved_ln.is_some() {
           Some(false)
         } else {
           None

@@ -11,7 +11,6 @@ pub struct Counts {
   indent_level_id_count: u32,
   line_start_column_number_id_count: u32,
   line_start_indent_level_id_count: u32,
-  info_id_count: u32,
   condition_id_count: u32,
   #[cfg(feature = "tracing")]
   print_node_id_count: u32,
@@ -108,15 +107,6 @@ pub fn next_line_start_indent_level_id() -> u32 {
     let counts = &mut *cell.get();
     let value = counts.line_start_indent_level_id_count;
     counts.line_start_indent_level_id_count += 1;
-    value
-  })
-}
-
-pub fn next_info_id() -> u32 {
-  COUNTS.with(|cell| unsafe {
-    let counts = &mut *cell.get();
-    let value = counts.info_id_count;
-    counts.info_id_count += 1;
     value
   })
 }

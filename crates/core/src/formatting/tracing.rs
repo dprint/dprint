@@ -36,10 +36,7 @@ pub fn get_trace_print_nodes(start_node: Option<PrintItemPath>) -> Vec<TracePrin
           condition_id: condition.get_unique_id(),
           name: condition.get_name().to_string(),
           is_stored: condition.is_stored,
-          dependent_infos: condition
-            .dependent_infos
-            .as_ref()
-            .map(|infos| infos.iter().map(|i| i.get_unique_id()).collect()),
+          stored_save_point: condition.stored_save_point,
           true_path: condition.get_true_path().map(|p| p.get_node_id()),
           false_path: condition.get_false_path().map(|p| p.get_node_id()),
         })

@@ -85,37 +85,33 @@ impl PrintItems {
     self.push_item_internal(PrintItem::Condition(condition));
   }
 
-  pub fn push_info(&mut self, info: Info) {
-    self.push_item_internal(PrintItem::Info(info));
-  }
-
   pub fn push_line_and_column(&mut self, line_and_col: LineAndColumn) {
     self.push_line_number(line_and_col.line);
     self.push_column_number(line_and_col.column);
   }
 
   pub fn push_line_number(&mut self, line_number: LineNumber) {
-    self.push_item_internal(PrintItem::TargetedInfo(TargetedInfo::LineNumber(line_number)));
+    self.push_item_internal(PrintItem::Info(Info::LineNumber(line_number)));
   }
 
   pub fn push_column_number(&mut self, column_number: ColumnNumber) {
-    self.push_item_internal(PrintItem::TargetedInfo(TargetedInfo::ColumnNumber(column_number)));
+    self.push_item_internal(PrintItem::Info(Info::ColumnNumber(column_number)));
   }
 
   pub fn push_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) {
-    self.push_item_internal(PrintItem::TargetedInfo(TargetedInfo::IsStartOfLine(is_start_of_line)));
+    self.push_item_internal(PrintItem::Info(Info::IsStartOfLine(is_start_of_line)));
   }
 
   pub fn push_indent_level(&mut self, indent_level: IndentLevel) {
-    self.push_item_internal(PrintItem::TargetedInfo(TargetedInfo::IndentLevel(indent_level)));
+    self.push_item_internal(PrintItem::Info(Info::IndentLevel(indent_level)));
   }
 
   pub fn push_line_start_column_number(&mut self, line_start_column_number: LineStartColumnNumber) {
-    self.push_item_internal(PrintItem::TargetedInfo(TargetedInfo::LineStartColumnNumber(line_start_column_number)));
+    self.push_item_internal(PrintItem::Info(Info::LineStartColumnNumber(line_start_column_number)));
   }
 
   pub fn push_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) {
-    self.push_item_internal(PrintItem::TargetedInfo(TargetedInfo::LineStartIndentLevel(line_start_indent_level)));
+    self.push_item_internal(PrintItem::Info(Info::LineStartIndentLevel(line_start_indent_level)));
   }
 
   pub fn push_line_number_anchor(&mut self, anchor: LineNumberAnchor) {
@@ -158,7 +154,6 @@ impl PrintItems {
       for item in PrintItemsIterator::new(items) {
         match item {
           PrintItem::Signal(signal) => text.push_str(&get_line(format!("Signal::{:?}", signal), &indent_text)),
-          PrintItem::Info(info) => text.push_str(&get_line(format!("Info: {}", info.name), &indent_text)),
           PrintItem::Condition(condition) => {
             text.push_str(&get_line(format!("Condition: {}", condition.name), &indent_text));
             if let Some(true_path) = &condition.true_path {
@@ -172,7 +167,23 @@ impl PrintItems {
           }
           PrintItem::String(str_text) => text.push_str(&get_line(format!("`{}`", str_text.text), &indent_text)),
           PrintItem::RcPath(path) => text.push_str(&get_items_as_text(path, indent_text.clone())),
-          _ => todo!(),
+          PrintItem::Anchor(Anchor::LineNumber(line_number_anchor)) => {
+            text.push_str(&get_line(format!("Line number anchor: {}", line_number_anchor.get_name()), &indent_text))
+          }
+          PrintItem::Info(info) => {
+            let (desc, name) = match info {
+              Info::LineNumber(info) => ("Line number", info.get_name()),
+              Info::ColumnNumber(info) => ("Column number", info.get_name()),
+              Info::IsStartOfLine(info) => ("Is start of line", info.get_name()),
+              Info::IndentLevel(info) => ("Indent level", info.get_name()),
+              Info::LineStartColumnNumber(info) => ("Line start column number", info.get_name()),
+              Info::LineStartIndentLevel(info) => ("Line start indent level", info.get_name()),
+            };
+            text.push_str(&get_line(format!("{}: {}", desc, name), &indent_text))
+          }
+          PrintItem::ConditionReevaluation(reevaluation) => {
+            text.push_str(&get_line(format!("Condition reevaluation: {}", reevaluation.get_name()), &indent_text))
+          }
         }
       }
 
@@ -324,16 +335,13 @@ pub struct TraceCondition {
   pub condition_id: u32,
   pub name: String,
   pub is_stored: bool,
+  pub store_save_point: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   /// Identifier to the true path print node.
   pub true_path: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none")]
   /// Identifier to the false path print node.
   pub false_path: Option<u32>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  /// Any infos that should cause the re-evaluation of this condition.
-  /// This is only done on request for performance reasons.
-  pub dependent_infos: Option<Vec<u32>>,
 }
 
 /** Print Node */
@@ -448,11 +456,10 @@ type UnsafePrintLifetime<T> = &'static T;
 pub enum PrintItem {
   String(UnsafePrintLifetime<StringContainer>),
   Condition(UnsafePrintLifetime<Condition>),
-  Info(Info),
   Signal(Signal),
   RcPath(PrintItemPath),
   Anchor(Anchor),
-  TargetedInfo(TargetedInfo),
+  Info(Info),
   ConditionReevaluation(ConditionReevaluation),
 }
 
@@ -541,7 +548,7 @@ impl LineNumberAnchor {
 }
 
 #[derive(Clone, PartialEq, Copy, Debug)]
-pub enum TargetedInfo {
+pub enum Info {
   LineNumber(LineNumber),
   ColumnNumber(ColumnNumber),
   IsStartOfLine(IsStartOfLine),
@@ -752,52 +759,29 @@ impl LineStartIndentLevel {
   }
 }
 
-/// Can be used to get information at a certain location being printed. These
-/// can be resolved by providing the info object to a condition context's
-/// get_resolved_info(&info) method.
-#[derive(Clone, PartialEq, Copy, Debug)]
-pub struct Info {
-  /// Unique identifier.
-  id: u32,
+/// Used to re-evaluate a condition.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct ConditionReevaluation {
+  pub(crate) condition_id: u32,
   /// Name for debugging purposes.
   #[cfg(debug_assertions)]
   name: &'static str,
 }
 
-impl Info {
-  pub fn new(_name: &'static str) -> Self {
-    Self {
-      id: thread_state::next_info_id(),
+impl ConditionReevaluation {
+  pub(crate) fn new(_name: &'static str, condition_id: u32) -> Self {
+    ConditionReevaluation {
+      condition_id: condition_id,
       #[cfg(debug_assertions)]
       name: _name,
     }
   }
 
-  #[inline]
-  pub fn get_unique_id(&self) -> u32 {
-    self.id
-  }
-
-  #[inline]
   pub fn get_name(&self) -> &'static str {
     #[cfg(debug_assertions)]
     return self.name;
     #[cfg(not(debug_assertions))]
-    return "info";
-  }
-}
-
-/// Used to re-evaluate a condition.
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct ConditionReevaluation {
-  pub(crate) condition_id: u32,
-}
-
-impl ConditionReevaluation {
-  pub(crate) fn new(condition: &mut Condition) -> Self {
-    condition.store_save_point = true;
-    condition.is_stored = true;
-    ConditionReevaluation { condition_id: condition.id }
+    return "condition_reevaluation";
   }
 }
 
@@ -822,18 +806,11 @@ pub struct Condition {
   pub(super) true_path: Option<PrintItemPath>,
   /// The items to print when the condition is false or undefined (not yet resolved).
   pub(super) false_path: Option<PrintItemPath>,
-  /// Any infos that should cause the re-evaluation of this condition.
-  /// This is only done on request for performance reasons.
-  pub(super) dependent_infos: Option<Vec<Info>>,
 }
 
 impl Condition {
   pub fn new(name: &'static str, properties: ConditionProperties) -> Self {
-    Self::new_internal(name, properties, None)
-  }
-
-  pub fn create_reevaluation(&mut self) -> ConditionReevaluation {
-    ConditionReevaluation::new(self)
+    Self::new_internal(name, properties)
   }
 
   pub fn new_true() -> Self {
@@ -844,7 +821,6 @@ impl Condition {
         true_path: None,
         false_path: None,
       },
-      None,
     )
   }
 
@@ -856,25 +832,19 @@ impl Condition {
         true_path: None,
         false_path: None,
       },
-      None,
     )
   }
 
-  pub fn new_with_dependent_infos(name: &'static str, properties: ConditionProperties, dependent_infos: Vec<Info>) -> Self {
-    Self::new_internal(name, properties, Some(dependent_infos))
-  }
-
-  fn new_internal(_name: &'static str, properties: ConditionProperties, dependent_infos: Option<Vec<Info>>) -> Self {
+  fn new_internal(_name: &'static str, properties: ConditionProperties) -> Self {
     Self {
       id: thread_state::next_condition_id(),
-      is_stored: dependent_infos.is_some(),
+      is_stored: false,
       store_save_point: false,
       #[cfg(debug_assertions)]
       name: _name,
       condition: properties.condition,
       true_path: properties.true_path.and_then(|x| x.first_node),
       false_path: properties.false_path.and_then(|x| x.first_node),
-      dependent_infos,
     }
   }
 
@@ -909,6 +879,12 @@ impl Condition {
   pub fn get_reference(&mut self) -> ConditionReference {
     self.is_stored = true;
     ConditionReference::new(self.get_name(), self.id)
+  }
+
+  pub fn create_reevaluation(&mut self) -> ConditionReevaluation {
+    self.store_save_point = true;
+    self.is_stored = true;
+    ConditionReevaluation::new(self.get_name(), self.id)
   }
 }
 
@@ -974,11 +950,6 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
     self.printer.get_resolved_condition(condition_reference)
   }
 
-  /// Gets the writer info at a specified info or returns None when not yet resolved.
-  pub fn get_resolved_info(&self, info: &Info) -> Option<&WriterInfo> {
-    self.printer.get_resolved_info(info)
-  }
-
   /// Gets a resolved line and column.
   pub fn get_resolved_line_and_column(&self, line_and_column: LineAndColumn) -> Option<(u32, u32)> {
     let line = self.printer.get_resolved_line_number(line_and_column.line)?;
@@ -1014,11 +985,6 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
   /// Gets the indent level at the start of the line this info appears or returns None when not yet resolved.
   pub fn get_resolved_line_start_indent_level(&self, line_start_indent_level: LineStartIndentLevel) -> Option<u8> {
     self.printer.get_resolved_line_start_indent_level(line_start_indent_level)
-  }
-
-  /// Clears the info result from being stored.
-  pub fn clear_info(&mut self, info: &Info) {
-    self.printer.clear_info(info)
   }
 
   /// Clears the line number from being stored.
