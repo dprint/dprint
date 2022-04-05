@@ -33,10 +33,10 @@ pub fn get_trace_print_nodes(start_node: Option<PrintItemPath>) -> Vec<TracePrin
         Info::LineStartIndentLevel(info) => TraceInfo::LineStartIndentLevel(TraceInfoInner::new(info.unique_id(), info.name())),
       }),
       PrintItem::Condition(condition) => {
-        if let Some(true_path) = condition.get_true_path() {
+        if let Some(true_path) = condition.true_path() {
           path_stack.push(true_path);
         }
-        if let Some(false_path) = condition.get_false_path() {
+        if let Some(false_path) = condition.false_path() {
           path_stack.push(false_path);
         }
         TracePrintItem::Condition(TraceCondition {
@@ -44,8 +44,8 @@ pub fn get_trace_print_nodes(start_node: Option<PrintItemPath>) -> Vec<TracePrin
           name: condition.name().to_string(),
           is_stored: condition.is_stored,
           store_save_point: condition.store_save_point,
-          true_path: condition.get_true_path().map(|p| p.get_node_id()),
-          false_path: condition.get_false_path().map(|p| p.get_node_id()),
+          true_path: condition.true_path().map(|p| p.get_node_id()),
+          false_path: condition.false_path().map(|p| p.get_node_id()),
         })
       }
       PrintItem::Signal(signal) => TracePrintItem::Signal(signal),
