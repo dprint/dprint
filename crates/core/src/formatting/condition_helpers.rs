@@ -15,7 +15,7 @@ pub fn is_hanging(condition_context: &mut ConditionResolverContext, start_lsil: 
   let end_indent_level = get_resolved_end_lsil(condition_context, end_lsil)?;
   return Some(end_indent_level > start_indent_level);
 
-  fn get_resolved_end_lsil<'a>(condition_context: &'a ConditionResolverContext, end_lsil: Option<LineStartIndentLevel>) -> Option<u8> {
+  fn get_resolved_end_lsil(condition_context: &mut ConditionResolverContext, end_lsil: Option<LineStartIndentLevel>) -> Option<u8> {
     if let Some(end_lsil) = end_lsil {
       condition_context.get_resolved_line_start_indent_level(end_lsil)
     } else {

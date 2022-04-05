@@ -66,9 +66,8 @@ pub struct Printer<'a> {
   force_no_newlines_depth: u8,
   current_node: Option<PrintItemPath>,
   writer: Writer<'a>,
-  // Use a regular hash map here because conditions don't seem
-  // to be resolved as much as infos. In one test, only about 10%
-  // of them were resolved after formatting.
+  // Use a regular hash map here because condition resolution isn't
+  // stored that much.
   resolved_conditions: FxHashMap<u32, Option<bool>>,
   // Use a VecU32Map for resolved infos because it has much faster
   // lookups than a hash map and generally infos seem to be resolved
@@ -82,12 +81,12 @@ pub struct Printer<'a> {
   resolved_line_start_column_numbers: VecU32Map<u32>,
   resolved_line_start_indent_levels: VecU32Map<u8>,
   look_ahead_condition_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
-  look_ahead_line_number_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
-  look_ahead_column_number_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
-  look_ahead_is_start_of_line_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
-  look_ahead_indent_level_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
-  look_ahead_line_start_column_number_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
-  look_ahead_line_start_indent_level_save_points: FastCellMap<'a, u32, SavePoint<'a>>,
+  look_ahead_line_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
+  look_ahead_column_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
+  look_ahead_is_start_of_line_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
+  look_ahead_indent_level_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
+  look_ahead_line_start_column_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
+  look_ahead_line_start_indent_level_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
   next_node_stack: RcStack,
   stored_condition_save_points: FxHashMap<u32, (&'a Condition, &'a SavePoint<'a>)>,
   max_width: u32,
@@ -124,12 +123,12 @@ impl<'a> Printer<'a> {
       resolved_line_start_column_numbers: VecU32Map::new(thread_state::next_line_start_column_number_id()),
       resolved_line_start_indent_levels: VecU32Map::new(thread_state::next_line_start_indent_level_id()),
       look_ahead_condition_save_points: FxHashMap::default(),
-      look_ahead_line_number_save_points: FastCellMap::new(),
-      look_ahead_column_number_save_points: FastCellMap::new(),
-      look_ahead_is_start_of_line_save_points: FastCellMap::new(),
-      look_ahead_indent_level_save_points: FastCellMap::new(),
-      look_ahead_line_start_column_number_save_points: FastCellMap::new(),
-      look_ahead_line_start_indent_level_save_points: FastCellMap::new(),
+      look_ahead_line_number_save_points: FxHashMap::default(),
+      look_ahead_column_number_save_points: FxHashMap::default(),
+      look_ahead_is_start_of_line_save_points: FxHashMap::default(),
+      look_ahead_indent_level_save_points: FxHashMap::default(),
+      look_ahead_line_start_column_number_save_points: FxHashMap::default(),
+      look_ahead_line_start_indent_level_save_points: FxHashMap::default(),
       stored_condition_save_points: FxHashMap::default(),
       next_node_stack: RcStack::default(),
       max_width: options.max_width,
@@ -202,7 +201,7 @@ impl<'a> Printer<'a> {
     self.writer.get_writer_info()
   }
 
-  pub fn get_resolved_line_number(&self, line_number: LineNumber) -> Option<u32> {
+  pub fn get_resolved_line_number(&mut self, line_number: LineNumber) -> Option<u32> {
     let resolved_number = self.resolved_line_numbers.get(line_number.get_unique_id());
     if resolved_number.is_none() && !self.look_ahead_line_number_save_points.contains_key(&line_number.get_unique_id()) {
       let save_point = self.get_save_point_for_restoring_condition(line_number.get_name());
@@ -212,7 +211,7 @@ impl<'a> Printer<'a> {
     resolved_number.map(|v| *v)
   }
 
-  pub fn get_resolved_column_number(&self, column_number: ColumnNumber) -> Option<u32> {
+  pub fn get_resolved_column_number(&mut self, column_number: ColumnNumber) -> Option<u32> {
     let resolved_number = self.resolved_column_numbers.get(column_number.get_unique_id());
     if resolved_number.is_none() && !self.look_ahead_column_number_save_points.contains_key(&column_number.get_unique_id()) {
       let save_point = self.get_save_point_for_restoring_condition(column_number.get_name());
@@ -222,7 +221,7 @@ impl<'a> Printer<'a> {
     resolved_number.map(|v| *v)
   }
 
-  pub fn get_resolved_is_start_of_line(&self, is_start_of_line: IsStartOfLine) -> Option<bool> {
+  pub fn get_resolved_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) -> Option<bool> {
     let resolved_is_start_of_line = self.resolved_is_start_of_lines.get(is_start_of_line.get_unique_id());
     if resolved_is_start_of_line.is_none() && !self.look_ahead_is_start_of_line_save_points.contains_key(&is_start_of_line.get_unique_id()) {
       let save_point = self.get_save_point_for_restoring_condition(is_start_of_line.get_name());
@@ -234,7 +233,7 @@ impl<'a> Printer<'a> {
     resolved_is_start_of_line.map(|v| *v)
   }
 
-  pub fn get_resolved_indent_level(&self, indent_level: IndentLevel) -> Option<u8> {
+  pub fn get_resolved_indent_level(&mut self, indent_level: IndentLevel) -> Option<u8> {
     let resolved_indent_level = self.resolved_indent_levels.get(indent_level.get_unique_id());
     if resolved_indent_level.is_none() && !self.look_ahead_indent_level_save_points.contains_key(&indent_level.get_unique_id()) {
       let save_point = self.get_save_point_for_restoring_condition(indent_level.get_name());
@@ -244,7 +243,7 @@ impl<'a> Printer<'a> {
     resolved_indent_level.map(|v| *v)
   }
 
-  pub fn get_resolved_line_start_column_number(&self, line_start_column_number: LineStartColumnNumber) -> Option<u32> {
+  pub fn get_resolved_line_start_column_number(&mut self, line_start_column_number: LineStartColumnNumber) -> Option<u32> {
     let resolved_line_start_column_number = self.resolved_line_start_column_numbers.get(line_start_column_number.get_unique_id());
     if resolved_line_start_column_number.is_none()
       && !self
@@ -260,7 +259,7 @@ impl<'a> Printer<'a> {
     resolved_line_start_column_number.map(|v| *v)
   }
 
-  pub fn get_resolved_line_start_indent_level(&self, line_start_indent_level: LineStartIndentLevel) -> Option<u8> {
+  pub fn get_resolved_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) -> Option<u8> {
     let resolved_line_start_indent_level = self.resolved_line_start_indent_levels.get(line_start_indent_level.get_unique_id());
     if resolved_line_start_indent_level.is_none()
       && !self
@@ -334,12 +333,12 @@ impl<'a> Printer<'a> {
       node: next_node,
       writer_state: self.writer.get_state(),
       look_ahead_condition_save_points: self.look_ahead_condition_save_points.clone(),
-      look_ahead_line_number_save_points: self.look_ahead_line_number_save_points.clone_map(),
-      look_ahead_column_number_save_points: self.look_ahead_column_number_save_points.clone_map(),
-      look_ahead_is_start_of_line_save_points: self.look_ahead_is_start_of_line_save_points.clone_map(),
-      look_ahead_indent_level_save_points: self.look_ahead_indent_level_save_points.clone_map(),
-      look_ahead_line_start_column_number_save_points: self.look_ahead_line_start_column_number_save_points.clone_map(),
-      look_ahead_line_start_indent_level_save_points: self.look_ahead_line_start_indent_level_save_points.clone_map(),
+      look_ahead_line_number_save_points: self.look_ahead_line_number_save_points.clone(),
+      look_ahead_column_number_save_points: self.look_ahead_column_number_save_points.clone(),
+      look_ahead_is_start_of_line_save_points: self.look_ahead_is_start_of_line_save_points.clone(),
+      look_ahead_indent_level_save_points: self.look_ahead_indent_level_save_points.clone(),
+      look_ahead_line_start_column_number_save_points: self.look_ahead_line_start_column_number_save_points.clone(),
+      look_ahead_line_start_indent_level_save_points: self.look_ahead_line_start_indent_level_save_points.clone(),
       next_node_stack: self.next_node_stack.clone(),
     })
   }
@@ -376,24 +375,12 @@ impl<'a> Printer<'a> {
     self.new_line_group_depth = save_point.new_line_group_depth;
     self.force_no_newlines_depth = save_point.force_no_newlines_depth;
     self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points.clone();
-    self
-      .look_ahead_line_number_save_points
-      .replace_map(save_point.look_ahead_line_number_save_points.clone());
-    self
-      .look_ahead_column_number_save_points
-      .replace_map(save_point.look_ahead_column_number_save_points.clone());
-    self
-      .look_ahead_is_start_of_line_save_points
-      .replace_map(save_point.look_ahead_is_start_of_line_save_points.clone());
-    self
-      .look_ahead_indent_level_save_points
-      .replace_map(save_point.look_ahead_indent_level_save_points.clone());
-    self
-      .look_ahead_line_start_column_number_save_points
-      .replace_map(save_point.look_ahead_line_start_column_number_save_points.clone());
-    self
-      .look_ahead_line_start_indent_level_save_points
-      .replace_map(save_point.look_ahead_line_start_indent_level_save_points.clone());
+    self.look_ahead_line_number_save_points = save_point.look_ahead_line_number_save_points.clone();
+    self.look_ahead_column_number_save_points = save_point.look_ahead_column_number_save_points.clone();
+    self.look_ahead_is_start_of_line_save_points = save_point.look_ahead_is_start_of_line_save_points.clone();
+    self.look_ahead_indent_level_save_points = save_point.look_ahead_indent_level_save_points.clone();
+    self.look_ahead_line_start_column_number_save_points = save_point.look_ahead_line_start_column_number_save_points.clone();
+    self.look_ahead_line_start_indent_level_save_points = save_point.look_ahead_line_start_indent_level_save_points.clone();
     self.next_node_stack = save_point.next_node_stack.clone();
 
     if is_for_new_line {
@@ -648,17 +635,16 @@ impl<'a> Printer<'a> {
     // never added to the print items. In this scenario, the look ahead hash maps will
     // be cloned when creating a save point and contain items that don't need to exist
     // in them thus having an unnecessary performance impact.
-    if let Some(save_point) = self.look_ahead_condition_save_points.values().next() {
-      self.panic_for_save_point_existing(save_point)
-    }
     let save_point = self
-      .look_ahead_line_number_save_points
-      .get_any_item()
-      .or_else(|| self.look_ahead_column_number_save_points.get_any_item())
-      .or_else(|| self.look_ahead_is_start_of_line_save_points.get_any_item())
-      .or_else(|| self.look_ahead_indent_level_save_points.get_any_item())
-      .or_else(|| self.look_ahead_line_start_column_number_save_points.get_any_item())
-      .or_else(|| self.look_ahead_line_start_indent_level_save_points.get_any_item());
+      .look_ahead_condition_save_points
+      .values()
+      .next()
+      .or_else(|| self.look_ahead_line_number_save_points.values().next())
+      .or_else(|| self.look_ahead_column_number_save_points.values().next())
+      .or_else(|| self.look_ahead_is_start_of_line_save_points.values().next())
+      .or_else(|| self.look_ahead_indent_level_save_points.values().next())
+      .or_else(|| self.look_ahead_line_start_column_number_save_points.values().next())
+      .or_else(|| self.look_ahead_line_start_indent_level_save_points.values().next());
     if let Some(save_point) = save_point {
       self.panic_for_save_point_existing(save_point)
     }

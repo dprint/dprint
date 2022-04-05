@@ -991,39 +991,39 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
   }
 
   /// Gets a resolved line and column.
-  pub fn get_resolved_line_and_column(&self, line_and_column: LineAndColumn) -> Option<(u32, u32)> {
+  pub fn get_resolved_line_and_column(&mut self, line_and_column: LineAndColumn) -> Option<(u32, u32)> {
     let line = self.printer.get_resolved_line_number(line_and_column.line)?;
     let column = self.printer.get_resolved_column_number(line_and_column.column)?;
     Some((line, column))
   }
 
   /// Gets the line number or returns None when not yet resolved.
-  pub fn get_resolved_line_number(&self, line_number: LineNumber) -> Option<u32> {
+  pub fn get_resolved_line_number(&mut self, line_number: LineNumber) -> Option<u32> {
     self.printer.get_resolved_line_number(line_number)
   }
 
   /// Gets the column number or returns None when not yet resolved.
-  pub fn get_resolved_column_number(&self, column_number: ColumnNumber) -> Option<u32> {
+  pub fn get_resolved_column_number(&mut self, column_number: ColumnNumber) -> Option<u32> {
     self.printer.get_resolved_column_number(column_number)
   }
 
   /// Gets if the info is at the start of the line or returns None when not yet resolved.
-  pub fn get_resolved_is_start_of_line(&self, is_start_of_line: IsStartOfLine) -> Option<bool> {
+  pub fn get_resolved_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) -> Option<bool> {
     self.printer.get_resolved_is_start_of_line(is_start_of_line)
   }
 
   /// Gets if the indent level at this info or returns None when not yet resolved.
-  pub fn get_resolved_indent_level(&self, indent_level: IndentLevel) -> Option<u8> {
+  pub fn get_resolved_indent_level(&mut self, indent_level: IndentLevel) -> Option<u8> {
     self.printer.get_resolved_indent_level(indent_level)
   }
 
   /// Gets the column number at the start of the line this info appears or returns None when not yet resolved.
-  pub fn get_resolved_line_start_column_number(&self, line_start_column_number: LineStartColumnNumber) -> Option<u32> {
+  pub fn get_resolved_line_start_column_number(&mut self, line_start_column_number: LineStartColumnNumber) -> Option<u32> {
     self.printer.get_resolved_line_start_column_number(line_start_column_number)
   }
 
   /// Gets the indent level at the start of the line this info appears or returns None when not yet resolved.
-  pub fn get_resolved_line_start_indent_level(&self, line_start_indent_level: LineStartIndentLevel) -> Option<u8> {
+  pub fn get_resolved_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) -> Option<u8> {
     self.printer.get_resolved_line_start_indent_level(line_start_indent_level)
   }
 
