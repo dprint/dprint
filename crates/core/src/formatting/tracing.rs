@@ -21,27 +21,31 @@ pub fn get_trace_print_nodes(start_node: Option<PrintItemPath>) -> Vec<TracePrin
     // get the trace print item
     let trace_print_item = match node.get_item() {
       PrintItem::String(text) => TracePrintItem::String(text.text.to_string()),
-      PrintItem::Info(info) => TracePrintItem::Info(TraceInfo {
-        info_id: info.get_unique_id(),
-        name: info.get_name().to_string(),
+      PrintItem::Info(info) => TracePrintItem::Info(match info {
+        Info::LineNumber(info) => TraceInfo::LineNumber(TraceInfoInner::new(info.unique_id(), info.name())),
+        Info::ColumnNumber(info) => TraceInfo::ColumnNumber(TraceInfoInner::new(info.unique_id(), info.name())),
+        Info::IsStartOfLine(info) => TraceInfo::IsStartOfLine(TraceInfoInner {
+          info_id: info.unique_id(),
+          name: info.name().to_string(),
+        }),
+        Info::IndentLevel(info) => TraceInfo::IndentLevel(TraceInfoInner::new(info.unique_id(), info.name())),
+        Info::LineStartColumnNumber(info) => TraceInfo::LineStartColumnNumber(TraceInfoInner::new(info.unique_id(), info.name())),
+        Info::LineStartIndentLevel(info) => TraceInfo::LineStartIndentLevel(TraceInfoInner::new(info.unique_id(), info.name())),
       }),
       PrintItem::Condition(condition) => {
-        if let Some(true_path) = condition.get_true_path() {
+        if let Some(true_path) = condition.true_path() {
           path_stack.push(true_path);
         }
-        if let Some(false_path) = condition.get_false_path() {
+        if let Some(false_path) = condition.false_path() {
           path_stack.push(false_path);
         }
         TracePrintItem::Condition(TraceCondition {
-          condition_id: condition.get_unique_id(),
-          name: condition.get_name().to_string(),
+          condition_id: condition.unique_id(),
+          name: condition.name().to_string(),
           is_stored: condition.is_stored,
-          dependent_infos: condition
-            .dependent_infos
-            .as_ref()
-            .map(|infos| infos.iter().map(|i| i.get_unique_id()).collect()),
-          true_path: condition.get_true_path().map(|p| p.get_node_id()),
-          false_path: condition.get_false_path().map(|p| p.get_node_id()),
+          store_save_point: condition.store_save_point,
+          true_path: condition.true_path().map(|p| p.get_node_id()),
+          false_path: condition.false_path().map(|p| p.get_node_id()),
         })
       }
       PrintItem::Signal(signal) => TracePrintItem::Signal(signal),
@@ -49,6 +53,14 @@ pub fn get_trace_print_nodes(start_node: Option<PrintItemPath>) -> Vec<TracePrin
         path_stack.push(path);
         TracePrintItem::RcPath(path.get_node_id())
       }
+      PrintItem::Anchor(Anchor::LineNumber(anchor)) => TracePrintItem::Anchor(TraceLineNumberAnchor {
+        anchor_id: anchor.unique_id(),
+        name: anchor.name().to_string(),
+      }),
+      PrintItem::ConditionReevaluation(reevaluation) => TracePrintItem::ConditionReevaluation(TraceConditionReevaluation {
+        condition_id: reevaluation.condition_id,
+        name: reevaluation.name().to_string(),
+      }),
     };
 
     // create and store the trace print node

@@ -99,13 +99,17 @@ function getNodeHoverText(node) {
     case "condition":
       return `Condition: ${printItem.content.name} (${node.printNodeId})`;
     case "info":
-      return `Info: ${printItem.content.name} (${node.printNodeId})`;
+      return `Info: ${printItem.content.content.name} - ${printItem.content.kind} (${node.printNodeId})`;
     case "rcPath":
       return `RcPath (${node.printNodeId})`;
     case "signal":
       return `Signal: ${printItem.content} (${node.printNodeId})`;
     case "string":
       return `String: ${printItem.content} (${node.printNodeId})`;
+    case "anchor":
+      return `Anchor: ${printItem.content} (${node.printNodeId})`;
+    case "conditionReevaluation":
+      return `Condition reevaluation: ${printItem.content.name} (${printItem.content.conditionId}) (${node.printNodeId})`;
   }
 }
 
@@ -614,6 +618,10 @@ function getNodeColor(node) {
       return "green";
     case "string":
       return "#ccc";
+    case "anchor":
+      return "pink";
+    case "conditionReevaluation":
+      return "purple";
   }
 }
 

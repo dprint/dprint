@@ -4,7 +4,13 @@ use bumpalo::Bump;
 
 #[derive(Default)]
 pub struct Counts {
-  info_id_count: u32,
+  line_number_anchor_id_count: u32,
+  line_number_id_count: u32,
+  column_number_id_count: u32,
+  is_start_of_line_id: u32,
+  indent_level_id_count: u32,
+  line_start_column_number_id_count: u32,
+  line_start_indent_level_id_count: u32,
   condition_id_count: u32,
   #[cfg(feature = "tracing")]
   print_node_id_count: u32,
@@ -42,17 +48,67 @@ pub fn set_counts(counts: Counts) {
   })
 }
 
-pub fn next_info_id() -> u32 {
+pub fn next_line_number_anchor_id() -> u32 {
   COUNTS.with(|cell| unsafe {
     let counts = &mut *cell.get();
-    let value = counts.info_id_count;
-    counts.info_id_count += 1;
+    let value = counts.line_number_anchor_id_count;
+    counts.line_number_anchor_id_count += 1;
     value
   })
 }
 
-pub fn peek_next_info_id() -> u32 {
-  COUNTS.with(|cell| unsafe { (*cell.get()).info_id_count })
+pub fn next_line_number_id() -> u32 {
+  COUNTS.with(|cell| unsafe {
+    let counts = &mut *cell.get();
+    let value = counts.line_number_id_count;
+    counts.line_number_id_count += 1;
+    value
+  })
+}
+
+pub fn next_column_number_id() -> u32 {
+  COUNTS.with(|cell| unsafe {
+    let counts = &mut *cell.get();
+    let value = counts.column_number_id_count;
+    counts.column_number_id_count += 1;
+    value
+  })
+}
+
+pub fn next_is_start_of_line_id() -> u32 {
+  COUNTS.with(|cell| unsafe {
+    let counts = &mut *cell.get();
+    let value = counts.is_start_of_line_id;
+    counts.is_start_of_line_id += 1;
+    value
+  })
+}
+
+pub fn next_indent_level_id() -> u32 {
+  COUNTS.with(|cell| unsafe {
+    let counts = &mut *cell.get();
+    let value = counts.indent_level_id_count;
+    counts.indent_level_id_count += 1;
+    value
+  })
+}
+
+pub fn next_line_start_column_number_id() -> u32 {
+  COUNTS.with(|cell| unsafe {
+    let counts = &mut *cell.get();
+    let value = counts.line_start_column_number_id_count;
+    counts.line_start_column_number_id_count += 1;
+    value
+  })
+}
+
+pub fn next_line_start_indent_level_id() -> u32 {
+  COUNTS.with(|cell| unsafe {
+    let counts = &mut *cell.get();
+    let value = counts.line_start_indent_level_id_count;
+    counts.line_start_indent_level_id_count += 1;
+    value
+  })
 }
 
 pub fn next_condition_id() -> u32 {

@@ -85,8 +85,21 @@ impl PrintItems {
     self.push_item_internal(PrintItem::Condition(condition));
   }
 
-  pub fn push_info(&mut self, info: Info) {
-    self.push_item_internal(PrintItem::Info(info));
+  pub fn push_info(&mut self, info: impl Into<Info>) {
+    self.push_item_internal(PrintItem::Info(info.into()));
+  }
+
+  pub fn push_line_and_column(&mut self, line_and_col: LineAndColumn) {
+    self.push_info(line_and_col.line);
+    self.push_info(line_and_col.column);
+  }
+
+  pub fn push_anchor(&mut self, anchor: impl Into<Anchor>) {
+    self.push_item_internal(PrintItem::Anchor(anchor.into()));
+  }
+
+  pub fn push_reevaluation(&mut self, condition_reevaluation: ConditionReevaluation) {
+    self.push_item_internal(PrintItem::ConditionReevaluation(condition_reevaluation));
   }
 
   pub fn push_signal(&mut self, signal: Signal) {
@@ -121,7 +134,6 @@ impl PrintItems {
       for item in PrintItemsIterator::new(items) {
         match item {
           PrintItem::Signal(signal) => text.push_str(&get_line(format!("Signal::{:?}", signal), &indent_text)),
-          PrintItem::Info(info) => text.push_str(&get_line(format!("Info: {}", info.name), &indent_text)),
           PrintItem::Condition(condition) => {
             text.push_str(&get_line(format!("Condition: {}", condition.name), &indent_text));
             if let Some(true_path) = &condition.true_path {
@@ -135,6 +147,21 @@ impl PrintItems {
           }
           PrintItem::String(str_text) => text.push_str(&get_line(format!("`{}`", str_text.text), &indent_text)),
           PrintItem::RcPath(path) => text.push_str(&get_items_as_text(path, indent_text.clone())),
+          PrintItem::Anchor(Anchor::LineNumber(line_number_anchor)) => {
+            text.push_str(&get_line(format!("Line number anchor: {}", line_number_anchor.name()), &indent_text))
+          }
+          PrintItem::Info(info) => {
+            let (desc, name) = match info {
+              Info::LineNumber(info) => ("Line number", info.name()),
+              Info::ColumnNumber(info) => ("Column number", info.name()),
+              Info::IsStartOfLine(info) => ("Is start of line", info.name()),
+              Info::IndentLevel(info) => ("Indent level", info.name()),
+              Info::LineStartColumnNumber(info) => ("Line start column number", info.name()),
+              Info::LineStartIndentLevel(info) => ("Line start indent level", info.name()),
+            };
+            text.push_str(&get_line(format!("{}: {}", desc, name), &indent_text))
+          }
+          PrintItem::ConditionReevaluation(reevaluation) => text.push_str(&get_line(format!("Condition reevaluation: {}", reevaluation.name()), &indent_text)),
         }
       }
 
@@ -269,13 +296,53 @@ pub enum TracePrintItem {
   Signal(Signal),
   /// Identifier to the print node.
   RcPath(u32),
+  Anchor(TraceLineNumberAnchor),
+  ConditionReevaluation(TraceConditionReevaluation),
+}
+
+#[cfg(feature = "tracing")]
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", content = "content", rename_all = "camelCase")]
+pub enum TraceInfo {
+  LineNumber(TraceInfoInner),
+  ColumnNumber(TraceInfoInner),
+  IsStartOfLine(TraceInfoInner),
+  IndentLevel(TraceInfoInner),
+  LineStartColumnNumber(TraceInfoInner),
+  LineStartIndentLevel(TraceInfoInner),
 }
 
 #[cfg(feature = "tracing")]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TraceInfo {
+pub struct TraceInfoInner {
   pub info_id: u32,
+  pub name: String,
+}
+
+#[cfg(feature = "tracing")]
+impl TraceInfoInner {
+  pub fn new(info_id: u32, name: &str) -> Self {
+    Self {
+      info_id,
+      name: name.to_string(),
+    }
+  }
+}
+
+#[cfg(feature = "tracing")]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceLineNumberAnchor {
+  pub anchor_id: u32,
+  pub name: String,
+}
+
+#[cfg(feature = "tracing")]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceConditionReevaluation {
+  pub condition_id: u32,
   pub name: String,
 }
 
@@ -286,16 +353,13 @@ pub struct TraceCondition {
   pub condition_id: u32,
   pub name: String,
   pub is_stored: bool,
+  pub store_save_point: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   /// Identifier to the true path print node.
   pub true_path: Option<u32>,
   #[serde(skip_serializing_if = "Option::is_none")]
   /// Identifier to the false path print node.
   pub false_path: Option<u32>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  /// Any infos that should cause the re-evaluation of this condition.
-  /// This is only done on request for performance reasons.
-  pub dependent_infos: Option<Vec<u32>>,
 }
 
 /** Print Node */
@@ -410,9 +474,11 @@ type UnsafePrintLifetime<T> = &'static T;
 pub enum PrintItem {
   String(UnsafePrintLifetime<StringContainer>),
   Condition(UnsafePrintLifetime<Condition>),
-  Info(Info),
   Signal(Signal),
   RcPath(PrintItemPath),
+  Anchor(Anchor),
+  Info(Info),
+  ConditionReevaluation(ConditionReevaluation),
 }
 
 #[derive(Clone, PartialEq, Copy, Debug, serde::Serialize)]
@@ -454,38 +520,320 @@ pub enum Signal {
   SpaceIfNotTrailing,
 }
 
-/// Can be used to get information at a certain location being printed. These
-/// can be resolved by providing the info object to a condition context's
-/// get_resolved_info(&info) method.
+#[derive(Clone)]
+pub enum Anchor {
+  LineNumber(LineNumberAnchor),
+}
+
+impl From<LineNumberAnchor> for Anchor {
+  fn from(anchor: LineNumberAnchor) -> Self {
+    Anchor::LineNumber(anchor)
+  }
+}
+
+/// Handles updating the position of a future resolved line
+/// number if the anchor changes.
+#[derive(Clone)]
+pub struct LineNumberAnchor {
+  id: u32,
+  line_number: LineNumber,
+}
+
+impl LineNumberAnchor {
+  pub fn new(line_number: LineNumber) -> Self {
+    Self {
+      id: thread_state::next_line_number_anchor_id(),
+      line_number,
+    }
+  }
+
+  #[inline]
+  pub fn unique_id(&self) -> u32 {
+    self.id
+  }
+
+  #[inline]
+  pub fn line_number_id(&self) -> u32 {
+    self.line_number.id
+  }
+
+  #[inline]
+  pub fn name(&self) -> &'static str {
+    self.line_number.name()
+  }
+}
+
 #[derive(Clone, PartialEq, Copy, Debug)]
-pub struct Info {
-  /// Unique identifier.
+pub enum Info {
+  LineNumber(LineNumber),
+  ColumnNumber(ColumnNumber),
+  IsStartOfLine(IsStartOfLine),
+  IndentLevel(IndentLevel),
+  LineStartColumnNumber(LineStartColumnNumber),
+  LineStartIndentLevel(LineStartIndentLevel),
+}
+
+impl From<LineNumber> for Info {
+  fn from(info: LineNumber) -> Self {
+    Info::LineNumber(info)
+  }
+}
+
+impl From<ColumnNumber> for Info {
+  fn from(info: ColumnNumber) -> Self {
+    Info::ColumnNumber(info)
+  }
+}
+
+impl From<IsStartOfLine> for Info {
+  fn from(info: IsStartOfLine) -> Self {
+    Info::IsStartOfLine(info)
+  }
+}
+
+impl From<IndentLevel> for Info {
+  fn from(info: IndentLevel) -> Self {
+    Info::IndentLevel(info)
+  }
+}
+
+impl From<LineStartColumnNumber> for Info {
+  fn from(info: LineStartColumnNumber) -> Self {
+    Info::LineStartColumnNumber(info)
+  }
+}
+
+impl From<LineStartIndentLevel> for Info {
+  fn from(info: LineStartIndentLevel) -> Self {
+    Info::LineStartIndentLevel(info)
+  }
+}
+
+/// Helper IR that holds line and column number IR.
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct LineAndColumn {
+  pub line: LineNumber,
+  pub column: ColumnNumber,
+}
+
+impl LineAndColumn {
+  pub fn new(name: &'static str) -> Self {
+    Self {
+      line: LineNumber::new(name),
+      column: ColumnNumber::new(name),
+    }
+  }
+}
+
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct LineNumber {
   id: u32,
   /// Name for debugging purposes.
   #[cfg(debug_assertions)]
   name: &'static str,
 }
 
-impl Info {
+impl LineNumber {
   pub fn new(_name: &'static str) -> Self {
     Self {
-      id: thread_state::next_info_id(),
+      id: thread_state::next_line_number_id(),
       #[cfg(debug_assertions)]
       name: _name,
     }
   }
 
   #[inline]
-  pub fn get_unique_id(&self) -> u32 {
+  pub fn unique_id(&self) -> u32 {
     self.id
   }
 
   #[inline]
-  pub fn get_name(&self) -> &'static str {
+  pub fn name(&self) -> &'static str {
     #[cfg(debug_assertions)]
     return self.name;
     #[cfg(not(debug_assertions))]
-    return "info";
+    return "line_number";
+  }
+}
+
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct ColumnNumber {
+  id: u32,
+  /// Name for debugging purposes.
+  #[cfg(debug_assertions)]
+  name: &'static str,
+}
+
+impl ColumnNumber {
+  pub fn new(_name: &'static str) -> Self {
+    Self {
+      id: thread_state::next_column_number_id(),
+      #[cfg(debug_assertions)]
+      name: _name,
+    }
+  }
+
+  #[inline]
+  pub fn unique_id(&self) -> u32 {
+    self.id
+  }
+
+  #[inline]
+  pub fn name(&self) -> &'static str {
+    #[cfg(debug_assertions)]
+    return self.name;
+    #[cfg(not(debug_assertions))]
+    return "column_number";
+  }
+}
+
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct IsStartOfLine {
+  id: u32,
+  /// Name for debugging purposes.
+  #[cfg(debug_assertions)]
+  name: &'static str,
+}
+
+impl IsStartOfLine {
+  pub fn new(_name: &'static str) -> Self {
+    Self {
+      id: thread_state::next_is_start_of_line_id(),
+      #[cfg(debug_assertions)]
+      name: _name,
+    }
+  }
+
+  #[inline]
+  pub fn unique_id(&self) -> u32 {
+    self.id
+  }
+
+  #[inline]
+  pub fn name(&self) -> &'static str {
+    #[cfg(debug_assertions)]
+    return self.name;
+    #[cfg(not(debug_assertions))]
+    return "is_start_of_line";
+  }
+}
+
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct LineStartColumnNumber {
+  id: u32,
+  /// Name for debugging purposes.
+  #[cfg(debug_assertions)]
+  name: &'static str,
+}
+
+impl LineStartColumnNumber {
+  pub fn new(_name: &'static str) -> Self {
+    Self {
+      id: thread_state::next_line_start_column_number_id(),
+      #[cfg(debug_assertions)]
+      name: _name,
+    }
+  }
+
+  #[inline]
+  pub fn unique_id(&self) -> u32 {
+    self.id
+  }
+
+  #[inline]
+  pub fn name(&self) -> &'static str {
+    #[cfg(debug_assertions)]
+    return self.name;
+    #[cfg(not(debug_assertions))]
+    return "line_start_column_number";
+  }
+}
+
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct IndentLevel {
+  id: u32,
+  /// Name for debugging purposes.
+  #[cfg(debug_assertions)]
+  name: &'static str,
+}
+
+impl IndentLevel {
+  pub fn new(_name: &'static str) -> Self {
+    Self {
+      id: thread_state::next_indent_level_id(),
+      #[cfg(debug_assertions)]
+      name: _name,
+    }
+  }
+
+  #[inline]
+  pub fn unique_id(&self) -> u32 {
+    self.id
+  }
+
+  #[inline]
+  pub fn name(&self) -> &'static str {
+    #[cfg(debug_assertions)]
+    return self.name;
+    #[cfg(not(debug_assertions))]
+    return "indent_level";
+  }
+}
+
+#[derive(Clone, PartialEq, Copy, Debug)]
+pub struct LineStartIndentLevel {
+  id: u32,
+  /// Name for debugging purposes.
+  #[cfg(debug_assertions)]
+  name: &'static str,
+}
+
+impl LineStartIndentLevel {
+  pub fn new(_name: &'static str) -> Self {
+    Self {
+      id: thread_state::next_line_start_indent_level_id(),
+      #[cfg(debug_assertions)]
+      name: _name,
+    }
+  }
+
+  #[inline]
+  pub fn unique_id(&self) -> u32 {
+    self.id
+  }
+
+  #[inline]
+  pub fn name(&self) -> &'static str {
+    #[cfg(debug_assertions)]
+    return self.name;
+    #[cfg(not(debug_assertions))]
+    return "line_start_indent_level";
+  }
+}
+
+/// Used to re-evaluate a condition.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct ConditionReevaluation {
+  pub(crate) condition_id: u32,
+  /// Name for debugging purposes.
+  #[cfg(debug_assertions)]
+  name: &'static str,
+}
+
+impl ConditionReevaluation {
+  pub(crate) fn new(_name: &'static str, condition_id: u32) -> Self {
+    ConditionReevaluation {
+      condition_id,
+      #[cfg(debug_assertions)]
+      name: _name,
+    }
+  }
+
+  pub fn name(&self) -> &'static str {
+    #[cfg(debug_assertions)]
+    return self.name;
+    #[cfg(not(debug_assertions))]
+    return "condition_reevaluation";
   }
 }
 
@@ -500,23 +848,21 @@ pub struct Condition {
   /// Name for debugging purposes.
   #[cfg(debug_assertions)]
   name: &'static str,
-  /// If a reference has been created for the condition via `get_reference()`. If so, the printer
+  /// If a reference has been created for the condition via `create_reference()`. If so, the printer
   /// will store the condition and it will be retrievable via a condition resolver.
   pub(super) is_stored: bool,
+  pub(super) store_save_point: bool,
   /// The condition to resolve.
   pub(super) condition: ConditionResolver,
   /// The items to print when the condition is true.
   pub(super) true_path: Option<PrintItemPath>,
   /// The items to print when the condition is false or undefined (not yet resolved).
   pub(super) false_path: Option<PrintItemPath>,
-  /// Any infos that should cause the re-evaluation of this condition.
-  /// This is only done on request for performance reasons.
-  pub(super) dependent_infos: Option<Vec<Info>>,
 }
 
 impl Condition {
   pub fn new(name: &'static str, properties: ConditionProperties) -> Self {
-    Self::new_internal(name, properties, None)
+    Self::new_internal(name, properties)
   }
 
   pub fn new_true() -> Self {
@@ -527,7 +873,6 @@ impl Condition {
         true_path: None,
         false_path: None,
       },
-      None,
     )
   }
 
@@ -539,34 +884,29 @@ impl Condition {
         true_path: None,
         false_path: None,
       },
-      None,
     )
   }
 
-  pub fn new_with_dependent_infos(name: &'static str, properties: ConditionProperties, dependent_infos: Vec<Info>) -> Self {
-    Self::new_internal(name, properties, Some(dependent_infos))
-  }
-
-  fn new_internal(_name: &'static str, properties: ConditionProperties, dependent_infos: Option<Vec<Info>>) -> Self {
+  fn new_internal(_name: &'static str, properties: ConditionProperties) -> Self {
     Self {
       id: thread_state::next_condition_id(),
-      is_stored: dependent_infos.is_some(),
+      is_stored: false,
+      store_save_point: false,
       #[cfg(debug_assertions)]
       name: _name,
       condition: properties.condition,
       true_path: properties.true_path.and_then(|x| x.first_node),
       false_path: properties.false_path.and_then(|x| x.first_node),
-      dependent_infos,
     }
   }
 
   #[inline]
-  pub fn get_unique_id(&self) -> u32 {
+  pub fn unique_id(&self) -> u32 {
     self.id
   }
 
   #[inline]
-  pub fn get_name(&self) -> &'static str {
+  pub fn name(&self) -> &'static str {
     #[cfg(debug_assertions)]
     return self.name;
     #[cfg(not(debug_assertions))]
@@ -574,12 +914,12 @@ impl Condition {
   }
 
   #[inline]
-  pub fn get_true_path(&self) -> &Option<PrintItemPath> {
+  pub fn true_path(&self) -> &Option<PrintItemPath> {
     &self.true_path
   }
 
   #[inline]
-  pub fn get_false_path(&self) -> &Option<PrintItemPath> {
+  pub fn false_path(&self) -> &Option<PrintItemPath> {
     &self.false_path
   }
 
@@ -588,9 +928,15 @@ impl Condition {
     (self.condition)(context)
   }
 
-  pub fn get_reference(&mut self) -> ConditionReference {
+  pub fn create_reference(&mut self) -> ConditionReference {
     self.is_stored = true;
-    ConditionReference::new(self.get_name(), self.id)
+    ConditionReference::new(self.name(), self.id)
+  }
+
+  pub fn create_reevaluation(&mut self) -> ConditionReevaluation {
+    self.store_save_point = true;
+    self.is_stored = true;
+    ConditionReevaluation::new(self.name(), self.id)
   }
 }
 
@@ -611,7 +957,7 @@ impl ConditionReference {
   }
 
   #[inline]
-  pub(super) fn get_name(&self) -> &'static str {
+  pub(super) fn name(&self) -> &'static str {
     #[cfg(debug_assertions)]
     return self.name;
     #[cfg(not(debug_assertions))]
@@ -621,7 +967,7 @@ impl ConditionReference {
   /// Creates a condition resolver that checks the value of the condition this references.
   pub fn create_resolver(&self) -> ConditionResolver {
     let captured_self = *self;
-    Rc::new(move |condition_context: &mut ConditionResolverContext| condition_context.get_resolved_condition(&captured_self))
+    Rc::new(move |condition_context: &mut ConditionResolverContext| condition_context.resolved_condition(&captured_self))
   }
 }
 
@@ -650,26 +996,58 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
     ConditionResolverContext { printer, writer_info }
   }
 
-  /// Gets if a condition was true, false, or returns undefined when not yet resolved.
-  /// A condition reference can be retrieved by calling the `get_reference()` on a condition.
-  pub fn get_resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
-    self.printer.get_resolved_condition(condition_reference)
+  /// Gets if a condition was true, false, or returns None when not yet resolved.
+  /// A condition reference can be retrieved by calling the `create_reference()` on a condition.
+  pub fn resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
+    self.printer.resolved_condition(condition_reference)
   }
 
-  /// Gets the writer info at a specified info or returns undefined when not yet resolved.
-  pub fn get_resolved_info(&self, info: &Info) -> Option<&WriterInfo> {
-    self.printer.get_resolved_info(info)
+  /// Gets a resolved line and column.
+  pub fn resolved_line_and_column(&mut self, line_and_column: LineAndColumn) -> Option<(u32, u32)> {
+    let line = self.printer.resolved_line_number(line_and_column.line)?;
+    let column = self.printer.resolved_column_number(line_and_column.column)?;
+    Some((line, column))
   }
 
-  /// Clears the info result from being stored.
-  pub fn clear_info(&mut self, info: &Info) {
-    self.printer.clear_info(info)
+  /// Gets the line number or returns None when not yet resolved.
+  pub fn resolved_line_number(&mut self, line_number: LineNumber) -> Option<u32> {
+    self.printer.resolved_line_number(line_number)
   }
 
-  /// Gets if the provided info has moved positions since the last check.
-  /// Returns None when the info can't be resolved. Returns Some(false) the first time this is called.
-  pub fn has_info_moved(&mut self, info: &Info) -> Option<bool> {
-    self.printer.has_info_moved(info)
+  /// Gets the column number or returns None when not yet resolved.
+  pub fn resolved_column_number(&mut self, column_number: ColumnNumber) -> Option<u32> {
+    self.printer.resolved_column_number(column_number)
+  }
+
+  /// Gets if the info is at the start of the line or returns None when not yet resolved.
+  pub fn resolved_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) -> Option<bool> {
+    self.printer.resolved_is_start_of_line(is_start_of_line)
+  }
+
+  /// Gets if the indent level at this info or returns None when not yet resolved.
+  pub fn resolved_indent_level(&mut self, indent_level: IndentLevel) -> Option<u8> {
+    self.printer.resolved_indent_level(indent_level)
+  }
+
+  /// Gets the column number at the start of the line this info appears or returns None when not yet resolved.
+  pub fn resolved_line_start_column_number(&mut self, line_start_column_number: LineStartColumnNumber) -> Option<u32> {
+    self.printer.resolved_line_start_column_number(line_start_column_number)
+  }
+
+  /// Gets the indent level at the start of the line this info appears or returns None when not yet resolved.
+  pub fn resolved_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) -> Option<u8> {
+    self.printer.resolved_line_start_indent_level(line_start_indent_level)
+  }
+
+  /// Clears the line and column from being stored.
+  pub fn clear_line_and_column(&mut self, lc: LineAndColumn) {
+    self.clear_info(lc.line);
+    self.clear_info(lc.column);
+  }
+
+  /// Clears the info from being stored.
+  pub fn clear_info(&mut self, info: impl Into<Info>) {
+    self.printer.clear_info(info.into())
   }
 }
 
@@ -724,7 +1102,7 @@ impl WriterInfo {
   }
 
   /// Gets the line and column number.
-  pub fn get_line_and_column(&self) -> (u32, u32) {
+  pub fn line_and_column(&self) -> (u32, u32) {
     (self.line_number, self.column_number)
   }
 }

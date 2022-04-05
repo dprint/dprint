@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use crate::formatting::actions;
 use crate::formatting::condition_helpers;
 
 use super::super::conditions;
@@ -147,12 +148,17 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
   }
 
   let mut items = PrintItems::new();
-  let start_info = Info::new("surroundWithNewLinesIndentedIfMultiLineStart");
-  let end_info = Info::new("surroundWithNewLineIndentedsIfMultiLineEnd");
+  let start_name = "surroundWithNewLinesIndentedIfMultiLineStart";
+  let start_ln = LineNumber::new(start_name);
+  let end_ln = LineNumber::new("surroundWithNewLinesIndentedIfMultiLineEnd");
   let inner_items = inner_items.into_rc_path();
 
-  items.push_info(start_info);
-  items.push_condition(Condition::new_with_dependent_infos(
+  items.push_info(start_ln);
+  items.push_anchor(LineNumberAnchor::new(end_ln));
+  items.extend(actions::if_column_number_changes(move |context| {
+    context.clear_info(end_ln);
+  }));
+  let mut condition = Condition::new(
     "newlineIfMultiLine",
     ConditionProperties {
       true_path: Some(surround_with_new_lines(with_indent(inner_items.into()))),
@@ -162,17 +168,13 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
         items.extend(inner_items.into());
         items
       }),
-      condition: Rc::new(move |context| {
-        // clear the end info when the start info changes
-        if context.has_info_moved(&start_info)? {
-          context.clear_info(&end_info);
-        }
-        condition_helpers::is_multiple_lines(context, &start_info, &end_info)
-      }),
+      condition: Rc::new(move |context| condition_helpers::is_multiple_lines(context, start_ln, end_ln)),
     },
-    vec![end_info],
-  ));
-  items.push_info(end_info);
+  );
+  let condition_reevaluation = condition.create_reevaluation();
+  items.push_condition(condition);
+  items.push_info(end_ln);
+  items.push_reevaluation(condition_reevaluation);
 
   items
 }
