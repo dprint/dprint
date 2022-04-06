@@ -505,7 +505,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.55.0"
+version = "0.55.1"
 dependencies = [
  "anyhow",
  "bumpalo",

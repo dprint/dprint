@@ -814,6 +814,7 @@ impl LineStartIndentLevel {
 /// Used to re-evaluate a condition.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct ConditionReevaluation {
+  pub(crate) condition_reevaluation_id: u32,
   pub(crate) condition_id: u32,
   /// Name for debugging purposes.
   #[cfg(debug_assertions)]
@@ -823,6 +824,7 @@ pub struct ConditionReevaluation {
 impl ConditionReevaluation {
   pub(crate) fn new(_name: &'static str, condition_id: u32) -> Self {
     ConditionReevaluation {
+      condition_reevaluation_id: thread_state::next_condition_reevaluation_id(),
       condition_id,
       #[cfg(debug_assertions)]
       name: _name,

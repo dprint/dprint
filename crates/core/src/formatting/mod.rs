@@ -5,6 +5,7 @@ pub mod conditions;
 pub mod ir_helpers;
 
 mod collections;
+mod infinite_reevaluation_protection;
 mod print;
 mod print_items;
 mod printer;

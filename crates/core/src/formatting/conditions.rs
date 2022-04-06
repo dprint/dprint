@@ -60,29 +60,6 @@ pub fn new_line_if_hanging(start_lsil: LineStartIndentLevel, end_lsil: Option<Li
   )
 }
 
-/// This condition can be used to force the printer to jump back to the point
-/// this condition exists at once the provided info is resolved.
-///
-/// NOTE: Don't use this. I'm going to remove it.
-pub fn force_reevaluation_once_resolved_deprecated(ln: LineNumber) -> Condition {
-  // note: it doesn't really matter what kind the info is (ex. LineNumber), but just that it's an info
-  Condition::new(
-    "forceReevaluationOnceoResolved",
-    ConditionProperties {
-      condition: Rc::new(move |context| {
-        let resolved_ln = context.resolved_line_number(ln);
-        if resolved_ln.is_some() {
-          Some(false)
-        } else {
-          None
-        }
-      }),
-      true_path: None,
-      false_path: None,
-    },
-  )
-}
-
 pub fn new_line_if_multiple_lines_space_or_new_line_otherwise(start_ln: LineNumber, end_ln: Option<LineNumber>) -> Condition {
   if_true_or(
     "newLineIfMultipleLinesSpaceOrNewLineOtherwise",

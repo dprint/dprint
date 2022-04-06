@@ -2,6 +2,7 @@ use bumpalo::Bump;
 use rustc_hash::FxHashMap;
 
 use super::collections::*;
+use super::infinite_reevaluation_protection::InfiniteReevaluationProtector;
 use super::print_items::*;
 use super::thread_state;
 use super::writer::*;
@@ -83,6 +84,7 @@ pub struct Printer<'a> {
   look_ahead_indent_level_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
   look_ahead_line_start_column_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
   look_ahead_line_start_indent_level_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
+  infinite_reevaluation_protector: InfiniteReevaluationProtector,
   next_node_stack: RcStack,
   stored_condition_save_points: FxHashMap<u32, (&'a Condition, &'a SavePoint<'a>)>,
   max_width: u32,
@@ -111,13 +113,13 @@ impl<'a> Printer<'a> {
         },
       ),
       resolved_conditions: FxHashMap::default(),
-      resolved_line_number_anchors: VecU32Map::new(thread_state::next_line_number_anchor_id()),
-      resolved_line_numbers: VecU32Map::new(thread_state::next_line_number_id()),
-      resolved_column_numbers: VecU32Map::new(thread_state::next_column_number_id()),
-      resolved_is_start_of_lines: VecU32Map::new(thread_state::next_is_start_of_line_id()),
-      resolved_indent_levels: VecU32Map::new(thread_state::next_indent_level_id()),
-      resolved_line_start_column_numbers: VecU32Map::new(thread_state::next_line_start_column_number_id()),
-      resolved_line_start_indent_levels: VecU32Map::new(thread_state::next_line_start_indent_level_id()),
+      resolved_line_number_anchors: VecU32Map::with_capacity(thread_state::next_line_number_anchor_id()),
+      resolved_line_numbers: VecU32Map::with_capacity(thread_state::next_line_number_id()),
+      resolved_column_numbers: VecU32Map::with_capacity(thread_state::next_column_number_id()),
+      resolved_is_start_of_lines: VecU32Map::with_capacity(thread_state::next_is_start_of_line_id()),
+      resolved_indent_levels: VecU32Map::with_capacity(thread_state::next_indent_level_id()),
+      resolved_line_start_column_numbers: VecU32Map::with_capacity(thread_state::next_line_start_column_number_id()),
+      resolved_line_start_indent_levels: VecU32Map::with_capacity(thread_state::next_line_start_indent_level_id()),
       look_ahead_condition_save_points: FxHashMap::default(),
       look_ahead_line_number_save_points: FxHashMap::default(),
       look_ahead_column_number_save_points: FxHashMap::default(),
@@ -125,6 +127,7 @@ impl<'a> Printer<'a> {
       look_ahead_indent_level_save_points: FxHashMap::default(),
       look_ahead_line_start_column_number_save_points: FxHashMap::default(),
       look_ahead_line_start_indent_level_save_points: FxHashMap::default(),
+      infinite_reevaluation_protector: InfiniteReevaluationProtector::with_capacity(thread_state::next_condition_reevaluation_id()),
       stored_condition_save_points: FxHashMap::default(),
       next_node_stack: RcStack::default(),
       max_width: options.max_width,
@@ -511,17 +514,27 @@ impl<'a> Printer<'a> {
   fn handle_condition_reevaluation(&mut self, condition_reevaluation: &ConditionReevaluation) {
     let condition_id = condition_reevaluation.condition_id;
     if let Some((condition, save_point)) = self.stored_condition_save_points.get(&condition_id).cloned() {
-      if let Some(resolved_condition_value) = self.resolved_conditions.get(&condition_id).and_then(|x| x.to_owned()) {
+      if let Some(past_condition_value) = self.resolved_conditions.get(&condition_id).and_then(|x| x.to_owned()) {
         self.resolving_save_point.replace(save_point);
         let mut context = ConditionResolverContext::new(self, save_point.writer_state.writer_info(self.writer.indent_width()));
-        let condition_value = condition.resolve(&mut context);
+        let latest_condition_value = condition.resolve(&mut context);
         self.resolving_save_point.take();
-        if let Some(condition_value) = condition_value {
-          if condition_value != resolved_condition_value {
-            self.update_state_to_save_point(save_point, false);
+
+        // Do not re-evaluate the condition if it's flipped back and forth a decent number of times.
+        // If it hits the max number of times it can flip then an error will be logged.
+        let should_reevaluate = self.infinite_reevaluation_protector.should_reevaluate(
+          condition_reevaluation.condition_reevaluation_id,
+          latest_condition_value,
+          past_condition_value,
+        );
+        if should_reevaluate {
+          if let Some(latest_condition_value) = latest_condition_value {
+            if latest_condition_value != past_condition_value {
+              self.update_state_to_save_point(save_point, false);
+            }
+          } else {
+            self.resolved_conditions.remove(&condition_id);
           }
-        } else {
-          self.resolved_conditions.remove(&condition_id);
         }
       }
     }
