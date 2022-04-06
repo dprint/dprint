@@ -66,17 +66,17 @@ pub struct Printer<'a> {
   writer: Writer<'a>,
   // Use a regular hash map here because only some conditions are stored (not all).
   resolved_conditions: FxHashMap<u32, Option<bool>>,
-  // Use a VecU32Map for resolved infos because it has much faster
+  // Use these "VecU32Map" for resolved infos because it has much faster
   // lookups than a hash map and generally infos seem to be resolved
   // about 90% of the time, so the extra memory usage is probably not
   // a big deal.
-  resolved_line_number_anchors: VecU32Map<u32>,
-  resolved_line_numbers: VecU32Map<u32>,
-  resolved_column_numbers: VecU32Map<u32>,
-  resolved_is_start_of_lines: VecU32Map<bool>,
-  resolved_indent_levels: VecU32Map<u8>,
-  resolved_line_start_column_numbers: VecU32Map<u32>,
-  resolved_line_start_indent_levels: VecU32Map<u8>,
+  resolved_line_number_anchors: VecU32U32Map,
+  resolved_line_numbers: VecU32U32Map,
+  resolved_column_numbers: VecU32U32Map,
+  resolved_is_start_of_lines: VecU32BoolMap,
+  resolved_indent_levels: VecU32U8Map,
+  resolved_line_start_column_numbers: VecU32U32Map,
+  resolved_line_start_indent_levels: VecU32U8Map,
   look_ahead_condition_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
   look_ahead_line_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
   look_ahead_column_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
@@ -113,13 +113,13 @@ impl<'a> Printer<'a> {
         },
       ),
       resolved_conditions: FxHashMap::default(),
-      resolved_line_number_anchors: VecU32Map::with_capacity(thread_state::next_line_number_anchor_id()),
-      resolved_line_numbers: VecU32Map::with_capacity(thread_state::next_line_number_id()),
-      resolved_column_numbers: VecU32Map::with_capacity(thread_state::next_column_number_id()),
-      resolved_is_start_of_lines: VecU32Map::with_capacity(thread_state::next_is_start_of_line_id()),
-      resolved_indent_levels: VecU32Map::with_capacity(thread_state::next_indent_level_id()),
-      resolved_line_start_column_numbers: VecU32Map::with_capacity(thread_state::next_line_start_column_number_id()),
-      resolved_line_start_indent_levels: VecU32Map::with_capacity(thread_state::next_line_start_indent_level_id()),
+      resolved_line_number_anchors: VecU32U32Map::with_capacity(thread_state::next_line_number_anchor_id()),
+      resolved_line_numbers: VecU32U32Map::with_capacity(thread_state::next_line_number_id()),
+      resolved_column_numbers: VecU32U32Map::with_capacity(thread_state::next_column_number_id()),
+      resolved_is_start_of_lines: VecU32BoolMap::with_capacity(thread_state::next_is_start_of_line_id()),
+      resolved_indent_levels: VecU32U8Map::with_capacity(thread_state::next_indent_level_id()),
+      resolved_line_start_column_numbers: VecU32U32Map::with_capacity(thread_state::next_line_start_column_number_id()),
+      resolved_line_start_indent_levels: VecU32U8Map::with_capacity(thread_state::next_line_start_indent_level_id()),
       look_ahead_condition_save_points: FxHashMap::default(),
       look_ahead_line_number_save_points: FxHashMap::default(),
       look_ahead_column_number_save_points: FxHashMap::default(),
@@ -207,7 +207,7 @@ impl<'a> Printer<'a> {
       self.look_ahead_line_number_save_points.insert(line_number.unique_id(), save_point);
     }
 
-    resolved_number.copied()
+    resolved_number
   }
 
   pub fn resolved_column_number(&mut self, column_number: ColumnNumber) -> Option<u32> {
@@ -217,7 +217,7 @@ impl<'a> Printer<'a> {
       self.look_ahead_column_number_save_points.insert(column_number.unique_id(), save_point);
     }
 
-    resolved_number.copied()
+    resolved_number
   }
 
   pub fn resolved_is_start_of_line(&mut self, is_start_of_line: IsStartOfLine) -> Option<bool> {
@@ -227,7 +227,7 @@ impl<'a> Printer<'a> {
       self.look_ahead_is_start_of_line_save_points.insert(is_start_of_line.unique_id(), save_point);
     }
 
-    resolved_is_start_of_line.copied()
+    resolved_is_start_of_line
   }
 
   pub fn resolved_indent_level(&mut self, indent_level: IndentLevel) -> Option<u8> {
@@ -237,7 +237,7 @@ impl<'a> Printer<'a> {
       self.look_ahead_indent_level_save_points.insert(indent_level.unique_id(), save_point);
     }
 
-    resolved_indent_level.copied()
+    resolved_indent_level
   }
 
   pub fn resolved_line_start_column_number(&mut self, line_start_column_number: LineStartColumnNumber) -> Option<u32> {
@@ -253,7 +253,7 @@ impl<'a> Printer<'a> {
         .insert(line_start_column_number.unique_id(), save_point);
     }
 
-    resolved_line_start_column_number.copied()
+    resolved_line_start_column_number
   }
 
   pub fn resolved_line_start_indent_level(&mut self, line_start_indent_level: LineStartIndentLevel) -> Option<u8> {
@@ -269,7 +269,7 @@ impl<'a> Printer<'a> {
         .insert(line_start_indent_level.unique_id(), save_point);
     }
 
-    resolved_line_start_indent_level.copied()
+    resolved_line_start_indent_level
   }
 
   pub fn clear_info(&mut self, info: Info) {
@@ -439,11 +439,11 @@ impl<'a> Printer<'a> {
         let id = anchor.unique_id();
         if let Some(past_line_number) = self.resolved_line_number_anchors.get(id) {
           let current_line_number = self.writer.line_number();
-          let difference = (current_line_number as isize) - (*past_line_number as isize);
+          let difference = (current_line_number as isize) - (past_line_number as isize);
           if difference != 0 {
             let line_number_id = anchor.line_number_id();
             if let Some(value) = self.resolved_line_numbers.get(line_number_id) {
-              let new_value = ((*value as isize) + difference) as u32;
+              let new_value = ((value as isize) + difference) as u32;
               self.resolved_line_numbers.insert(line_number_id, new_value);
             }
           }
