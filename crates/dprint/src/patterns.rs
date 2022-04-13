@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::arg_parser::CliArgs;
+use crate::arg_parser::FilePatternArgs;
 use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
@@ -19,7 +19,7 @@ pub struct FileMatcher {
 }
 
 impl FileMatcher {
-  pub fn new(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Self> {
+  pub fn new(config: &ResolvedConfig, args: &FilePatternArgs, environment: &impl Environment) -> Result<Self> {
     let cwd = environment.cwd();
     let patterns = get_all_file_patterns(config, args, &cwd);
     let glob_matcher = GlobMatcher::new(
@@ -37,7 +37,7 @@ impl FileMatcher {
   }
 }
 
-pub fn get_all_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &CanonicalizedPathBuf) -> GlobPatterns {
+pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> GlobPatterns {
   GlobPatterns {
     includes: get_include_file_patterns(config, args, cwd),
     excludes: get_exclude_file_patterns(config, args, cwd),
@@ -60,7 +60,7 @@ pub fn get_plugin_association_glob_matcher(plugin: &dyn Plugin, config_base_path
   })
 }
 
-fn get_include_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
+fn get_include_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
   let mut file_patterns = Vec::new();
 
   file_patterns.extend(if args.file_patterns.is_empty() {
@@ -76,7 +76,7 @@ fn get_include_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &Cano
   file_patterns
 }
 
-fn get_exclude_file_patterns(config: &ResolvedConfig, args: &CliArgs, cwd: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
+fn get_exclude_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
   let mut file_patterns = Vec::new();
 
   file_patterns.extend(

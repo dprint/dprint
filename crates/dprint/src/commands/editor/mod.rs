@@ -13,6 +13,7 @@ mod communication;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::EditorServiceSubCommand;
+use crate::arg_parser::FilePatternArgs;
 use crate::cache::Cache;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::ResolvedConfig;
@@ -149,7 +150,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     let file_path = self.messenger.read_single_part_path_buf_message()?;
     self.ensure_latest_config().await?;
 
-    let file_matcher = FileMatcher::new(self.config.as_ref().unwrap(), self.args, self.environment)?;
+    let file_matcher = FileMatcher::new(self.config.as_ref().unwrap(), &FilePatternArgs::default(), self.environment)?;
 
     // canonicalize the file path, then check if it's in the list of file paths.
     match self.environment.canonicalize(&file_path) {

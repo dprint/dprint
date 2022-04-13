@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::Split;
 
-use crate::arg_parser::CliArgs;
+use crate::arg_parser::FilePatternArgs;
 use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
@@ -95,7 +95,7 @@ pub fn get_file_paths_by_plugins(
   Ok(file_paths_by_plugin)
 }
 
-pub async fn get_and_resolve_file_paths(config: &ResolvedConfig, args: &CliArgs, environment: &impl Environment) -> Result<Vec<PathBuf>> {
+pub async fn get_and_resolve_file_paths(config: &ResolvedConfig, args: &FilePatternArgs, environment: &impl Environment) -> Result<Vec<PathBuf>> {
   let cwd = environment.cwd();
   let file_patterns = get_all_file_patterns(config, args, &cwd);
   let is_in_sub_dir = cwd != config.base_path && cwd.starts_with(&config.base_path);

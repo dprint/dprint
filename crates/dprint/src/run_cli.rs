@@ -34,9 +34,9 @@ pub async fn run_cli<TEnvironment: Environment>(
     SubCommand::Version => commands::output_version(environment),
     SubCommand::StdInFmt(cmd) => commands::stdin_fmt(cmd, args, environment, cache, plugin_resolver, plugin_pools).await,
     SubCommand::OutputResolvedConfig => commands::output_resolved_config(args, cache, environment, plugin_resolver).await,
-    SubCommand::OutputFilePaths => commands::output_file_paths(args, environment, cache, plugin_resolver).await,
-    SubCommand::OutputFormatTimes => commands::output_format_times(args, environment, cache, plugin_resolver, plugin_pools).await,
-    SubCommand::Check => commands::check(args, environment, cache, plugin_resolver, plugin_pools).await,
+    SubCommand::OutputFilePaths(cmd) => commands::output_file_paths(cmd, args, environment, cache, plugin_resolver).await,
+    SubCommand::OutputFormatTimes(cmd) => commands::output_format_times(cmd, args, environment, cache, plugin_resolver, plugin_pools).await,
+    SubCommand::Check(cmd) => commands::check(cmd, args, environment, cache, plugin_resolver, plugin_pools).await,
     SubCommand::Fmt(cmd) => commands::format(cmd, args, environment, cache, plugin_resolver, plugin_pools).await,
     #[cfg(target_os = "windows")]
     SubCommand::Hidden(hidden_command) => match hidden_command {
