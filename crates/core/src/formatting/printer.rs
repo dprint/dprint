@@ -437,8 +437,8 @@ impl<'a> Printer<'a> {
     match anchor {
       Anchor::LineNumber(anchor) => {
         let id = anchor.unique_id();
+        let current_line_number = self.writer.line_number();
         if let Some(past_line_number) = self.resolved_line_number_anchors.get(id) {
-          let current_line_number = self.writer.line_number();
           let difference = (current_line_number as isize) - (past_line_number as isize);
           if difference != 0 {
             let line_number_id = anchor.line_number_id();
@@ -448,6 +448,7 @@ impl<'a> Printer<'a> {
             }
           }
         }
+        self.resolved_line_number_anchors.insert(id, current_line_number);
       }
     }
   }
