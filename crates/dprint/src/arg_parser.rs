@@ -147,19 +147,19 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
         SubCommand::StdInFmt(StdInFmtSubCommand {
           file_name_or_path,
           file_text: std_in_reader.read()?,
-          patterns: parse_file_patterns(&matches),
+          patterns: parse_file_patterns(matches)?,
         })
       } else {
         SubCommand::Fmt(FmtSubCommand {
           diff: matches.is_present("diff"),
-          patterns: parse_file_patterns(&matches),
-          incremental: parse_incremental(&matches),
+          patterns: parse_file_patterns(matches)?,
+          incremental: parse_incremental(matches),
         })
       }
     }
     ("check", matches) => SubCommand::Check(CheckSubCommand {
-      patterns: parse_file_patterns(&matches),
-      incremental: parse_incremental(&matches),
+      patterns: parse_file_patterns(matches)?,
+      incremental: parse_incremental(matches),
     }),
     ("init", _) => SubCommand::Config(ConfigSubCommand::Init),
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
@@ -170,11 +170,11 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
     }),
     ("clear-cache", _) => SubCommand::ClearCache,
     ("output-file-paths", matches) => SubCommand::OutputFilePaths(OutputFilePathsSubCommand {
-      patterns: parse_file_patterns(&matches),
+      patterns: parse_file_patterns(matches)?,
     }),
     ("output-resolved-config", _) => SubCommand::OutputResolvedConfig,
     ("output-format-times", matches) => SubCommand::OutputFormatTimes(OutputFormatTimesSubCommand {
-      patterns: parse_file_patterns(&matches),
+      patterns: parse_file_patterns(matches)?,
     }),
     ("version", _) => SubCommand::Version,
     ("license", _) => SubCommand::License,
@@ -192,29 +192,28 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
       unreachable!();
     }
   };
-  let sub_command_matches = matches.subcommand().map(|(_, matches)| matches);
-
-  // let file_patterns = sub_command_matches.map(|m| values_to_vec(m.values_of("files"))).unwrap_or_default();
-  let plugins = values_to_vec(matches.values_of("plugins"));
-
-  // if !plugins.is_empty() && file_patterns.is_empty() {
-  //   validate_plugin_args_when_no_files(&plugins)?;
-  // }
 
   Ok(CliArgs {
     sub_command,
     verbose: matches.is_present("verbose"),
     config: matches.value_of("config").map(String::from),
-    plugins,
+    plugins: values_to_vec(matches.values_of("plugins")),
   })
 }
 
-fn parse_file_patterns(matches: &ArgMatches) -> FilePatternArgs {
-  FilePatternArgs {
-    allow_node_modules: matches.is_present("allow-node-modules"),
-    file_patterns: values_to_vec(matches.values_of("files")),
-    exclude_file_patterns: values_to_vec(matches.values_of("excludes")),
+fn parse_file_patterns(matches: &ArgMatches) -> Result<FilePatternArgs> {
+  let plugins = values_to_vec(matches.values_of("plugins"));
+  let file_patterns = values_to_vec(matches.values_of("files"));
+
+  if !plugins.is_empty() && file_patterns.is_empty() {
+    validate_plugin_args_when_no_files(&plugins)?;
   }
+
+  Ok(FilePatternArgs {
+    allow_node_modules: matches.is_present("allow-node-modules"),
+    file_patterns,
+    exclude_file_patterns: values_to_vec(matches.values_of("excludes")),
+  })
 }
 
 fn parse_incremental(matches: &ArgMatches) -> bool {
@@ -269,12 +268,9 @@ fn create_cli_parser<'a>(is_outputting_main_help: bool) -> clap::Command<'a> {
     .setting(AppSettings::DeriveDisplayOrder)
     .bin_name("dprint")
     .version(env!("CARGO_PKG_VERSION"))
-    //.mut_arg("version", |a| a.short_alias('v'))
     .author("Copyright 2020-2022 by David Sherret")
     .about("Auto-formats source code based on the specified plugins.")
     .override_usage("dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...")
-    // .help_about("Prints help information.") // todo: Enable once clap supports this as I want periods
-    // .version_aboute("Prints the version.")
     .help_template(r#"{bin} {version}
 {author}
 
@@ -422,7 +418,7 @@ EXAMPLES:
         .help("List of urls or file paths of plugins to use. This overrides what is specified in the config file.")
         .global(true)
         .takes_value(true)
-        .multiple_occurrences(true),
+        .multiple_values(true)
     )
     .arg(
       Arg::new("verbose")
@@ -466,7 +462,7 @@ impl<'a> ClapExtensions for clap::Command<'a> {
         Arg::new("files")
           .help("List of file patterns in quotes to format. This overrides what is specified in the config file.")
           .takes_value(true)
-          .multiple_occurrences(true),
+          .multiple_values(true),
       )
       .arg(
         Arg::new("excludes")
@@ -474,7 +470,7 @@ impl<'a> ClapExtensions for clap::Command<'a> {
           .value_name("patterns")
           .help("List of file patterns or directories in quotes to exclude when formatting. This overrides what is specified in the config file.")
           .takes_value(true)
-          .multiple_occurrences(true),
+          .multiple_values(true),
       )
       .arg(
         Arg::new("allow-node-modules")
