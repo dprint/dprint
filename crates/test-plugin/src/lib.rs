@@ -93,6 +93,12 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
     } else if file_text == "should_panic" {
       self.has_panicked = true;
       panic!("Test panic")
+    } else if file_text == "unstable_fmt_then_error" {
+      Ok(Some("should_error".to_string()))
+    } else if file_text == "unstable_fmt_true" {
+      Ok(Some("unstable_fmt_false".to_string()))
+    } else if file_text == "unstable_fmt_false" {
+      Ok(Some("unstable_fmt_true".to_string()))
     } else if file_text.ends_with(&config.ending) {
       Ok(None)
     } else {

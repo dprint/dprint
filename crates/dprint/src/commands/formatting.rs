@@ -20,6 +20,7 @@ use crate::cache::Cache;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
 use crate::format::run_parallelized;
+use crate::format::EnsureStableFormat;
 use crate::incremental::get_incremental_file;
 use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins_and_err_if_empty;
@@ -92,7 +93,7 @@ pub async fn output_format_times<TEnvironment: Environment>(
   plugin_pools.set_plugins(plugins, &config.base_path)?;
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
-  run_parallelized(file_paths_by_plugin, environment, plugin_pools, None, {
+  run_parallelized(file_paths_by_plugin, environment, plugin_pools, None, EnsureStableFormat(false), {
     let durations = durations.clone();
     move |file_path, _, _, _, start_instant, _| {
       let duration = start_instant.elapsed().as_millis();
@@ -129,7 +130,7 @@ pub async fn check<TEnvironment: Environment>(
   let incremental_file = get_incremental_file(cmd.incremental, &config, cache, &plugin_pools, environment);
   let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
-  run_parallelized(file_paths_by_plugin, environment, plugin_pools, incremental_file, {
+  run_parallelized(file_paths_by_plugin, environment, plugin_pools, incremental_file, EnsureStableFormat(false), {
     let not_formatted_files_count = not_formatted_files_count.clone();
     move |file_path, file_text, formatted_text, _, _, environment| {
       if formatted_text != file_text {
@@ -173,28 +174,35 @@ pub async fn format<TEnvironment: Environment>(
   let formatted_files_count = Arc::new(AtomicUsize::new(0));
   let output_diff = cmd.diff;
 
-  run_parallelized(file_paths_by_plugins, environment, plugin_pools, incremental_file.clone(), {
-    let formatted_files_count = formatted_files_count.clone();
-    move |file_path, file_text, formatted_text, had_bom, _, environment| {
-      if formatted_text != file_text {
-        if output_diff {
-          output_difference(file_path, file_text, &formatted_text, environment);
+  run_parallelized(
+    file_paths_by_plugins,
+    environment,
+    plugin_pools,
+    incremental_file.clone(),
+    EnsureStableFormat(incremental_file.is_some()),
+    {
+      let formatted_files_count = formatted_files_count.clone();
+      move |file_path, file_text, formatted_text, had_bom, _, environment| {
+        if formatted_text != file_text {
+          if output_diff {
+            output_difference(file_path, file_text, &formatted_text, environment);
+          }
+
+          let new_text = if had_bom {
+            // add back the BOM
+            format!("{}{}", BOM_CHAR, formatted_text)
+          } else {
+            formatted_text
+          };
+
+          formatted_files_count.fetch_add(1, Ordering::SeqCst);
+          environment.write_file(&file_path, &new_text)?;
         }
 
-        let new_text = if had_bom {
-          // add back the BOM
-          format!("{}{}", BOM_CHAR, formatted_text)
-        } else {
-          formatted_text
-        };
-
-        formatted_files_count.fetch_add(1, Ordering::SeqCst);
-        environment.write_file(&file_path, &new_text)?;
+        Ok(())
       }
-
-      Ok(())
-    }
-  })
+    },
+  )
   .await?;
 
   let formatted_files_count = formatted_files_count.load(Ordering::SeqCst);
@@ -1393,6 +1401,50 @@ mod test {
     environment.clear_logs();
     run_test_cli(vec!["fmt", "--verbose"], &environment).unwrap();
     assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains("No change: /file1.txt")), true);
+  }
+
+  #[test]
+  fn incremental_should_error_for_unstable_format() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(&file_path1, "unstable_fmt_true")
+      .build();
+
+    let result = run_test_cli(vec!["fmt", "--incremental", "*.txt"], &environment).err().unwrap();
+
+    assert_eq!(result.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![concat!(
+        "Error formatting /file1.txt. Message: Formatting not stable. Bailed after 5 tries. ",
+        "This indicates a bug in the plugin where it formats the file differently each time."
+      )
+      .to_string()]
+    );
+  }
+
+  #[test]
+  fn incremental_should_error_for_unstable_format_that_errors() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(&file_path1, "unstable_fmt_then_error")
+      .build();
+
+    let result = run_test_cli(vec!["fmt", "--incremental", "*.txt"], &environment).err().unwrap();
+
+    assert_eq!(result.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![concat!(
+        "Error formatting /file1.txt. Message: Formatting succeeded initially, but failed when ensuring a ",
+        "stable format. This is most likely a bug in the plugin where the text it produces is not ",
+        "syntatically correct. Please report this as a bug to the plugin that formatted this file.\n\n",
+        "Did error."
+      )
+      .to_string()]
+    );
   }
 
   #[test]
