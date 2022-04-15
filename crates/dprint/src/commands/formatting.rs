@@ -11,8 +11,10 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+use crate::arg_parser::CheckSubCommand;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::FmtSubCommand;
+use crate::arg_parser::OutputFormatTimesSubCommand;
 use crate::arg_parser::StdInFmtSubCommand;
 use crate::cache::Cache;
 use crate::configuration::resolve_config_from_args;
@@ -41,7 +43,7 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
   plugin_pools.set_plugins(plugins, &config.base_path)?;
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
-    let file_matcher = FileMatcher::new(&config, args, environment)?;
+    let file_matcher = FileMatcher::new(&config, &cmd.patterns, environment)?;
     // canonicalize the file path, then check if it's in the list of file paths.
     let resolved_file_path = environment.canonicalize(&cmd.file_name_or_path)?;
     // log the file text as-is since it's not in the list of files to format
@@ -76,6 +78,7 @@ async fn output_stdin_format<TEnvironment: Environment>(
 }
 
 pub async fn output_format_times<TEnvironment: Environment>(
+  cmd: &OutputFormatTimesSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
@@ -84,7 +87,7 @@ pub async fn output_format_times<TEnvironment: Environment>(
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  let file_paths = get_and_resolve_file_paths(&config, args, environment).await?;
+  let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, environment).await?;
   let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
@@ -110,6 +113,7 @@ pub async fn output_format_times<TEnvironment: Environment>(
 }
 
 pub async fn check<TEnvironment: Environment>(
+  cmd: &CheckSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
@@ -118,11 +122,11 @@ pub async fn check<TEnvironment: Environment>(
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  let file_paths = get_and_resolve_file_paths(&config, args, environment).await?;
+  let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, environment).await?;
   let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
-  let incremental_file = get_incremental_file(args, &config, cache, &plugin_pools, environment);
+  let incremental_file = get_incremental_file(cmd.incremental, &config, cache, &plugin_pools, environment);
   let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
   run_parallelized(file_paths_by_plugin, environment, plugin_pools, incremental_file, {
@@ -161,11 +165,11 @@ pub async fn format<TEnvironment: Environment>(
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  let file_paths = get_and_resolve_file_paths(&config, args, environment).await?;
+  let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, environment).await?;
   let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
-  let incremental_file = get_incremental_file(args, &config, cache, &plugin_pools, environment);
+  let incremental_file = get_incremental_file(cmd.incremental, &config, cache, &plugin_pools, environment);
   let formatted_files_count = Arc::new(AtomicUsize::new(0));
   let output_diff = cmd.diff;
 

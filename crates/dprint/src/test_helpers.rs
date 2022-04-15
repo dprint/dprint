@@ -147,25 +147,30 @@ SUBCOMMANDS:
     fmt                       Formats the source files and writes the result to the file system.
     check                     Checks for any files that haven't been formatted.
     config                    Functionality related to the configuration file.
-    output-file-paths         Prints the resolved file paths for the plugins based on the args and configuration.
-    output-resolved-config    Prints the resolved configuration for the plugins based on the args and configuration.
-    output-format-times       Prints the amount of time it takes to format each file. Use this for debugging.
+    output-file-paths         Prints the resolved file paths for the plugins based on the args
+                                  and configuration.
+    output-resolved-config    Prints the resolved configuration for the plugins based on the
+                                  args and configuration.
+    output-format-times       Prints the amount of time it takes to format each file. Use this
+                                  for debugging.
     clear-cache               Deletes the plugin cache directory.
     license                   Outputs the software license.
 
 More details at `dprint help <SUBCOMMAND>`
 
 OPTIONS:
-    -c, --config <config>            Path or url to JSON configuration file. Defaults to dprint.json or .dprint.json in
-                                     current or ancestor directory when not provided.
-        --plugins <urls/files>...    List of urls or file paths of plugins to use. This overrides what is specified in
-                                     the config file.
+    -c, --config <config>            Path or url to JSON configuration file. Defaults to dprint.json
+                                     or .dprint.json in current or ancestor directory when not
+                                     provided.
+        --plugins <urls/files>...    List of urls or file paths of plugins to use. This overrides
+                                     what is specified in the config file.
         --verbose                    Prints additional diagnostic information.
-    -v, --version                    Prints the version.
 
 ENVIRONMENT VARIABLES:
   DPRINT_CACHE_DIR    The directory to store the dprint cache. Note that
                       this directory may be periodically deleted by the CLI.
+  HTTPS_PROXY         Proxy to use when downloading plugins or configuration
+                      files (set HTTP_PROXY for HTTP).
 
 GETTING STARTED:
   1. Navigate to the root directory of a code repository.
@@ -188,6 +193,7 @@ EXAMPLES:
 
   Search for files using the specified file patterns:
 
-    dprint fmt "**/*.{ts,tsx,js,jsx,json}""#
+    dprint fmt "**/*.{ts,tsx,js,jsx,json}"
+"#
   )
 }

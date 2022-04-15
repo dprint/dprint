@@ -1,5 +1,6 @@
 use anyhow::bail;
 use anyhow::Result;
+use clap::ArgMatches;
 
 use crate::utils::StdInReader;
 
@@ -8,12 +9,6 @@ pub struct CliArgs {
   pub verbose: bool,
   pub plugins: Vec<String>,
   pub config: Option<String>,
-  // It depends on the command whether these will exist... it
-  // was just a lot easier to store these on a global object.
-  pub incremental: bool,
-  pub file_patterns: Vec<String>,
-  pub exclude_file_patterns: Vec<String>,
-  pub allow_node_modules: bool,
 }
 
 impl CliArgs {
@@ -24,10 +19,6 @@ impl CliArgs {
       verbose: false,
       plugins: vec![],
       config: None,
-      incremental: false,
-      file_patterns: vec![],
-      exclude_file_patterns: vec![],
-      allow_node_modules: false,
     }
   }
 
@@ -45,23 +36,19 @@ impl CliArgs {
       verbose: false,
       config: None,
       plugins: Vec::new(),
-      incremental: false,
-      allow_node_modules: false,
-      file_patterns: Vec::new(),
-      exclude_file_patterns: Vec::new(),
     }
   }
 }
 
 #[derive(Debug, PartialEq)]
 pub enum SubCommand {
-  Check,
+  Check(CheckSubCommand),
   Fmt(FmtSubCommand),
   Config(ConfigSubCommand),
   ClearCache,
-  OutputFilePaths,
+  OutputFilePaths(OutputFilePathsSubCommand),
   OutputResolvedConfig,
-  OutputFormatTimes,
+  OutputFormatTimes(OutputFormatTimesSubCommand),
   Version,
   License,
   Help(String),
@@ -73,8 +60,16 @@ pub enum SubCommand {
 }
 
 #[derive(Debug, PartialEq)]
+pub struct CheckSubCommand {
+  pub patterns: FilePatternArgs,
+  pub incremental: bool,
+}
+
+#[derive(Debug, PartialEq)]
 pub struct FmtSubCommand {
   pub diff: bool,
+  pub patterns: FilePatternArgs,
+  pub incremental: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -82,6 +77,16 @@ pub enum ConfigSubCommand {
   Init,
   Update,
   Add(Option<String>),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct OutputFilePathsSubCommand {
+  pub patterns: FilePatternArgs,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct OutputFormatTimesSubCommand {
+  pub patterns: FilePatternArgs,
 }
 
 #[derive(Debug, PartialEq)]
@@ -93,6 +98,7 @@ pub struct EditorServiceSubCommand {
 pub struct StdInFmtSubCommand {
   pub file_name_or_path: String,
   pub file_text: String,
+  pub patterns: FilePatternArgs,
 }
 
 #[derive(Debug, PartialEq)]
@@ -104,12 +110,19 @@ pub enum HiddenSubCommand {
   WindowsUninstall(String),
 }
 
+#[derive(Debug, Default, PartialEq)]
+pub struct FilePatternArgs {
+  pub file_patterns: Vec<String>,
+  pub exclude_file_patterns: Vec<String>,
+  pub allow_node_modules: bool,
+}
+
 pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: TStdInReader) -> Result<CliArgs> {
   // this is all done because clap doesn't output exactly how I like
   if args.len() == 1 || (args.len() == 2 && (args[1] == "help" || args[1] == "--help")) {
     let mut help_text = Vec::new();
     let mut cli_parser = create_cli_parser(/* is outputting help */ true);
-    cli_parser.get_matches_from_safe_borrow(vec![""])?;
+    cli_parser.try_get_matches_from_mut(vec![""])?;
     cli_parser.write_help(&mut help_text).unwrap();
     return Ok(CliArgs::new_with_sub_command(SubCommand::Help(String::from_utf8(help_text).unwrap())));
   } else if args.len() == 2 && (args[1] == "-v" || args[1] == "--version") {
@@ -117,13 +130,13 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
   }
 
   let cli_parser = create_cli_parser(false);
-  let matches = match cli_parser.get_matches_from_safe(&args) {
+  let matches = match cli_parser.try_get_matches_from(&args) {
     Ok(result) => result,
     Err(err) => return Err(err.into()),
   };
 
-  let sub_command = match matches.subcommand() {
-    ("fmt", Some(matches)) => {
+  let sub_command = match matches.subcommand().unwrap() {
+    ("fmt", matches) => {
       if let Some(file_name_path_or_extension) = matches.value_of("stdin").map(String::from) {
         let file_name_or_path = if file_name_path_or_extension.contains('.') {
           file_name_path_or_extension
@@ -134,63 +147,77 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
         SubCommand::StdInFmt(StdInFmtSubCommand {
           file_name_or_path,
           file_text: std_in_reader.read()?,
+          patterns: parse_file_patterns(matches)?,
         })
       } else {
         SubCommand::Fmt(FmtSubCommand {
           diff: matches.is_present("diff"),
+          patterns: parse_file_patterns(matches)?,
+          incremental: parse_incremental(matches),
         })
       }
     }
-    ("check", _) => SubCommand::Check,
+    ("check", matches) => SubCommand::Check(CheckSubCommand {
+      patterns: parse_file_patterns(matches)?,
+      incremental: parse_incremental(matches),
+    }),
     ("init", _) => SubCommand::Config(ConfigSubCommand::Init),
-    ("config", Some(matches)) => SubCommand::Config(match matches.subcommand() {
+    ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
       ("init", _) => ConfigSubCommand::Init,
-      ("add", Some(matches)) => ConfigSubCommand::Add(matches.value_of("url-or-plugin-name").map(ToOwned::to_owned)),
+      ("add", matches) => ConfigSubCommand::Add(matches.value_of("url-or-plugin-name").map(ToOwned::to_owned)),
       ("update", _) => ConfigSubCommand::Update,
       _ => unreachable!(),
     }),
     ("clear-cache", _) => SubCommand::ClearCache,
-    ("output-file-paths", _) => SubCommand::OutputFilePaths,
+    ("output-file-paths", matches) => SubCommand::OutputFilePaths(OutputFilePathsSubCommand {
+      patterns: parse_file_patterns(matches)?,
+    }),
     ("output-resolved-config", _) => SubCommand::OutputResolvedConfig,
-    ("output-format-times", _) => SubCommand::OutputFormatTimes,
+    ("output-format-times", matches) => SubCommand::OutputFormatTimes(OutputFormatTimesSubCommand {
+      patterns: parse_file_patterns(matches)?,
+    }),
     ("version", _) => SubCommand::Version,
     ("license", _) => SubCommand::License,
     ("editor-info", _) => SubCommand::EditorInfo,
-    ("editor-service", Some(matches)) => SubCommand::EditorService(EditorServiceSubCommand {
+    ("editor-service", matches) => SubCommand::EditorService(EditorServiceSubCommand {
       parent_pid: matches.value_of("parent-pid").and_then(|v| v.parse::<u32>().ok()).unwrap(),
     }),
     #[cfg(target_os = "windows")]
-    ("hidden", Some(matches)) => SubCommand::Hidden(match matches.subcommand() {
-      ("windows-install", Some(matches)) => HiddenSubCommand::WindowsInstall(matches.value_of("install-path").map(String::from).unwrap()),
-      ("windows-uninstall", Some(matches)) => HiddenSubCommand::WindowsUninstall(matches.value_of("install-path").map(String::from).unwrap()),
+    ("hidden", matches) => SubCommand::Hidden(match matches.subcommand().unwrap() {
+      ("windows-install", matches) => HiddenSubCommand::WindowsInstall(matches.value_of("install-path").map(String::from).unwrap()),
+      ("windows-uninstall", matches) => HiddenSubCommand::WindowsUninstall(matches.value_of("install-path").map(String::from).unwrap()),
       _ => unreachable!(),
     }),
     _ => {
       unreachable!();
     }
   };
-  let sub_command_matches = match matches.subcommand() {
-    (_, Some(matches)) => Some(matches),
-    _ => None,
-  };
-
-  let file_patterns = sub_command_matches.map(|m| values_to_vec(m.values_of("files"))).unwrap_or_default();
-  let plugins = values_to_vec(matches.values_of("plugins"));
-
-  if !plugins.is_empty() && file_patterns.is_empty() {
-    validate_plugin_args_when_no_files(&plugins)?;
-  }
 
   Ok(CliArgs {
     sub_command,
     verbose: matches.is_present("verbose"),
     config: matches.value_of("config").map(String::from),
-    plugins,
-    incremental: sub_command_matches.map(|m| m.is_present("incremental")).unwrap_or(false),
-    allow_node_modules: sub_command_matches.map(|m| m.is_present("allow-node-modules")).unwrap_or(false),
-    file_patterns,
-    exclude_file_patterns: sub_command_matches.map(|m| values_to_vec(m.values_of("excludes"))).unwrap_or_default(),
+    plugins: values_to_vec(matches.values_of("plugins")),
   })
+}
+
+fn parse_file_patterns(matches: &ArgMatches) -> Result<FilePatternArgs> {
+  let plugins = values_to_vec(matches.values_of("plugins"));
+  let file_patterns = values_to_vec(matches.values_of("files"));
+
+  if !plugins.is_empty() && file_patterns.is_empty() {
+    validate_plugin_args_when_no_files(&plugins)?;
+  }
+
+  Ok(FilePatternArgs {
+    allow_node_modules: matches.is_present("allow-node-modules"),
+    file_patterns,
+    exclude_file_patterns: values_to_vec(matches.values_of("excludes")),
+  })
+}
+
+fn parse_incremental(matches: &ArgMatches) -> bool {
+  matches.is_present("incremental")
 }
 
 fn values_to_vec(values: Option<clap::Values>) -> Vec<String> {
@@ -213,10 +240,9 @@ fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
         bail!("{}", start_message);
       } else {
         bail!(
-          "{}\n\nMaybe you meant to add two dashes after the plugins?\n  --plugins {} -- {} [etc...]",
+          "{}\n\nMaybe you meant to add two dashes after the plugins?\n  --plugins {} -- [file patterns]...",
           start_message,
           plugins[..i].join(" "),
-          plugins[i],
         )
       }
     }
@@ -224,34 +250,27 @@ fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
   Ok(())
 }
 
-fn create_cli_parser<'a, 'b>(is_outputting_main_help: bool) -> clap::App<'a, 'b> {
-  use clap::App;
+fn create_cli_parser<'a>(is_outputting_main_help: bool) -> clap::Command<'a> {
   use clap::AppSettings;
   use clap::Arg;
-  use clap::SubCommand;
-  let app = App::new("dprint");
+  use clap::Command;
+  let app = Command::new("dprint");
 
   // hack to get this to display the way I want
   let app = if is_outputting_main_help {
-    app
-      .setting(AppSettings::DisableHelpSubcommand)
-      .setting(AppSettings::DisableHelpFlags)
-      .setting(AppSettings::DisableVersion)
+    app.disable_help_subcommand(true).disable_version_flag(true).disable_help_flag(true)
   } else {
-    app.setting(AppSettings::SubcommandRequiredElseHelp)
+    app.subcommand_required(true)
   };
 
-  app.setting(AppSettings::UnifiedHelpMessage)
+  app
     .setting(AppSettings::DeriveDisplayOrder)
     .bin_name("dprint")
-    .version_short("v")
     .version(env!("CARGO_PKG_VERSION"))
     .author("Copyright 2020-2022 by David Sherret")
     .about("Auto-formats source code based on the specified plugins.")
-    .usage("dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...")
-    // .help_about("Prints help information.") // todo: Enable once clap supports this as I want periods
-    // .version_aboute("Prints the version.")
-    .template(r#"{bin} {version}
+    .override_usage("dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...")
+    .help_template(r#"{bin} {version}
 {author}
 
 {about}
@@ -265,13 +284,13 @@ SUBCOMMANDS:
 More details at `dprint help <SUBCOMMAND>`
 
 OPTIONS:
-{unified}
+{options}
 
 ENVIRONMENT VARIABLES:
   DPRINT_CACHE_DIR    The directory to store the dprint cache. Note that
                       this directory may be periodically deleted by the CLI.
-
-{after-help}"#)
+  HTTPS_PROXY         Proxy to use when downloading plugins or configuration
+                      files (set HTTP_PROXY for HTTP).{after-help}"#)
     .after_help(
             r#"GETTING STARTED:
   1. Navigate to the root directory of a code repository.
@@ -297,16 +316,16 @@ EXAMPLES:
     dprint fmt "**/*.{ts,tsx,js,jsx,json}""#,
     )
     .subcommand(
-      SubCommand::with_name("init")
+      Command::new("init")
         .about("Initializes a configuration file in the current directory.")
     )
     .subcommand(
-      SubCommand::with_name("fmt")
+      Command::new("fmt")
         .about("Formats the source files and writes the result to the file system.")
         .add_resolve_file_path_args()
         .add_incremental_arg()
         .arg(
-          Arg::with_name("stdin")
+          Arg::new("stdin")
             .long("stdin")
             .value_name("extension/file-name/file-path")
             .help("Format stdin and output the result to stdout. Provide an absolute file path to apply the inclusion and exclusion rules or an extension or file name to always format the text.")
@@ -314,7 +333,7 @@ EXAMPLES:
             .takes_value(true)
         )
         .arg(
-          Arg::with_name("diff")
+          Arg::new("diff")
             .long("diff")
             .help("Outputs a check-like diff of every formatted file.")
             .takes_value(false)
@@ -322,115 +341,108 @@ EXAMPLES:
         )
     )
     .subcommand(
-      SubCommand::with_name("check")
+      Command::new("check")
         .about("Checks for any files that haven't been formatted.")
         .add_resolve_file_path_args()
         .add_incremental_arg()
     )
     .subcommand(
-      SubCommand::with_name("config")
+      Command::new("config")
         .about("Functionality related to the configuration file.")
-        .setting(AppSettings::SubcommandRequiredElseHelp)
+        .subcommand_required(true)
         .subcommand(
-          SubCommand::with_name("init")
+          Command::new("init")
             .about("Initializes a configuration file in the current directory.")
         )
         .subcommand(
-          SubCommand::with_name("update")
+          Command::new("update")
             .about("Updates the plugins in the configuration file.")
         )
         .subcommand(
-          SubCommand::with_name("add")
+          Command::new("add")
             .about("Adds a plugin to the configuration file.")
             .arg(
-              Arg::with_name("url-or-plugin-name")
+              Arg::new("url-or-plugin-name")
                 .required(false)
                 .takes_value(true)
           )
         )
     )
     .subcommand(
-      SubCommand::with_name("output-file-paths")
+      Command::new("output-file-paths")
         .about("Prints the resolved file paths for the plugins based on the args and configuration.")
         .add_resolve_file_path_args()
     )
     .subcommand(
-      SubCommand::with_name("output-resolved-config")
+      Command::new("output-resolved-config")
         .about("Prints the resolved configuration for the plugins based on the args and configuration.")
     )
     .subcommand(
-      SubCommand::with_name("output-format-times")
+      Command::new("output-format-times")
         .about("Prints the amount of time it takes to format each file. Use this for debugging.")
         .add_resolve_file_path_args()
     )
     .subcommand(
-      SubCommand::with_name("clear-cache")
+      Command::new("clear-cache")
         .about("Deletes the plugin cache directory.")
     )
     .subcommand(
-      SubCommand::with_name("license")
+      Command::new("license")
         .about("Outputs the software license.")
     )
     .subcommand(
-      SubCommand::with_name("editor-info")
-        .setting(AppSettings::Hidden)
+      Command::new("editor-info")
+        .hide(true)
     )
     .subcommand(
-      SubCommand::with_name("editor-service")
-        .setting(AppSettings::Hidden)
+      Command::new("editor-service")
+        .hide(true)
         .arg(
-          Arg::with_name("parent-pid")
+          Arg::new("parent-pid")
             .long("parent-pid")
             .required(true)
             .takes_value(true)
         )
     )
     .arg(
-      Arg::with_name("config")
+      Arg::new("config")
         .long("config")
-        .short("c")
+        .short('c')
         .help("Path or url to JSON configuration file. Defaults to dprint.json or .dprint.json in current or ancestor directory when not provided.")
         .global(true)
         .takes_value(true),
     )
     .arg(
-      Arg::with_name("plugins")
+      Arg::new("plugins")
         .long("plugins")
         .value_name("urls/files")
         .help("List of urls or file paths of plugins to use. This overrides what is specified in the config file.")
         .global(true)
         .takes_value(true)
-        .multiple(true),
+        .multiple_values(true)
     )
     .arg(
-      Arg::with_name("verbose")
+      Arg::new("verbose")
         .long("verbose")
         .help("Prints additional diagnostic information.")
         .global(true)
         .takes_value(false),
     )
-    .arg(
-      Arg::with_name("version")
-        .short("v")
-        .long("version")
-        .help("Prints the version.")
-        .takes_value(false),
-    )
     .subcommand(
-      SubCommand::with_name("hidden")
-        .setting(AppSettings::Hidden)
+      Command::new("hidden")
+        .hide(true)
         .subcommand(
-          SubCommand::with_name("windows-install")
+          Command::new("windows-install")
             .arg(
-              Arg::with_name("install-path")
+              Arg::new("install-path")
                 .takes_value(true)
                 .required(true)
             )
         )
         .subcommand(
-          SubCommand::with_name("windows-uninstall")
+          Command::new("windows-uninstall")
             .arg(
-              Arg::with_name("install-path")
+              Arg::new("install-path")
                 .takes_value(true)
                 .required(true)
             )
@@ -443,26 +455,26 @@ trait ClapExtensions {
   fn add_incremental_arg(self) -> Self;
 }
 
-impl<'a, 'b> ClapExtensions for clap::App<'a, 'b> {
+impl<'a> ClapExtensions for clap::Command<'a> {
   fn add_resolve_file_path_args(self) -> Self {
     use clap::Arg;
     self
       .arg(
-        Arg::with_name("files")
+        Arg::new("files")
           .help("List of file patterns in quotes to format. This overrides what is specified in the config file.")
           .takes_value(true)
-          .multiple(true),
+          .multiple_values(true),
       )
       .arg(
-        Arg::with_name("excludes")
+        Arg::new("excludes")
           .long("excludes")
           .value_name("patterns")
           .help("List of file patterns or directories in quotes to exclude when formatting. This overrides what is specified in the config file.")
           .takes_value(true)
-          .multiple(true),
+          .multiple_values(true),
       )
       .arg(
-        Arg::with_name("allow-node-modules")
+        Arg::new("allow-node-modules")
           .long("allow-node-modules")
           .help("Allows traversing node module directories (unstable - This flag will be renamed to be non-node specific in the future).")
           .takes_value(false),
@@ -472,7 +484,7 @@ impl<'a, 'b> ClapExtensions for clap::App<'a, 'b> {
   fn add_incremental_arg(self) -> Self {
     use clap::Arg;
     self.arg(
-      Arg::with_name("incremental")
+      Arg::new("incremental")
         .long("incremental")
         .help("Only format files when they change. This may alternatively be specified in the configuration file.")
         .takes_value(false),
@@ -505,7 +517,7 @@ mod test {
       concat!(
         "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .exe-plugin extension.\n\n",
         "Maybe you meant to add two dashes after the plugins?\n",
-        "  --plugins https://plugins.dprint.dev/test.wasm -- other.ts [etc...]",
+        "  --plugins https://plugins.dprint.dev/test.wasm -- [file patterns]...",
       )
     );
   }
