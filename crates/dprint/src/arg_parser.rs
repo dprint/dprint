@@ -240,10 +240,9 @@ fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
         bail!("{}", start_message);
       } else {
         bail!(
-          "{}\n\nMaybe you meant to add two dashes after the plugins?\n  --plugins {} -- {} [etc...]",
+          "{}\n\nMaybe you meant to add two dashes after the plugins?\n  --plugins {} -- [file patterns go here...]",
           start_message,
           plugins[..i].join(" "),
-          plugins[i],
         )
       }
     }
@@ -516,7 +515,7 @@ mod test {
       concat!(
         "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .exe-plugin extension.\n\n",
         "Maybe you meant to add two dashes after the plugins?\n",
-        "  --plugins https://plugins.dprint.dev/test.wasm -- other.ts [etc...]",
+        "  --plugins https://plugins.dprint.dev/test.wasm -- [file patterns go here...]",
       )
     );
   }
