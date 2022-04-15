@@ -240,7 +240,7 @@ fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
         bail!("{}", start_message);
       } else {
         bail!(
-          "{}\n\nMaybe you meant to add two dashes after the plugins?\n  --plugins {} -- [file patterns go here...]",
+          "{}\n\nMaybe you meant to add two dashes after the plugins?\n  --plugins {} -- [file patterns]...",
           start_message,
           plugins[..i].join(" "),
         )
@@ -288,7 +288,9 @@ OPTIONS:
 
 ENVIRONMENT VARIABLES:
   DPRINT_CACHE_DIR    The directory to store the dprint cache. Note that
-                      this directory may be periodically deleted by the CLI.{after-help}"#)
+                      this directory may be periodically deleted by the CLI.
+  HTTPS_PROXY         Proxy to use when downloading plugins or configuration
+                      files (set HTTP_PROXY for HTTP).{after-help}"#)
     .after_help(
             r#"GETTING STARTED:
   1. Navigate to the root directory of a code repository.
@@ -515,7 +517,7 @@ mod test {
       concat!(
         "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .exe-plugin extension.\n\n",
         "Maybe you meant to add two dashes after the plugins?\n",
-        "  --plugins https://plugins.dprint.dev/test.wasm -- [file patterns go here...]",
+        "  --plugins https://plugins.dprint.dev/test.wasm -- [file patterns]...",
       )
     );
   }

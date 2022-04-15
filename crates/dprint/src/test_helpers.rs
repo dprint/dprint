@@ -169,6 +169,8 @@ OPTIONS:
 ENVIRONMENT VARIABLES:
   DPRINT_CACHE_DIR    The directory to store the dprint cache. Note that
                       this directory may be periodically deleted by the CLI.
+  HTTPS_PROXY         Proxy to use when downloading plugins or configuration
+                      files (set HTTP_PROXY for HTTP).
 
 GETTING STARTED:
   1. Navigate to the root directory of a code repository.
