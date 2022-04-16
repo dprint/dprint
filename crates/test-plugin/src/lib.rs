@@ -1,4 +1,5 @@
 use anyhow::bail;
+use anyhow::Result;
 use dprint_core::configuration::get_unknown_property_diagnostics;
 use dprint_core::configuration::get_value;
 use dprint_core::configuration::ConfigKeyMap;
@@ -69,34 +70,56 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
     config: &Configuration,
     mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> FormatResult,
   ) -> FormatResult {
-    fn handle_host_response(result: FormatResult, original_text: &str) -> FormatResult {
+    fn handle_host_response(result: FormatResult, original_text: &str) -> Result<String> {
       match result {
-        Ok(Some(text)) => Ok(Some(text)),
-        Ok(None) => Ok(Some(original_text.to_string())),
+        Ok(Some(text)) => Ok(text),
+        Ok(None) => Ok(original_text.to_string()),
         Err(err) => Err(err),
       }
     }
 
-    if self.has_panicked {
+    let (had_suffix, file_text) = if let Some(text) = file_text.strip_suffix(&format!("_{}", config.ending)) {
+      (true, text.to_string())
+    } else {
+      (false, file_text.to_string())
+    };
+
+    let inner_format_text = if self.has_panicked {
       panic!("Previously panicked. Plugin should not have been used by the CLI again.")
     } else if let Some(new_text) = file_text.strip_prefix("plugin: ") {
-      handle_host_response(
-        format_with_host(&PathBuf::from("./test.txt_ps"), new_text.to_string(), &ConfigKeyMap::new()),
-        new_text,
+      format!(
+        "plugin: {}",
+        handle_host_response(
+          format_with_host(&PathBuf::from("./test.txt_ps"), new_text.to_string(), &ConfigKeyMap::new()),
+          new_text,
+        )?,
       )
     } else if let Some(new_text) = file_text.strip_prefix("plugin-config: ") {
       let mut config_map = ConfigKeyMap::new();
       config_map.insert("ending".to_string(), "custom_config".into());
-      handle_host_response(format_with_host(&PathBuf::from("./test.txt_ps"), new_text.to_string(), &config_map), new_text)
+      format!(
+        "plugin-config: {}",
+        handle_host_response(format_with_host(&PathBuf::from("./test.txt_ps"), new_text.to_string(), &config_map), new_text)?
+      )
     } else if file_text == "should_error" {
       bail!("Did error.")
     } else if file_text == "should_panic" {
       self.has_panicked = true;
       panic!("Test panic")
-    } else if file_text.ends_with(&config.ending) {
+    } else if file_text == "unstable_fmt_then_error" {
+      "should_error".to_string()
+    } else if file_text == "unstable_fmt_true" {
+      "unstable_fmt_false".to_string()
+    } else if file_text == "unstable_fmt_false" {
+      "unstable_fmt_true".to_string()
+    } else {
+      file_text.to_string()
+    };
+
+    if had_suffix && inner_format_text == file_text {
       Ok(None)
     } else {
-      Ok(Some(format!("{}_{}", file_text, config.ending)))
+      Ok(Some(format!("{}_{}", inner_format_text, config.ending)))
     }
   }
 }

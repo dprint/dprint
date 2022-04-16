@@ -1,8 +1,6 @@
 use bumpalo::Bump;
 use std::cell::RefCell;
 
-use super::utils::with_bump_allocator;
-use super::utils::with_bump_allocator_mut;
 use super::*;
 
 /// Options for printing the print items.
@@ -35,15 +33,18 @@ impl PrintOptions {
 /// that is reset once this function returns.
 pub fn format(get_print_items: impl FnOnce() -> PrintItems, options: PrintOptions) -> String {
   increment_formatting_count();
+  let old_counts = thread_state::take_counts();
   let print_items = get_print_items();
 
-  with_bump_allocator_mut(|bump| {
+  let result = thread_state::with_bump_allocator_mut(|bump| {
     let result = print_with_allocator(bump, &print_items, &options);
     if decrement_formatting_count() {
       bump.reset();
     }
     result
-  })
+  });
+  thread_state::set_counts(old_counts);
+  result
 }
 
 /// Prints out the print items using the provided options.
@@ -55,7 +56,10 @@ pub fn print(print_items: PrintItems, options: PrintOptions) -> String {
   // reset the allocator.
   panic_if_not_formatting();
 
-  with_bump_allocator(|bump| print_with_allocator(bump, &print_items, &options))
+  let old_counts = thread_state::take_counts();
+  let result = thread_state::with_bump_allocator(|bump| print_with_allocator(bump, &print_items, &options));
+  thread_state::set_counts(old_counts);
+  result
 }
 
 fn print_with_allocator(bump: &Bump, print_items: &PrintItems, options: &PrintOptions) -> String {
@@ -82,7 +86,7 @@ pub fn trace_printing(get_print_items: impl FnOnce() -> PrintItems, options: Pri
   increment_formatting_count();
   let print_items = get_print_items();
 
-  with_bump_allocator_mut(|bump| {
+  thread_state::with_bump_allocator_mut(|bump| {
     let tracing_result = Printer::new(bump, print_items.first_node, {
       let mut printer_options = options.to_printer_options();
       printer_options.enable_tracing = true;
@@ -140,4 +144,54 @@ fn panic_if_not_formatting() {
       panic!("dprint_core::formatting::print cannot be called except within the provided closure to dprint_core::formatting::format");
     }
   })
+}
+
+#[cfg(test)]
+mod test {
+  use crate::formatting::LineNumber;
+
+  use super::super::PrintItems;
+  use super::format;
+  use super::PrintOptions;
+
+  #[test]
+  fn test_format_in_format() {
+    assert_eq!(
+      format(
+        || {
+          let mut items = PrintItems::new();
+          assert_eq!(LineNumber::new("").unique_id(), 0);
+          assert_eq!(LineNumber::new("").unique_id(), 1);
+          assert_eq!(LineNumber::new("").unique_id(), 2);
+          items.push_str("test");
+          items.push_str(&format(
+            || {
+              // It's important that these start incrementing from
+              // 0 when formatting within a format because these
+              // are stored as resolved within the printer using
+              // a vector and the id is the index
+              assert_eq!(LineNumber::new("").unique_id(), 0);
+              assert_eq!(LineNumber::new("").unique_id(), 1);
+              "test".into()
+            },
+            get_print_options(),
+          ));
+          // now ensure it goes back to where it left off
+          assert_eq!(LineNumber::new("").unique_id(), 3);
+          items
+        },
+        get_print_options(),
+      ),
+      "testtest"
+    );
+  }
+
+  fn get_print_options() -> PrintOptions {
+    PrintOptions {
+      max_width: 40,
+      indent_width: 2,
+      use_tabs: false,
+      new_line_text: "\n",
+    }
+  }
 }

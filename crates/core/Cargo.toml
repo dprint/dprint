@@ -1,6 +1,6 @@
 [package]
 name = "dprint-core"
-version = "0.54.2"
+version = "0.55.3"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2021"
 homepage = "https://github.com/dprint/dprint/tree/main/crates/core"

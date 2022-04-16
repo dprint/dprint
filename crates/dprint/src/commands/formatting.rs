@@ -11,13 +11,16 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+use crate::arg_parser::CheckSubCommand;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::FmtSubCommand;
+use crate::arg_parser::OutputFormatTimesSubCommand;
 use crate::arg_parser::StdInFmtSubCommand;
 use crate::cache::Cache;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
 use crate::format::run_parallelized;
+use crate::format::EnsureStableFormat;
 use crate::incremental::get_incremental_file;
 use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins_and_err_if_empty;
@@ -41,7 +44,7 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
   plugin_pools.set_plugins(plugins, &config.base_path)?;
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
-    let file_matcher = FileMatcher::new(&config, args, environment)?;
+    let file_matcher = FileMatcher::new(&config, &cmd.patterns, environment)?;
     // canonicalize the file path, then check if it's in the list of file paths.
     let resolved_file_path = environment.canonicalize(&cmd.file_name_or_path)?;
     // log the file text as-is since it's not in the list of files to format
@@ -76,6 +79,7 @@ async fn output_stdin_format<TEnvironment: Environment>(
 }
 
 pub async fn output_format_times<TEnvironment: Environment>(
+  cmd: &OutputFormatTimesSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
@@ -84,12 +88,12 @@ pub async fn output_format_times<TEnvironment: Environment>(
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  let file_paths = get_and_resolve_file_paths(&config, args, environment).await?;
+  let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, environment).await?;
   let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
-  run_parallelized(file_paths_by_plugin, environment, plugin_pools, None, {
+  run_parallelized(file_paths_by_plugin, environment, plugin_pools, None, EnsureStableFormat(false), {
     let durations = durations.clone();
     move |file_path, _, _, _, start_instant, _| {
       let duration = start_instant.elapsed().as_millis();
@@ -110,6 +114,7 @@ pub async fn output_format_times<TEnvironment: Environment>(
 }
 
 pub async fn check<TEnvironment: Environment>(
+  cmd: &CheckSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
   cache: &Cache<TEnvironment>,
@@ -118,14 +123,14 @@ pub async fn check<TEnvironment: Environment>(
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  let file_paths = get_and_resolve_file_paths(&config, args, environment).await?;
+  let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, environment).await?;
   let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
-  let incremental_file = get_incremental_file(args, &config, cache, &plugin_pools, environment);
+  let incremental_file = get_incremental_file(cmd.incremental, &config, cache, &plugin_pools, environment);
   let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
-  run_parallelized(file_paths_by_plugin, environment, plugin_pools, incremental_file, {
+  run_parallelized(file_paths_by_plugin, environment, plugin_pools, incremental_file, EnsureStableFormat(false), {
     let not_formatted_files_count = not_formatted_files_count.clone();
     move |file_path, file_text, formatted_text, _, _, environment| {
       if formatted_text != file_text {
@@ -161,36 +166,43 @@ pub async fn format<TEnvironment: Environment>(
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  let file_paths = get_and_resolve_file_paths(&config, args, environment).await?;
+  let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, environment).await?;
   let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
-  let incremental_file = get_incremental_file(args, &config, cache, &plugin_pools, environment);
+  let incremental_file = get_incremental_file(cmd.incremental, &config, cache, &plugin_pools, environment);
   let formatted_files_count = Arc::new(AtomicUsize::new(0));
   let output_diff = cmd.diff;
 
-  run_parallelized(file_paths_by_plugins, environment, plugin_pools, incremental_file.clone(), {
-    let formatted_files_count = formatted_files_count.clone();
-    move |file_path, file_text, formatted_text, had_bom, _, environment| {
-      if formatted_text != file_text {
-        if output_diff {
-          output_difference(file_path, file_text, &formatted_text, environment);
+  run_parallelized(
+    file_paths_by_plugins,
+    environment,
+    plugin_pools,
+    incremental_file.clone(),
+    EnsureStableFormat(incremental_file.is_some()),
+    {
+      let formatted_files_count = formatted_files_count.clone();
+      move |file_path, file_text, formatted_text, had_bom, _, environment| {
+        if formatted_text != file_text {
+          if output_diff {
+            output_difference(file_path, file_text, &formatted_text, environment);
+          }
+
+          let new_text = if had_bom {
+            // add back the BOM
+            format!("{}{}", BOM_CHAR, formatted_text)
+          } else {
+            formatted_text
+          };
+
+          formatted_files_count.fetch_add(1, Ordering::SeqCst);
+          environment.write_file(&file_path, &new_text)?;
         }
 
-        let new_text = if had_bom {
-          // add back the BOM
-          format!("{}{}", BOM_CHAR, formatted_text)
-        } else {
-          formatted_text
-        };
-
-        formatted_files_count.fetch_add(1, Ordering::SeqCst);
-        environment.write_file(&file_path, &new_text)?;
+        Ok(())
       }
-
-      Ok(())
-    }
-  })
+    },
+  )
   .await?;
 
   let formatted_files_count = formatted_files_count.load(Ordering::SeqCst);
@@ -352,7 +364,7 @@ mod test {
     run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
-    assert_eq!(environment.read_file(&file_path).unwrap(), "format this text");
+    assert_eq!(environment.read_file(&file_path).unwrap(), "plugin: format this text_formatted");
   }
 
   #[test]
@@ -364,7 +376,10 @@ mod test {
     run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
-    assert_eq!(environment.read_file(&file_path).unwrap(), "format this text_formatted_process");
+    assert_eq!(
+      environment.read_file(&file_path).unwrap(),
+      "plugin: format this text_formatted_process_formatted"
+    );
   }
 
   #[test]
@@ -378,8 +393,14 @@ mod test {
     run_test_cli(vec!["fmt", "/*.txt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
-    assert_eq!(environment.read_file(&file_path1).unwrap(), "format this text_custom_config");
-    assert_eq!(environment.read_file(&file_path2).unwrap(), "format this text_formatted_process");
+    assert_eq!(
+      environment.read_file(&file_path1).unwrap(),
+      "plugin-config: format this text_custom_config_formatted"
+    );
+    assert_eq!(
+      environment.read_file(&file_path2).unwrap(),
+      "plugin: format this text_formatted_process_formatted"
+    );
   }
 
   #[test]
@@ -404,7 +425,7 @@ mod test {
     run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
-    assert_eq!(environment.read_file(&file_path).unwrap(), "format this text");
+    assert_eq!(environment.read_file(&file_path).unwrap(), "plugin: format this text_formatted_process");
   }
 
   #[test]
@@ -416,7 +437,10 @@ mod test {
     run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
-    assert_eq!(environment.read_file(&file_path).unwrap(), "format this text_formatted");
+    assert_eq!(
+      environment.read_file(&file_path).unwrap(),
+      "plugin: format this text_formatted_formatted_process"
+    );
   }
 
   #[test]
@@ -430,8 +454,14 @@ mod test {
     run_test_cli(vec!["fmt", "*.txt_ps"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
-    assert_eq!(environment.read_file(&file_path1).unwrap(), "format this text_custom_config");
-    assert_eq!(environment.read_file(&file_path2).unwrap(), "format this text_formatted");
+    assert_eq!(
+      environment.read_file(&file_path1).unwrap(),
+      "plugin-config: format this text_custom_config_formatted_process"
+    );
+    assert_eq!(
+      environment.read_file(&file_path2).unwrap(),
+      "plugin: format this text_formatted_formatted_process"
+    );
   }
 
   #[test]
@@ -649,7 +679,7 @@ mod test {
     assert_eq!(environment.read_file(&file_path4).unwrap(), "text4_ps");
     assert_eq!(environment.read_file(&file_path5).unwrap(), "text5_wasm");
     // this will request formatting a .txt_ps file, but should be caught be the associations
-    assert_eq!(environment.read_file(&file_path6).unwrap(), "text6_wasm");
+    assert_eq!(environment.read_file(&file_path6).unwrap(), "plugin: text6_wasm_wasm");
   }
 
   #[test]
@@ -705,7 +735,7 @@ mod test {
     assert_eq!(environment.read_file(&file_path3).unwrap(), "text3_wasm_ps");
     assert_eq!(environment.read_file(&file_path4).unwrap(), "text4_wasm_ps");
     assert_eq!(environment.read_file(&file_path5).unwrap(), "text5_wasm_ps");
-    assert_eq!(environment.read_file(&file_path6).unwrap(), "text6_wasm_ps");
+    assert_eq!(environment.read_file(&file_path6).unwrap(), "plugin: text6_wasm_ps_wasm_ps_ps");
   }
 
   #[test]
@@ -1393,6 +1423,50 @@ mod test {
   }
 
   #[test]
+  fn incremental_should_error_for_unstable_format() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(&file_path1, "unstable_fmt_true")
+      .build();
+
+    let result = run_test_cli(vec!["fmt", "--incremental", "*.txt"], &environment).err().unwrap();
+
+    assert_eq!(result.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![concat!(
+        "Error formatting /file1.txt. Message: Formatting not stable. Bailed after 5 tries. ",
+        "This indicates a bug in the plugin where it formats the file differently each time."
+      )
+      .to_string()]
+    );
+  }
+
+  #[test]
+  fn incremental_should_error_for_unstable_format_that_errors() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(&file_path1, "unstable_fmt_then_error")
+      .build();
+
+    let result = run_test_cli(vec!["fmt", "--incremental", "*.txt"], &environment).err().unwrap();
+
+    assert_eq!(result.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![concat!(
+        "Error formatting /file1.txt. Message: Formatting succeeded initially, but failed when ensuring a ",
+        "stable format. This is most likely a bug in the plugin where the text it produces is not ",
+        "syntatically correct. Please report this as a bug to the plugin that formatted this file.\n\n",
+        "Did error."
+      )
+      .to_string()]
+    );
+  }
+
+  #[test]
   fn should_not_output_when_no_files_need_formatting() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file("/file.txt", "text_formatted")
@@ -1534,7 +1608,7 @@ mod test {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
     let test_std_in = TestStdInReader::from("plugin: format this text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec!["format this text_formatted_process"]);
+    assert_eq!(environment.take_stdout_messages(), vec!["plugin: format this text_formatted_process_formatted"]);
   }
 
   #[test]
@@ -1623,22 +1697,26 @@ mod test {
 
   #[test]
   fn should_error_if_process_plugin_has_no_checksum_in_config() {
-    let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
       .with_default_config(|c| {
-        c.add_plugin("https://plugins.dprint.dev/test-process.exe-plugin");
+        c.clear_plugins().add_plugin("https://plugins.dprint.dev/test-process.exe-plugin");
       })
       .write_file("/test.txt_ps", "")
       .build();
     let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
+    let actual_plugin_file_checksum = test_helpers::get_test_process_plugin_checksum();
 
     assert_eq!(
       error_message.to_string(),
-      concat!(
-        "The plugin 'https://plugins.dprint.dev/test-process.exe-plugin' must have a checksum specified for security reasons ",
-        "since it is not a Wasm plugin. You may specify one by writing \"https://plugins.dprint.dev/test-process.exe-plugin@checksum-goes-here\" ",
-        "when providing the url in the configuration file. Check the plugin's release notes for what ",
-        "the checksum is or calculate it yourself if you trust the source (it's SHA-256)."
-      )
+      format!(
+        concat!(
+          "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: The plugin must have a checksum specified ",
+          "for security reasons since it is not a Wasm plugin. Check the plugin's release notes for what the checksum is or if ",
+          "you trust the source, you may specify \"https://plugins.dprint.dev/test-process.exe-plugin@{}\"."
+        ),
+        actual_plugin_file_checksum,
+      ),
     );
   }
 
@@ -1656,7 +1734,13 @@ mod test {
     assert_eq!(
       error_message.to_string(),
       format!(
-        "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: The checksum {} did not match the expected checksum of asdf.",
+        concat!(
+          "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: Invalid checksum specified ",
+          "in configuration file. Check the plugin's release notes for what the expected checksum is.\n\n",
+          "The checksum did not match the expected checksum.\n\n",
+          "Actual: {}\n",
+          "Expected: asdf"
+        ),
         actual_plugin_file_checksum,
       )
     );
@@ -1676,7 +1760,13 @@ mod test {
     assert_eq!(
       error_message.to_string(),
       format!(
-        "Error resolving plugin https://plugins.dprint.dev/test-plugin.wasm: The checksum {} did not match the expected checksum of asdf.",
+        concat!(
+          "Error resolving plugin https://plugins.dprint.dev/test-plugin.wasm: Invalid checksum specified ",
+          "in configuration file. Check the plugin's release notes for what the expected checksum is.\n\n",
+          "The checksum did not match the expected checksum.\n\n",
+          "Actual: {}\n",
+          "Expected: asdf"
+        ),
         actual_plugin_file_checksum,
       )
     );
@@ -1716,7 +1806,14 @@ mod test {
     assert_eq!(
       error_message.to_string(),
       format!(
-        "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: The checksum {} did not match the expected checksum of asdf.",
+        concat!(
+          "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: Invalid checksum found ",
+          "within process plugin's manifest file for 'https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip'. ",
+          "This is likely a bug in the process plugin. Please report it.\n\n",
+          "The checksum did not match the expected checksum.\n\n",
+          "Actual: {}\n",
+          "Expected: asdf"
+        ),
         actual_plugin_zip_file_checksum,
       )
     );

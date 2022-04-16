@@ -34,66 +34,46 @@ pub fn with_indent_if_start_of_line_indented(items: PrintItems) -> Condition {
 }
 
 pub struct NewLineIfHangingSpaceOtherwiseOptions {
-  pub start_info: Info,
-  pub end_info: Option<Info>,
+  pub start_lsil: LineStartIndentLevel,
+  pub end_lsil: Option<LineStartIndentLevel>,
   pub space_char: Option<PrintItems>,
 }
 
 pub fn new_line_if_hanging_space_otherwise(opts: NewLineIfHangingSpaceOtherwiseOptions) -> Condition {
   let space_char = opts.space_char.unwrap_or_else(|| " ".into());
-  let start_info = opts.start_info;
-  let end_info = opts.end_info;
+  let start_lsil = opts.start_lsil;
+  let end_lsil = opts.end_lsil;
 
   if_true_or(
     "newLineIfHangingSpaceOtherwise",
-    Rc::new(move |context| condition_helpers::is_hanging(context, &start_info, &end_info)),
+    Rc::new(move |context| condition_helpers::is_hanging(context, start_lsil, end_lsil)),
     Signal::NewLine.into(),
     space_char,
   )
 }
 
-pub fn new_line_if_hanging(start_info: Info, end_info: Option<Info>) -> Condition {
+pub fn new_line_if_hanging(start_lsil: LineStartIndentLevel, end_lsil: Option<LineStartIndentLevel>) -> Condition {
   if_true(
     "newlineIfHanging",
-    Rc::new(move |context| condition_helpers::is_hanging(context, &start_info, &end_info)),
+    Rc::new(move |context| condition_helpers::is_hanging(context, start_lsil, end_lsil)),
     Signal::NewLine.into(),
   )
 }
 
-/// This condition can be used to force the printer to jump back to the point
-/// this condition exists at once the provided info is resolved.
-pub fn force_reevaluation_once_resolved(info: Info) -> Condition {
-  Condition::new(
-    "forceReevaluationOnceInfoResolved",
-    ConditionProperties {
-      condition: Rc::new(move |context| {
-        let resolved_info = context.get_resolved_info(&info);
-        if resolved_info.is_some() {
-          Some(false)
-        } else {
-          None
-        }
-      }),
-      true_path: None,
-      false_path: None,
-    },
-  )
-}
-
-pub fn new_line_if_multiple_lines_space_or_new_line_otherwise(start_info: Info, end_info: Option<Info>) -> Condition {
+pub fn new_line_if_multiple_lines_space_or_new_line_otherwise(start_ln: LineNumber, end_ln: Option<LineNumber>) -> Condition {
   if_true_or(
     "newLineIfMultipleLinesSpaceOrNewLineOtherwise",
     Rc::new(move |context| {
-      let start_info = context.get_resolved_info(&start_info)?;
-      let end_info = {
-        if let Some(end_info) = &end_info {
-          context.get_resolved_info(end_info)?
+      let start_ln = context.resolved_line_number(start_ln)?;
+      let end_ln = {
+        if let Some(end_ln) = end_ln {
+          context.resolved_line_number(end_ln)?
         } else {
-          &context.writer_info
+          context.writer_info.line_number
         }
       };
 
-      Some(end_info.line_number > start_info.line_number)
+      Some(end_ln > start_ln)
     }),
     Signal::NewLine.into(),
     Signal::SpaceOrNewLine.into(),

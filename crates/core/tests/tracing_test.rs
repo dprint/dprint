@@ -6,7 +6,7 @@ fn test_tracing() {
   let trace_result = trace_printing(
     || {
       let mut print_items = PrintItems::new();
-      print_items.push_info(Info::new("info"));
+      print_items.push_info(LineNumber::new("line_number"));
       print_items.push_signal(Signal::NewLine);
       print_items.push_str("string");
       print_items.push_condition(conditions::if_true_or(

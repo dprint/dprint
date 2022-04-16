@@ -28,7 +28,7 @@ if (os.platform() === "win32") {
   if (!fs.existsSync("dprint")) {
     const installScriptPath = path.join(__dirname, "install.sh");
     fs.chmodSync(installScriptPath, "755");
-    child_process.execSync(`${installScriptPath} ${info.version}`, {
+    child_process.execSync(`"${installScriptPath}" ${info.version}`, {
       stdio: "inherit",
       cwd: __dirname,
     });

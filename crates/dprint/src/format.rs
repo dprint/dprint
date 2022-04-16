@@ -37,11 +37,15 @@ struct StoredSemaphore {
   semaphore: Arc<Semaphore>,
 }
 
+#[derive(Copy, Clone, PartialEq)]
+pub struct EnsureStableFormat(pub bool);
+
 pub async fn run_parallelized<F, TEnvironment: Environment>(
   file_paths_by_plugins: HashMap<PluginNames, Vec<PathBuf>>,
   environment: &TEnvironment,
   plugins_collection: Arc<PluginsCollection<TEnvironment>>,
   incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
+  ensure_stable_format: EnsureStableFormat,
   f: F,
 ) -> Result<()>
 where
@@ -136,7 +140,7 @@ where
                 }
               }
             });
-            let result = run_for_file_path(environment, incremental_file, plugins, file_path.clone(), f).await;
+            let result = run_for_file_path(environment, incremental_file, plugins, file_path.clone(), ensure_stable_format, f).await;
             long_format_token.cancel();
             if let Err(err) = result {
               if let Some(err) = err.downcast_ref::<CriticalFormatError>() {
@@ -173,6 +177,7 @@ where
     incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
     plugins: Arc<Vec<Arc<dyn InitializedPlugin>>>,
     file_path: PathBuf,
+    ensure_stable_format: EnsureStableFormat,
     f: F,
   ) -> Result<()>
   where
@@ -187,37 +192,12 @@ where
       }
     }
 
-    let (start_instant, formatted_text) = {
-      let start_instant = Instant::now();
-      let mut file_text = Cow::Borrowed(file_text.as_str());
-      let plugins_len = plugins.len();
-      for (i, plugin) in plugins.iter().enumerate() {
-        let start_instant = Instant::now();
-        let format_text_result = plugin
-          .format_text(InitializedPluginFormatRequest {
-            file_path: file_path.to_path_buf(),
-            file_text: file_text.to_string(),
-            range: None,
-            override_config: ConfigKeyMap::new(),
-            token: Arc::new(NullCancellationToken),
-          })
-          .await;
-        log_verbose!(
-          environment,
-          "Formatted file: {} in {}ms{}",
-          file_path.display(),
-          start_instant.elapsed().as_millis(),
-          if plugins_len > 1 {
-            format!(" (Plugin {}/{})", i + 1, plugins_len)
-          } else {
-            String::new()
-          },
-        );
-        if let Some(text) = format_text_result? {
-          file_text = Cow::Owned(text)
-        }
-      }
-      (start_instant, file_text.into_owned())
+    let (start_instant, formatted_text) = run_single_pass_for_file_path(environment.clone(), plugins.clone(), file_path.clone(), file_text.as_str()).await?;
+
+    let formatted_text = if ensure_stable_format.0 && formatted_text != file_text.as_str() {
+      get_stabilized_format_text(environment.clone(), plugins, file_path.clone(), formatted_text).await?
+    } else {
+      formatted_text
     };
 
     if let Some(incremental_file) = incremental_file {
@@ -227,6 +207,86 @@ where
     f(&file_path, file_text.as_str(), formatted_text, file_text.has_bom(), start_instant, &environment)?;
 
     Ok(())
+  }
+
+  async fn get_stabilized_format_text<TEnvironment: Environment>(
+    environment: TEnvironment,
+    plugins: Arc<Vec<Arc<dyn InitializedPlugin>>>,
+    file_path: PathBuf,
+    mut formatted_text: String,
+  ) -> Result<String> {
+    log_verbose!(environment, "Ensuring stable format: {}", file_path.display());
+    let mut count = 0;
+    loop {
+      match run_single_pass_for_file_path(environment.clone(), plugins.clone(), file_path.clone(), &formatted_text).await {
+        Ok((_, next_pass_text)) => {
+          if next_pass_text == formatted_text {
+            return Ok(formatted_text);
+          } else {
+            formatted_text = next_pass_text;
+            log_verbose!(environment, "Ensuring stable format failed on try {}: {}", count + 1, file_path.display());
+          }
+        }
+        Err(err) => {
+          bail!(
+            concat!(
+              "Formatting succeeded initially, but failed when ensuring a stable format. ",
+              "This is most likely a bug in the plugin where the text it produces is not syntatically correct. ",
+              "Please report this as a bug to the plugin that formatted this file.\n\n{:#}"
+            ),
+            err,
+          )
+        }
+      }
+      count += 1;
+      if count == 5 {
+        bail!(
+          concat!(
+            "Formatting not stable. Bailed after {} tries. This indicates a bug in the ",
+            "plugin where it formats the file differently each time."
+          ),
+          count
+        );
+      }
+    }
+  }
+
+  async fn run_single_pass_for_file_path<TEnvironment: Environment>(
+    environment: TEnvironment,
+    plugins: Arc<Vec<Arc<dyn InitializedPlugin>>>,
+    file_path: PathBuf,
+    file_text: &str,
+  ) -> Result<(Instant, String)> {
+    let start_instant = Instant::now();
+    let mut file_text = Cow::Borrowed(file_text);
+    let plugins_len = plugins.len();
+    for (i, plugin) in plugins.iter().enumerate() {
+      let start_instant = Instant::now();
+      let format_text_result = plugin
+        .format_text(InitializedPluginFormatRequest {
+          file_path: file_path.to_path_buf(),
+          file_text: file_text.to_string(),
+          range: None,
+          override_config: ConfigKeyMap::new(),
+          token: Arc::new(NullCancellationToken),
+        })
+        .await;
+      log_verbose!(
+        environment,
+        "Formatted file: {} in {}ms{}",
+        file_path.display(),
+        start_instant.elapsed().as_millis(),
+        if plugins_len > 1 {
+          format!(" (Plugin {}/{})", i + 1, plugins_len)
+        } else {
+          String::new()
+        },
+      );
+      if let Some(text) = format_text_result? {
+        file_text = Cow::Owned(text)
+      }
+    }
+    Ok((start_instant, file_text.into_owned()))
   }
 }
 

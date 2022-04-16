@@ -4,7 +4,6 @@ pub use incremental_file::IncrementalFile;
 
 use std::sync::Arc;
 
-use crate::arg_parser::CliArgs;
 use crate::cache::Cache;
 use crate::cache::CreateCacheItemOptions;
 use crate::configuration::ResolvedConfig;
@@ -12,13 +11,13 @@ use crate::environment::Environment;
 use crate::plugins::PluginsCollection;
 
 pub fn get_incremental_file<TEnvironment: Environment>(
-  args: &CliArgs,
+  incremental_cli_arg: bool,
   config: &ResolvedConfig,
   cache: &Cache<TEnvironment>,
   plugin_pools: &PluginsCollection<TEnvironment>,
   environment: &TEnvironment,
 ) -> Option<Arc<IncrementalFile<TEnvironment>>> {
-  if args.incremental || config.incremental {
+  if incremental_cli_arg || config.incremental {
     // the incremental file is stored in the cache with a key based on the root directory
     let base_path = match environment.canonicalize(&config.base_path) {
       Ok(base_path) => base_path,

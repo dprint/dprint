@@ -36,14 +36,46 @@ export interface PrintNode {
   printItem: PrintItem;
 }
 
-export type PrintItem = InfoItem | SignalItem | StringItem | ConditionItem | RcPathItem;
+export type PrintItem = InfoItem | SignalItem | StringItem | ConditionItem | RcPathItem | AnchorItem | ConditionReevaluationItem;
 
 export interface InfoItem {
   kind: "info";
   content: Info;
 }
 
-export interface Info {
+export type Info = LineNumber | ColumnNumber | IsStartOfLine | IndentLevel | LineStartColumnNumber | LineStartIndentLevel;
+
+export interface LineNumber {
+  kind: "lineNumber";
+  content: InfoInner;
+}
+
+export interface ColumnNumber {
+  kind: "columnNumber";
+  content: InfoInner;
+}
+
+export interface IsStartOfLine {
+  kind: "isStartOfLine";
+  content: InfoInner;
+}
+
+export interface IndentLevel {
+  kind: "indentLevel";
+  content: InfoInner;
+}
+
+export interface LineStartColumnNumber {
+  kind: "lineStartColumnNumber";
+  content: InfoInner;
+}
+
+export interface LineStartIndentLevel {
+  kind: "lineStartIndentLevel";
+  content: InfoInner;
+}
+
+export interface InfoInner {
   infoId: number;
   name: string;
 }
@@ -76,6 +108,16 @@ export interface StringItem {
   content: string;
 }
 
+export interface AnchorItem {
+  kind: "anchor";
+  content: LineNumberAnchor;
+}
+
+export interface LineNumberAnchor {
+  anchorId: number;
+  name: string;
+}
+
 export interface ConditionItem {
   kind: "condition";
   content: Condition;
@@ -88,6 +130,16 @@ export interface Condition {
   truePath: number | undefined;
   falsePath: number | undefined;
   dependentInfos: number[] | undefined;
+}
+
+export interface ConditionReevaluationItem {
+  kind: "conditionReevaluation";
+  content: ConditionReevaluation;
+}
+
+export interface ConditionReevaluation {
+  conditionId: number;
+  name: string;
 }
 
 export interface RcPathItem {

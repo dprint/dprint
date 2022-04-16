@@ -12,7 +12,11 @@ pub fn get_sha256_checksum(bytes: &[u8]) -> String {
 pub fn verify_sha256_checksum(bytes: &[u8], checksum: &str) -> Result<()> {
   let bytes_checksum = get_sha256_checksum(bytes);
   if bytes_checksum != checksum {
-    bail!("The checksum {} did not match the expected checksum of {}.", bytes_checksum, checksum)
+    bail!(
+      "The checksum did not match the expected checksum.\n\nActual: {}\nExpected: {}",
+      bytes_checksum,
+      checksum
+    )
   } else {
     Ok(())
   }

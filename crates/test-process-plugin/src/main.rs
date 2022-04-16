@@ -81,6 +81,13 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
 
   fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<FormatResult> {
     Box::pin(async move {
+      let (had_suffix, file_text) = if let Some(text) = request.file_text.strip_suffix(&format!("_{}", request.config.ending)) {
+        (true, text.to_string())
+      } else {
+        (false, request.file_text.to_string())
+      };
+
+      let inner_format_text = if file_text.starts_with("wait_cancellation") {
       if let Some(range) = &request.range {
         let text = format!(
           "{}_{}_{}",
@@ -91,8 +98,8 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
         Ok(Some(text))
       } else if request.file_text.starts_with("wait_cancellation") {
         request.token.wait_cancellation().await;
-        Ok(None)
-      } else if let Some(new_text) = request.file_text.strip_prefix("plugin: ") {
+        return Ok(None);
+      } else if let Some(new_text) = file_text.strip_prefix("plugin: ") {
         let result = host
           .format(HostFormatRequest {
             file_path: PathBuf::from("./test.txt"),
@@ -102,8 +109,8 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
             token: request.token.clone(),
           })
           .await?;
-        Ok(Some(result.unwrap_or_else(|| new_text.to_string())))
-      } else if let Some(new_text) = request.file_text.strip_prefix("plugin-config: ") {
+        format!("plugin: {}", result.unwrap_or_else(|| new_text.to_string()))
+      } else if let Some(new_text) = file_text.strip_prefix("plugin-config: ") {
         let mut config_map = ConfigKeyMap::new();
         config_map.insert("ending".to_string(), "custom_config".into());
         let result = host
@@ -115,13 +122,17 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
             token: request.token.clone(),
           })
           .await?;
-        Ok(Some(result.unwrap_or_else(|| new_text.to_string())))
-      } else if request.file_text == "should_error" {
+        format!("plugin-config: {}", result.unwrap_or_else(|| new_text.to_string()))
+      } else if file_text == "should_error" {
         bail!("Did error.")
-      } else if request.file_text.ends_with(&request.config.ending) {
+      } else {
+        file_text.to_string()
+      };
+
+      if had_suffix && inner_format_text == file_text {
         Ok(None)
       } else {
-        Ok(Some(format!("{}_{}", request.file_text, request.config.ending)))
+        Ok(Some(format!("{}_{}", inner_format_text, request.config.ending)))
       }
     })
   }

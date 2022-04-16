@@ -151,7 +151,16 @@ fn get_plugin_zip_bytes<TEnvironment: Environment>(
   let plugin_path = get_os_path(&plugin_file, environment)?;
   let plugin_zip_path = resolve_url_or_file_path_to_path_source(&plugin_path.reference, &url_or_file_path.parent(), environment)?;
   let plugin_zip_bytes = fetch_file_or_url_bytes(&plugin_zip_path, environment)?;
-  verify_sha256_checksum(&plugin_zip_bytes, &plugin_path.checksum)?;
+  if let Err(err) = verify_sha256_checksum(&plugin_zip_bytes, &plugin_path.checksum) {
+    bail!(
+      concat!(
+        "Invalid checksum found within process plugin's manifest file for '{}'. This is likely a ",
+        "bug in the process plugin. Please report it.\n\n{:#}",
+      ),
+      plugin_path.reference,
+      err,
+    )
+  }
 
   Ok(ProcessPluginZipBytes {
     name: plugin_file.name,
