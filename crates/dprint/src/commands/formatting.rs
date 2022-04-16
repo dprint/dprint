@@ -1696,22 +1696,26 @@ mod test {
 
   #[test]
   fn should_error_if_process_plugin_has_no_checksum_in_config() {
-    let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
       .with_default_config(|c| {
-        c.add_plugin("https://plugins.dprint.dev/test-process.exe-plugin");
+        c.clear_plugins().add_plugin("https://plugins.dprint.dev/test-process.exe-plugin");
       })
       .write_file("/test.txt_ps", "")
       .build();
     let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
+    let actual_plugin_file_checksum = test_helpers::get_test_process_plugin_checksum();
 
     assert_eq!(
       error_message.to_string(),
-      concat!(
-        "The plugin 'https://plugins.dprint.dev/test-process.exe-plugin' must have a checksum specified for security reasons ",
-        "since it is not a Wasm plugin. You may specify one by writing \"https://plugins.dprint.dev/test-process.exe-plugin@checksum-goes-here\" ",
-        "when providing the url in the configuration file. Check the plugin's release notes for what ",
-        "the checksum is or calculate it yourself if you trust the source (it's SHA-256)."
-      )
+      format!(
+        concat!(
+          "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: The plugin must have a checksum specified ",
+          "for security reasons since it is not a Wasm plugin. Check the plugin's release notes for what the checksum is or if ",
+          "you trust the source, you may specify \"https://plugins.dprint.dev/test-process.exe-plugin@{}\"."
+        ),
+        actual_plugin_file_checksum,
+      ),
     );
   }
 
@@ -1729,7 +1733,13 @@ mod test {
     assert_eq!(
       error_message.to_string(),
       format!(
-        "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: The checksum {} did not match the expected checksum of asdf.",
+        concat!(
+          "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: Invalid checksum specified ",
+          "in configuration file. Check the plugin's release notes for what the expected checksum is.\n\n",
+          "The checksum did not match the expected checksum.\n\n",
+          "Actual: {}\n",
+          "Expected: asdf"
+        ),
         actual_plugin_file_checksum,
       )
     );
@@ -1749,7 +1759,13 @@ mod test {
     assert_eq!(
       error_message.to_string(),
       format!(
-        "Error resolving plugin https://plugins.dprint.dev/test-plugin.wasm: The checksum {} did not match the expected checksum of asdf.",
+        concat!(
+          "Error resolving plugin https://plugins.dprint.dev/test-plugin.wasm: Invalid checksum specified ",
+          "in configuration file. Check the plugin's release notes for what the expected checksum is.\n\n",
+          "The checksum did not match the expected checksum.\n\n",
+          "Actual: {}\n",
+          "Expected: asdf"
+        ),
         actual_plugin_file_checksum,
       )
     );
@@ -1789,7 +1805,14 @@ mod test {
     assert_eq!(
       error_message.to_string(),
       format!(
-        "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: The checksum {} did not match the expected checksum of asdf.",
+        concat!(
+          "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: Invalid checksum found ",
+          "within process plugin's manifest file for 'https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip'. ",
+          "This is likely a bug in the process plugin. Please report it.\n\n",
+          "The checksum did not match the expected checksum.\n\n",
+          "Actual: {}\n",
+          "Expected: asdf"
+        ),
         actual_plugin_zip_file_checksum,
       )
     );

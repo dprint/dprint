@@ -1,5 +1,6 @@
 use anyhow::bail;
 use anyhow::Result;
+use dprint_cli_core::checksums::get_sha256_checksum;
 use parking_lot::RwLock;
 use std::path::PathBuf;
 
@@ -99,7 +100,22 @@ where
 
     // check checksum only if provided (not required for Wasm plugins)
     if let Some(checksum) = &source_reference.checksum {
-      verify_sha256_checksum(&file_bytes, checksum)?;
+      if let Err(err) = verify_sha256_checksum(&file_bytes, checksum) {
+        bail!(
+          "Invalid checksum specified in configuration file. Check the plugin's release notes for what the expected checksum is.\n\n{:#}",
+          err
+        );
+      }
+    } else if source_reference.is_process_plugin() {
+      bail!(
+        concat!(
+          "The plugin must have a checksum specified for security reasons ",
+          "since it is not a Wasm plugin. Check the plugin's release notes for what ",
+          "the checksum is or if you trust the source, you may specify \"{}@{}\"."
+        ),
+        source_reference.path_source.display(),
+        get_sha256_checksum(&file_bytes),
+      );
     }
 
     let setup_result = setup_plugin(&source_reference.path_source, &file_bytes, &self.environment).await?;

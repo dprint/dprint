@@ -1,6 +1,5 @@
 use std::fmt;
 
-use anyhow::bail;
 use anyhow::Result;
 use dprint_cli_core::checksums::parse_checksum_path_or_url;
 use dprint_core::plugins::PluginInfo;
@@ -78,18 +77,6 @@ impl fmt::Display for PluginSourceReference {
 pub fn parse_plugin_source_reference(text: &str, base: &PathSource, environment: &impl Environment) -> Result<PluginSourceReference> {
   let checksum_reference = parse_checksum_path_or_url(text);
   let path_source = resolve_url_or_file_path_to_path_source(&checksum_reference.path_or_url, base, environment)?;
-
-  if !path_source.is_wasm_plugin() && checksum_reference.checksum.is_none() {
-    bail!(
-      concat!(
-        "The plugin '{0}' must have a checksum specified for security reasons ",
-        "since it is not a Wasm plugin. You may specify one by writing \"{0}@checksum-goes-here\" ",
-        "when providing the url in the configuration file. Check the plugin's release notes for what ",
-        "the checksum is or calculate it yourself if you trust the source (it's SHA-256)."
-      ),
-      path_source.display()
-    );
-  }
 
   Ok(PluginSourceReference {
     path_source,
@@ -173,23 +160,21 @@ mod tests {
   }
 
   #[test]
-  fn should_error_for_non_wasm_plugin_no_checksum() {
+  fn should_not_error_for_non_wasm_plugin_no_checksum() {
+    // this now errors at a higher level when verifying the checksum instead
     let environment = TestEnvironment::new();
-    let err = parse_plugin_source_reference(
+    let result = parse_plugin_source_reference(
       "http://dprint.dev/plugin.exe-plugin",
       &PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")),
       &environment,
     )
-    .err()
     .unwrap();
     assert_eq!(
-      err.to_string(),
-      concat!(
-        "The plugin 'http://dprint.dev/plugin.exe-plugin' must have a checksum specified for security reasons ",
-        "since it is not a Wasm plugin. You may specify one by writing \"http://dprint.dev/plugin.exe-plugin@checksum-goes-here\" ",
-        "when providing the url in the configuration file. Check the plugin's release notes for what ",
-        "the checksum is or calculate it yourself if you trust the source (it's SHA-256)."
-      )
+      result,
+      PluginSourceReference {
+        path_source: PathSource::new_remote_from_str("http://dprint.dev/plugin.exe-plugin"),
+        checksum: None,
+      }
     );
   }
 }
