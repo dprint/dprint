@@ -104,6 +104,11 @@ impl TestConfigFileBuilder {
     self
   }
 
+  pub fn clear_plugins(&mut self) -> &mut Self {
+    self.plugins = None;
+    self
+  }
+
   pub fn add_plugin(&mut self, plugin: &str) -> &mut Self {
     let mut plugins = self.plugins.take().unwrap_or_else(Vec::new);
     plugins.push(plugin.to_string());
