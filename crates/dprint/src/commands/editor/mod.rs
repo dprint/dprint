@@ -185,7 +185,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           let request = HostFormatRequest {
             file_path: body.file_path,
             range: body.range,
-            override_config: if body.override_config.len() == 0 {
+            override_config: if body.override_config.is_empty() {
               Default::default()
             } else {
               match serde_json::from_slice(&body.override_config) {
@@ -580,7 +580,7 @@ mod test {
               .await
               .unwrap()
               .unwrap(),
-            "format this text_formatted_process"
+            "plugin: format this text_formatted_process_formatted"
           );
           assert_eq!(
             communicator
@@ -661,7 +661,7 @@ mod test {
               .await
               .unwrap()
               .unwrap(),
-            "t_formatted_process_sting"
+            "t_formatted_process_sting_formatted_process"
           );
 
           // test cancellation
@@ -702,7 +702,7 @@ mod test {
               .await
               .unwrap()
               .unwrap(),
-            "te_test_ng"
+            "te_test_ng_test"
           );
 
           // write a new file and make sure the service picks up the changes
@@ -811,7 +811,7 @@ mod test {
               .await
               .unwrap()
               .unwrap(),
-            "text6_wasm_ps"
+            "plugin: text6_wasm_ps_wasm_ps_ps"
           );
           assert_eq!(
             communicator
