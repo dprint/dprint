@@ -363,7 +363,7 @@ mod test {
     run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
-    assert_eq!(environment.read_file(&file_path).unwrap(), "format this text");
+    assert_eq!(environment.read_file(&file_path).unwrap(), "plugin: format this text_formatted");
   }
 
   #[test]
@@ -375,7 +375,10 @@ mod test {
     run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
-    assert_eq!(environment.read_file(&file_path).unwrap(), "format this text_formatted_process");
+    assert_eq!(
+      environment.read_file(&file_path).unwrap(),
+      "plugin: format this text_formatted_process_formatted"
+    );
   }
 
   #[test]
@@ -389,8 +392,14 @@ mod test {
     run_test_cli(vec!["fmt", "/*.txt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
-    assert_eq!(environment.read_file(&file_path1).unwrap(), "format this text_custom_config");
-    assert_eq!(environment.read_file(&file_path2).unwrap(), "format this text_formatted_process");
+    assert_eq!(
+      environment.read_file(&file_path1).unwrap(),
+      "plugin-config: format this text_custom_config_formatted"
+    );
+    assert_eq!(
+      environment.read_file(&file_path2).unwrap(),
+      "plugin: format this text_formatted_process_formatted"
+    );
   }
 
   #[test]
@@ -415,7 +424,7 @@ mod test {
     run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
-    assert_eq!(environment.read_file(&file_path).unwrap(), "format this text");
+    assert_eq!(environment.read_file(&file_path).unwrap(), "plugin: format this text_formatted_process");
   }
 
   #[test]
@@ -427,7 +436,10 @@ mod test {
     run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
-    assert_eq!(environment.read_file(&file_path).unwrap(), "format this text_formatted");
+    assert_eq!(
+      environment.read_file(&file_path).unwrap(),
+      "plugin: format this text_formatted_formatted_process"
+    );
   }
 
   #[test]
@@ -441,8 +453,14 @@ mod test {
     run_test_cli(vec!["fmt", "*.txt_ps"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
-    assert_eq!(environment.read_file(&file_path1).unwrap(), "format this text_custom_config");
-    assert_eq!(environment.read_file(&file_path2).unwrap(), "format this text_formatted");
+    assert_eq!(
+      environment.read_file(&file_path1).unwrap(),
+      "plugin-config: format this text_custom_config_formatted_process"
+    );
+    assert_eq!(
+      environment.read_file(&file_path2).unwrap(),
+      "plugin: format this text_formatted_formatted_process"
+    );
   }
 
   #[test]
@@ -660,7 +678,7 @@ mod test {
     assert_eq!(environment.read_file(&file_path4).unwrap(), "text4_ps");
     assert_eq!(environment.read_file(&file_path5).unwrap(), "text5_wasm");
     // this will request formatting a .txt_ps file, but should be caught be the associations
-    assert_eq!(environment.read_file(&file_path6).unwrap(), "text6_wasm");
+    assert_eq!(environment.read_file(&file_path6).unwrap(), "plugin: text6_wasm_wasm");
   }
 
   #[test]
@@ -716,7 +734,7 @@ mod test {
     assert_eq!(environment.read_file(&file_path3).unwrap(), "text3_wasm_ps");
     assert_eq!(environment.read_file(&file_path4).unwrap(), "text4_wasm_ps");
     assert_eq!(environment.read_file(&file_path5).unwrap(), "text5_wasm_ps");
-    assert_eq!(environment.read_file(&file_path6).unwrap(), "text6_wasm_ps");
+    assert_eq!(environment.read_file(&file_path6).unwrap(), "plugin: text6_wasm_ps_wasm_ps_ps");
   }
 
   #[test]
@@ -1589,7 +1607,7 @@ mod test {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
     let test_std_in = TestStdInReader::from("plugin: format this text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec!["format this text_formatted_process"]);
+    assert_eq!(environment.take_stdout_messages(), vec!["plugin: format this text_formatted_process_formatted"]);
   }
 
   #[test]

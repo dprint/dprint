@@ -357,7 +357,7 @@ mod test {
         assert_eq!(communicator.format_text(&other_ext_path, "testing").unwrap().is_none(), true); // can't format
         assert_eq!(
           communicator.format_text(&txt_file_path, "plugin: format this text").unwrap().unwrap(),
-          "format this text_formatted_process"
+          "plugin: format this text_formatted_process_formatted"
         );
         assert_eq!(
           communicator.format_text(&txt_file_path, "should_error").err().unwrap().to_string(),
@@ -456,7 +456,10 @@ mod test {
         assert_eq!(communicator.check_file(&file_path5).unwrap(), true);
 
         assert_eq!(communicator.format_text(&file_path1, "text").unwrap().unwrap(), "text_wasm_ps");
-        assert_eq!(communicator.format_text(&file_path1, "plugin: text6").unwrap().unwrap(), "text6_wasm_ps");
+        assert_eq!(
+          communicator.format_text(&file_path1, "plugin: text6").unwrap().unwrap(),
+          "plugin: text6_wasm_ps_wasm_ps_ps"
+        );
         assert_eq!(communicator.format_text(&file_path2, "text").unwrap().unwrap(), "text_wasm_ps");
         assert_eq!(communicator.format_text(&file_path3, "text").unwrap().unwrap(), "text_ps");
         assert_eq!(communicator.format_text(&file_path4, "text").unwrap().unwrap(), "text_wasm");
