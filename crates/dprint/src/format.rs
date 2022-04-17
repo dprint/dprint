@@ -200,10 +200,6 @@ where
       formatted_text
     };
 
-    if let Some(incremental_file) = incremental_file {
-      incremental_file.update_file(&file_path, &formatted_text);
-    }
-
     f(&file_path, file_text.as_str(), formatted_text, file_text.has_bom(), start_instant, &environment)?;
 
     Ok(())

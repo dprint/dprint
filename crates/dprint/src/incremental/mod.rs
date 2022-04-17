@@ -19,13 +19,7 @@ pub fn get_incremental_file<TEnvironment: Environment>(
 ) -> Option<Arc<IncrementalFile<TEnvironment>>> {
   if incremental_cli_arg || config.incremental {
     // the incremental file is stored in the cache with a key based on the root directory
-    let base_path = match environment.canonicalize(&config.base_path) {
-      Ok(base_path) => base_path,
-      Err(err) => {
-        environment.log_stderr(&format!("Could not canonicalize base path for incremental feature. {:#}", err));
-        return None;
-      }
-    };
+    let base_path = config.base_path.clone();
     let key = format!("incremental_cache:{}", base_path.to_string_lossy());
     let cache_item = if let Some(cache_item) = cache.get_cache_item(&key) {
       cache_item

@@ -130,17 +130,37 @@ pub async fn check<TEnvironment: Environment>(
   let incremental_file = get_incremental_file(cmd.incremental, &config, cache, &plugin_pools, environment);
   let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
-  run_parallelized(file_paths_by_plugin, environment, plugin_pools, incremental_file, EnsureStableFormat(false), {
-    let not_formatted_files_count = not_formatted_files_count.clone();
-    move |file_path, file_text, formatted_text, _, _, environment| {
-      if formatted_text != file_text {
-        not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
-        output_difference(file_path, file_text, &formatted_text, environment);
+  run_parallelized(
+    file_paths_by_plugin,
+    environment,
+    plugin_pools,
+    incremental_file.clone(),
+    EnsureStableFormat(false),
+    {
+      let not_formatted_files_count = not_formatted_files_count.clone();
+      let incremental_file = incremental_file.clone();
+      move |file_path, file_text, formatted_text, _, _, environment| {
+        if formatted_text != file_text {
+          not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
+          output_difference(file_path, file_text, &formatted_text, environment);
+        } else {
+          // update the incremental cache when the file is formatted correctly
+          // so that this runs faster next time, but don't update it with the
+          // correctly formatted file because it hasn't undergone a stable
+          // formatting check
+          if let Some(incremental_file) = &incremental_file {
+            incremental_file.update_file(file_path, &formatted_text);
+          }
+        }
+        Ok(())
       }
-      Ok(())
-    }
-  })
+    },
+  )
   .await?;
+
+  if let Some(incremental_file) = &incremental_file {
+    incremental_file.write();
+  }
 
   let not_formatted_files_count = not_formatted_files_count.load(Ordering::SeqCst);
   if not_formatted_files_count == 0 {
@@ -182,7 +202,12 @@ pub async fn format<TEnvironment: Environment>(
     EnsureStableFormat(incremental_file.is_some()),
     {
       let formatted_files_count = formatted_files_count.clone();
+      let incremental_file = incremental_file.clone();
       move |file_path, file_text, formatted_text, had_bom, _, environment| {
+        if let Some(incremental_file) = &incremental_file {
+          incremental_file.update_file(file_path, &formatted_text);
+        }
+
         if formatted_text != file_text {
           if output_diff {
             output_difference(file_path, file_text, &formatted_text, environment);
@@ -1463,6 +1488,29 @@ mod test {
       )
       .to_string()]
     );
+  }
+
+  #[test]
+  fn should_format_incrementally_with_check() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt").add_remote_wasm_plugin();
+      })
+      .write_file(&file_path1, "text1_formatted")
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["check", "--incremental"], &environment).unwrap();
+    run_test_cli(vec!["check", "--incremental"], &environment).unwrap();
+
+    environment.write_file(file_path1, "text1").unwrap();
+    assert!(run_test_cli(vec!["check", "--incremental"], &environment).is_err());
+
+    environment.write_file(file_path1, "text1_formatted").unwrap();
+    run_test_cli(vec!["check", "--incremental"], &environment).unwrap();
+    run_test_cli(vec!["check", "--incremental"], &environment).unwrap();
+    environment.clear_logs();
   }
 
   #[test]

@@ -82,7 +82,7 @@ where
       // try to get some kind of readable file name based on the key
       let mut file_name = Vec::new();
       for c in key.chars().rev() {
-        if c.is_alphanumeric() || c == '-' || c == '.' {
+        if c.is_alphanumeric() || c == '-' || c == '.' || c == '_' {
           file_name.push(c);
         } else if !file_name.is_empty() {
           break;
