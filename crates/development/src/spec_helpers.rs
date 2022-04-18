@@ -84,7 +84,7 @@ pub fn run_specs(
           // very rough, but good enough
           let file_path = PathBuf::from(&file_path);
           let file_text = fs::read_to_string(&file_path).expect("Expected to read the file.");
-          let file_text = file_text.replace(&spec.expected_text.replace('\n', "\r\n"), &result.replace('\n', "\r\n"));
+          let file_text = file_text.replace(&spec.expected_text, &result);
           fs::write(&file_path, file_text).expect("Expected to write to file.");
         } else {
           failed_tests.push(FailedTestResult {
