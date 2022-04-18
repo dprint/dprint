@@ -70,6 +70,7 @@ pub struct FmtSubCommand {
   pub diff: bool,
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
+  pub enable_stable_format: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -154,6 +155,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
           diff: matches.is_present("diff"),
           patterns: parse_file_patterns(matches)?,
           incremental: parse_incremental(matches),
+          enable_stable_format: !matches.is_present("skip-stable-format"),
         })
       }
     }
@@ -342,6 +344,13 @@ EXAMPLES:
           Arg::new("diff")
             .long("diff")
             .help("Outputs a check-like diff of every formatted file.")
+            .takes_value(false)
+            .required(false)
+        )
+        .arg(
+          Arg::new("skip-stable-format")
+            .long("skip-stable-format")
+            .help("Whether to skip formatting a file multiple times until the output is stable")
             .takes_value(false)
             .required(false)
         )
