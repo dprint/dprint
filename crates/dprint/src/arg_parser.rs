@@ -351,6 +351,8 @@ EXAMPLES:
           Arg::new("skip-stable-format")
             .long("skip-stable-format")
             .help("Whether to skip formatting a file multiple times until the output is stable")
+            // hidden because this needs more thought and probably shouldn't be allowed with incremental
+            .hide(true)
             .takes_value(false)
             .required(false)
         )
