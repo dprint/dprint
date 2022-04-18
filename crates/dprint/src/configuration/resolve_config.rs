@@ -27,7 +27,7 @@ pub struct ResolvedConfig {
   pub includes: Vec<String>,
   pub excludes: Vec<String>,
   pub plugins: Vec<PluginSourceReference>,
-  pub incremental: bool,
+  pub incremental: Option<bool>,
   pub config_map: ConfigMap,
 }
 
@@ -90,7 +90,7 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, cache
 
   let includes = take_array_from_config_map(&mut main_config_map, "includes")?;
   let excludes = take_array_from_config_map(&mut main_config_map, "excludes")?;
-  let incremental = take_bool_from_config_map(&mut main_config_map, "incremental", false)?;
+  let incremental = take_bool_from_config_map(&mut main_config_map, "incremental")?;
   main_config_map.remove("projectType"); // this was an old config property that's no longer used
   let extends = take_extends(&mut main_config_map)?;
   let mut resolved_config = ResolvedConfig {
@@ -257,17 +257,15 @@ fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -
   Ok(result)
 }
 
-fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str, default_value: bool) -> Result<bool> {
-  let mut result = default_value;
+fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Option<bool>> {
   if let Some(value) = config_map.remove(property_name) {
     match value {
-      ConfigMapValue::KeyValue(ConfigKeyValue::Bool(value)) => {
-        result = value;
-      }
+      ConfigMapValue::KeyValue(ConfigKeyValue::Bool(value)) => Ok(Some(value)),
       _ => bail!("Expected boolean in '{}' property.", property_name),
     }
+  } else {
+    Ok(None)
   }
-  Ok(result)
 }
 
 fn filter_non_wasm_plugins(plugins: Vec<PluginSourceReference>, environment: &impl Environment) -> Vec<PluginSourceReference> {
@@ -1240,7 +1238,7 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.incremental, false);
+    assert_eq!(result.incremental, None);
   }
 
   #[test]
@@ -1258,7 +1256,7 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.incremental, true);
+    assert_eq!(result.incremental, Some(true));
   }
 
   #[test]
@@ -1276,7 +1274,7 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.incremental, false);
+    assert_eq!(result.incremental, Some(false));
   }
 
   #[test]

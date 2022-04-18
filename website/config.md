@@ -15,7 +15,6 @@ See [Setup](/setup).
 
 ```json
 {
-  "incremental": true,
   "lineWidth": 80,
   "typescript": {
     // This applies to both JavaScript & TypeScript
@@ -171,23 +170,23 @@ Note: The `includes` and `excludes` of extended configuration is ignored for sec
 
 ## Incremental
 
-You may specify to only format files that have changed since the last time you formatted the code (recommended):
+By default, dprint will only format files that have changed since the last time you formatted the code in order to drastically improve performance.
+
+If you want to disable this functionality, you may specify the following in your dprint.json file:
 
 ```jsonc
 {
   // etc...
-  "incremental": true
+  "incremental": false
   // etc...
 }
 ```
 
-Alternatively, use the `--incremental` flag on the CLI:
+Alternatively, specify `--incremental=false` on the CLI:
 
 ```bash
-dprint fmt --incremental
+dprint fmt --incremental=false
 ```
-
-Doing this will drastically improve performance.
 
 ## Global Configuration
 
