@@ -716,7 +716,8 @@ mod test {
     let file_path6 = "/file6.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .with_local_config("/config.json", |c| {
-        c.add_remote_wasm_plugin()
+        c.set_incremental(false)
+          .add_remote_wasm_plugin()
           .add_remote_process_plugin()
           .add_config_section(
             "test-plugin",
@@ -1349,6 +1350,7 @@ mod test {
       .initialize()
       .build();
 
+    // this is now the default
     run_test_cli(vec!["fmt", "--incremental"], &environment).unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
@@ -1511,6 +1513,29 @@ mod test {
     run_test_cli(vec!["check", "--incremental"], &environment).unwrap();
     run_test_cli(vec!["check", "--incremental"], &environment).unwrap();
     environment.clear_logs();
+  }
+
+  #[test]
+  fn should_format_without_incremental_when_specified() {
+    let file_path1 = "/subdir/file1.txt";
+    let no_change_msg = "No change:";
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt").add_remote_wasm_plugin();
+      })
+      .write_file(&file_path1, "text1")
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["fmt", "--incremental=false"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
+
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--incremental=false", "--verbose"], &environment).unwrap();
+    assert!(!environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)));
   }
 
   #[test]

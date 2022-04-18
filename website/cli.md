@@ -51,23 +51,22 @@ Example output:
 
 ## Incremental Formatting
 
-You may specify to only format files that have changed since the last time you formatted the code using the `--incremental` flag:
+By default, dprint will only format files that have changed since the last time you formatted the code in order to drastically improve performance.
+
+If you want to disable this functionality, you may specify `--incremental=false` on the CLI:
 
 ```bash
-dprint fmt --incremental
+dprint fmt --incremental=false
 ```
 
-Alternatively, you may specify this in the dprint configuration file (recommended):
+Alternatively, specify the following in your dprint configuration file:
 
 ```jsonc
 {
-  // etc...
-  "incremental": true
+  "incremental": false
   // etc...
 }
 ```
-
-Doing this will drastically improve performance.
 
 ## Using a Custom Config File Path or URL
 

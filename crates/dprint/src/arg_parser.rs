@@ -62,14 +62,14 @@ pub enum SubCommand {
 #[derive(Debug, PartialEq)]
 pub struct CheckSubCommand {
   pub patterns: FilePatternArgs,
-  pub incremental: bool,
+  pub incremental: Option<bool>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct FmtSubCommand {
   pub diff: bool,
   pub patterns: FilePatternArgs,
-  pub incremental: bool,
+  pub incremental: Option<bool>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -216,8 +216,14 @@ fn parse_file_patterns(matches: &ArgMatches) -> Result<FilePatternArgs> {
   })
 }
 
-fn parse_incremental(matches: &ArgMatches) -> bool {
-  matches.is_present("incremental")
+fn parse_incremental(matches: &ArgMatches) -> Option<bool> {
+  if let Some(incremental) = matches.value_of("incremental") {
+    Some(incremental != "false")
+  } else if matches.is_present("incremental") {
+    Some(true)
+  } else {
+    None
+  }
 }
 
 fn values_to_vec(values: Option<clap::Values>) -> Vec<String> {
@@ -487,7 +493,10 @@ impl<'a> ClapExtensions for clap::Command<'a> {
       Arg::new("incremental")
         .long("incremental")
         .help("Only format files when they change. This may alternatively be specified in the configuration file.")
-        .takes_value(false),
+        .require_equals(true)
+        .takes_value(true)
+        .min_values(0)
+        .possible_values(["true", "false"]),
     )
   }
 }
@@ -520,6 +529,26 @@ mod test {
         "  --plugins https://plugins.dprint.dev/test.wasm -- [file patterns]...",
       )
     );
+  }
+
+  #[test]
+  fn incremental_arg() {
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt"]).unwrap();
+    assert_eq!(fmt_cmd.incremental, None);
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--incremental=true"]).unwrap();
+    assert_eq!(fmt_cmd.incremental, Some(true));
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--incremental=false"]).unwrap();
+    assert_eq!(fmt_cmd.incremental, Some(false));
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--incremental"]).unwrap();
+    assert_eq!(fmt_cmd.incremental, Some(true));
+  }
+
+  fn parse_fmt_sub_command(args: Vec<&str>) -> Result<FmtSubCommand> {
+    let args = test_args(args)?;
+    match args.sub_command {
+      SubCommand::Fmt(cmd) => Ok(cmd),
+      _ => unreachable!(),
+    }
   }
 
   fn test_args(args: Vec<&str>) -> Result<CliArgs> {

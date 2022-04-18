@@ -57,7 +57,6 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
   };
 
   let mut json_text = String::from("{\n");
-  json_text.push_str("  \"incremental\": true,\n");
 
   if let Some(selected_plugins) = &selected_plugins {
     for plugin in selected_plugins.iter() {
@@ -181,7 +180,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "typescript": {
   },
   "json": {
@@ -216,7 +214,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "typescript": {
   },
   "json": {
@@ -253,7 +250,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "json": {
   },
   "includes": ["**/*.{json}"],
@@ -284,7 +280,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "includes": ["**/*.*"],
   "excludes": [],
   "plugins": [
@@ -311,7 +306,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "includes": ["**/*.{ps}"],
   "excludes": [],
   "plugins": [
@@ -331,7 +325,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "includes": ["**/*.*"],
   "excludes": [
     "**/node_modules",
@@ -373,7 +366,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "typescript": {
   },
   "includes": ["**/*.{ts}"],
@@ -410,7 +402,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "includes": ["**/*.*"],
   "excludes": [
     "**/node_modules",
