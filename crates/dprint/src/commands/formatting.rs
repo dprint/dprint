@@ -199,7 +199,7 @@ pub async fn format<TEnvironment: Environment>(
     environment,
     plugin_pools,
     incremental_file.clone(),
-    EnsureStableFormat(incremental_file.is_some()),
+    EnsureStableFormat(cmd.enable_stable_format),
     {
       let formatted_files_count = formatted_files_count.clone();
       let incremental_file = incremental_file.clone();
@@ -751,7 +751,7 @@ mod test {
       .write_file(&file_path6, "plugin: text6")
       .build();
 
-    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--config", "/config.json", "--skip-stable-format"], &environment).unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(6)]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
@@ -1536,6 +1536,20 @@ mod test {
     environment.clear_logs();
     run_test_cli(vec!["fmt", "--incremental=false", "--verbose"], &environment).unwrap();
     assert!(!environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)));
+  }
+
+  #[test]
+  fn allow_skipping_stable_format() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(&file_path1, "unstable_fmt_true")
+      .build();
+
+    run_test_cli(vec!["fmt", "--skip-stable-format", "*.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "unstable_fmt_false_formatted");
   }
 
   #[test]
