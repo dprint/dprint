@@ -425,6 +425,10 @@ impl Environment for TestEnvironment {
     std::env::consts::OS.to_string()
   }
 
+  fn cli_version(&self) -> String {
+    "0.0.0".to_string()
+  }
+
   fn get_time_secs(&self) -> u64 {
     123456
   }
