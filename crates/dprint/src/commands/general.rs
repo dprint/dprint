@@ -11,9 +11,10 @@ use crate::plugins::get_plugins_from_args;
 use crate::plugins::resolve_plugins_and_err_if_empty;
 use crate::plugins::PluginResolver;
 use crate::utils::get_table_text;
+use crate::utils::is_out_of_date;
 
 pub fn output_version<TEnvironment: Environment>(environment: &TEnvironment) -> Result<()> {
-  environment.log(&format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")));
+  environment.log(&format!("{} {}", env!("CARGO_PKG_NAME"), environment.cli_version()));
 
   Ok(())
 }
@@ -46,6 +47,14 @@ pub async fn output_help<TEnvironment: Environment>(
     Err(err) => {
       log_verbose!(environment, "Error getting plugins for help. {:#}", err.to_string());
     }
+  }
+
+  if let Some(latest_version) = is_out_of_date(environment) {
+    environment.log(&format!(
+      "\nLatest version: {} (Current is {})\nDownload the latest version at https://dprint.dev/install/",
+      latest_version,
+      environment.cli_version(),
+    ));
   }
 
   Ok(())
@@ -100,6 +109,7 @@ pub async fn output_file_paths<TEnvironment: Environment>(
 mod test {
   use pretty_assertions::assert_eq;
 
+  use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
   use crate::test_helpers::get_expected_help_text;
@@ -110,7 +120,7 @@ mod test {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["-v"], &environment).unwrap();
     let logged_messages = environment.take_stdout_messages();
-    assert_eq!(logged_messages, vec![format!("dprint {}", env!("CARGO_PKG_VERSION"))]);
+    assert_eq!(logged_messages, vec![format!("dprint {}", environment.cli_version())]);
   }
 
   #[test]
@@ -118,7 +128,7 @@ mod test {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["--version"], &environment).unwrap();
     let logged_messages = environment.take_stdout_messages();
-    assert_eq!(logged_messages, vec![format!("dprint {}", env!("CARGO_PKG_VERSION"))]);
+    assert_eq!(logged_messages, vec![format!("dprint {}", environment.cli_version())]);
   }
 
   #[test]
@@ -126,7 +136,7 @@ mod test {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
     run_test_cli(vec!["--version"], &environment).unwrap();
     let logged_messages = environment.take_stdout_messages();
-    assert_eq!(logged_messages, vec![format!("dprint {}", env!("CARGO_PKG_VERSION"))]);
+    assert_eq!(logged_messages, vec![format!("dprint {}", environment.cli_version())]);
   }
 
   #[test]
@@ -156,6 +166,33 @@ mod test {
         get_expected_help_text(),
         "\nPLUGINS HELP:",
         "    test-plugin         https://dprint.dev/plugins/test\n    test-process-plugin https://dprint.dev/plugins/test-process"
+      ]
+    );
+  }
+
+  #[test]
+  fn should_output_help_when_cli_not_out_of_date() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file_bytes("https://plugins.dprint.dev/cli.json", r#"{ "version": "0.0.0" }"#.as_bytes().to_vec());
+    run_test_cli(vec!["--help"], &environment).unwrap();
+    let logged_messages = environment.take_stdout_messages();
+    assert_eq!(logged_messages, vec![get_expected_help_text()]);
+  }
+
+  #[test]
+  fn should_output_help_when_cli_out_of_date() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file_bytes("https://plugins.dprint.dev/cli.json", r#"{ "version": "0.1.0" }"#.as_bytes().to_vec());
+    run_test_cli(vec!["--help"], &environment).unwrap();
+    let logged_messages = environment.take_stdout_messages();
+    assert_eq!(
+      logged_messages,
+      vec![
+        get_expected_help_text(),
+        concat!(
+          "\nLatest version: 0.1.0 (Current is 0.0.0)",
+          "\nDownload the latest version at https://dprint.dev/install/",
+        )
       ]
     );
   }

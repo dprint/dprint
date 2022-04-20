@@ -211,6 +211,10 @@ impl Environment for RealEnvironment {
     std::env::consts::OS.to_string()
   }
 
+  fn cli_version(&self) -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+  }
+
   fn get_time_secs(&self) -> u64 {
     SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_secs()
   }

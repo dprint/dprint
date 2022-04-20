@@ -66,6 +66,8 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn cpu_arch(&self) -> String;
   /// Gets the operating system.
   fn os(&self) -> String;
+  /// Gets the CLI version
+  fn cli_version(&self) -> String;
   fn get_time_secs(&self) -> u64;
   fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize>;
   fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>>;

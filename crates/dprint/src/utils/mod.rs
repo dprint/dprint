@@ -11,6 +11,7 @@ mod pretty_print_json_text;
 mod resolve_url_or_file_path;
 mod stdin_reader;
 mod table_text;
+mod update_checker;
 
 pub use cached_downloader::*;
 pub use error_count_logger::*;
@@ -25,3 +26,4 @@ pub use pretty_print_json_text::*;
 pub use resolve_url_or_file_path::*;
 pub use stdin_reader::*;
 pub use table_text::*;
+pub use update_checker::*;
