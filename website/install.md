@@ -20,6 +20,13 @@ Install using one of the methods below.
       ```powershell
       iwr https://dprint.dev/install.ps1 -useb | iex
       ```
+
+- [Scoop](https://scoop.sh/) (Windows):
+
+      ```powershell
+      scoop install dprint
+      ```
+
 - [Homebrew](https://brew.sh/) (Mac):
 
       ```bash
