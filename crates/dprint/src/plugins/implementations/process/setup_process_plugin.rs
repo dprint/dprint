@@ -178,6 +178,12 @@ fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
     ),
   };
 
+  verify_plugin_file(&plugin_file)?;
+
+  Ok(serde_json::value::from_value(plugin_file)?)
+}
+
+fn verify_plugin_file(plugin_file: &Value) -> Result<()> {
   let schema_version = plugin_file.as_object().and_then(|o| o.get("schemaVersion")).and_then(|v| v.as_u64());
   if schema_version != Some(2) {
     bail!(
@@ -186,7 +192,13 @@ fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
     );
   }
 
-  Ok(serde_json::value::from_value(plugin_file)?)
+  let kind = plugin_file.as_object().and_then(|o| o.get("kind")).and_then(|v| v.as_str());
+
+  if kind.is_some() && kind != Some("process") {
+    bail!("Only process plugins are supported by this version of dprint. Please upgrade your CLI.");
+  }
+
+  Ok(())
 }
 
 fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Environment) -> Result<&'a ProcessPluginPath> {
@@ -215,5 +227,23 @@ fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Enviro
       log_verbose!(environment, "Plugin File -- {:#?}", plugin_file);
       bail!("Unsupported CPU architecture: {} ({})", arch, os)
     }
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn ensure_only_process_kind_allowed() {
+    assert!(verify_plugin_file(&serde_json::from_slice(r#"{ "schemaVersion": 2, "kind": "process" }"#.as_bytes()).unwrap()).is_ok(),);
+    assert!(verify_plugin_file(&serde_json::from_slice(r#"{ "schemaVersion": 2 }"#.as_bytes()).unwrap()).is_ok(),);
+    assert_eq!(
+      verify_plugin_file(&serde_json::from_slice(r#"{ "schemaVersion": 2, "kind": "other" }"#.as_bytes()).unwrap())
+        .err()
+        .unwrap()
+        .to_string(),
+      "Only process plugins are supported by this version of dprint. Please upgrade your CLI.",
+    );
   }
 }
