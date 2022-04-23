@@ -18,6 +18,7 @@ use crate::environment::Environment;
 use crate::plugins::PluginSourceReference;
 use crate::utils::get_bytes_hash;
 use crate::utils::PathSource;
+use crate::utils::PluginKind;
 
 pub struct PluginCacheItem {
   pub file_path: PathBuf,
@@ -106,7 +107,7 @@ where
           err
         );
       }
-    } else if source_reference.is_process_plugin() {
+    } else if source_reference.plugin_kind() != Some(PluginKind::Wasm) {
       bail!(
         concat!(
           "The plugin must have a checksum specified for security reasons ",

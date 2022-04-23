@@ -1,5 +1,4 @@
 {
-  "incremental": true,
   "indentWidth": 2,
   "lineWidth": 160,
   "rustfmt": {

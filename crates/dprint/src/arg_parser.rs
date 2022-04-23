@@ -237,11 +237,15 @@ fn values_to_vec(values: Option<clap::Values>) -> Vec<String> {
 fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
   for (i, plugin) in plugins.iter().enumerate() {
     let lower_plugin = plugin.to_lowercase();
-    let is_valid_plugin =
-      lower_plugin.ends_with(".wasm") || lower_plugin.ends_with(".exe-plugin@") || lower_plugin.contains(".wasm@") || lower_plugin.contains(".exe-plugin");
+    let is_valid_plugin = lower_plugin.ends_with(".wasm")
+      || lower_plugin.ends_with(".exe-plugin")
+      || lower_plugin.ends_with(".json")
+      || lower_plugin.contains(".wasm@")
+      || lower_plugin.contains(".exe-plugin@")
+      || lower_plugin.contains(".json@");
     if !is_valid_plugin {
       let start_message = format!(
-        "{} was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .exe-plugin extension.",
+        "{} was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension.",
         plugin
       );
       if i == 0 {
@@ -523,7 +527,7 @@ mod test {
     let err = test_args(vec!["fmt", "--plugins", "test", "other.ts"]).err().unwrap();
     assert_eq!(
       err.to_string(),
-      concat!("test was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .exe-plugin extension.")
+      concat!("test was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension.")
     );
   }
 
@@ -535,7 +539,7 @@ mod test {
     assert_eq!(
       err.to_string(),
       concat!(
-        "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .exe-plugin extension.\n\n",
+        "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension.\n\n",
         "Maybe you meant to add two dashes after the plugins?\n",
         "  --plugins https://plugins.dprint.dev/test.wasm -- [file patterns]...",
       )

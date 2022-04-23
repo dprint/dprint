@@ -1786,7 +1786,7 @@ mod test {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_process_plugin()
       .with_default_config(|c| {
-        c.clear_plugins().add_plugin("https://plugins.dprint.dev/test-process.exe-plugin");
+        c.clear_plugins().add_plugin("https://plugins.dprint.dev/test-process.json");
       })
       .write_file("/test.txt_ps", "")
       .build();
@@ -1797,9 +1797,9 @@ mod test {
       error_message.to_string(),
       format!(
         concat!(
-          "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: The plugin must have a checksum specified ",
+          "Error resolving plugin https://plugins.dprint.dev/test-process.json: The plugin must have a checksum specified ",
           "for security reasons since it is not a Wasm plugin. Check the plugin's release notes for what the checksum is or if ",
-          "you trust the source, you may specify \"https://plugins.dprint.dev/test-process.exe-plugin@{}\"."
+          "you trust the source, you may specify \"https://plugins.dprint.dev/test-process.json@{}\"."
         ),
         actual_plugin_file_checksum,
       ),
@@ -1821,7 +1821,7 @@ mod test {
       error_message.to_string(),
       format!(
         concat!(
-          "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: Invalid checksum specified ",
+          "Error resolving plugin https://plugins.dprint.dev/test-process.json: Invalid checksum specified ",
           "in configuration file. Check the plugin's release notes for what the expected checksum is.\n\n",
           "The checksum did not match the expected checksum.\n\n",
           "Actual: {}\n",
@@ -1893,7 +1893,7 @@ mod test {
       error_message.to_string(),
       format!(
         concat!(
-          "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: Invalid checksum found ",
+          "Error resolving plugin https://plugins.dprint.dev/test-process.json: Invalid checksum found ",
           "within process plugin's manifest file for 'https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip'. ",
           "This is likely a bug in the process plugin. Please report it.\n\n",
           "The checksum did not match the expected checksum.\n\n",

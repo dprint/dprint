@@ -132,7 +132,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    handle_process_stdio_messages(MyPluginHandler).await
    ```
 
-## Schema Version 4 Overview (Not Yet Released)
+## Schema Version 4 Overview
 
 Process plugins are expected to read and respond to messages on a single thread, then spawn formatting threads/tasks for doing concurrent formatting.
 
@@ -307,6 +307,6 @@ Message body:
 
 Response: Format Text Response
 
-### Creating a `.exe-plugin` file
+### Creating a `plugin.json` file
 
-TODO...
+See https://github.com/dprint/automation#creating-a-process-plugin-file

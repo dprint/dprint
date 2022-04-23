@@ -7,6 +7,7 @@ use jsonc_parser::ast::Object;
 use jsonc_parser::common::Ranged;
 
 use crate::plugins::PluginSourceReference;
+use crate::utils::PluginKind;
 
 pub struct PluginUpdateInfo {
   pub name: String,
@@ -18,7 +19,7 @@ pub struct PluginUpdateInfo {
 
 impl PluginUpdateInfo {
   pub fn is_wasm(&self) -> bool {
-    self.new_reference.is_wasm_plugin()
+    self.new_reference.plugin_kind() == Some(PluginKind::Wasm)
   }
 
   pub fn get_full_new_config_url(&self) -> String {
