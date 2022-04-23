@@ -6,18 +6,18 @@ use dprint_core::plugins::NoopHost;
 use dprint_core::plugins::PluginInfo;
 use serde::Deserialize;
 use serde::Serialize;
+use serde_json::Value;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str;
 use std::sync::Arc;
 
 use crate::environment::Environment;
+use crate::plugins::implementations::SetupPluginResult;
 use crate::utils::extract_zip;
 use crate::utils::fetch_file_or_url_bytes;
 use crate::utils::resolve_url_or_file_path_to_path_source;
 use crate::utils::PathSource;
-
-use super::super::SetupPluginResult;
 
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> PathBuf {
   get_file_path_from_name_and_version(&plugin_info.name, &plugin_info.version, environment)
@@ -170,8 +170,7 @@ fn get_plugin_zip_bytes<TEnvironment: Environment>(
 }
 
 fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
-  // todo: don't use serde because this should fail with a nice error message if the schema version is not equal
-  let plugin_file: ProcessPluginFile = match serde_json::from_slice(bytes) {
+  let plugin_file: Value = match serde_json::from_slice(bytes) {
     Ok(plugin_file) => plugin_file,
     Err(err) => bail!(
       "Error deserializing plugin file: {}\n\nThis might mean you're using an old version of dprint.",
@@ -179,14 +178,15 @@ fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
     ),
   };
 
-  if plugin_file.schema_version != 2 {
+  let schema_version = plugin_file.as_object().and_then(|o| o.get("schemaVersion")).and_then(|v| v.as_u64());
+  if schema_version != Some(2) {
     bail!(
       "Expected schema version 2, but found {}. This may indicate you need to upgrade your CLI version or plugin.",
-      plugin_file.schema_version
+      schema_version.map(|v| v.to_string()).unwrap_or_else(|| "no property".to_string())
     );
   }
 
-  Ok(plugin_file)
+  Ok(serde_json::value::from_value(plugin_file)?)
 }
 
 fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Environment) -> Result<&'a ProcessPluginPath> {
