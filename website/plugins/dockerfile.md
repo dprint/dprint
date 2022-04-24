@@ -16,7 +16,7 @@ Formats [Dockerfiles](https://docs.docker.com/engine/reference/builder).
 
 ## Install and Setup
 
-In dprint configuration file:
+In a dprint configuration file:
 
 1. Specify the plugin url in the `"plugins"` array.
 2. Ensure `.dockerfile` file extensions are matched in an `"includes"` pattern.

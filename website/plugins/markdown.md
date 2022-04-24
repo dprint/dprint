@@ -14,7 +14,7 @@ description: Documentation on the Markdown code formatting plugin for dprint.
 
 ## Install and Setup
 
-In dprint configuration file:
+In a dprint configuration file:
 
 1. Specify the plugin url in the `"plugins"` array.
 2. Ensure `.md` file extensions are matched in an `"includes"` pattern.

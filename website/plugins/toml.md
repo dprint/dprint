@@ -16,7 +16,7 @@ Formats [TOML](https://toml.io) files.
 
 ## Install and Setup
 
-In dprint configuration file:
+In a dprint configuration file:
 
 1. Specify the plugin url in the `"plugins"` array.
 2. Ensure `.toml` file extensions are matched in an `"includes"` pattern.
