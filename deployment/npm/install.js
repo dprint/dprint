@@ -24,6 +24,14 @@ const url = "https://github.com/dprint/dprint/releases/download/"
   + info.version
   + "/dprint-" + target + ".zip";
 
+// remove the old zip file if it exists
+try {
+  fs.unlinkSync(zipFilePath);
+} catch (err) {
+  // ignore
+}
+
+// now try to download it
 downloadZipFile(url).then(() => {
   verifyZipChecksum();
   extractZipFile().then(() => {
@@ -62,15 +70,29 @@ function getTarget() {
 }
 
 function downloadZipFile(url) {
-  try {
-    fs.unlinkSync(zipFilePath);
-  } catch (err) {
-    // ignore
-  }
-
-  const file = fs.createWriteStream(zipFilePath);
   return new Promise((resolve, reject) => {
     https.get(url, function(response) {
+      if (response.statusCode >= 200 && response.statusCode <= 299) {
+        downloadResponse(response).then(resolve).catch(reject);
+      } else if (response.headers.location) {
+        downloadZipFile(response.headers.location).then(resolve).catch(reject);
+      } else {
+        reject(new Error("Unknown status code " + response.statusCode + " : " + response.statusMessage));
+      }
+    }).on("error", function(err) {
+      try {
+        fs.unlinkSync(zipFilePath);
+      } catch (err) {
+        // ignore
+      }
+      reject(err);
+    });
+  });
+
+  /** @param response {import("http").IncomingMessage} */
+  function downloadResponse(response) {
+    return new Promise((resolve, reject) => {
+      const file = fs.createWriteStream(zipFilePath);
       response.pipe(file);
       file.on("finish", function() {
         file.close((err) => {
@@ -81,15 +103,8 @@ function downloadZipFile(url) {
           }
         });
       });
-    }).on("error", function(err) {
-      try {
-        fs.unlinkSync(zipFilePath);
-      } catch (err) {
-        // ignore
-      }
-      reject(err);
     });
-  });
+  }
 }
 
 function verifyZipChecksum() {
