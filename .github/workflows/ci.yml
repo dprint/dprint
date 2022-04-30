@@ -153,6 +153,13 @@ jobs:
       run: |
         cd website/assets
         ./install.ps1
+    - name: Test npm
+      run: |
+        cd deployment/npm
+        curl --fail --location --progress-bar --output "SHASUMS256.txt" "https://github.com/dprint/dprint/releases/download/0.27.0/SHASUMS256.txt"
+        node setup.js 0.27.0
+        npm install
+        node bin.js -v
 
   draft_release:
     name: draft_release
