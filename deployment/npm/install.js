@@ -149,25 +149,18 @@ function extractZipFile() {
       }
 
       zipFile.on("entry", (entry) => {
-        if (/\/$/.test(entry.fileName)) {
-          // directoyr
-          zipFile.readEntry();
-        } else {
+        if (!/\/$/.test(entry.fileName)) {
           // file entry
           zipFile.openReadStream(entry, (err, readStream) => {
             if (err) {
               reject(err);
               return;
             }
-            readStream.on("end", () => {
-              zipFile.readEntry();
-            });
-            const destination = path.dirname(path.join(__dirname, entry.fileName));
+            const destination = path.join(__dirname, entry.fileName);
             readStream.pipe(fs.createWriteStream(destination));
           });
         }
       });
-      zipFile.readEntry();
 
       zipFile.once("close", function() {
         resolve();
