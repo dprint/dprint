@@ -1,0 +1,71 @@
+---
+description: A pluggable and configurable code formatting platform written in Rust.
+layout: layouts/base.njk
+---
+
+<section id="main-banner" class="hero is-medium">
+  <div class="hero-body">
+    <div class="inner-content">
+      <h1 class="title">dprint</h1>
+      <h2 class="subtitle">
+        A pluggable and configurable code formatting platform written in
+        <a href="https://www.rust-lang.org/">Rust</a>.
+      </h2>
+    </div>
+  </div>
+</section>
+<section id="main-bottom">
+  <div class="inner-content">
+    <section class="notification">
+      <h2 class="subtitle">Highlights</h2>
+      <div class="content">
+        <ol>
+          <li>Formatting is <strong>very fast</strong>.</li>
+          <li>Plugins are WebAssembly files that may be imported from a URL or file path.</li>
+          <li>Official plugins are <strong>highly configurable</strong> enabling you to auto format code closer to your preferences.</li>
+          <li>Configuration may be imported from URLs for reuse and sharing.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="notification">
+      <h2 class="subtitle">Getting Started</h2>
+      <div class="content">
+        <ol>
+          <li><a href="/install">Install</a></li>
+          <li><a href="/setup">Setup</a></li>
+          <li><a href="/config">Configuration</a></li>
+          <li><a href="/cli">CLI Overview</a></li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="notification" id="main-plugins">
+      <h2 class="subtitle">Plugins</h2>
+      <div class="columns">
+        <div class="column">
+          <div class="content">
+            <ul>
+              <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
+              <li><a href="/plugins/json">JSON</a></li>
+              <li><a href="/plugins/markdown">Markdown</a></li>
+              <li><a href="/plugins/toml">TOML</a></li>
+              <li><a href="/plugins/dockerfile">Dockerfile</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="column main-plugins-following">
+          <div class="content">
+            <ul>
+              <li><a href="/plugins/rustfmt">Rustfmt</a></li>
+              <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
+              <li><a href="/plugins/prettier">Prettier</a></li>
+              <li><a href="/plugins/exec">Exec</a></li>
+              <li>More to come!</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</section>
