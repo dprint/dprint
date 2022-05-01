@@ -144,14 +144,14 @@ jobs:
     # TEST INSTALLERS
     - name: Test shell installer
       run: |
-        cd website/assets
+        cd website/src/assets
         chmod +x install.sh
         ./install.sh
     - name: Test powershell installer (Windows)
       if: startsWith(matrix.config.os, 'windows')
       shell: pwsh
       run: |
-        cd website/assets
+        cd website/src/assets
         ./install.ps1
     - name: Test npm
       run: |

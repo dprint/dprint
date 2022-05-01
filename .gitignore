@@ -3,6 +3,7 @@ scripts/node_modules
 /.rpt2_cache
 *.js.map
 target
+.vscode
 /crates/development/target
 /crates/test-plugin/target
 /website/playground/wasm/target
