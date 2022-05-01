@@ -1,19 +1,116 @@
-<!DOCTYPE html><html lang="en"><head><script async src="/scripts.js"></script><meta charset="utf-8"><title>TypeScript / JavaScript Plugin - dprint - Code Formatter</title><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#000000"><meta name="description" content="Documentation on the TypeScript / JavaScript code formatting plugin for dprint."><meta name="author" content="Dprint Code Formatting"><meta name="twitter:card" content="summary"><meta name="twitter:site" content="@dprintfmt"><meta name="twitter:title" content="TypeScript / JavaScript Plugin"><meta name="twitter:description" content="Documentation on the TypeScript / JavaScript code formatting plugin for dprint."><link rel="stylesheet" href="/style.css"></head><body><nav class="navbar" role="navigation" aria-label="main navigation"><div class="navbar-brand"><h1 class="title"><a href="/">dprint</a></h1><a role="button" id="navbarBurger" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarLinks"><span aria-hidden="true"></span> <span aria-hidden="true"></span> <span aria-hidden="true"></span></a></div><div class="navbar-menu" id="navbarLinks"><div class="navbar-end"><a class="navbar-item" href="/overview">Overview</a> <a class="navbar-item" href="/playground">Playground</a> <a class="navbar-item" href="/sponsor">Sponsor</a> <a class="navbar-item" href="https://github.com/dprint/dprint" rel="noopener noreferrer">View on GitHub</a></div></div></nav><section class="section" id="content"><div class="columns"><aside class="menu column is-narrow" style="width: 210px"><ul class="menu-list"><li><a href="/overview">Overview</a></li><li><a href="/install">Install</a></li><li><a href="/setup">Setup</a></li><li><a href="/config">Configuration</a></li><li><a href="/cli">CLI</a></li><li><a href="/ci">Continuous Integration</a></li></ul><p class="menu-label">Plugins</p><ul class="menu-list"><li><a href="/plugins">General</a></li><li><a href="/plugins/typescript">TypeScript / JavaScript</a></li><li><a href="/plugins/json">JSON</a></li><li><a href="/plugins/markdown">Markdown</a></li><li><a href="/plugins/toml">TOML</a></li><li><a href="/plugins/dockerfile">Dockerfile</a></li><li><a href="/plugins/rustfmt">Rustfmt</a></li><li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li><li><a href="/plugins/prettier">Prettier</a></li><li><a href="/plugins/exec">Exec (Many CLIs)</a></li><li><a href="/plugin-dev">Creating a Plugin</a></li></ul></aside><div id="content-body" class="column documentation"><nav class="breadcrumb" aria-label="breadcrumbs"><ul><li><a href="/plugins">Plugins</a></li><li><a href="/plugins/typescript">TypeScript</a></li></ul></nav><h1 id="typescript--javascript-code-formatter">TypeScript / JavaScript Code Formatter</h1><p>Supports:</p><ul><li>TypeScript</li><li>JavaScript - Supports all the JS syntax that the TS compiler supports.</li><li>JSX/TSX</li></ul><h2 id="install-and-setup">Install and Setup</h2><p>In a dprint configuration file:</p><ol><li>Specify the plugin url in the <code>"plugins"</code> array.</li><li>Ensure <code>.ts,.tsx,.js,.jsx,.mjs</code> file extensions are matched in an <code>"includes"</code> pattern.</li><li>Add a <code>"typescript"</code> configuration property if desired.</li></ol><pre><code class="jsonc language-jsonc"><span class="hljs-punctuation">{</span>
+<!DOCTYPE html>
+<html lang="en"><head>
+    <script async="" src="/scripts.js"></script>
+    <meta charset="utf-8">
+    <title>TypeScript / JavaScript Plugin - dprint - Code Formatter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#000000">
+    <meta name="description" content="Documentation on the TypeScript / JavaScript code formatting plugin for dprint.">
+    <meta name="author" content="Dprint Code Formatting">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:site" content="@dprintfmt">
+    <meta name="twitter:title" content="TypeScript / JavaScript Plugin">
+    <meta name="twitter:description" content="Documentation on the TypeScript / JavaScript code formatting plugin for dprint.">
+    
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand">
+        <h1 class="title"><a href="/">dprint</a></h1>
+
+        <a role="button" id="navbarBurger" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarLinks">
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+        </a>
+      </div>
+
+      <div class="navbar-menu" id="navbarLinks">
+        <div class="navbar-end">
+          <a class="navbar-item" href="/overview">Overview</a>
+          <a class="navbar-item" href="/playground">Playground</a>
+          <a class="navbar-item" href="/sponsor">Sponsor</a>
+          <a class="navbar-item" href="https://github.com/dprint/dprint" rel="noopener noreferrer">View on GitHub</a>
+        </div>
+      </div>
+    </nav>
+    
+<section class="section" id="content">
+  <div class="columns">
+    <aside class="menu column is-narrow" style="width: 210px">
+      <ul class="menu-list">
+        <li><a href="/overview">Overview</a></li>
+        <li><a href="/install">Install</a></li>
+        <li><a href="/setup">Setup</a></li>
+        <li><a href="/config">Configuration</a></li>
+        <li><a href="/cli">CLI</a></li>
+        <li><a href="/ci">Continuous Integration</a></li>
+      </ul>
+      <p class="menu-label">Plugins</p>
+      <ul class="menu-list">
+        <li><a href="/plugins">General</a></li>
+        <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
+        <li><a href="/plugins/json">JSON</a></li>
+        <li><a href="/plugins/markdown">Markdown</a></li>
+        <li><a href="/plugins/toml">TOML</a></li>
+        <li><a href="/plugins/dockerfile">Dockerfile</a></li>
+        <li><a href="/plugins/rustfmt">Rustfmt</a></li>
+        <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
+        <li><a href="/plugins/prettier">Prettier</a></li>
+        <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
+        <li><a href="/plugin-dev">Creating a Plugin</a></li>
+      </ul>
+    </aside>
+    <div id="content-body" class="column documentation">
+      <nav class="breadcrumb" aria-label="breadcrumbs">
+  <ul>
+    <li><a href="/plugins">Plugins</a></li>
+    <li><a href="/plugins/typescript">TypeScript</a></li>
+  </ul>
+</nav>
+<h1>TypeScript / JavaScript Code Formatter</h1>
+<p>Supports:</p>
+<ul>
+<li>TypeScript</li>
+<li>JavaScript - Supports all the JS syntax that the TS compiler supports.</li>
+<li>JSX/TSX</li>
+</ul>
+<h2>Install and Setup</h2>
+<p>In a dprint configuration file:</p>
+<ol>
+<li>Specify the plugin url in the <code>"plugins"</code> array.</li>
+<li>Ensure <code>.ts,.tsx,.js,.jsx,.mjs</code> file extensions are matched in an <code>"includes"</code> pattern.</li>
+<li>Add a <code>"typescript"</code> configuration property if desired.</li>
+</ol>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
   <span class="hljs-comment">// ...etc...</span>
-  <span class="hljs-attr">&quot;typescript&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"typescript"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
     <span class="hljs-comment">// TypeScript &amp; JavaScript config goes here</span>
   <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
-  <span class="hljs-attr">&quot;includes&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
-    <span class="hljs-string">&quot;**/*.{ts,tsx,js,jsx,mjs}&quot;</span>
+  <span class="hljs-attr">"includes"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"**/*.{ts,tsx,js,jsx,mjs}"</span>
   <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
-  <span class="hljs-attr">&quot;excludes&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
-    <span class="hljs-string">&quot;**/node_modules&quot;</span> <span class="hljs-comment">// if necessary</span>
+  <span class="hljs-attr">"excludes"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"**/node_modules"</span> <span class="hljs-comment">// if necessary</span>
   <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
-  <span class="hljs-attr">&quot;plugins&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
     <span class="hljs-comment">// ...etc...</span>
-    <span class="hljs-string">&quot;https://plugins.dprint.dev/typescript-x.x.x.wasm&quot;</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/typescript-x.x.x.wasm"</span>
   <span class="hljs-punctuation">]</span>
-<span class="hljs-punctuation">}</span></code></pre><h2 id="configuration">Configuration</h2><p>See <a href="/plugins/typescript/config">Configuration</a></p><h2 id="playground">Playground</h2><p>See <a href="https://dprint.dev/playground#language/typescript">Playground</a></p><h2 id="ignoring-files">Ignoring Files</h2><p>Add an ignore file comment as the <strong>first</strong> comment in the file:</p><pre><code class="ts language-ts"><span class="hljs-comment">// dprint-ignore-file</span></code></pre><h2 id="ignore-comments">Ignore Comments</h2><p>Add an ignore comment before the code:</p><pre><code class="ts language-ts"><span class="hljs-comment">// dprint-ignore</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<h2>Configuration</h2>
+<p>See <a href="/plugins/typescript/config">Configuration</a></p>
+<h2>Playground</h2>
+<p>See <a href="https://dprint.dev/playground#language/typescript">Playground</a></p>
+<h2>Ignoring Files</h2>
+<p>Add an ignore file comment as the <strong>first</strong> comment in the file:</p>
+<pre><code class="language-ts hljs language-typescript"><span class="hljs-comment">// dprint-ignore-file</span>
+</code></pre>
+<h2>Ignore Comments</h2>
+<p>Add an ignore comment before the code:</p>
+<pre><code class="language-ts hljs language-typescript"><span class="hljs-comment">// dprint-ignore</span>
 <span class="hljs-keyword">const</span> identity = [
     <span class="hljs-number">1</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>,
     <span class="hljs-number">0</span>, <span class="hljs-number">1</span>, <span class="hljs-number">0</span>,
@@ -26,24 +123,48 @@
     <span class="hljs-number">1</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>,
     <span class="hljs-number">0</span>, <span class="hljs-number">1</span>, <span class="hljs-number">0</span>,
     <span class="hljs-number">0</span>, <span class="hljs-number">0</span>, <span class="hljs-number">1</span>,
-];</code></pre><h2 id="explicit-newlines">Explicit Newlines</h2><p>For the most part, dprint allows you to place certain nodes like binary, logical, and member expressions on different lines as you see fit. It does this because newlines can often convey meaning or grouping.</p><!-- dprint-ignore --><pre><code class="ts language-ts"><span class="hljs-comment">// formats this as-is</span>
+];
+</code></pre>
+<h2>Explicit Newlines</h2>
+<p>For the most part, dprint allows you to place certain nodes like binary, logical, and member expressions on different lines as you see fit. It does this because newlines can often convey meaning or grouping.</p>
+<!-- dprint-ignore -->
+<pre><code class="language-ts hljs language-typescript"><span class="hljs-comment">// formats this as-is</span>
 <span class="hljs-keyword">const</span> mathResult = <span class="hljs-number">1</span> + <span class="hljs-number">2</span> * <span class="hljs-number">6</span>
     + moreMath * math;
 
 <span class="hljs-title function_">expect</span>(<span class="hljs-title function_">someFunctionCall</span>(<span class="hljs-number">1</span>, <span class="hljs-number">2</span>))
-    .<span class="hljs-property">to</span>.<span class="hljs-title function_">equal</span>(<span class="hljs-number">5</span>);</code></pre><p>Also, placing a node on the next line after an open paren will indent the text within the parens.</p><!-- dprint-ignore --><pre><code class="ts language-ts"><span class="hljs-keyword">const</span> mathResult = (
+    .<span class="hljs-property">to</span>.<span class="hljs-title function_">equal</span>(<span class="hljs-number">5</span>);
+</code></pre>
+<p>Also, placing a node on the next line after an open paren will indent the text within the parens.</p>
+<!-- dprint-ignore -->
+<pre><code class="language-ts hljs language-typescript"><span class="hljs-keyword">const</span> mathResult = (
     <span class="hljs-number">1</span> + <span class="hljs-number">2</span>);
 <span class="hljs-comment">// formats as</span>
 <span class="hljs-keyword">const</span> mathResult = (
     <span class="hljs-number">1</span> + <span class="hljs-number">2</span>
-);</code></pre><p>The same happens with statements like if statements.</p><!-- dprint-ignore --><pre><code class="ts language-ts"><span class="hljs-keyword">if</span> (
+);
+</code></pre>
+<p>The same happens with statements like if statements.</p>
+<!-- dprint-ignore -->
+<pre><code class="language-ts hljs language-typescript"><span class="hljs-keyword">if</span> (
     someCondition &amp;&amp; otherCondition) {
 }
 <span class="hljs-comment">// formats as</span>
 <span class="hljs-keyword">if</span> (
     someCondition &amp;&amp; otherCondition
 ) {
-}</code></pre><p><a href="https://dprint.dev/playground/#code/MYewdgzgLgBAtgQygCwEoFMIFcA2sC8MAjDANQwBMMAVDAGwCwAUDK2fCAE7oCySyNePwDczZugAeAB3TAoACggg46AGJYwcgJbgAwghw55RADSUAlOeZsYAOighb6AI5YD8gKznRTZqEiwiCgY2HhUhPLWbCTkFN5iTFoAZjCRLGxKKrrgACZaUDpgMABkxTAgKOic2WB5BeDmMADezAC+QA/config/N4KAviQ/language/typescript">Playground</a></p><h3 id="forcing-a-line-per-expression">Forcing a Line Per Expression</h3><p>By default, dprint will leave line breaks between expressions in member expressions (ex. <code>myObj.prop</code>) and binary expressions (ex. <code>value + other</code>). If you don't want this behaviour, you can disable it by setting the following configuration:</p><ul><li><code>"memberExpression.linePerExpression": true</code></li><li><code>"binaryExpression.linePerExpression": true</code></li></ul><p>Example:</p><!-- dprint-ignore --><pre><code class="ts language-ts">myObject.<span class="hljs-property">accessing</span>.<span class="hljs-property">someProperty</span>;
+}
+</code></pre>
+<p><a href="https://dprint.dev/playground/#code/MYewdgzgLgBAtgQygCwEoFMIFcA2sC8MAjDANQwBMMAVDAGwCwAUDK2fCAE7oCySyNePwDczZugAeAB3TAoACggg46AGJYwcgJbgAwghw55RADSUAlOeZsYAOighb6AI5YD8gKznRTZqEiwiCgY2HhUhPLWbCTkFN5iTFoAZjCRLGxKKrrgACZaUDpgMABkxTAgKOic2WB5BeDmMADezAC+QA/config/N4KAviQ/language/typescript">Playground</a></p>
+<h3>Forcing a Line Per Expression</h3>
+<p>By default, dprint will leave line breaks between expressions in member expressions (ex. <code>myObj.prop</code>) and binary expressions (ex. <code>value + other</code>). If you don't want this behaviour, you can disable it by setting the following configuration:</p>
+<ul>
+<li><code>"memberExpression.linePerExpression": true</code></li>
+<li><code>"binaryExpression.linePerExpression": true</code></li>
+</ul>
+<p>Example:</p>
+<!-- dprint-ignore -->
+<pre><code class="language-ts hljs language-typescript">myObject.<span class="hljs-property">accessing</span>.<span class="hljs-property">someProperty</span>;
 myObject
     .<span class="hljs-property">accessing</span>.<span class="hljs-property">some</span>
     .<span class="hljs-property">other</span>.<span class="hljs-property">prop</span>;
@@ -57,7 +178,11 @@ myObject
     .<span class="hljs-property">prop</span>;
 myObject
     .<span class="hljs-property">myLooooooooooonnnnnggggggg</span>
-    .<span class="hljs-property">propAccess</span>;</code></pre><p>You may want to use both <code>"preferSingleLine": true</code> in combination with this option:</p><!-- dprint-ignore --><pre><code class="ts language-ts">myObject.<span class="hljs-property">accessing</span>.<span class="hljs-property">someProperty</span>;
+    .<span class="hljs-property">propAccess</span>;
+</code></pre>
+<p>You may want to use both <code>"preferSingleLine": true</code> in combination with this option:</p>
+<!-- dprint-ignore -->
+<pre><code class="language-ts hljs language-typescript">myObject.<span class="hljs-property">accessing</span>.<span class="hljs-property">someProperty</span>;
 myObject
     .<span class="hljs-property">accessing</span>.<span class="hljs-property">some</span>
     .<span class="hljs-property">other</span>.<span class="hljs-property">prop</span>;
@@ -67,4 +192,38 @@ myObject.<span class="hljs-property">accessing</span>.<span class="hljs-property
 myObject.<span class="hljs-property">accessing</span>.<span class="hljs-property">some</span>.<span class="hljs-property">other</span>.<span class="hljs-property">prop</span>;
 myObject
     .<span class="hljs-property">myLooooooooooonnnnnggggggg</span>
-    .<span class="hljs-property">propAccess</span>;</code></pre><h2 id="statement--member-spacing">Statement &amp; Member Spacing</h2><p>Line breaks are maintained, but not when they are consecutive or if they are at the beginning or end of a block.</p><p><a href="https://dprint.dev/playground/#code/GYVwdgxgLglg9mABAWwJ4DFzXmAFASkQG8BYAKHMSuqoHpbEAZGMAU0QCMAnVgQwGsAzogDuMADbjO7ZLxZQ5bACYAaTiCiIwcTSIAWrJFAOpEvHuUtkaNeoggJBrCBpgA3dnC6IYwRMdZTc3ZeTQDpAHMWMBYIxC9EQyV4v15OcTgIfgA6KxtqHigQLiQAVgBuKwBfK3lWLmBeCHYAWVQASTAoesbm4jzqAAcuOEGALkRBKC5Yyop5mh0DLgAFEfGtEGQOernKamRWYzglAgmwLZ2uOcWArhajvROzxDc4GCU9siqgA/config/N4KAviQ/language/typescript">Playground</a></p></div></div></section><footer class="footer"><div><div class="level"><div class="level-left"><p class="level-item"><a href="/">Home</a></p><p class="level-item"><a href="/contact">Contact Us</a></p></div><div class="level-right"><p class="level-item"><a href="https://twitter.com/dprintfmt">Twitter</a></p><p class="level-item"><a href="https://github.com/dprint">GitHub</a></p></div></div></div></footer></body></html>
+    .<span class="hljs-property">propAccess</span>;
+</code></pre>
+<h2>Statement &amp; Member Spacing</h2>
+<p>Line breaks are maintained, but not when they are consecutive or if they are at the beginning or end of a block.</p>
+<p><a href="https://dprint.dev/playground/#code/GYVwdgxgLglg9mABAWwJ4DFzXmAFASkQG8BYAKHMSuqoHpbEAZGMAU0QCMAnVgQwGsAzogDuMADbjO7ZLxZQ5bACYAaTiCiIwcTSIAWrJFAOpEvHuUtkaNeoggJBrCBpgA3dnC6IYwRMdZTc3ZeTQDpAHMWMBYIxC9EQyV4v15OcTgIfgA6KxtqHigQLiQAVgBuKwBfK3lWLmBeCHYAWVQASTAoesbm4jzqAAcuOEGALkRBKC5Yyop5mh0DLgAFEfGtEGQOernKamRWYzglAgmwLZ2uOcWArhajvROzxDc4GCU9siqgA/config/N4KAviQ/language/typescript">Playground</a></p>
+
+    </div>
+  </div>
+</section>
+
+    <footer class="footer">
+      <div>
+        <div class="level">
+          <div class="level-left">
+            <p class="level-item">
+              <a href="/">Home</a>
+            </p>
+            <p class="level-item">
+              <a href="/contact">Contact Us</a>
+            </p>
+          </div>
+          <div class="level-right">
+            <p class="level-item">
+              <a href="https://twitter.com/dprintfmt">Twitter</a>
+            </p>
+            <p class="level-item">
+              <a href="https://github.com/dprint">GitHub</a>
+            </p>
+          </div>
+        </div>
+      </div>
+    </footer>
+  
+
+</body></html>

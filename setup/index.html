@@ -1,2 +1,125 @@
-<!DOCTYPE html><html lang="en"><head><script async src="/scripts.js"></script><meta charset="utf-8"><title>Setup - dprint - Code Formatter</title><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#000000"><meta name="description" content="Documentation on setting up dprint to format a collection of code."><meta name="author" content="Dprint Code Formatting"><meta name="twitter:card" content="summary"><meta name="twitter:site" content="@dprintfmt"><meta name="twitter:title" content="Setup"><meta name="twitter:description" content="Documentation on setting up dprint to format a collection of code."><link rel="stylesheet" href="/style.css"></head><body><nav class="navbar" role="navigation" aria-label="main navigation"><div class="navbar-brand"><h1 class="title"><a href="/">dprint</a></h1><a role="button" id="navbarBurger" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarLinks"><span aria-hidden="true"></span> <span aria-hidden="true"></span> <span aria-hidden="true"></span></a></div><div class="navbar-menu" id="navbarLinks"><div class="navbar-end"><a class="navbar-item" href="/overview">Overview</a> <a class="navbar-item" href="/playground">Playground</a> <a class="navbar-item" href="/sponsor">Sponsor</a> <a class="navbar-item" href="https://github.com/dprint/dprint" rel="noopener noreferrer">View on GitHub</a></div></div></nav><section class="section" id="content"><div class="columns"><aside class="menu column is-narrow" style="width: 210px"><ul class="menu-list"><li><a href="/overview">Overview</a></li><li><a href="/install">Install</a></li><li><a href="/setup">Setup</a></li><li><a href="/config">Configuration</a></li><li><a href="/cli">CLI</a></li><li><a href="/ci">Continuous Integration</a></li></ul><p class="menu-label">Plugins</p><ul class="menu-list"><li><a href="/plugins">General</a></li><li><a href="/plugins/typescript">TypeScript / JavaScript</a></li><li><a href="/plugins/json">JSON</a></li><li><a href="/plugins/markdown">Markdown</a></li><li><a href="/plugins/toml">TOML</a></li><li><a href="/plugins/dockerfile">Dockerfile</a></li><li><a href="/plugins/rustfmt">Rustfmt</a></li><li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li><li><a href="/plugins/prettier">Prettier</a></li><li><a href="/plugins/exec">Exec (Many CLIs)</a></li><li><a href="/plugin-dev">Creating a Plugin</a></li></ul></aside><div id="content-body" class="column documentation"><h1 id="setup-dprint">Setup dprint</h1><p>After <a href="/install">installing</a>, the main part of getting setup is to create a <em>dprint.json</em> or hidden <em>.dprint.json</em> file in your project.</p><p>This file will outline:</p><ol><li>The plugins to use.</li><li>The configuration to use for formatting files.</li><li>Which files to include and exclude from formatting.</li></ol><h2 id="quick-setup">Quick Setup</h2><p>Using the <code>dprint init</code> command is a quick way to get setup formatting your project.</p><p>Open a terminal in the root directory of your project and run the following command:</p><pre><code class="bash language-bash">dprint init</code></pre><p>This will create a <em>dprint.json</em> file in the current working directory. If you are connected to the internet, it will initialize the file according to the latest plugins.</p><h2 id="manual-setup">Manual Setup</h2><p>Create a <em>dprint.json</em> or hidden <em>.dprint.json</em> file in the root directory of the project and read the <a href="/config">configuration documentation</a>.</p><h2 id="hidden-config-file">Hidden Config File</h2><p>The dprint CLI supports a default hidden configuration at <em>.dprint.json</em>.</p><h2 id="custom-config-file-location">Custom Config File Location</h2><p>It is recommended to use <em>dprint.json</em> or <em>.dprint.json</em> as the location of your configuration file because it will be automatically picked up by the CLI and editor plugins. If you place it in another other location then it will need to be manually specified using the <code>--config &lt;path&gt;</code> or <code>-c &lt;path&gt;</code> flag whenever you run a command.</p><h3 id="dprint-init-with-custom-config-file-location"><code>dprint init</code> with custom config file location</h3><p>You may specify a custom path for the creation of a configuration file via <code>dprint init</code> by specifying it with the <code>-c</code> or <code>--config</code> flag.</p><pre><code class="bash language-bash">dprint init --config .dprint.json
-dprint init --config path/to/dprint.json</code></pre><h2 id="custom-cache-directory">Custom Cache Directory</h2><p>By default, dprint stores information in the current system user's cache directory (<code>~/.cache/dprint</code> on Linux, <code>~/Library/Caches/dprint</code> on Mac, and <code>%APPLOCALDATA%/dprint</code> on Windows) such as cached plugins and incremental formatting information. If you would like to store the cache in a custom location, then specify a <code>DPRINT_CACHE_DIR</code> environment variable. Note that this directory may be periodically deleted by the CLI, so if you set it please make sure it's set correctly and you're ok with the custom directory being deleted.</p><h2 id="proxy">Proxy</h2><p>You may specify a proxy for dprint to use when downloading plugins or configuration files by setting the <code>HTTPS_PROXY</code> and <code>HTTP_PROXY</code> environment variables.</p><p>Next step: <a href="/config">Configuration</a></p></div></div></section><footer class="footer"><div><div class="level"><div class="level-left"><p class="level-item"><a href="/">Home</a></p><p class="level-item"><a href="/contact">Contact Us</a></p></div><div class="level-right"><p class="level-item"><a href="https://twitter.com/dprintfmt">Twitter</a></p><p class="level-item"><a href="https://github.com/dprint">GitHub</a></p></div></div></div></footer></body></html>
+<!DOCTYPE html>
+<html lang="en"><head>
+    <script async="" src="/scripts.js"></script>
+    <meta charset="utf-8">
+    <title>Setup - dprint - Code Formatter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#000000">
+    <meta name="description" content="Documentation on setting up dprint to format a collection of code.">
+    <meta name="author" content="Dprint Code Formatting">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:site" content="@dprintfmt">
+    <meta name="twitter:title" content="Setup">
+    <meta name="twitter:description" content="Documentation on setting up dprint to format a collection of code.">
+    
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+      <div class="navbar-brand">
+        <h1 class="title"><a href="/">dprint</a></h1>
+
+        <a role="button" id="navbarBurger" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarLinks">
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+        </a>
+      </div>
+
+      <div class="navbar-menu" id="navbarLinks">
+        <div class="navbar-end">
+          <a class="navbar-item" href="/overview">Overview</a>
+          <a class="navbar-item" href="/playground">Playground</a>
+          <a class="navbar-item" href="/sponsor">Sponsor</a>
+          <a class="navbar-item" href="https://github.com/dprint/dprint" rel="noopener noreferrer">View on GitHub</a>
+        </div>
+      </div>
+    </nav>
+    
+<section class="section" id="content">
+  <div class="columns">
+    <aside class="menu column is-narrow" style="width: 210px">
+      <ul class="menu-list">
+        <li><a href="/overview">Overview</a></li>
+        <li><a href="/install">Install</a></li>
+        <li><a href="/setup">Setup</a></li>
+        <li><a href="/config">Configuration</a></li>
+        <li><a href="/cli">CLI</a></li>
+        <li><a href="/ci">Continuous Integration</a></li>
+      </ul>
+      <p class="menu-label">Plugins</p>
+      <ul class="menu-list">
+        <li><a href="/plugins">General</a></li>
+        <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
+        <li><a href="/plugins/json">JSON</a></li>
+        <li><a href="/plugins/markdown">Markdown</a></li>
+        <li><a href="/plugins/toml">TOML</a></li>
+        <li><a href="/plugins/dockerfile">Dockerfile</a></li>
+        <li><a href="/plugins/rustfmt">Rustfmt</a></li>
+        <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
+        <li><a href="/plugins/prettier">Prettier</a></li>
+        <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
+        <li><a href="/plugin-dev">Creating a Plugin</a></li>
+      </ul>
+    </aside>
+    <div id="content-body" class="column documentation">
+      <h1>Setup dprint</h1>
+<p>After <a href="/install">installing</a>, the main part of getting setup is to create a <em>dprint.json</em> or hidden <em>.dprint.json</em> file in your project.</p>
+<p>This file will outline:</p>
+<ol>
+<li>The plugins to use.</li>
+<li>The configuration to use for formatting files.</li>
+<li>Which files to include and exclude from formatting.</li>
+</ol>
+<h2>Quick Setup</h2>
+<p>Using the <code>dprint init</code> command is a quick way to get setup formatting your project.</p>
+<p>Open a terminal in the root directory of your project and run the following command:</p>
+<pre><code class="language-sh hljs language-bash">dprint init
+</code></pre>
+<p>This will create a <em>dprint.json</em> file in the current working directory. If you are connected to the internet, it will initialize the file according to the latest plugins.</p>
+<h2>Manual Setup</h2>
+<p>Create a <em>dprint.json</em> or hidden <em>.dprint.json</em> file in the root directory of the project and read the <a href="/config">configuration documentation</a>.</p>
+<h2>Hidden Config File</h2>
+<p>The dprint CLI supports a default hidden configuration at <em>.dprint.json</em>.</p>
+<h2>Custom Config File Location</h2>
+<p>It is recommended to use <em>dprint.json</em> or <em>.dprint.json</em> as the location of your configuration file because it will be automatically picked up by the CLI and editor plugins. If you place it in another other location then it will need to be manually specified using the <code>--config &lt;path&gt;</code> or <code>-c &lt;path&gt;</code> flag whenever you run a command.</p>
+<h3><code>dprint init</code> with custom config file location</h3>
+<p>You may specify a custom path for the creation of a configuration file via <code>dprint init</code> by specifying it with the <code>-c</code> or <code>--config</code> flag.</p>
+<pre><code class="language-sh hljs language-bash">dprint init --config .dprint.json
+dprint init --config path/to/dprint.json
+</code></pre>
+<h2>Custom Cache Directory</h2>
+<p>By default, dprint stores information in the current system user's cache directory (<code>~/.cache/dprint</code> on Linux, <code>~/Library/Caches/dprint</code> on Mac, and <code>%APPLOCALDATA%/dprint</code> on Windows) such as cached plugins and incremental formatting information. If you would like to store the cache in a custom location, then specify a <code>DPRINT_CACHE_DIR</code> environment variable. Note that this directory may be periodically deleted by the CLI, so if you set it please make sure it's set correctly and you're ok with the custom directory being deleted.</p>
+<h2>Proxy</h2>
+<p>You may specify a proxy for dprint to use when downloading plugins or configuration files by setting the <code>HTTPS_PROXY</code> and <code>HTTP_PROXY</code> environment variables.</p>
+<p>Next step: <a href="/config">Configuration</a></p>
+
+    </div>
+  </div>
+</section>
+
+    <footer class="footer">
+      <div>
+        <div class="level">
+          <div class="level-left">
+            <p class="level-item">
+              <a href="/">Home</a>
+            </p>
+            <p class="level-item">
+              <a href="/contact">Contact Us</a>
+            </p>
+          </div>
+          <div class="level-right">
+            <p class="level-item">
+              <a href="https://twitter.com/dprintfmt">Twitter</a>
+            </p>
+            <p class="level-item">
+              <a href="https://github.com/dprint">GitHub</a>
+            </p>
+          </div>
+        </div>
+      </div>
+    </footer>
+  
+
+</body></html>
