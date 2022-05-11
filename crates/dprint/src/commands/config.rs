@@ -449,8 +449,8 @@ mod test {
     let old_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
     let new_wasm_url = "https://plugins.dprint.dev/test-plugin-2.wasm".to_string();
     let old_ps_checksum = test_helpers::get_test_process_plugin_checksum();
-    let old_ps_url = format!("https://plugins.dprint.dev/test-process.exe-plugin@{}", old_ps_checksum);
-    let new_ps_url = "https://plugins.dprint.dev/test-plugin-3.exe-plugin".to_string();
+    let old_ps_url = format!("https://plugins.dprint.dev/test-process.json@{}", old_ps_checksum);
+    let new_ps_url = "https://plugins.dprint.dev/test-plugin-3.json".to_string();
     let new_ps_url_with_checksum = format!("{}@{}", new_ps_url, "info-checksum");
     let select_plugin_msg = "Select a plugin to add:".to_string();
 
@@ -677,8 +677,8 @@ mod test {
 
     // test all the process plugin combinations
     let old_ps_checksum = test_helpers::get_test_process_plugin_checksum();
-    let old_ps_url = format!("https://plugins.dprint.dev/test-process.exe-plugin@{}", old_ps_checksum);
-    let new_ps_url = "https://plugins.dprint.dev/test-plugin-3.exe-plugin".to_string();
+    let old_ps_url = format!("https://plugins.dprint.dev/test-process.json@{}", old_ps_checksum);
+    let new_ps_url = "https://plugins.dprint.dev/test-plugin-3.json".to_string();
     let new_ps_url_with_checksum = format!("{}@{}", new_ps_url, "info-checksum");
     test_update(TestUpdateOptions {
       config_has_wasm: false,
@@ -803,7 +803,7 @@ mod test {
         info.add_plugin(TestInfoFilePlugin {
           name: "test-process-plugin".to_string(),
           version: "0.3.0".to_string(),
-          url: "https://plugins.dprint.dev/test-plugin-3.exe-plugin".to_string(),
+          url: "https://plugins.dprint.dev/test-plugin-3.json".to_string(),
           config_key: Some("typescript".to_string()),
           checksum: if opts.info_has_checksum { Some("info-checksum".to_string()) } else { None },
           ..Default::default()
@@ -874,7 +874,7 @@ mod test {
         "https://plugins.dprint.dev/dprint/test-plugin/latest.json",
         &json!({
           "schemaVersion": 1,
-          "url": "https://plugins.dprint.dev/test-plugin.exe-plugin",
+          "url": "https://plugins.dprint.dev/test-plugin.json",
           "version": "0.2.0",
           "checksum": "checksum",
         })
@@ -887,7 +887,7 @@ mod test {
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
-        "The process plugin test-plugin 0.1.0 has a new url: https://plugins.dprint.dev/test-plugin.exe-plugin@checksum",
+        "The process plugin test-plugin 0.1.0 has a new url: https://plugins.dprint.dev/test-plugin.json@checksum",
         "Do you wish to update it? N"
       ]
     );

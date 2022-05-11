@@ -19,5 +19,8 @@
   "bugs": {
     "url": "https://github.com/dprint/dprint/issues"
   },
-  "homepage": "https://github.com/dprint/dprint#readme"
+  "homepage": "https://github.com/dprint/dprint#readme",
+  "dependencies": {
+    "yauzl": "=2.10.0"
+  }
 }

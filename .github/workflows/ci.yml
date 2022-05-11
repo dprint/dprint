@@ -144,15 +144,22 @@ jobs:
     # TEST INSTALLERS
     - name: Test shell installer
       run: |
-        cd website/assets
+        cd website/src/assets
         chmod +x install.sh
         ./install.sh
     - name: Test powershell installer (Windows)
       if: startsWith(matrix.config.os, 'windows')
       shell: pwsh
       run: |
-        cd website/assets
+        cd website/src/assets
         ./install.ps1
+    - name: Test npm
+      run: |
+        cd deployment/npm
+        curl --fail --location --progress-bar --output "SHASUMS256.txt" "https://github.com/dprint/dprint/releases/download/0.27.0/SHASUMS256.txt"
+        node setup.js 0.27.0
+        npm install
+        node bin.js -v
 
   draft_release:
     name: draft_release

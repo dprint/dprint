@@ -81,7 +81,7 @@ pub async fn output_editor_info<TEnvironment: Environment>(
 
   environment.log_machine_readable(&serde_json::to_string(&EditorInfo {
     schema_version: 5,
-    cli_version: env!("CARGO_PKG_VERSION").to_string(),
+    cli_version: environment.cli_version(),
     config_schema_url: "https://dprint.dev/schemas/v0.json".to_string(),
     plugins,
   })?);
@@ -337,7 +337,7 @@ mod test {
       .build(); // build only, don't initialize
     run_test_cli(vec!["editor-info"], &environment).unwrap();
     let mut final_output = r#"{"schemaVersion":5,"cliVersion":""#.to_string();
-    final_output.push_str(&env!("CARGO_PKG_VERSION").to_string());
+    final_output.push_str(&environment.cli_version());
     final_output.push_str(r#"","configSchemaUrl":"https://dprint.dev/schemas/v0.json","plugins":["#);
     final_output
       .push_str(r#"{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt"],"fileNames":[],"configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","helpUrl":"https://dprint.dev/plugins/test"},"#);

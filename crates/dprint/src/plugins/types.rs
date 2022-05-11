@@ -7,6 +7,7 @@ use dprint_core::plugins::PluginInfo;
 use crate::environment::Environment;
 use crate::utils::resolve_url_or_file_path_to_path_source;
 use crate::utils::PathSource;
+use crate::utils::PluginKind;
 
 #[derive(Clone)]
 pub struct CompilationResult {
@@ -26,12 +27,8 @@ impl PluginSourceReference {
     self.path_source.display()
   }
 
-  pub fn is_wasm_plugin(&self) -> bool {
-    self.path_source.is_wasm_plugin()
-  }
-
-  pub fn is_process_plugin(&self) -> bool {
-    self.path_source.is_process_plugin()
+  pub fn plugin_kind(&self) -> Option<PluginKind> {
+    self.path_source.plugin_kind()
   }
 
   pub fn without_checksum(&self) -> PluginSourceReference {
@@ -145,7 +142,7 @@ mod tests {
   fn should_parse_non_wasm_plugin_with_checksum() {
     let environment = TestEnvironment::new();
     let result = parse_plugin_source_reference(
-      "http://dprint.dev/plugin.exe-plugin@checksum",
+      "http://dprint.dev/plugin.json@checksum",
       &PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")),
       &environment,
     )
@@ -153,7 +150,7 @@ mod tests {
     assert_eq!(
       result,
       PluginSourceReference {
-        path_source: PathSource::new_remote_from_str("http://dprint.dev/plugin.exe-plugin"),
+        path_source: PathSource::new_remote_from_str("http://dprint.dev/plugin.json"),
         checksum: Some(String::from("checksum")),
       }
     );
@@ -164,7 +161,7 @@ mod tests {
     // this now errors at a higher level when verifying the checksum instead
     let environment = TestEnvironment::new();
     let result = parse_plugin_source_reference(
-      "http://dprint.dev/plugin.exe-plugin",
+      "http://dprint.dev/plugin.json",
       &PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")),
       &environment,
     )
@@ -172,7 +169,7 @@ mod tests {
     assert_eq!(
       result,
       PluginSourceReference {
-        path_source: PathSource::new_remote_from_str("http://dprint.dev/plugin.exe-plugin"),
+        path_source: PathSource::new_remote_from_str("http://dprint.dev/plugin.json"),
         checksum: None,
       }
     );

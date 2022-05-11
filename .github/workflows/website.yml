@@ -20,18 +20,16 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-
+      - uses: denoland/setup-deno@v1
 
       - name: Install playground dependencies
         run: (cd website/playground && npm ci)
-
-      - name: Install script dependencies
-        run: (cd scripts && npm ci)
 
       - name: Build playground
         run: npm run build --prefix website/playground
 
       - name: Build website
-        run: (cd scripts && npm run build-website)
+        run: (cd website && deno task build)
 
       - name: Deploy
         if: github.ref == 'refs/heads/main'
@@ -39,4 +37,4 @@ jobs:
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: gh-pages
-          FOLDER: scripts/build-website
+          FOLDER: website/_site

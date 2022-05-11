@@ -57,7 +57,6 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
   };
 
   let mut json_text = String::from("{\n");
-  json_text.push_str("  \"incremental\": true,\n");
 
   if let Some(selected_plugins) = &selected_plugins {
     for plugin in selected_plugins.iter() {
@@ -181,7 +180,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "typescript": {
   },
   "json": {
@@ -216,7 +214,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "typescript": {
   },
   "json": {
@@ -253,7 +250,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "json": {
   },
   "includes": ["**/*.{json}"],
@@ -284,7 +280,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "includes": ["**/*.*"],
   "excludes": [],
   "plugins": [
@@ -311,11 +306,10 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "includes": ["**/*.{ps}"],
   "excludes": [],
   "plugins": [
-    "https://plugins.dprint.dev/process-0.1.0.exe-plugin@test-checksum"
+    "https://plugins.dprint.dev/process-0.1.0.json@test-checksum"
   ]
 }
 "#
@@ -331,7 +325,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "includes": ["**/*.*"],
   "excludes": [
     "**/node_modules",
@@ -373,7 +366,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "typescript": {
   },
   "includes": ["**/*.{ts}"],
@@ -410,7 +402,6 @@ mod test {
     assert_eq!(
       text,
       r#"{
-  "incremental": true,
   "includes": ["**/*.*"],
   "excludes": [
     "**/node_modules",
@@ -475,7 +466,7 @@ mod test {
         name: "dprint-process-plugin".to_string(),
         version: "0.1.0".to_string(),
         selected: Some(true), // should ignore this even though it's selected
-        url: "https://plugins.dprint.dev/process-0.1.0.exe-plugin".to_string(),
+        url: "https://plugins.dprint.dev/process-0.1.0.json".to_string(),
         file_extensions: vec!["ps".to_string()],
         config_excludes: vec![],
         checksum: Some("test-checksum".to_string()),

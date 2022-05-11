@@ -453,6 +453,10 @@ impl Environment for TestEnvironment {
     *self.core_count.lock()
   }
 
+  fn cli_version(&self) -> String {
+    "0.0.0".to_string()
+  }
+
   fn get_time_secs(&self) -> u64 {
     123456
   }

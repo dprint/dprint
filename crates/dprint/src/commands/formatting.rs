@@ -130,17 +130,37 @@ pub async fn check<TEnvironment: Environment>(
   let incremental_file = get_incremental_file(cmd.incremental, &config, cache, &plugin_pools, environment);
   let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
-  run_parallelized(file_paths_by_plugin, environment, plugin_pools, incremental_file, EnsureStableFormat(false), {
-    let not_formatted_files_count = not_formatted_files_count.clone();
-    move |file_path, file_text, formatted_text, _, _, environment| {
-      if formatted_text != file_text {
-        not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
-        output_difference(file_path, file_text, &formatted_text, environment);
+  run_parallelized(
+    file_paths_by_plugin,
+    environment,
+    plugin_pools,
+    incremental_file.clone(),
+    EnsureStableFormat(false),
+    {
+      let not_formatted_files_count = not_formatted_files_count.clone();
+      let incremental_file = incremental_file.clone();
+      move |file_path, file_text, formatted_text, _, _, environment| {
+        if formatted_text != file_text {
+          not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
+          output_difference(file_path, file_text, &formatted_text, environment);
+        } else {
+          // update the incremental cache when the file is formatted correctly
+          // so that this runs faster next time, but don't update it with the
+          // correctly formatted file because it hasn't undergone a stable
+          // formatting check
+          if let Some(incremental_file) = &incremental_file {
+            incremental_file.update_file(file_path, &formatted_text);
+          }
+        }
+        Ok(())
       }
-      Ok(())
-    }
-  })
+    },
+  )
   .await?;
+
+  if let Some(incremental_file) = &incremental_file {
+    incremental_file.write();
+  }
 
   let not_formatted_files_count = not_formatted_files_count.load(Ordering::SeqCst);
   if not_formatted_files_count == 0 {
@@ -179,10 +199,15 @@ pub async fn format<TEnvironment: Environment>(
     environment,
     plugin_pools,
     incremental_file.clone(),
-    EnsureStableFormat(incremental_file.is_some()),
+    EnsureStableFormat(cmd.enable_stable_format),
     {
       let formatted_files_count = formatted_files_count.clone();
+      let incremental_file = incremental_file.clone();
       move |file_path, file_text, formatted_text, had_bom, _, environment| {
+        if let Some(incremental_file) = &incremental_file {
+          incremental_file.update_file(file_path, &formatted_text);
+        }
+
         if formatted_text != file_text {
           if output_diff {
             output_difference(file_path, file_text, &formatted_text, environment);
@@ -692,7 +717,8 @@ mod test {
     let file_path6 = "/file6.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .with_local_config("/config.json", |c| {
-        c.add_remote_wasm_plugin()
+        c.set_incremental(false)
+          .add_remote_wasm_plugin()
           .add_remote_process_plugin()
           .add_config_section(
             "test-plugin",
@@ -726,7 +752,7 @@ mod test {
       .write_file(&file_path6, "plugin: text6")
       .build();
 
-    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--config", "/config.json", "--skip-stable-format"], &environment).unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(6)]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
@@ -1325,6 +1351,7 @@ mod test {
       .initialize()
       .build();
 
+    // this is now the default
     run_test_cli(vec!["fmt", "--incremental"], &environment).unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
@@ -1464,6 +1491,66 @@ mod test {
       )
       .to_string()]
     );
+  }
+
+  #[test]
+  fn should_format_incrementally_with_check() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt").add_remote_wasm_plugin();
+      })
+      .write_file(&file_path1, "text1_formatted")
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["check", "--incremental"], &environment).unwrap();
+    run_test_cli(vec!["check", "--incremental"], &environment).unwrap();
+
+    environment.write_file(file_path1, "text1").unwrap();
+    assert!(run_test_cli(vec!["check", "--incremental"], &environment).is_err());
+
+    environment.write_file(file_path1, "text1_formatted").unwrap();
+    run_test_cli(vec!["check", "--incremental"], &environment).unwrap();
+    run_test_cli(vec!["check", "--incremental"], &environment).unwrap();
+    environment.clear_logs();
+  }
+
+  #[test]
+  fn should_format_without_incremental_when_specified() {
+    let file_path1 = "/subdir/file1.txt";
+    let no_change_msg = "No change:";
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt").add_remote_wasm_plugin();
+      })
+      .write_file(&file_path1, "text1")
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["fmt", "--incremental=false"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
+
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--incremental=false", "--verbose"], &environment).unwrap();
+    assert!(!environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)));
+  }
+
+  #[test]
+  fn allow_skipping_stable_format() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(&file_path1, "unstable_fmt_true")
+      .build();
+
+    run_test_cli(vec!["fmt", "--skip-stable-format", "*.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages().len(), 0);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "unstable_fmt_false_formatted");
   }
 
   #[test]
@@ -1700,7 +1787,7 @@ mod test {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_process_plugin()
       .with_default_config(|c| {
-        c.clear_plugins().add_plugin("https://plugins.dprint.dev/test-process.exe-plugin");
+        c.clear_plugins().add_plugin("https://plugins.dprint.dev/test-process.json");
       })
       .write_file("/test.txt_ps", "")
       .build();
@@ -1711,9 +1798,9 @@ mod test {
       error_message.to_string(),
       format!(
         concat!(
-          "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: The plugin must have a checksum specified ",
+          "Error resolving plugin https://plugins.dprint.dev/test-process.json: The plugin must have a checksum specified ",
           "for security reasons since it is not a Wasm plugin. Check the plugin's release notes for what the checksum is or if ",
-          "you trust the source, you may specify \"https://plugins.dprint.dev/test-process.exe-plugin@{}\"."
+          "you trust the source, you may specify \"https://plugins.dprint.dev/test-process.json@{}\"."
         ),
         actual_plugin_file_checksum,
       ),
@@ -1735,7 +1822,7 @@ mod test {
       error_message.to_string(),
       format!(
         concat!(
-          "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: Invalid checksum specified ",
+          "Error resolving plugin https://plugins.dprint.dev/test-process.json: Invalid checksum specified ",
           "in configuration file. Check the plugin's release notes for what the expected checksum is.\n\n",
           "The checksum did not match the expected checksum.\n\n",
           "Actual: {}\n",
@@ -1807,7 +1894,7 @@ mod test {
       error_message.to_string(),
       format!(
         concat!(
-          "Error resolving plugin https://plugins.dprint.dev/test-process.exe-plugin: Invalid checksum found ",
+          "Error resolving plugin https://plugins.dprint.dev/test-process.json: Invalid checksum found ",
           "within process plugin's manifest file for 'https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip'. ",
           "This is likely a bug in the process plugin. Please report it.\n\n",
           "The checksum did not match the expected checksum.\n\n",

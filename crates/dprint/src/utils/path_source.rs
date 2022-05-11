@@ -4,6 +4,12 @@ use url::Url;
 
 use crate::environment::CanonicalizedPathBuf;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PluginKind {
+  Process,
+  Wasm,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PathSource {
   /// From the local file system.
@@ -66,12 +72,16 @@ impl PathSource {
     }
   }
 
-  pub fn is_wasm_plugin(&self) -> bool {
-    self.display().to_lowercase().ends_with(".wasm")
-  }
-
-  pub fn is_process_plugin(&self) -> bool {
-    self.display().to_lowercase().ends_with(".exe-plugin")
+  pub fn plugin_kind(&self) -> Option<PluginKind> {
+    let lowercase_path = self.display().to_lowercase();
+    if lowercase_path.ends_with(".wasm") {
+      Some(PluginKind::Wasm)
+    // todo: remove `.exe-plugin` after September 2022
+    } else if lowercase_path.ends_with(".json") || lowercase_path.ends_with(".exe-plugin") {
+      Some(PluginKind::Process)
+    } else {
+      None
+    }
   }
 }
 

@@ -15,6 +15,7 @@ use crate::plugins::parse_plugin_source_reference;
 use crate::plugins::PluginSourceReference;
 use crate::utils::resolve_url_or_file_path;
 use crate::utils::PathSource;
+use crate::utils::PluginKind;
 use crate::utils::ResolvedPath;
 
 use super::resolve_main_config_path::resolve_main_config_path;
@@ -27,7 +28,7 @@ pub struct ResolvedConfig {
   pub includes: Vec<String>,
   pub excludes: Vec<String>,
   pub plugins: Vec<PluginSourceReference>,
-  pub incremental: bool,
+  pub incremental: Option<bool>,
   pub config_map: ConfigMap,
 }
 
@@ -90,7 +91,7 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, cache
 
   let includes = take_array_from_config_map(&mut main_config_map, "includes")?;
   let excludes = take_array_from_config_map(&mut main_config_map, "excludes")?;
-  let incremental = take_bool_from_config_map(&mut main_config_map, "incremental", false)?;
+  let incremental = take_bool_from_config_map(&mut main_config_map, "incremental")?;
   main_config_map.remove("projectType"); // this was an old config property that's no longer used
   let extends = take_extends(&mut main_config_map)?;
   let mut resolved_config = ResolvedConfig {
@@ -257,23 +258,21 @@ fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -
   Ok(result)
 }
 
-fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str, default_value: bool) -> Result<bool> {
-  let mut result = default_value;
+fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Option<bool>> {
   if let Some(value) = config_map.remove(property_name) {
     match value {
-      ConfigMapValue::KeyValue(ConfigKeyValue::Bool(value)) => {
-        result = value;
-      }
+      ConfigMapValue::KeyValue(ConfigKeyValue::Bool(value)) => Ok(Some(value)),
       _ => bail!("Expected boolean in '{}' property.", property_name),
     }
+  } else {
+    Ok(None)
   }
-  Ok(result)
 }
 
 fn filter_non_wasm_plugins(plugins: Vec<PluginSourceReference>, environment: &impl Environment) -> Vec<PluginSourceReference> {
-  if plugins.iter().any(|plugin| !plugin.is_wasm_plugin()) {
+  if plugins.iter().any(|plugin| plugin.plugin_kind() != Some(PluginKind::Wasm)) {
     environment.log_stderr(&get_warn_non_wasm_plugins_message());
-    plugins.into_iter().filter(|plugin| plugin.is_wasm_plugin()).collect()
+    plugins.into_iter().filter(|plugin| plugin.plugin_kind() == Some(PluginKind::Wasm)).collect()
   } else {
     plugins
   }
@@ -1240,7 +1239,7 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.incremental, false);
+    assert_eq!(result.incremental, None);
   }
 
   #[test]
@@ -1258,7 +1257,7 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.incremental, true);
+    assert_eq!(result.incremental, Some(true));
   }
 
   #[test]
@@ -1276,7 +1275,7 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.incremental, false);
+    assert_eq!(result.incremental, Some(false));
   }
 
   #[test]
@@ -1285,7 +1284,7 @@ mod tests {
     environment.add_remote_file(
       "https://dprint.dev/test.json",
       r#"{
-            "plugins": ["./test-plugin.exe-plugin@checksum"]
+            "plugins": ["./test-plugin.json@checksum"]
         }"#
         .as_bytes(),
     );
@@ -1310,7 +1309,7 @@ mod tests {
     environment.add_remote_file(
       "https://dprint.dev/dir/test.json",
       r#"{
-            "plugins": ["./test-plugin.exe-plugin@checksum"]
+            "plugins": ["./test-plugin.json@checksum"]
         }"#
         .as_bytes(),
     );
@@ -1336,7 +1335,7 @@ mod tests {
       .write_file(
         &PathBuf::from("/dir/test.json"),
         r#"{
-            "plugins": ["./test-plugin.exe-plugin@checksum"]
+            "plugins": ["./test-plugin.json@checksum"]
         }"#,
       )
       .unwrap();
@@ -1346,7 +1345,7 @@ mod tests {
     assert_eq!(
       result.plugins,
       vec![PluginSourceReference {
-        path_source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/dir/test-plugin.exe-plugin")),
+        path_source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/dir/test-plugin.json")),
         checksum: Some(String::from("checksum")),
       }]
     );

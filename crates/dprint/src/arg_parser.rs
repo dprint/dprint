@@ -62,14 +62,15 @@ pub enum SubCommand {
 #[derive(Debug, PartialEq)]
 pub struct CheckSubCommand {
   pub patterns: FilePatternArgs,
-  pub incremental: bool,
+  pub incremental: Option<bool>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct FmtSubCommand {
   pub diff: bool,
   pub patterns: FilePatternArgs,
-  pub incremental: bool,
+  pub incremental: Option<bool>,
+  pub enable_stable_format: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -154,6 +155,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
           diff: matches.is_present("diff"),
           patterns: parse_file_patterns(matches)?,
           incremental: parse_incremental(matches),
+          enable_stable_format: !matches.is_present("skip-stable-format"),
         })
       }
     }
@@ -216,8 +218,14 @@ fn parse_file_patterns(matches: &ArgMatches) -> Result<FilePatternArgs> {
   })
 }
 
-fn parse_incremental(matches: &ArgMatches) -> bool {
-  matches.is_present("incremental")
+fn parse_incremental(matches: &ArgMatches) -> Option<bool> {
+  if let Some(incremental) = matches.value_of("incremental") {
+    Some(incremental != "false")
+  } else if matches.is_present("incremental") {
+    Some(true)
+  } else {
+    None
+  }
 }
 
 fn values_to_vec(values: Option<clap::Values>) -> Vec<String> {
@@ -229,11 +237,15 @@ fn values_to_vec(values: Option<clap::Values>) -> Vec<String> {
 fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
   for (i, plugin) in plugins.iter().enumerate() {
     let lower_plugin = plugin.to_lowercase();
-    let is_valid_plugin =
-      lower_plugin.ends_with(".wasm") || lower_plugin.ends_with(".exe-plugin@") || lower_plugin.contains(".wasm@") || lower_plugin.contains(".exe-plugin");
+    let is_valid_plugin = lower_plugin.ends_with(".wasm")
+      || lower_plugin.ends_with(".exe-plugin")
+      || lower_plugin.ends_with(".json")
+      || lower_plugin.contains(".wasm@")
+      || lower_plugin.contains(".exe-plugin@")
+      || lower_plugin.contains(".json@");
     if !is_valid_plugin {
       let start_message = format!(
-        "{} was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .exe-plugin extension.",
+        "{} was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension.",
         plugin
       );
       if i == 0 {
@@ -336,6 +348,15 @@ EXAMPLES:
           Arg::new("diff")
             .long("diff")
             .help("Outputs a check-like diff of every formatted file.")
+            .takes_value(false)
+            .required(false)
+        )
+        .arg(
+          Arg::new("skip-stable-format")
+            .long("skip-stable-format")
+            .help("Whether to skip formatting a file multiple times until the output is stable")
+            // hidden because this needs more thought and probably shouldn't be allowed with incremental
+            .hide(true)
             .takes_value(false)
             .required(false)
         )
@@ -487,7 +508,10 @@ impl<'a> ClapExtensions for clap::Command<'a> {
       Arg::new("incremental")
         .long("incremental")
         .help("Only format files when they change. This may alternatively be specified in the configuration file.")
-        .takes_value(false),
+        .require_equals(true)
+        .takes_value(true)
+        .min_values(0)
+        .possible_values(["true", "false"]),
     )
   }
 }
@@ -503,7 +527,7 @@ mod test {
     let err = test_args(vec!["fmt", "--plugins", "test", "other.ts"]).err().unwrap();
     assert_eq!(
       err.to_string(),
-      concat!("test was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .exe-plugin extension.")
+      concat!("test was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension.")
     );
   }
 
@@ -515,11 +539,31 @@ mod test {
     assert_eq!(
       err.to_string(),
       concat!(
-        "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .exe-plugin extension.\n\n",
+        "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension.\n\n",
         "Maybe you meant to add two dashes after the plugins?\n",
         "  --plugins https://plugins.dprint.dev/test.wasm -- [file patterns]...",
       )
     );
+  }
+
+  #[test]
+  fn incremental_arg() {
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt"]).unwrap();
+    assert_eq!(fmt_cmd.incremental, None);
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--incremental=true"]).unwrap();
+    assert_eq!(fmt_cmd.incremental, Some(true));
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--incremental=false"]).unwrap();
+    assert_eq!(fmt_cmd.incremental, Some(false));
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--incremental"]).unwrap();
+    assert_eq!(fmt_cmd.incremental, Some(true));
+  }
+
+  fn parse_fmt_sub_command(args: Vec<&str>) -> Result<FmtSubCommand> {
+    let args = test_args(args)?;
+    match args.sub_command {
+      SubCommand::Fmt(cmd) => Ok(cmd),
+      _ => unreachable!(),
+    }
   }
 
   fn test_args(args: Vec<&str>) -> Result<CliArgs> {

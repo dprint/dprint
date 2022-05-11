@@ -215,6 +215,10 @@ impl Environment for RealEnvironment {
     std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4)
   }
 
+  fn cli_version(&self) -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+  }
+
   fn get_time_secs(&self) -> u64 {
     SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_secs()
   }

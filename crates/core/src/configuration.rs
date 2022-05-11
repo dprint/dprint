@@ -149,14 +149,14 @@ pub struct GlobalConfiguration {
   pub new_line_kind: Option<NewLineKind>,
 }
 
-pub const DEFAULT_GLOBAL_CONFIGURATION: DefaultGlobalConfiguration = DefaultGlobalConfiguration {
+pub const RECOMMENDED_GLOBAL_CONFIGURATION: RecommendedGlobalConfiguration = RecommendedGlobalConfiguration {
   line_width: 120,
-  indent_width: 4,
+  indent_width: 2,
   use_tabs: false,
   new_line_kind: NewLineKind::LineFeed,
 };
 
-pub struct DefaultGlobalConfiguration {
+pub struct RecommendedGlobalConfiguration {
   pub line_width: u32,
   pub use_tabs: bool,
   pub indent_width: u8,

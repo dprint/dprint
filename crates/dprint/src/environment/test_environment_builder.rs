@@ -80,16 +80,13 @@ impl TestConfigFileBuilder {
 
   pub fn add_remote_process_plugin(&mut self) -> &mut Self {
     // get the process plugin file and check its checksum
-    let remote_file_text = self
-      .environment
-      .download_file_err_404("https://plugins.dprint.dev/test-process.exe-plugin")
-      .unwrap();
+    let remote_file_text = self.environment.download_file_err_404("https://plugins.dprint.dev/test-process.json").unwrap();
     let checksum = dprint_cli_core::checksums::get_sha256_checksum(&remote_file_text);
     self.add_remote_process_plugin_with_checksum(&checksum)
   }
 
   pub fn add_remote_process_plugin_with_checksum(&mut self, checksum: &str) -> &mut Self {
-    let url = "https://plugins.dprint.dev/test-process.exe-plugin";
+    let url = "https://plugins.dprint.dev/test-process.json";
     if checksum.is_empty() {
       self.add_plugin(url)
     } else {
@@ -325,7 +322,7 @@ impl TestEnvironmentBuilder {
 
   pub fn write_process_plugin_file(&mut self, zip_checksum: &str) -> &mut Self {
     self.environment.add_remote_file_bytes(
-      "https://plugins.dprint.dev/test-process.exe-plugin",
+      "https://plugins.dprint.dev/test-process.json",
       test_helpers::get_test_process_plugin_file_text(zip_checksum).into_bytes(),
     );
     self
