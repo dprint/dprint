@@ -38,7 +38,7 @@ pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap> {
           )
         }
       }),
-      _ => bail!("Expected an object, boolean, string, or number in root object property '{}'", property_name),
+      JsonValue::Null => bail!("Unexpected null value in root object property '{}'", property_name), // ignore
     };
     properties.insert(property_name, property_value);
   }
@@ -124,19 +124,38 @@ fn value_to_plugin_config_key_value(value: JsonValue) -> Result<ConfigKeyValue> 
     JsonValue::Boolean(value) => ConfigKeyValue::Bool(value),
     JsonValue::String(value) => ConfigKeyValue::String(value.into_owned()),
     JsonValue::Number(value) => ConfigKeyValue::Number(value.parse::<i32>()?),
-    _ => bail!("Expected a boolean, string, or number"),
+    JsonValue::Array(value) => {
+      let values = value
+        .into_iter()
+        .map(value_to_plugin_config_key_value)
+        .collect::<Result<Vec<ConfigKeyValue>, _>>()?;
+      ConfigKeyValue::Array(values)
+    }
+    JsonValue::Object(obj) => {
+      let mut properties = ConfigKeyMap::new();
+      for (key, value) in obj.into_iter() {
+        let value = match value_to_plugin_config_key_value(value) {
+          Ok(result) => result,
+          Err(err) => bail!("{} in object property '{}'", err, key),
+        };
+        properties.insert(key, value);
+      }
+      ConfigKeyValue::Object(properties)
+    }
+    JsonValue::Null => ConfigKeyValue::Null,
   })
 }
 
 #[cfg(test)]
 mod tests {
+  use super::deserialize_config;
   use crate::configuration::ConfigMap;
   use crate::configuration::ConfigMapValue;
   use crate::configuration::RawPluginConfig;
 
-  use super::deserialize_config;
   use dprint_core::configuration::ConfigKeyMap;
   use dprint_core::configuration::ConfigKeyValue;
+  use pretty_assertions::assert_eq;
 
   #[test]
   fn should_error_when_there_is_a_parser_error() {
@@ -150,18 +169,7 @@ mod tests {
 
   #[test]
   fn should_error_when_the_root_property_has_an_unexpected_value_type() {
-    assert_error(
-      "{'prop': null}",
-      "Expected an object, boolean, string, or number in root object property 'prop'",
-    );
-  }
-
-  #[test]
-  fn should_error_when_the_sub_object_has_object() {
-    assert_error(
-      "{'prop': { 'test': {}}}",
-      "Expected a boolean, string, or number in object property 'prop -> test'",
-    );
+    assert_error("{'prop': null}", "Unexpected null value in root object property 'prop'");
   }
 
   #[test]
@@ -182,11 +190,19 @@ mod tests {
           (String::from("lineWidth"), ConfigKeyValue::from_i32(40)),
           (String::from("preferSingleLine"), ConfigKeyValue::from_bool(true)),
           (String::from("other"), ConfigKeyValue::from_str("test")),
+          (
+            String::from("obj"),
+            ConfigKeyValue::Object(ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(5))])),
+          ),
+          (
+            String::from("array"),
+            ConfigKeyValue::Array(vec![ConfigKeyValue::from_i32(1), ConfigKeyValue::Null]),
+          ),
         ]),
       }),
     );
     assert_deserializes(
-      "{'includes': [], 'typescript': { 'lineWidth': 40, 'preferSingleLine': true, 'other': 'test' }}",
+      "{'includes': [], 'typescript': { 'lineWidth': 40, 'preferSingleLine': true, 'other': 'test', 'obj': { 'prop': 5 }, 'array': [1, null] }}",
       expected_props,
     );
   }
