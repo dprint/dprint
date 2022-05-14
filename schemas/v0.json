@@ -31,7 +31,7 @@
     "indentWidth": {
       "description": "The number of characters for an indent.",
       "type": "number",
-      "default": 4
+      "default": 2
     },
     "useTabs": {
       "description": "Whether to use tabs (true) or spaces (false) for indentation.",
