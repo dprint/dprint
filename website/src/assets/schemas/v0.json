@@ -6,9 +6,9 @@
   "type": "object",
   "properties": {
     "incremental": {
-      "description": "Whether to format files only when they change. Setting this to `true` will dramatically speed up formatting.",
+      "description": "Whether to format files only when they change.",
       "type": "boolean",
-      "default": false
+      "default": true
     },
     "extends": {
       "description": "Configurations to extend.",
