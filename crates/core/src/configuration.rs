@@ -99,6 +99,9 @@ pub enum ConfigKeyValue {
   String(String),
   Number(i32),
   Bool(bool),
+  Array(Vec<ConfigKeyValue>),
+  Object(ConfigKeyMap),
+  Null,
 }
 
 impl ConfigKeyValue {
@@ -233,16 +236,18 @@ where
   if let Some(raw_value) = config.remove(key) {
     // not exactly the best, but can't think of anything better at the moment
     let parsed_value = match raw_value {
-      ConfigKeyValue::Bool(value) => value.to_string().parse::<T>(),
-      ConfigKeyValue::Number(value) => value.to_string().parse::<T>(),
-      ConfigKeyValue::String(value) => value.parse::<T>(),
+      ConfigKeyValue::Bool(value) => value.to_string().parse::<T>().map_err(|e| e.to_string()),
+      ConfigKeyValue::Number(value) => value.to_string().parse::<T>().map_err(|e| e.to_string()),
+      ConfigKeyValue::String(value) => value.parse::<T>().map_err(|e| e.to_string()),
+      ConfigKeyValue::Object(_) | ConfigKeyValue::Array(_) => Err("Arrays and objects are not supported for this value.".to_string()),
+      ConfigKeyValue::Null => return None,
     };
     match parsed_value {
       Ok(parsed_value) => Some(parsed_value),
       Err(message) => {
         diagnostics.push(ConfigurationDiagnostic {
           property_name: key.to_string(),
-          message: message.to_string(),
+          message,
         });
         None
       }

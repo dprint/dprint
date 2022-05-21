@@ -9,7 +9,7 @@
   ],
   "excludes": [
     "website/playground/build",
-    "scripts/build-website",
+    "website/_site",
     "**/node_modules",
     "**/dist",
     "**/target",
