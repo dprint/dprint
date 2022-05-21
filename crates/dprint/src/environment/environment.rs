@@ -66,6 +66,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn cpu_arch(&self) -> String;
   /// Gets the operating system.
   fn os(&self) -> String;
+  fn available_parallelism(&self) -> usize;
   /// Gets the CLI version
   fn cli_version(&self) -> String;
   fn get_time_secs(&self) -> u64;
@@ -88,7 +89,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
 macro_rules! log_verbose {
     ($environment:expr, $($arg:tt)*) => {
         if $environment.is_verbose() {
-            let mut text = String::from("[VERBOSE]: ");
+            let mut text = String::from("[VERBOSE] ");
             text.push_str(&format!($($arg)*));
             $environment.log_stderr(&text);
         }

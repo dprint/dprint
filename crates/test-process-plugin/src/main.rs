@@ -87,7 +87,10 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
         (false, request.file_text.to_string())
       };
 
-      let inner_format_text = if file_text.starts_with("wait_cancellation") {
+      let inner_format_text = if let Some(range) = &request.range {
+        let text = format!("{}_{}_{}", &file_text[0..range.start], request.config.ending, &file_text[range.end..]);
+        text
+      } else if file_text.starts_with("wait_cancellation") {
         request.token.wait_cancellation().await;
         return Ok(None);
       } else if let Some(new_text) = file_text.strip_prefix("plugin: ") {

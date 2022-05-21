@@ -174,30 +174,30 @@ dprint check --verbose
 Example output:
 
 ```text
-[VERBOSE]: Getting cache directory.
-[VERBOSE]: Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\cache-manifest.json
-[VERBOSE]: Checking path exists: ./dprint.json
-[VERBOSE]: Reading file: V:\dev\my-project\dprint.json
-[VERBOSE]: Globbing: ["**/*.{ts,tsx,js,jsx,json}", "!website/playground/build", "!scripts/build-website", "!**/dist", "!**/target", "!**/wasm", "!**/*-lock.json", "!**/node_modules"]
-[VERBOSE]: Finished globbing in 12ms
-[VERBOSE]: Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\typescript-0.19.2.compiled_wasm
-[VERBOSE]: Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\json-0.4.1.compiled_wasm
-[VERBOSE]: Creating instance of dprint-plugin-typescript
-[VERBOSE]: Creating instance of dprint-plugin-jsonc
-[VERBOSE]: Created instance of dprint-plugin-jsonc in 9ms
-[VERBOSE]: Reading file: V:\dev\my-project\website\playground\tsconfig.json
-[VERBOSE]: Reading file: V:\dev\my-project\website\assets\schemas\v0.json
-[VERBOSE]: Reading file: V:\dev\my-project\dprint.json
-[VERBOSE]: Formatted file: V:\dev\my-project\website\assets\schemas\v0.json in 2ms
-[VERBOSE]: Formatted file: V:\dev\my-project\dprint.json in 0ms
-[VERBOSE]: Formatted file: V:\dev\my-project\website\playground\tsconfig.json in 0ms
-[VERBOSE]: Created instance of dprint-plugin-typescript in 35ms
-[VERBOSE]: Reading file: V:\dev\my-project\website\playground\public\formatter.worker.js
-[VERBOSE]: Reading file: V:\dev\my-project\website\assets\formatter\v1.js
-[VERBOSE]: Reading file: V:\dev\my-project\website\playground\src\plugins\getPluginInfo.ts
-[VERBOSE]: Formatted file: V:\dev\my-project\website\playground\public\formatter.worker.js in 22ms
-[VERBOSE]: Formatted file: V:\dev\my-project\website\assets\formatter\v1.js in 6ms
-[VERBOSE]: Formatted file: V:\dev\my-project\website\playground\src\plugins\getPluginInfo.ts in 4ms
+[VERBOSE] Getting cache directory.
+[VERBOSE] Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\cache-manifest.json
+[VERBOSE] Checking path exists: ./dprint.json
+[VERBOSE] Reading file: V:\dev\my-project\dprint.json
+[VERBOSE] Globbing: ["**/*.{ts,tsx,js,jsx,json}", "!website/playground/build", "!scripts/build-website", "!**/dist", "!**/target", "!**/wasm", "!**/*-lock.json", "!**/node_modules"]
+[VERBOSE] Finished globbing in 12ms
+[VERBOSE] Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\typescript-0.19.2.compiled_wasm
+[VERBOSE] Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\json-0.4.1.compiled_wasm
+[VERBOSE] Creating instance of dprint-plugin-typescript
+[VERBOSE] Creating instance of dprint-plugin-jsonc
+[VERBOSE] Created instance of dprint-plugin-jsonc in 9ms
+[VERBOSE] Reading file: V:\dev\my-project\website\playground\tsconfig.json
+[VERBOSE] Reading file: V:\dev\my-project\website\assets\schemas\v0.json
+[VERBOSE] Reading file: V:\dev\my-project\dprint.json
+[VERBOSE] Formatted file: V:\dev\my-project\website\assets\schemas\v0.json in 2ms
+[VERBOSE] Formatted file: V:\dev\my-project\dprint.json in 0ms
+[VERBOSE] Formatted file: V:\dev\my-project\website\playground\tsconfig.json in 0ms
+[VERBOSE] Created instance of dprint-plugin-typescript in 35ms
+[VERBOSE] Reading file: V:\dev\my-project\website\playground\public\formatter.worker.js
+[VERBOSE] Reading file: V:\dev\my-project\website\assets\formatter\v1.js
+[VERBOSE] Reading file: V:\dev\my-project\website\playground\src\plugins\getPluginInfo.ts
+[VERBOSE] Formatted file: V:\dev\my-project\website\playground\public\formatter.worker.js in 22ms
+[VERBOSE] Formatted file: V:\dev\my-project\website\assets\formatter\v1.js in 6ms
+[VERBOSE] Formatted file: V:\dev\my-project\website\playground\src\plugins\getPluginInfo.ts in 4ms
 ...etc....
 ```
 

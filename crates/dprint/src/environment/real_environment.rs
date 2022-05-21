@@ -211,6 +211,10 @@ impl Environment for RealEnvironment {
     std::env::consts::OS.to_string()
   }
 
+  fn available_parallelism(&self) -> usize {
+    std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4)
+  }
+
   fn cli_version(&self) -> String {
     env!("CARGO_PKG_VERSION").to_string()
   }

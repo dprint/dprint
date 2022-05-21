@@ -4,13 +4,14 @@ use anyhow::Result;
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
+use crate::communication::SingleThreadMessageWriter;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
 
-use super::stdout_message_writer::StdoutMessageWriter;
-use super::utils::ArcIdStore;
-use super::utils::IdGenerator;
+use super::messages::ProcessPluginMessage;
+use crate::communication::ArcIdStore;
+use crate::communication::IdGenerator;
 
 pub type FormatHostSender = tokio::sync::oneshot::Sender<Result<Option<String>>>;
 
@@ -27,16 +28,16 @@ pub struct ProcessContext<TConfiguration: Serialize + Clone> {
   pub configs: ArcIdStore<Arc<StoredConfig<TConfiguration>>>,
   pub cancellation_tokens: ArcIdStore<Arc<CancellationToken>>,
   pub format_host_senders: ArcIdStore<FormatHostSender>,
-  pub stdout_writer: StdoutMessageWriter,
+  pub stdout_writer: SingleThreadMessageWriter<ProcessPluginMessage>,
 }
 
 impl<TConfiguration: Serialize + Clone> ProcessContext<TConfiguration> {
-  pub fn new(stdout_writer: StdoutMessageWriter) -> Self {
+  pub fn new(stdout_writer: SingleThreadMessageWriter<ProcessPluginMessage>) -> Self {
     ProcessContext {
       id_generator: Default::default(),
-      configs: ArcIdStore::new(),
-      cancellation_tokens: ArcIdStore::new(),
-      format_host_senders: ArcIdStore::new(),
+      configs: Default::default(),
+      cancellation_tokens: Default::default(),
+      format_host_senders: Default::default(),
       stdout_writer,
     }
   }

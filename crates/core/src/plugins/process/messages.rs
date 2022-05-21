@@ -5,19 +5,20 @@ use std::path::PathBuf;
 use anyhow::bail;
 use anyhow::Result;
 
+use crate::communication::Message;
 use crate::plugins::FormatRange;
 
-use super::communication::MessageReader;
-use super::communication::MessageWriter;
+use crate::communication::MessageReader;
+use crate::communication::MessageWriter;
 
 #[derive(Debug)]
-pub struct Message {
+pub struct ProcessPluginMessage {
   pub id: u32,
   pub body: MessageBody,
 }
 
-impl Message {
-  pub fn read<TRead: Read + Unpin>(reader: &mut MessageReader<TRead>) -> Result<Message> {
+impl ProcessPluginMessage {
+  pub fn read<TRead: Read + Unpin>(reader: &mut MessageReader<TRead>) -> Result<ProcessPluginMessage> {
     let id = reader.read_u32()?;
     let message_kind = reader.read_u32()?;
     let body = match message_kind {
@@ -106,17 +107,19 @@ impl Message {
         // don't read success bytes... receiving this means that
         // the plugin should exit the process after returning an
         // error or panic
-        return Ok(Message {
+        return Ok(ProcessPluginMessage {
           id,
           body: MessageBody::Unknown(message_kind),
         });
       }
     };
     reader.read_success_bytes()?;
-    Ok(Message { id, body })
+    Ok(ProcessPluginMessage { id, body })
   }
+}
 
-  pub fn write<TWrite: Write + Unpin>(&self, writer: &mut MessageWriter<TWrite>) -> Result<()> {
+impl Message for ProcessPluginMessage {
+  fn write<TWrite: Write + Unpin>(&self, writer: &mut MessageWriter<TWrite>) -> Result<()> {
     writer.send_u32(self.id)?;
     match &self.body {
       MessageBody::Success(message_id) => {

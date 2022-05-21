@@ -1,11 +1,9 @@
-mod communication;
 mod communicator;
 mod context;
 mod message_processor;
 mod messages;
 mod parent_process_checker;
 mod shared_types;
-mod stdout_message_writer;
 mod utils;
 
 pub use communicator::*;

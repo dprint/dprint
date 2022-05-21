@@ -1,6 +1,6 @@
 [package]
 name = "dprint-core"
-version = "0.57.0"
+version = "0.58.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2021"
 homepage = "https://github.com/dprint/dprint/tree/main/crates/core"
@@ -13,7 +13,8 @@ description = "Core library for dprint."
 default = ["formatting"]
 
 formatting = ["bumpalo", "rustc-hash"]
-process = ["crossbeam-channel", "serde_json", "libc", "parking_lot", "tokio", "tokio-util", "winapi"]
+communication = ["crossbeam-channel", "tokio", "parking_lot", "tokio-util"]
+process = ["communication", "serde_json", "libc", "winapi"]
 wasm = []
 tracing = ["formatting"]
 

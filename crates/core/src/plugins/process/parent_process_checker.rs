@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-/// Starts a thread that polls for the existence of the parent process.
+/// Starts a task that polls for the existence of the parent process.
 /// If the parent process no longer exists, then it will exit the current process.
 ///
 /// Note: This must be called from a tokio runtime.
