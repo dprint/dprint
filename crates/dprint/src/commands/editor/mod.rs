@@ -157,8 +157,6 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   pub async fn run(&mut self) -> Result<()> {
     loop {
       let message = EditorMessage::read(&mut self.reader)?;
-      // todo: temporary. Remove before merge or do a slimmed down version of it with log_verbose!(...)
-      eprintln!("Received message: {:?}", message);
       match message.body {
         EditorMessageBody::Success(_message_id) => {}
         EditorMessageBody::Error(_message_id, _data) => {}
