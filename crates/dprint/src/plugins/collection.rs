@@ -111,7 +111,7 @@ impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
 
     if let Some(file_name) = get_lowercase_file_name(file_name) {
       for (plugin_name, matcher) in plugin_name_maps.association_matchers.iter() {
-        if matcher.is_match(&file_name) {
+        if matcher.matches(&file_name) {
           plugin_names.push(plugin_name.to_owned());
         }
       }

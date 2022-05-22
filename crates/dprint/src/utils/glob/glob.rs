@@ -155,7 +155,7 @@ impl GlobMatchingProcessor {
                 }
               }
               DirEntryKind::File => {
-                if self.glob_matcher.is_match(&entry.path) {
+                if self.glob_matcher.matches(&entry.path) {
                   results.push(entry.path);
                 }
               }

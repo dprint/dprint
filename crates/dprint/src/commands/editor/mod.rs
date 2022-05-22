@@ -251,7 +251,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     // canonicalize the file path, then check if it's in the list of file paths.
     let resolved_file_path = self.environment.canonicalize(&file_path)?;
     log_verbose!(self.environment, "Checking can format: {}", resolved_file_path.display());
-    Ok(file_matcher.matches(&resolved_file_path))
+    Ok(file_matcher.matches_and_dir_not_ignored(&resolved_file_path))
   }
 
   async fn ensure_latest_config(&mut self) -> Result<()> {
@@ -527,7 +527,8 @@ mod test {
         c.add_remote_wasm_plugin()
           .add_remote_process_plugin()
           .add_includes("**/*.{txt,ts}")
-          .add_excludes("ignored_file.txt");
+          .add_excludes("ignored_file.txt")
+          .add_excludes("ignored-dir");
       })
       .write_file(&txt_file_path, "")
       .write_file(&ts_file_path, "")
@@ -546,6 +547,8 @@ mod test {
 
           assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true);
           assert_eq!(communicator.check_file(&PathBuf::from("/non-existent.txt")).await.unwrap(), true);
+          assert_eq!(communicator.check_file(&PathBuf::from("/ignored-dir/some-path.txt")).await.unwrap(), false);
+          assert_eq!(communicator.check_file(&PathBuf::from("/ignored-dir/sub/some-path.txt")).await.unwrap(), false);
           assert_eq!(communicator.check_file(&other_ext_path).await.unwrap(), false);
           assert_eq!(communicator.check_file(&ts_file_path).await.unwrap(), true);
           assert_eq!(communicator.check_file(&ignored_file_path).await.unwrap(), false);
