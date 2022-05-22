@@ -68,7 +68,7 @@ impl GlobMatcher {
     })
   }
 
-  pub fn is_match(&self, path: impl AsRef<Path>) -> bool {
+  pub fn matches(&self, path: impl AsRef<Path>) -> bool {
     match &self.inner {
       GlobMatcherInner::Empty => false,
       GlobMatcherInner::Matcher {
@@ -99,6 +99,35 @@ impl GlobMatcher {
           matches!(exclude_matcher.matched(&path, true), Match::Whitelist(_))
         } else {
           true
+        }
+      }
+    }
+  }
+
+  /// More expensive check for if the directory is already ignored.
+  /// Prefer using `matches` if you already know the parent directory
+  /// isn't ignored as it's faster.
+  pub fn matches_and_dir_not_ignored(&self, file_path: impl AsRef<Path>) -> bool {
+    if !self.matches(&file_path) {
+      return false;
+    }
+
+    match &self.inner {
+      GlobMatcherInner::Empty => false,
+      GlobMatcherInner::Matcher { base_dir, exclude_matcher, .. } => {
+        if file_path.as_ref().starts_with(&base_dir) {
+          for ancestor in file_path.as_ref().ancestors() {
+            if let Ok(path) = ancestor.strip_prefix(&base_dir) {
+              if matches!(exclude_matcher.matched(&path, true), Match::Whitelist(_)) {
+                return false;
+              }
+            } else {
+              return true;
+            }
+          }
+          true
+        } else {
+          false
         }
       }
     }
@@ -153,9 +182,9 @@ mod test {
       &GlobMatcherOptions { case_sensitive: true },
     )
     .unwrap();
-    assert!(glob_matcher.is_match("/testing/dir/match.ts"));
-    assert!(glob_matcher.is_match("/testing/dir/other/match.ts"));
-    assert!(!glob_matcher.is_match("/testing/dir/no-match.ts"));
+    assert!(glob_matcher.matches("/testing/dir/match.ts"));
+    assert!(glob_matcher.matches("/testing/dir/other/match.ts"));
+    assert!(!glob_matcher.matches("/testing/dir/no-match.ts"));
   }
 
   #[test]
@@ -169,7 +198,7 @@ mod test {
       &GlobMatcherOptions { case_sensitive: true },
     )
     .unwrap();
-    assert!(!glob_matcher.is_match("/some/other/dir/file.ts"));
+    assert!(!glob_matcher.matches("/some/other/dir/file.ts"));
   }
 
   #[cfg(target_os = "windows")]
@@ -184,8 +213,25 @@ mod test {
       &GlobMatcherOptions { case_sensitive: true },
     )
     .unwrap();
-    assert!(glob_matcher.is_match("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\match.ts"));
-    assert!(glob_matcher.is_match("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\dir\\other.ts"));
-    assert!(!glob_matcher.is_match("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\no-match.ts"));
+    assert!(glob_matcher.matches("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\match.ts"));
+    assert!(glob_matcher.matches("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\dir\\other.ts"));
+    assert!(!glob_matcher.matches("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\no-match.ts"));
+  }
+
+  #[test]
+  fn handles_ignored_dir() {
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        includes: vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())],
+        excludes: vec![GlobPattern::new("sub-dir".to_string(), cwd.clone())],
+      },
+      &GlobMatcherOptions { case_sensitive: true },
+    )
+    .unwrap();
+    assert!(glob_matcher.matches_and_dir_not_ignored("/testing/dir/match.ts"));
+    assert!(glob_matcher.matches_and_dir_not_ignored("/testing/dir/other/match.ts"));
+    assert!(!glob_matcher.matches_and_dir_not_ignored("/testing/sub-dir/no-match.ts"));
+    assert!(!glob_matcher.matches_and_dir_not_ignored("/testing/sub-dir/nested/no-match.ts"));
   }
 }

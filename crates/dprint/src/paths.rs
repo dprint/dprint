@@ -69,7 +69,7 @@ pub fn get_file_paths_by_plugins(
   for file_path in file_paths.into_iter() {
     let mut plugin_names_key: Option<PluginNames> = None;
     for (plugin_name, matcher) in plugin_associations.iter() {
-      if matcher.is_match(&file_path) {
+      if matcher.matches(&file_path) {
         if let Some(plugin_names_key) = plugin_names_key.as_mut() {
           plugin_names_key.add_plugin(plugin_name);
         } else {

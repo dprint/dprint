@@ -33,7 +33,14 @@ impl FileMatcher {
   }
 
   pub fn matches(&self, file_path: impl AsRef<Path>) -> bool {
-    self.glob_matcher.is_match(&file_path)
+    self.glob_matcher.matches(&file_path)
+  }
+
+  /// More expensive check for if the directory is already ignored.
+  /// Prefer using `matches` if you already know the parent directory
+  /// isn't ignored.
+  pub fn matches_and_dir_not_ignored(&self, file_path: impl AsRef<Path>) -> bool {
+    self.glob_matcher.matches_and_dir_not_ignored(file_path)
   }
 }
 
