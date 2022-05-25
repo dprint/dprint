@@ -498,67 +498,91 @@ fn get_is_multi_line_for_multi_line(
   is_start_standalone_line_ref: ConditionReference,
   end_ln: LineNumber,
 ) -> Condition {
+  let last_result = Rc::new(RefCell::new(false));
   return Condition::new(
     "isMultiLineForMultiLine",
     ConditionProperties {
       condition: Rc::new(move |condition_context| {
-        // todo: This is slightly confusing because it works on the "last" value rather than the current
-        let is_start_standalone_line = condition_context.resolved_condition(&is_start_standalone_line_ref)?;
-        let start_ln = condition_context.resolved_line_number(start_ln)?;
-        let end_ln = condition_context.resolved_line_number(end_ln)?;
-        let mut last_ln = start_ln;
-        let mut last_allows_multi_line = true;
-        let mut last_allows_single_line = false;
-        let mut has_multi_line_value = false;
-        let value_datas = value_datas.borrow();
-
-        for (i, value_data) in value_datas.iter().enumerate() {
-          // ignore, it will always be at the start of the line
-          if i == 0 && is_start_standalone_line {
-            continue;
-          }
-
-          let value_start_is_start_of_line = condition_context.resolved_is_start_of_line(value_data.is_start_of_line)?;
-          // check if any of the value starts are at the beginning of the line
-          if value_start_is_start_of_line {
-            return Some(true);
-          }
-          let value_start_ln = condition_context.resolved_line_number(value_data.line_number)?;
-
-          if i >= 1 {
-            // todo: consolidate with below
-            let last_is_multi_line_value = last_ln < value_start_ln;
-            if last_is_multi_line_value {
-              has_multi_line_value = true;
-            }
-
-            if check_value_should_make_multi_line(last_is_multi_line_value, last_allows_multi_line, last_allows_single_line, has_multi_line_value) {
-              return Some(true);
-            }
-          }
-
-          last_ln = value_start_ln;
-          last_allows_multi_line = value_data.allow_inline_multi_line;
-          last_allows_single_line = value_data.allow_inline_single_line;
+        let result = evaluate(start_ln, &value_datas, &is_start_standalone_line_ref, end_ln, condition_context);
+        let mut last_result = last_result.borrow_mut();
+        // If the last result was ever true and this result is `Some(false)`,
+        // that means something trailing on the last line is causing it the
+        // condition to be multi-line and we shouldn't revert back to not being
+        // multi-line which would cause an infinite loop. Additionally, we know
+        // that the start position hasn't changed since it's not `None` where
+        // the infos have been cleared on position change.
+        // See https://github.com/dprint/dprint-plugin-typescript/issues/372 for more details
+        if *last_result && matches!(result, Some(false)) {
+          return Some(true);
         }
-
-        // check if the last node is single-line
-        // todo: consolidate with above
-        let last_is_multi_line_value = last_ln < end_ln;
-        if last_is_multi_line_value {
-          has_multi_line_value = true;
-        }
-        Some(check_value_should_make_multi_line(
-          last_is_multi_line_value,
-          last_allows_multi_line,
-          last_allows_single_line,
-          has_multi_line_value,
-        ))
+        *last_result = result.unwrap_or(false);
+        result
       }),
       false_path: None,
       true_path: None,
     },
   );
+
+  fn evaluate(
+    start_ln: LineNumber,
+    value_datas: &Rc<RefCell<Vec<GeneratedValueData>>>,
+    is_start_standalone_line_ref: &ConditionReference,
+    end_ln: LineNumber,
+    condition_context: &mut ConditionResolverContext,
+  ) -> Option<bool> {
+    // todo: This is slightly confusing because it works on the "last" value rather than the current
+    let is_start_standalone_line = condition_context.resolved_condition(is_start_standalone_line_ref)?;
+    let start_ln = condition_context.resolved_line_number(start_ln)?;
+    let end_ln = condition_context.resolved_line_number(end_ln)?;
+    let mut last_ln = start_ln;
+    let mut last_allows_multi_line = true;
+    let mut last_allows_single_line = false;
+    let mut has_multi_line_value = false;
+    let value_datas = value_datas.borrow();
+
+    for (i, value_data) in value_datas.iter().enumerate() {
+      // ignore, it will always be at the start of the line
+      if i == 0 && is_start_standalone_line {
+        continue;
+      }
+
+      let value_start_is_start_of_line = condition_context.resolved_is_start_of_line(value_data.is_start_of_line)?;
+      // check if any of the value starts are at the beginning of the line
+      if value_start_is_start_of_line {
+        return Some(true);
+      }
+      let value_start_ln = condition_context.resolved_line_number(value_data.line_number)?;
+
+      if i >= 1 {
+        // todo: consolidate with below
+        let last_is_multi_line_value = last_ln < value_start_ln;
+        if last_is_multi_line_value {
+          has_multi_line_value = true;
+        }
+
+        if check_value_should_make_multi_line(last_is_multi_line_value, last_allows_multi_line, last_allows_single_line, has_multi_line_value) {
+          return Some(true);
+        }
+      }
+
+      last_ln = value_start_ln;
+      last_allows_multi_line = value_data.allow_inline_multi_line;
+      last_allows_single_line = value_data.allow_inline_single_line;
+    }
+
+    // check if the last node is single-line
+    // todo: consolidate with above
+    let last_is_multi_line_value = last_ln < end_ln;
+    if last_is_multi_line_value {
+      has_multi_line_value = true;
+    }
+    Some(check_value_should_make_multi_line(
+      last_is_multi_line_value,
+      last_allows_multi_line,
+      last_allows_single_line,
+      has_multi_line_value,
+    ))
+  }
 
   fn check_value_should_make_multi_line(is_multi_line_value: bool, allows_multi_line: bool, allows_single_line: bool, has_multi_line_value: bool) -> bool {
     if is_multi_line_value {
