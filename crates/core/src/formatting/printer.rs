@@ -293,6 +293,10 @@ impl<'a> Printer<'a> {
     result.map(|x| x.to_owned())
   }
 
+  pub fn is_forcing_no_newlines(&self) -> bool {
+    self.force_no_newlines_depth > 0
+  }
+
   #[inline]
   fn handle_print_node(&mut self, print_node: &PrintNode) {
     match &print_node.item {

@@ -1051,6 +1051,11 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
   pub fn clear_info(&mut self, info: impl Into<Info>) {
     self.printer.clear_info(info.into())
   }
+
+  /// Gets if the printer is currently forcing no newlines.
+  pub fn is_forcing_no_newlines(&self) -> bool {
+    self.printer.is_forcing_no_newlines()
+  }
 }
 
 /// A container that holds the string's value and character count.
