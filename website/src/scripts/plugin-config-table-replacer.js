@@ -9,67 +9,75 @@ export function replaceConfigTable() {
         properties.forEach(function(property) {
           const propertyContainer = document.createElement("div");
           element.appendChild(propertyContainer);
-          // title
-          const propertyTitle = document.createElement("h2");
-          if (property.name === "preferSingleLine") {
-            property.name += " (Very Experimental)";
-          }
-          propertyTitle.textContent = property.name;
-          propertyContainer.appendChild(propertyTitle);
+          try {
+            // title
+            const propertyTitle = document.createElement("h2");
+            if (property.name === "preferSingleLine") {
+              property.name += " (Very Experimental)";
+            }
+            propertyTitle.textContent = property.name;
+            propertyContainer.appendChild(propertyTitle);
 
-          // description
-          const propertyDesc = document.createElement("p");
-          propertyDesc.textContent = property.description;
-          propertyContainer.appendChild(propertyDesc);
+            // description
+            const propertyDesc = document.createElement("p");
+            propertyDesc.textContent = property.description;
+            propertyContainer.appendChild(propertyDesc);
 
-          const infoContainer = document.createElement("ul");
-          propertyContainer.appendChild(infoContainer);
+            const infoContainer = document.createElement("ul");
+            propertyContainer.appendChild(infoContainer);
 
-          if (property.oneOf) {
-            property.oneOf.forEach(function(oneOf) {
-              const oneOfContainer = document.createElement("li");
-              infoContainer.appendChild(oneOfContainer);
-              const prefix = document.createElement("strong");
-              prefix.textContent = valueToText(oneOf.const);
-              oneOfContainer.appendChild(prefix);
-              if (oneOf.description != null && oneOf.description.length > 0) {
-                oneOfContainer.append(" - " + oneOf.description);
-              }
-              if (oneOf.const === property.default) {
-                oneOfContainer.append(" (Default)");
-              }
-            });
-          } else {
-            // type
-            const typeContainer = document.createElement("li");
-            infoContainer.appendChild(typeContainer);
-            const typePrefix = document.createElement("strong");
-            typePrefix.textContent = "Type: ";
-            typeContainer.appendChild(typePrefix);
-            typeContainer.append(property.type);
+            if (property.oneOf) {
+              property.oneOf.forEach(function(oneOf) {
+                const oneOfContainer = document.createElement("li");
+                infoContainer.appendChild(oneOfContainer);
+                const prefix = document.createElement("strong");
+                prefix.textContent = valueToText(oneOf.const);
+                oneOfContainer.appendChild(prefix);
+                if (oneOf.description != null && oneOf.description.length > 0) {
+                  oneOfContainer.append(" - " + oneOf.description);
+                }
+                if (oneOf.const === property.default) {
+                  oneOfContainer.append(" (Default)");
+                }
+              });
+            } else {
+              // type
+              const typeContainer = document.createElement("li");
+              infoContainer.appendChild(typeContainer);
+              const typePrefix = document.createElement("strong");
+              typePrefix.textContent = "Type: ";
+              typeContainer.appendChild(typePrefix);
+              typeContainer.append(property.type);
 
-            // default
-            const defaultContainer = document.createElement("li");
-            infoContainer.appendChild(defaultContainer);
-            const defaultPrefix = document.createElement("strong");
-            defaultPrefix.textContent = "Default: ";
-            defaultContainer.appendChild(defaultPrefix);
-            defaultContainer.append(valueToText(property.default));
-          }
+              // default
+              const defaultContainer = document.createElement("li");
+              infoContainer.appendChild(defaultContainer);
+              const defaultPrefix = document.createElement("strong");
+              defaultPrefix.textContent = "Default: ";
+              defaultContainer.appendChild(defaultPrefix);
+              defaultContainer.append(valueToText(property.default));
+            }
 
-          if (property.astSpecificProperties != null && property.astSpecificProperties.length > 0) {
-            const astSpecificPropertiesPrefix = document.createElement("p");
-            astSpecificPropertiesPrefix.textContent = "AST node specific configuration property names:";
-            propertyContainer.appendChild(astSpecificPropertiesPrefix);
+            if (property.astSpecificProperties != null && property.astSpecificProperties.length > 0) {
+              const astSpecificPropertiesPrefix = document.createElement("p");
+              astSpecificPropertiesPrefix.textContent = "AST node specific configuration property names:";
+              propertyContainer.appendChild(astSpecificPropertiesPrefix);
 
-            const astSpecificPropertyNamesContainer = document.createElement("ul");
-            propertyContainer.appendChild(astSpecificPropertyNamesContainer);
+              const astSpecificPropertyNamesContainer = document.createElement("ul");
+              propertyContainer.appendChild(astSpecificPropertyNamesContainer);
 
-            property.astSpecificProperties.forEach(function(propName) {
-              const propertyNameLi = document.createElement("li");
-              propertyNameLi.textContent = valueToText(propName);
-              astSpecificPropertyNamesContainer.appendChild(propertyNameLi);
-            });
+              property.astSpecificProperties.forEach(function(propName) {
+                const propertyNameLi = document.createElement("li");
+                propertyNameLi.textContent = valueToText(propName);
+                astSpecificPropertyNamesContainer.appendChild(propertyNameLi);
+              });
+            }
+          } catch (err) {
+            console.error(err);
+            const errorMessage = document.createElement("strong");
+            errorMessage.textContent = "Error getting property information. Check the browser console.";
+            errorMessage.style.color = "red";
+            propertyContainer.appendChild(errorMessage);
           }
         });
 
@@ -113,14 +121,16 @@ function getDprintPluginConfig(configSchemaUrl) {
       if (property["$ref"]) {
         const definition = json.definitions[propertyName];
         if (definition != null) {
-          ensurePropertyName(propertyName);
-          properties[propertyName] = Object.assign(properties[propertyName], definition);
-          properties[propertyName].order = order++;
-          properties[propertyName].name = propertyName;
+          setDefinitionForPropertyName(propertyName, definition);
         } else {
           const derivedPropName = property["$ref"].replace("#/definitions/", "");
-          ensurePropertyName(derivedPropName);
-          properties[derivedPropName].astSpecificProperties.push(propertyName);
+          if (json.properties[derivedPropName] == null) {
+            // occurs when the definition doesn't have a corresponding property
+            setDefinitionForPropertyName(propertyName, json.definitions[derivedPropName]);
+          } else {
+            ensurePropertyName(derivedPropName);
+            properties[derivedPropName].astSpecificProperties.push(propertyName);
+          }
         }
       } else {
         ensurePropertyName(propertyName);
@@ -138,6 +148,13 @@ function getDprintPluginConfig(configSchemaUrl) {
     }
     propertyArray.sort((a, b) => a.order - b.order);
     return propertyArray;
+
+    function setDefinitionForPropertyName(propertyName, definition) {
+      ensurePropertyName(propertyName);
+      properties[propertyName] = Object.assign(properties[propertyName], definition);
+      properties[propertyName].order = order++;
+      properties[propertyName].name = propertyName;
+    }
 
     function ensurePropertyName(propertyName) {
       if (properties[propertyName] == null) {
