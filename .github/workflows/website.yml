@@ -23,7 +23,7 @@ jobs:
       - uses: denoland/setup-deno@v1
 
       - name: Install playground dependencies
-        run: (cd website/playground && npm ci)
+        run: (cd website/playground && npm ci --legacy-peer-deps)
 
       - name: Build playground
         run: npm run build --prefix website/playground
