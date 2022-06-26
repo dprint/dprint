@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::process::Command;
+use std::process::Stdio;
 
 use anyhow::bail;
 use anyhow::Context;
@@ -85,7 +86,7 @@ fn try_upgrade(exe_path: &Path, zip_bytes: &[u8], permissions: FilePermissions, 
 }
 
 fn validate_executable(path: &Path) -> Result<()> {
-  let status = Command::new(path).arg("-v").status()?;
+  let status = Command::new(path).stderr(Stdio::null()).stdout(Stdio::null()).arg("-v").status()?;
   if !status.success() {
     bail!("Status was not success.");
   }
