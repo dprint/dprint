@@ -18,6 +18,7 @@ use super::CanonicalizedPathBuf;
 use super::DirEntry;
 use super::DirEntryKind;
 use super::Environment;
+use super::FilePermissions;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
 
@@ -96,6 +97,7 @@ pub struct TestEnvironment {
   is_verbose: Arc<Mutex<bool>>,
   cwd: Arc<Mutex<String>>,
   files: Arc<Mutex<HashMap<PathBuf, Vec<u8>>>>,
+  file_permissions: Arc<Mutex<HashMap<PathBuf, FilePermissions>>>,
   stdout_messages: Arc<Mutex<Vec<String>>>,
   stderr_messages: Arc<Mutex<Vec<String>>>,
   remote_files: Arc<Mutex<HashMap<String, Result<Vec<u8>>>>>,
@@ -113,6 +115,7 @@ pub struct TestEnvironment {
   path_dirs: Arc<Mutex<Vec<PathBuf>>>,
   cpu_arch: Arc<Mutex<String>>,
   core_count: Arc<Mutex<usize>>,
+  current_exe_path: Arc<Mutex<PathBuf>>,
 }
 
 impl TestEnvironment {
@@ -121,6 +124,7 @@ impl TestEnvironment {
       is_verbose: Arc::new(Mutex::new(false)),
       cwd: Arc::new(Mutex::new(String::from("/"))),
       files: Default::default(),
+      file_permissions: Default::default(),
       stdout_messages: Default::default(),
       stderr_messages: Default::default(),
       remote_files: Default::default(),
@@ -144,6 +148,7 @@ impl TestEnvironment {
       path_dirs: Default::default(),
       cpu_arch: Arc::new(Mutex::new("x86_64".to_string())),
       core_count: Arc::new(Mutex::new(std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4))),
+      current_exe_path: Arc::new(Mutex::new(PathBuf::from("/dprint"))),
     }
   }
 
@@ -229,6 +234,10 @@ impl TestEnvironment {
   pub fn set_dir_info_error(&self, err: Error) {
     let mut dir_info_error = self.dir_info_error.lock();
     *dir_info_error = Some(err);
+  }
+
+  pub fn set_current_exe_path(&self, path: impl AsRef<Path>) {
+    *self.current_exe_path.lock() = path.as_ref().to_path_buf();
   }
 
   pub fn set_cpu_arch(&self, value: &str) {
@@ -323,10 +332,28 @@ impl Environment for TestEnvironment {
     Ok(())
   }
 
+  fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> Result<()> {
+    let path_from = self.clean_path(path_from);
+    let path_to = self.clean_path(path_to);
+    {
+      let mut files = self.files.lock();
+      if let Some(file) = files.remove(&path_from) {
+        files.insert(path_to.clone(), file);
+      }
+    }
+    {
+      let mut file_permissions = self.file_permissions.lock();
+      if let Some(perms) = file_permissions.remove(&path_from) {
+        file_permissions.insert(path_to.clone(), perms);
+      }
+    }
+    Ok(())
+  }
+
   fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<()> {
     let file_path = self.clean_path(file_path);
-    let mut files = self.files.lock();
-    files.remove(&file_path);
+    self.files.lock().remove(&file_path);
+    self.file_permissions.lock().remove(&file_path);
     Ok(())
   }
 
@@ -402,6 +429,23 @@ impl Environment for TestEnvironment {
     path.as_ref().to_string_lossy().starts_with("/") || path.as_ref().is_absolute()
   }
 
+  fn file_permissions(&self, path: impl AsRef<Path>) -> Result<FilePermissions> {
+    let path = self.clean_path(path);
+    if let Some(permissions) = self.file_permissions.lock().get(&path).cloned() {
+      Ok(permissions)
+    } else if self.files.lock().contains_key(&path) {
+      Ok(FilePermissions::Test(Default::default()))
+    } else {
+      bail!("File not found.")
+    }
+  }
+
+  fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> Result<()> {
+    let path = self.clean_path(path);
+    self.file_permissions.lock().insert(path, permissions);
+    Ok(())
+  }
+
   fn mk_dir_all(&self, _: impl AsRef<Path>) -> Result<()> {
     Ok(())
   }
@@ -409,6 +453,10 @@ impl Environment for TestEnvironment {
   fn cwd(&self) -> CanonicalizedPathBuf {
     let cwd = self.cwd.lock();
     self.canonicalize(cwd.to_owned()).unwrap()
+  }
+
+  fn current_exe(&self) -> Result<PathBuf> {
+    Ok(self.current_exe_path.lock().clone())
   }
 
   fn log(&self, text: &str) {

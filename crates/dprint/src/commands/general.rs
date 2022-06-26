@@ -51,7 +51,7 @@ pub async fn output_help<TEnvironment: Environment>(
 
   if let Some(latest_version) = is_out_of_date(environment) {
     environment.log(&format!(
-      "\nLatest version: {} (Current is {})\nDownload the latest version at https://dprint.dev/install/",
+      "\nLatest version: {} (Current is {})\nDownload the latest version by running: dprint upgrade",
       latest_version,
       environment.cli_version(),
     ));
@@ -191,7 +191,7 @@ mod test {
         get_expected_help_text(),
         concat!(
           "\nLatest version: 0.1.0 (Current is 0.0.0)",
-          "\nDownload the latest version at https://dprint.dev/install/",
+          "\nDownload the latest version by running: dprint upgrade",
         )
       ]
     );

@@ -26,9 +26,6 @@ mod utils;
 #[cfg(test)]
 mod test_helpers;
 
-// TODO for this refactor
-// - add back long format checker
-
 fn main() {
   setup_exit_process_panic_hook();
   let rt = tokio::runtime::Builder::new_multi_thread().enable_time().build().unwrap();

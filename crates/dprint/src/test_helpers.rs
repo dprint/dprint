@@ -154,6 +154,7 @@ SUBCOMMANDS:
     output-format-times       Prints the amount of time it takes to format each file. Use this
                                   for debugging.
     clear-cache               Deletes the plugin cache directory.
+    upgrade                   Upgrades the dprint executable.
     license                   Outputs the software license.
 
 More details at `dprint help <SUBCOMMAND>`

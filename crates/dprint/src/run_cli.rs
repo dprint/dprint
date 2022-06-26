@@ -38,6 +38,7 @@ pub async fn run_cli<TEnvironment: Environment>(
     SubCommand::OutputFormatTimes(cmd) => commands::output_format_times(cmd, args, environment, cache, plugin_resolver, plugin_pools).await,
     SubCommand::Check(cmd) => commands::check(cmd, args, environment, cache, plugin_resolver, plugin_pools).await,
     SubCommand::Fmt(cmd) => commands::format(cmd, args, environment, cache, plugin_resolver, plugin_pools).await,
+    SubCommand::Upgrade => commands::upgrade(environment).await,
     #[cfg(target_os = "windows")]
     SubCommand::Hidden(hidden_command) => match hidden_command {
       crate::arg_parser::HiddenSubCommand::WindowsInstall(install_path) => commands::handle_windows_install(environment, install_path),
