@@ -59,13 +59,6 @@ Install using one of the methods below.
   asdf install dprint latest
   ```
 
-- [bvm](https://github.com/bvm/bvm) (Experimental)
-
-  ```sh
-  bvm registry add https://bvm.land/dprint/registry.json
-  bvm install dprint
-  ```
-
 For binaries and source, see the [GitHub releases](https://github.com/dprint/dprint/releases).
 
 ## Editor Extensions
