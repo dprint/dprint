@@ -75,6 +75,9 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
     return Err(err);
   }
 
+  // it would be nice if we could delete the old executable here on Windows,
+  // but we need it in order to keep running the current executable
+
   Ok(())
 }
 
