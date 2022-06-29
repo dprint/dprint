@@ -98,7 +98,7 @@ impl Environment for RealEnvironment {
   }
 
   fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> Result<()> {
-    Ok(fs::rename(&path_from, &path_to).with_context(|| format!("Error renaming {} to {}", path_from.as_ref().display(), path_to.as_ref().display()))?)
+    fs::rename(&path_from, &path_to).with_context(|| format!("Error renaming {} to {}", path_from.as_ref().display(), path_to.as_ref().display()))
   }
 
   fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<()> {
@@ -201,7 +201,7 @@ impl Environment for RealEnvironment {
   }
 
   fn current_exe(&self) -> Result<PathBuf> {
-    Ok(std::env::current_exe().context("Error getting current executable.")?)
+    std::env::current_exe().context("Error getting current executable.")
   }
 
   fn log(&self, text: &str) {

@@ -84,7 +84,7 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
 fn try_upgrade(exe_path: &Path, zip_bytes: &[u8], permissions: FilePermissions, environment: &impl Environment) -> Result<()> {
   extract_zip("Extracting zip...", zip_bytes, exe_path.parent().unwrap(), environment)?;
   environment.set_file_permissions(exe_path, permissions)?;
-  validate_executable(&exe_path).context("Error validating new executable.")?;
+  validate_executable(exe_path).context("Error validating new executable.")?;
   Ok(())
 }
 
