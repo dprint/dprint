@@ -1,6 +1,6 @@
 [package]
 name = "dprint-core"
-version = "0.58.2"
+version = "0.58.3"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2021"
 homepage = "https://github.com/dprint/dprint/tree/main/crates/core"
@@ -20,12 +20,12 @@ tracing = ["formatting"]
 
 [dependencies]
 anyhow = "1.0.53"
-bumpalo = { version = "3.9.1", optional = true }
-crossbeam-channel = { version = "0.5.4", optional = true }
-indexmap = { version = "1.8.0", features = ["serde-1"] }
-parking_lot = { version = "0.12.0", optional = true }
+bumpalo = { version = "3.10.0", optional = true }
+crossbeam-channel = { version = "0.5.5", optional = true }
+indexmap = { version = "1.9.1", features = ["serde-1"] }
+parking_lot = { version = "0.12.1", optional = true }
 rustc-hash = { version = "1.1.0", optional = true }
-serde = { version = "1.0.130", features = ["derive"] }
+serde = { version = "1.0.137", features = ["derive"] }
 serde_json = { version = "1.0", optional = true, features = ["preserve_order"] }
 tokio = { version = "1", optional = true, features = ["rt", "time"] }
 tokio-util = { version = "0.7.0", optional = true }

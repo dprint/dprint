@@ -1,6 +1,6 @@
 [package]
 name = "dprint-cli-core"
-version = "0.12.1"
+version = "0.12.2"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2021"
 license = "MIT"
@@ -10,8 +10,8 @@ description = "Core dprint CLI library for reuse."
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.53"
-crossterm = "0.22.1"
-parking_lot = "0.11.2"
-sha2 = "0.10.1"
+anyhow = "1.0.58"
+crossterm = "0.23.2"
+parking_lot = "0.12.1"
+sha2 = "0.10.2"
 ureq = { version = "2.4.0", features = ["socks-proxy", "tls"] }

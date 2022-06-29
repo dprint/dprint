@@ -8,7 +8,7 @@ edition = "2021"
 crate-type = ["lib", "cdylib"]
 
 [dependencies]
-anyhow = "1.0.51"
+anyhow = "1.0.58"
 dprint-core = { path = "../core", features = ["wasm"] }
-serde = { version = "1.0.117", features = ["derive"] }
+serde = { version = "1.0.137", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
