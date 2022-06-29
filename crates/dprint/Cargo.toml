@@ -29,7 +29,7 @@ tokio = { version = "1", features = ["rt", "time", "macros", "rt-multi-thread"] 
 tokio-util = { version = "0.7.0" }
 twox-hash = "1.6.2"
 url = "2.2.2"
-wasmer = "=2.2.0"
+wasmer = "=2.3.0"
 wild = "2.0.4"
 zip = "0.5.13"
 

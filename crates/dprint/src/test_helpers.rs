@@ -14,7 +14,7 @@ use crate::plugins::PluginsCollection;
 use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
 
-// If this file doesn't exist, run `cargo build --release` for crates/test-process-plugin
+// If this file doesn't exist, run `cargo build --release -p test-process-plugin`
 #[cfg(target_os = "windows")]
 pub static PROCESS_PLUGIN_EXE_BYTES: &'static [u8] = include_bytes!("../../../target/release/test-process-plugin.exe");
 #[cfg(not(target_os = "windows"))]
