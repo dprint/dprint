@@ -21,6 +21,27 @@ pub enum DirEntryKind {
   File,
 }
 
+#[derive(Debug, Clone)]
+pub enum FilePermissions {
+  Std(std::fs::Permissions),
+  #[allow(dead_code)]
+  Test(TestFilePermissions),
+}
+
+impl FilePermissions {
+  pub fn readonly(&self) -> bool {
+    match self {
+      FilePermissions::Std(p) => p.readonly(),
+      FilePermissions::Test(p) => p.readonly,
+    }
+  }
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct TestFilePermissions {
+  pub readonly: bool,
+}
+
 pub trait UrlDownloader {
   fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>>;
   fn download_file_err_404(&self, url: &str) -> Result<Vec<u8>> {
@@ -37,14 +58,18 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>>;
   fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> Result<()>;
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()>;
+  fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> Result<()>;
   fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<()>;
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<()>;
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>>;
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool;
   fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf>;
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool;
+  fn file_permissions(&self, path: impl AsRef<Path>) -> Result<FilePermissions>;
+  fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> Result<()>;
   fn mk_dir_all(&self, path: impl AsRef<Path>) -> Result<()>;
   fn cwd(&self) -> CanonicalizedPathBuf;
+  fn current_exe(&self) -> Result<PathBuf>;
   fn log(&self, text: &str);
   fn log_stderr(&self, text: &str) {
     self.log_stderr_with_context(text, "dprint");

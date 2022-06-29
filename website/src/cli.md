@@ -14,6 +14,10 @@ dprint <SUBCOMMAND> [OPTIONS] [--] [files]...
 
 See [Install](/install) and [Setup](/setup).
 
+## Upgrade
+
+In versions >= 0.30, you can upgrade to the latest version by running `dprint upgrade`.
+
 ## Help
 
 The information outlined here will only be for the latest version, so `dprint help` or `dprint help <SUBCOMMAND>` (ex. `dprint help fmt`) will output information on how to use the CLI and give more detail about some of the flags not mentioned here.

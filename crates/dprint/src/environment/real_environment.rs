@@ -1,4 +1,5 @@
 use anyhow::bail;
+use anyhow::Context;
 use anyhow::Result;
 use dprint_cli_core::download_url;
 use dprint_cli_core::logging::log_action_with_progress;
@@ -18,6 +19,7 @@ use super::CanonicalizedPathBuf;
 use super::DirEntry;
 use super::DirEntryKind;
 use super::Environment;
+use super::FilePermissions;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
 
@@ -95,6 +97,10 @@ impl Environment for RealEnvironment {
     }
   }
 
+  fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> Result<()> {
+    Ok(fs::rename(&path_from, &path_to).with_context(|| format!("Error renaming {} to {}", path_from.as_ref().display(), path_to.as_ref().display()))?)
+  }
+
   fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<()> {
     log_verbose!(self, "Deleting file: {}", file_path.as_ref().display());
     match fs::remove_file(&file_path) {
@@ -163,6 +169,23 @@ impl Environment for RealEnvironment {
     path.as_ref().is_absolute()
   }
 
+  fn file_permissions(&self, path: impl AsRef<Path>) -> Result<FilePermissions> {
+    Ok(FilePermissions::Std(
+      fs::metadata(&path)
+        .with_context(|| format!("Error getting file permissions for: {}", path.as_ref().display()))?
+        .permissions(),
+    ))
+  }
+
+  fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> Result<()> {
+    let permissions = match permissions {
+      FilePermissions::Std(p) => p,
+      _ => panic!("Programming error. Permissions did not contain an std permission."),
+    };
+    fs::set_permissions(&path, permissions).with_context(|| format!("Error setting file permissions for: {}", path.as_ref().display()))?;
+    Ok(())
+  }
+
   fn mk_dir_all(&self, path: impl AsRef<Path>) -> Result<()> {
     log_verbose!(self, "Creating directory: {}", path.as_ref().display());
     match fs::create_dir_all(&path) {
@@ -175,6 +198,10 @@ impl Environment for RealEnvironment {
     self
       .canonicalize(std::env::current_dir().expect("Expected to get the current working directory."))
       .expect("expected to canonicalize the cwd")
+  }
+
+  fn current_exe(&self) -> Result<PathBuf> {
+    Ok(std::env::current_exe().context("Error getting current executable.")?)
   }
 
   fn log(&self, text: &str) {

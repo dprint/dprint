@@ -55,6 +55,7 @@ pub enum SubCommand {
   EditorInfo,
   EditorService(EditorServiceSubCommand),
   StdInFmt(StdInFmtSubCommand),
+  Upgrade,
   #[cfg(target_os = "windows")]
   Hidden(HiddenSubCommand),
 }
@@ -184,6 +185,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
     ("editor-service", matches) => SubCommand::EditorService(EditorServiceSubCommand {
       parent_pid: matches.value_of("parent-pid").and_then(|v| v.parse::<u32>().ok()).unwrap(),
     }),
+    ("upgrade", _) => SubCommand::Upgrade,
     #[cfg(target_os = "windows")]
     ("hidden", matches) => SubCommand::Hidden(match matches.subcommand().unwrap() {
       ("windows-install", matches) => HiddenSubCommand::WindowsInstall(matches.value_of("install-path").map(String::from).unwrap()),
@@ -406,6 +408,10 @@ EXAMPLES:
     .subcommand(
       Command::new("clear-cache")
         .about("Deletes the plugin cache directory.")
+    )
+    .subcommand(
+      Command::new("upgrade")
+        .about("Upgrades the dprint executable.")
     )
     .subcommand(
       Command::new("license")
