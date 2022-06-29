@@ -91,13 +91,11 @@ dprint config add https://plugins.dprint.dev/json-x.x.x.wasm
 
 ### Updating Plugins via CLI
 
-Some plugins can be updated to the latest version in the configuration file by running:
+Plugins can be updated to the latest version in the configuration file by running:
 
 ```sh
 dprint config update
 ```
-
-Note that this functionality is currently very basic and only some plugins are supported. In the future there will be a concept of [plugin registries](https://github.com/dprint/dprint/issues/410) which will allow this to be more distributed.
 
 ## Includes and Excludes
 
@@ -304,5 +302,11 @@ But specifying properties in the `"typescript"` or `"json"` objects would cause 
   ]
 }
 ```
+
+## Plugin/Language Specific Configuration
+
+Running `dprint help` will list the help urls for all the configured plugins in your configuration file. On those pages you can view the help information.
+
+For information on the official plugins' configuration, see the [plugins](https://dprint.dev/plugins/) section.
 
 Next step: [CLI](/cli)
