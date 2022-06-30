@@ -78,7 +78,19 @@ impl GlobMatcher {
       } => {
         let path = path.as_ref();
         let path = if path.is_absolute() && path.starts_with(&base_dir) {
-          Cow::Borrowed(path.strip_prefix(&base_dir).unwrap())
+          if let Ok(prefix) = path.strip_prefix(&base_dir) {
+            Cow::Borrowed(prefix)
+          } else {
+            // this is a very strange state that we want to know more about,
+            // so just always log directly to stderr in this scenario and maybe
+            // eventually remove this code.
+            eprintln!(
+              "WARNING: Path prefix error for {} and {}. Please report this error in issue #540.",
+              base_dir.display(),
+              path.display()
+            );
+            return false;
+          }
         } else if !path.is_absolute() {
           Cow::Owned(base_dir.join(path))
         } else {
