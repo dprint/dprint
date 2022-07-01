@@ -35,7 +35,7 @@ function getChecksums() {
     get(fileName) {
       const value = checksums[fileName];
       if (value == null) {
-        throw new Error("Could not find " + value);
+        throw new Error("Could not find " + fileName);
       }
       return value;
     },

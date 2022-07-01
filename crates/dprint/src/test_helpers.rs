@@ -97,6 +97,10 @@ pub fn get_test_process_plugin_file_text(zip_checksum: &str) -> String {
     "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
     "checksum": "{0}"
 }},
+"linux-aarch64": {{
+    "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
+    "checksum": "{0}"
+}},
 "linux-x86_64": {{
     "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
     "checksum": "{0}"

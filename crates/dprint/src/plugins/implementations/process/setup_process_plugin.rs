@@ -209,7 +209,7 @@ fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Enviro
   let path = match os.as_str() {
     "linux" => match arch.as_str() {
       "x86_64" => plugin_file.linux_x86_64.as_ref(),
-      "aarch64" => plugin_file.linux_aarch64.as_ref(),
+      "aarch64" => plugin_file.linux_aarch64.as_ref().or(plugin_file.linux_x86_64.as_ref()),
       _ => None,
     },
     "macos" => match arch.as_str() {
