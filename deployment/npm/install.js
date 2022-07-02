@@ -65,7 +65,13 @@ function getTarget() {
       throw new Error("Unsupported architecture " + os.arch() + ". Only x64 and M1 binaries are available.");
     }
   } else {
-    return "x86_64-unknown-linux-gnu";
+    if (os.arch() === "arm64") {
+      return "aarch64-unknown-linux-gnu";
+    } else if (os.arch() === "x64") {
+      return "x86_64-unknown-linux-gnu";
+    } else {
+      throw new Error("Unsupported architecture " + os.arch() + ". Only x64 and aarch64 binaries are available.");
+    }
   }
 }
 

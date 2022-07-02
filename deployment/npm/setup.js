@@ -19,6 +19,7 @@ const infoJson = {
     "darwin-x86_64": checksums.get("dprint-x86_64-apple-darwin.zip"),
     "darwin-aarch64": checksums.get("dprint-aarch64-apple-darwin.zip"),
     "linux-x86_64": checksums.get("dprint-x86_64-unknown-linux-gnu.zip"),
+    "linux-aarch64": checksums.get("dprint-aarch64-unknown-linux-gnu.zip"),
   },
 };
 fs.writeFileSync(infoJsonFilePath, JSON.stringify(infoJson, null, 2));
@@ -34,7 +35,7 @@ function getChecksums() {
     get(fileName) {
       const value = checksums[fileName];
       if (value == null) {
-        throw new Error("Could not find " + value);
+        throw new Error("Could not find " + fileName);
       }
       return value;
     },
