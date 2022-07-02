@@ -91,7 +91,7 @@ fn run_command(mut command: Vec<&str>) -> Result<()> {
 
   use anyhow::bail;
 
-  let output = Command::new(command.pop().unwrap())
+  let output = Command::new(command.remove(0))
     .args(command)
     .stdout(Stdio::null())
     .stderr(Stdio::piped())

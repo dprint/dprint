@@ -13,6 +13,10 @@ use crate::utils::get_running_pids_by_name;
 use crate::utils::kill_process_by_id;
 use crate::utils::latest_cli_version;
 
+// Note: To test `dprint upgrade`, you must do so manually at the moment.
+// Update ./crates/dprint/Cargo.toml to have a version below the current
+// released one, then run `./target/debug/dprint upgrade --verbose`.
+
 pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> Result<()> {
   let latest_version = latest_cli_version(environment).context("Error fetching latest CLI verison.")?;
   let current_version = environment.cli_version();
@@ -119,7 +123,7 @@ fn try_kill_other_dprint_processes(environment: &impl Environment) {
     // it's important to not kill the current process obviously
     if pid != current_pid {
       if let Err(err) = kill_process_by_id(pid) {
-        log_verbose!(environment, "Error killing process with pid {}. {:#}", pid, err);
+        log_verbose!(environment, "Error killing process with pid {}: {:#}", pid, err);
       }
     }
   }
