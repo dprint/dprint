@@ -122,6 +122,7 @@ fn try_kill_other_dprint_processes(environment: &impl Environment) {
   for pid in pids {
     // it's important to not kill the current process obviously
     if pid != current_pid {
+      log_verbose!(environment, "Killing process with pid {}...", pid);
       if let Err(err) = kill_process_by_id(pid) {
         log_verbose!(environment, "Error killing process with pid {}: {:#}", pid, err);
       }
