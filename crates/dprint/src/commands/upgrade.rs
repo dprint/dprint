@@ -9,6 +9,8 @@ use anyhow::Result;
 use crate::environment::Environment;
 use crate::environment::FilePermissions;
 use crate::utils::extract_zip;
+use crate::utils::get_running_pids_by_name;
+use crate::utils::kill_process_by_id;
 use crate::utils::latest_cli_version;
 
 pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> Result<()> {
@@ -89,6 +91,7 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
 }
 
 fn try_upgrade(exe_path: &Path, zip_bytes: &[u8], permissions: FilePermissions, environment: &impl Environment) -> Result<()> {
+  try_kill_other_dprint_processes(environment);
   extract_zip("Extracting zip...", zip_bytes, exe_path.parent().unwrap(), environment)?;
   environment.set_file_permissions(exe_path, permissions)?;
   validate_executable(exe_path).context("Error validating new executable.")?;
@@ -101,6 +104,25 @@ fn validate_executable(path: &Path) -> Result<()> {
     bail!("Status was not success.");
   }
   Ok(())
+}
+
+fn try_kill_other_dprint_processes(environment: &impl Environment) {
+  let pids = match get_running_pids_by_name("dprint") {
+    Ok(pids) => pids,
+    Err(err) => {
+      log_verbose!(environment, "Error getting dprint processes. {:#}", err);
+      return;
+    }
+  };
+  let current_pid = std::process::id();
+  for pid in pids {
+    // it's important to not kill the current process obviously
+    if pid != current_pid {
+      if let Err(err) = kill_process_by_id(pid) {
+        log_verbose!(environment, "Error killing process with pid {}. {:#}", pid, err);
+      }
+    }
+  }
 }
 
 #[cfg(test)]
