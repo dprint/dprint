@@ -60,23 +60,30 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
     // on windows, we need to rename the current running executable
     // to something else in order to be able to replace it.
     environment.rename(&exe_path, &old_executable)?;
+  } else {
+    // on other platforms, we remove it first
+    environment.remove_file(&exe_path)?;
   }
 
+  let maybe_reinstall_message = "You may need to reinstall dprint from scratch. Sorry!";
   if let Err(err) = try_upgrade(&exe_path, &zip_bytes, permissions, environment) {
     if cfg!(windows) {
       // try to rename it back
       environment.rename(&old_executable, &exe_path).with_context(|| {
         format!(
-          "Upgrade error: {:#}\nError upgrading and then error restoring. You may need to reinstall dprint from scratch. Sorry!",
-          err
+          "Upgrade error: {:#}\nError upgrading and then error restoring. {}",
+          err, maybe_reinstall_message
         )
       })?;
+      bail!("Upgrade error: {:#}", err);
+    } else {
+      bail!("Upgrade error: {:#}\n{}", err, maybe_reinstall_message);
     }
-    return Err(err);
   }
 
   // it would be nice if we could delete the old executable here on Windows,
   // but we need it in order to keep running the current executable
+  environment.log(&format!("Upgraded to dprint {}", latest_version));
 
   Ok(())
 }
