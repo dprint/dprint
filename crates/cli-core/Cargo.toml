@@ -1,6 +1,6 @@
 [package]
 name = "dprint-cli-core"
-version = "0.12.2"
+version = "0.12.3"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2021"
 license = "MIT"
@@ -11,7 +11,7 @@ description = "Core dprint CLI library for reuse."
 
 [dependencies]
 anyhow = "1.0.58"
-crossterm = "0.23.2"
+crossterm = "0.24.0"
 parking_lot = "0.12.1"
 sha2 = "0.10.2"
 ureq = { version = "2.4.0", features = ["socks-proxy", "tls"] }

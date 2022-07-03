@@ -181,11 +181,11 @@ impl Logger {
       if last_line_count > 1 {
         state.std_err.queue(cursor::MoveUp(last_line_count - 1)).unwrap();
       }
-      state.std_err.queue(cursor::MoveToColumn(1)).unwrap();
+      state.std_err.queue(cursor::MoveToColumn(0)).unwrap();
       state.std_err.queue(terminal::Clear(terminal::ClearType::FromCursorDown)).unwrap();
     }
 
-    state.std_err.queue(cursor::MoveToColumn(1)).unwrap();
+    state.std_err.queue(cursor::MoveToColumn(0)).unwrap();
   }
 
   fn inner_queue_draw_items(&self, state: &mut LoggerState) {
@@ -193,7 +193,7 @@ impl Logger {
     let text_items = state.refresh_items.iter().flat_map(|item| item.text_items.iter());
     let rendered_text = render_text_items_truncated_to_height(text_items, terminal_size);
     state.std_err.queue(style::Print(&rendered_text)).unwrap();
-    state.std_err.queue(cursor::MoveToColumn(1)).unwrap();
+    state.std_err.queue(cursor::MoveToColumn(0)).unwrap();
     state.last_terminal_size = terminal_size;
   }
 }
