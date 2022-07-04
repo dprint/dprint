@@ -29,7 +29,7 @@ pub async fn run_cli<TEnvironment: Environment>(
       ConfigSubCommand::Add(plugin_name_or_url) => {
         commands::add_plugin_config_file(args, plugin_name_or_url.as_ref(), cache, environment, plugin_resolver).await
       }
-      ConfigSubCommand::Update => commands::update_plugins_config_file(args, cache, environment, plugin_resolver).await,
+      ConfigSubCommand::Update { yes } => commands::update_plugins_config_file(args, cache, environment, plugin_resolver, *yes).await,
     },
     SubCommand::Version => commands::output_version(environment),
     SubCommand::StdInFmt(cmd) => commands::stdin_fmt(cmd, args, environment, cache, plugin_resolver, plugin_pools).await,

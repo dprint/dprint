@@ -168,6 +168,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
+  no_prompt: bool,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, cache, environment)?;
   let config_path = match config.resolved_path.source {
@@ -180,7 +181,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   for result in plugins_to_update {
     match result {
       Ok(info) => {
-        let should_update = if info.is_wasm() {
+        let should_update = if info.is_wasm() || no_prompt {
           true
         } else {
           // prompt for security reasons
@@ -632,6 +633,58 @@ mod test {
   }
 
   #[test]
+  fn config_update_should_always_upgrade_to_latest_plugins() {
+    let new_wasm_url = "https://plugins.dprint.dev/test-plugin-2.wasm".to_string();
+    // test all the process plugin combinations
+    let new_ps_url = "https://plugins.dprint.dev/test-plugin-3.json".to_string();
+    let new_ps_url_with_checksum = format!("{}@{}", new_ps_url, "info-checksum");
+    test_update(TestUpdateOptions {
+      config_has_wasm: false,
+      config_has_wasm_checksum: false,
+      config_has_process: true,
+      info_has_checksum: true,
+      confirm_results: Vec::new(),
+      expected_logs: vec!["Updating test-process-plugin 0.1.0 to 0.3.0...".to_string()],
+      expected_urls: vec![new_ps_url_with_checksum.clone()],
+      always_update: true,
+    });
+    test_update(TestUpdateOptions {
+      config_has_wasm: false,
+      config_has_wasm_checksum: false,
+      config_has_process: true,
+      info_has_checksum: false,
+      confirm_results: Vec::new(),
+      expected_logs: vec!["Updating test-process-plugin 0.1.0 to 0.3.0...".to_string()],
+      expected_urls: vec![new_ps_url.clone()],
+      always_update: true,
+    });
+    test_update(TestUpdateOptions {
+      config_has_wasm: false,
+      config_has_wasm_checksum: false,
+      config_has_process: true,
+      info_has_checksum: false,
+      confirm_results: Vec::new(),
+      expected_logs: vec!["Updating test-process-plugin 0.1.0 to 0.3.0...".to_string()],
+      expected_urls: vec![new_ps_url.clone()],
+      always_update: true,
+    });
+
+    test_update(TestUpdateOptions {
+      config_has_wasm: true,
+      config_has_wasm_checksum: false,
+      config_has_process: true,
+      info_has_checksum: false,
+      confirm_results: Vec::new(),
+      expected_logs: vec![
+        "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
+        "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
+      ],
+      expected_urls: vec![new_wasm_url.clone(), new_ps_url.clone()],
+      always_update: true,
+    });
+  }
+
+  #[test]
   fn config_update_should_upgrade_to_latest_plugins() {
     let new_wasm_url = "https://plugins.dprint.dev/test-plugin-2.wasm".to_string();
     let new_wasm_url_with_checksum = format!("{}@{}", new_wasm_url, "info-checksum");
@@ -646,6 +699,7 @@ mod test {
       confirm_results: Vec::new(),
       expected_logs: vec![updating_message.clone()],
       expected_urls: vec![new_wasm_url_with_checksum.clone()],
+      always_update: false,
     });
     test_update(TestUpdateOptions {
       config_has_wasm: true,
@@ -655,6 +709,7 @@ mod test {
       confirm_results: Vec::new(),
       expected_logs: vec![updating_message.clone()],
       expected_urls: vec![new_wasm_url.clone()],
+      always_update: false,
     });
     test_update(TestUpdateOptions {
       config_has_wasm: true,
@@ -664,6 +719,7 @@ mod test {
       confirm_results: Vec::new(),
       expected_logs: vec![updating_message.clone()],
       expected_urls: vec![new_wasm_url.clone()],
+      always_update: false,
     });
     test_update(TestUpdateOptions {
       config_has_wasm: true,
@@ -673,6 +729,7 @@ mod test {
       confirm_results: Vec::new(),
       expected_logs: vec![updating_message.clone()],
       expected_urls: vec![new_wasm_url.clone()],
+      always_update: false,
     });
 
     // test all the process plugin combinations
@@ -692,6 +749,7 @@ mod test {
         "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
       ],
       expected_urls: vec![new_ps_url_with_checksum.clone()],
+      always_update: false,
     });
     test_update(TestUpdateOptions {
       config_has_wasm: false,
@@ -705,6 +763,7 @@ mod test {
         "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
       ],
       expected_urls: vec![new_ps_url.clone()],
+      always_update: false,
     });
     test_update(TestUpdateOptions {
       config_has_wasm: false,
@@ -717,6 +776,7 @@ mod test {
         "Do you wish to update it? N".to_string(),
       ],
       expected_urls: vec![old_ps_url.clone()],
+      always_update: false,
     });
 
     // testing both in config, but only updating one
@@ -732,6 +792,7 @@ mod test {
         "Do you wish to update it? N".to_string(),
       ],
       expected_urls: vec![new_wasm_url.clone(), old_ps_url.clone()],
+      always_update: false,
     });
   }
 
@@ -744,6 +805,7 @@ mod test {
     confirm_results: Vec<Result<Option<bool>>>,
     expected_logs: Vec<String>,
     expected_urls: Vec<String>,
+    always_update: bool,
   }
 
   fn test_update(options: TestUpdateOptions) {
@@ -756,7 +818,16 @@ mod test {
       info_has_checksum: options.info_has_checksum,
     });
     environment.set_confirm_results(options.confirm_results);
-    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    run_test_cli(
+      if options.always_update {
+        vec!["config", "update", "--yes"]
+      } else {
+        vec!["config", "update"]
+      },
+      &environment,
+    )
+    .unwrap();
     assert_eq!(environment.take_stderr_messages(), expected_logs);
 
     let expected_text = format!(
