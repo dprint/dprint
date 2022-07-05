@@ -140,7 +140,11 @@ function verifyZipChecksum() {
           return info.checksums["darwin-x86_64"];
         }
       default:
-        return info.checksums["linux-x86_64"];
+        if (os.arch() === "arm64") {
+          return info.checksums["linux-aarch64"];
+        } else {
+          return info.checksums["linux-x86_64"];
+        }
     }
   }
 }
