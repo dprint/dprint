@@ -201,16 +201,6 @@ jobs:
         echo "Windows x86_64 Zip: ${{needs.build.outputs.WINDOWS_X86_64_ZIP_CHECKSUM}}"
         echo "Windows x86_64 Installer: ${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}}"
 
-    - name: Create extra release files
-      # .tar.gz file is for homebrew binary release... no clue why I couldn't do this above when creating the mac artifacts above
-      run: |
-        cd mac-artifacts
-        unzip -o dprint-x86_64-apple-darwin.zip
-        tar -czf dprint-x86_64-apple-darwin.tar.gz dprint
-        rm dprint
-        unzip -o dprint-aarch64-apple-darwin.zip
-        tar -czf dprint-aarch64-apple-darwin.tar.gz dprint
-
     - uses: finnp/create-file-action@1.0.0
       env:
         FILE_NAME: bvm.json
@@ -284,8 +274,6 @@ jobs:
           linux-artifacts/dprint-aarch64-unknown-linux-gnu.zip
           mac-artifacts/dprint-x86_64-apple-darwin.zip
           mac-artifacts/dprint-aarch64-apple-darwin.zip
-          mac-artifacts/dprint-x86_64-apple-darwin.tar.gz
-          mac-artifacts/dprint-aarch64-apple-darwin.tar.gz
           bvm.json
           SHASUMS256.txt
         body: |
