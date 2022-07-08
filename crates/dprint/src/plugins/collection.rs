@@ -150,9 +150,17 @@ impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
 
 impl<TEnvironment: Environment> Host for PluginsCollection<TEnvironment> {
   fn format(&self, request: HostFormatRequest) -> dprint_core::plugins::BoxFuture<FormatResult> {
-    let mut file_text = request.file_text;
     let plugin_names = self.get_plugin_names_from_file_name(&request.file_path);
+    log_verbose!(
+      self.environment,
+      "Host formatting {} - File length: {} - Plugins: [{}] - Range: {:?}",
+      request.file_path.display(),
+      request.file_text.len(),
+      plugin_names.join(", "),
+      request.range,
+    );
     async move {
+      let mut file_text = request.file_text;
       let mut had_change = false;
       for plugin_name in plugin_names {
         let plugin = self.get_plugin(&plugin_name);
