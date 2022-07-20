@@ -30,7 +30,6 @@ tokio-util = { version = "0.7.0" }
 twox-hash = "1.6.3"
 url = "2.2.2"
 wasmer = "=2.3.0"
-wild = "2.0.4"
 zip = "0.6.2"
 
 [target.'cfg(windows)'.dependencies]
