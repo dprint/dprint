@@ -77,7 +77,7 @@ pub struct FmtSubCommand {
 #[derive(Debug, PartialEq)]
 pub enum ConfigSubCommand {
   Init,
-  Update,
+  Update { yes: bool },
   Add(Option<String>),
 }
 
@@ -168,7 +168,9 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
       ("init", _) => ConfigSubCommand::Init,
       ("add", matches) => ConfigSubCommand::Add(matches.value_of("url-or-plugin-name").map(ToOwned::to_owned)),
-      ("update", _) => ConfigSubCommand::Update,
+      ("update", matches) => ConfigSubCommand::Update {
+        yes: *matches.get_one::<bool>("yes").unwrap(),
+      },
       _ => unreachable!(),
     }),
     ("clear-cache", _) => SubCommand::ClearCache,
@@ -380,6 +382,7 @@ EXAMPLES:
         .subcommand(
           Command::new("update")
             .about("Updates the plugins in the configuration file.")
+            .arg(Arg::new("yes").help("Upgrade process plugins without prompting to confirm checksums.").short('y').long("yes").action(clap::ArgAction::SetTrue))
         )
         .subcommand(
           Command::new("add")
