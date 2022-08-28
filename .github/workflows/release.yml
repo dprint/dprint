@@ -1,4 +1,4 @@
-name: release
+name: Release
 
 on:
   workflow_dispatch:
@@ -34,4 +34,4 @@ jobs:
         run: |
           git config user.email "${{ github.actor }}@users.noreply.github.com"
           git config user.name "${{ github.actor }}"
-          deno run -A https://raw.githubusercontent.com/dprint/automation/0.5.1/tasks/publish_release.ts --${{github.event.inputs.releaseKind}} ./crates/dprint/Cargo.toml
+          deno run -A https://raw.githubusercontent.com/dprint/automation/0.5.3/tasks/publish_release.ts --${{github.event.inputs.releaseKind}} ./crates/dprint/Cargo.toml
