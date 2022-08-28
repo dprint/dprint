@@ -127,12 +127,12 @@ mod tests {
   #[test]
   fn should_not_error_multiple_at_symbols() {
     let environment = TestEnvironment::new();
-    let plugin_text = "http://dprint.dev/wasm_plugin.wasm@other@checksum";
+    let plugin_text = "http://dprint.dev/@other/wasm_plugin.wasm@checksum";
     let result = parse_plugin_source_reference(&plugin_text, &PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")), &environment).unwrap();
     assert_eq!(
       result,
       PluginSourceReference {
-        path_source: PathSource::new_remote_from_str("http://dprint.dev/wasm_plugin.wasm@other"),
+        path_source: PathSource::new_remote_from_str("http://dprint.dev/@other/wasm_plugin.wasm"),
         checksum: Some(String::from("checksum")),
       }
     );
