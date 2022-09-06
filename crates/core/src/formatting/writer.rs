@@ -301,6 +301,8 @@ impl<'a> Writer<'a> {
 
 #[cfg(test)]
 mod test {
+  use std::borrow::Cow;
+
   use crate::formatting::thread_state;
 
   use super::super::Indentation;
@@ -381,7 +383,7 @@ mod test {
 
   fn write_text(writer: &mut Writer, text: &'static str, bump: &Bump) {
     let string_container = {
-      let result = bump.alloc(StringContainer::new(String::from(text)));
+      let result = bump.alloc(StringContainer::new(Cow::Borrowed(text)));
       unsafe { std::mem::transmute::<&StringContainer, &'static StringContainer>(result) }
     };
     writer.write(string_container);

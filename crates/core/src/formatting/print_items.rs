@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cell::UnsafeCell;
 use std::mem;
 use std::rc::Rc;
@@ -65,11 +66,15 @@ impl PrintItems {
     }
   }
 
-  pub fn push_str(&mut self, item: &str) {
-    self.push_string(item.to_string());
+  pub fn push_str(&mut self, item: &'static str) {
+    self.push_cow_string(Cow::Borrowed(item))
   }
 
   pub fn push_string(&mut self, item: String) {
+    self.push_cow_string(Cow::Owned(item))
+  }
+
+  fn push_cow_string(&mut self, item: Cow<'static, str>) {
     let string_container = thread_state::with_bump_allocator(|bump| {
       let result = bump.alloc(StringContainer::new(item));
       unsafe { std::mem::transmute::<&StringContainer, UnsafePrintLifetime<StringContainer>>(result) }
@@ -1062,7 +1067,7 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
 #[derive(Clone)]
 pub struct StringContainer {
   /// The string value.
-  pub text: String,
+  pub text: Cow<'static, str>,
   /// The cached character count.
   /// It is much faster to cache this than to recompute it all the time.
   pub(super) char_count: u32,
@@ -1070,7 +1075,7 @@ pub struct StringContainer {
 
 impl StringContainer {
   /// Creates a new string container.
-  pub fn new(text: String) -> Self {
+  pub fn new(text: Cow<'static, str>) -> Self {
     let char_count = text.chars().count() as u32;
     Self { text, char_count }
   }

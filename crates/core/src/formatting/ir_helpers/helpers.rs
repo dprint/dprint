@@ -133,7 +133,7 @@ fn gen_from_string_line(line: &str) -> PrintItems {
       items.push_signal(Signal::Tab);
     }
     if !line.is_empty() {
-      items.push_str(line);
+      items.push_string(line.to_string());
     }
   }
   items

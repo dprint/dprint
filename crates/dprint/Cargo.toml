@@ -15,7 +15,7 @@ clap = "3.2.7"
 crossterm = "0.24.0"
 dirs = "4.0.0"
 dprint-cli-core = { path = "../cli-core", version = "0.12.3" }
-dprint-core = { path = "../core", version = "0.58.3", features = ["process", "wasm"] }
+dprint-core = { path = "../core", version = "0.59.0", features = ["process", "wasm"] }
 dunce = "1.0.2"
 futures = "0.3.21"
 ignore = "0.4.18"

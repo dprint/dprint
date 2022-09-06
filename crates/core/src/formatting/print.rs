@@ -164,7 +164,7 @@ mod test {
           assert_eq!(LineNumber::new("").unique_id(), 1);
           assert_eq!(LineNumber::new("").unique_id(), 2);
           items.push_str("test");
-          items.push_str(&format(
+          items.push_string(format(
             || {
               // It's important that these start incrementing from
               // 0 when formatting within a format because these
