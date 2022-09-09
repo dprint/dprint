@@ -238,8 +238,20 @@ impl Environment for RealEnvironment {
     std::env::consts::OS.to_string()
   }
 
-  fn available_parallelism(&self) -> usize {
-    std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4)
+  fn max_threads(&self) -> usize {
+    fn get_max() -> Option<usize> {
+      let max_threads = std::env::var("DPRINT_MAX_THREADS").ok()?;
+      max_threads.parse::<usize>().ok()
+    }
+
+    let number_cores = std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4);
+    match get_max() {
+      Some(max) if max < number_cores => {
+        log_verbose!(self, "Using env var for max threads: {}", max);
+        max
+      }
+      _ => number_cores,
+    }
   }
 
   fn cli_version(&self) -> String {

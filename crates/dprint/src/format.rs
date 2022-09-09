@@ -51,11 +51,11 @@ pub async fn run_parallelized<F, TEnvironment: Environment>(
 where
   F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<()> + Send + Sync + 'static + Clone,
 {
-  let number_cores = environment.available_parallelism();
+  let max_threads = environment.max_threads();
   let number_process_plugins = plugins_collection.process_plugin_count();
   let reduction_count = number_process_plugins + 1; // + 1 for each process plugin's possible runtime thread and this runtime's thread
-  let number_threads = if number_cores > reduction_count { number_cores - reduction_count } else { 1 };
-  log_verbose!(environment, "Core count: {}\nThread count: {}", number_cores, number_threads);
+  let number_threads = if max_threads > reduction_count { max_threads - reduction_count } else { 1 };
+  log_verbose!(environment, "Max threads: {}\nThread count: {}", max_threads, number_threads);
 
   let error_logger = ErrorCountLogger::from_environment(environment);
 
