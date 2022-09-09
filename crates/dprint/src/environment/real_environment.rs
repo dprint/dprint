@@ -239,18 +239,26 @@ impl Environment for RealEnvironment {
   }
 
   fn max_threads(&self) -> usize {
-    fn get_max() -> Option<usize> {
+    fn maybe_specified_threads() -> Option<usize> {
       let max_threads = std::env::var("DPRINT_MAX_THREADS").ok()?;
-      max_threads.parse::<usize>().ok()
+      let value = max_threads.parse::<usize>().ok()?;
+      if value > 0 {
+        Some(value)
+      } else {
+        None
+      }
     }
 
-    let number_cores = std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4);
-    match get_max() {
-      Some(max) if max < number_cores => {
-        log_verbose!(self, "Using env var for max threads: {}", max);
-        max
-      }
-      _ => number_cores,
+    let maybe_actual_count = std::thread::available_parallelism().map(|p| p.get()).ok();
+    match maybe_specified_threads() {
+      Some(specified_count) => match maybe_actual_count {
+        Some(actual_count) if specified_count > actual_count => actual_count,
+        _ => {
+          log_verbose!(self, "Using DPRINT_MAX_THREADS env var for max threads.");
+          specified_count
+        }
+      },
+      _ => maybe_actual_count.unwrap_or(4),
     }
   }
 
