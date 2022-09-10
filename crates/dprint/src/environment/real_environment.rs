@@ -10,6 +10,7 @@ use dprint_cli_core::logging::Logger;
 use dprint_cli_core::logging::LoggerOptions;
 use dprint_cli_core::logging::ProgressBars;
 use std::fs;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -239,27 +240,7 @@ impl Environment for RealEnvironment {
   }
 
   fn max_threads(&self) -> usize {
-    fn maybe_specified_threads() -> Option<usize> {
-      let max_threads = std::env::var("DPRINT_MAX_THREADS").ok()?;
-      let value = max_threads.parse::<usize>().ok()?;
-      if value > 0 {
-        Some(value)
-      } else {
-        None
-      }
-    }
-
-    let maybe_actual_count = std::thread::available_parallelism().map(|p| p.get()).ok();
-    match maybe_specified_threads() {
-      Some(specified_count) => match maybe_actual_count {
-        Some(actual_count) if specified_count > actual_count => actual_count,
-        _ => {
-          log_verbose!(self, "Using DPRINT_MAX_THREADS env var for max threads.");
-          specified_count
-        }
-      },
-      _ => maybe_actual_count.unwrap_or(4),
-    }
+    resolve_max_threads(std::env::var("DPRINT_MAX_THREADS").ok(), std::thread::available_parallelism().ok())
   }
 
   fn cli_version(&self) -> String {
@@ -358,6 +339,26 @@ impl Environment for RealEnvironment {
   }
 }
 
+fn resolve_max_threads(env_var: Option<String>, available_parallelism: Option<NonZeroUsize>) -> usize {
+  fn maybe_specified_threads(env_var: Option<String>) -> Option<usize> {
+    let value = env_var?.parse::<usize>().ok()?;
+    if value > 0 {
+      Some(value)
+    } else {
+      None
+    }
+  }
+
+  let maybe_actual_count = available_parallelism.map(|p| p.get());
+  match maybe_specified_threads(env_var) {
+    Some(specified_count) => match maybe_actual_count {
+      Some(actual_count) if specified_count > actual_count => actual_count,
+      _ => specified_count,
+    },
+    _ => maybe_actual_count.unwrap_or(4),
+  }
+}
+
 const CACHE_DIR_ENV_VAR_NAME: &str = "DPRINT_CACHE_DIR";
 
 fn get_cache_dir() -> Result<PathBuf> {
@@ -415,5 +416,16 @@ mod test {
       result.unwrap().to_string(),
       "The DPRINT_CACHE_DIR environment variable must specify an absolute path."
     );
+  }
+
+  #[test]
+  fn should_resolve_num_threads() {
+    assert_eq!(resolve_max_threads(None, None), 4);
+    assert_eq!(resolve_max_threads(None, NonZeroUsize::new(1)), 1);
+    assert_eq!(resolve_max_threads(None, NonZeroUsize::new(4)), 4);
+    assert_eq!(resolve_max_threads(Some("2".to_string()), NonZeroUsize::new(4)), 2);
+    assert_eq!(resolve_max_threads(Some("0".to_string()), NonZeroUsize::new(4)), 4);
+    assert_eq!(resolve_max_threads(Some("5".to_string()), NonZeroUsize::new(4)), 4);
+    assert_eq!(resolve_max_threads(Some("4".to_string()), NonZeroUsize::new(4)), 4);
   }
 }
