@@ -134,8 +134,8 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     let stdout = environment.stdout();
     let reader = MessageReader::new(stdin);
     let writer = SingleThreadMessageWriter::for_stdout(MessageWriter::new(stdout));
-    let number_cores = environment.available_parallelism();
-    let concurrency_limiter = Arc::new(Semaphore::new(std::cmp::max(1, number_cores - 1)));
+    let max_cores = environment.max_threads();
+    let concurrency_limiter = Arc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
 
     Self {
       reader,

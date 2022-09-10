@@ -55,4 +55,8 @@ By default, dprint stores information in the current system user's cache directo
 
 You may specify a proxy for dprint to use when downloading plugins or configuration files by setting the `HTTPS_PROXY` and `HTTP_PROXY` environment variables.
 
+## Limiting Parallelism
+
+By default, dprint only runs for a short period of time and so it will try to take advantage of as many CPU cores as it can. This might be an issue in some scenarios, and so you can limit the amount of parallelism by setting the `DPRINT_MAX_THREADS` environment variable in version 0.32 and up (ex. `DPRINT_MAX_THREADS=4`).
+
 Next step: [Configuration](/config)

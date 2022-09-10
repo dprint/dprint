@@ -91,7 +91,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn cpu_arch(&self) -> String;
   /// Gets the operating system.
   fn os(&self) -> String;
-  fn available_parallelism(&self) -> usize;
+  fn max_threads(&self) -> usize;
   /// Gets the CLI version
   fn cli_version(&self) -> String;
   fn get_time_secs(&self) -> u64;
