@@ -296,7 +296,6 @@ impl Environment for RealEnvironment {
 
   #[cfg(windows)]
   fn ensure_system_path(&self, directory_path: &str) -> Result<()> {
-    // from bvm (https://github.com/bvm/bvm)
     use winreg::enums::*;
     use winreg::RegKey;
     log_verbose!(self, "Ensuring '{}' is on the path.", directory_path);
@@ -318,7 +317,6 @@ impl Environment for RealEnvironment {
 
   #[cfg(windows)]
   fn remove_system_path(&self, directory_path: &str) -> Result<()> {
-    // from bvm (https://github.com/bvm/bvm)
     use winreg::enums::*;
     use winreg::RegKey;
     log_verbose!(self, "Ensuring '{}' is on the path.", directory_path);

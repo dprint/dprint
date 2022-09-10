@@ -201,54 +201,6 @@ jobs:
         echo "Windows x86_64 Zip: ${{needs.build.outputs.WINDOWS_X86_64_ZIP_CHECKSUM}}"
         echo "Windows x86_64 Installer: ${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}}"
 
-    - uses: finnp/create-file-action@1.0.0
-      env:
-        FILE_NAME: bvm.json
-        FILE_DATA: |
-          {
-            "schemaVersion": 1,
-            "name": "dprint",
-            "owner": "dprint",
-            "version": "${{steps.get_tag_version.outputs.TAG_VERSION}}",
-            "description": "Pluggable and configurable code formatting platform written in Rust.",
-            "windows-x86_64": {
-              "path": "https://github.com/dprint/dprint/releases/download/${{steps.get_tag_version.outputs.TAG_VERSION}}/dprint-x86_64-pc-windows-msvc.zip",
-              "type": "zip",
-              "checksum": "${{needs.build.outputs.WINDOWS_X86_64_ZIP_CHECKSUM}}",
-              "commands": [{
-                "name": "dprint",
-                "path": "dprint.exe"
-              }]
-            },
-            "linux-x86_64": {
-              "path": "https://github.com/dprint/dprint/releases/download/${{steps.get_tag_version.outputs.TAG_VERSION}}/dprint-x86_64-unknown-linux-gnu.zip",
-              "type": "zip",
-              "checksum": "${{needs.build.outputs.LINUX_X86_64_ZIP_CHECKSUM}}",
-              "commands": [{
-                "name": "dprint",
-                "path": "dprint"
-              }]
-            },
-            "darwin-x86_64": {
-              "path": "https://github.com/dprint/dprint/releases/download/${{steps.get_tag_version.outputs.TAG_VERSION}}/dprint-x86_64-apple-darwin.zip",
-              "type": "zip",
-              "checksum": "${{needs.build.outputs.MAX_X86_64_ZIP_CHECKSUM}}",
-              "commands": [{
-                "name": "dprint",
-                "path": "dprint"
-              }]
-            },
-            "darwin-aarch64": {
-              "path": "https://github.com/dprint/dprint/releases/download/${{steps.get_tag_version.outputs.TAG_VERSION}}/dprint-aarch64-apple-darwin.zip",
-              "type": "zip",
-              "checksum": "${{needs.build.outputs.MAX_AARCH64_ZIP_CHECKSUM}}",
-              "commands": [{
-                "name": "dprint",
-                "path": "dprint"
-              }]
-            }
-          }
-
     - name: Create SHASUMS256.txt file
       run: |
         echo "${{needs.build.outputs.WINDOWS_X86_64_ZIP_CHECKSUM}} dprint-x86_64-pc-windows-msvc.zip" > SHASUMS256.txt
@@ -257,10 +209,6 @@ jobs:
         echo "${{needs.build.outputs.MAX_X86_64_ZIP_CHECKSUM}} dprint-x86_64-apple-darwin.zip" >> SHASUMS256.txt
         echo "${{needs.build.outputs.MAX_AARCH64_ZIP_CHECKSUM}} dprint-aarch64-apple-darwin.zip" >> SHASUMS256.txt
         echo "${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}} dprint-x86_64-pc-windows-msvc-installer.exe" >> SHASUMS256.txt
-
-    - name: Get bvm.json checksum
-      id: get_bvm_checksum
-      run: echo "::set-output name=CHECKSUM::$(shasum -a 256 bvm.json | awk '{print $1}')"
 
     - name: Draft release
       uses: softprops/action-gh-release@v1
@@ -274,7 +222,6 @@ jobs:
           linux-artifacts/dprint-aarch64-unknown-linux-gnu.zip
           mac-artifacts/dprint-x86_64-apple-darwin.zip
           mac-artifacts/dprint-aarch64-apple-darwin.zip
-          bvm.json
           SHASUMS256.txt
         body: |
           ## Changes
@@ -283,7 +230,7 @@ jobs:
 
           ## Install
 
-          See https://dprint.dev/install/
+          Run `dprint upgrade` or see https://dprint.dev/install/
 
           ## Checksums
 
