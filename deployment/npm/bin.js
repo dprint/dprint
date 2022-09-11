@@ -40,6 +40,6 @@ function runDprintExe() {
 
 function throwIfNoExePath() {
   if (!fs.existsSync(exePath)) {
-    throw new Error("Could not find exe at path '" + exePath + "'. Maybe try running the dprint again.");
+    throw new Error("Could not find exe at path '" + exePath + "'. Maybe try running dprint again.");
   }
 }
