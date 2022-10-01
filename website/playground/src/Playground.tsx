@@ -117,7 +117,7 @@ export function Playground({
                     <select
                       onChange={e => {
                         if (e.target.selectedIndex >= pluginUrls.length) {
-                          let url = prompt("Please provide a WASM plugin url:", "");
+                          let url = prompt("Please provide a Wasm plugin url:", "");
                           if (url != null && url.trim().length > 0) {
                             onSelectPluginUrl(url);
                           } else {
