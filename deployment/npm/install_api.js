@@ -198,7 +198,7 @@ function install() {
 module.exports = {
   runInstall() {
     return install().catch(err => {
-      if (typeof err?.message === "string") {
+      if (err !== undefined && typeof err.message === "string") {
         console.error(err.message);
       } else {
         console.error(err);
