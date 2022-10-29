@@ -125,7 +125,14 @@ pub fn run_specs(
       }
     );
     if let Some(actual_second) = &failed_test.actual_second {
-      failed_message.push_str(&format!("\nTwice:    `{:?}`", actual_second));
+      failed_message.push_str(&format!(
+        "\nTwice:    `{:?}`,\nTwice diff:\n{}",
+        actual_second,
+        DiffFailedMessage {
+          actual: actual_second,
+          expected: &failed_test.actual,
+        }
+      ));
     }
     println!("{}", failed_message);
   }
