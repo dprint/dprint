@@ -49,7 +49,7 @@ impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
 
   pub async fn drop_and_shutdown_initialized(&self) {
     // Need to drain this because plugins hold PluginsCollection
-    // and so without dropping them here they will never be droped
+    // and so without dropping them here they will never be dropped
     let plugins = self.plugins.lock().drain().collect::<Vec<_>>();
     for (_, plugin) in plugins {
       if let Some(initialized) = plugin.take_initialized().await {
