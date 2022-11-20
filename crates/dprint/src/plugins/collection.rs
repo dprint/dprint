@@ -13,42 +13,14 @@ use std::time::Instant;
 
 use anyhow::Result;
 
+use super::name_resolution::PluginNameResolutionMaps;
 use super::output_plugin_config_diagnostics;
 use super::InitializedPlugin;
 use super::InitializedPluginFormatRequest;
 use super::Plugin;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
-use crate::patterns::get_plugin_association_glob_matcher;
-use crate::utils::get_lowercase_file_extension;
-use crate::utils::get_lowercase_file_name;
 use crate::utils::ErrorCountLogger;
-use crate::utils::GlobMatcher;
-use crate::utils::GlobMatchesDetail;
-
-#[derive(Default)]
-struct PluginNameResolutionMaps {
-  extension_to_plugin_names_map: HashMap<String, Vec<String>>,
-  file_name_to_plugin_names_map: HashMap<String, Vec<String>>,
-  /// Associations matchers ordered by precedence.
-  association_matchers: Vec<(String, Arc<GlobMatcher>)>,
-  /// Associations matchers in a map.
-  association_matchers_map: HashMap<String, Arc<GlobMatcher>>,
-}
-
-impl PluginNameResolutionMaps {
-  pub fn is_not_associations_excluded(&self, plugin_name: &str, file_path: impl AsRef<Path>) -> bool {
-    if let Some(matcher) = self.association_matchers_map.get(plugin_name) {
-      if matcher.has_only_excludes() && matcher.matches_detail(file_path) == GlobMatchesDetail::NotMatched {
-        return true;
-      } else {
-        return false;
-      }
-    } else {
-      return true;
-    }
-  }
-}
 
 pub struct PluginsCollection<TEnvironment: Environment> {
   environment: TEnvironment,
@@ -79,35 +51,9 @@ impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
 
   pub fn set_plugins(&self, plugins: Vec<Box<dyn Plugin>>, config_base_path: &CanonicalizedPathBuf) -> Result<()> {
     let mut self_plugins = self.plugins.lock();
-    let mut plugin_name_maps: PluginNameResolutionMaps = Default::default();
+    let plugin_name_maps = PluginNameResolutionMaps::from_plugins(&plugins, config_base_path)?;
     for plugin in plugins {
-      let plugin_name = plugin.name().to_string();
-      let plugin_extensions = plugin.file_extensions().clone();
-      let plugin_file_names = plugin.file_names().clone();
-
-      for extension in plugin_extensions.iter() {
-        plugin_name_maps
-          .extension_to_plugin_names_map
-          .entry(extension.to_owned())
-          .or_default()
-          .push(plugin_name.clone());
-      }
-      for file_name in plugin_file_names.iter() {
-        // first added plugin takes precedence
-        plugin_name_maps
-          .file_name_to_plugin_names_map
-          .entry(file_name.to_owned())
-          .or_default()
-          .push(plugin_name.clone());
-      }
-
-      if let Some(matcher) = get_plugin_association_glob_matcher(&*plugin, config_base_path)? {
-        let matcher = Arc::new(matcher);
-        plugin_name_maps.association_matchers.push((plugin_name.clone(), matcher.clone()));
-        plugin_name_maps.association_matchers_map.insert(plugin_name.clone(), matcher);
-      }
-
-      self_plugins.insert(plugin_name.clone(), Arc::new(PluginWrapper::new(plugin, self.environment.clone())));
+      self_plugins.insert(plugin.name().to_string(), Arc::new(PluginWrapper::new(plugin, self.environment.clone())));
     }
     *self.plugin_name_maps.write() = plugin_name_maps;
     Ok(())
@@ -127,39 +73,7 @@ impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
   }
 
   pub fn get_plugin_names_from_file_path(&self, file_path: &Path) -> Vec<String> {
-    let mut plugin_names = Vec::new();
-    let plugin_name_maps = self.plugin_name_maps.read();
-
-    for (plugin_name, matcher) in plugin_name_maps.association_matchers.iter() {
-      if matcher.matches(&file_path) {
-        plugin_names.push(plugin_name.to_owned());
-      }
-    }
-    if !plugin_names.is_empty() {
-      return plugin_names;
-    }
-
-    if let Some(file_name) = get_lowercase_file_name(file_path) {
-      if let Some(plugin_names) = plugin_name_maps.file_name_to_plugin_names_map.get(&file_name) {
-        for plugin_name in plugin_names {
-          if plugin_name_maps.is_not_associations_excluded(plugin_name, &file_path) {
-            return vec![plugin_name.clone()];
-          }
-        }
-      }
-    }
-
-    if let Some(ext) = get_lowercase_file_extension(file_path) {
-      if let Some(plugin_names) = plugin_name_maps.extension_to_plugin_names_map.get(&ext) {
-        for plugin_name in plugin_names {
-          if plugin_name_maps.is_not_associations_excluded(plugin_name, &file_path) {
-            return vec![plugin_name.clone()];
-          }
-        }
-      }
-    }
-
-    plugin_names
+    self.plugin_name_maps.read().get_plugin_names_from_file_path(file_path)
   }
 
   /// Gets a hash to be used for the "incremental" feature to tell if any plugins have changed.

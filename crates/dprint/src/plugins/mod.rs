@@ -3,6 +3,7 @@ mod cache_manifest;
 mod collection;
 mod helpers;
 mod implementations;
+mod name_resolution;
 mod plugin;
 mod repo;
 mod resolver;
@@ -18,6 +19,7 @@ pub use resolver::*;
 pub use types::*;
 
 pub use implementations::compile_wasm;
+pub use name_resolution::PluginNameResolutionMaps;
 
 use anyhow::bail;
 use anyhow::Result;

@@ -9,8 +9,8 @@ use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::patterns::get_all_file_patterns;
-use crate::patterns::get_plugin_association_glob_matcher;
 use crate::plugins::Plugin;
+use crate::plugins::PluginNameResolutionMaps;
 use crate::utils::glob;
 
 /// Struct that allows using plugin names as a key
@@ -19,15 +19,14 @@ use crate::utils::glob;
 pub struct PluginNames(String);
 
 impl PluginNames {
-  pub fn names(&self) -> Split<'_, &str> {
-    self.0.split("~~")
+  const SEPARATOR: &'static str = "~~";
+
+  pub fn from_plugin_names(names: &[String]) -> Self {
+    Self(names.join(PluginNames::SEPARATOR))
   }
 
-  fn add_plugin(&mut self, plugin_name: &str) {
-    if !self.0.is_empty() {
-      self.0.push_str("~~");
-    }
-    self.0.push_str(plugin_name);
+  pub fn names(&self) -> Split<'_, &str> {
+    self.0.split(PluginNames::SEPARATOR)
   }
 }
 
@@ -48,45 +47,15 @@ pub fn get_file_paths_by_plugins(
   file_paths: Vec<PathBuf>,
   config_base_path: &CanonicalizedPathBuf,
 ) -> Result<HashMap<PluginNames, Vec<PathBuf>>> {
-  let mut plugin_by_file_extension = HashMap::new();
-  let mut plugin_by_file_name = HashMap::new();
-  let mut plugin_associations = Vec::new();
-
-  for plugin in plugins.iter() {
-    for file_extension in plugin.file_extensions() {
-      plugin_by_file_extension.entry(file_extension.to_lowercase()).or_insert_with(|| plugin.name());
-    }
-    for file_name in plugin.file_names() {
-      plugin_by_file_name.entry(file_name.to_lowercase()).or_insert_with(|| plugin.name());
-    }
-    if let Some(matcher) = get_plugin_association_glob_matcher(&**plugin, config_base_path)? {
-      plugin_associations.push((plugin.name(), matcher));
-    }
-  }
+  let plugin_name_maps = PluginNameResolutionMaps::from_plugins(plugins, config_base_path)?;
 
   let mut file_paths_by_plugin: HashMap<PluginNames, Vec<PathBuf>> = HashMap::new();
 
   for file_path in file_paths.into_iter() {
-    let mut plugin_names_key: Option<PluginNames> = None;
-    for (plugin_name, matcher) in plugin_associations.iter() {
-      if matcher.matches(&file_path) {
-        if let Some(plugin_names_key) = plugin_names_key.as_mut() {
-          plugin_names_key.add_plugin(plugin_name);
-        } else {
-          plugin_names_key = Some(PluginNames(plugin_name.to_string()));
-        }
-      }
-    }
-    if plugin_names_key.is_none() {
-      plugin_names_key = {
-        crate::utils::get_lowercase_file_name(&file_path)
-          .and_then(|k| plugin_by_file_name.get(k.as_str()))
-          .or_else(|| crate::utils::get_lowercase_file_extension(&file_path).and_then(|k| plugin_by_file_extension.get(k.as_str())))
-          .map(|plugin| PluginNames(plugin.to_string()))
-      };
-    }
+    let plugin_names = plugin_name_maps.get_plugin_names_from_file_path(&file_path);
 
-    if let Some(plugin_names_key) = plugin_names_key {
+    if !plugin_names.is_empty() {
+      let plugin_names_key = PluginNames::from_plugin_names(&plugin_names);
       let file_paths = file_paths_by_plugin.entry(plugin_names_key).or_insert_with(Vec::new);
       file_paths.push(file_path);
     }

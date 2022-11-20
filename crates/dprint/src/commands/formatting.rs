@@ -659,7 +659,7 @@ mod test {
     let file_path3 = "/file2.other";
     let file_path4 = "/src/some_file_name";
     let file_path5 = "/src/sub-dir/test-process-plugin-exact-file";
-    let file_path6 = "/file6.txt";
+    let file_path6 = "/file6.txt_ps";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .with_local_config("/config.json", |c| {
         c.add_remote_wasm_plugin()
@@ -696,9 +696,9 @@ mod test {
 
     run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
 
-    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(6)]);
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(5)]);
     assert_eq!(environment.take_stderr_messages().len(), 0);
-    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_wasm");
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text"); // not matched in any associations
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_wasm");
     assert_eq!(environment.read_file(&file_path3).unwrap(), "text3_ps");
     assert_eq!(environment.read_file(&file_path4).unwrap(), "text4_ps");
@@ -859,7 +859,7 @@ mod test {
         "[test-process-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
       ]
     );
-    assert_eq!(environment.read_file("/test.txt").unwrap(), "text_wasm");
+    assert_eq!(environment.read_file("/test.txt").unwrap(), "text");
     assert_eq!(environment.read_file("/shared_file").unwrap(), "text");
   }
 

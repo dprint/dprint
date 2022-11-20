@@ -252,14 +252,43 @@ mod test {
           )
           .add_remote_wasm_plugin();
       })
-      .write_file("/file.txt", "")
+      .write_file("/file.txt", "") // won't match because it doesn't match via associations
       .write_file("/file.other", "")
       .initialize()
       .build();
     run_test_cli(vec!["output-file-paths", "**/*.*"], &environment).unwrap();
     let mut logged_messages = environment.take_stdout_messages();
     logged_messages.sort();
-    assert_eq!(logged_messages, vec!["/file.other", "/file.txt"]);
+    assert_eq!(logged_messages, vec!["/file.other"]);
+  }
+
+  #[test]
+  fn should_handle_associations_with_only_exclude() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .add_remote_wasm_plugin()
+      .with_default_config(|config_file| {
+        config_file
+          .add_includes("**/*.txt")
+          .add_config_section(
+            "test-plugin",
+            r#"{
+            "associations": [
+              "!**/exclude/**/*.txt"
+            ],
+            "ending": "wasm"
+          }"#,
+          )
+          .add_remote_wasm_plugin();
+      })
+      .write_file("/file.txt", "")
+      .write_file("/test/exclude/other.txt", "")
+      .initialize()
+      .build();
+    run_test_cli(vec!["output-file-paths", "**/*.*"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.txt"]);
   }
 
   #[test]
