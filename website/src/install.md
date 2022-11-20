@@ -38,7 +38,8 @@ Install using one of the methods below.
 - [Cargo](https://crates.io/) (builds and installs the [cargo package](https://crates.io/crates/dprint) from source):
 
   ```sh
-  cargo install dprint
+  # this will be slower since it builds from the source
+  cargo install --locked dprint
   ```
 
 - [npm](https://www.npmjs.com/):
