@@ -106,7 +106,7 @@
 <span class="hljs-punctuation">}</span>
 </code></pre>
 <p>Alternatively, these may be provided to the CLI via the <code>--plugins &lt;plugin urls or file paths...&gt;</code> flag.</p>
-<p>Note: The order of the plugins in this array defines the precedence. If two plugins support the same file extension then define the one you want to format that extension with first.</p>
+<p>Note: The order of the plugins in this array defines the precedence. If two plugins support the same file extension then define the one you want to format that extension with first. For more fine grained control, see "associations" below.</p>
 <h3>Adding Plugins via CLI</h3>
 <p>You may add a plugin via the CLI by running:</p>
 <pre><code class="language-sh hljs language-bash">dprint config add
@@ -164,6 +164,25 @@
 <span class="hljs-punctuation">}</span>
 </code></pre>
 <p>Note that first the <code>"includes"</code>/<code>"excludes"</code> file resolution occurs and then the associations is used to map those files to a plugin. Specifying associations may also be useful for formatting a file with multiple plugins or forcing a file to be formatted with a specific plugin.</p>
+<h3>Excluding paths from plugin</h3>
+<p>Only providing negated globs as an association can be a way to exclude a file extension or path from being formatted with a certain plugin, but continue using file extensions to match a plugin otherwise.</p>
+<p>In the following example, both the TypeScript plugin and Prettier plugin support formatting <code>.js</code> and <code>.ts</code> files. Say we want to only format <code>.ts</code> files with the TypeScript plugin and <code>.js</code> files with the prettier plugin. To do that, we can place the typescript plugin to have higher precedence in the "plugins" array, then add an excludes for only <code>!**/*.js</code>. This will cause the TypeScript plugin to match based on the file extension for <code>.ts</code> files, but then be excluded from matching on <code>.js</code> files.</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"typescript"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">"associations"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+      <span class="hljs-string">"!**/*.js"</span> <span class="hljs-comment">// don't format javascript files</span>
+    <span class="hljs-punctuation">]</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">"includes"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"**/*.*"</span>
+  <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/typescript-x.x.x.wasm"</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-comment">// side note: check the docs for the latest version of this plugin</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/prettier-0.13.0.json@dc5d12b7c1bf1a4683eff317c2c87350e75a5a3dfcc127f3d5628931bfb534b1"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
 <h2>Extending a Different Configuration File</h2>
 <p>You may extend other configuration files by specifying an <code>extends</code> property. This may be a file path, URL, or relative path (remote configuration may extend other configuration files via a relative path).</p>
 <!-- dprint-ignore -->
