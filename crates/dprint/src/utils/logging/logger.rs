@@ -35,12 +35,14 @@ pub struct LoggerOptions {
   pub initial_context_name: String,
   /// Whether stdout will be read by a program.
   pub is_stdout_machine_readable: bool,
+  pub is_verbose: bool,
 }
 
 #[derive(Clone)]
 pub struct Logger {
   output_lock: Arc<Mutex<LoggerState>>,
   is_stdout_machine_readable: bool,
+  is_verbose: bool,
 }
 
 struct LoggerState {
@@ -62,7 +64,13 @@ impl Logger {
         last_terminal_size: None,
       })),
       is_stdout_machine_readable: options.is_stdout_machine_readable,
+      is_verbose: options.is_verbose,
     }
+  }
+
+  #[inline]
+  pub fn is_verbose(&self) -> bool {
+    self.is_verbose
   }
 
   pub fn log(&self, text: &str, context_name: &str) {
@@ -79,7 +87,11 @@ impl Logger {
     self.inner_log(&mut state, true, text, &last_context_name);
   }
 
-  pub fn log_err(&self, text: &str, context_name: &str) {
+  pub fn log_stderr(&self, text: &str) {
+    self.log_stderr_with_context(text, "dprint");
+  }
+
+  pub fn log_stderr_with_context(&self, text: &str, context_name: &str) {
     let mut state = self.output_lock.lock();
     self.inner_log(&mut state, false, text, context_name);
   }
