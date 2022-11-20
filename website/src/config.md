@@ -59,7 +59,7 @@ The `plugins` property specifies which plugins to use for formatting. These may 
 
 Alternatively, these may be provided to the CLI via the `--plugins <plugin urls or file paths...>` flag.
 
-Note: The order of the plugins in this array defines the precedence. If two plugins support the same file extension then define the one you want to format that extension with first.
+Note: The order of the plugins in this array defines the precedence. If two plugins support the same file extension then define the one you want to format that extension with first. For more fine grained control, see "associations" below.
 
 ### Adding Plugins via CLI
 
@@ -146,6 +146,30 @@ For example:
 ```
 
 Note that first the `"includes"`/`"excludes"` file resolution occurs and then the associations is used to map those files to a plugin. Specifying associations may also be useful for formatting a file with multiple plugins or forcing a file to be formatted with a specific plugin.
+
+### Excluding paths from plugin
+
+Only providing negated globs as an association can be a way to exclude a file extension or path from being formatted with a certain plugin.
+
+In the following example, the typescript plugin is told not to format `.js` files even though it supports them and instead leave that for the prettier plugin which comes next in the `"plugins"` array.
+
+```json
+{
+  "typescript": {
+    "associations": [
+      "!**/*.js" // don't format javascript files
+    ]
+  },
+  "includes": [
+    "**/*.*"
+  ],
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-x.x.x.wasm",
+    // side note: check the docs for the latest version of this plugin
+    "https://plugins.dprint.dev/prettier-0.13.0.json@dc5d12b7c1bf1a4683eff317c2c87350e75a5a3dfcc127f3d5628931bfb534b1"
+  ]
+}
+```
 
 ## Extending a Different Configuration File
 

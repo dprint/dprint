@@ -53,10 +53,12 @@ pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cw
 
 pub fn get_plugin_association_glob_matcher(plugin: &dyn Plugin, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>> {
   Ok(if let Some(associations) = plugin.get_config().0.associations.as_ref() {
+    let patterns = process_config_patterns(process_file_patterns_slashes(associations));
+    let (includes, excludes) = patterns.into_iter().partition(|p| !is_negated_glob(p));
     Some(GlobMatcher::new(
       GlobPatterns {
-        includes: GlobPattern::new_vec(process_config_patterns(process_file_patterns_slashes(associations)), config_base_path.clone()),
-        excludes: Vec::new(),
+        includes: GlobPattern::new_vec(includes, config_base_path.clone()),
+        excludes: GlobPattern::new_vec(excludes, config_base_path.clone()),
       },
       &GlobMatcherOptions {
         case_sensitive: !cfg!(windows),
