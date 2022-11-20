@@ -11,7 +11,7 @@ description = "Binary for dprint code formatter—a pluggable and configurable c
 
 [dependencies]
 anyhow = "1.0.66"
-clap = "4.0.26"
+clap = "3.2.7"
 crossterm = "0.25.0"
 dirs = "4.0.0"
 dprint-core = { path = "../core", version = "0.59.1", features = ["process", "wasm"] }
