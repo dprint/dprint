@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::environment::CanonicalizedPathBuf;
-use crate::patterns::get_plugin_association_glob_matcher;
+use crate::patterns::get_patterns_as_glob_matcher;
 use crate::utils::get_lowercase_file_extension;
 use crate::utils::get_lowercase_file_name;
 use crate::utils::GlobMatcher;
@@ -95,4 +95,12 @@ impl PluginNameResolutionMaps {
       true
     }
   }
+}
+
+fn get_plugin_association_glob_matcher(plugin: &dyn Plugin, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>> {
+  Ok(if let Some(associations) = plugin.get_config().0.associations.as_ref() {
+    Some(get_patterns_as_glob_matcher(associations, config_base_path)?)
+  } else {
+    None
+  })
 }
