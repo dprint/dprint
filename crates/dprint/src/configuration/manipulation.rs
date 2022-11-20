@@ -66,7 +66,7 @@ pub fn add_to_plugins_array(file_text: &str, url: &str) -> Result<String> {
 }
 
 fn parse_file(file_text: &str) -> Result<Object<'_>> {
-  let json_file = jsonc_parser::parse_to_ast(file_text, &Default::default()).with_context(|| "Error parsing config file.".to_string())?;
+  let json_file = jsonc_parser::parse_to_ast(file_text, &Default::default(), &Default::default()).with_context(|| "Error parsing config file.".to_string())?;
   match json_file.value {
     Some(jsonc_parser::ast::Value::Object(obj)) => Ok(obj),
     _ => bail!("Please ensure your config file has an object in it to use this feature."),
