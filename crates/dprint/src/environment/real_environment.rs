@@ -1,14 +1,6 @@
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
-use dprint_cli_core::download_url;
-use dprint_cli_core::logging::log_action_with_progress;
-use dprint_cli_core::logging::show_confirm;
-use dprint_cli_core::logging::show_multi_select;
-use dprint_cli_core::logging::show_select;
-use dprint_cli_core::logging::Logger;
-use dprint_cli_core::logging::LoggerOptions;
-use dprint_cli_core::logging::ProgressBars;
 use std::fs;
 use std::num::NonZeroUsize;
 use std::path::Path;
@@ -23,6 +15,15 @@ use super::Environment;
 use super::FilePermissions;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
+use crate::utils::get_terminal_width;
+use crate::utils::log_action_with_progress;
+use crate::utils::show_confirm;
+use crate::utils::show_multi_select;
+use crate::utils::show_select;
+use crate::utils::Logger;
+use crate::utils::LoggerOptions;
+use crate::utils::ProgressBars;
+use crate::utils::RealUrlDownloader;
 
 pub struct RealEnvironmentOptions {
   pub is_verbose: bool,
@@ -32,10 +33,10 @@ pub struct RealEnvironmentOptions {
 
 #[derive(Clone)]
 pub struct RealEnvironment {
-  logger: Logger,
   progress_bars: Option<ProgressBars>,
-  is_verbose: bool,
   runtime_handle: Arc<tokio::runtime::Handle>,
+  url_downloader: RealUrlDownloader,
+  logger: Logger,
 }
 
 impl RealEnvironment {
@@ -43,12 +44,14 @@ impl RealEnvironment {
     let logger = Logger::new(&LoggerOptions {
       initial_context_name: "dprint".to_string(),
       is_stdout_machine_readable: options.is_stdout_machine_readable,
+      is_verbose: options.is_verbose,
     });
     let progress_bars = ProgressBars::new(&logger);
+    let url_downloader = RealUrlDownloader::new(progress_bars.clone(), logger.clone(), |env_var_name| std::env::var(env_var_name).ok())?;
     let environment = RealEnvironment {
+      url_downloader,
       logger,
       progress_bars,
-      is_verbose: options.is_verbose,
       runtime_handle: options.runtime_handle,
     };
 
@@ -65,7 +68,7 @@ impl UrlDownloader for RealEnvironment {
   fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
     log_verbose!(self, "Downloading url: {}", url);
 
-    download_url(url, &self.progress_bars, |env_var_name| std::env::var(env_var_name).ok())
+    self.url_downloader.download(url)
   }
 }
 
@@ -214,7 +217,7 @@ impl Environment for RealEnvironment {
   }
 
   fn log_stderr_with_context(&self, text: &str, context_name: &str) {
-    self.logger.log_err(text, context_name);
+    self.logger.log_stderr_with_context(text, context_name);
   }
 
   fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
@@ -270,12 +273,12 @@ impl Environment for RealEnvironment {
   }
 
   fn get_terminal_width(&self) -> u16 {
-    dprint_cli_core::terminal::get_terminal_width().unwrap_or(60)
+    get_terminal_width().unwrap_or(60)
   }
 
   #[inline]
   fn is_verbose(&self) -> bool {
-    self.is_verbose
+    self.logger.is_verbose()
   }
 
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult> {

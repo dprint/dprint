@@ -1,5 +1,5 @@
-use dprint_cli_core::logging::render_text_items_with_width;
-use dprint_cli_core::logging::LoggerTextItem;
+use super::logging::render_text_items_with_width;
+use super::logging::LoggerTextItem;
 
 pub struct TableText {
   pub lines: Vec<String>,

@@ -1,10 +1,10 @@
 use std::fmt;
 
 use anyhow::Result;
-use dprint_cli_core::checksums::parse_checksum_path_or_url;
 use dprint_core::plugins::PluginInfo;
 
 use crate::environment::Environment;
+use crate::utils::parse_checksum_path_or_url;
 use crate::utils::resolve_url_or_file_path_to_path_source;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;

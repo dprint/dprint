@@ -112,11 +112,11 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
 
 // use a macro here so the expression provided is only evaluated when in verbose mode
 macro_rules! log_verbose {
-    ($environment:expr, $($arg:tt)*) => {
-        if $environment.is_verbose() {
+    ($logger:expr, $($arg:tt)*) => {
+        if $logger.is_verbose() {
             let mut text = String::from("[VERBOSE] ");
             text.push_str(&format!($($arg)*));
-            $environment.log_stderr(&text);
+            $logger.log_stderr(&text);
         }
     }
 }

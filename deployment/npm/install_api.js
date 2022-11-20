@@ -34,7 +34,7 @@ function install() {
   }
 
   // now try to download it
-  return downloadZipFile(url).then(() => {
+  return downloadZipFileWithRetries(url).then(() => {
     verifyZipChecksum();
     return extractZipFile().then(() => {
       // todo: how to just +x? does it matter?
@@ -73,6 +73,24 @@ function install() {
         throw new Error("Unsupported architecture " + os.arch() + ". Only x64 and aarch64 binaries are available.");
       }
     }
+  }
+
+  function downloadZipFileWithRetries(url) {
+    /** @param remaining {number} */
+    function download(remaining) {
+      return downloadZipFile(url)
+        .catch(err => {
+          if (remaining === 0) {
+            return Promise.reject(err);
+          } else {
+            console.error("Error downloading dprint zip file.", err);
+            console.error("Retrying download (remaining: " + remaining + ")");
+            return download(remaining - 1);
+          }
+        });
+    }
+
+    return download(3);
   }
 
   function downloadZipFile(url) {

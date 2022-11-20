@@ -1,10 +1,8 @@
 use anyhow::bail;
 use anyhow::Result;
-use dprint_cli_core::checksums::get_sha256_checksum;
 use parking_lot::RwLock;
 use std::path::PathBuf;
 
-use dprint_cli_core::checksums::verify_sha256_checksum;
 use dprint_core::plugins::PluginInfo;
 
 use super::implementations::cleanup_plugin;
@@ -17,6 +15,8 @@ use super::PluginCacheManifestItem;
 use crate::environment::Environment;
 use crate::plugins::PluginSourceReference;
 use crate::utils::get_bytes_hash;
+use crate::utils::get_sha256_checksum;
+use crate::utils::verify_sha256_checksum;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 

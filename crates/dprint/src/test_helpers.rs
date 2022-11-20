@@ -74,17 +74,17 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
 }
 
 pub fn get_test_process_plugin_zip_checksum() -> String {
-  dprint_cli_core::checksums::get_sha256_checksum(&PROCESS_PLUGIN_ZIP_BYTES)
+  crate::utils::get_sha256_checksum(&PROCESS_PLUGIN_ZIP_BYTES)
 }
 
 pub fn get_test_wasm_plugin_checksum() -> String {
-  dprint_cli_core::checksums::get_sha256_checksum(WASM_PLUGIN_BYTES)
+  crate::utils::get_sha256_checksum(WASM_PLUGIN_BYTES)
 }
 
 pub fn get_test_process_plugin_checksum() -> String {
   let zip_checksum = get_test_process_plugin_zip_checksum();
   let ps_file_bytes = get_test_process_plugin_file_text(&zip_checksum).into_bytes();
-  dprint_cli_core::checksums::get_sha256_checksum(&ps_file_bytes)
+  crate::utils::get_sha256_checksum(&ps_file_bytes)
 }
 
 pub fn get_test_process_plugin_file_text(zip_checksum: &str) -> String {

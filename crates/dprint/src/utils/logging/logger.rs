@@ -10,6 +10,9 @@ use std::io::Stdout;
 use std::io::Write;
 use std::sync::Arc;
 
+use crate::utils::terminal::get_terminal_size;
+use crate::utils::terminal::get_terminal_width;
+
 pub enum LoggerTextItem {
   Text(String),
   HangingText { text: String, indent: u16 },
@@ -32,12 +35,14 @@ pub struct LoggerOptions {
   pub initial_context_name: String,
   /// Whether stdout will be read by a program.
   pub is_stdout_machine_readable: bool,
+  pub is_verbose: bool,
 }
 
 #[derive(Clone)]
 pub struct Logger {
   output_lock: Arc<Mutex<LoggerState>>,
   is_stdout_machine_readable: bool,
+  is_verbose: bool,
 }
 
 struct LoggerState {
@@ -59,7 +64,13 @@ impl Logger {
         last_terminal_size: None,
       })),
       is_stdout_machine_readable: options.is_stdout_machine_readable,
+      is_verbose: options.is_verbose,
     }
+  }
+
+  #[inline]
+  pub fn is_verbose(&self) -> bool {
+    self.is_verbose
   }
 
   pub fn log(&self, text: &str, context_name: &str) {
@@ -76,7 +87,11 @@ impl Logger {
     self.inner_log(&mut state, true, text, &last_context_name);
   }
 
-  pub fn log_err(&self, text: &str, context_name: &str) {
+  pub fn log_stderr(&self, text: &str) {
+    self.log_stderr_with_context(text, "dprint");
+  }
+
+  pub fn log_stderr_with_context(&self, text: &str, context_name: &str) {
     let mut state = self.output_lock.lock();
     self.inner_log(&mut state, false, text, context_name);
   }
@@ -172,7 +187,7 @@ impl Logger {
   }
 
   fn inner_queue_clear_previous_draws(&self, state: &mut LoggerState) {
-    let terminal_width = crate::terminal::get_terminal_width().unwrap();
+    let terminal_width = get_terminal_width().unwrap();
     let text_items = state.refresh_items.iter().flat_map(|item| item.text_items.iter());
     let rendered_text = render_text_items_truncated_to_height(text_items, state.last_terminal_size);
     let last_line_count = get_text_line_count(&rendered_text, terminal_width);
@@ -189,7 +204,7 @@ impl Logger {
   }
 
   fn inner_queue_draw_items(&self, state: &mut LoggerState) {
-    let terminal_size = crate::terminal::get_terminal_size();
+    let terminal_size = get_terminal_size();
     let text_items = state.refresh_items.iter().flat_map(|item| item.text_items.iter());
     let rendered_text = render_text_items_truncated_to_height(text_items, terminal_size);
     state.std_err.queue(style::Print(&rendered_text)).unwrap();
