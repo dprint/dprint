@@ -149,9 +149,9 @@ Note that first the `"includes"`/`"excludes"` file resolution occurs and then th
 
 ### Excluding paths from plugin
 
-Only providing negated globs as an association can be a way to exclude a file extension or path from being formatted with a certain plugin.
+Only providing negated globs as an association can be a way to exclude a file extension or path from being formatted with a certain plugin, but continue using file extensions to match a plugin otherwise.
 
-In the following example, the typescript plugin is told not to format `.js` files even though it supports them and instead leave that for the prettier plugin which comes next in the `"plugins"` array.
+In the following example, both the TypeScript plugin and Prettier plugin support formatting `.js` and `.ts` files. Say we want to only format `.ts` files with the TypeScript plugin and `.js` files with the prettier plugin. To do that, we can place the typescript plugin to have higher precedence in the "plugins" array, then add an excludes for only `!**/*.js`. This will cause the TypeScript plugin to match based on the file extension for `.ts` files, but then be excluded from matching on `.js` files.
 
 ```json
 {
