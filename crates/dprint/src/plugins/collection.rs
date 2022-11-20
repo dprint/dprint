@@ -13,24 +13,14 @@ use std::time::Instant;
 
 use anyhow::Result;
 
+use super::name_resolution::PluginNameResolutionMaps;
 use super::output_plugin_config_diagnostics;
 use super::InitializedPlugin;
 use super::InitializedPluginFormatRequest;
 use super::Plugin;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
-use crate::patterns::get_plugin_association_glob_matcher;
-use crate::utils::get_lowercase_file_extension;
-use crate::utils::get_lowercase_file_name;
 use crate::utils::ErrorCountLogger;
-use crate::utils::GlobMatcher;
-
-#[derive(Default)]
-struct PluginNameResolutionMaps {
-  extension_to_plugin_name_map: HashMap<String, String>,
-  file_name_to_plugin_name_map: HashMap<String, String>,
-  association_matchers: Vec<(String, GlobMatcher)>,
-}
 
 pub struct PluginsCollection<TEnvironment: Environment> {
   environment: TEnvironment,
@@ -61,32 +51,9 @@ impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
 
   pub fn set_plugins(&self, plugins: Vec<Box<dyn Plugin>>, config_base_path: &CanonicalizedPathBuf) -> Result<()> {
     let mut self_plugins = self.plugins.lock();
-    let mut plugin_name_maps: PluginNameResolutionMaps = Default::default();
+    let plugin_name_maps = PluginNameResolutionMaps::from_plugins(&plugins, config_base_path)?;
     for plugin in plugins {
-      let plugin_name = plugin.name().to_string();
-      let plugin_extensions = plugin.file_extensions().clone();
-      let plugin_file_names = plugin.file_names().clone();
-
-      for extension in plugin_extensions.iter() {
-        // first added plugin takes precedence
-        plugin_name_maps
-          .extension_to_plugin_name_map
-          .entry(extension.to_owned())
-          .or_insert_with(|| plugin_name.clone());
-      }
-      for file_name in plugin_file_names.iter() {
-        // first added plugin takes precedence
-        plugin_name_maps
-          .file_name_to_plugin_name_map
-          .entry(file_name.to_owned())
-          .or_insert_with(|| plugin_name.clone());
-      }
-
-      if let Some(matchers) = get_plugin_association_glob_matcher(&*plugin, config_base_path)? {
-        plugin_name_maps.association_matchers.push((plugin_name.clone(), matchers));
-      }
-
-      self_plugins.insert(plugin_name.clone(), Arc::new(PluginWrapper::new(plugin, self.environment.clone())));
+      self_plugins.insert(plugin.name().to_string(), Arc::new(PluginWrapper::new(plugin, self.environment.clone())));
     }
     *self.plugin_name_maps.write() = plugin_name_maps;
     Ok(())
@@ -105,33 +72,8 @@ impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
       .unwrap_or_else(|| panic!("Expected to find plugin in collection: {}", plugin_name))
   }
 
-  pub fn get_plugin_names_from_file_name(&self, file_name: &Path) -> Vec<String> {
-    let mut plugin_names = Vec::new();
-    let plugin_name_maps = self.plugin_name_maps.read();
-
-    if let Some(file_name) = get_lowercase_file_name(file_name) {
-      for (plugin_name, matcher) in plugin_name_maps.association_matchers.iter() {
-        if matcher.matches(&file_name) {
-          plugin_names.push(plugin_name.to_owned());
-        }
-      }
-      if !plugin_names.is_empty() {
-        return plugin_names;
-      }
-
-      if let Some(plugin_name) = plugin_name_maps.file_name_to_plugin_name_map.get(&file_name) {
-        plugin_names.push(plugin_name.to_owned());
-        return plugin_names;
-      }
-    }
-
-    if let Some(ext) = get_lowercase_file_extension(file_name) {
-      if let Some(plugin_name) = plugin_name_maps.extension_to_plugin_name_map.get(&ext) {
-        plugin_names.push(plugin_name.to_owned());
-      }
-    }
-
-    plugin_names
+  pub fn get_plugin_names_from_file_path(&self, file_path: &Path) -> Vec<String> {
+    self.plugin_name_maps.read().get_plugin_names_from_file_path(file_path)
   }
 
   /// Gets a hash to be used for the "incremental" feature to tell if any plugins have changed.
@@ -150,7 +92,7 @@ impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
 
 impl<TEnvironment: Environment> Host for PluginsCollection<TEnvironment> {
   fn format(&self, request: HostFormatRequest) -> dprint_core::plugins::BoxFuture<FormatResult> {
-    let plugin_names = self.get_plugin_names_from_file_name(&request.file_path);
+    let plugin_names = self.get_plugin_names_from_file_path(&request.file_path);
     log_verbose!(
       self.environment,
       "Host formatting {} - File length: {} - Plugins: [{}] - Range: {:?}",

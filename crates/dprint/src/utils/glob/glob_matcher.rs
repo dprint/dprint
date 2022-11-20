@@ -15,6 +15,16 @@ pub struct GlobMatcherOptions {
   pub case_sensitive: bool,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum GlobMatchesDetail {
+  /// Matched an includes pattern.
+  Matched,
+  /// Matched an excludes pattern.
+  Excluded,
+  /// Matched neither an includes or excludes pattern.
+  NotMatched,
+}
+
 pub struct GlobMatcher {
   inner: GlobMatcherInner,
 }
@@ -68,9 +78,25 @@ impl GlobMatcher {
     })
   }
 
-  pub fn matches(&self, path: impl AsRef<Path>) -> bool {
+  /// Gets if the matcher only has excludes patterns.
+  pub fn has_only_excludes(&self) -> bool {
     match &self.inner {
       GlobMatcherInner::Empty => false,
+      GlobMatcherInner::Matcher {
+        include_matcher,
+        exclude_matcher,
+        ..
+      } => include_matcher.is_empty() && !exclude_matcher.is_empty(),
+    }
+  }
+
+  pub fn matches(&self, path: impl AsRef<Path>) -> bool {
+    self.matches_detail(path) == GlobMatchesDetail::Matched
+  }
+
+  pub fn matches_detail(&self, path: impl AsRef<Path>) -> GlobMatchesDetail {
+    match &self.inner {
+      GlobMatcherInner::Empty => GlobMatchesDetail::NotMatched,
       GlobMatcherInner::Matcher {
         base_dir,
         include_matcher,
@@ -89,7 +115,7 @@ impl GlobMatcher {
               base_dir.display(),
               path.display()
             );
-            return false;
+            return GlobMatchesDetail::NotMatched;
           }
         } else if !path.is_absolute() {
           Cow::Owned(base_dir.join(path))
@@ -97,7 +123,13 @@ impl GlobMatcher {
           Cow::Borrowed(path)
         };
 
-        matches!(include_matcher.matched(&path, false), Match::Whitelist(_)) && !matches!(exclude_matcher.matched(&path, false), Match::Whitelist(_))
+        if matches!(exclude_matcher.matched(&path, false), Match::Whitelist(_)) {
+          GlobMatchesDetail::Excluded
+        } else if matches!(include_matcher.matched(&path, false), Match::Whitelist(_)) {
+          GlobMatchesDetail::Matched
+        } else {
+          GlobMatchesDetail::NotMatched
+        }
       }
     }
   }
@@ -194,9 +226,10 @@ mod test {
       &GlobMatcherOptions { case_sensitive: true },
     )
     .unwrap();
-    assert!(glob_matcher.matches("/testing/dir/match.ts"));
-    assert!(glob_matcher.matches("/testing/dir/other/match.ts"));
-    assert!(!glob_matcher.matches("/testing/dir/no-match.ts"));
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/match.ts"), GlobMatchesDetail::Matched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/other/match.ts"), GlobMatchesDetail::Matched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/no-match.ts"), GlobMatchesDetail::Excluded);
+    assert!(!glob_matcher.has_only_excludes());
   }
 
   #[test]

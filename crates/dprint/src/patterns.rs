@@ -6,7 +6,6 @@ use crate::arg_parser::FilePatternArgs;
 use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
-use crate::plugins::Plugin;
 use crate::utils::is_absolute_pattern;
 use crate::utils::is_negated_glob;
 use crate::utils::GlobMatcher;
@@ -44,27 +43,25 @@ impl FileMatcher {
   }
 }
 
+pub fn get_patterns_as_glob_matcher(patterns: &Vec<String>, config_base_path: &CanonicalizedPathBuf) -> Result<GlobMatcher> {
+  let patterns = process_config_patterns(process_file_patterns_slashes(patterns));
+  let (includes, excludes) = patterns.into_iter().partition(|p| !is_negated_glob(p));
+  GlobMatcher::new(
+    GlobPatterns {
+      includes: GlobPattern::new_vec(includes, config_base_path.clone()),
+      excludes: GlobPattern::new_vec(excludes, config_base_path.clone()),
+    },
+    &GlobMatcherOptions {
+      case_sensitive: !cfg!(windows),
+    },
+  )
+}
+
 pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> GlobPatterns {
   GlobPatterns {
     includes: get_include_file_patterns(config, args, cwd),
     excludes: get_exclude_file_patterns(config, args, cwd),
   }
-}
-
-pub fn get_plugin_association_glob_matcher(plugin: &dyn Plugin, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>> {
-  Ok(if let Some(associations) = plugin.get_config().0.associations.as_ref() {
-    Some(GlobMatcher::new(
-      GlobPatterns {
-        includes: GlobPattern::new_vec(process_config_patterns(process_file_patterns_slashes(associations)), config_base_path.clone()),
-        excludes: Vec::new(),
-      },
-      &GlobMatcherOptions {
-        case_sensitive: !cfg!(windows),
-      },
-    )?)
-  } else {
-    None
-  })
 }
 
 fn get_include_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
