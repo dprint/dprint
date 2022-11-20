@@ -16,6 +16,7 @@ use dprint_core::plugins::PluginInfo;
 use super::create_module;
 use super::create_pools_import_object;
 use super::load_instance;
+use super::ImportObjectEnvironment;
 use super::WasmFormatResult;
 use super::WasmFunctions;
 use crate::configuration::RawPluginConfig;
@@ -97,6 +98,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
   }
 
   fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
+    let store = wasmer::Store::default();
     // need to call set_config first to ensure this doesn't fail
     let (plugin_config, global_config) = self.config.as_ref().unwrap();
     let plugin = InitializedWasmPlugin::new(
@@ -105,12 +107,9 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
       Arc::new({
         let plugin_pools = self.plugin_pools.clone();
         let environment = self.environment.clone();
-        move |store, module| {
-          let (import_object, env) = create_pools_import_object(environment.clone(), plugin_pools.clone(), store.clone());
-          let mut store = store.lock();
-          let instance = load_instance(&mut store, module, &import_object)?;
-          env.as_mut(&mut *store).initialize(&instance)?;
-          Ok(instance)
+        move || {
+          let import_obj_env = ImportObjectEnvironment::new(environment.clone(), plugin_pools.clone());
+          create_pools_import_object(&store, &import_obj_env)
         }
       }),
       global_config.clone(),
@@ -227,9 +226,12 @@ impl InitializedWasmPluginInstance {
   }
 
   fn write_bytes_to_memory_buffer(&self, bytes: &[u8]) -> Result<()> {
+    let length = bytes.len();
     let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr()?;
-    let memory_view = self.wasm_functions.get_memory_view();
-    memory_view.write(wasm_buffer_pointer.offset() as u64, bytes)?;
+    let memory_writer = wasm_buffer_pointer.deref(self.wasm_functions.get_memory(), 0, length as u32).unwrap();
+    for i in 0..length {
+      memory_writer[i].set(bytes[i]);
+    }
     Ok(())
   }
 
@@ -246,9 +248,12 @@ impl InitializedWasmPluginInstance {
   }
 
   fn read_bytes_from_memory_buffer(&self, bytes: &mut [u8]) -> Result<()> {
+    let length = bytes.len();
     let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr()?;
-    let memory_view = self.wasm_functions.get_memory_view();
-    memory_view.read(wasm_buffer_pointer.offset() as u64, bytes)?;
+    let memory_reader = wasm_buffer_pointer.deref(self.wasm_functions.get_memory(), 0, length as u32).unwrap();
+    for i in 0..length {
+      bytes[i] = memory_reader[i].get();
+    }
     Ok(())
   }
 }
@@ -258,7 +263,7 @@ struct InitializedWasmPluginInner {
   instances: Mutex<Vec<InitializedWasmPluginInstance>>,
   // below is for recreating an instance after panic
   module: wasmer::Module,
-  load_instance: Arc<dyn Fn(Arc<Mutex<wasmer::Store>>, &wasmer::Module) -> Result<wasmer::Instance> + Send + Sync>,
+  create_import_object: Arc<dyn Fn() -> wasmer::ImportObject + Send + Sync>,
   global_config: GlobalConfiguration,
   plugin_config: ConfigKeyMap,
 }
@@ -270,7 +275,7 @@ impl InitializedWasmPlugin {
   pub fn new(
     name: String,
     module: wasmer::Module,
-    load_instance: Arc<dyn Fn(Arc<Mutex<wasmer::Store>>, &wasmer::Module) -> Result<wasmer::Instance> + Send + Sync>,
+    create_import_object: Arc<dyn Fn() -> wasmer::ImportObject + Send + Sync>,
     global_config: GlobalConfiguration,
     plugin_config: ConfigKeyMap,
   ) -> Self {
@@ -278,7 +283,7 @@ impl InitializedWasmPlugin {
       name,
       instances: Default::default(),
       module,
-      load_instance,
+      create_import_object,
       global_config,
       plugin_config,
     }))
@@ -350,9 +355,8 @@ impl InitializedWasmPlugin {
   }
 
   fn create_instance(&self) -> Result<InitializedWasmPluginInstance> {
-    let store = Arc::new(Mutex::new(wasmer::Store::default()));
-    let instance = (self.0.load_instance)(store.clone(), &self.0.module)?;
-    let wasm_functions = WasmFunctions::new(store, instance)?;
+    let instance = load_instance(&self.0.module, &(self.0.create_import_object)())?;
+    let wasm_functions = WasmFunctions::new(instance)?;
     let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
 
     let mut instance = InitializedWasmPluginInstance { wasm_functions, buffer_size };
