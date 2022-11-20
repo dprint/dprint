@@ -10,28 +10,28 @@ repository = "https://github.com/dprint/dprint"
 description = "Binary for dprint code formatter—a pluggable and configurable code formatting platform."
 
 [dependencies]
-anyhow = "1.0.58"
+anyhow = "1.0.66"
 clap = "3.2.7"
-crossterm = "0.24.0"
+crossterm = "0.25.0"
 dirs = "4.0.0"
-dprint-core = { path = "../core", version = "0.59.0", features = ["process", "wasm"] }
-dunce = "1.0.2"
-futures = "0.3.21"
+dprint-core = { path = "../core", version = "0.59.1", features = ["process", "wasm"] }
+dunce = "1.0.3"
+futures = "0.3.25"
 ignore = "0.4.18"
-indexmap = { version = "1.9.1", features = ["serde-1"] }
-jsonc-parser = { version = "0.19.0" }
+indexmap = { version = "1.9.2", features = ["serde-1"] }
+jsonc-parser = { version = "0.21.0" }
 parking_lot = "0.12.1"
-serde = { version = "1.0.137", features = ["derive"] }
+serde = { version = "1.0.147", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
-sha2 = "0.10.2"
-similar = { version = "2.1.0", features = ["inline"] }
+sha2 = "0.10.6"
+similar = { version = "2.2.1", features = ["inline"] }
 tokio = { version = "1", features = ["rt", "time", "macros", "rt-multi-thread"] }
-tokio-util = { version = "0.7.0" }
+tokio-util = { version = "0.7.4" }
 twox-hash = "1.6.3"
-ureq = { version = "2.4.0", features = ["socks-proxy", "tls"] }
-url = "2.2.2"
+ureq = { version = "2.5.0", features = ["socks-proxy", "tls"] }
+url = "2.3.1"
 wasmer = "=2.3.0"
-zip = "0.6.2"
+zip = "0.6.3"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.10.1"
@@ -39,4 +39,4 @@ winreg = "0.10.1"
 [dev-dependencies]
 lazy_static = "1.4.0"
 path-clean = "0.1.0"
-pretty_assertions = "1.0.0"
+pretty_assertions = "1.3.0"

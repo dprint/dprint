@@ -52,7 +52,7 @@ pub fn read_update_url(downloader: &impl UrlDownloader, url: &str) -> Result<Opt
     None => return Ok(None),
   };
   let info_text = String::from_utf8(info_bytes.to_vec())?;
-  let json_value = parse_to_value(&info_text)?;
+  let json_value = parse_to_value(&info_text, &Default::default())?;
   let mut obj = match json_value {
     Some(JsonValue::Object(obj)) => obj,
     _ => bail!("Expected object in root element."),

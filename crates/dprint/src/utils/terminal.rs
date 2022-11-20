@@ -27,9 +27,13 @@ pub(crate) fn read_terminal_event() -> Result<Event> {
     Ok(Event::Key(KeyEvent {
       code: KeyCode::Char('c'),
       modifiers: KeyModifiers::CONTROL,
+      kind,
+      state,
     })) => Ok(Event::Key(KeyEvent {
       code: KeyCode::Esc,
       modifiers: KeyModifiers::NONE,
+      kind,
+      state,
     })),
     _ => Ok(result?),
   }
