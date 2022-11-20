@@ -1,6 +1,5 @@
 use anyhow::bail;
 use anyhow::Result;
-use dprint_cli_core::checksums::verify_sha256_checksum;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::plugins::NoopHost;
 use dprint_core::plugins::PluginInfo;
@@ -17,6 +16,7 @@ use crate::plugins::implementations::SetupPluginResult;
 use crate::utils::extract_zip;
 use crate::utils::fetch_file_or_url_bytes;
 use crate::utils::resolve_url_or_file_path_to_path_source;
+use crate::utils::verify_sha256_checksum;
 use crate::utils::PathSource;
 
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> PathBuf {

@@ -10,6 +10,9 @@ use std::io::Stdout;
 use std::io::Write;
 use std::sync::Arc;
 
+use crate::utils::terminal::get_terminal_size;
+use crate::utils::terminal::get_terminal_width;
+
 pub enum LoggerTextItem {
   Text(String),
   HangingText { text: String, indent: u16 },
@@ -172,7 +175,7 @@ impl Logger {
   }
 
   fn inner_queue_clear_previous_draws(&self, state: &mut LoggerState) {
-    let terminal_width = crate::terminal::get_terminal_width().unwrap();
+    let terminal_width = get_terminal_width().unwrap();
     let text_items = state.refresh_items.iter().flat_map(|item| item.text_items.iter());
     let rendered_text = render_text_items_truncated_to_height(text_items, state.last_terminal_size);
     let last_line_count = get_text_line_count(&rendered_text, terminal_width);
@@ -189,7 +192,7 @@ impl Logger {
   }
 
   fn inner_queue_draw_items(&self, state: &mut LoggerState) {
-    let terminal_size = crate::terminal::get_terminal_size();
+    let terminal_size = get_terminal_size();
     let text_items = state.refresh_items.iter().flat_map(|item| item.text_items.iter());
     let rendered_text = render_text_items_truncated_to_height(text_items, terminal_size);
     state.std_err.queue(style::Print(&rendered_text)).unwrap();

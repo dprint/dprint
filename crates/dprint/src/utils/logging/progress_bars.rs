@@ -5,9 +5,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::SystemTime;
 
-use crate::logging::Logger;
-use crate::logging::LoggerRefreshItemKind;
-use crate::logging::LoggerTextItem;
+use crate::utils::terminal::get_terminal_width;
+
+use super::Logger;
+use super::LoggerRefreshItemKind;
+use super::LoggerTextItem;
 
 // Inspired by Indicatif, but this custom implementation allows for more control over
 // what's going on under the hood and it works better with the multi-threading model
@@ -57,7 +59,7 @@ struct InternalState {
 impl ProgressBars {
   /// Checks if progress bars are supported
   pub fn are_supported() -> bool {
-    std::io::stderr().is_tty() && crate::terminal::get_terminal_width().is_some()
+    std::io::stderr().is_tty() && get_terminal_width().is_some()
   }
 
   /// Creates a new ProgressBars or returns None when not supported.
@@ -124,7 +126,7 @@ impl ProgressBars {
             break;
           }
 
-          let terminal_width = crate::terminal::get_terminal_width().unwrap();
+          let terminal_width = get_terminal_width().unwrap();
           let mut text = String::new();
           for (i, progress_bar) in internal_state.progress_bars.iter().enumerate() {
             if i > 0 {

@@ -1,7 +1,6 @@
 [workspace]
 members = [
   "crates/core",
-  "crates/cli-core",
   "crates/development",
   "crates/test-process-plugin",
   "crates/dprint",

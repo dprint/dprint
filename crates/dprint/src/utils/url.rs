@@ -1,9 +1,10 @@
-use anyhow::bail;
-use anyhow::Result;
 use std::io::Read;
 
-use crate::logging::ProgressBarStyle;
-use crate::logging::ProgressBars;
+use anyhow::bail;
+use anyhow::Result;
+
+use super::logging::ProgressBarStyle;
+use super::logging::ProgressBars;
 
 pub fn download_url(url: &str, progress_bars: &Option<ProgressBars>, read_env_var: impl Fn(&str) -> Option<String>) -> Result<Option<Vec<u8>>> {
   let resp = match build_agent(url, read_env_var)?.get(url).call() {

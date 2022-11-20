@@ -7,6 +7,7 @@ use super::Environment;
 use super::TestEnvironment;
 use super::UrlDownloader;
 use crate::test_helpers;
+use crate::utils::get_sha256_checksum;
 
 pub struct TestConfigFileBuilder {
   environment: TestEnvironment,
@@ -81,7 +82,7 @@ impl TestConfigFileBuilder {
   pub fn add_remote_process_plugin(&mut self) -> &mut Self {
     // get the process plugin file and check its checksum
     let remote_file_text = self.environment.download_file_err_404("https://plugins.dprint.dev/test-process.json").unwrap();
-    let checksum = dprint_cli_core::checksums::get_sha256_checksum(&remote_file_text);
+    let checksum = get_sha256_checksum(&remote_file_text);
     self.add_remote_process_plugin_with_checksum(&checksum)
   }
 
@@ -311,7 +312,7 @@ impl TestEnvironmentBuilder {
 
   pub fn add_remote_process_plugin(&mut self) -> &mut Self {
     let zip_bytes = &test_helpers::PROCESS_PLUGIN_ZIP_BYTES;
-    let zip_file_checksum = dprint_cli_core::checksums::get_sha256_checksum(zip_bytes);
+    let zip_file_checksum = crate::utils::get_sha256_checksum(zip_bytes);
     self.environment.add_remote_file_bytes(
       "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
       zip_bytes.to_vec(),

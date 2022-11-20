@@ -526,7 +526,6 @@ dependencies = [
  "clap",
  "crossterm",
  "dirs",
- "dprint-cli-core",
  "dprint-core",
  "dunce",
  "futures",
@@ -539,25 +538,16 @@ dependencies = [
  "pretty_assertions",
  "serde",
  "serde_json",
+ "sha2",
  "similar 2.1.0",
  "tokio",
  "tokio-util",
  "twox-hash",
+ "ureq",
  "url",
  "wasmer",
  "winreg",
  "zip",
-]
-
-[[package]]
-name = "dprint-cli-core"
-version = "0.12.3"
-dependencies = [
- "anyhow",
- "crossterm",
- "parking_lot",
- "sha2",
- "ureq",
 ]
 
 [[package]]
