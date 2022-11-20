@@ -14,7 +14,6 @@ anyhow = "1.0.58"
 clap = "3.2.7"
 crossterm = "0.24.0"
 dirs = "4.0.0"
-dprint-cli-core = { path = "../cli-core", version = "0.12.3" }
 dprint-core = { path = "../core", version = "0.59.0", features = ["process", "wasm"] }
 dunce = "1.0.2"
 futures = "0.3.21"
@@ -24,10 +23,12 @@ jsonc-parser = { version = "0.19.0" }
 parking_lot = "0.12.1"
 serde = { version = "1.0.137", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
+sha2 = "0.10.2"
 similar = { version = "2.1.0", features = ["inline"] }
 tokio = { version = "1", features = ["rt", "time", "macros", "rt-multi-thread"] }
 tokio-util = { version = "0.7.0" }
 twox-hash = "1.6.3"
+ureq = { version = "2.4.0", features = ["socks-proxy", "tls"] }
 url = "2.2.2"
 wasmer = "=2.3.0"
 zip = "0.6.2"

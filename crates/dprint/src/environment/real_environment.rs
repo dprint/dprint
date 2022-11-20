@@ -1,14 +1,6 @@
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
-use dprint_cli_core::download_url;
-use dprint_cli_core::logging::log_action_with_progress;
-use dprint_cli_core::logging::show_confirm;
-use dprint_cli_core::logging::show_multi_select;
-use dprint_cli_core::logging::show_select;
-use dprint_cli_core::logging::Logger;
-use dprint_cli_core::logging::LoggerOptions;
-use dprint_cli_core::logging::ProgressBars;
 use std::fs;
 use std::num::NonZeroUsize;
 use std::path::Path;
@@ -23,6 +15,15 @@ use super::Environment;
 use super::FilePermissions;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
+use crate::utils::download_url;
+use crate::utils::get_terminal_width;
+use crate::utils::log_action_with_progress;
+use crate::utils::show_confirm;
+use crate::utils::show_multi_select;
+use crate::utils::show_select;
+use crate::utils::Logger;
+use crate::utils::LoggerOptions;
+use crate::utils::ProgressBars;
 
 pub struct RealEnvironmentOptions {
   pub is_verbose: bool,
@@ -270,7 +271,7 @@ impl Environment for RealEnvironment {
   }
 
   fn get_terminal_width(&self) -> u16 {
-    dprint_cli_core::terminal::get_terminal_width().unwrap_or(60)
+    get_terminal_width().unwrap_or(60)
   }
 
   #[inline]

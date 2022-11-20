@@ -3,10 +3,12 @@ use anyhow::Result;
 use crossterm::event::Event;
 use crossterm::event::KeyCode;
 
-use crate::logging::Logger;
-use crate::logging::LoggerRefreshItemKind;
-use crate::logging::LoggerTextItem;
-use crate::terminal::read_terminal_event;
+use crate::utils::terminal::get_terminal_width;
+use crate::utils::terminal::read_terminal_event;
+
+use super::Logger;
+use super::LoggerRefreshItemKind;
+use super::LoggerTextItem;
 
 struct MultiSelectData<'a> {
   prompt: &'a str,
@@ -59,7 +61,7 @@ pub fn show_multi_select(logger: &Logger, context_name: &str, prompt: &str, item
   }
   logger.remove_refresh_item(LoggerRefreshItemKind::Selection);
 
-  logger.log_text_items(&render_complete(&data), context_name, crate::terminal::get_terminal_width());
+  logger.log_text_items(&render_complete(&data), context_name, get_terminal_width());
 
   // return the selected indexes
   let mut result = Vec::new();

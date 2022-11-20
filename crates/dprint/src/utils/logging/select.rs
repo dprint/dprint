@@ -3,10 +3,11 @@ use anyhow::Result;
 use crossterm::event::Event;
 use crossterm::event::KeyCode;
 
-use crate::logging::Logger;
-use crate::logging::LoggerRefreshItemKind;
-use crate::logging::LoggerTextItem;
-use crate::terminal::read_terminal_event;
+use super::Logger;
+use super::LoggerRefreshItemKind;
+use super::LoggerTextItem;
+use crate::utils::terminal::get_terminal_width;
+use crate::utils::terminal::read_terminal_event;
 
 struct SelectData<'a> {
   prompt: &'a str,
@@ -63,7 +64,7 @@ pub fn show_select(logger: &Logger, context_name: &str, prompt: &str, item_hangi
       },
     ],
     context_name,
-    crate::terminal::get_terminal_width(),
+    get_terminal_width(),
   );
 
   Ok(data.active_index)
