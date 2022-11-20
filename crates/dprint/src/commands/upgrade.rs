@@ -29,8 +29,11 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
 
   let exe_path = environment.current_exe()?;
   for component in exe_path.components() {
-    if component.as_os_str().to_string_lossy().to_lowercase() == "node_modules" {
+    let component = component.as_os_str().to_string_lossy().to_lowercase();
+    if component == "node_modules" {
       bail!("Cannot upgrade with `dprint upgrade` when the dprint executable is within a node_modules folder. Upgrade with npm instead.");
+    } else if component == ".cargo" {
+      bail!("It looks like you might have installed dprint with cargo install. Upgrade with cargo instead.");
     }
   }
   if exe_path.starts_with("/usr/local/Cellar/") {
@@ -186,6 +189,19 @@ mod test {
     assert_eq!(
       err.to_string(),
       "Cannot upgrade with `dprint upgrade` when the dprint executable is installed via Homebrew. Run `brew upgrade dprint` instead.",
+    );
+    assert_eq!(environment.take_stdout_messages(), vec!["Upgrading from 0.0.0 to 0.1.0..."]);
+  }
+
+  #[test]
+  fn should_upgrade_and_fail_cargo_install() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file("https://plugins.dprint.dev/cli.json", r#"{ "version": "0.1.0" }"#.as_bytes());
+    environment.set_current_exe_path("/home/david/.cargo/dprint");
+    let err = run_test_cli(vec!["upgrade"], &environment).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      "It looks like you might have installed dprint with cargo install. Upgrade with cargo instead.",
     );
     assert_eq!(environment.take_stdout_messages(), vec!["Upgrading from 0.0.0 to 0.1.0..."]);
   }
