@@ -56,7 +56,7 @@ impl PluginNameResolutionMaps {
     let mut plugin_names = Vec::new();
 
     for (plugin_name, matcher) in self.association_matchers.iter() {
-      if matcher.matches(&file_path) {
+      if matcher.matches(file_path) {
         plugin_names.push(plugin_name.to_owned());
       }
     }

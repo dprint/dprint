@@ -221,7 +221,7 @@ pub async fn format<TEnvironment: Environment>(
           };
 
           formatted_files_count.fetch_add(1, Ordering::SeqCst);
-          environment.write_file(&file_path, &new_text)?;
+          environment.write_file(file_path, &new_text)?;
         }
 
         Ok(())

@@ -1,3 +1,5 @@
+#![allow(clippy::bool_to_int_with_if)]
+
 #[cfg(feature = "communication")]
 pub mod communication;
 

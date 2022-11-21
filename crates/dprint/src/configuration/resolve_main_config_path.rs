@@ -72,7 +72,7 @@ pub fn resolve_main_config_path<TEnvironment: Environment>(
   fn get_default_config_file_in_ancestor_directories(environment: &impl Environment) -> Result<Option<ResolvedConfigPath>> {
     let cwd = environment.cwd().into_path_buf();
     for ancestor_dir in cwd.ancestors() {
-      if let Some(ancestor_config_path) = get_config_file_in_dir(&ancestor_dir, environment) {
+      if let Some(ancestor_config_path) = get_config_file_in_dir(ancestor_dir, environment) {
         return Ok(Some(ResolvedConfigPath {
           resolved_path: ResolvedPath::local(environment.canonicalize(ancestor_config_path)?),
           base_path: environment.canonicalize(ancestor_dir)?,

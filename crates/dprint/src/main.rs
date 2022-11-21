@@ -1,3 +1,4 @@
+#![allow(clippy::bool_to_int_with_if)]
 #[cfg(test)]
 #[macro_use]
 extern crate lazy_static;

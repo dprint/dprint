@@ -1,6 +1,6 @@
 use indexmap::IndexMap;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct Spec {
   pub file_name: String,
   pub message: String,

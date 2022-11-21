@@ -486,7 +486,7 @@ pub enum PrintItem {
   ConditionReevaluation(ConditionReevaluation),
 }
 
-#[derive(Clone, PartialEq, Copy, Debug, serde::Serialize)]
+#[derive(Clone, PartialEq, Eq, Copy, Debug, serde::Serialize)]
 pub enum Signal {
   /// Signal that a new line should occur based on the printer settings.
   NewLine,
@@ -568,7 +568,7 @@ impl LineNumberAnchor {
   }
 }
 
-#[derive(Clone, PartialEq, Copy, Debug)]
+#[derive(Clone, PartialEq, Eq, Copy, Debug)]
 pub enum Info {
   LineNumber(LineNumber),
   ColumnNumber(ColumnNumber),
@@ -615,7 +615,7 @@ impl From<LineStartIndentLevel> for Info {
 }
 
 /// Helper IR that holds line and column number IR.
-#[derive(Clone, PartialEq, Copy, Debug)]
+#[derive(Clone, PartialEq, Eq, Copy, Debug)]
 pub struct LineAndColumn {
   pub line: LineNumber,
   pub column: ColumnNumber,
@@ -630,7 +630,7 @@ impl LineAndColumn {
   }
 }
 
-#[derive(Clone, PartialEq, Copy, Debug)]
+#[derive(Clone, PartialEq, Eq, Copy, Debug)]
 pub struct LineNumber {
   id: u32,
   /// Name for debugging purposes.
@@ -661,7 +661,7 @@ impl LineNumber {
   }
 }
 
-#[derive(Clone, PartialEq, Copy, Debug)]
+#[derive(Clone, PartialEq, Eq, Copy, Debug)]
 pub struct ColumnNumber {
   id: u32,
   /// Name for debugging purposes.
@@ -692,7 +692,7 @@ impl ColumnNumber {
   }
 }
 
-#[derive(Clone, PartialEq, Copy, Debug)]
+#[derive(Clone, PartialEq, Eq, Copy, Debug)]
 pub struct IsStartOfLine {
   id: u32,
   /// Name for debugging purposes.
@@ -723,7 +723,7 @@ impl IsStartOfLine {
   }
 }
 
-#[derive(Clone, PartialEq, Copy, Debug)]
+#[derive(Clone, PartialEq, Eq, Copy, Debug)]
 pub struct LineStartColumnNumber {
   id: u32,
   /// Name for debugging purposes.
@@ -754,7 +754,7 @@ impl LineStartColumnNumber {
   }
 }
 
-#[derive(Clone, PartialEq, Copy, Debug)]
+#[derive(Clone, PartialEq, Eq, Copy, Debug)]
 pub struct IndentLevel {
   id: u32,
   /// Name for debugging purposes.
@@ -785,7 +785,7 @@ impl IndentLevel {
   }
 }
 
-#[derive(Clone, PartialEq, Copy, Debug)]
+#[derive(Clone, PartialEq, Eq, Copy, Debug)]
 pub struct LineStartIndentLevel {
   id: u32,
   /// Name for debugging purposes.
@@ -817,7 +817,7 @@ impl LineStartIndentLevel {
 }
 
 /// Used to re-evaluate a condition.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ConditionReevaluation {
   pub(crate) condition_reevaluation_id: u32,
   pub(crate) condition_id: u32,
@@ -947,7 +947,7 @@ impl Condition {
   }
 }
 
-#[derive(Clone, PartialEq, Copy, Debug)]
+#[derive(Clone, PartialEq, Eq, Copy, Debug)]
 pub struct ConditionReference {
   #[cfg(debug_assertions)]
   pub(super) name: &'static str,

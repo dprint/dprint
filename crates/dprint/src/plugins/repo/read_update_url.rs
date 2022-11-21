@@ -11,7 +11,7 @@ use crate::utils::PathSource;
 
 const SCHEMA_VERSION: u8 = 1;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PluginUpdateUrlInfo {
   pub url: String,
   pub version: String,

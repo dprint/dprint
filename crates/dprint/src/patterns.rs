@@ -43,7 +43,7 @@ impl FileMatcher {
   }
 }
 
-pub fn get_patterns_as_glob_matcher(patterns: &Vec<String>, config_base_path: &CanonicalizedPathBuf) -> Result<GlobMatcher> {
+pub fn get_patterns_as_glob_matcher(patterns: &[String], config_base_path: &CanonicalizedPathBuf) -> Result<GlobMatcher> {
   let patterns = process_config_patterns(process_file_patterns_slashes(patterns));
   let (includes, excludes) = patterns.into_iter().partition(|p| !is_negated_glob(p));
   GlobMatcher::new(

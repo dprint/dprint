@@ -3,14 +3,14 @@ use dprint_core::configuration::ConfigKeyValue;
 use indexmap::IndexMap;
 
 /// Unresolved plugin configuration.
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct RawPluginConfig {
   pub associations: Option<Vec<String>>,
   pub locked: bool,
   pub properties: ConfigKeyMap,
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ConfigMapValue {
   KeyValue(ConfigKeyValue),
   PluginConfig(RawPluginConfig),
