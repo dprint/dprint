@@ -103,8 +103,8 @@ impl GlobMatcher {
         exclude_matcher,
       } => {
         let path = path.as_ref();
-        let path = if path.is_absolute() && path.starts_with(&base_dir) {
-          if let Ok(prefix) = path.strip_prefix(&base_dir) {
+        let path = if path.is_absolute() && path.starts_with(base_dir) {
+          if let Ok(prefix) = path.strip_prefix(base_dir) {
             Cow::Borrowed(prefix)
           } else {
             // this is a very strange state that we want to know more about,
@@ -138,9 +138,9 @@ impl GlobMatcher {
     match &self.inner {
       GlobMatcherInner::Empty => false,
       GlobMatcherInner::Matcher { base_dir, exclude_matcher, .. } => {
-        if path.as_ref().starts_with(&base_dir) {
-          let path = path.as_ref().strip_prefix(&base_dir).unwrap();
-          matches!(exclude_matcher.matched(&path, true), Match::Whitelist(_))
+        if path.as_ref().starts_with(base_dir) {
+          let path = path.as_ref().strip_prefix(base_dir).unwrap();
+          matches!(exclude_matcher.matched(path, true), Match::Whitelist(_))
         } else {
           true
         }
@@ -159,10 +159,10 @@ impl GlobMatcher {
     match &self.inner {
       GlobMatcherInner::Empty => false,
       GlobMatcherInner::Matcher { base_dir, exclude_matcher, .. } => {
-        if file_path.as_ref().starts_with(&base_dir) {
+        if file_path.as_ref().starts_with(base_dir) {
           for ancestor in file_path.as_ref().ancestors() {
-            if let Ok(path) = ancestor.strip_prefix(&base_dir) {
-              if matches!(exclude_matcher.matched(&path, true), Match::Whitelist(_)) {
+            if let Ok(path) = ancestor.strip_prefix(base_dir) {
+              if matches!(exclude_matcher.matched(path, true), Match::Whitelist(_)) {
                 return false;
               }
             } else {
@@ -179,7 +179,7 @@ impl GlobMatcher {
 }
 
 fn build_override(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir: &CanonicalizedPathBuf) -> Result<Override> {
-  let mut builder = OverrideBuilder::new(&base_dir);
+  let mut builder = OverrideBuilder::new(base_dir);
   let builder = builder.case_insensitive(!opts.case_sensitive)?;
 
   for pattern in patterns {

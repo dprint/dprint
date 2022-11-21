@@ -40,7 +40,7 @@ impl CliArgs {
   }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum SubCommand {
   Check(CheckSubCommand),
   Fmt(FmtSubCommand),
@@ -60,13 +60,13 @@ pub enum SubCommand {
   Hidden(HiddenSubCommand),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct CheckSubCommand {
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct FmtSubCommand {
   pub diff: bool,
   pub patterns: FilePatternArgs,
@@ -74,36 +74,36 @@ pub struct FmtSubCommand {
   pub enable_stable_format: bool,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ConfigSubCommand {
   Init,
   Update { yes: bool },
   Add(Option<String>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct OutputFilePathsSubCommand {
   pub patterns: FilePatternArgs,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct OutputFormatTimesSubCommand {
   pub patterns: FilePatternArgs,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct EditorServiceSubCommand {
   pub parent_pid: u32,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct StdInFmtSubCommand {
   pub file_name_or_path: String,
   pub file_text: String,
   pub patterns: FilePatternArgs,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 #[cfg(target_os = "windows")]
 pub enum HiddenSubCommand {
   #[cfg(target_os = "windows")]
@@ -112,7 +112,7 @@ pub enum HiddenSubCommand {
   WindowsUninstall(String),
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct FilePatternArgs {
   pub file_patterns: Vec<String>,
   pub exclude_file_patterns: Vec<String>,
@@ -265,7 +265,7 @@ fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
   Ok(())
 }
 
-fn create_cli_parser<'a>(is_outputting_main_help: bool) -> clap::Command {
+fn create_cli_parser(is_outputting_main_help: bool) -> clap::Command {
   use clap::Arg;
   use clap::Command;
   let app = Command::new("dprint");

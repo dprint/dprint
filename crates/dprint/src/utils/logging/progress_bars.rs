@@ -15,7 +15,7 @@ use super::LoggerTextItem;
 // what's going on under the hood and it works better with the multi-threading model
 // going on in dprint.
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ProgressBarStyle {
   Download,
   Action,

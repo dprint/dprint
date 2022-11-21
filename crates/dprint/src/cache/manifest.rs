@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use crate::environment::Environment;
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct CacheManifest(HashMap<String, CacheItem>);
 
 impl CacheManifest {
@@ -32,7 +32,7 @@ impl CacheManifest {
   }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CacheItem {
   pub(super) file_name: String,

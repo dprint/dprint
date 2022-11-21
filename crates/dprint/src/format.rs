@@ -37,7 +37,7 @@ struct StoredSemaphore {
   semaphore: Arc<Semaphore>,
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct EnsureStableFormat(pub bool);
 
 pub async fn run_parallelized<F, TEnvironment: Environment>(
