@@ -210,7 +210,7 @@ jobs:
     - name: Output checksums
       run: |
         echo "Linux x86_64 Zip: ${{needs.build.outputs.LINUX_X86_64_ZIP_CHECKSUM}}"
-        echo "Linux x86_64-musl Zip: ${{needs.build.outputs.LINUX_X86_64_ZIP_CHECKSUM}}"
+        echo "Linux x86_64-musl Zip: ${{needs.build.outputs.LINUX_X86_64_MUSL_ZIP_CHECKSUM}}"
         echo "Linux aarch64 Zip: ${{needs.build.outputs.LINUX_AARCH64_ZIP_CHECKSUM}}"
         echo "Mac x86_64 Zip: ${{needs.build.outputs.MAX_X86_64_ZIP_CHECKSUM}}"
         echo "Mac aarch64 Zip: ${{needs.build.outputs.MAX_AARCH64_ZIP_CHECKSUM}}"
