@@ -12,4 +12,4 @@ exclude = [
 
 [profile.dev]
 # disabled to decrease size of ./target folder
-# debug = 0
+debug = 0
