@@ -8,7 +8,7 @@ use dprint_core::plugins::PluginInfo;
 
 use crate::environment::Environment;
 
-const PLUGIN_CACHE_SCHEMA_VERSION: usize = 6;
+const PLUGIN_CACHE_SCHEMA_VERSION: usize = 7;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

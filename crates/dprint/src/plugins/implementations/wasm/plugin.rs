@@ -7,6 +7,7 @@ use futures::FutureExt;
 use parking_lot::Mutex;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
@@ -16,7 +17,6 @@ use dprint_core::plugins::PluginInfo;
 use super::create_module;
 use super::create_pools_import_object;
 use super::load_instance;
-use super::ImportObjectEnvironment;
 use super::WasmFormatResult;
 use super::WasmFunctions;
 use crate::configuration::RawPluginConfig;
@@ -27,7 +27,7 @@ use crate::plugins::Plugin;
 use crate::plugins::PluginsCollection;
 
 pub struct WasmPlugin<TEnvironment: Environment> {
-  module: wasmer::Module,
+  compiled_wasm_bytes: Arc<Vec<u8>>,
   plugin_info: PluginInfo,
   config: Option<(RawPluginConfig, GlobalConfiguration)>,
   environment: TEnvironment,
@@ -41,11 +41,10 @@ impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
     environment: TEnvironment,
     plugin_pools: Arc<PluginsCollection<TEnvironment>>,
   ) -> Result<Self> {
-    let module = create_module(&compiled_wasm_bytes)?;
     Ok(WasmPlugin {
       environment,
       plugin_pools,
-      module,
+      compiled_wasm_bytes: Arc::new(compiled_wasm_bytes),
       plugin_info,
       config: None,
     })
@@ -98,22 +97,24 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
   }
 
   fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
-    let store = wasmer::Store::default();
     // need to call set_config first to ensure this doesn't fail
     let (plugin_config, global_config) = self.config.as_ref().unwrap();
     let plugin = InitializedWasmPlugin::new(
       self.name().to_string(),
-      self.module.clone(),
+      self.compiled_wasm_bytes.clone(),
       Arc::new({
         let plugin_pools = self.plugin_pools.clone();
         let environment = self.environment.clone();
-        move || {
-          let import_obj_env = ImportObjectEnvironment::new(environment.clone(), plugin_pools.clone());
-          create_pools_import_object(&store, &import_obj_env)
+        move |store, module| {
+          let (import_object, env) = create_pools_import_object(environment.clone(), plugin_pools.clone(), store);
+          let instance = load_instance(store, module, &import_object)?;
+          env.as_mut(store).initialize(&instance)?;
+          Ok(instance)
         }
       }),
       global_config.clone(),
       plugin_config.properties.clone(),
+      self.environment.clone(),
     );
     async move {
       let result: Arc<dyn InitializedPlugin> = Arc::new(plugin);
@@ -129,7 +130,7 @@ struct InitializedWasmPluginInstance {
 }
 
 impl InitializedWasmPluginInstance {
-  pub fn set_global_config(&self, global_config: &GlobalConfiguration) -> Result<()> {
+  pub fn set_global_config(&mut self, global_config: &GlobalConfiguration) -> Result<()> {
     let json = serde_json::to_string(global_config)?;
     self.send_string(&json)?;
     self.wasm_functions.set_global_config()?;
@@ -143,36 +144,36 @@ impl InitializedWasmPluginInstance {
     Ok(())
   }
 
-  pub fn plugin_info(&self) -> Result<PluginInfo> {
+  pub fn plugin_info(&mut self) -> Result<PluginInfo> {
     let len = self.wasm_functions.get_plugin_info()?;
     let json_text = self.receive_string(len)?;
     Ok(serde_json::from_str(&json_text)?)
   }
 
-  fn license_text(&self) -> Result<String> {
+  fn license_text(&mut self) -> Result<String> {
     let len = self.wasm_functions.get_license_text()?;
     self.receive_string(len)
   }
 
-  fn resolved_config(&self) -> Result<String> {
+  fn resolved_config(&mut self) -> Result<String> {
     let len = self.wasm_functions.get_resolved_config()?;
     self.receive_string(len)
   }
 
-  fn config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>> {
+  fn config_diagnostics(&mut self) -> Result<Vec<ConfigurationDiagnostic>> {
     let len = self.wasm_functions.get_config_diagnostics()?;
     let json_text = self.receive_string(len)?;
     Ok(serde_json::from_str(&json_text)?)
   }
 
-  fn format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> FormatResult {
+  fn format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> FormatResult {
     match self.inner_format_text(file_path, file_text, override_config) {
       Ok(inner) => inner,
       Err(err) => Err(CriticalFormatError(err).into()),
     }
   }
 
-  fn inner_format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<FormatResult> {
+  fn inner_format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<FormatResult> {
     // send override config if necessary
     if !override_config.is_empty() {
       self.send_string(&match serde_json::to_string(override_config) {
@@ -211,7 +212,7 @@ impl InitializedWasmPluginInstance {
   // These methods should panic when failing because that may indicate
   // a major problem where the CLI is out of sync with the plugin.
 
-  fn send_string(&self, text: &str) -> Result<()> {
+  fn send_string(&mut self, text: &str) -> Result<()> {
     let mut index = 0;
     let len = text.len();
     let text_bytes = text.as_bytes();
@@ -225,17 +226,14 @@ impl InitializedWasmPluginInstance {
     Ok(())
   }
 
-  fn write_bytes_to_memory_buffer(&self, bytes: &[u8]) -> Result<()> {
-    let length = bytes.len();
+  fn write_bytes_to_memory_buffer(&mut self, bytes: &[u8]) -> Result<()> {
     let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr()?;
-    let memory_writer = wasm_buffer_pointer.deref(self.wasm_functions.get_memory(), 0, length as u32).unwrap();
-    for i in 0..length {
-      memory_writer[i].set(bytes[i]);
-    }
+    let memory_view = self.wasm_functions.get_memory_view();
+    memory_view.write(wasm_buffer_pointer.offset() as u64, bytes)?;
     Ok(())
   }
 
-  fn receive_string(&self, len: usize) -> Result<String> {
+  fn receive_string(&mut self, len: usize) -> Result<String> {
     let mut index = 0;
     let mut bytes: Vec<u8> = vec![0; len];
     while index < len {
@@ -247,45 +245,62 @@ impl InitializedWasmPluginInstance {
     Ok(String::from_utf8(bytes)?)
   }
 
-  fn read_bytes_from_memory_buffer(&self, bytes: &mut [u8]) -> Result<()> {
-    let length = bytes.len();
+  fn read_bytes_from_memory_buffer(&mut self, bytes: &mut [u8]) -> Result<()> {
     let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr()?;
-    let memory_reader = wasm_buffer_pointer.deref(self.wasm_functions.get_memory(), 0, length as u32).unwrap();
-    for i in 0..length {
-      bytes[i] = memory_reader[i].get();
-    }
+    let memory_view = self.wasm_functions.get_memory_view();
+    memory_view.read(wasm_buffer_pointer.offset() as u64, bytes)?;
     Ok(())
   }
 }
 
-struct InitializedWasmPluginInner {
+struct InitializedWasmPluginInner<TEnvironment: Environment> {
   name: String,
   instances: Mutex<Vec<InitializedWasmPluginInstance>>,
-  // below is for recreating an instance after panic
-  module: wasmer::Module,
-  create_import_object: Arc<dyn Fn() -> wasmer::ImportObject + Send + Sync>,
+  compiled_wasm_bytes: Arc<Vec<u8>>,
+  load_instance: Arc<dyn Fn(&mut wasmer::Store, &wasmer::Module) -> Result<wasmer::Instance> + Send + Sync>,
   global_config: GlobalConfiguration,
   plugin_config: ConfigKeyMap,
+  environment: TEnvironment,
+}
+
+impl<TEnvironment: Environment> Drop for InitializedWasmPluginInner<TEnvironment> {
+  fn drop(&mut self) {
+    let start = Instant::now();
+    let len = {
+      let mut instances = self.instances.lock();
+      let result = std::mem::take(&mut *instances);
+      result.len()
+    };
+    log_verbose!(
+      self.environment,
+      "Dropped {} ({} instances) in {}ms",
+      self.name,
+      len,
+      start.elapsed().as_millis()
+    );
+  }
 }
 
 #[derive(Clone)]
-pub struct InitializedWasmPlugin(Arc<InitializedWasmPluginInner>);
+pub struct InitializedWasmPlugin<TEnvironment: Environment>(Arc<InitializedWasmPluginInner<TEnvironment>>);
 
-impl InitializedWasmPlugin {
+impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
   pub fn new(
     name: String,
-    module: wasmer::Module,
-    create_import_object: Arc<dyn Fn() -> wasmer::ImportObject + Send + Sync>,
+    compiled_wasm_bytes: Arc<Vec<u8>>,
+    load_instance: Arc<dyn Fn(&mut wasmer::Store, &wasmer::Module) -> Result<wasmer::Instance> + Send + Sync>,
     global_config: GlobalConfiguration,
     plugin_config: ConfigKeyMap,
+    environment: TEnvironment,
   ) -> Self {
     Self(Arc::new(InitializedWasmPluginInner {
       name,
       instances: Default::default(),
-      module,
-      create_import_object,
+      compiled_wasm_bytes,
+      load_instance,
       global_config,
       plugin_config,
+      environment,
     }))
   }
 
@@ -293,24 +308,28 @@ impl InitializedWasmPlugin {
     self.with_instance(|instance| instance.plugin_info())
   }
 
-  fn with_instance<T>(&self, action: impl Fn(&InitializedWasmPluginInstance) -> Result<T>) -> Result<T> {
-    let instance = match self.get_or_create_instance() {
+  pub fn into_bytes(self) -> Arc<Vec<u8>> {
+    self.0.compiled_wasm_bytes.clone()
+  }
+
+  fn with_instance<T>(&self, action: impl Fn(&mut InitializedWasmPluginInstance) -> Result<T>) -> Result<T> {
+    let mut instance = match self.get_or_create_instance() {
       Ok(instance) => instance,
       Err(err) => return Err(CriticalFormatError(err).into()),
     };
-    match action(&instance) {
+    match action(&mut instance) {
       Ok(result) => {
         self.release_instance(instance);
         Ok(result)
       }
       Err(original_err) if original_err.downcast_ref::<CriticalFormatError>().is_some() => {
-        let instance = match self.get_or_create_instance() {
+        let mut instance = match self.get_or_create_instance() {
           Ok(instance) => instance,
           Err(err) => return Err(CriticalFormatError(err).into()),
         };
 
         // try again
-        match action(&instance) {
+        match action(&mut instance) {
           Ok(result) => {
             self.release_instance(instance);
             Ok(result)
@@ -353,8 +372,12 @@ impl InitializedWasmPlugin {
   }
 
   fn create_instance(&self) -> Result<InitializedWasmPluginInstance> {
-    let instance = load_instance(&self.0.module, &(self.0.create_import_object)())?;
-    let wasm_functions = WasmFunctions::new(instance)?;
+    let start_instant = Instant::now();
+    log_verbose!(self.0.environment, "Creating instance of {}", self.0.name);
+    let mut store = wasmer::Store::default();
+    let module = create_module(&store, &self.0.compiled_wasm_bytes)?;
+    let instance = (self.0.load_instance)(&mut store, &module)?;
+    let mut wasm_functions = WasmFunctions::new(store, instance)?;
     let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
 
     let mut instance = InitializedWasmPluginInstance { wasm_functions, buffer_size };
@@ -362,11 +385,17 @@ impl InitializedWasmPlugin {
     instance.set_global_config(&self.0.global_config)?;
     instance.set_plugin_config(&self.0.plugin_config)?;
 
+    log_verbose!(
+      self.0.environment,
+      "Created instance of {} in {}ms",
+      self.0.name,
+      start_instant.elapsed().as_millis() as u64
+    );
     Ok(instance)
   }
 }
 
-impl InitializedPlugin for InitializedWasmPlugin {
+impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnvironment> {
   fn license_text(&self) -> BoxFuture<'static, Result<String>> {
     let plugin = self.clone();
     async move {

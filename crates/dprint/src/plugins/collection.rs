@@ -9,7 +9,6 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Instant;
 
 use anyhow::Result;
 
@@ -172,7 +171,7 @@ impl<TEnvironment: Environment> PluginWrapper<TEnvironment> {
     if let Some(plugin) = initialized_plugin.clone() {
       Ok(GetPluginResult::Success(plugin))
     } else {
-      let instance = self.create_instance().await?;
+      let instance = self.plugin.initialize().await?;
 
       let has_checked_diagnostics = *self.checked_diagnostics.lock();
       match has_checked_diagnostics {
@@ -196,14 +195,5 @@ impl<TEnvironment: Environment> PluginWrapper<TEnvironment> {
       *initialized_plugin = Some(instance.clone());
       Ok(GetPluginResult::Success(instance))
     }
-  }
-
-  async fn create_instance(&self) -> Result<Arc<dyn InitializedPlugin>> {
-    let start_instant = Instant::now();
-    log_verbose!(self.environment, "Creating instance of {}", self.plugin.name());
-    let plugin = self.plugin.initialize().await?;
-    let startup_duration = start_instant.elapsed().as_millis() as u64;
-    log_verbose!(self.environment, "Created instance of {} in {}ms", self.plugin.name(), startup_duration);
-    Ok(plugin)
   }
 }

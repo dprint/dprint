@@ -30,7 +30,7 @@ tokio-util = { version = "0.7.4" }
 twox-hash = "1.6.3"
 ureq = { version = "2.5.0", features = ["socks-proxy", "tls"] }
 url = "2.3.1"
-wasmer = "=2.3.0"
+wasmer = "=3.0.0"
 zip = "0.6.3"
 
 [target.'cfg(windows)'.dependencies]

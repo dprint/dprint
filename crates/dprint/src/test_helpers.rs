@@ -24,7 +24,7 @@ pub static PROCESS_PLUGIN_EXE_BYTES: &'static [u8] = include_bytes!("../../../ta
 pub static WASM_PLUGIN_BYTES: &'static [u8] = include_bytes!("../../test-plugin/target/wasm32-unknown-unknown/release/test_plugin.wasm");
 // cache these so it only has to be done once across all tests
 lazy_static! {
-  static ref COMPILATION_RESULT: CompilationResult = crate::plugins::compile_wasm(WASM_PLUGIN_BYTES).unwrap();
+  static ref COMPILATION_RESULT: CompilationResult = crate::plugins::compile_wasm(WASM_PLUGIN_BYTES, TestEnvironment::new()).unwrap();
 }
 lazy_static! {
   pub static ref PROCESS_PLUGIN_ZIP_BYTES: Vec<u8> = {
