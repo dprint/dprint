@@ -1076,7 +1076,7 @@ pub struct StringContainer {
 impl StringContainer {
   /// Creates a new string container.
   pub fn new(text: Cow<'static, str>) -> Self {
-    let char_count = text.chars().count() as u32;
+    let char_count = unicode_width::UnicodeWidthStr::width(text.as_ref()) as u32;
     Self { text, char_count }
   }
 }
