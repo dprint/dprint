@@ -1,5 +1,3 @@
-use unicode_width::UnicodeWidthStr;
-
 pub fn get_line_number_of_pos(text: &str, pos: usize) -> usize {
   let text_bytes = text.as_bytes();
   let mut line_count = 1; // 1-indexed
@@ -15,7 +13,7 @@ pub fn get_line_number_of_pos(text: &str, pos: usize) -> usize {
 
 pub fn get_column_number_of_pos(text: &str, pos: usize) -> usize {
   let line_start_byte_pos = get_line_start_byte_pos(text, pos);
-  return UnicodeWidthStr::width(&text[line_start_byte_pos..pos]) + 1; // 1-indexed
+  return text[line_start_byte_pos..pos].chars().count() + 1; // 1-indexed
 }
 
 fn get_line_start_byte_pos(text: &str, pos: usize) -> usize {
@@ -92,7 +90,7 @@ fn get_range_text_highlight(file_text: &str, byte_range: (usize, usize)) -> Stri
     let end_char_index = if is_last_line {
       get_column_number_of_pos(sub_text, error_end) - 1
     } else {
-      UnicodeWidthStr::width(*line)
+      line.chars().count()
     };
     result.push_str(&" ".repeat(start_char_index));
     result.push_str(&"~".repeat(end_char_index - start_char_index));
