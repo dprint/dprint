@@ -50,6 +50,7 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
   let os = environment.os();
   let zip_suffix = match os.as_str() {
     "linux" => "unknown-linux-gnu",
+    "linux-musl" => "unknown-linux-musl",
     "macos" => "apple-darwin",
     "windows" => "pc-windows-msvc",
     _ => bail!("Not implemented operating system: {}", os),
