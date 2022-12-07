@@ -538,7 +538,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.59.2"
+version = "0.60.0"
 dependencies = [
  "anyhow",
  "bumpalo",
@@ -551,6 +551,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util",
+ "unicode-width",
  "winapi",
 ]
 
