@@ -105,10 +105,11 @@ impl ProgressBars {
 
     if let Some(index) = internal_state.progress_bars.iter().position(|p| p.id == progress_bar_id) {
       internal_state.progress_bars.remove(index);
-    }
 
-    if internal_state.progress_bars.is_empty() {
-      self.logger.remove_refresh_item(LoggerRefreshItemKind::ProgressBars)
+      if internal_state.progress_bars.is_empty() {
+        self.logger.remove_refresh_item(LoggerRefreshItemKind::ProgressBars);
+        internal_state.drawer_id += 1;
+      }
     }
   }
 
@@ -117,7 +118,7 @@ impl ProgressBars {
     let drawer_id = internal_state.drawer_id;
     let internal_state = self.state.clone();
     let logger = self.logger.clone();
-    std::thread::spawn(move || {
+    tokio::task::spawn_blocking(move || {
       loop {
         {
           let internal_state = internal_state.read();
@@ -146,7 +147,7 @@ impl ProgressBars {
           logger.set_refresh_item(LoggerRefreshItemKind::ProgressBars, vec![LoggerTextItem::Text(text)]);
         }
 
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(120));
       }
     });
   }
@@ -204,9 +205,8 @@ fn get_bytes_text(byte_count: usize, total_bytes: usize) -> String {
 fn get_elapsed_text(elapsed: Duration) -> String {
   let elapsed_secs = elapsed.as_secs();
   let seconds = elapsed_secs % 60;
-  let minutes = (elapsed_secs / 60) % 60;
-  let hours = (elapsed_secs / 60) / 60;
-  format!("[{:0>2}:{:0>2}:{:0>2}]", hours, minutes, seconds)
+  let minutes = elapsed_secs / 60;
+  format!("[{:0>2}:{:0>2}]", minutes, seconds)
 }
 
 #[cfg(test)]
@@ -230,15 +230,14 @@ mod test {
 
   #[test]
   fn should_get_elapsed_text() {
-    assert_eq!(get_elapsed_text(Duration::from_secs(1)), "[00:00:01]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(20)), "[00:00:20]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(59)), "[00:00:59]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(60)), "[00:01:00]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 5 + 23)), "[00:05:23]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 59 + 59)), "[00:59:59]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 60)), "[01:00:00]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 60 * 3 + 20 * 60 + 2)), "[03:20:02]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 60 * 99)), "[99:00:00]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 60 * 120)), "[120:00:00]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(1)), "[00:01]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(20)), "[00:20]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(59)), "[00:59]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(60)), "[01:00]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 5 + 23)), "[05:23]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 59 + 59)), "[59:59]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 60)), "[60:00]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 60 * 3 + 20 * 60 + 2)), "[200:02]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 60 * 99)), "[5940:00]");
   }
 }
