@@ -250,7 +250,7 @@ fn render_text_to_lines(text: &str, hanging_indent: u16, terminal_width: Option<
     let mut current_whitespace = String::new();
     for token in tokenize_words(text) {
       match token {
-        WordToken::Word((word, word_width)) => {
+        WordToken::Word(word, word_width) => {
           let is_word_longer_than_line = hanging_indent + word_width > terminal_width;
           if is_word_longer_than_line {
             // break it up onto multiple lines with indentation
@@ -309,21 +309,33 @@ fn render_text_to_lines(text: &str, hanging_indent: u16, terminal_width: Option<
 }
 
 enum WordToken<'a> {
-  Word((&'a str, u16)),
+  Word(&'a str, u16),
   WhiteSpace(char),
   NewLine,
 }
 
+impl<'a> WordToken<'a> {
+  pub fn word(text: &'a str) -> Self {
+    WordToken::Word(
+      text,
+      strip_ansi_escapes::strip(&text)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .unwrap_or_else(|| text.to_string())
+        .chars()
+        .count() as u16,
+    )
+  }
+}
+
 fn tokenize_words(text: &str) -> Vec<WordToken> {
-  // todo: how to write an iterator version?
   let mut start_index = 0;
   let mut tokens = Vec::new();
-  let mut word_width = 0;
   for (index, c) in text.char_indices() {
     if c.is_whitespace() || c == '\n' {
-      if word_width > 0 {
-        tokens.push(WordToken::Word((&text[start_index..index], word_width)));
-        word_width = 0;
+      let new_word_text = &text[start_index..index];
+      if new_word_text.len() > 0 {
+        tokens.push(WordToken::word(new_word_text));
       }
 
       if c == '\n' {
@@ -333,12 +345,12 @@ fn tokenize_words(text: &str) -> Vec<WordToken> {
       }
 
       start_index = index + c.len_utf8(); // start at next char
-    } else if !c.is_ascii_control() {
-      word_width += 1;
     }
   }
-  if word_width > 0 {
-    tokens.push(WordToken::Word((&text[start_index..text.len()], word_width)));
+
+  let new_word_text = &text[start_index..];
+  if new_word_text.len() > 0 {
+    tokens.push(WordToken::word(new_word_text));
   }
   tokens
 }
