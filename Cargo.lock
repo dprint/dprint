@@ -57,9 +57,9 @@ checksum = "216261ddc8289130e551ddcd5ce8a064710c0d064a4d2895c67151c92b5443f6"
 
 [[package]]
 name = "arrayvec"
-version = "0.5.2"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23b62fc65de8e4e7f52534fb52b0f3ed04746ae267519eef2a83941e8085068b"
+checksum = "8da52d66c7071e2e3fa2a1e5c6d088fec47b593032b254f5e980de8ea54454d6"
 
 [[package]]
 name = "atty"
@@ -253,6 +253,16 @@ dependencies = [
  "terminal_size",
  "unicode-width",
  "winapi",
+]
+
+[[package]]
+name = "console_static_text"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82c1bbec0cf3edf854c4bca3a55af69e5931c5fa9640391faedbe1b054659f0b"
+dependencies = [
+ "unicode-width",
+ "vte",
 ]
 
 [[package]]
@@ -516,6 +526,7 @@ version = "0.33.0"
 dependencies = [
  "anyhow",
  "clap",
+ "console_static_text",
  "crossterm",
  "dirs",
  "dprint-core",
@@ -532,7 +543,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "similar",
- "strip-ansi-escapes",
  "tokio",
  "tokio-util",
  "twox-hash",
@@ -1658,15 +1668,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
-name = "strip-ansi-escapes"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "011cbb39cf7c1f62871aea3cc46e5817b0937b49e9447370c93cacbe93a766d8"
-dependencies = [
- "vte",
-]
-
-[[package]]
 name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1972,9 +1973,9 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
 name = "vte"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cbce692ab4ca2f1f3047fcf732430249c0e971bfdd2b234cf2c47ad93af5983"
+checksum = "1aae21c12ad2ec2d168c236f369c38ff332bc1134f7246350dca641437365045"
 dependencies = [
  "arrayvec",
  "utf8parse",

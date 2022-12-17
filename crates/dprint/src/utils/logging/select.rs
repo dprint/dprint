@@ -6,7 +6,6 @@ use crossterm::event::KeyCode;
 use super::Logger;
 use super::LoggerRefreshItemKind;
 use super::LoggerTextItem;
-use crate::utils::terminal::get_terminal_width;
 use crate::utils::terminal::read_terminal_event;
 
 struct SelectData<'a> {
@@ -64,7 +63,6 @@ pub fn show_select(logger: &Logger, context_name: &str, prompt: &str, item_hangi
       },
     ],
     context_name,
-    get_terminal_width(),
   );
 
   Ok(data.active_index)

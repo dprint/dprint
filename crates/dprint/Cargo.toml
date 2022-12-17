@@ -3,6 +3,7 @@ name = "dprint"
 version = "0.33.0"
 authors = ["dprint code formatting <david@dprint.dev>"]
 categories = ["development-tools"]
+default-run = "dprint"
 edition = "2021"
 keywords = ["code-formatter", "formatter"]
 license = "MIT"
@@ -12,6 +13,7 @@ description = "Binary for dprint code formatter—a pluggable and configurable c
 [dependencies]
 anyhow = "1.0.66"
 clap = "4.0.26"
+console_static_text = "0.4.0"
 crossterm = "0.25.0"
 dirs = "4.0.0"
 dprint-core = { path = "../core", version = "0.60.0", features = ["process", "wasm"] }
@@ -25,7 +27,6 @@ serde = { version = "1.0.147", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 sha2 = "0.10.6"
 similar = { version = "2.2.1", features = ["inline"] }
-strip-ansi-escapes = "0.1.1"
 tokio = { version = "1", features = ["rt", "time", "macros", "rt-multi-thread"] }
 tokio-util = { version = "0.7.4" }
 twox-hash = "1.6.3"
