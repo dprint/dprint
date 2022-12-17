@@ -222,6 +222,7 @@ pub fn render_text_items_with_width(text_items: &[LoggerTextItem], terminal_widt
     cols: terminal_width,
     rows: None,
   });
+  static_text.keep_cursor_zero_column(false);
   let static_text_items = text_items.iter().map(|i| i.as_static_text_item());
   static_text
     .render_items_with_size(
