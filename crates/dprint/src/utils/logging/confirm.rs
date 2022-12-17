@@ -6,7 +6,6 @@ use crossterm::event::KeyCode;
 use super::Logger;
 use super::LoggerRefreshItemKind;
 use super::LoggerTextItem;
-use crate::utils::terminal::get_terminal_width;
 use crate::utils::terminal::read_terminal_event;
 
 pub fn show_confirm(logger: &Logger, context_name: &str, prompt: &str, default_value: bool) -> Result<bool> {
@@ -41,11 +40,7 @@ pub fn show_confirm(logger: &Logger, context_name: &str, prompt: &str, default_v
   };
   logger.remove_refresh_item(LoggerRefreshItemKind::Selection);
 
-  logger.log_text_items(
-    &[LoggerTextItem::Text(format!("{} {}", prompt, if result { "Y" } else { "N" }))],
-    context_name,
-    get_terminal_width(),
-  );
+  logger.log_text_items(&[LoggerTextItem::Text(format!("{} {}", prompt, if result { "Y" } else { "N" }))], context_name);
 
   Ok(result)
 }
