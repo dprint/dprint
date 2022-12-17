@@ -84,6 +84,7 @@ function install() {
       } catch (err) {
         // just in case
         console.warn("Error checking if musl.", err);
+        return false;
       }
 
       function isProcessReportMusl() {
