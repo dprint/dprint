@@ -315,21 +315,19 @@ impl InitializedWasmPlugin {
             self.release_instance(instance);
             Ok(result)
           }
-          Err(reinitialize_err) if original_err.downcast_ref::<CriticalFormatError>().is_some() => {
-            return Err(
-              CriticalFormatError(anyhow!(
-                concat!(
-                  "Originally panicked in {}, then failed reinitialize. ",
-                  "This may be a bug in the plugin, the dprint cli is out of date, or the ",
-                  "plugin is out of date.\nOriginal error: {}\nReinitialize error: {}",
-                ),
-                self.0.name,
-                original_err,
-                reinitialize_err,
-              ))
-              .into(),
-            )
-          }
+          Err(reinitialize_err) if original_err.downcast_ref::<CriticalFormatError>().is_some() => Err(
+            CriticalFormatError(anyhow!(
+              concat!(
+                "Originally panicked in {}, then failed reinitialize. ",
+                "This may be a bug in the plugin, the dprint cli is out of date, or the ",
+                "plugin is out of date.\nOriginal error: {}\nReinitialize error: {}",
+              ),
+              self.0.name,
+              original_err,
+              reinitialize_err,
+            ))
+            .into(),
+          ),
           Err(err) => {
             self.release_instance(instance);
             Err(err)

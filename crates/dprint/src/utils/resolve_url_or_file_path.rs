@@ -8,7 +8,7 @@ use crate::cache::CreateCacheItemOptions;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ResolvedPath {
   pub file_path: CanonicalizedPathBuf,
   pub source: PathSource,

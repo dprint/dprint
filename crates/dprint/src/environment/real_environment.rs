@@ -15,7 +15,6 @@ use super::Environment;
 use super::FilePermissions;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
-use crate::utils::get_terminal_width;
 use crate::utils::log_action_with_progress;
 use crate::utils::show_confirm;
 use crate::utils::show_multi_select;
@@ -279,10 +278,6 @@ impl Environment for RealEnvironment {
 
   fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool> {
     show_confirm(&self.logger, "dprint", prompt_message, default_value)
-  }
-
-  fn get_terminal_width(&self) -> u16 {
-    get_terminal_width().unwrap_or(60)
   }
 
   #[inline]

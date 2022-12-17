@@ -30,7 +30,7 @@ pub fn get_file_path_from_name_and_version(name: &str, version: &str, environmen
 
 fn get_plugin_dir_path(name: &str, version: &str, environment: &impl Environment) -> PathBuf {
   let cache_dir_path = environment.get_cache_dir();
-  cache_dir_path.join("plugins").join(&name).join(&version).join(&environment.cpu_arch())
+  cache_dir_path.join("plugins").join(name).join(version).join(&environment.cpu_arch())
 }
 
 fn get_plugin_executable_file_path(dir_path: &Path, plugin_name: &str) -> PathBuf {

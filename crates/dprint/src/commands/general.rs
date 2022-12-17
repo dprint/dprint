@@ -36,12 +36,12 @@ pub async fn output_help<TEnvironment: Environment>(
       if !plugins.is_empty() {
         let table_text = get_table_text(plugins.iter().map(|plugin| (plugin.name(), plugin.help_url())).collect());
         environment.log("\nPLUGINS HELP:");
-        environment.log(&table_text.render(
+        environment.log(&console_static_text::strip_ansi_codes(&table_text.render(
           4, // indent
           // don't render taking terminal width into account
           // as these are urls and we want them to be clickable
           None,
-        ));
+        )));
       }
     }
     Err(err) => {

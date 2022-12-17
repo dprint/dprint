@@ -35,7 +35,7 @@ macro_rules! generate_str_to_from {
     };
 }
 
-#[derive(Clone, PartialEq, Debug, Copy, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Copy, Serialize, Deserialize)]
 pub enum NewLineKind {
   /// Decide which newline kind to use based on the last newline in the file.
   #[serde(rename = "auto")]
@@ -60,7 +60,7 @@ generate_str_to_from![
 ];
 
 /// Represents a problem within the configuration.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigurationDiagnostic {
   /// The property name the problem occurred on.
@@ -93,7 +93,7 @@ pub fn parse_config_key_map(spec_config: &IndexMap<String, String>) -> ConfigKey
   key_map
 }
 
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ConfigKeyValue {
   String(String),
@@ -143,7 +143,7 @@ impl From<&str> for ConfigKeyValue {
   }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GlobalConfiguration {
   pub line_width: Option<u32>,

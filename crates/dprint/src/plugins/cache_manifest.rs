@@ -10,7 +10,7 @@ use crate::environment::Environment;
 
 const PLUGIN_CACHE_SCHEMA_VERSION: usize = 6;
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginCacheManifest {
   schema_version: usize,
@@ -38,7 +38,7 @@ impl PluginCacheManifest {
   }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginCacheManifestItem {
   /// Created time in *seconds* since epoch.

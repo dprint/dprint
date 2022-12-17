@@ -8,7 +8,7 @@ pub struct GlobPatterns {
   pub excludes: Vec<GlobPattern>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct GlobPattern {
   pub relative_pattern: String,
   pub base_dir: CanonicalizedPathBuf,

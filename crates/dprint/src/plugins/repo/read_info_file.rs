@@ -10,13 +10,13 @@ use crate::environment::Environment;
 use crate::plugins::PluginSourceReference;
 use crate::utils::PathSource;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct InfoFile {
   pub plugin_system_schema_version: u32,
   pub latest_plugins: Vec<InfoFilePluginInfo>,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct InfoFilePluginInfo {
   pub name: String,
   pub version: String,

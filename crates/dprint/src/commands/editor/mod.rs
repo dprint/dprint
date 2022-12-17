@@ -98,7 +98,7 @@ pub async fn run_editor_service<TEnvironment: Environment>(
   editor_service_cmd: &EditorServiceSubCommand,
 ) -> Result<()> {
   // poll for the existence of the parent process and terminate this process when that process no longer exists
-  let _handle = start_parent_process_checker_task(editor_service_cmd.parent_pid);
+  start_parent_process_checker_task(editor_service_cmd.parent_pid);
 
   let mut editor_service = EditorService::new(args, cache, environment, plugin_resolver, plugin_pools);
   editor_service.run().await
@@ -249,7 +249,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
 
     let file_matcher = FileMatcher::new(self.config.as_ref().unwrap(), &FilePatternArgs::default(), self.environment)?;
     // canonicalize the file path, then check if it's in the list of file paths.
-    let resolved_file_path = self.environment.canonicalize(&file_path)?;
+    let resolved_file_path = self.environment.canonicalize(file_path)?;
     log_verbose!(self.environment, "Checking can format: {}", resolved_file_path.display());
     Ok(file_matcher.matches_and_dir_not_ignored(&resolved_file_path))
   }

@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 /// Information about a plugin.
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginInfo {
   /// The name of the plugin.
