@@ -27,7 +27,6 @@ The setup for both is the same except process plugins require a checksum to be s
 
 - [Prettier](/plugins/prettier)
 - [Roslyn](/plugins/roslyn) (C#/VB)
-- [Rustfmt](/plugins/rustfmt)
 - [Exec](/plugins/exec) - Works with any formatting CLI installed on the system.
 
 ## Using Wasm Plugins in the Browser, Deno, or Node.js
