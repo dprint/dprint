@@ -238,16 +238,12 @@ impl Environment for RealEnvironment {
   }
 
   fn os(&self) -> String {
-    let mut os: String = std::env::consts::OS.to_string();
-    if os == "linux" {
-      for file in fs::read_dir("/lib").unwrap() {
-        if file.unwrap().path().display().to_string().starts_with("/lib/ld-musl-") == true {
-          os = "linux-musl".to_string();
-          break;
-        }
-      }
+    let target = env!("TARGET");
+    if target.contains("linux-musl") {
+      "linux-musl".to_string()
+    } else {
+      std::env::consts::OS.to_string()
     }
-    return os;
   }
 
   fn max_threads(&self) -> usize {
