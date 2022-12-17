@@ -20,7 +20,6 @@ This project is under active early development. I recommend you check its output
 - [dprint-plugin-markdown](https://github.com/dprint/dprint-plugin-markdown) - Markdown code formatter.
 - [dprint-plugin-toml](https://github.com/dprint/dprint-plugin-toml) - TOML code formatter.
 - [dprint-plugin-dockerfile](https://github.com/dprint/dprint-plugin-dockerfile) - Dockerfile code formatter.
-- [dprint-plugin-rustfmt](https://github.com/dprint/dprint-plugin-rustfmt) - Rustfmt wrapper plugin.
 - [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - Roslyn (C#/VB) wrapper plugin.
 - [dprint-plugin-prettier](https://github.com/dprint/dprint-plugin-prettier) - Prettier wrapper plugin.
 - [dprint-plugin-exec](https://github.com/dprint/dprint-plugin-exec) - Formats code with any CLI executable.
