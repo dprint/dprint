@@ -4,7 +4,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::path::StripPrefixError;
 
-/// A PathBuf that is guarnateed to be canonicalized.
+/// A PathBuf that is guaranteed to be canonicalized.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CanonicalizedPathBuf {
   path: PathBuf,

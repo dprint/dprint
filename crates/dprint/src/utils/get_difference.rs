@@ -69,7 +69,7 @@ pub fn get_difference(old_text: &str, new_text: &str) -> String {
           }
         }
         if change.missing_newline() {
-          // show a ETX (end of text)
+          // show an ETX (end of text)
           output.push_str(&get_text_for_tag(change.tag(), "\u{2403}".to_string()));
         }
       }

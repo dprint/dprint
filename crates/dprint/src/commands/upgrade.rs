@@ -18,7 +18,7 @@ use crate::utils::latest_cli_version;
 // released one, then run `./target/debug/dprint upgrade --verbose`.
 
 pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> Result<()> {
-  let latest_version = latest_cli_version(environment).context("Error fetching latest CLI verison.")?;
+  let latest_version = latest_cli_version(environment).context("Error fetching latest CLI version.")?;
   let current_version = environment.cli_version();
   if current_version == latest_version {
     environment.log(&format!("Already on latest version {}", latest_version));
