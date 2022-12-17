@@ -13,29 +13,25 @@ if (!fs.existsSync(exePath)) {
     runDprintExe();
   }).catch(err => {
     console.error(err);
-    process.exit(child_process.exitCode || 1);
+    process.exit(1);
   });
 } else {
   runDprintExe();
 }
 
 function runDprintExe() {
-  try {
-    const result = child_process.spawnSync(
-      exePath,
-      process.argv.slice(2),
-      { stdio: "inherit" },
-    );
-    if (result.error) {
-      throw result.error;
-    }
-
-    throwIfNoExePath();
-
-    process.exitCode = result.status;
-  } catch (err) {
-    throw err;
+  const result = child_process.spawnSync(
+    exePath,
+    process.argv.slice(2),
+    { stdio: "inherit" },
+  );
+  if (result.error) {
+    throw result.error;
   }
+
+  throwIfNoExePath();
+
+  process.exitCode = result.status;
 }
 
 function throwIfNoExePath() {
