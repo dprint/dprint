@@ -1,5 +1,8 @@
 use anyhow::bail;
 use anyhow::Result;
+use wasmer::Cranelift;
+use wasmer::EngineBuilder;
+use wasmer::EngineRef;
 use wasmer::Imports;
 use wasmer::Instance;
 use wasmer::Module;
@@ -14,9 +17,12 @@ pub fn load_instance(store: &mut Store, module: &Module, import_object: &Imports
   }
 }
 
-pub fn create_module(store: &Store, compiled_module_bytes: &[u8]) -> Result<Module> {
+pub fn create_module(compiled_module_bytes: &[u8]) -> Result<Module> {
   unsafe {
-    match Module::deserialize(store, compiled_module_bytes) {
+    let compiler = Cranelift::default();
+    let engine = EngineBuilder::new(compiler).engine();
+    let engine_ref = EngineRef::new(&engine);
+    match Module::deserialize(engine_ref, compiled_module_bytes) {
       Ok(module) => Ok(module),
       Err(err) => bail!("Error deserializing compiled wasm module: {:#}", err),
     }

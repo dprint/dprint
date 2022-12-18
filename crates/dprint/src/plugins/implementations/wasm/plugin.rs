@@ -14,9 +14,9 @@ use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::PluginInfo;
 
-use super::create_module;
 use super::create_pools_import_object;
 use super::load_instance;
+use super::load_instance::create_module;
 use super::WasmFormatResult;
 use super::WasmFunctions;
 use crate::configuration::RawPluginConfig;
@@ -27,11 +27,11 @@ use crate::plugins::Plugin;
 use crate::plugins::PluginsCollection;
 
 pub struct WasmPlugin<TEnvironment: Environment> {
-  compiled_wasm_bytes: Arc<Vec<u8>>,
-  plugin_info: PluginInfo,
-  config: Option<(RawPluginConfig, GlobalConfiguration)>,
+  module: wasmer::Module,
   environment: TEnvironment,
   plugin_pools: Arc<PluginsCollection<TEnvironment>>,
+  plugin_info: PluginInfo,
+  config: Option<(RawPluginConfig, GlobalConfiguration)>,
 }
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
@@ -41,10 +41,11 @@ impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
     environment: TEnvironment,
     plugin_pools: Arc<PluginsCollection<TEnvironment>>,
   ) -> Result<Self> {
+    let module = create_module(&compiled_wasm_bytes)?;
     Ok(WasmPlugin {
+      module,
       environment,
       plugin_pools,
-      compiled_wasm_bytes: Arc::new(compiled_wasm_bytes),
       plugin_info,
       config: None,
     })
@@ -101,7 +102,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
     let (plugin_config, global_config) = self.config.as_ref().unwrap();
     let plugin = InitializedWasmPlugin::new(
       self.name().to_string(),
-      self.compiled_wasm_bytes.clone(),
+      self.module.clone(),
       Arc::new({
         let plugin_pools = self.plugin_pools.clone();
         let environment = self.environment.clone();
@@ -256,7 +257,7 @@ impl InitializedWasmPluginInstance {
 struct InitializedWasmPluginInner<TEnvironment: Environment> {
   name: String,
   instances: Mutex<Vec<InitializedWasmPluginInstance>>,
-  compiled_wasm_bytes: Arc<Vec<u8>>,
+  module: wasmer::Module,
   load_instance: Arc<dyn Fn(&mut wasmer::Store, &wasmer::Module) -> Result<wasmer::Instance> + Send + Sync>,
   global_config: GlobalConfiguration,
   plugin_config: ConfigKeyMap,
@@ -287,7 +288,7 @@ pub struct InitializedWasmPlugin<TEnvironment: Environment>(Arc<InitializedWasmP
 impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
   pub fn new(
     name: String,
-    compiled_wasm_bytes: Arc<Vec<u8>>,
+    module: wasmer::Module,
     load_instance: Arc<dyn Fn(&mut wasmer::Store, &wasmer::Module) -> Result<wasmer::Instance> + Send + Sync>,
     global_config: GlobalConfiguration,
     plugin_config: ConfigKeyMap,
@@ -296,7 +297,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     Self(Arc::new(InitializedWasmPluginInner {
       name,
       instances: Default::default(),
-      compiled_wasm_bytes,
+      module,
       load_instance,
       global_config,
       plugin_config,
@@ -306,10 +307,6 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
 
   pub fn get_plugin_info(&self) -> Result<PluginInfo> {
     self.with_instance(|instance| instance.plugin_info())
-  }
-
-  pub fn into_bytes(self) -> Arc<Vec<u8>> {
-    self.0.compiled_wasm_bytes.clone()
   }
 
   fn with_instance<T>(&self, action: impl Fn(&mut InitializedWasmPluginInstance) -> Result<T>) -> Result<T> {
@@ -375,8 +372,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     let start_instant = Instant::now();
     log_verbose!(self.0.environment, "Creating instance of {}", self.0.name);
     let mut store = wasmer::Store::default();
-    let module = create_module(&store, &self.0.compiled_wasm_bytes)?;
-    let instance = (self.0.load_instance)(&mut store, &module)?;
+    let instance = (self.0.load_instance)(&mut store, &self.0.module)?;
     let mut wasm_functions = WasmFunctions::new(store, instance)?;
     let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
 
