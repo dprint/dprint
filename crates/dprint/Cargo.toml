@@ -30,7 +30,7 @@ similar = { version = "2.2.1", features = ["inline"] }
 tokio = { version = "1", features = ["rt", "time", "macros", "rt-multi-thread"] }
 tokio-util = { version = "0.7.4" }
 twox-hash = "1.6.3"
-ureq = { version = "2.5.0", features = ["socks-proxy", "tls"] }
+ureq = { version = "2.5.0", features = ["socks-proxy", "tls", "native-certs"] }
 url = "2.3.1"
 wasmer = "=2.3.0"
 zip = "0.6.3"
