@@ -7,6 +7,8 @@ const crypto = require("crypto");
 const os = require("os");
 const path = require("path");
 const yauzl = require("yauzl");
+/** @type {string | undefined} */
+let cachedIsMusl = undefined;
 
 function install() {
   const executableFilePath = path.join(
@@ -59,59 +61,7 @@ function install() {
     } else if (os.platform() === "darwin") {
       return `${getArch()}-apple-darwin`;
     } else {
-      const family = getIsMusl() ? "musl" : "gnu";
-      return `${getArch()}-unknown-linux-${family}`;
-    }
-
-    function getArch() {
-      if (os.arch() === "arm64") {
-        return "aarch64";
-      } else if (os.arch() === "x64") {
-        return "x86_64";
-      } else {
-        throw new Error("Unsupported architecture " + os.arch() + ". Only x64 and aarch64 binaries are available.");
-      }
-    }
-
-    function getIsMusl() {
-      // code adapted from https://github.com/lovell/detect-libc
-      // Copyright Apache 2.0 license, the detect-libc maintainers
-      try {
-        if (os.platform() !== "linux") {
-          return false;
-        }
-        return isProcessReportMusl() || isConfMusl();
-      } catch (err) {
-        // just in case
-        console.warn("Error checking if musl.", err);
-        return false;
-      }
-
-      function isProcessReportMusl() {
-        if (!process.report) {
-          return false;
-        }
-        const report = process.report.getReport();
-        if (!report || !(report.sharedObjects instanceof Array)) {
-          return false;
-        }
-        return report.sharedObjects.some(o => o.includes("libc.musl-") || o.includes("ld-musl-"));
-      }
-
-      function isConfMusl() {
-        const output = getCommandOutput();
-        const [_, ldd1] = output.split(/[\r\n]+/);
-        return ldd1 && ldd1.includes("musl");
-      }
-
-      function getCommandOutput() {
-        try {
-          const command = "getconf GNU_LIBC_VERSION 2>&1 || true; ldd --version 2>&1 || true";
-          return require("child_process").execSync(command, { encoding: "utf8" });
-        } catch (_err) {
-          return "";
-        }
-      }
+      return `${getArch()}-unknown-linux-${getLinuxFamily()}`;
     }
   }
 
@@ -191,17 +141,9 @@ function install() {
         case "win32":
           return info.checksums["windows-x86_64"];
         case "darwin":
-          if (os.arch() === "arm64") {
-            return info.checksums["darwin-aarch64"];
-          } else {
-            return info.checksums["darwin-x86_64"];
-          }
+          return info.checksums[`darwin-${getArch()}`];
         default:
-          if (os.arch() === "arm64") {
-            return info.checksums["linux-aarch64"];
-          } else {
-            return info.checksums["linux-x86_64"];
-          }
+          return info.checksums[`linux-${getArch()}-${getLinuxFamily()}`];
       }
     }
   }
@@ -250,6 +192,68 @@ function install() {
         });
       });
     });
+  }
+
+  function getArch() {
+    if (os.arch() === "arm64") {
+      return "aarch64";
+    } else if (os.arch() === "x64") {
+      return "x86_64";
+    } else {
+      throw new Error("Unsupported architecture " + os.arch() + ". Only x64 and aarch64 binaries are available.");
+    }
+  }
+
+  function getLinuxFamily() {
+    return getIsMusl() ? "musl" : "gnu";
+
+    function getIsMusl() {
+      // code adapted from https://github.com/lovell/detect-libc
+      // Copyright Apache 2.0 license, the detect-libc maintainers
+      if (cachedIsMusl == null) {
+        cachedIsMusl = innerGet();
+      }
+      return cachedIsMusl;
+
+      function innerGet() {
+        try {
+          if (os.platform() !== "linux") {
+            return false;
+          }
+          return isProcessReportMusl() || isConfMusl();
+        } catch (err) {
+          // just in case
+          console.warn("Error checking if musl.", err);
+          return false;
+        }
+      }
+
+      function isProcessReportMusl() {
+        if (!process.report) {
+          return false;
+        }
+        const report = process.report.getReport();
+        if (!report || !(report.sharedObjects instanceof Array)) {
+          return false;
+        }
+        return report.sharedObjects.some(o => o.includes("libc.musl-") || o.includes("ld-musl-"));
+      }
+
+      function isConfMusl() {
+        const output = getCommandOutput();
+        const [_, ldd1] = output.split(/[\r\n]+/);
+        return ldd1 && ldd1.includes("musl");
+      }
+
+      function getCommandOutput() {
+        try {
+          const command = "getconf GNU_LIBC_VERSION 2>&1 || true; ldd --version 2>&1 || true";
+          return require("child_process").execSync(command, { encoding: "utf8" });
+        } catch (_err) {
+          return "";
+        }
+      }
+    }
   }
 }
 
