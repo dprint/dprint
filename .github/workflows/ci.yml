@@ -193,7 +193,7 @@ jobs:
         cd deployment/npm
         curl --fail --location --progress-bar --output "SHASUMS256.txt" "https://github.com/dprint/dprint/releases/download/0.30.2/SHASUMS256.txt"
         # temporary until a musl release is done
-        echo "837859756888e579189459fb309a5a20a3c19e870254184a43d23a9f2ce12748 dprint-x86_64-unknown-linux-musl.zip" >> SHASUM256.txt
+        echo "837859756888e579189459fb309a5a20a3c19e870254184a43d23a9f2ce12748 dprint-x86_64-unknown-linux-musl.zip" >> SHASUMS256.txt
         node setup.js 0.30.2
         npm install
         node bin.js -v
