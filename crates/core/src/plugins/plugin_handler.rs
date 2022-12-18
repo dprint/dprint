@@ -78,7 +78,7 @@ impl Host for NoopHost {
 
 /// `Ok(Some(text))` - Changes due to the format.
 /// `Ok(None)` - No changes.
-/// `Err(err)` - Error formating. Use a `CriticalError` to signal that the plugin can't recover.
+/// `Err(err)` - Error formatting. Use a `CriticalError` to signal that the plugin can't recover.
 pub type FormatResult = Result<Option<String>>;
 
 pub struct FormatRequest<TConfiguration> {

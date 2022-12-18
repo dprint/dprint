@@ -1,11 +1,12 @@
 use crossterm::style::Stylize;
 use crossterm::tty::IsTty;
+use parking_lot::Mutex;
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::SystemTime;
 
-use crate::utils::terminal::get_terminal_width;
+use crate::utils::get_terminal_size;
 
 use super::Logger;
 use super::LoggerRefreshItemKind;
@@ -46,7 +47,7 @@ impl ProgressBar {
 #[derive(Clone)]
 pub struct ProgressBars {
   logger: Logger,
-  state: Arc<RwLock<InternalState>>,
+  state: Arc<Mutex<InternalState>>,
 }
 
 struct InternalState {
@@ -59,7 +60,7 @@ struct InternalState {
 impl ProgressBars {
   /// Checks if progress bars are supported
   pub fn are_supported() -> bool {
-    std::io::stderr().is_tty() && get_terminal_width().is_some()
+    std::io::stderr().is_tty() && get_terminal_size().is_some()
   }
 
   /// Creates a new ProgressBars or returns None when not supported.
@@ -67,7 +68,7 @@ impl ProgressBars {
     if ProgressBars::are_supported() {
       Some(ProgressBars {
         logger: logger.clone(),
-        state: Arc::new(RwLock::new(InternalState {
+        state: Arc::new(Mutex::new(InternalState {
           drawer_id: 0,
           progress_bar_counter: 0,
           progress_bars: Vec::new(),
@@ -79,7 +80,7 @@ impl ProgressBars {
   }
 
   pub fn add_progress(&self, message: String, style: ProgressBarStyle, total_size: usize) -> ProgressBar {
-    let mut internal_state = self.state.write();
+    let mut internal_state = self.state.lock();
     let id = internal_state.progress_bar_counter;
     let pb = ProgressBar {
       id,
@@ -101,14 +102,15 @@ impl ProgressBars {
   }
 
   fn finish_progress(&self, progress_bar_id: usize) {
-    let mut internal_state = self.state.write();
+    let mut internal_state = self.state.lock();
 
     if let Some(index) = internal_state.progress_bars.iter().position(|p| p.id == progress_bar_id) {
       internal_state.progress_bars.remove(index);
-    }
 
-    if internal_state.progress_bars.is_empty() {
-      self.logger.remove_refresh_item(LoggerRefreshItemKind::ProgressBars)
+      if internal_state.progress_bars.is_empty() {
+        self.logger.remove_refresh_item(LoggerRefreshItemKind::ProgressBars);
+        internal_state.drawer_id += 1;
+      }
     }
   }
 
@@ -117,16 +119,16 @@ impl ProgressBars {
     let drawer_id = internal_state.drawer_id;
     let internal_state = self.state.clone();
     let logger = self.logger.clone();
-    std::thread::spawn(move || {
+    tokio::task::spawn_blocking(move || {
       loop {
         {
-          let internal_state = internal_state.read();
+          let internal_state = internal_state.lock();
           // exit if not the current draw thread or there are no more progress bars
           if internal_state.drawer_id != drawer_id || internal_state.progress_bars.is_empty() {
             break;
           }
 
-          let terminal_width = get_terminal_width().unwrap();
+          let terminal_width = get_terminal_size().unwrap().cols;
           let mut text = String::new();
           for (i, progress_bar) in internal_state.progress_bars.iter().enumerate() {
             if i > 0 {
@@ -146,7 +148,7 @@ impl ProgressBars {
           logger.set_refresh_item(LoggerRefreshItemKind::ProgressBars, vec![LoggerTextItem::Text(text)]);
         }
 
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(120));
       }
     });
   }
@@ -204,9 +206,8 @@ fn get_bytes_text(byte_count: usize, total_bytes: usize) -> String {
 fn get_elapsed_text(elapsed: Duration) -> String {
   let elapsed_secs = elapsed.as_secs();
   let seconds = elapsed_secs % 60;
-  let minutes = (elapsed_secs / 60) % 60;
-  let hours = (elapsed_secs / 60) / 60;
-  format!("[{:0>2}:{:0>2}:{:0>2}]", hours, minutes, seconds)
+  let minutes = elapsed_secs / 60;
+  format!("[{:0>2}:{:0>2}]", minutes, seconds)
 }
 
 #[cfg(test)]
@@ -230,15 +231,14 @@ mod test {
 
   #[test]
   fn should_get_elapsed_text() {
-    assert_eq!(get_elapsed_text(Duration::from_secs(1)), "[00:00:01]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(20)), "[00:00:20]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(59)), "[00:00:59]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(60)), "[00:01:00]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 5 + 23)), "[00:05:23]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 59 + 59)), "[00:59:59]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 60)), "[01:00:00]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 60 * 3 + 20 * 60 + 2)), "[03:20:02]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 60 * 99)), "[99:00:00]");
-    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 60 * 120)), "[120:00:00]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(1)), "[00:01]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(20)), "[00:20]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(59)), "[00:59]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(60)), "[01:00]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 5 + 23)), "[05:23]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 59 + 59)), "[59:59]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 60)), "[60:00]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 60 * 3 + 20 * 60 + 2)), "[200:02]");
+    assert_eq!(get_elapsed_text(Duration::from_secs(60 * 60 * 99)), "[5940:00]");
   }
 }

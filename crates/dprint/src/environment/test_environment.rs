@@ -509,10 +509,6 @@ impl Environment for TestEnvironment {
     123456
   }
 
-  fn get_terminal_width(&self) -> u16 {
-    60
-  }
-
   fn get_selection(&self, prompt_message: &str, _: u16, _: &[String]) -> Result<usize> {
     self.log_stderr(prompt_message);
     Ok(*self.selection_result.lock())

@@ -6,14 +6,16 @@ use crossterm::event::KeyEvent;
 use crossterm::event::KeyModifiers;
 use crossterm::terminal;
 
-pub fn get_terminal_width() -> Option<u16> {
-  get_terminal_size().map(|(cols, _)| cols)
+#[derive(Debug, Copy, Clone)]
+pub struct TerminalSize {
+  pub cols: u16,
+  pub rows: u16,
 }
 
-/// Gets the terminal size (width/cols, height/rows).
-pub fn get_terminal_size() -> Option<(u16, u16)> {
+/// Gets the terminal size.
+pub fn get_terminal_size() -> Option<TerminalSize> {
   match crossterm::terminal::size() {
-    Ok(size) => Some(size),
+    Ok(size) => Some(TerminalSize { cols: size.0, rows: size.1 }),
     Err(_) => None,
   }
 }

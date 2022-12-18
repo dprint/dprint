@@ -9,7 +9,3 @@ members = [
 exclude = [
   "crates/test-plugin",
 ]
-
-[profile.dev]
-# disabled to decrease size of ./target folder
-debug = 0
