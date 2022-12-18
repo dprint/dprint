@@ -6,7 +6,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const os = require("os");
 const path = require("path");
-const httpsProxyAgent = require("https-proxy-agent");
+const HttpsProxyAgent = require("https-proxy-agent");
 const yauzl = require("yauzl");
 /** @type {string | undefined} */
 let cachedIsMusl = undefined;
@@ -89,7 +89,7 @@ function install() {
       const options = {};
       const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
       if (typeof proxyUrl === "string" && proxyUrl.length > 0) {
-        options.agent = new httpsProxyAgent(proxyUrl);
+        options.agent = new HttpsProxyAgent(proxyUrl);
       }
 
       https.get(url, options, function(response) {
