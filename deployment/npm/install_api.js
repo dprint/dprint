@@ -6,6 +6,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const os = require("os");
 const path = require("path");
+const httpsProxyAgent = require("https-proxy-agent");
 const yauzl = require("yauzl");
 /** @type {string | undefined} */
 let cachedIsMusl = undefined;
@@ -85,7 +86,13 @@ function install() {
 
   function downloadZipFile(url) {
     return new Promise((resolve, reject) => {
-      https.get(url, function(response) {
+      const options = {};
+      const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+      if (typeof proxyUrl === "string" && proxyUrl.length > 0) {
+        options.agent = new httpsProxyAgent(proxyUrl);
+      }
+
+      https.get(url, options, function(response) {
         if (response.statusCode >= 200 && response.statusCode <= 299) {
           downloadResponse(response).then(resolve).catch(reject);
         } else if (response.headers.location) {

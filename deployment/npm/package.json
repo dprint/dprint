@@ -21,6 +21,7 @@
   },
   "homepage": "https://github.com/dprint/dprint#readme",
   "dependencies": {
+    "https-proxy-agent": "=5.0.1",
     "yauzl": "=2.10.0"
   }
 }
