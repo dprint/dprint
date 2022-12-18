@@ -238,7 +238,12 @@ impl Environment for RealEnvironment {
   }
 
   fn os(&self) -> String {
-    std::env::consts::OS.to_string()
+    let target = env!("TARGET");
+    if target.contains("linux-musl") {
+      "linux-musl".to_string()
+    } else {
+      std::env::consts::OS.to_string()
+    }
   }
 
   fn max_threads(&self) -> usize {

@@ -57,20 +57,60 @@ function install() {
     if (os.platform() === "win32") {
       return "x86_64-pc-windows-msvc";
     } else if (os.platform() === "darwin") {
-      if (os.arch() === "arm64") {
-        return "aarch64-apple-darwin";
-      } else if (os.arch() === "x64") {
-        return "x86_64-apple-darwin";
-      } else {
-        throw new Error("Unsupported architecture " + os.arch() + ". Only x64 and M1 binaries are available.");
-      }
+      return `${getArch()}-apple-darwin`;
     } else {
+      const family = getIsMusl() ? "musl" : "gnu";
+      return `${getArch()}-unknown-linux-${family}`;
+    }
+
+    function getArch() {
       if (os.arch() === "arm64") {
-        return "aarch64-unknown-linux-gnu";
+        return "aarch64";
       } else if (os.arch() === "x64") {
-        return "x86_64-unknown-linux-gnu";
+        return "x86_64";
       } else {
         throw new Error("Unsupported architecture " + os.arch() + ". Only x64 and aarch64 binaries are available.");
+      }
+    }
+
+    function getIsMusl() {
+      // code adapted from https://github.com/lovell/detect-libc
+      // Copyright Apache 2.0 license, the detect-libc maintainers
+      try {
+        if (os.platform() !== "linux") {
+          return false;
+        }
+        return isProcessReportMusl() || isConfMusl();
+      } catch (err) {
+        // just in case
+        console.warn("Error checking if musl.", err);
+        return false;
+      }
+
+      function isProcessReportMusl() {
+        if (!process.report) {
+          return false;
+        }
+        const report = process.report.getReport();
+        if (!report || !(report.sharedObjects instanceof Array)) {
+          return false;
+        }
+        return report.sharedObjects.some(o => o.includes("libc.musl-") || o.includes("ld-musl-"));
+      }
+
+      function isConfMusl() {
+        const output = getCommandOutput();
+        const [_, ldd1] = output.split(/[\r\n]+/);
+        return ldd1 && ldd1.includes("musl");
+      }
+
+      function getCommandOutput() {
+        try {
+          const command = "getconf GNU_LIBC_VERSION 2>&1 || true; ldd --version 2>&1 || true";
+          return require("child_process").execSync(command, { encoding: "utf8" });
+        } catch (_err) {
+          return "";
+        }
       }
     }
   }
