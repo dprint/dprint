@@ -1,11 +1,13 @@
 // @ts-check
 "use strict";
 
-const https = require("https");
-const fs = require("fs");
 const crypto = require("crypto");
+const fs = require("fs");
+const https = require("https");
 const os = require("os");
 const path = require("path");
+const url = require("url");
+const HttpsProxyAgent = require("https-proxy-agent");
 const yauzl = require("yauzl");
 /** @type {string | undefined} */
 let cachedIsMusl = undefined;
@@ -85,7 +87,13 @@ function install() {
 
   function downloadZipFile(url) {
     return new Promise((resolve, reject) => {
-      https.get(url, function(response) {
+      const options = {};
+      const proxyUrl = getProxyUrl(url);
+      if (proxyUrl != null) {
+        options.agent = new HttpsProxyAgent(proxyUrl);
+      }
+
+      https.get(url, options, function(response) {
         if (response.statusCode >= 200 && response.statusCode <= 299) {
           downloadResponse(response).then(resolve).catch(reject);
         } else if (response.headers.location) {
@@ -119,6 +127,21 @@ function install() {
         });
       });
     }
+  }
+
+  function getProxyUrl(requestUrl) {
+    const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+    if (typeof proxyUrl !== "string" || proxyUrl.length === 0) {
+      return undefined;
+    }
+    if (typeof process.env.NO_PROXY === "string") {
+      const noProxyAddresses = process.env.NO_PROXY.split(",");
+      const host = url.parse(requestUrl).host;
+      if (noProxyAddresses.indexOf(host) >= 0) {
+        return undefined;
+      }
+    }
+    return proxyUrl;
   }
 
   function verifyZipChecksum() {
