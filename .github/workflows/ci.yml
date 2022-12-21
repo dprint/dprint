@@ -75,7 +75,7 @@ jobs:
       - name: Build release
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: 'cargo build -p dprint --locked --all-features --release --target ${{matrix.config.target}}'
+        run: 'cargo build -p dprint --locked --release --target ${{matrix.config.target}}'
       - name: Test
         if: matrix.config.run_tests == 'true'
         run: cargo test --locked --all-features --release

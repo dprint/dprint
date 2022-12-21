@@ -138,7 +138,7 @@ const ci = {
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
           },
           run: [
-            "cargo build -p dprint --locked --all-features --release --target ${{matrix.config.target}}",
+            "cargo build -p dprint --locked --release --target ${{matrix.config.target}}",
           ].join("\n"),
         },
         {
