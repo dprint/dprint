@@ -44,12 +44,7 @@ Install using one of the methods below.
 
 - [Deno](https://deno.land):
 
-  ```sh
-  # install globally
-  deno install -A npm:dprint
-  ```
-
-  Or for just your project, add a [deno task](https://deno.land/manual/tools/task_runner) to your deno.json file:
+  For just your project, add a [deno task](https://deno.land/manual/tools/task_runner) to your deno.json file:
 
   ```json
   {
@@ -63,13 +58,21 @@ Install using one of the methods below.
 
   Then run `deno task dprint init` to initialize and format by running: `deno task fmt`
 
+  Also, you could install it globally via Deno, but like npm it has a startup and memory cost since it needs to run Deno then run dprint. It's recommended to install it globally via another method.
+
+  ```sh
+  deno install -A npm:dprint
+  dprint help
+  ```
+
 - [npm](https://www.npmjs.com/):
 
   ```sh
+  # for your project
   npm install dprint
   npx dprint help
 
-  # or install globally
+  # or install globally (not recommended because it has a startup and memory cost)
   npm install -g dprint
   dprint help
   ```
