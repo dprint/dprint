@@ -61,6 +61,11 @@ const ci = {
     pull_request: { branches: ["main"] },
     push: { branches: ["main"], tags: ["*"] },
   },
+  concurrency: {
+    // https://stackoverflow.com/a/72408109/188246
+    group: "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
+    "cancel-in-progress": true,
+  },
   jobs: {
     build: {
       name: "${{ matrix.config.kind }} ${{ matrix.config.os }}",
@@ -118,7 +123,7 @@ const ci = {
             "sudo apt update",
             "sudo apt install musl musl-dev musl-tools",
             "rustup target add x86_64-unknown-linux-musl",
-          ],
+          ].join("\n"),
         },
         {
           name: "Setup (Linux aarch64)",
@@ -128,7 +133,7 @@ const ci = {
             "sudo apt install -y gcc-aarch64-linux-gnu",
             "rustup target add aarch64-unknown-linux-gnu",
             "export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc",
-          ],
+          ].join("\n"),
         },
         {
           name: "Setup (Mac aarch64)",

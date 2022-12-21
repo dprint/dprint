@@ -11,6 +11,9 @@ on:
       - main
     tags:
       - '*'
+concurrency:
+  group: '${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}'
+  cancel-in-progress: true
 jobs:
   build:
     name: '${{ matrix.config.kind }} ${{ matrix.config.os }}'
@@ -68,17 +71,17 @@ jobs:
         run: cargo build --locked --all-features --release
       - name: Setup (Linux x86_64-musl)
         if: matrix.config.target == 'x86_64-unknown-linux-musl'
-        run:
-          - sudo apt update
-          - sudo apt install musl musl-dev musl-tools
-          - rustup target add x86_64-unknown-linux-musl
+        run: |-
+          sudo apt update
+          sudo apt install musl musl-dev musl-tools
+          rustup target add x86_64-unknown-linux-musl
       - name: Setup (Linux aarch64)
         if: matrix.config.target == 'aarch64-unknown-linux-gnu'
-        run:
-          - sudo apt update
-          - sudo apt install -y gcc-aarch64-linux-gnu
-          - rustup target add aarch64-unknown-linux-gnu
-          - export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+        run: |-
+          sudo apt update
+          sudo apt install -y gcc-aarch64-linux-gnu
+          rustup target add aarch64-unknown-linux-gnu
+          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
       - name: Setup (Mac aarch64)
         if: matrix.config.target == 'aarch64-apple-darwin'
         run: rustup target add aarch64-apple-darwin
