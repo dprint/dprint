@@ -97,11 +97,29 @@ cargo install --locked dprint
 </code></pre>
 </li>
 <li>
+<p><a href="https://deno.land">Deno</a>:</p>
+<p>For just your project, add a <a href="https://deno.land/manual/tools/task_runner">deno task</a> to your deno.json file:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"tasks"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">"fmt"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"deno task dprint fmt"</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">"fmt:check"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"deno task dprint check"</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">"dprint"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"deno run -A npm:dprint"</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>Then run <code>deno task dprint init</code> to initialize and format by running: <code>deno task fmt</code></p>
+<p>Also, you could install it globally via Deno, but like npm it has a startup and memory cost since it needs to run Deno then run dprint. It's recommended to install it globally via another method.</p>
+<pre><code class="language-sh hljs language-bash">deno install -A npm:dprint
+dprint <span class="hljs-built_in">help</span>
+</code></pre>
+</li>
+<li>
 <p><a href="https://www.npmjs.com/">npm</a>:</p>
-<pre><code class="language-sh hljs language-bash">npm install dprint
+<pre><code class="language-sh hljs language-bash"><span class="hljs-comment"># for your project</span>
+npm install dprint
 npx dprint <span class="hljs-built_in">help</span>
 
-<span class="hljs-comment"># or install globally</span>
+<span class="hljs-comment"># or install globally (not recommended because it has a startup and memory cost)</span>
 npm install -g dprint
 dprint <span class="hljs-built_in">help</span>
 </code></pre>
