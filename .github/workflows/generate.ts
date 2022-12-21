@@ -3,7 +3,7 @@ import * as yaml from "https://deno.land/std@0.170.0/encoding/yaml.ts";
 enum OperatingSystem {
   Mac = "macOS-latest",
   Windows = "windows-latest",
-  Linux = "ubuntu-18.0.3",
+  Linux = "ubuntu-18.04",
 }
 
 interface ProfileData {
@@ -68,7 +68,7 @@ const ci = {
   },
   jobs: {
     build: {
-      name: "${{ matrix.config.kind }} ${{ matrix.config.os }}",
+      name: "${{ matrix.config.target }}",
       "runs-on": "${{ matrix.config.os }}",
       strategy: {
         matrix: {
@@ -114,8 +114,6 @@ const ci = {
             "cargo build --manifest-path=crates/test-process-plugin/Cargo.toml --release --locked",
           ].join("\n"),
         },
-        { name: "Build debug", if: "matrix.config.kind == 'test_debug'", run: "cargo build --locked --all-features" },
-        { name: "Build release", if: "matrix.config.kind == 'release'", run: "cargo build --locked --all-features --release" },
         {
           name: "Setup (Linux x86_64-musl)",
           if: "matrix.config.target == 'x86_64-unknown-linux-musl'",
@@ -183,7 +181,7 @@ const ci = {
           return {
             name: `Pre-release (${profile.target})`,
             id: `pre_release_${profile.target.replaceAll("-", "_")}`,
-            if: `matrix.config.kind == '${profile.target}' && startsWith(github.ref, 'refs/tags/')`,
+            if: `matrix.config.target == '${profile.target}' && startsWith(github.ref, 'refs/tags/')`,
             run: getRunSteps().join("\n"),
           };
         }),
@@ -203,7 +201,7 @@ const ci = {
 
           return {
             name: `Upload artifacts (${profile.target})`,
-            if: `matrix.config.kind == '${profile.target}' && startsWith(github.ref, 'refs/tags/')`,
+            if: `matrix.config.target == '${profile.target}' && startsWith(github.ref, 'refs/tags/')`,
             uses: "actions/upload-artifact@v2",
             with: {
               name: profile.artifactsName,
