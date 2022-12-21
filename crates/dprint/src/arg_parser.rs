@@ -126,7 +126,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
     cli_parser.try_get_matches_from_mut(vec![""])?;
     let help_text = format!("{}", cli_parser.render_help());
     return Ok(CliArgs::new_with_sub_command(SubCommand::Help(help_text)));
-  } else if args.len() == 2 && (args[1] == "-v" || args[1] == "--version") {
+  } else if args.len() == 2 && (args[1] == "-v" || args[1] == "-V" || args[1] == "--version") {
     return Ok(CliArgs::new_with_sub_command(SubCommand::Version));
   }
 
@@ -548,6 +548,18 @@ mod test {
         "  --plugins https://plugins.dprint.dev/test.wasm -- [file patterns]...",
       )
     );
+  }
+
+  #[test]
+  fn version_flag() {
+    assert_version(vec!["-v"]);
+    assert_version(vec!["-V"]);
+    assert_version(vec!["--version"]);
+  }
+
+  fn assert_version(args: Vec<&str>) {
+    let args = test_args(args).unwrap();
+    assert_eq!(args.sub_command, SubCommand::Version);
   }
 
   #[test]
