@@ -1,18 +1,59 @@
 import * as yaml from "https://deno.land/std@0.170.0/encoding/yaml.ts";
 
-enum RunnerOperatingSystem {
+enum OperatingSystem {
   Mac = "macOS-latest",
   Windows = "windows-latest",
-  Ubuntu = "ubuntu-18.0.3",
+  Linux = "ubuntu-18.0.3",
 }
 
-interface Profile {
-  operatingSystem: RunnerOperatingSystem;
+interface ProfileData {
+  os: OperatingSystem;
+  target: string;
+  runTests?: boolean;
 }
 
-const profiles: Profile[] = [{
-  operatingSystem: RunnerOperatingSystem.Mac,
+const profileDataItems: ProfileData[] = [{
+  os: OperatingSystem.Mac,
+  target: "x86_64-apple-darwin",
+  runTests: true,
+}, {
+  os: OperatingSystem.Mac,
+  target: "aarch64-apple-darwin",
+}, {
+  os: OperatingSystem.Windows,
+  target: "x86_64-pc-windows-msvc",
+  runTests: true,
+}, {
+  os: OperatingSystem.Linux,
+  target: "x86_64-unknown-linux-gnu",
+  runTests: true,
+}, {
+  os: OperatingSystem.Linux,
+  target: "x86_64-unknown-linux-musl",
+}, {
+  os: OperatingSystem.Linux,
+  target: "aarch64-unknown-linux-gnu",
 }];
+const profiles = profileDataItems.map(profile => {
+  return {
+    ...profile,
+    zipChecksumEnvVarName: `ZIP_CHECKSUM_${profile.target.toUpperCase().replaceAll("-", "_")}`,
+    get installerChecksumEnvVarName() {
+      if (profile.os !== OperatingSystem.Windows) {
+        throw new Error("Check for windows before accessing.");
+      }
+      return `INSTALLER_CHECKSUM_${profile.target.toUpperCase().replaceAll("-", "_")}`;
+    },
+    artifactsName: `${profile.target}-artifacts`,
+    zipFileName: `dprint-${profile.target}.zip`,
+    get installerFileName() {
+      if (profile.os !== OperatingSystem.Windows) {
+        throw new Error("Check for windows before accessing.");
+      }
+      return `dprint-${profile.target}-installer.exe`;
+    },
+  };
+});
 
 const ci = {
   name: "CI",
@@ -26,13 +67,11 @@ const ci = {
       "runs-on": "${{ matrix.config.os }}",
       strategy: {
         matrix: {
-          config: [
-            { os: "macOS-latest", kind: "test_release" },
-            { os: "windows-latest", kind: "test_release" },
-            // uses an older version of ubuntu because of issue #483
-            { os: "ubuntu-18.04", kind: "test_release" },
-            { os: "ubuntu-latest", kind: "test_debug" },
-          ],
+          config: profiles.map(profile => ({
+            os: profile.os,
+            run_tests: (profile.runTests ?? false).toString(),
+            target: profile.target,
+          })),
         },
       },
       env: {
@@ -40,15 +79,22 @@ const ci = {
         CARGO_INCREMENTAL: 0,
         RUST_BACKTRACE: "full",
       },
-      outputs: {
-        LINUX_X86_64_ZIP_CHECKSUM: "${{steps.linux_x86_64_pre_release.outputs.ZIP_CHECKSUM}}",
-        LINUX_X86_64_MUSL_ZIP_CHECKSUM: "${{steps.linux_x86_64_musl_pre_release.outputs.ZIP_CHECKSUM}}",
-        LINUX_AARCH64_ZIP_CHECKSUM: "${{steps.linux_aarch64_pre_release.outputs.ZIP_CHECKSUM}}",
-        MAX_X86_64_ZIP_CHECKSUM: "${{steps.mac_x86_64_pre_release.outputs.ZIP_CHECKSUM}}",
-        MAX_AARCH64_ZIP_CHECKSUM: "${{steps.mac_aarch64_pre_release.outputs.ZIP_CHECKSUM}}",
-        WINDOWS_X86_64_ZIP_CHECKSUM: "${{steps.windows_x86_64_pre_release.outputs.ZIP_CHECKSUM}}",
-        WINDOWS_INSTALLER_CHECKSUM: "${{steps.windows_x86_64_pre_release.outputs.INSTALLER_CHECKSUM}}",
-      },
+      outputs: Object.fromEntries(
+        profiles.map(profile => {
+          const entries = [];
+          entries.push([
+            profile.zipChecksumEnvVarName,
+            "${{steps.pre_release_" + profile.target.replaceAll("-", "_") + ".outputs.ZIP_CHECKSUM}}",
+          ]);
+          if (profile.os === OperatingSystem.Windows) {
+            entries.push([
+              profile.installerChecksumEnvVarName,
+              "${{steps.pre_release_" + profile.target.replaceAll("-", "_") + ".outputs.INSTALLER_CHECKSUM}}",
+            ]);
+          }
+          return entries;
+        }).flat(),
+      ),
       steps: [
         { name: "Checkout", uses: "actions/checkout@v2" },
         { uses: "dtolnay/rust-toolchain@stable" },
@@ -57,151 +103,116 @@ const ci = {
         { uses: "Swatinem/rust-cache@v1", if: "startsWith(matrix.config.os, 'ubuntu') == false" },
         {
           name: "Build test plugins",
+          if: "matrix.config.run_tests == 'true'",
           run: [
             "cargo build --manifest-path=crates/test-plugin/Cargo.toml --release --target=wasm32-unknown-unknown",
             "cargo build --manifest-path=crates/test-process-plugin/Cargo.toml --release --locked",
           ].join("\n"),
         },
         { name: "Build debug", if: "matrix.config.kind == 'test_debug'", run: "cargo build --locked --all-features" },
-        { name: "Build release", if: "matrix.config.kind == 'test_release'", run: "cargo build --locked --all-features --release" },
+        { name: "Build release", if: "matrix.config.kind == 'release'", run: "cargo build --locked --all-features --release" },
         {
-          name: "Build release (Linux x86_64-musl)",
-          if: "startsWith(matrix.config.os, 'ubuntu') && matrix.config.kind == 'test_release'",
+          name: "Setup (Linux x86_64-musl)",
+          if: "matrix.config.target == 'x86_64-unknown-linux-musl'",
           run: [
             "sudo apt update",
             "sudo apt install musl musl-dev musl-tools",
             "rustup target add x86_64-unknown-linux-musl",
-            "cargo build -p dprint --locked --all-features --release --target x86_64-unknown-linux-musl",
-          ].join("\n"),
+          ],
         },
         {
-          name: "Build release (Linux aarch64)",
-          if: "startsWith(matrix.config.os, 'ubuntu') && matrix.config.kind == 'test_release'",
+          name: "Setup (Linux aarch64)",
+          if: "matrix.config.target == 'aarch64-unknown-linux-gnu'",
           run: [
-            "rustup target add aarch64-unknown-linux-gnu",
+            "sudo apt update",
             "sudo apt install -y gcc-aarch64-linux-gnu",
+            "rustup target add aarch64-unknown-linux-gnu",
             "export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc",
-            "cargo build -p dprint --locked --all-features --release --target aarch64-unknown-linux-gnu",
-          ].join("\n"),
+          ],
         },
         {
-          name: "Build release (Mac aarch64)",
-          if: "startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release'",
-          run: [
-            "rustup target add aarch64-apple-darwin",
-            "cargo build -p dprint --locked --all-features --release --target aarch64-apple-darwin",
-          ].join("\n"),
+          name: "Setup (Mac aarch64)",
+          if: "matrix.config.target == 'aarch64-apple-darwin'",
+          run: "rustup target add aarch64-apple-darwin",
         },
-        { name: "Test debug", if: "matrix.config.kind == 'test_debug'", run: "cargo test --locked --all-features" },
-        { name: "Test release", if: "matrix.config.kind == 'test_release'", run: "cargo test --locked --all-features --release" },
+        {
+          name: "Build release",
+          run: "cargo build -p dprint --locked --all-features --release --target ${{matrix.config.target}}",
+        },
+        {
+          name: "Test",
+          if: "matrix.config.run_tests == 'true'",
+          run: "cargo test --locked --all-features --release",
+        },
         {
           name: "Create installer (Windows x86_64)",
           uses: "joncloud/makensis-action@v2.0",
-          if: "startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')",
+          if: "startsWith(matrix.config.os, 'windows') && startsWith(github.ref, 'refs/tags/')",
           with: { "script-file": "${{ github.workspace }}/deployment/installer/dprint-installer.nsi" },
         },
+        // zip files
+        ...profiles.map(profile => {
+          function getRunSteps() {
+            switch (profile.os) {
+              case OperatingSystem.Mac:
+                return [
+                  `cd target/${profile.target}/release`,
+                  `zip -r ${profile.zipFileName} dprint`,
+                  `echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 ${profile.zipFileName} | awk '{print $1}')\"`,
+                ];
+              case OperatingSystem.Linux:
+                return [
+                  `cd target/${profile.target}/release`,
+                  `zip -r ${profile.zipFileName} dprint`,
+                  `echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 ${profile.zipFileName} | awk '{print $1}')\"`,
+                ];
+              case OperatingSystem.Windows:
+                return [
+                  `Compress-Archive -CompressionLevel Optimal -Force -Path target/${profile.target}/release/dprint.exe -DestinationPath target/${profile.target}/release/${profile.zipFileName}`,
+                  `mv deployment/installer/${profile.installerFileName} target/${profile.target}/release/${profile.installerFileName}`,
+                  `echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.zipFileName} | awk '{print $1}')"`,
+                  `echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.installerFileName} | awk '{print $1}')"`,
+                ];
+            }
+          }
+          return {
+            name: `Pre-release (${profile.target})`,
+            id: `pre_release_${profile.target.replaceAll("-", "_")}`,
+            if: `matrix.config.kind == '${profile.target}' && startsWith(github.ref, 'refs/tags/')`,
+            run: getRunSteps().join("\n"),
+          };
+        }),
+        // upload artifacts
+        ...profiles.map(profile => {
+          function getArtifactPaths() {
+            const paths = [
+              `target/${profile.target}/release/${profile.zipFileName}`,
+            ];
+            if (profile.os === OperatingSystem.Windows) {
+              paths.push(
+                `target/${profile.target}/release/${profile.installerFileName}`,
+              );
+            }
+            return paths;
+          }
+
+          return {
+            name: `Upload artifacts (${profile.target})`,
+            if: `matrix.config.kind == '${profile.target}' && startsWith(github.ref, 'refs/tags/')`,
+            with: {
+              name: profile.artifactsName,
+              path: getArtifactPaths().join("\n"),
+            },
+          };
+        }),
         {
-          name: "Pre-release (Linux x86_64)",
-          id: "linux_x86_64_pre_release",
-          if: "startsWith(matrix.config.os, 'ubuntu') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')",
+          name: "Test shell installer",
           run: [
-            "cd target/release",
-            "zip -r dprint-x86_64-unknown-linux-gnu.zip dprint",
-            "echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-unknown-linux-gnu.zip | awk '{print $1}')\"",
+            "cd website/src/assets",
+            "chmod +x install.sh",
+            "./install.sh",
           ].join("\n"),
         },
-        {
-          name: "Pre-release (Linux x86_64-musl)",
-          id: "linux_x86_64_musl_pre_release",
-          if: "startsWith(matrix.config.os, 'ubuntu') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')",
-          run: [
-            "cd target/x86_64-unknown-linux-musl/release",
-            "zip -r dprint-x86_64-unknown-linux-musl.zip dprint",
-            "echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-unknown-linux-musl.zip | awk '{print $1}')\"",
-            "mv dprint-x86_64-unknown-linux-musl.zip ../../release",
-          ].join("\n"),
-        },
-        {
-          name: "Pre-release (Linux aarch64)",
-          id: "linux_aarch64_pre_release",
-          if: "startsWith(matrix.config.os, 'ubuntu') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')",
-          run: [
-            "cd target/aarch64-unknown-linux-gnu/release",
-            "zip -r dprint-aarch64-unknown-linux-gnu.zip dprint",
-            "echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-aarch64-unknown-linux-gnu.zip | awk '{print $1}')\"",
-            "mv dprint-aarch64-unknown-linux-gnu.zip ../../release",
-          ].join("\n"),
-        },
-        {
-          name: "Pre-release (Mac x86_64)",
-          id: "mac_x86_64_pre_release",
-          if: "startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')",
-          run: [
-            "cd target/release",
-            "zip -r dprint-x86_64-apple-darwin.zip dprint",
-            "echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-apple-darwin.zip | awk '{print $1}')\"",
-          ].join("\n"),
-        },
-        {
-          name: "Pre-release (Mac aarch64)",
-          id: "mac_aarch64_pre_release",
-          if: "startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')",
-          run: [
-            "cd target/aarch64-apple-darwin/release",
-            "zip -r dprint-aarch64-apple-darwin.zip dprint",
-            "echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-aarch64-apple-darwin.zip | awk '{print $1}')\"",
-            "mv dprint-aarch64-apple-darwin.zip ../../release",
-          ].join("\n"),
-        },
-        {
-          name: "Pre-release (Windows x86_64)",
-          id: "windows_x86_64_pre_release",
-          if: "startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')",
-          run: [
-            "Compress-Archive -CompressionLevel Optimal -Force -Path target/release/dprint.exe -DestinationPath target/release/dprint-x86_64-pc-windows-msvc.zip",
-            "mv deployment/installer/dprint-x86_64-pc-windows-msvc-installer.exe target/release/dprint-x86_64-pc-windows-msvc-installer.exe",
-            "echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 target/release/dprint-x86_64-pc-windows-msvc.zip | awk '{print $1}')\"",
-            "echo \"::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/release/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')\"",
-          ].join("\n"),
-        },
-        {
-          name: "Upload Artifacts (Linux)",
-          uses: "actions/upload-artifact@v2",
-          if: "startsWith(matrix.config.os, 'ubuntu') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')",
-          with: {
-            name: "linux-artifacts",
-            path: [
-              "target/release/dprint-aarch64-unknown-linux-gnu.zip",
-              "target/release/dprint-x86_64-unknown-linux-gnu.zip",
-              "target/release/dprint-x86_64-unknown-linux-musl.zip",
-            ].join("\n"),
-          },
-        },
-        {
-          name: "Upload Artifacts (Mac)",
-          uses: "actions/upload-artifact@v2",
-          if: "startsWith(matrix.config.os, 'macOS') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')",
-          with: {
-            name: "mac-artifacts",
-            path: [
-              "target/release/dprint-aarch64-apple-darwin.zip",
-              "target/release/dprint-x86_64-apple-darwin.zip",
-            ].join("\n"),
-          },
-        },
-        {
-          name: "Upload Artifacts (Windows)",
-          uses: "actions/upload-artifact@v2",
-          if: "startsWith(matrix.config.os, 'windows') && matrix.config.kind == 'test_release' && startsWith(github.ref, 'refs/tags/')",
-          with: {
-            name: "windows-artifacts",
-            path: [
-              "target/release/dprint-x86_64-pc-windows-msvc.zip",
-              "target/release/dprint-x86_64-pc-windows-msvc-installer.exe",
-            ].join("\n"),
-          },
-        },
-        { name: "Test shell installer", run: ["cd website/src/assets", "chmod +x install.sh", "./install.sh"].join("\n") },
         {
           name: "Test powershell installer (Windows)",
           if: "startsWith(matrix.config.os, 'windows')",
@@ -212,10 +223,8 @@ const ci = {
           name: "Test npm",
           run: [
             "cd deployment/npm",
-            "curl --fail --location --progress-bar --output \"SHASUMS256.txt\" \"https://github.com/dprint/dprint/releases/download/0.30.2/SHASUMS256.txt\"",
-            "# temporary until a musl release is done",
-            "echo \"837859756888e579189459fb309a5a20a3c19e870254184a43d23a9f2ce12748 dprint-x86_64-unknown-linux-musl.zip\" >> SHASUMS256.txt",
-            "node setup.js 0.30.2",
+            "curl --fail --location --progress-bar --output \"SHASUMS256.txt\" \"https://github.com/dprint/dprint/releases/download/0.34.1/SHASUMS256.txt\"",
+            "node setup.js 0.34.1",
             "npm install",
             "node bin.js -v",
           ].join("\n"),
@@ -239,27 +248,27 @@ const ci = {
         },
         {
           name: "Output checksums",
-          run: [
-            "echo \"Linux x86_64 Zip: ${{needs.build.outputs.LINUX_X86_64_ZIP_CHECKSUM}}\"",
-            "echo \"Linux x86_64-musl Zip: ${{needs.build.outputs.LINUX_X86_64_MUSL_ZIP_CHECKSUM}}\"",
-            "echo \"Linux aarch64 Zip: ${{needs.build.outputs.LINUX_AARCH64_ZIP_CHECKSUM}}\"",
-            "echo \"Mac x86_64 Zip: ${{needs.build.outputs.MAX_X86_64_ZIP_CHECKSUM}}\"",
-            "echo \"Mac aarch64 Zip: ${{needs.build.outputs.MAX_AARCH64_ZIP_CHECKSUM}}\"",
-            "echo \"Windows x86_64 Zip: ${{needs.build.outputs.WINDOWS_X86_64_ZIP_CHECKSUM}}\"",
-            "echo \"Windows x86_64 Installer: ${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}}\"",
-          ].join("\n"),
+          run: profiles.map(profile => {
+            const output = [
+              `echo "${profile.zipFileName}: \${{needs.build.outputs.${profile.zipChecksumEnvVarName}}}"`,
+            ];
+            if (profile.os === OperatingSystem.Windows) {
+              output.push(`echo "${profile.installerFileName}: \${{needs.build.outputs.${profile.installerChecksumEnvVarName}}}"`);
+            }
+            return output;
+          }).flat().join("\n"),
         },
         {
           name: "Create SHASUMS256.txt file",
-          run: [
-            "echo \"${{needs.build.outputs.WINDOWS_X86_64_ZIP_CHECKSUM}} dprint-x86_64-pc-windows-msvc.zip\" > SHASUMS256.txt",
-            "echo \"${{needs.build.outputs.LINUX_X86_64_ZIP_CHECKSUM}} dprint-x86_64-unknown-linux-gnu.zip\" >> SHASUMS256.txt",
-            "echo \"${{needs.build.outputs.LINUX_X86_64_MUSL_ZIP_CHECKSUM}} dprint-x86_64-unknown-linux-musl.zip\" >> SHASUMS256.txt",
-            "echo \"${{needs.build.outputs.LINUX_AARCH64_ZIP_CHECKSUM}} dprint-aarch64-unknown-linux-gnu.zip\" >> SHASUMS256.txt",
-            "echo \"${{needs.build.outputs.MAX_X86_64_ZIP_CHECKSUM}} dprint-x86_64-apple-darwin.zip\" >> SHASUMS256.txt",
-            "echo \"${{needs.build.outputs.MAX_AARCH64_ZIP_CHECKSUM}} dprint-aarch64-apple-darwin.zip\" >> SHASUMS256.txt",
-            "echo \"${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}} dprint-x86_64-pc-windows-msvc-installer.exe\" >> SHASUMS256.txt",
-          ].join("\n"),
+          run: profiles.map(profile => {
+            const output = [
+              `echo "\${{needs.build.outputs.${profile.zipChecksumEnvVarName}}} ${profile.zipFileName}" > SHASUMS256.txt`,
+            ];
+            if (profile.os === OperatingSystem.Windows) {
+              output.push(`echo "\${{needs.build.outputs.${profile.installerChecksumEnvVarName}}} ${profile.installerFileName}" > SHASUMS256.txt`);
+            }
+            return output;
+          }).flat().join("\n"),
         },
         {
           name: "Draft release",
@@ -268,16 +277,17 @@ const ci = {
             GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}",
           },
           with: {
-            files: [
-              "windows-artifacts/dprint-x86_64-pc-windows-msvc.zip",
-              "windows-artifacts/dprint-x86_64-pc-windows-msvc-installer.exe",
-              "linux-artifacts/dprint-x86_64-unknown-linux-gnu.zip",
-              "linux-artifacts/dprint-x86_64-unknown-linux-musl.zip",
-              "linux-artifacts/dprint-aarch64-unknown-linux-gnu.zip",
-              "mac-artifacts/dprint-x86_64-apple-darwin.zip",
-              "mac-artifacts/dprint-aarch64-apple-darwin.zip",
-              "SHASUMS256.txt",
-            ].join("\n"),
+            files: profiles.map(profile => {
+              const output = [
+                `${profile.artifactsName}/${profile.zipFileName}`,
+              ];
+              if (profile.os === OperatingSystem.Windows) {
+                output.push(
+                  `${profile.artifactsName}/${profile.installerFileName}`,
+                );
+              }
+              return output;
+            }).flat().join("\n"),
             body: `## Changes
 
 * TODO
@@ -290,13 +300,19 @@ Run \`dprint upgrade\` or see https://dprint.dev/install/
 
 |Artifact|SHA-256 Checksum|
 |:--|:--|
-|Linux x86_64 Zip|\${{needs.build.outputs.LINUX_X86_64_ZIP_CHECKSUM}}|
-|Linux x86_64-musl Zip|\${{needs.build.outputs.LINUX_X86_64_MUSL_ZIP_CHECKSUM}}|
-|Linux aarch64 Zip|\${{needs.build.outputs.LINUX_AARCH64_ZIP_CHECKSUM}}|
-|Mac x86_64 Zip|\${{needs.build.outputs.MAX_X86_64_ZIP_CHECKSUM}}|
-|Mac aarch64 Zip|\${{needs.build.outputs.MAX_AARCH64_ZIP_CHECKSUM}}|
-|Windows x86_64 Zip|\${{needs.build.outputs.WINDOWS_X86_64_ZIP_CHECKSUM}}|
-|Windows x86_64 Installer|\${{needs.build.outputs.WINDOWS_INSTALLER_CHECKSUM}}|
+${
+              profiles.map(profile => {
+                const output = [
+                  [`${profile.zipFileName}`, profile.zipChecksumEnvVarName],
+                ];
+                if (profile.os === OperatingSystem.Windows) {
+                  output.push(
+                    [`${profile.installerFileName}`, profile.installerChecksumEnvVarName],
+                  );
+                }
+                return output.map(([name, envVar]) => `|${name}|\${{needs.build.outputs.${envVar}}}|`);
+              }).flat().join("\n")
+            }
 `,
             draft: true,
           },
