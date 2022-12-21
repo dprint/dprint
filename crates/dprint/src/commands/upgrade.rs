@@ -28,12 +28,14 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
   environment.log(&format!("Upgrading from {} to {}...", current_version, latest_version));
 
   let exe_path = environment.current_exe()?;
-  for component in exe_path.components() {
-    let component = component.as_os_str().to_string_lossy().to_lowercase();
+  let mut components = exe_path.components().map(|c| c.as_os_str().to_string_lossy().to_lowercase()).peekable();
+  while let Some(component) = components.next() {
     if component == "node_modules" {
       bail!("Cannot upgrade with `dprint upgrade` when the dprint executable is within a node_modules folder. Upgrade with npm instead.");
     } else if component == ".cargo" {
       bail!("It looks like you might have installed dprint with cargo install. Upgrade with cargo instead.");
+    } else if component == "deno" && matches!(components.peek().map(|c| c.as_str()), Some("npm")) {
+      bail!("It looks like you might have installed dprint with Deno. Upgrade by running the following instead: deno install -A -f npm:dprint");
     }
   }
   if exe_path.starts_with("/usr/local/Cellar/") {
@@ -203,6 +205,22 @@ mod test {
     assert_eq!(
       err.to_string(),
       "It looks like you might have installed dprint with cargo install. Upgrade with cargo instead.",
+    );
+    assert_eq!(environment.take_stdout_messages(), vec!["Upgrading from 0.0.0 to 0.1.0..."]);
+  }
+
+  #[test]
+  fn should_upgrade_and_fail_deno_install() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file("https://plugins.dprint.dev/cli.json", r#"{ "version": "0.1.0" }"#.as_bytes());
+    environment.set_current_exe_path("/usr/local/deno/npm/registry.npmjs.org/dprint/0.34.0/dprint");
+    let err = run_test_cli(vec!["upgrade"], &environment).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      concat!(
+        "It looks like you might have installed dprint with Deno. ",
+        "Upgrade by running the following instead: deno install -A -f npm:dprint",
+      ),
     );
     assert_eq!(environment.take_stdout_messages(), vec!["Upgrading from 0.0.0 to 0.1.0..."]);
   }
