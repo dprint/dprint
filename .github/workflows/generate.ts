@@ -151,7 +151,7 @@ const ci = {
         {
           name: "Create installer (Windows x86_64)",
           uses: "joncloud/makensis-action@v2.0",
-          if: "startsWith(matrix.config.os, 'windows') && startsWith(github.ref, 'refs/tags/')",
+          if: "startsWith(matrix.config.os, 'windows')",
           with: { "script-file": "${{ github.workspace }}/deployment/installer/dprint-installer.nsi" },
         },
         // zip files
@@ -182,7 +182,7 @@ const ci = {
           return {
             name: `Pre-release (${profile.target})`,
             id: `pre_release_${profile.target.replaceAll("-", "_")}`,
-            if: `matrix.config.target == '${profile.target}' && startsWith(github.ref, 'refs/tags/')`,
+            if: `matrix.config.target == '${profile.target}'`,
             run: getRunSteps().join("\n"),
           };
         }),
@@ -202,7 +202,7 @@ const ci = {
 
           return {
             name: `Upload artifacts (${profile.target})`,
-            if: `matrix.config.target == '${profile.target}' && startsWith(github.ref, 'refs/tags/')`,
+            if: `matrix.config.target == '${profile.target}'`,
             uses: "actions/upload-artifact@v2",
             with: {
               name: profile.artifactsName,

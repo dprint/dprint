@@ -84,26 +84,26 @@ jobs:
         run: cargo test --locked --all-features --release
       - name: Create installer (Windows x86_64)
         uses: joncloud/makensis-action@v2.0
-        if: 'startsWith(matrix.config.os, ''windows'') && startsWith(github.ref, ''refs/tags/'')'
+        if: 'startsWith(matrix.config.os, ''windows'')'
         with:
           script-file: '${{ github.workspace }}/deployment/installer/dprint-installer.nsi'
       - name: Pre-release (x86_64-apple-darwin)
         id: pre_release_x86_64_apple_darwin
-        if: 'matrix.config.target == ''x86_64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
+        if: matrix.config.target == 'x86_64-apple-darwin'
         run: |-
           cd target/x86_64-apple-darwin/release
           zip -r dprint-x86_64-apple-darwin.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-apple-darwin.zip | awk '{print $1}')"
       - name: Pre-release (aarch64-apple-darwin)
         id: pre_release_aarch64_apple_darwin
-        if: 'matrix.config.target == ''aarch64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
+        if: matrix.config.target == 'aarch64-apple-darwin'
         run: |-
           cd target/aarch64-apple-darwin/release
           zip -r dprint-aarch64-apple-darwin.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-aarch64-apple-darwin.zip | awk '{print $1}')"
       - name: Pre-release (x86_64-pc-windows-msvc)
         id: pre_release_x86_64_pc_windows_msvc
-        if: 'matrix.config.target == ''x86_64-pc-windows-msvc'' && startsWith(github.ref, ''refs/tags/'')'
+        if: matrix.config.target == 'x86_64-pc-windows-msvc'
         run: |-
           Compress-Archive -CompressionLevel Optimal -Force -Path target/x86_64-pc-windows-msvc/release/dprint.exe -DestinationPath target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc.zip
           mv deployment/installer/dprint-x86_64-pc-windows-msvc-installer.exe target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe
@@ -111,39 +111,39 @@ jobs:
           echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')"
       - name: Pre-release (x86_64-unknown-linux-gnu)
         id: pre_release_x86_64_unknown_linux_gnu
-        if: 'matrix.config.target == ''x86_64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: matrix.config.target == 'x86_64-unknown-linux-gnu'
         run: |-
           cd target/x86_64-unknown-linux-gnu/release
           zip -r dprint-x86_64-unknown-linux-gnu.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-unknown-linux-gnu.zip | awk '{print $1}')"
       - name: Pre-release (x86_64-unknown-linux-musl)
         id: pre_release_x86_64_unknown_linux_musl
-        if: 'matrix.config.target == ''x86_64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
+        if: matrix.config.target == 'x86_64-unknown-linux-musl'
         run: |-
           cd target/x86_64-unknown-linux-musl/release
           zip -r dprint-x86_64-unknown-linux-musl.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-unknown-linux-musl.zip | awk '{print $1}')"
       - name: Pre-release (aarch64-unknown-linux-gnu)
         id: pre_release_aarch64_unknown_linux_gnu
-        if: 'matrix.config.target == ''aarch64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: matrix.config.target == 'aarch64-unknown-linux-gnu'
         run: |-
           cd target/aarch64-unknown-linux-gnu/release
           zip -r dprint-aarch64-unknown-linux-gnu.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-aarch64-unknown-linux-gnu.zip | awk '{print $1}')"
       - name: Upload artifacts (x86_64-apple-darwin)
-        if: 'matrix.config.target == ''x86_64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
+        if: matrix.config.target == 'x86_64-apple-darwin'
         uses: actions/upload-artifact@v2
         with:
           name: x86_64-apple-darwin-artifacts
           path: target/x86_64-apple-darwin/release/dprint-x86_64-apple-darwin.zip
       - name: Upload artifacts (aarch64-apple-darwin)
-        if: 'matrix.config.target == ''aarch64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
+        if: matrix.config.target == 'aarch64-apple-darwin'
         uses: actions/upload-artifact@v2
         with:
           name: aarch64-apple-darwin-artifacts
           path: target/aarch64-apple-darwin/release/dprint-aarch64-apple-darwin.zip
       - name: Upload artifacts (x86_64-pc-windows-msvc)
-        if: 'matrix.config.target == ''x86_64-pc-windows-msvc'' && startsWith(github.ref, ''refs/tags/'')'
+        if: matrix.config.target == 'x86_64-pc-windows-msvc'
         uses: actions/upload-artifact@v2
         with:
           name: x86_64-pc-windows-msvc-artifacts
@@ -151,19 +151,19 @@ jobs:
             target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc.zip
             target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe
       - name: Upload artifacts (x86_64-unknown-linux-gnu)
-        if: 'matrix.config.target == ''x86_64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: matrix.config.target == 'x86_64-unknown-linux-gnu'
         uses: actions/upload-artifact@v2
         with:
           name: x86_64-unknown-linux-gnu-artifacts
           path: target/x86_64-unknown-linux-gnu/release/dprint-x86_64-unknown-linux-gnu.zip
       - name: Upload artifacts (x86_64-unknown-linux-musl)
-        if: 'matrix.config.target == ''x86_64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
+        if: matrix.config.target == 'x86_64-unknown-linux-musl'
         uses: actions/upload-artifact@v2
         with:
           name: x86_64-unknown-linux-musl-artifacts
           path: target/x86_64-unknown-linux-musl/release/dprint-x86_64-unknown-linux-musl.zip
       - name: Upload artifacts (aarch64-unknown-linux-gnu)
-        if: 'matrix.config.target == ''aarch64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: matrix.config.target == 'aarch64-unknown-linux-gnu'
         uses: actions/upload-artifact@v2
         with:
           name: aarch64-unknown-linux-gnu-artifacts
