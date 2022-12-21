@@ -26,7 +26,7 @@ function install() {
   const zipFilePath = path.join(__dirname, "dprint.zip");
 
   const target = getTarget();
-  const url = "https://github.com/dprint/dprint/releases/download/"
+  const downloadUrl = "https://github.com/dprint/dprint/releases/download/"
     + info.version
     + "/dprint-" + target + ".zip";
 
@@ -38,7 +38,7 @@ function install() {
   }
 
   // now try to download it
-  return downloadZipFileWithRetries(url).then(() => {
+  return downloadZipFileWithRetries(downloadUrl).then(() => {
     verifyZipChecksum();
     return extractZipFile().then(() => {
       // todo: how to just +x? does it matter?
@@ -130,18 +130,23 @@ function install() {
   }
 
   function getProxyUrl(requestUrl) {
-    const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-    if (typeof proxyUrl !== "string" || proxyUrl.length === 0) {
-      return undefined;
-    }
-    if (typeof process.env.NO_PROXY === "string") {
-      const noProxyAddresses = process.env.NO_PROXY.split(",");
-      const host = url.parse(requestUrl).host;
-      if (noProxyAddresses.indexOf(host) >= 0) {
+    try {
+      const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+      if (typeof proxyUrl !== "string" || proxyUrl.length === 0) {
         return undefined;
       }
+      if (typeof process.env.NO_PROXY === "string") {
+        const noProxyAddresses = process.env.NO_PROXY.split(",");
+        const host = url.parse(requestUrl).host;
+        if (noProxyAddresses.indexOf(host) >= 0) {
+          return undefined;
+        }
+      }
+      return proxyUrl;
+    } catch (err) {
+      console.error("[dprint]: Error getting proxy url.", err);
+      return undefined;
     }
-    return proxyUrl;
   }
 
   function verifyZipChecksum() {

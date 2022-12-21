@@ -10,7 +10,11 @@ const exePath = path.join(__dirname, os.platform() === "win32" ? "dprint.exe" : 
 
 if (!fs.existsSync(exePath)) {
   require("./install_api").runInstall().then(() => {
-    runDprintExe();
+    // I'm not sure why (I think due zip extraction), but the executable
+    // doesn't seem fully ready unless waiting for the next tick
+    setTimeout(() => {
+      runDprintExe();
+    }, 100); // 100 for good measure
   }).catch(err => {
     console.error(err);
     process.exit(1);
