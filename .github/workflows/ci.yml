@@ -54,10 +54,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install wasm32 target
-        run: rustup target add wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v1
-        if: 'startsWith(matrix.config.os, ''ubuntu'') == false'
+        targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
       - name: Build test plugins
         if: matrix.config.run_tests == 'true'
         run: |-

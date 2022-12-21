@@ -102,10 +102,11 @@ const ci = {
       ),
       steps: [
         { name: "Checkout", uses: "actions/checkout@v2" },
-        { uses: "dtolnay/rust-toolchain@stable" },
-        { name: "Install wasm32 target", run: "rustup target add wasm32-unknown-unknown" },
-        // todo: re-enable this for ubuntu... was having cache issues with glib
-        { uses: "Swatinem/rust-cache@v1", if: "startsWith(matrix.config.os, 'ubuntu') == false" },
+        {
+          uses: "dtolnay/rust-toolchain@stable",
+          targets: "wasm32-unknown-unknown",
+        },
+        { uses: "Swatinem/rust-cache@v2" },
         {
           name: "Build test plugins",
           if: "matrix.config.run_tests == 'true'",
