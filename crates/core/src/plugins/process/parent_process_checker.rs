@@ -93,9 +93,21 @@ mod test {
   }
 
   fn get_dprint_exe() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR").to_string())
-      .join("../../target")
-      .join(if cfg!(debug_assertions) { "debug" } else { "release" })
-      .join(if cfg!(target_os = "windows") { "dprint.exe" } else { "dprint" })
+    let target_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR").to_string()).join("../../target");
+    let profile_dir_name = if cfg!(debug_assertions) { "debug" } else { "release" };
+    let exe_name = if cfg!(target_os = "windows") { "dprint.exe" } else { "dprint" };
+    let child_dir = target_dir.join(profile_dir_name);
+    if !child_dir.exists() {
+      for dir in std::fs::read_dir(&target_dir).unwrap() {
+        let entry = dir.unwrap();
+        if entry.file_type().unwrap().is_dir() {
+          let exe_path = entry.path().join(profile_dir_name).join(exe_name);
+          if exe_path.exists() {
+            return exe_path;
+          }
+        }
+      }
+    }
+    child_dir.join(exe_name)
   }
 }
