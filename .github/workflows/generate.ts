@@ -129,7 +129,6 @@ const ci = {
             "sudo apt update",
             "sudo apt install -y gcc-aarch64-linux-gnu",
             "rustup target add aarch64-unknown-linux-gnu",
-            "export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc",
           ].join("\n"),
         },
         {
@@ -139,7 +138,10 @@ const ci = {
         },
         {
           name: "Build release",
-          run: "cargo build -p dprint --locked --all-features --release --target ${{matrix.config.target}}",
+          run: [
+            "export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc",
+            "cargo build -p dprint --locked --all-features --release --target ${{matrix.config.target}}",
+          ].join("\n"),
         },
         {
           name: "Test",
