@@ -102,17 +102,13 @@ const ci = {
       ),
       steps: [
         { name: "Checkout", uses: "actions/checkout@v2" },
-        {
-          uses: "dtolnay/rust-toolchain@stable",
-          with: {
-            targets: "wasm32-unknown-unknown",
-          },
-        },
+        { uses: "dtolnay/rust-toolchain@stable" },
         { uses: "Swatinem/rust-cache@v2" },
         {
           name: "Build test plugins",
           if: "matrix.config.run_tests == 'true'",
           run: [
+            "rustup target add wasm32-unknown-unknown",
             "cargo build --manifest-path=crates/test-plugin/Cargo.toml --release --target=wasm32-unknown-unknown",
             "cargo build --manifest-path=crates/test-process-plugin/Cargo.toml --release --locked",
           ].join("\n"),
