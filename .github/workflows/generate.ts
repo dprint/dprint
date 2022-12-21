@@ -199,6 +199,7 @@ const ci = {
           return {
             name: `Upload artifacts (${profile.target})`,
             if: `matrix.config.kind == '${profile.target}' && startsWith(github.ref, 'refs/tags/')`,
+            uses: "actions/upload-artifact@v2",
             with: {
               name: profile.artifactsName,
               path: getArtifactPaths().join("\n"),
