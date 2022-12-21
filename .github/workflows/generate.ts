@@ -240,18 +240,12 @@ const ci = {
     },
     draft_release: {
       name: "draft_release",
-      if: "startsWith(github.ref, 'refs/tags/')",
       needs: "build",
       "runs-on": "ubuntu-latest",
       steps: [
         {
           name: "Download artifacts",
           uses: "actions/download-artifact@v2",
-        },
-        {
-          name: "Get tag version",
-          id: "get_tag_version",
-          run: "echo ::set-output name=TAG_VERSION::${GITHUB_REF/refs\\/tags\\//}",
         },
         {
           name: "Output checksums",
