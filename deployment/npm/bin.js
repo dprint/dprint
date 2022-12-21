@@ -14,7 +14,7 @@ if (!fs.existsSync(exePath)) {
     // doesn't seem fully ready unless waiting for the next tick
     setTimeout(() => {
       runDprintExe();
-    }, 100); // 100 for good measure
+    }, 0);
   }).catch(err => {
     console.error(err);
     process.exit(1);
