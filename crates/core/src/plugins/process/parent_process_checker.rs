@@ -74,11 +74,9 @@ mod test {
 
   #[test]
   fn should_tell_when_process_active() {
-    if !get_dprint_exe().exists() {
-      panic!("Please run `cargo build` before running the tests.")
-    }
+    let dprint_exe = get_dprint_exe();
     // launch a long running process
-    let mut child = Command::new(get_dprint_exe())
+    let mut child = Command::new(dprint_exe)
       .arg("editor-service")
       .arg("--parent-pid")
       .arg(std::process::id().to_string())
@@ -93,9 +91,21 @@ mod test {
   }
 
   fn get_dprint_exe() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR").to_string())
-      .join("../../target")
-      .join(if cfg!(debug_assertions) { "debug" } else { "release" })
-      .join(if cfg!(target_os = "windows") { "dprint.exe" } else { "dprint" })
+    let target_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR").to_string()).join("../../target");
+    let profile_dir_name = if cfg!(debug_assertions) { "debug" } else { "release" };
+    let exe_name = if cfg!(target_os = "windows") { "dprint.exe" } else { "dprint" };
+    let exe_path = target_dir.join(profile_dir_name).join(exe_name);
+    if !exe_path.exists() {
+      for dir in std::fs::read_dir(&target_dir).unwrap() {
+        let entry = dir.unwrap();
+        if entry.file_type().unwrap().is_dir() {
+          let exe_path = entry.path().join(profile_dir_name).join(exe_name);
+          if exe_path.exists() {
+            return exe_path;
+          }
+        }
+      }
+    }
+    panic!("Please run `cargo build` before running the tests.")
   }
 }

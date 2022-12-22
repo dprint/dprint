@@ -36,7 +36,11 @@ pub fn get_test_safe_executable_path(executable_file_path: PathBuf, environment:
       temp_process_plugin_file
     } else {
       // couldn't figure out how to do chmod +x on a file in rust
-      PathBuf::from("../../target/release/test-process-plugin")
+      if cfg!(debug_assertions) {
+        PathBuf::from("../../target/debug/test-process-plugin")
+      } else {
+        PathBuf::from("../../target/release/test-process-plugin")
+      }
     }
   }
 }
