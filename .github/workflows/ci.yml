@@ -221,6 +221,7 @@ jobs:
             x86_64-unknown-linux-gnu-artifacts/dprint-x86_64-unknown-linux-gnu.zip
             x86_64-unknown-linux-musl-artifacts/dprint-x86_64-unknown-linux-musl.zip
             aarch64-unknown-linux-gnu-artifacts/dprint-aarch64-unknown-linux-gnu.zip
+            SHASUMS256.txt
           body: |
             ## Changes
 

@@ -274,17 +274,20 @@ const ci = {
             GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}",
           },
           with: {
-            files: profiles.map(profile => {
-              const output = [
-                `${profile.artifactsName}/${profile.zipFileName}`,
-              ];
-              if (profile.os === OperatingSystem.Windows) {
-                output.push(
-                  `${profile.artifactsName}/${profile.installerFileName}`,
-                );
-              }
-              return output;
-            }).flat().join("\n"),
+            files: [
+              ...profiles.map(profile => {
+                const output = [
+                  `${profile.artifactsName}/${profile.zipFileName}`,
+                ];
+                if (profile.os === OperatingSystem.Windows) {
+                  output.push(
+                    `${profile.artifactsName}/${profile.installerFileName}`,
+                  );
+                }
+                return output;
+              }).flat(),
+              "SHASUMS256.txt",
+            ].join("\n"),
             body: `## Changes
 
 * TODO
