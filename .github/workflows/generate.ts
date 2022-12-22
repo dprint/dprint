@@ -105,9 +105,14 @@ const ci = {
         { uses: "dtolnay/rust-toolchain@stable" },
         { uses: "Swatinem/rust-cache@v2" },
         {
-          name: "Build test plugins",
-          if: "matrix.config.run_tests == 'true'",
-          run: "cargo build --manifest-path=crates/test-process-plugin/Cargo.toml --release --locked",
+          name: "Build test plugins (Debug)",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
+          run: "cargo build --manifest-path=crates/test-process-plugin/Cargo.toml --locked",
+        },
+        {
+          name: "Build test plugins (Release)",
+          if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
+          run: "cargo build --manifest-path=crates/test-process-plugin/Cargo.toml --locked --release",
         },
         {
           name: "Setup (Linux x86_64-musl)",
@@ -133,23 +138,39 @@ const ci = {
           run: "rustup target add aarch64-apple-darwin",
         },
         {
-          name: "Build release",
+          name: "Build (Debug)",
+          if: "!startsWith(github.ref, 'refs/tags/')",
           env: {
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
           },
           run: [
-            "cargo build -p dprint --locked --release --target ${{matrix.config.target}}",
+            "cargo build -p dprint --locked --target ${{matrix.config.target}}",
           ].join("\n"),
         },
         {
-          name: "Test",
-          if: "matrix.config.run_tests == 'true'",
+          name: "Build (Release)",
+          if: "startsWith(github.ref, 'refs/tags/')",
+          env: {
+            "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
+          },
+          run: [
+            "cargo build -p dprint --locked --target ${{matrix.config.target}} --release",
+          ].join("\n"),
+        },
+        {
+          name: "Test (Debug)",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
+          run: "cargo test --locked --all-features",
+        },
+        {
+          name: "Test (Release)",
+          if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
           run: "cargo test --locked --all-features --release",
         },
         {
           name: "Create installer (Windows x86_64)",
           uses: "joncloud/makensis-action@v2.0",
-          if: "startsWith(matrix.config.os, 'windows')",
+          if: "startsWith(matrix.config.os, 'windows') && startsWith(github.ref, 'refs/tags/')",
           with: { "script-file": "${{ github.workspace }}/deployment/installer/dprint-installer.nsi" },
         },
         // zip files
@@ -180,7 +201,7 @@ const ci = {
           return {
             name: `Pre-release (${profile.target})`,
             id: `pre_release_${profile.target.replaceAll("-", "_")}`,
-            if: `matrix.config.target == '${profile.target}'`,
+            if: `matrix.config.target == '${profile.target}' && startsWith(github.ref, 'refs/tags/')`,
             run: getRunSteps().join("\n"),
           };
         }),
@@ -200,7 +221,7 @@ const ci = {
 
           return {
             name: `Upload artifacts (${profile.target})`,
-            if: `matrix.config.target == '${profile.target}'`,
+            if: `matrix.config.target == '${profile.target}' && startsWith(github.ref, 'refs/tags/')`,
             uses: "actions/upload-artifact@v2",
             with: {
               name: profile.artifactsName,
@@ -236,6 +257,7 @@ const ci = {
     },
     draft_release: {
       name: "draft_release",
+      if: "startsWith(github.ref, 'refs/tags/')",
       needs: "build",
       "runs-on": "ubuntu-latest",
       steps: [
