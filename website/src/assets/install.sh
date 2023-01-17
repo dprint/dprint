@@ -18,7 +18,6 @@ else
 	"Linux aarch64") target="aarch64-unknown-linux-gnu" ;;
 	*)
 		is_musl=$(ldd /bin/sh | grep 'musl' || true)
-		echo "Testing: $is_musl"
 		if [ -z "$is_musl" ]; then
 			target="x86_64-unknown-linux-gnu"
 		else
