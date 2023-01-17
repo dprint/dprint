@@ -95,7 +95,9 @@ mod test {
     let profile_dir_name = if cfg!(debug_assertions) { "debug" } else { "release" };
     let exe_name = if cfg!(target_os = "windows") { "dprint.exe" } else { "dprint" };
     let exe_path = target_dir.join(profile_dir_name).join(exe_name);
-    if !exe_path.exists() {
+    if exe_path.exists() {
+      return exe_path;
+    } else {
       for dir in std::fs::read_dir(&target_dir).unwrap() {
         let entry = dir.unwrap();
         if entry.file_type().unwrap().is_dir() {
