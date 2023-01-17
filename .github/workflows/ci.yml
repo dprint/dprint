@@ -11,7 +11,7 @@ on:
     tags:
       - '*'
 concurrency:
-  group: '${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}'
+  group: '${{ github.workflow }}-${{ github.head_ref || github.run_id }}'
   cancel-in-progress: true
 jobs:
   build:
@@ -215,12 +215,12 @@ jobs:
       - name: Create SHASUMS256.txt file
         run: |-
           echo "${{needs.build.outputs.ZIP_CHECKSUM_X86_64_APPLE_DARWIN}} dprint-x86_64-apple-darwin.zip" > SHASUMS256.txt
-          echo "${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_APPLE_DARWIN}} dprint-aarch64-apple-darwin.zip" > SHASUMS256.txt
-          echo "${{needs.build.outputs.ZIP_CHECKSUM_X86_64_PC_WINDOWS_MSVC}} dprint-x86_64-pc-windows-msvc.zip" > SHASUMS256.txt
-          echo "${{needs.build.outputs.INSTALLER_CHECKSUM_X86_64_PC_WINDOWS_MSVC}} dprint-x86_64-pc-windows-msvc-installer.exe" > SHASUMS256.txt
-          echo "${{needs.build.outputs.ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_GNU}} dprint-x86_64-unknown-linux-gnu.zip" > SHASUMS256.txt
-          echo "${{needs.build.outputs.ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_MUSL}} dprint-x86_64-unknown-linux-musl.zip" > SHASUMS256.txt
-          echo "${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_GNU}} dprint-aarch64-unknown-linux-gnu.zip" > SHASUMS256.txt
+          echo "${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_APPLE_DARWIN}} dprint-aarch64-apple-darwin.zip" >> SHASUMS256.txt
+          echo "${{needs.build.outputs.ZIP_CHECKSUM_X86_64_PC_WINDOWS_MSVC}} dprint-x86_64-pc-windows-msvc.zip" >> SHASUMS256.txt
+          echo "${{needs.build.outputs.INSTALLER_CHECKSUM_X86_64_PC_WINDOWS_MSVC}} dprint-x86_64-pc-windows-msvc-installer.exe" >> SHASUMS256.txt
+          echo "${{needs.build.outputs.ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_GNU}} dprint-x86_64-unknown-linux-gnu.zip" >> SHASUMS256.txt
+          echo "${{needs.build.outputs.ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_MUSL}} dprint-x86_64-unknown-linux-musl.zip" >> SHASUMS256.txt
+          echo "${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_GNU}} dprint-aarch64-unknown-linux-gnu.zip" >> SHASUMS256.txt
       - name: Draft release
         uses: softprops/action-gh-release@v1
         env:

@@ -63,7 +63,7 @@ const ci = {
   },
   concurrency: {
     // https://stackoverflow.com/a/72408109/188246
-    group: "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
+    group: "${{ github.workflow }}-${{ github.head_ref || github.run_id }}",
     "cancel-in-progress": true,
   },
   jobs: {
