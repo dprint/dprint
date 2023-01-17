@@ -123,9 +123,17 @@ impl Logger {
   fn inner_log(&self, state: &mut LoggerState, is_std_out: bool, text: &str, context_name: &str) {
     let mut stderr_text = String::new();
     let mut stdout_text = String::new();
-    let terminal_size = state.static_text.console_size();
-    if let Some(text) = state.static_text.render_clear_with_size(terminal_size) {
-      stderr_text = text;
+
+    // only get the terminal size if there are refresh items
+    let terminal_size = if state.refresh_items.is_empty() {
+      None
+    } else {
+      Some(state.static_text.console_size())
+    };
+    if let Some(terminal_size) = terminal_size {
+      if let Some(text) = state.static_text.render_clear_with_size(terminal_size) {
+        stderr_text = text;
+      }
     }
 
     let mut output_text = String::new();
@@ -150,8 +158,10 @@ impl Logger {
       stderr_text.push_str(&output_text);
     }
 
-    if let Some(text) = self.render_draw_items(state, terminal_size) {
-      stderr_text.push_str(&text);
+    if let Some(terminal_size) = terminal_size {
+      if let Some(text) = self.render_draw_items(state, terminal_size) {
+        stderr_text.push_str(&text);
+      }
     }
 
     if !stdout_text.is_empty() {
