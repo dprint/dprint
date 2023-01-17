@@ -94,7 +94,7 @@ function install() {
       }
 
       https.get(url, options, function(response) {
-        if (response.statusCode >= 200 && response.statusCode <= 299) {
+        if (response.statusCode != null && response.statusCode >= 200 && response.statusCode <= 299) {
           downloadResponse(response).then(resolve).catch(reject);
         } else if (response.headers.location) {
           downloadZipFile(response.headers.location).then(resolve).catch(reject);
@@ -121,7 +121,7 @@ function install() {
             if (err) {
               reject(err);
             } else {
-              resolve();
+              resolve(undefined);
             }
           });
         });
@@ -138,7 +138,7 @@ function install() {
       if (typeof process.env.NO_PROXY === "string") {
         const noProxyAddresses = process.env.NO_PROXY.split(",");
         const host = url.parse(requestUrl).host;
-        if (noProxyAddresses.indexOf(host) >= 0) {
+        if (host == null || noProxyAddresses.indexOf(host) >= 0) {
           return undefined;
         }
       }
@@ -165,14 +165,11 @@ function install() {
     }
 
     function getExpectedZipChecksum() {
-      switch (os.platform()) {
-        case "win32":
-          return info.checksums["windows-x86_64"];
-        case "darwin":
-          return info.checksums[`darwin-${getArch()}`];
-        default:
-          return info.checksums[`linux-${getArch()}-${getLinuxFamily()}`];
+      const checksum = info.checksums[getTarget()];
+      if (checksum == null) {
+        throw new Error("Could not find checksum for target: " + checksum);
       }
+      return checksum;
     }
   }
 
@@ -207,7 +204,7 @@ function install() {
                     reject(err);
                   });
                   writeStream.on("finish", () => {
-                    resolve();
+                    resolve(undefined);
                   });
                 });
               }),
