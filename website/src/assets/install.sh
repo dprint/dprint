@@ -17,8 +17,7 @@ else
 	"Darwin arm64") target="aarch64-apple-darwin" ;;
 	"Linux aarch64") target="aarch64-unknown-linux-gnu" ;;
 	*)
-		echo "Running"
-		is_musl=$(ldd /bin/sh | grep 'musl')
+		is_musl=$(ldd /bin/sh | grep 'musl' || true)
 		echo "Testing: $is_musl"
 		if [ -z "$is_musl" ]; then
 			target="x86_64-unknown-linux-gnu"
