@@ -279,12 +279,13 @@ const ci = {
         },
         {
           name: "Create SHASUMS256.txt file",
-          run: profiles.map(profile => {
+          run: profiles.map((profile, i) => {
+            const op = i === 0 ? ">" : ">>";
             const output = [
-              `echo "\${{needs.build.outputs.${profile.zipChecksumEnvVarName}}} ${profile.zipFileName}" > SHASUMS256.txt`,
+              `echo "\${{needs.build.outputs.${profile.zipChecksumEnvVarName}}} ${profile.zipFileName}" ${op} SHASUMS256.txt`,
             ];
             if (profile.os === OperatingSystem.Windows) {
-              output.push(`echo "\${{needs.build.outputs.${profile.installerChecksumEnvVarName}}} ${profile.installerFileName}" > SHASUMS256.txt`);
+              output.push(`echo "\${{needs.build.outputs.${profile.installerChecksumEnvVarName}}} ${profile.installerFileName}" >> SHASUMS256.txt`);
             }
             return output;
           }).flat().join("\n"),
