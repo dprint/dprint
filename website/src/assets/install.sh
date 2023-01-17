@@ -18,6 +18,7 @@ else
 	"Linux aarch64") target="aarch64-unknown-linux-gnu" ;;
 	*)
 		is_musl=$(ldd /bin/sh | grep 'musl')
+		echo "Testing: $is_musl"
 		if [ -z "$is_musl" ]; then
 			target="x86_64-unknown-linux-gnu"
 		else
@@ -25,6 +26,8 @@ else
 		fi ;;
 	esac
 fi
+
+echo "HERE"
 
 if [ $# -eq 0 ]; then
 	dprint_uri="https://github.com/dprint/dprint/releases/latest/download/dprint-${target}.zip"
