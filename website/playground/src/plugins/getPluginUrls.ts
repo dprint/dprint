@@ -27,6 +27,6 @@ export function getLanguageFromPluginUrl(url: string) {
     case "dockerfile":
       return language;
     default:
-      return "plaintext";
+      return undefined;
   }
 }

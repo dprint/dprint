@@ -148,7 +148,7 @@ export function Playground({
                 </div>
               </div>
               <CodeEditor
-                language={getLanguageFromPluginUrl(selectedPluginUrl)}
+                language={getLanguageFromPluginUrl(selectedPluginUrl) ?? "plaintext"}
                 onChange={onTextChanged}
                 text={text}
                 lineWidth={lineWidth}
@@ -171,7 +171,7 @@ export function Playground({
           <div className="container">
             {isLoading ? <Spinner /> : (
               <CodeEditor
-                language={getLanguageFromPluginUrl(selectedPluginUrl)}
+                language={getLanguageFromPluginUrl(selectedPluginUrl) ?? "plaintext"}
                 text={formattedText}
                 readonly={true}
                 lineWidth={lineWidth}
