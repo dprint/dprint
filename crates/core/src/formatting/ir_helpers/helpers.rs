@@ -34,7 +34,7 @@ pub fn with_queued_indent(item: PrintItems) -> PrintItems {
   items
 }
 
-pub fn with_indent_times(item: PrintItems, times: u32) -> PrintItems {
+pub fn with_indent_times(item: PrintItems, times: u8) -> PrintItems {
   if item.is_empty() {
     return item;
   }

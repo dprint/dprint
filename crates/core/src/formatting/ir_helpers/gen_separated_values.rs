@@ -31,39 +31,43 @@ pub enum BoolOrCondition {
 pub struct MultiLineOptions {
   pub newline_at_start: bool,
   pub newline_at_end: bool,
-  pub with_indent: bool,
+  pub indent_times: u8,
   pub with_hanging_indent: BoolOrCondition,
+  pub hanging_indent_times: u8,
   pub maintain_line_breaks: bool,
 }
 
 impl MultiLineOptions {
-  pub fn new_line_start() -> Self {
+  pub fn new_line_start(hanging_indent_times: u8) -> Self {
     // todo: rename: newlinestarewithindent
     MultiLineOptions {
       newline_at_start: true,
       newline_at_end: false,
-      with_indent: true,
+      indent_times: 1,
       with_hanging_indent: BoolOrCondition::Bool(false),
+      hanging_indent_times,
       maintain_line_breaks: false,
     }
   }
 
-  pub fn surround_newlines_indented() -> Self {
+  pub fn surround_newlines_indented_times(indent_times: u8, hanging_indent_times: u8) -> Self {
     MultiLineOptions {
       newline_at_start: true,
       newline_at_end: true,
-      with_indent: true,
+      indent_times,
       with_hanging_indent: BoolOrCondition::Bool(false),
+      hanging_indent_times: hanging_indent_times,
       maintain_line_breaks: false,
     }
   }
 
-  pub fn same_line_start_hanging_indent() -> Self {
+  pub fn same_line_start_hanging_indent(hanging_indent_times: u8) -> Self {
     MultiLineOptions {
       newline_at_start: false,
       newline_at_end: false,
-      with_indent: false,
+      indent_times: 0,
       with_hanging_indent: BoolOrCondition::Bool(true),
+      hanging_indent_times,
       maintain_line_breaks: false,
     }
   }
@@ -72,8 +76,10 @@ impl MultiLineOptions {
     MultiLineOptions {
       newline_at_start: false,
       newline_at_end: false,
-      with_indent: false,
+      indent_times: 0,
       with_hanging_indent: BoolOrCondition::Bool(false),
+      // CHECK: need arg?
+      hanging_indent_times: 0,
       maintain_line_breaks: false,
     }
   }
@@ -82,8 +88,10 @@ impl MultiLineOptions {
     MultiLineOptions {
       newline_at_start: false,
       newline_at_end: false,
-      with_indent: false,
+      indent_times: 0,
       with_hanging_indent: BoolOrCondition::Bool(false),
+      // CHECK: need arg?
+      hanging_indent_times: 0,
       maintain_line_breaks: true,
     }
   }
@@ -198,11 +206,11 @@ pub fn gen_separated_values(
             if multi_line_options.newline_at_start {
               items.push_signal(Signal::NewLine);
             }
-            if multi_line_options.with_indent {
+            for _ in 0..multi_line_options.indent_times {
               items.push_signal(Signal::StartIndent);
             }
             items.extend(generated_values_items.into());
-            if multi_line_options.with_indent {
+            for _ in 0..multi_line_options.indent_times {
               items.push_signal(Signal::FinishIndent);
             }
             if multi_line_options.newline_at_end {
@@ -355,14 +363,14 @@ pub fn gen_separated_values(
               match &multi_line_options.with_hanging_indent {
                 BoolOrCondition::Bool(with_hanging_indent) => {
                   if *with_hanging_indent {
-                    items.push_condition(indent_if_start_of_line({
+                    items.push_condition(indent_times_if_start_of_line({
                       let mut items = PrintItems::new();
                       items.push_info(start_line_number);
                       items.push_info(start_is_start_of_line);
                       items.push_info(start_line_start_indent_level);
                       items.extend(generated_value.into());
                       items
-                    }));
+                    }, multi_line_options.hanging_indent_times));
                   } else {
                     items.push_info(start_line_number);
                     items.push_info(start_is_start_of_line);
@@ -384,7 +392,7 @@ pub fn gen_separated_values(
                     "valueHangingIndent",
                     ConditionProperties {
                       condition: condition.clone(),
-                      true_path: Some(ir_helpers::with_indent(inner_items.into())),
+                      true_path: Some(ir_helpers::with_indent_times(inner_items.into(), multi_line_options.hanging_indent_times)),
                       false_path: Some(inner_items.into()),
                     },
                   ));
@@ -396,14 +404,14 @@ pub fn gen_separated_values(
             false_path: {
               let mut items = PrintItems::new();
               items.extend(single_line_separator.into()); // ex. Signal::SpaceOrNewLine
-              items.push_condition(indent_if_start_of_line({
+              items.push_condition(indent_times_if_start_of_line({
                 let mut items = PrintItems::new();
                 items.push_info(start_line_number);
                 items.push_info(start_is_start_of_line);
                 items.push_info(start_line_start_indent_level);
                 items.extend(generated_value.into());
                 items
-              }));
+              }, multi_line_options.hanging_indent_times));
               Some(items)
             },
           },

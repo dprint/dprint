@@ -3,32 +3,32 @@ use std::rc::Rc;
 use super::print_items::*;
 use super::*;
 
-pub fn indent_if_start_of_line(items: PrintItems) -> Condition {
+pub fn indent_times_if_start_of_line(items: PrintItems, indent_times: u8) -> Condition {
   let rc_path = items.into_rc_path();
   if_true_or(
     "indentIfStartOfLine",
     condition_resolvers::is_start_of_line(),
-    ir_helpers::with_indent(rc_path.into()),
+    ir_helpers::with_indent_times(rc_path.into(), indent_times),
     rc_path.into(),
   )
 }
 
-pub fn indent_if_start_of_line_or_start_of_line_indented(items: PrintItems) -> Condition {
+pub fn indent_times_if_start_of_line_or_start_of_line_indented(items: PrintItems, indent_times: u8) -> Condition {
   let rc_path = items.into_rc_path();
   conditions::if_true_or(
     "withIndentIfStartOfLineOrStartOfLineIndented",
     condition_resolvers::is_start_of_line_or_is_start_of_line_indented(),
-    ir_helpers::with_indent(rc_path.into()),
+    ir_helpers::with_indent_times(rc_path.into(), indent_times),
     rc_path.into(),
   )
 }
 
-pub fn with_indent_if_start_of_line_indented(items: PrintItems) -> Condition {
+pub fn with_indent_times_if_start_of_line_indented(items: PrintItems, indent_times: u8) -> Condition {
   let rc_path = items.into_rc_path();
   if_true_or(
     "withIndentIfStartOfLineIndented",
     condition_resolvers::is_start_of_line_indented(),
-    ir_helpers::with_indent(rc_path.into()),
+    ir_helpers::with_indent_times(rc_path.into(), indent_times),
     rc_path.into(),
   )
 }
