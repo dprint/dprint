@@ -23,14 +23,18 @@ pub fn with_indent(item: PrintItems) -> PrintItems {
 }
 
 pub fn with_queued_indent(item: PrintItems) -> PrintItems {
+  with_queued_indent_times(item, 1)
+}
+
+pub fn with_queued_indent_times(item: PrintItems, indent_times: u8) -> PrintItems {
   if item.is_empty() {
     return item;
   }
 
   let mut items = PrintItems::new();
-  items.push_signal(Signal::QueueStartIndent);
+  for _ in 0..indent_times { items.push_signal(Signal::QueueStartIndent); }
   items.extend(item);
-  items.push_signal(Signal::FinishIndent);
+  for _ in 0..indent_times { items.push_signal(Signal::FinishIndent); }
   items
 }
 
@@ -142,7 +146,7 @@ fn gen_from_string_line(line: &str) -> PrintItems {
 /// Surrounds the items with newlines and indentation if its on multiple lines.
 /// Note: This currently inserts a possible newline at the start, but that might change or be made
 /// conditional in the future.
-pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, indent_width: u8) -> PrintItems {
+pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, indent_width: u8, indent_times: u8) -> PrintItems {
   if inner_items.is_empty() {
     return inner_items;
   }
@@ -161,7 +165,7 @@ pub fn surround_with_newlines_indented_if_multi_line(inner_items: PrintItems, in
   let mut condition = Condition::new(
     "newlineIfMultiLine",
     ConditionProperties {
-      true_path: Some(surround_with_new_lines(with_indent(inner_items.into()))),
+      true_path: Some(surround_with_new_lines(with_indent_times(inner_items.into(), indent_times))),
       false_path: Some({
         let mut items = PrintItems::new();
         items.push_condition(conditions::if_above_width(indent_width, Signal::PossibleNewLine.into()));

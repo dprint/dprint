@@ -3,7 +3,7 @@ use std::rc::Rc;
 use super::print_items::*;
 use super::*;
 
-pub fn indent_times_if_start_of_line(items: PrintItems, indent_times: u8) -> Condition {
+pub fn indent_if_start_of_line(items: PrintItems, indent_times: u8) -> Condition {
   let rc_path = items.into_rc_path();
   if_true_or(
     "indentIfStartOfLine",
@@ -13,7 +13,7 @@ pub fn indent_times_if_start_of_line(items: PrintItems, indent_times: u8) -> Con
   )
 }
 
-pub fn indent_times_if_start_of_line_or_start_of_line_indented(items: PrintItems, indent_times: u8) -> Condition {
+pub fn indent_if_start_of_line_or_start_of_line_indented(items: PrintItems, indent_times: u8) -> Condition {
   let rc_path = items.into_rc_path();
   conditions::if_true_or(
     "withIndentIfStartOfLineOrStartOfLineIndented",
@@ -23,7 +23,7 @@ pub fn indent_times_if_start_of_line_or_start_of_line_indented(items: PrintItems
   )
 }
 
-pub fn with_indent_times_if_start_of_line_indented(items: PrintItems, indent_times: u8) -> Condition {
+pub fn with_indent_if_start_of_line_indented(items: PrintItems, indent_times: u8) -> Condition {
   let rc_path = items.into_rc_path();
   if_true_or(
     "withIndentIfStartOfLineIndented",

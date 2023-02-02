@@ -31,9 +31,9 @@ pub enum BoolOrCondition {
 pub struct MultiLineOptions {
   pub newline_at_start: bool,
   pub newline_at_end: bool,
-  pub indent_times: u8,
-  pub with_hanging_indent: BoolOrCondition,
   pub hanging_indent_times: u8,
+  pub multi_line_indent_times: u8,
+  pub with_hanging_indent: BoolOrCondition,
   pub maintain_line_breaks: bool,
 }
 
@@ -43,18 +43,18 @@ impl MultiLineOptions {
     MultiLineOptions {
       newline_at_start: true,
       newline_at_end: false,
-      indent_times: 1,
+      multi_line_indent_times: 1,
       with_hanging_indent: BoolOrCondition::Bool(false),
       hanging_indent_times,
       maintain_line_breaks: false,
     }
   }
 
-  pub fn surround_newlines_indented_times(indent_times: u8, hanging_indent_times: u8) -> Self {
+  pub fn surround_newlines_indented(multi_line_indent_times: u8, hanging_indent_times: u8) -> Self {
     MultiLineOptions {
       newline_at_start: true,
       newline_at_end: true,
-      indent_times,
+      multi_line_indent_times,
       with_hanging_indent: BoolOrCondition::Bool(false),
       hanging_indent_times: hanging_indent_times,
       maintain_line_breaks: false,
@@ -65,33 +65,31 @@ impl MultiLineOptions {
     MultiLineOptions {
       newline_at_start: false,
       newline_at_end: false,
-      indent_times: 0,
+      multi_line_indent_times: 0,
       with_hanging_indent: BoolOrCondition::Bool(true),
       hanging_indent_times,
       maintain_line_breaks: false,
     }
   }
 
-  pub fn same_line_no_indent() -> Self {
+  pub fn same_line_no_indent(hanging_indent_times: u8) -> Self {
     MultiLineOptions {
       newline_at_start: false,
       newline_at_end: false,
-      indent_times: 0,
+      multi_line_indent_times: 0,
       with_hanging_indent: BoolOrCondition::Bool(false),
-      // CHECK: need arg?
-      hanging_indent_times: 0,
+      hanging_indent_times,
       maintain_line_breaks: false,
     }
   }
 
-  pub fn maintain_line_breaks() -> Self {
+  pub fn maintain_line_breaks(hanging_indent_times: u8) -> Self {
     MultiLineOptions {
       newline_at_start: false,
       newline_at_end: false,
-      indent_times: 0,
+      multi_line_indent_times: 0,
       with_hanging_indent: BoolOrCondition::Bool(false),
-      // CHECK: need arg?
-      hanging_indent_times: 0,
+      hanging_indent_times,
       maintain_line_breaks: true,
     }
   }
@@ -206,11 +204,11 @@ pub fn gen_separated_values(
             if multi_line_options.newline_at_start {
               items.push_signal(Signal::NewLine);
             }
-            for _ in 0..multi_line_options.indent_times {
+            for _ in 0..multi_line_options.multi_line_indent_times {
               items.push_signal(Signal::StartIndent);
             }
             items.extend(generated_values_items.into());
-            for _ in 0..multi_line_options.indent_times {
+            for _ in 0..multi_line_options.multi_line_indent_times {
               items.push_signal(Signal::FinishIndent);
             }
             if multi_line_options.newline_at_end {
@@ -363,7 +361,7 @@ pub fn gen_separated_values(
               match &multi_line_options.with_hanging_indent {
                 BoolOrCondition::Bool(with_hanging_indent) => {
                   if *with_hanging_indent {
-                    items.push_condition(indent_times_if_start_of_line({
+                    items.push_condition(indent_if_start_of_line({
                       let mut items = PrintItems::new();
                       items.push_info(start_line_number);
                       items.push_info(start_is_start_of_line);
@@ -404,7 +402,7 @@ pub fn gen_separated_values(
             false_path: {
               let mut items = PrintItems::new();
               items.extend(single_line_separator.into()); // ex. Signal::SpaceOrNewLine
-              items.push_condition(indent_times_if_start_of_line({
+              items.push_condition(indent_if_start_of_line({
                 let mut items = PrintItems::new();
                 items.push_info(start_line_number);
                 items.push_info(start_is_start_of_line);
