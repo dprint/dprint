@@ -56,7 +56,7 @@ impl MultiLineOptions {
       newline_at_end: true,
       multi_line_indent_times,
       with_hanging_indent: BoolOrCondition::Bool(false),
-      hanging_indent_times: hanging_indent_times,
+      hanging_indent_times,
       maintain_line_breaks: false,
     }
   }
