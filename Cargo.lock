@@ -539,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "dprint"
-version = "0.34.4"
+version = "0.34.5"
 dependencies = [
  "anyhow",
  "clap",
