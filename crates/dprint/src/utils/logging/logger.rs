@@ -4,6 +4,7 @@ use crossterm::cursor;
 use crossterm::style;
 use crossterm::QueueableCommand;
 use parking_lot::Mutex;
+use std::borrow::Cow;
 use std::io::stderr;
 use std::io::stdout;
 use std::io::Stderr;
@@ -21,9 +22,9 @@ pub enum LoggerTextItem {
 impl LoggerTextItem {
   pub fn as_static_text_item(&self) -> console_static_text::TextItem {
     match self {
-      LoggerTextItem::Text(text) => console_static_text::TextItem::Text(text.as_str()),
+      LoggerTextItem::Text(text) => console_static_text::TextItem::Text(Cow::Borrowed(text.as_str())),
       LoggerTextItem::HangingText { text, indent } => console_static_text::TextItem::HangingText {
-        text: text.as_str(),
+        text: Cow::Borrowed(text.as_str()),
         indent: *indent,
       },
     }
@@ -221,8 +222,8 @@ impl Logger {
 
   fn render_draw_items(&self, state: &mut LoggerState, size: ConsoleSize) -> Option<String> {
     let text_items = state.refresh_items.iter().flat_map(|item| item.text_items.iter());
-    let text_items = text_items.map(|i| i.as_static_text_item());
-    state.static_text.render_items_with_size(text_items, size)
+    let text_items = text_items.map(|i| i.as_static_text_item()).collect::<Vec<_>>();
+    state.static_text.render_items_with_size(text_items.iter(), size)
   }
 }
 
@@ -233,10 +234,10 @@ pub fn render_text_items_with_width(text_items: &[LoggerTextItem], terminal_widt
     rows: None,
   });
   static_text.keep_cursor_zero_column(false);
-  let static_text_items = text_items.iter().map(|i| i.as_static_text_item());
+  let text_items = text_items.iter().map(|i| i.as_static_text_item()).collect::<Vec<_>>();
   static_text
     .render_items_with_size(
-      static_text_items,
+      text_items.iter(),
       ConsoleSize {
         cols: terminal_width,
         rows: None,
