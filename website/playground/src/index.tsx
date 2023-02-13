@@ -71,11 +71,14 @@ function Loader() {
       return;
     }
 
+    const language = getLanguageFromPluginUrl(pluginUrl);
+    const isBuiltInLanguage = !!language;
+
     urlSaver.updateUrl({
       text,
       configText: configText === defaultConfigText ? undefined : configText,
-      plugin: pluginUrl,
-      language: getLanguageFromPluginUrl(pluginUrl),
+      plugin: isBuiltInLanguage ? undefined : pluginUrl,
+      language: isBuiltInLanguage ? language : undefined,
     });
   }, [text, configText, pluginUrl, defaultConfigText]);
 
