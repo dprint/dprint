@@ -2,7 +2,7 @@
   var __defProp = Object.defineProperty;
   var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
-  // src/scripts/nav-burger.js
+  // deno:file:///home/runner/work/dprint/dprint/website/src/scripts/nav-burger.js
   function addNavBurgerEvent() {
     const navBurger = document.getElementById("navbarBurger");
     navBurger.addEventListener("click", () => {
@@ -12,7 +12,7 @@
   }
   __name(addNavBurgerEvent, "addNavBurgerEvent");
 
-  // src/scripts/plugin-config-table-replacer.js
+  // deno:file:///home/runner/work/dprint/dprint/website/src/scripts/plugin-config-table-replacer.js
   function replaceConfigTable() {
     const items = getPluginConfigTableItems();
     if (items.length > 0) {
@@ -166,7 +166,7 @@
   }
   __name(getDprintPluginConfig, "getDprintPluginConfig");
 
-  // src/scripts/plugin-url-replacer.js
+  // deno:file:///home/runner/work/dprint/dprint/website/src/scripts/plugin-url-replacer.js
   var typescriptUrl = "https://plugins.dprint.dev/typescript-x.x.x.wasm";
   var jsonUrl = "https://plugins.dprint.dev/json-x.x.x.wasm";
   var markdownUrl = "https://plugins.dprint.dev/markdown-x.x.x.wasm";
@@ -252,7 +252,7 @@
   }
   __name(getPluginInfo, "getPluginInfo");
 
-  // src/scripts.js
+  // deno:file:///home/runner/work/dprint/dprint/website/src/scripts.js
   if (document.readyState === "complete" || document.readyState === "interactive") {
     setTimeout(onLoad, 0);
   } else {
