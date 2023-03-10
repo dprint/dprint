@@ -7,6 +7,7 @@ export class UrlSaver {
     return {
       text: getText(),
       configText: getConfigText(),
+      plugin: getPluginUrl(),
       language: getLanguage(),
     };
 
@@ -26,6 +27,20 @@ export class UrlSaver {
 
     function getConfigText(): string | undefined {
       const matches = /config\/([^/]+)/.exec(locationHash);
+      if (matches == null || matches.length !== 2) {
+        return undefined;
+      }
+
+      try {
+        return decompress(matches[1]);
+      } catch (err) {
+        console.error(err);
+        return undefined;
+      }
+    }
+
+    function getPluginUrl(): string | undefined {
+      const matches = /plugin\/([^/]+)/.exec(locationHash);
       if (matches == null || matches.length !== 2) {
         return undefined;
       }
@@ -65,14 +80,18 @@ export class UrlSaver {
     }
   }
 
-  updateUrl({ text, configText, language }: {
+  updateUrl({ text, configText, plugin, language }: {
     text: string;
     configText?: string;
+    plugin?: string;
     language?: "typescript" | "json" | "markdown" | "toml" | "dockerfile";
   }) {
     let url = `#code/${compressToEncodedURIComponent(text)}`;
     if (configText != null) {
       url += `/config/${compressToEncodedURIComponent(configText)}`;
+    }
+    if (plugin != null) {
+      url += `/plugin/${compressToEncodedURIComponent(plugin)}`;
     }
     if (language != null) {
       url += `/language/${language}`;

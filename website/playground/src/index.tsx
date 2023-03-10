@@ -14,7 +14,7 @@ let isFirstLoad = true;
 
 function Loader() {
   const [pluginUrls, setPluginUrls] = useState<string[]>([]);
-  const [pluginUrl, setPluginUrl] = useState<string | undefined>();
+  const [pluginUrl, setPluginUrl] = useState(initialUrl.plugin);
   const [pluginInfo, setPluginInfo] = useState<PluginInfo | undefined>();
   const [text, setText] = useState(initialUrl.text);
   const [configText, setConfigText] = useState(initialUrl.configText ?? "");
@@ -26,8 +26,10 @@ function Loader() {
   useEffect(() => {
     const abortController = new AbortController();
     getPluginUrls(abortController.signal).then(pluginUrls => {
-      setPluginUrls(pluginUrls);
-      setPluginUrl(pluginUrls.find(url => getLanguageFromPluginUrl(url) === (initialUrl.language ?? "typescript"))!);
+      setPluginUrls(pluginUrls.concat(initialUrl.plugin ?? []));
+      if (initialUrl.plugin == null) {
+        setPluginUrl(pluginUrls.find(url => getLanguageFromPluginUrl(url) === (initialUrl.language ?? "typescript"))!);
+      }
     }).catch(err => {
       if (!abortController.signal.aborted) {
         console.error(err);
@@ -69,10 +71,14 @@ function Loader() {
       return;
     }
 
+    const language = getLanguageFromPluginUrl(pluginUrl);
+    const isBuiltInLanguage = !!language;
+
     urlSaver.updateUrl({
       text,
       configText: configText === defaultConfigText ? undefined : configText,
-      language: getLanguageFromPluginUrl(pluginUrl),
+      plugin: isBuiltInLanguage ? undefined : pluginUrl,
+      language: isBuiltInLanguage ? language : undefined,
     });
   }, [text, configText, pluginUrl, defaultConfigText]);
 
