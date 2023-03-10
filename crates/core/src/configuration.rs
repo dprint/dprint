@@ -166,6 +166,17 @@ pub struct RecommendedGlobalConfiguration {
   pub new_line_kind: NewLineKind,
 }
 
+impl From<RecommendedGlobalConfiguration> for GlobalConfiguration {
+  fn from(config: RecommendedGlobalConfiguration) -> Self {
+    Self {
+      line_width: Some(config.line_width),
+      use_tabs: Some(config.use_tabs),
+      indent_width: Some(config.indent_width),
+      new_line_kind: Some(config.new_line_kind),
+    }
+  }
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolveConfigurationResult<T>
