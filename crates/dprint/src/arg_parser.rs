@@ -280,7 +280,7 @@ fn create_cli_parser(is_outputting_main_help: bool) -> clap::Command {
   app
     .bin_name("dprint")
     .version(env!("CARGO_PKG_VERSION"))
-    .author("Copyright 2020-2022 by David Sherret")
+    .author("Copyright 2020-2023 by David Sherret")
     .about("Auto-formats source code based on the specified plugins.")
     .override_usage("dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...")
     .help_template(r#"{bin} {version}
