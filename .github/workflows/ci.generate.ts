@@ -102,7 +102,7 @@ const ci = {
       ),
       steps: [
         { name: "Checkout", uses: "actions/checkout@v2" },
-        { uses: "dtolnay/rust-toolchain@stable" },
+        { uses: "dsherret/rust-toolchain-file@v1" },
         { uses: "Swatinem/rust-cache@v2" },
         {
           name: "Build test plugins (Debug)",
