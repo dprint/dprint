@@ -1,6 +1,7 @@
 {
   "tasks": {
     "lume": "deno run -A --no-check https://deno.land/x/lume@v1.15.3/ci.ts",
+    "build:ci": "deno task build && cp -r playground/build _site/playground",
     "build": "deno run -A https://deno.land/x/lume@v1.15.3/ci.ts",
     "serve": "deno task build -s"
   },
