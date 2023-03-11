@@ -241,11 +241,10 @@ dependencies = [
 
 [[package]]
 name = "console_static_text"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "359eab59d2487cfec9bb3368db035a30f6c3fe7251c932d91c48418e5d069c2c"
+checksum = "953d2c3cf53213a4eccdbe8f2e0b49b5d0f77e87a2a9060117bbf9346f92b64e"
 dependencies = [
- "crossterm 0.25.0",
  "unicode-width",
  "vte",
 ]
@@ -422,22 +421,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crossterm"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77f67c7faacd4db07a939f55d66a983a5355358a1f17d32cc9a8d01d1266b9ce"
-dependencies = [
- "bitflags",
- "crossterm_winapi",
- "libc",
- "mio",
- "parking_lot",
- "signal-hook",
- "signal-hook-mio",
- "winapi",
-]
-
-[[package]]
 name = "crossterm_winapi"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -544,7 +527,7 @@ dependencies = [
  "anyhow",
  "clap",
  "console_static_text",
- "crossterm 0.26.0",
+ "crossterm",
  "dirs",
  "dprint-core",
  "dunce",
