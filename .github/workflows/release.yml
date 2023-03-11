@@ -25,7 +25,7 @@ jobs:
           token: ${{ secrets.GH_DPRINTBOT_PAT }}
 
       - uses: denoland/setup-deno@v1
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dsherret/rust-toolchain-file@v1
 
       - name: Bump version and tag
         env:

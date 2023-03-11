@@ -97,7 +97,7 @@ mod test {
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
         r#"{
-    "schemaVersion": 6,
+    "schemaVersion": 7,
     "plugins": {
         "a": {
             "createdTime": 123,

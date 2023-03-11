@@ -16,7 +16,7 @@ jobs:
       uses: actions/checkout@v2
 
       # CARGO PUBLISH
-    - uses: dtolnay/rust-toolchain@stable
+    - uses: dsherret/rust-toolchain-file@v1
     - name: Cargo login
       run: cargo login ${{ secrets.CRATES_TOKEN }}
 
