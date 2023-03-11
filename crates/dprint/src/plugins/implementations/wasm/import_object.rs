@@ -109,7 +109,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(store: &Store, impo
       let offset = offset as usize;
       let length = length as usize;
       let byte_slice = &cell.shared_bytes[offset..offset + length];
-      for i in 0..length as usize {
+      for i in 0..length {
         memory_writer[i].set(byte_slice[i]);
       }
     }

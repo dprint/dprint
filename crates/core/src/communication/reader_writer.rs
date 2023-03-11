@@ -28,6 +28,7 @@ impl<TRead: Read + Unpin> MessageReader<TRead> {
     self.read_bytes(size)
   }
 
+  #[allow(clippy::read_zero_byte_vec)]
   pub fn read_bytes(&mut self, size: usize) -> Result<Vec<u8>> {
     let mut buf = Vec::with_capacity(size);
     if size > 0 {

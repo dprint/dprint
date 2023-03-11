@@ -152,7 +152,7 @@ fn download_url<TEnvironment: Environment>(path_source: PathSource, environment:
 }
 
 fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>> {
-  environment.read_file_bytes(&path_source.unwrap_local().path)
+  environment.read_file_bytes(path_source.unwrap_local().path)
 }
 
 #[cfg(test)]

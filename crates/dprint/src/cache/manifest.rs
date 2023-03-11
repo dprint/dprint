@@ -44,7 +44,7 @@ pub struct CacheItem {
 
 pub fn read_manifest(environment: &impl Environment) -> CacheManifest {
   let file_path = get_manifest_file_path(environment);
-  match environment.read_file(&file_path) {
+  match environment.read_file(file_path) {
     Ok(text) => match serde_json::from_str(&text) {
       Ok(manifest) => manifest,
       Err(err) => {
@@ -59,7 +59,7 @@ pub fn read_manifest(environment: &impl Environment) -> CacheManifest {
 pub fn write_manifest(manifest: &CacheManifest, environment: &impl Environment) -> Result<()> {
   let file_path = get_manifest_file_path(environment);
   let serialized_manifest = serde_json::to_string(&manifest)?;
-  environment.write_file(&file_path, &serialized_manifest)
+  environment.write_file(file_path, &serialized_manifest)
 }
 
 fn get_manifest_file_path(environment: &impl Environment) -> PathBuf {

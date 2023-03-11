@@ -94,7 +94,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
   }
 
   fn get_next_pending_dirs(&self) -> Option<Vec<Vec<PathBuf>>> {
-    let &(ref lock, ref cvar) = &self.shared_state.inner;
+    let (ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     loop {
       if !state.pending_dirs.is_empty() {
@@ -114,14 +114,14 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
   }
 
   fn set_glob_error(&self, error: Error) {
-    let &(ref lock, ref cvar) = &self.shared_state.inner;
+    let (ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     state.read_dir_thread_state = ReadDirThreadState::Error(error);
     cvar.notify_one();
   }
 
   fn push_entries(&self, entries: Vec<DirEntry>) {
-    let &(ref lock, ref cvar) = &self.shared_state.inner;
+    let (ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     state.pending_entries.push(entries);
     cvar.notify_one();
@@ -169,14 +169,14 @@ impl GlobMatchingProcessor {
   }
 
   fn push_pending_dirs(&self, pending_dirs: Vec<PathBuf>) {
-    let &(ref lock, ref cvar) = &self.shared_state.inner;
+    let (ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     state.pending_dirs.push(pending_dirs);
     cvar.notify_one();
   }
 
   fn get_next_entries(&self) -> Result<Option<Vec<Vec<DirEntry>>>> {
-    let &(ref lock, ref cvar) = &self.shared_state.inner;
+    let (ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     loop {
       if !state.pending_entries.is_empty() {
