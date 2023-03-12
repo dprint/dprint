@@ -1,9 +1,8 @@
 use parking_lot::Mutex;
 use serde::Deserialize;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::Path;
-use std::path::PathBuf;
 
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
@@ -13,14 +12,14 @@ use crate::utils::get_bytes_hash;
 #[serde(rename_all = "camelCase")]
 struct IncrementalFileData {
   plugins_hash: u64,
-  file_hashes: HashMap<PathBuf, u64>,
+  file_hashes: HashSet<u64>,
 }
 
 impl IncrementalFileData {
   pub fn new(plugins_hash: u64) -> IncrementalFileData {
     IncrementalFileData {
       plugins_hash,
-      file_hashes: HashMap::new(),
+      file_hashes: Default::default(),
     }
   }
 }
@@ -29,12 +28,11 @@ pub struct IncrementalFile<TEnvironment: Environment> {
   file_path: CanonicalizedPathBuf,
   read_data: IncrementalFileData,
   write_data: Mutex<IncrementalFileData>,
-  base_dir_path: CanonicalizedPathBuf,
   environment: TEnvironment,
 }
 
 impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
-  pub fn new(file_path: CanonicalizedPathBuf, plugins_hash: u64, environment: TEnvironment, base_dir_path: CanonicalizedPathBuf) -> Self {
+  pub fn new(file_path: CanonicalizedPathBuf, plugins_hash: u64, environment: TEnvironment) -> Self {
     let read_data = read_incremental(&file_path, &environment);
     let read_data = if let Some(read_data) = read_data {
       if read_data.plugins_hash == plugins_hash {
@@ -50,48 +48,35 @@ impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
       file_path,
       read_data,
       write_data: Mutex::new(IncrementalFileData::new(plugins_hash)),
-      base_dir_path,
       environment,
     }
   }
 
-  pub fn is_file_same(&self, file_path: &Path, file_text: &str) -> bool {
-    let file_path = self.standardize_path(file_path);
-    if let Some(hash) = self.read_data.file_hashes.get(&file_path) {
-      if *hash == get_bytes_hash(file_text.as_bytes()) {
-        // the file is the same, so save it in the write data
-        self.add_to_write_data(file_path, file_text);
-        true
-      } else {
-        false
-      }
+  /// If the file text is known to be formatted.
+  pub fn is_file_known_formatted(&self, file_text: &str) -> bool {
+    let hash = get_bytes_hash(file_text.as_bytes());
+    if self.read_data.file_hashes.contains(&hash) {
+      // the file is the same, so save it in the write data
+      self.add_to_write_data(hash);
+      true
     } else {
       false
     }
   }
 
-  pub fn update_file(&self, file_path: &Path, file_text: &str) {
-    self.add_to_write_data(self.standardize_path(file_path), file_text)
+  pub fn update_file(&self, file_text: &str) {
+    let hash = get_bytes_hash(file_text.as_bytes());
+    self.add_to_write_data(hash)
   }
 
-  fn add_to_write_data(&self, file_path: PathBuf, file_text: &str) {
-    let hash = get_bytes_hash(file_text.as_bytes());
+  fn add_to_write_data(&self, hash: u64) {
     let mut write_data = self.write_data.lock();
-    write_data.file_hashes.insert(file_path, hash);
+    write_data.file_hashes.insert(hash);
   }
 
   pub fn write(&self) {
     let write_data = self.write_data.lock();
     write_incremental(&self.file_path, &write_data, &self.environment);
-  }
-
-  fn standardize_path(&self, file_path: &Path) -> PathBuf {
-    // need to ensure the file is stored as an absolute path
-    if self.environment.is_absolute_path(file_path) {
-      file_path.to_owned()
-    } else {
-      self.base_dir_path.join(file_path)
-    }
   }
 }
 

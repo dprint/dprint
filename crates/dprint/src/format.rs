@@ -186,7 +186,7 @@ where
     let file_text = FileText::new(environment.read_file(&file_path)?);
 
     if let Some(incremental_file) = &incremental_file {
-      if incremental_file.is_file_same(&file_path, file_text.as_str()) {
+      if incremental_file.is_file_known_formatted(file_text.as_str()) {
         log_verbose!(environment, "No change: {}", file_path.display());
         return Ok(());
       }

@@ -127,7 +127,7 @@ pub async fn check<TEnvironment: Environment>(
   let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
-  let incremental_file = get_incremental_file(cmd.incremental, &config, cache, &plugin_pools, environment);
+  let incremental_file = get_incremental_file(cmd.incremental, &config, cache.cache_dir_path(), &plugin_pools, environment);
   let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
   run_parallelized(
@@ -149,7 +149,7 @@ pub async fn check<TEnvironment: Environment>(
           // correctly formatted file because it hasn't undergone a stable
           // formatting check
           if let Some(incremental_file) = &incremental_file {
-            incremental_file.update_file(file_path, &formatted_text);
+            incremental_file.update_file(&formatted_text);
           }
         }
         Ok(())
@@ -190,7 +190,7 @@ pub async fn format<TEnvironment: Environment>(
   let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
-  let incremental_file = get_incremental_file(cmd.incremental, &config, cache, &plugin_pools, environment);
+  let incremental_file = get_incremental_file(cmd.incremental, &config, cache.cache_dir_path(), &plugin_pools, environment);
   let formatted_files_count = Arc::new(AtomicUsize::new(0));
   let output_diff = cmd.diff;
 
@@ -205,7 +205,7 @@ pub async fn format<TEnvironment: Environment>(
       let incremental_file = incremental_file.clone();
       move |file_path, file_text, formatted_text, had_bom, _, environment| {
         if let Some(incremental_file) = &incremental_file {
-          incremental_file.update_file(file_path, &formatted_text);
+          incremental_file.update_file(&formatted_text);
         }
 
         if formatted_text != file_text {

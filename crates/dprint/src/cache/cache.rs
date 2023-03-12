@@ -33,6 +33,10 @@ where
     }
   }
 
+  pub fn cache_dir_path(&self) -> &CanonicalizedPathBuf {
+    &self.cache_dir_path
+  }
+
   pub fn get_cache_item(&self, key: &str) -> Option<CacheItem> {
     self.cache_manifest.read().get_item(key).map(|x| x.to_owned())
   }
