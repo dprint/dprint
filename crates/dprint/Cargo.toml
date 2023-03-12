@@ -1,6 +1,6 @@
 [package]
 name = "dprint"
-version = "0.33.0"
+version = "0.35.0"
 authors = ["dprint code formatting <david@dprint.dev>"]
 categories = ["development-tools"]
 default-run = "dprint"
@@ -11,15 +11,16 @@ repository = "https://github.com/dprint/dprint"
 description = "Binary for dprint code formatter—a pluggable and configurable code formatting platform."
 
 [dependencies]
-anyhow = "1.0.66"
-clap = "4.0.26"
-console_static_text = "0.5.0"
-crossterm = "0.25.0"
+anyhow = "1.0.69"
+clap = "4.1.4"
+console_static_text = "0.7.1"
+# don't upgrade to 0.26 https://github.com/crossterm-rs/crossterm/issues/752
+crossterm = "0.25.0" # manually retest everything when bumping this crate
 dirs = "4.0.0"
 dprint-core = { path = "../core", version = "0.60.0", features = ["process", "wasm"] }
 dunce = "1.0.3"
-futures = "0.3.25"
-ignore = "0.4.18"
+futures = "0.3.26"
+ignore = "0.4.20"
 indexmap = { version = "1.9.2", features = ["serde-1"] }
 jsonc-parser = { version = "0.21.0" }
 parking_lot = "0.12.1"
@@ -28,12 +29,12 @@ serde_json = { version = "1.0", features = ["preserve_order"] }
 sha2 = "0.10.6"
 similar = { version = "2.2.1", features = ["inline"] }
 tokio = { version = "1", features = ["rt", "time", "macros", "rt-multi-thread"] }
-tokio-util = { version = "0.7.4" }
+tokio-util = { version = "0.7.7" }
 twox-hash = "1.6.3"
-ureq = { version = "2.5.0", features = ["socks-proxy", "tls", "native-certs"] }
+ureq = { version = "2.6.2", features = ["socks-proxy", "tls", "native-certs"] }
 url = "2.3.1"
 wasmer = "=3.1.0"
-zip = "0.6.3"
+zip = "0.6.4"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.10.1"

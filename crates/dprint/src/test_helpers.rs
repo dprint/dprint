@@ -14,14 +14,18 @@ use crate::plugins::PluginsCollection;
 use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
 
-// If this file doesn't exist, run `cargo build --release -p test-process-plugin`
-#[cfg(target_os = "windows")]
+// this should automatically be built when building the workspace
+#[cfg(all(target_os = "windows", debug_assertions))]
+pub static PROCESS_PLUGIN_EXE_BYTES: &'static [u8] = include_bytes!("../../../target/debug/test-process-plugin.exe");
+#[cfg(all(target_os = "windows", not(debug_assertions)))]
 pub static PROCESS_PLUGIN_EXE_BYTES: &'static [u8] = include_bytes!("../../../target/release/test-process-plugin.exe");
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), debug_assertions))]
+pub static PROCESS_PLUGIN_EXE_BYTES: &'static [u8] = include_bytes!("../../../target/debug/test-process-plugin");
+#[cfg(all(not(target_os = "windows"), not(debug_assertions)))]
 pub static PROCESS_PLUGIN_EXE_BYTES: &'static [u8] = include_bytes!("../../../target/release/test-process-plugin");
 
-// If this file doesn't exist, run `./build.sh` in /crates/test-plugin. (Please consider helping me do something better here :))
-pub static WASM_PLUGIN_BYTES: &'static [u8] = include_bytes!("../../test-plugin/target/wasm32-unknown-unknown/release/test_plugin.wasm");
+// Regenerate this by running `./rebuild.sh` in /crates/test-plugin
+pub static WASM_PLUGIN_BYTES: &'static [u8] = include_bytes!("../../test-plugin/test_plugin.wasm");
 // cache these so it only has to be done once across all tests
 lazy_static! {
   static ref COMPILATION_RESULT: CompilationResult = crate::plugins::compile_wasm(WASM_PLUGIN_BYTES, TestEnvironment::new()).unwrap();
@@ -139,7 +143,7 @@ pub fn get_expected_help_text() -> &'static str {
     "dprint ",
     env!("CARGO_PKG_VERSION"),
     r#"
-Copyright 2020-2022 by David Sherret
+Copyright 2020-2023 by David Sherret
 
 Auto-formats source code based on the specified plugins.
 

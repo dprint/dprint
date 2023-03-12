@@ -55,7 +55,7 @@ impl RealEnvironment {
     };
 
     // ensure the cache directory is created
-    if let Err(err) = environment.mk_dir_all(&get_cache_dir()?) {
+    if let Err(err) = environment.mk_dir_all(get_cache_dir()?) {
       bail!("Error creating cache directory: {:#}", err);
     }
 

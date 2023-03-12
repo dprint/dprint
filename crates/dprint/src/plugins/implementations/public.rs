@@ -95,7 +95,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
           // forget and try again
           plugin_cache.forget(plugin_reference)?;
           let cache_item = plugin_cache.get_plugin_cache_item(plugin_reference).await?;
-          environment.read_file_bytes(&cache_item.file_path)?
+          environment.read_file_bytes(cache_item.file_path)?
         }
       };
 

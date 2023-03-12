@@ -31,7 +31,7 @@ pub struct ChecksumPathOrUrl {
 pub fn parse_checksum_path_or_url(text: &str) -> ChecksumPathOrUrl {
   if let Some(index) = text.rfind('@') {
     let path_or_url = text[..index].to_string();
-    if path_or_url.ends_with(".wasm") || path_or_url.ends_with(".json") || path_or_url.ends_with(".exe-plugin") {
+    if path_or_url.ends_with(".wasm") || path_or_url.ends_with(".json") {
       return ChecksumPathOrUrl {
         path_or_url,
         checksum: Some(text[index + 1..].to_string()),
@@ -69,13 +69,6 @@ mod test {
       parse_checksum_path_or_url("./test/test.json@ca9a97de84cbb2cd60534eb72c0455f3ca8704743917569ace70499136cf5c9c"),
       ChecksumPathOrUrl {
         path_or_url: "./test/test.json".to_string(),
-        checksum: Some("ca9a97de84cbb2cd60534eb72c0455f3ca8704743917569ace70499136cf5c9c".to_string()),
-      }
-    );
-    assert_eq!(
-      parse_checksum_path_or_url("./test/test.exe-plugin@ca9a97de84cbb2cd60534eb72c0455f3ca8704743917569ace70499136cf5c9c"),
-      ChecksumPathOrUrl {
-        path_or_url: "./test/test.exe-plugin".to_string(),
         checksum: Some("ca9a97de84cbb2cd60534eb72c0455f3ca8704743917569ace70499136cf5c9c".to_string()),
       }
     );

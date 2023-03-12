@@ -52,21 +52,21 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
   return match try_deserialize(environment) {
     Ok(manifest) => {
       if manifest.schema_version != PLUGIN_CACHE_SCHEMA_VERSION {
-        let _ = environment.remove_dir_all(&environment.get_cache_dir().join("plugins"));
+        let _ = environment.remove_dir_all(environment.get_cache_dir().join("plugins"));
         PluginCacheManifest::new()
       } else {
         manifest
       }
     }
     Err(_) => {
-      let _ = environment.remove_dir_all(&environment.get_cache_dir());
+      let _ = environment.remove_dir_all(environment.get_cache_dir());
       PluginCacheManifest::new()
     }
   };
 
   fn try_deserialize(environment: &impl Environment) -> Result<PluginCacheManifest> {
     let file_path = get_manifest_file_path(environment);
-    match environment.read_file(&file_path) {
+    match environment.read_file(file_path) {
       Ok(text) => Ok(serde_json::from_str::<PluginCacheManifest>(&text)?),
       Err(_) => Ok(PluginCacheManifest::new()),
     }
@@ -76,7 +76,7 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
 pub fn write_manifest(manifest: &PluginCacheManifest, environment: &impl Environment) -> Result<()> {
   let file_path = get_manifest_file_path(environment);
   let serialized_manifest = serde_json::to_string(&manifest)?;
-  environment.write_file(&file_path, &serialized_manifest)
+  environment.write_file(file_path, &serialized_manifest)
 }
 
 fn get_manifest_file_path(environment: &impl Environment) -> PathBuf {
@@ -97,7 +97,7 @@ mod test {
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
         r#"{
-    "schemaVersion": 6,
+    "schemaVersion": 7,
     "plugins": {
         "a": {
             "createdTime": 123,

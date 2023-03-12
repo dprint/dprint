@@ -1,8 +1,11 @@
 {
-  "importMap": "./import_map.json",
   "tasks": {
-    "lume": "deno run -A --no-check https://deno.land/x/lume@v1.7.4/ci.ts",
-    "build": "deno task lume && cp -r playground/build _site/playground",
-    "serve": "deno task lume -s"
+    "lume": "deno run -A --no-check https://deno.land/x/lume@v1.15.3/ci.ts",
+    "build:ci": "deno task build && cp -r playground/build _site/playground",
+    "build": "deno run -A https://deno.land/x/lume@v1.15.3/ci.ts",
+    "serve": "deno task build -s"
+  },
+  "imports": {
+    "lume/": "https://deno.land/x/lume@v1.15.3/"
   }
 }

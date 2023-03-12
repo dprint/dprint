@@ -1,5 +1,4 @@
 # dprint installer script
-# Copyright 2020-2022 David Sherret. All rights reserved. MIT license.
 
 Name "dprint"
 
@@ -21,7 +20,7 @@ Section
 
     CreateDirectory $INSTDIR\bin
     SetOutPath $INSTDIR\bin
-    File ..\..\target\release\dprint.exe
+    File ..\..\target\x86_64-pc-windows-msvc\release\dprint.exe
 
     nsExec::ExecToStack '"$INSTDIR\bin\dprint" hidden windows-install "$INSTDIR\bin"'
     Pop $0

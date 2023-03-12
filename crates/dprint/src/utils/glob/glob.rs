@@ -39,7 +39,7 @@ pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_pattern
   // to the speed of `fs::read_dir` calls. Essentially, run all the `fs::read_dir` calls
   // on a new thread and do the glob matching on the other thread.
   let read_dir_runner = ReadDirRunner::new(environment.clone(), shared_state.clone());
-  std::thread::spawn(move || read_dir_runner.run());
+  tokio::task::spawn_blocking(move || read_dir_runner.run());
 
   // run the glob matching on the current thread (the two threads will communicate with each other)
   let glob_matching_processor = GlobMatchingProcessor::new(shared_state, glob_matcher);
@@ -94,7 +94,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
   }
 
   fn get_next_pending_dirs(&self) -> Option<Vec<Vec<PathBuf>>> {
-    let &(ref lock, ref cvar) = &self.shared_state.inner;
+    let (ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     loop {
       if !state.pending_dirs.is_empty() {
@@ -114,14 +114,14 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
   }
 
   fn set_glob_error(&self, error: Error) {
-    let &(ref lock, ref cvar) = &self.shared_state.inner;
+    let (ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     state.read_dir_thread_state = ReadDirThreadState::Error(error);
     cvar.notify_one();
   }
 
   fn push_entries(&self, entries: Vec<DirEntry>) {
-    let &(ref lock, ref cvar) = &self.shared_state.inner;
+    let (ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     state.pending_entries.push(entries);
     cvar.notify_one();
@@ -169,14 +169,14 @@ impl GlobMatchingProcessor {
   }
 
   fn push_pending_dirs(&self, pending_dirs: Vec<PathBuf>) {
-    let &(ref lock, ref cvar) = &self.shared_state.inner;
+    let (ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     state.pending_dirs.push(pending_dirs);
     cvar.notify_one();
   }
 
   fn get_next_entries(&self) -> Result<Option<Vec<Vec<DirEntry>>>> {
-    let &(ref lock, ref cvar) = &self.shared_state.inner;
+    let (ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     loop {
       if !state.pending_entries.is_empty() {
@@ -252,8 +252,10 @@ mod test {
   use crate::environment::TestEnvironmentBuilder;
   use crate::utils::GlobPattern;
 
-  #[test]
-  fn should_glob() {
+  // `glob` internally uses tokio::spawn_blocking so that's why these
+  // are using tokio::test, then that requires async
+  #[tokio::test]
+  async fn should_glob() {
     let mut environment_builder = TestEnvironmentBuilder::new();
     let mut expected_matches = Vec::new();
     for i in 1..100 {
@@ -293,8 +295,8 @@ mod test {
     assert_eq!(result, expected_matches);
   }
 
-  #[test]
-  fn should_handle_dir_info_erroring() {
+  #[tokio::test]
+  async fn should_handle_dir_info_erroring() {
     let environment = TestEnvironmentBuilder::new().build();
     environment.set_dir_info_error(anyhow!("FAILURE"));
     let root_dir = environment.canonicalize("/").unwrap();
@@ -311,8 +313,8 @@ mod test {
     assert_eq!(err_message.to_string(), "Error reading dir '/': FAILURE");
   }
 
-  #[test]
-  fn should_support_excluding_then_including_in_includes() {
+  #[tokio::test]
+  async fn should_support_excluding_then_including_in_includes() {
     // this allows people to out out of everything then slowly opt back in
     let environment = TestEnvironmentBuilder::new().write_file("/dir/a.txt", "").write_file("/dir/b.txt", "").build();
     let root_dir = environment.canonicalize("/").unwrap();
@@ -334,8 +336,8 @@ mod test {
     assert_eq!(result, vec!["/dir/a.txt"]);
   }
 
-  #[test]
-  fn should_support_including_then_excluding_then_including() {
+  #[tokio::test]
+  async fn should_support_including_then_excluding_then_including() {
     let environment = TestEnvironmentBuilder::new()
       .write_file("/dir/a.json", "")
       .write_file("/dir/b.json", "")
@@ -360,8 +362,8 @@ mod test {
     assert_eq!(result, vec!["/dir/a.json"]);
   }
 
-  #[test]
-  fn excluding_dir_but_including_sub_dir() {
+  #[tokio::test]
+  async fn excluding_dir_but_including_sub_dir() {
     let environment = TestEnvironmentBuilder::new()
       .write_file("/test/a/a.json", "")
       .write_file("/test/a/b/b.json", "")
@@ -387,8 +389,8 @@ mod test {
     assert_eq!(result, vec!["/test/a/b/b.json", "/test/test.json"]);
   }
 
-  #[test]
-  fn excluding_dir_but_including_sub_dir_case_2() {
+  #[tokio::test]
+  async fn excluding_dir_but_including_sub_dir_case_2() {
     let environment = TestEnvironmentBuilder::new()
       .write_file("/dir/a/a.txt", "")
       .write_file("/dir/b/b.txt", "")

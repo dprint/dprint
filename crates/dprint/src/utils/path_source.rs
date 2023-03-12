@@ -76,8 +76,7 @@ impl PathSource {
     let lowercase_path = self.display().to_lowercase();
     if lowercase_path.ends_with(".wasm") {
       Some(PluginKind::Wasm)
-    // todo: remove `.exe-plugin` after September 2022
-    } else if lowercase_path.ends_with(".json") || lowercase_path.ends_with(".exe-plugin") {
+    } else if lowercase_path.ends_with(".json") {
       Some(PluginKind::Process)
     } else {
       None

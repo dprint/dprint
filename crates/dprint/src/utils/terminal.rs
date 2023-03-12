@@ -22,9 +22,14 @@ pub fn get_terminal_size() -> Option<TerminalSize> {
 
 pub(crate) fn read_terminal_event() -> Result<Event> {
   // https://github.com/crossterm-rs/crossterm/issues/521
-  terminal::enable_raw_mode()?;
+  let was_raw_mode_enabled = terminal::is_raw_mode_enabled()?;
+  if !was_raw_mode_enabled {
+    terminal::enable_raw_mode()?;
+  }
   let result = read();
-  terminal::disable_raw_mode()?;
+  if !was_raw_mode_enabled {
+    terminal::disable_raw_mode()?;
+  }
   match result {
     Ok(Event::Key(KeyEvent {
       code: KeyCode::Char('c'),

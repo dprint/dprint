@@ -51,7 +51,7 @@ where
 
     if let Some(bytes) = options.bytes {
       let file_path = self.resolve_cache_item_file_path(&cache_item);
-      self.environment.write_file_bytes(&file_path, bytes)?;
+      self.environment.write_file_bytes(file_path, bytes)?;
     }
 
     self.cache_manifest.write().add_item(options.key, cache_item.clone());
@@ -63,8 +63,8 @@ where
   #[allow(dead_code)]
   pub fn forget_item(&self, key: &str) -> Result<()> {
     if let Some(item) = self.cache_manifest.write().remove_item(key) {
-      let cache_file = self.cache_dir_path.join(&item.file_name);
-      let _ = self.environment.remove_file(&cache_file); // do nothing on success or failure
+      let cache_file = self.cache_dir_path.join(item.file_name);
+      let _ = self.environment.remove_file(cache_file); // do nothing on success or failure
     } else {
       return Ok(());
     }

@@ -48,7 +48,7 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
     // canonicalize the file path, then check if it's in the list of file paths.
     let resolved_file_path = environment.canonicalize(&cmd.file_name_or_path)?;
     // log the file text as-is since it's not in the list of files to format
-    if !file_matcher.matches(&resolved_file_path) {
+    if !file_matcher.matches(resolved_file_path) {
       environment.log_machine_readable(&cmd.file_text);
       return Ok(());
     }

@@ -11,9 +11,10 @@
 The immediate representation describes how the nodes should be formatted. It consists of...
 
 1. Texts
-2. Infos
-3. Conditions
-4. Signals
+1. Infos
+1. Conditions
+1. Signals
+1. Anchors
 
 These are referred to as "print items" in the code.
 
@@ -45,6 +46,23 @@ Conditions are usually resolved by looking at the value of a resolved info, othe
 
 The infos & conditions that are inspected may appear before or even after the condition.
 
+#### Condition Re-evaluations
+
+Condition re-evaluations can be added to the graph to force a condition to be re-evaluated once the printer reaches that point. If the condition has changed then the printer will jump back to that condition.
+
+```rs
+let condition: Condition = ...;
+let condition_reevaluation = condition.create_reevaluation();
+
+let mut items = PrintItems::new();
+items.push_condition(condition);
+// ...more items added here...
+
+// forces the re-evaluation of the condition this re-evaluation
+// was created from at this point
+items.push_reevaluation(condition_reevaluation);
+```
+
 ### Signals
 
 This is an enum that signals information to the printer.
@@ -61,6 +79,28 @@ This is an enum that signals information to the printer.
 - `SingleIndent` - Signal that a single indent should occur based on the printer settings (ex. prints a tab when using tabs).
 - `StartIgnoringIndent` - Signal to the printer that it should stop using indentation.
 - `FinishIgnoringIndent` - Signal to the printer that it should start using indentation again.
+
+### Anchors
+
+Anchors provide a way to update infos in the future when an anchor's line number changes.
+
+For example, given the following code...
+
+```rs
+let mut items = PrintItems::new();
+let end_ln = LineNumber::new("end");
+
+// ...lots of code here...
+items.push_anchor(LineNumberAnchor::new(end_ln));
+items.extend(actions::action("outputEndLine", |context| {
+  eprintln!("{:?}", context.resolved_line_number(end_ln));
+}));
+// ...lots of code here...
+items.push_signal(Signal::NewLine);
+items.push_info(end_ln);
+```
+
+...the anchor at the start of the code will update the `end_ln` line number based on how the anchor's line number has changed since it was last evaluated. This can be useful when evaluating conditions that "look into the future".
 
 ## Printer
 

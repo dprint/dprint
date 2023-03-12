@@ -33,6 +33,6 @@ pub fn setup_wasm_plugin<TEnvironment: Environment>(url_or_file_path: &PathSourc
 
 pub fn cleanup_wasm_plugin(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<()> {
   let plugin_file_path = get_file_path_from_plugin_info(plugin_info, environment);
-  environment.remove_file(&plugin_file_path)?;
+  environment.remove_file(plugin_file_path)?;
   Ok(())
 }

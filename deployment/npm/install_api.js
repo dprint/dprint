@@ -1,12 +1,16 @@
 // @ts-check
 "use strict";
 
-const https = require("https");
-const fs = require("fs");
 const crypto = require("crypto");
+const fs = require("fs");
+const https = require("https");
 const os = require("os");
 const path = require("path");
+const url = require("url");
+const HttpsProxyAgent = require("https-proxy-agent");
 const yauzl = require("yauzl");
+/** @type {string | undefined} */
+let cachedIsMusl = undefined;
 
 function install() {
   const executableFilePath = path.join(
@@ -22,7 +26,7 @@ function install() {
   const zipFilePath = path.join(__dirname, "dprint.zip");
 
   const target = getTarget();
-  const url = "https://github.com/dprint/dprint/releases/download/"
+  const downloadUrl = "https://github.com/dprint/dprint/releases/download/"
     + info.version
     + "/dprint-" + target + ".zip";
 
@@ -34,7 +38,7 @@ function install() {
   }
 
   // now try to download it
-  return downloadZipFileWithRetries(url).then(() => {
+  return downloadZipFileWithRetries(downloadUrl).then(() => {
     verifyZipChecksum();
     return extractZipFile().then(() => {
       // todo: how to just +x? does it matter?
@@ -59,59 +63,7 @@ function install() {
     } else if (os.platform() === "darwin") {
       return `${getArch()}-apple-darwin`;
     } else {
-      const family = getIsMusl() ? "musl" : "gnu";
-      return `${getArch()}-unknown-linux-${family}`;
-    }
-
-    function getArch() {
-      if (os.arch() === "arm64") {
-        return "aarch64";
-      } else if (os.arch() === "x64") {
-        return "x86_64";
-      } else {
-        throw new Error("Unsupported architecture " + os.arch() + ". Only x64 and aarch64 binaries are available.");
-      }
-    }
-
-    function getIsMusl() {
-      // code adapted from https://github.com/lovell/detect-libc
-      // Copyright Apache 2.0 license, the detect-libc maintainers
-      try {
-        if (os.platform() !== "linux") {
-          return false;
-        }
-        return isProcessReportMusl() || isConfMusl();
-      } catch (err) {
-        // just in case
-        console.warn("Error checking if musl.", err);
-        return false;
-      }
-
-      function isProcessReportMusl() {
-        if (!process.report) {
-          return false;
-        }
-        const report = process.report.getReport();
-        if (!report || !(report.sharedObjects instanceof Array)) {
-          return false;
-        }
-        return report.sharedObjects.some(o => o.includes("libc.musl-") || o.includes("ld-musl-"));
-      }
-
-      function isConfMusl() {
-        const output = getCommandOutput();
-        const [_, ldd1] = output.split(/[\r\n]+/);
-        return ldd1 && ldd1.includes("musl");
-      }
-
-      function getCommandOutput() {
-        try {
-          const command = "getconf GNU_LIBC_VERSION 2>&1 || true; ldd --version 2>&1 || true";
-          return require("child_process").execSync(command, { encoding: "utf8" });
-        } catch (_err) {
-          return "";
-        }
-      }
+      return `${getArch()}-unknown-linux-${getLinuxFamily()}`;
     }
   }
 
@@ -135,8 +87,14 @@ function install() {
 
   function downloadZipFile(url) {
     return new Promise((resolve, reject) => {
-      https.get(url, function(response) {
-        if (response.statusCode >= 200 && response.statusCode <= 299) {
+      const options = {};
+      const proxyUrl = getProxyUrl(url);
+      if (proxyUrl != null) {
+        options.agent = new HttpsProxyAgent(proxyUrl);
+      }
+
+      https.get(url, options, function(response) {
+        if (response.statusCode != null && response.statusCode >= 200 && response.statusCode <= 299) {
           downloadResponse(response).then(resolve).catch(reject);
         } else if (response.headers.location) {
           downloadZipFile(response.headers.location).then(resolve).catch(reject);
@@ -163,11 +121,31 @@ function install() {
             if (err) {
               reject(err);
             } else {
-              resolve();
+              resolve(undefined);
             }
           });
         });
       });
+    }
+  }
+
+  function getProxyUrl(requestUrl) {
+    try {
+      const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+      if (typeof proxyUrl !== "string" || proxyUrl.length === 0) {
+        return undefined;
+      }
+      if (typeof process.env.NO_PROXY === "string") {
+        const noProxyAddresses = process.env.NO_PROXY.split(",");
+        const host = url.parse(requestUrl).host;
+        if (host == null || noProxyAddresses.indexOf(host) >= 0) {
+          return undefined;
+        }
+      }
+      return proxyUrl;
+    } catch (err) {
+      console.error("[dprint]: Error getting proxy url.", err);
+      return undefined;
     }
   }
 
@@ -187,22 +165,11 @@ function install() {
     }
 
     function getExpectedZipChecksum() {
-      switch (os.platform()) {
-        case "win32":
-          return info.checksums["windows-x86_64"];
-        case "darwin":
-          if (os.arch() === "arm64") {
-            return info.checksums["darwin-aarch64"];
-          } else {
-            return info.checksums["darwin-x86_64"];
-          }
-        default:
-          if (os.arch() === "arm64") {
-            return info.checksums["linux-aarch64"];
-          } else {
-            return info.checksums["linux-x86_64"];
-          }
+      const checksum = info.checksums[getTarget()];
+      if (checksum == null) {
+        throw new Error("Could not find checksum for target: " + checksum);
       }
+      return checksum;
     }
   }
 
@@ -237,7 +204,7 @@ function install() {
                     reject(err);
                   });
                   writeStream.on("finish", () => {
-                    resolve();
+                    resolve(undefined);
                   });
                 });
               }),
@@ -250,6 +217,68 @@ function install() {
         });
       });
     });
+  }
+
+  function getArch() {
+    if (os.arch() === "arm64") {
+      return "aarch64";
+    } else if (os.arch() === "x64") {
+      return "x86_64";
+    } else {
+      throw new Error("Unsupported architecture " + os.arch() + ". Only x64 and aarch64 binaries are available.");
+    }
+  }
+
+  function getLinuxFamily() {
+    return getIsMusl() ? "musl" : "gnu";
+
+    function getIsMusl() {
+      // code adapted from https://github.com/lovell/detect-libc
+      // Copyright Apache 2.0 license, the detect-libc maintainers
+      if (cachedIsMusl == null) {
+        cachedIsMusl = innerGet();
+      }
+      return cachedIsMusl;
+
+      function innerGet() {
+        try {
+          if (os.platform() !== "linux") {
+            return false;
+          }
+          return isProcessReportMusl() || isConfMusl();
+        } catch (err) {
+          // just in case
+          console.warn("Error checking if musl.", err);
+          return false;
+        }
+      }
+
+      function isProcessReportMusl() {
+        if (!process.report) {
+          return false;
+        }
+        const report = process.report.getReport();
+        if (!report || !(report.sharedObjects instanceof Array)) {
+          return false;
+        }
+        return report.sharedObjects.some(o => o.includes("libc.musl-") || o.includes("ld-musl-"));
+      }
+
+      function isConfMusl() {
+        const output = getCommandOutput();
+        const [_, ldd1] = output.split(/[\r\n]+/);
+        return ldd1 && ldd1.includes("musl");
+      }
+
+      function getCommandOutput() {
+        try {
+          const command = "getconf GNU_LIBC_VERSION 2>&1 || true; ldd --version 2>&1 || true";
+          return require("child_process").execSync(command, { encoding: "utf8" });
+        } catch (_err) {
+          return "";
+        }
+      }
+    }
   }
 }
 
