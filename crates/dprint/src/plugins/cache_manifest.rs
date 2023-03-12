@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use dprint_core::plugins::PluginInfo;
 
+use super::implementations::WASMER_COMPILER_VERSION;
 use crate::environment::Environment;
 
 const PLUGIN_CACHE_SCHEMA_VERSION: usize = 7;
@@ -14,6 +15,7 @@ const PLUGIN_CACHE_SCHEMA_VERSION: usize = 7;
 #[serde(rename_all = "camelCase")]
 pub struct PluginCacheManifest {
   schema_version: usize,
+  wasm_cache_version: String,
   plugins: HashMap<String, PluginCacheManifestItem>,
 }
 
@@ -21,6 +23,7 @@ impl PluginCacheManifest {
   pub(super) fn new() -> PluginCacheManifest {
     PluginCacheManifest {
       schema_version: PLUGIN_CACHE_SCHEMA_VERSION,
+      wasm_cache_version: WASMER_COMPILER_VERSION.to_string(),
       plugins: HashMap::new(),
     }
   }
@@ -36,6 +39,30 @@ impl PluginCacheManifest {
   pub fn remove_item(&mut self, key: &str) -> Option<PluginCacheManifestItem> {
     self.plugins.remove(key)
   }
+
+  fn is_different_schema(&self) -> bool {
+    self.schema_version != PLUGIN_CACHE_SCHEMA_VERSION
+  }
+
+  fn is_new_wasm_cache(&self) -> bool {
+    // bust when upgrading, but not downgrading
+    version_gt(&self.wasm_cache_version, WASMER_COMPILER_VERSION)
+  }
+}
+
+fn version_gt(file: &str, current: &str) -> bool {
+  for (file, current) in file.split('.').zip(current.split('.')) {
+    if let Ok(file) = file.parse::<usize>() {
+      if let Ok(current) = current.parse::<usize>() {
+        if current > file {
+          return true;
+        } else if current < file {
+          return false;
+        }
+      }
+    }
+  }
+  false // equal
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -51,15 +78,22 @@ pub struct PluginCacheManifestItem {
 pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
   return match try_deserialize(environment) {
     Ok(manifest) => {
-      if manifest.schema_version != PLUGIN_CACHE_SCHEMA_VERSION {
+      if manifest.is_different_schema() || manifest.is_new_wasm_cache() {
+        if manifest.is_different_schema() {
+          log_verbose!(environment, "Busting plugins cache due to different schema.");
+        }
+        if manifest.is_new_wasm_cache() {
+          log_verbose!(environment, "Busting plugins cache due to new wasm cache version.");
+        }
         let _ = environment.remove_dir_all(environment.get_cache_dir().join("plugins"));
         PluginCacheManifest::new()
       } else {
         manifest
       }
     }
-    Err(_) => {
-      let _ = environment.remove_dir_all(environment.get_cache_dir());
+    Err(err) => {
+      log_verbose!(environment, "Busting plugins cache due to deserialization error: {:#}", err);
+      let _ = environment.remove_dir_all(environment.get_cache_dir().join("plugins"));
       PluginCacheManifest::new()
     }
   };
@@ -98,6 +132,7 @@ mod test {
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
         r#"{
     "schemaVersion": 7,
+    "wasmCacheVersion": "2.3.0",
     "plugins": {
         "a": {
             "createdTime": 123,
@@ -290,5 +325,26 @@ mod test {
     // Just read and compare again because the hash map will serialize properties
     // in a non-deterministic order.
     assert_eq!(read_manifest(&environment), manifest);
+  }
+
+  #[test]
+  fn test_version_gt() {
+    assert!(!version_gt("1.1.0", "1.1.0"));
+    assert!(version_gt("1.1.0", "1.1.1"));
+    assert!(version_gt("1.1.0", "1.1.2"));
+    assert!(version_gt("1.1.0", "1.2.0"));
+    assert!(!version_gt("1.1.0", "1.0.0"));
+    assert!(version_gt("1.1.0", "2.1.0"));
+    assert!(!version_gt("1.1.0", "0.1.0"));
+  }
+
+  #[test]
+  fn is_new_wasm_cache() {
+    let mut manifest = PluginCacheManifest::new();
+    assert!(!manifest.is_new_wasm_cache());
+    manifest.wasm_cache_version = "0.0.1".to_string();
+    assert!(manifest.is_new_wasm_cache());
+    manifest.wasm_cache_version = "100.0.1".to_string();
+    assert!(!manifest.is_new_wasm_cache());
   }
 }

@@ -83,7 +83,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
 
   match plugin_reference.plugin_kind() {
     Some(PluginKind::Wasm) => {
-      let file_bytes = match wasm::read_compiled_from_file(&environment, &cache_item.file_path) {
+      let file_bytes = match environment.read_file_bytes(cache_item.file_path) {
         Ok(file_bytes) => file_bytes,
         Err(err) => {
           log_verbose!(
@@ -95,7 +95,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
           // forget and try again
           plugin_cache.forget(plugin_reference)?;
           let cache_item = plugin_cache.get_plugin_cache_item(plugin_reference).await?;
-          wasm::read_compiled_from_file(&environment, &cache_item.file_path)?
+          environment.read_file_bytes(cache_item.file_path)?
         }
       };
 

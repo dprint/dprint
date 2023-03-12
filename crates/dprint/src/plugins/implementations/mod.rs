@@ -3,6 +3,7 @@ mod public;
 mod wasm;
 
 pub use public::*;
+pub use wasm::WASMER_COMPILER_VERSION;
 
 pub use wasm::compile as compile_wasm;
 

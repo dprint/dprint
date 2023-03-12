@@ -20,5 +20,5 @@ fn main() {
   // this is to just be notified when the wasmer-compiler version
   // changes, so just bump this if it fails
   debug_assert_eq!(wasmer_compiler_version, "2.3.0");
-  println!("cargo:rustc-env=WASMER_COMPILER_VERSION={}", version_text);
+  println!("cargo:rustc-env=WASMER_COMPILER_VERSION={}", wasmer_compiler_version);
 }

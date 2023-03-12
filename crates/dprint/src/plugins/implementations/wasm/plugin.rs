@@ -16,7 +16,6 @@ use dprint_core::plugins::PluginInfo;
 use super::create_module;
 use super::create_pools_import_object;
 use super::load_instance;
-use super::CompiledWasmModuleBytes;
 use super::ImportObjectEnvironment;
 use super::WasmFormatResult;
 use super::WasmFunctions;
@@ -37,7 +36,7 @@ pub struct WasmPlugin<TEnvironment: Environment> {
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
   pub fn new(
-    compiled_wasm_bytes: &CompiledWasmModuleBytes,
+    compiled_wasm_bytes: &[u8],
     plugin_info: PluginInfo,
     environment: TEnvironment,
     plugin_pools: Arc<PluginsCollection<TEnvironment>>,
