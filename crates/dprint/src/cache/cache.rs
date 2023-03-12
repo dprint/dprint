@@ -60,7 +60,7 @@ where
     Ok(cache_item)
   }
 
-  #[allow(dead_code)]
+  #[cfg(test)]
   pub fn forget_item(&self, key: &str) -> Result<()> {
     if let Some(item) = self.cache_manifest.write().remove_item(key) {
       let cache_file = self.cache_dir_path.join(item.file_name);

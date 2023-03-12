@@ -23,6 +23,7 @@ impl CacheManifest {
     self.0.get(key)
   }
 
+  #[cfg(test)]
   pub fn remove_item(&mut self, key: &str) -> Option<CacheItem> {
     self.0.remove(key)
   }
