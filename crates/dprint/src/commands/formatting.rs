@@ -16,7 +16,6 @@ use crate::arg_parser::CliArgs;
 use crate::arg_parser::FmtSubCommand;
 use crate::arg_parser::OutputFormatTimesSubCommand;
 use crate::arg_parser::StdInFmtSubCommand;
-use crate::cache::Cache;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
 use crate::format::run_parallelized;
@@ -35,11 +34,10 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
   cmd: &StdInFmtSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, cache, environment)?;
+  let config = resolve_config_from_args(args, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
   // if the path is absolute, then apply exclusion rules
@@ -82,11 +80,10 @@ pub async fn output_format_times<TEnvironment: Environment>(
   cmd: &OutputFormatTimesSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, cache, environment)?;
+  let config = resolve_config_from_args(args, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
   let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, environment).await?;
   let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
@@ -117,17 +114,16 @@ pub async fn check<TEnvironment: Environment>(
   cmd: &CheckSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, cache, environment)?;
+  let config = resolve_config_from_args(args, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
   let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, environment).await?;
   let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
-  let incremental_file = get_incremental_file(cmd.incremental, &config, cache.cache_dir_path(), &plugin_pools, environment);
+  let incremental_file = get_incremental_file(cmd.incremental, &config, &plugin_pools, environment);
   let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
   run_parallelized(
@@ -180,17 +176,16 @@ pub async fn format<TEnvironment: Environment>(
   cmd: &FmtSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  cache: &Cache<TEnvironment>,
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, cache, environment)?;
+  let config = resolve_config_from_args(args, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
   let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, environment).await?;
   let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
-  let incremental_file = get_incremental_file(cmd.incremental, &config, cache.cache_dir_path(), &plugin_pools, environment);
+  let incremental_file = get_incremental_file(cmd.incremental, &config, &plugin_pools, environment);
   let formatted_files_count = Arc::new(AtomicUsize::new(0));
   let output_diff = cmd.diff;
 

@@ -86,7 +86,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
     action: TCreate,
     total_size: usize,
   ) -> TResult;
-  fn get_cache_dir(&self) -> PathBuf;
+  fn get_cache_dir(&self) -> CanonicalizedPathBuf;
   /// Gets the CPU architecture.
   fn cpu_arch(&self) -> String;
   /// Gets the operating system.

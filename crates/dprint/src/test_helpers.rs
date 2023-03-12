@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use crossterm::style::Stylize;
+use once_cell::sync::Lazy;
 
 use crate::arg_parser::parse_args;
-use crate::cache::Cache;
 use crate::environment::TestEnvironment;
 use crate::plugins::CompilationResult;
 use crate::plugins::PluginCache;
@@ -27,29 +27,25 @@ pub static PROCESS_PLUGIN_EXE_BYTES: &'static [u8] = include_bytes!("../../../ta
 // Regenerate this by running `./rebuild.sh` in /crates/test-plugin
 pub static WASM_PLUGIN_BYTES: &'static [u8] = include_bytes!("../../test-plugin/test_plugin.wasm");
 // cache these so it only has to be done once across all tests
-lazy_static! {
-  static ref COMPILATION_RESULT: CompilationResult = crate::plugins::compile_wasm(WASM_PLUGIN_BYTES).unwrap();
-}
-lazy_static! {
-  pub static ref PROCESS_PLUGIN_ZIP_BYTES: Vec<u8> = {
-    let buf: Vec<u8> = Vec::new();
-    let w = std::io::Cursor::new(buf);
-    let mut zip = zip::ZipWriter::new(w);
-    let options = zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
-    zip
-      .start_file(
-        if cfg!(target_os = "windows") {
-          "test-process-plugin.exe"
-        } else {
-          "test-process-plugin"
-        },
-        options,
-      )
-      .unwrap();
-    zip.write(PROCESS_PLUGIN_EXE_BYTES).unwrap();
-    zip.finish().unwrap().into_inner()
-  };
-}
+static COMPILATION_RESULT: Lazy<CompilationResult> = Lazy::new(|| crate::plugins::compile_wasm(WASM_PLUGIN_BYTES).unwrap());
+pub static PROCESS_PLUGIN_ZIP_BYTES: Lazy<Vec<u8>> = Lazy::new(|| {
+  let buf: Vec<u8> = Vec::new();
+  let w = std::io::Cursor::new(buf);
+  let mut zip = zip::ZipWriter::new(w);
+  let options = zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+  zip
+    .start_file(
+      if cfg!(target_os = "windows") {
+        "test-process-plugin.exe"
+      } else {
+        "test-process-plugin"
+      },
+      options,
+    )
+    .unwrap();
+  zip.write(PROCESS_PLUGIN_EXE_BYTES).unwrap();
+  zip.finish().unwrap().into_inner()
+});
 
 pub fn run_test_cli(args: Vec<&str>, environment: &TestEnvironment) -> Result<()> {
   run_test_cli_with_stdin(args, environment, TestStdInReader::default())
@@ -59,7 +55,6 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
   let mut args: Vec<String> = args.into_iter().map(String::from).collect();
   args.insert(0, String::from(""));
   environment.set_wasm_compile_result(COMPILATION_RESULT.clone());
-  let cache = Arc::new(Cache::new(environment.clone()));
   let plugin_cache = Arc::new(PluginCache::new(environment.clone()));
   let plugin_pools = Arc::new(PluginsCollection::new(environment.clone()));
   let plugin_resolver = PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
@@ -70,7 +65,7 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
   environment.run_in_runtime({
     let environment = environment.clone();
     async move {
-      let result = run_cli(&args, &environment, &cache, &plugin_resolver, plugin_pools.clone()).await;
+      let result = run_cli(&args, &environment, &plugin_resolver, plugin_pools.clone()).await;
       plugin_pools.drop_and_shutdown_initialized().await;
       result
     }

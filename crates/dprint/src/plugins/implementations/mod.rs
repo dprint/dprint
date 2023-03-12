@@ -17,7 +17,6 @@ mod test {
   use tokio_util::sync::CancellationToken;
 
   use crate::arg_parser::CliArgs;
-  use crate::cache::Cache;
   use crate::configuration::resolve_config_from_args;
   use crate::environment::TestEnvironmentBuilder;
   use crate::plugins::PluginCache;
@@ -31,11 +30,10 @@ mod test {
       let environment = environment.clone();
       async move {
         let collection = Arc::new(PluginsCollection::new(environment.clone()));
-        let cache = Cache::new(environment.clone());
         let plugin_cache = Arc::new(PluginCache::new(environment.clone()));
         let resolver = PluginResolver::new(environment.clone(), plugin_cache, collection.clone());
         let cli_args = CliArgs::empty();
-        let config = resolve_config_from_args(&cli_args, &cache, &environment).unwrap();
+        let config = resolve_config_from_args(&cli_args, &environment).unwrap();
         let mut plugins = resolver.resolve_plugins(config.plugins).await.unwrap();
         assert_eq!(plugins.iter().map(|p| p.name()).collect::<Vec<_>>(), vec!["test-plugin", "test-process-plugin"]);
         for plugin in plugins.iter_mut() {

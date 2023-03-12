@@ -5,7 +5,6 @@ pub use incremental_file::IncrementalFile;
 use std::sync::Arc;
 
 use crate::configuration::ResolvedConfig;
-use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::PluginsCollection;
 use crate::utils::get_bytes_hash;
@@ -13,7 +12,6 @@ use crate::utils::get_bytes_hash;
 pub fn get_incremental_file<TEnvironment: Environment>(
   incremental_cli_arg: Option<bool>,
   config: &ResolvedConfig,
-  cache_dir_path: &CanonicalizedPathBuf,
   plugin_pools: &PluginsCollection<TEnvironment>,
   environment: &TEnvironment,
 ) -> Option<Arc<IncrementalFile<TEnvironment>>> {
@@ -24,7 +22,7 @@ pub fn get_incremental_file<TEnvironment: Environment>(
   }
 
   // the incremental file is stored in the cache with a key based on the root directory
-  let incremental_dir = cache_dir_path.join_panic_relative("incremental");
+  let incremental_dir = environment.get_cache_dir().join_panic_relative("incremental");
   if environment.mk_dir_all(&incremental_dir).is_err() {
     return None;
   }
