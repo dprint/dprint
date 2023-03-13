@@ -1,9 +1,11 @@
-import $ from "https://deno.land/x/dax@0.28.0/mod.ts";
-
+// Verifies that the version in the Rust code matches the version in the lock file.
+//
 // Originally I tried doing this in crates/dprint/build.rs and reading
 // the Cargo.lock file, but that doesn't work for publishing because the
 // lockfile is outside the crates/cli directory. So the workaround is to
 // verify this on the CI instead.
+import $ from "https://deno.land/x/dax@0.28.0/mod.ts";
+
 $.logStep("Verifying wasmer-compiler version...");
 
 const rootDir = $.path(import.meta).join("../../../../");
