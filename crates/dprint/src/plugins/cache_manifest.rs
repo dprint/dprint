@@ -51,13 +51,17 @@ impl PluginCacheManifest {
 }
 
 fn version_gt(file: &str, current: &str) -> bool {
+  use std::cmp::Ordering;
+
   for (file, current) in file.split('.').zip(current.split('.')) {
     if let Ok(file) = file.parse::<usize>() {
       if let Ok(current) = current.parse::<usize>() {
-        if current > file {
-          return true;
-        } else if current < file {
-          return false;
+        match current.cmp(&file) {
+          Ordering::Greater => return true,
+          Ordering::Less => return false,
+          Ordering::Equal => {
+            // keep searching
+          }
         }
       }
     }
@@ -132,7 +136,7 @@ mod test {
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
         r#"{
     "schemaVersion": 7,
-    "wasmCacheVersion": "2.3.0",
+    "wasmCacheVersion": "99.9.9",
     "plugins": {
         "a": {
             "createdTime": 123,
@@ -177,6 +181,8 @@ mod test {
       .unwrap();
 
     let mut expected_manifest = PluginCacheManifest::new();
+    // should not change a newer version
+    expected_manifest.wasm_cache_version = "99.9.9".to_string();
     expected_manifest.add_item(
       String::from("a"),
       PluginCacheManifestItem {
@@ -229,6 +235,37 @@ mod test {
       },
     );
 
+    assert_eq!(read_manifest(&environment), expected_manifest);
+  }
+
+  #[test]
+  fn should_cache_bust_for_old_wasm_cache_version() {
+    let environment = TestEnvironment::new();
+    environment
+      .write_file(
+        &environment.get_cache_dir().join("plugin-cache-manifest.json"),
+        r#"{
+    "schemaVersion": 7,
+    "wasmCacheVersion": "0.1.0",
+    "plugins": {
+        "a": {
+            "createdTime": 123,
+            "info": {
+                "name": "dprint-plugin-typescript",
+                "version": "0.1.0",
+                "configKey": "typescript",
+                "fileExtensions": [".ts"],
+                "helpUrl": "help url",
+                "configSchemaUrl": "schema url"
+            }
+        }
+    }
+}"#,
+      )
+      .unwrap();
+
+    // cache busts since the wasm cache version is old
+    let expected_manifest = PluginCacheManifest::new();
     assert_eq!(read_manifest(&environment), expected_manifest);
   }
 
