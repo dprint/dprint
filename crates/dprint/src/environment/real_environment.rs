@@ -56,15 +56,12 @@ impl RealEnvironment {
     };
 
     // ensure the cache directory is created
-    let cache_dir = match (*CACHE_DIR).as_ref() {
+    match (*CACHE_DIR).as_ref() {
       Ok(cache_dir) => cache_dir,
       Err(err) => {
         bail!("Error creating cache directory: {:#}", err);
       }
     };
-    if let Err(err) = environment.mk_dir_all(cache_dir) {
-      bail!("Error creating cache directory: {:#}", err);
-    }
 
     Ok(environment)
   }
@@ -373,7 +370,11 @@ fn canonicalize_path(path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
 
 const CACHE_DIR_ENV_VAR_NAME: &str = "DPRINT_CACHE_DIR";
 
-static CACHE_DIR: Lazy<Result<CanonicalizedPathBuf>> = Lazy::new(|| canonicalize_path(get_cache_dir_internal(|var_name| std::env::var(var_name).ok())?));
+static CACHE_DIR: Lazy<Result<CanonicalizedPathBuf>> = Lazy::new(|| {
+  let cache_dir = get_cache_dir_internal(|var_name| std::env::var(var_name).ok())?;
+  std::fs::create_dir_all(&cache_dir)?;
+  canonicalize_path(cache_dir)
+});
 
 fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> Result<PathBuf> {
   if let Some(dir_path) = get_env_var(CACHE_DIR_ENV_VAR_NAME) {
