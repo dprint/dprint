@@ -8,7 +8,7 @@ use crate::environment::Environment;
 
 use super::super::SetupPluginResult;
 
-pub const WASMER_COMPILER_VERSION: &str = env!("WASMER_COMPILER_VERSION");
+pub const WASMER_COMPILER_VERSION: &str = "2.3.0";
 
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> PathBuf {
   let cache_dir_path = environment.get_cache_dir();
