@@ -109,7 +109,7 @@ const ci = {
           if: "matrix.config.target == 'x86_64-unknown-linux-gnu'",
         },
         {
-          name: "Update wasmer-compiler version",
+          name: "Verify wasmer-compiler version",
           if: "matrix.config.target == 'x86_64-unknown-linux-gnu'",
           run: "deno run --allow-env --allow-read --allow-net=deno.land .github/workflows/scripts/verify_wasmer_compiler_version.ts",
         },
