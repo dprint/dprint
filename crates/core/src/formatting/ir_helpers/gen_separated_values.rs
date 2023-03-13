@@ -27,17 +27,17 @@ pub enum BoolOrCondition {
 }
 
 pub struct SingleLineOptions {
-  pub single_line_space_at_start: bool,
-  pub single_line_space_at_end: bool,
-  pub single_line_separator: PrintItems,
+  pub space_at_start: bool,
+  pub space_at_end: bool,
+  pub separator: PrintItems,
 }
 
 impl SingleLineOptions {
   pub fn seperated_same_line(seperator: PrintItems) -> Self {
     SingleLineOptions {
-      single_line_space_at_start: false,
-      single_line_space_at_end: false,
-      single_line_separator: seperator,
+      space_at_start: false,
+      space_at_end: false,
+      separator: seperator,
     }
   }
 
@@ -47,17 +47,17 @@ impl SingleLineOptions {
 
   pub fn seperated_line_starting_with_space() -> Self {
     SingleLineOptions {
-      single_line_space_at_start: true,
-      single_line_space_at_end: false,
-      single_line_separator: Signal::SpaceOrNewLine.into(),
+      space_at_start: true,
+      space_at_end: false,
+      separator: Signal::SpaceOrNewLine.into(),
     }
   }
 
   pub fn surrounded_line() -> Self {
     SingleLineOptions {
-      single_line_space_at_start: true,
-      single_line_space_at_end: true,
-      single_line_separator: Signal::SpaceOrNewLine.into(),
+      space_at_start: true,
+      space_at_end: true,
+      separator: Signal::SpaceOrNewLine.into(),
     }
   }
 }
@@ -213,7 +213,7 @@ pub fn gen_separated_values(
   let inner_gen_result = inner_gen(
     generated_values,
     is_multi_line.clone(),
-    opts.single_line_options.single_line_separator,
+    opts.single_line_options.separator,
     &multi_line_options,
     opts.allow_blank_lines,
   );
@@ -250,7 +250,7 @@ pub fn gen_separated_values(
       ),
       false_path: Some({
         let mut items = PrintItems::new();
-        let has_start_space = opts.single_line_options.single_line_space_at_start;
+        let has_start_space = opts.single_line_options.space_at_start;
         if has_start_space {
           items.push_signal(Signal::SpaceIfNotTrailing);
           items.push_signal(Signal::PossibleNewLine);
@@ -267,7 +267,7 @@ pub fn gen_separated_values(
           ));
         }
         items.extend(generated_values_items.into());
-        if opts.single_line_options.single_line_space_at_end {
+        if opts.single_line_options.space_at_end {
           items.push_str(" ");
         }
         items
