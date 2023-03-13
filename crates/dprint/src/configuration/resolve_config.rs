@@ -5,7 +5,6 @@ use dprint_core::configuration::ConfigKeyValue;
 use std::path::Path;
 
 use crate::arg_parser::CliArgs;
-use crate::cache::Cache;
 use crate::configuration::deserialize_config;
 use crate::configuration::ConfigMap;
 use crate::configuration::ConfigMapValue;
@@ -32,8 +31,8 @@ pub struct ResolvedConfig {
   pub config_map: ConfigMap,
 }
 
-pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, cache: &Cache<TEnvironment>, environment: &TEnvironment) -> Result<ResolvedConfig> {
-  let resolved_config_path = resolve_main_config_path(args, cache, environment)?;
+pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<ResolvedConfig> {
+  let resolved_config_path = resolve_main_config_path(args, environment)?;
   let base_source = resolved_config_path.resolved_path.source.parent();
   let config_file_path = &resolved_config_path.resolved_path.file_path;
   let main_config_map = get_config_map_from_path(config_file_path, environment)?;
@@ -105,7 +104,7 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, cache
   };
 
   // resolve extends
-  resolve_extends(&mut resolved_config, extends, &base_source, cache, environment)?;
+  resolve_extends(&mut resolved_config, extends, &base_source, environment)?;
 
   Ok(resolved_config)
 }
@@ -114,12 +113,11 @@ fn resolve_extends<TEnvironment: Environment>(
   resolved_config: &mut ResolvedConfig,
   extends: Vec<String>,
   base_path: &PathSource,
-  cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
 ) -> Result<()> {
   for url_or_file_path in extends {
-    let resolved_path = resolve_url_or_file_path(&url_or_file_path, base_path, cache, environment)?;
-    match handle_config_file(&resolved_path, resolved_config, cache, environment) {
+    let resolved_path = resolve_url_or_file_path(&url_or_file_path, base_path, environment)?;
+    match handle_config_file(&resolved_path, resolved_config, environment) {
       Ok(extends) => extends,
       Err(err) => bail!("Error with '{}'. {:#}", resolved_path.source.display(), err),
     }
@@ -127,12 +125,7 @@ fn resolve_extends<TEnvironment: Environment>(
   Ok(())
 }
 
-fn handle_config_file<TEnvironment: Environment>(
-  resolved_path: &ResolvedPath,
-  resolved_config: &mut ResolvedConfig,
-  cache: &Cache<TEnvironment>,
-  environment: &TEnvironment,
-) -> Result<()> {
+fn handle_config_file<TEnvironment: Environment>(resolved_path: &ResolvedPath, resolved_config: &mut ResolvedConfig, environment: &TEnvironment) -> Result<()> {
   let config_file_path = &resolved_path.file_path;
   let mut new_config_map = match get_config_map_from_path(config_file_path, environment)? {
     Ok(config_map) => config_map,
@@ -204,7 +197,7 @@ fn handle_config_file<TEnvironment: Environment>(
     }
   }
 
-  resolve_extends(resolved_config, extends, &resolved_path.source.parent(), cache, environment)?;
+  resolve_extends(resolved_config, extends, &resolved_path.source.parent(), environment)?;
 
   Ok(())
 }
@@ -303,7 +296,6 @@ mod tests {
   use std::path::PathBuf;
 
   use crate::arg_parser::parse_args;
-  use crate::cache::Cache;
   use crate::configuration::RawPluginConfig;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
@@ -320,8 +312,7 @@ mod tests {
       TestStdInReader::default(),
     )
     .unwrap();
-    let cache = Cache::new(environment.to_owned());
-    resolve_config_from_args(&args, &cache, &environment)
+    resolve_config_from_args(&args, environment)
   }
 
   #[test]

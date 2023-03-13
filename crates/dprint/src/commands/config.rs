@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use url::Url;
 
 use crate::arg_parser::CliArgs;
-use crate::cache::Cache;
 use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
 use crate::environment::Environment;
@@ -47,11 +46,10 @@ pub fn init_config_file(environment: &impl Environment, config_arg: &Option<Stri
 pub async fn add_plugin_config_file<TEnvironment: Environment>(
   args: &CliArgs,
   plugin_name_or_url: Option<&String>,
-  cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, cache, environment)?;
+  let config = resolve_config_from_args(args, environment)?;
   let config_path = match config.resolved_path.source {
     PathSource::Local(source) => source.path,
     PathSource::Remote(_) => bail!("Cannot update plugins in a remote configuration."),
@@ -165,12 +163,11 @@ async fn get_possible_plugins_to_add<TEnvironment: Environment>(
 
 pub async fn update_plugins_config_file<TEnvironment: Environment>(
   args: &CliArgs,
-  cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
   no_prompt: bool,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, cache, environment)?;
+  let config = resolve_config_from_args(args, environment)?;
   let config_path = match config.resolved_path.source {
     PathSource::Local(source) => source.path,
     PathSource::Remote(_) => bail!("Cannot update plugins in a remote configuration."),
@@ -289,11 +286,10 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
 
 pub async fn output_resolved_config<TEnvironment: Environment>(
   args: &CliArgs,
-  cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, cache, environment)?;
+  let config = resolve_config_from_args(args, environment)?;
   let plugins = resolve_plugins(args, &config, environment, plugin_resolver).await?;
 
   let mut plugin_jsons = Vec::new();

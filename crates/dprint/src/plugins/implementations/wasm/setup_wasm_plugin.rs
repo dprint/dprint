@@ -8,10 +8,13 @@ use crate::environment::Environment;
 
 use super::super::SetupPluginResult;
 
+pub const WASMER_COMPILER_VERSION: &str = env!("WASMER_COMPILER_VERSION");
+
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> PathBuf {
   let cache_dir_path = environment.get_cache_dir();
   let plugin_cache_dir_path = cache_dir_path.join("plugins").join(&plugin_info.name);
-  plugin_cache_dir_path.join(format!("{}-{}.cached", plugin_info.version, environment.cpu_arch()))
+  // this is keyed on both the wasmer compiler version and cpu architecture
+  plugin_cache_dir_path.join(format!("{}-{}-{}", plugin_info.version, WASMER_COMPILER_VERSION, environment.cpu_arch()))
 }
 
 pub fn setup_wasm_plugin<TEnvironment: Environment>(url_or_file_path: &PathSource, file_bytes: &[u8], environment: &TEnvironment) -> Result<SetupPluginResult> {

@@ -36,12 +36,12 @@ pub struct WasmPlugin<TEnvironment: Environment> {
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
   pub fn new(
-    compiled_wasm_bytes: Vec<u8>,
+    compiled_wasm_bytes: &[u8],
     plugin_info: PluginInfo,
     environment: TEnvironment,
     plugin_pools: Arc<PluginsCollection<TEnvironment>>,
   ) -> Result<Self> {
-    let module = create_module(&compiled_wasm_bytes)?;
+    let module = create_module(compiled_wasm_bytes)?;
     Ok(WasmPlugin {
       environment,
       plugin_pools,

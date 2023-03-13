@@ -24,7 +24,6 @@ pub use name_resolution::PluginNameResolutionMaps;
 use anyhow::bail;
 use anyhow::Result;
 
-use crate::cache::Cache;
 use crate::configuration::get_global_config;
 use crate::configuration::get_plugin_config_map;
 use crate::configuration::GetGlobalConfigOptions;
@@ -36,11 +35,10 @@ use crate::configuration::ResolvedConfig;
 
 pub async fn get_plugins_from_args<TEnvironment: Environment>(
   args: &CliArgs,
-  cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<Vec<Box<dyn Plugin>>> {
-  match resolve_config_from_args(args, cache, environment) {
+  match resolve_config_from_args(args, environment) {
     Ok(config) => resolve_plugins(args, &config, environment, plugin_resolver).await,
     Err(_) => Ok(Vec::new()), // ignore
   }
