@@ -61,10 +61,10 @@ jobs:
         run: deno run --allow-env --allow-read --allow-net=deno.land .github/workflows/scripts/verify_wasmer_compiler_version.ts
       - name: Build test plugins (Debug)
         if: 'matrix.config.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'')'
-        run: cargo build --manifest-path=crates/test-process-plugin/Cargo.toml --locked
+        run: 'cargo build --manifest-path=crates/test-process-plugin/Cargo.toml --locked --target ${{matrix.config.target}}'
       - name: Build test plugins (Release)
         if: 'matrix.config.run_tests == ''true'' && startsWith(github.ref, ''refs/tags/'')'
-        run: cargo build --manifest-path=crates/test-process-plugin/Cargo.toml --locked --release
+        run: 'cargo build --manifest-path=crates/test-process-plugin/Cargo.toml --locked --target ${{matrix.config.target}} --release'
       - name: Setup (Linux x86_64-musl)
         if: matrix.config.target == 'x86_64-unknown-linux-musl'
         run: |-

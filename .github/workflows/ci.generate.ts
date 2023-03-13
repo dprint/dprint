@@ -116,12 +116,12 @@ const ci = {
         {
           name: "Build test plugins (Debug)",
           if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-          run: "cargo build --manifest-path=crates/test-process-plugin/Cargo.toml --locked",
+          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}}",
         },
         {
           name: "Build test plugins (Release)",
           if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
-          run: "cargo build --manifest-path=crates/test-process-plugin/Cargo.toml --locked --release",
+          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}} --release",
         },
         {
           name: "Setup (Linux x86_64-musl)",
