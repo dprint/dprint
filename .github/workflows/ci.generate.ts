@@ -179,7 +179,7 @@ const ci = {
         {
           name: "Test integration",
           if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && !startsWith(github.ref, 'refs/tags/')",
-          run: "./target/debug/dprint check",
+          run: "cargo run -p dprint -- check",
         },
         {
           name: "Create installer (Windows x86_64)",
