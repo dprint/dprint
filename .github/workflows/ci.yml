@@ -58,7 +58,7 @@ jobs:
         if: matrix.config.target == 'x86_64-unknown-linux-gnu'
       - name: Update wasmer-compiler version
         if: matrix.config.target == 'x86_64-unknown-linux-gnu'
-        run: deno run --allow-env --allow-read=. --allow-write=crates/dprint/ ./scripts/update_wasmer_compiler_version.ts
+        run: deno run --allow-env --allow-read .github/workflows/scripts/verify_wasmer_compiler_version.ts
       - name: Build test plugins (Debug)
         if: 'matrix.config.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'')'
         run: cargo build --manifest-path=crates/test-process-plugin/Cargo.toml --locked

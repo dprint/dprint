@@ -111,7 +111,7 @@ const ci = {
         {
           name: "Update wasmer-compiler version",
           if: "matrix.config.target == 'x86_64-unknown-linux-gnu'",
-          run: "deno run --allow-env --allow-read=. --allow-write=crates/dprint/ ./scripts/update_wasmer_compiler_version.ts",
+          run: "deno run --allow-env --allow-read .github/workflows/scripts/verify_wasmer_compiler_version.ts",
         },
         {
           name: "Build test plugins (Debug)",
