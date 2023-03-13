@@ -33,9 +33,7 @@ pub fn get_test_safe_executable_path(executable_file_path: PathBuf, environment:
       if cfg!(unix) {
         std::process::Command::new("sh")
           .arg("-c")
-          .arg("chmod")
-          .arg("+x")
-          .arg(&temp_process_plugin_file)
+          .arg(format!("chmod +x {}", temp_process_plugin_file.to_string_lossy()))
           .status()
           .unwrap();
       }
