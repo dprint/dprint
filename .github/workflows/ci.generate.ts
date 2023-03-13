@@ -169,12 +169,12 @@ const ci = {
         {
           name: "Test (Debug)",
           if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-          run: "cargo test --locked --all-features",
+          run: "cargo test --locked --target ${{matrix.config.target}} --all-features",
         },
         {
           name: "Test (Release)",
           if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
-          run: "cargo test --locked --all-features --release",
+          run: "cargo test --locked --target ${{matrix.config.target}} --all-features --release",
         },
         {
           name: "Test integration",
