@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -14,15 +15,20 @@ use crate::plugins::PluginsCollection;
 use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
 
-// this should automatically be built when building the workspace
-#[cfg(all(target_os = "windows", debug_assertions))]
-pub static PROCESS_PLUGIN_EXE_BYTES: &'static [u8] = include_bytes!("../../../target/debug/test-process-plugin.exe");
-#[cfg(all(target_os = "windows", not(debug_assertions)))]
-pub static PROCESS_PLUGIN_EXE_BYTES: &'static [u8] = include_bytes!("../../../target/release/test-process-plugin.exe");
-#[cfg(all(not(target_os = "windows"), debug_assertions))]
-pub static PROCESS_PLUGIN_EXE_BYTES: &'static [u8] = include_bytes!("../../../target/debug/test-process-plugin");
-#[cfg(all(not(target_os = "windows"), not(debug_assertions)))]
-pub static PROCESS_PLUGIN_EXE_BYTES: &'static [u8] = include_bytes!("../../../target/release/test-process-plugin");
+// this file should automatically be built when building the workspace
+pub static TEST_PROCESS_PLUGIN_PATH: Lazy<PathBuf> = Lazy::new(|| {
+  let exe_name = if cfg!(windows) { "test-process-plugin.exe" } else { "test-process-plugin" };
+  let profile_name = if cfg!(debug_assertions) { "debug" } else { "release" };
+  let target_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
+  assert!(target_dir.exists());
+  let file_path = target_dir.join(target_dir.join(env!("TARGET"))).join(profile_name).join(exe_name);
+  let file_path = if file_path.exists() {
+    file_path
+  } else {
+    target_dir.join(profile_name).join(exe_name)
+  };
+  std::fs::canonicalize(&file_path).unwrap_or_else(|err| panic!("Could not canonicalize {}: {:#}", file_path.display(), err))
+});
 
 // Regenerate this by running `./rebuild.sh` in /crates/test-plugin
 pub static WASM_PLUGIN_BYTES: &'static [u8] = include_bytes!("../../test-plugin/test_plugin.wasm");
@@ -43,7 +49,8 @@ pub static PROCESS_PLUGIN_ZIP_BYTES: Lazy<Vec<u8>> = Lazy::new(|| {
       options,
     )
     .unwrap();
-  zip.write(PROCESS_PLUGIN_EXE_BYTES).unwrap();
+  let file_bytes = std::fs::read(&*TEST_PROCESS_PLUGIN_PATH).unwrap();
+  zip.write(&file_bytes).unwrap();
   zip.finish().unwrap().into_inner()
 });
 

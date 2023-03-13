@@ -25,23 +25,21 @@ pub fn get_test_safe_executable_path(executable_file_path: PathBuf, environment:
     executable_file_path
   } else {
     // do this so that we can launch the process in the tests
-    if cfg!(target_os = "windows") {
-      let tmp_dir = PathBuf::from("temp");
-      let temp_process_plugin_file = tmp_dir.join(if cfg!(target_os = "windows") { "temp-plugin.exe" } else { "temp-plugin" });
-      PLUGIN_FILE_INITIALIZE.call_once(|| {
-        let _ = std::fs::create_dir(&tmp_dir);
-        let _ = std::fs::write(&temp_process_plugin_file, environment.read_file_bytes(&executable_file_path).unwrap());
-      });
-      // ignore errors if path already exists
-      temp_process_plugin_file
-    } else {
-      // couldn't figure out how to do chmod +x on a file in rust
-      if cfg!(debug_assertions) {
-        PathBuf::from("../../target/debug/test-process-plugin")
-      } else {
-        PathBuf::from("../../target/release/test-process-plugin")
+    let tmp_dir = PathBuf::from("temp");
+    let temp_process_plugin_file = tmp_dir.join(if cfg!(target_os = "windows") { "temp-plugin.exe" } else { "temp-plugin" });
+    PLUGIN_FILE_INITIALIZE.call_once(|| {
+      let _ = std::fs::create_dir(&tmp_dir);
+      let _ = std::fs::write(&temp_process_plugin_file, environment.read_file_bytes(&executable_file_path).unwrap());
+      if cfg!(unix) {
+        std::process::Command::new("sh")
+          .arg("-c")
+          .arg(format!("chmod +x {}", temp_process_plugin_file.to_string_lossy()))
+          .status()
+          .unwrap();
       }
-    }
+    });
+    // ignore errors if path already exists
+    temp_process_plugin_file
   }
 }
 
