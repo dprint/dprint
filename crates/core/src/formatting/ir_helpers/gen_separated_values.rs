@@ -33,19 +33,19 @@ pub struct SingleLineOptions {
 }
 
 impl SingleLineOptions {
-  pub fn seperated_same_line(seperator: PrintItems) -> Self {
+  pub fn separated_same_line(separator: PrintItems) -> Self {
     SingleLineOptions {
       space_at_start: false,
       space_at_end: false,
-      separator: seperator,
+      separator,
     }
   }
 
-  pub fn same_line_maybe_space_seperated() -> Self {
-    Self::seperated_same_line(Signal::SpaceOrNewLine.into())
+  pub fn same_line_maybe_space_separated() -> Self {
+    Self::separated_same_line(Signal::SpaceOrNewLine.into())
   }
 
-  pub fn seperated_line_starting_with_space() -> Self {
+  pub fn separated_line_starting_with_space() -> Self {
     SingleLineOptions {
       space_at_start: true,
       space_at_end: false,
