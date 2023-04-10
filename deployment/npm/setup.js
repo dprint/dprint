@@ -21,6 +21,7 @@ const infoJson = {
     "x86_64-unknown-linux-gnu": checksums.get("dprint-x86_64-unknown-linux-gnu.zip"),
     "x86_64-unknown-linux-musl": checksums.get("dprint-x86_64-unknown-linux-musl.zip"),
     "aarch64-unknown-linux-gnu": checksums.get("dprint-aarch64-unknown-linux-gnu.zip"),
+    "aarch64-unknown-linux-musl": checksums.get("dprint-aarch64-unknown-linux-musl.zip"),
   },
 };
 fs.writeFileSync(infoJsonFilePath, JSON.stringify(infoJson, null, 2));

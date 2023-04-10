@@ -13,16 +13,22 @@ if [ "$OS" = "Windows_NT" ]; then
 	target="x86_64-pc-windows-msvc"
 else
 	case $(uname -sm) in
-	"Darwin x86_64") target="x86_64-apple-darwin" ;;
-	"Darwin arm64") target="aarch64-apple-darwin" ;;
-	"Linux aarch64") target="aarch64-unknown-linux-gnu" ;;
-	*)
-		is_musl=$(ldd /bin/sh | grep 'musl' || true)
-		if [ -z "$is_musl" ]; then
-			target="x86_64-unknown-linux-gnu"
-		else
-			target="x86_64-unknown-linux-musl"
-		fi ;;
+		"Darwin x86_64") target="x86_64-apple-darwin" ;;
+		"Darwin arm64") target="aarch64-apple-darwin" ;;
+		"Linux aarch64")
+			is_musl=$(ldd /bin/sh | grep 'musl' || true)
+			if [ -z "$is_musl" ]; then
+				target="aarch64-unknown-linux-gnu"
+			else
+				target="aarch64-unknown-linux-musl"
+			fi ;;
+		*)
+			is_musl=$(ldd /bin/sh | grep 'musl' || true)
+			if [ -z "$is_musl" ]; then
+				target="x86_64-unknown-linux-gnu"
+			else
+				target="x86_64-unknown-linux-musl"
+			fi ;;
 	esac
 fi
 
