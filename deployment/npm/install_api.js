@@ -91,6 +91,13 @@ function install() {
       const proxyUrl = getProxyUrl(url);
       if (proxyUrl != null) {
         options.agent = new HttpsProxyAgent(proxyUrl);
+      } else {
+        // Node 19+ defaults keepAlive to true for `https.get`, but contains a bug
+        // that prevents the process from exiting. Work around this by explicitly
+        // disabling keepAlive.
+        //
+        // See: https://github.com/nodejs/node/issues/47228
+        options.agent = new https.Agent({ keepAlive: false });
       }
 
       https.get(url, options, function(response) {
