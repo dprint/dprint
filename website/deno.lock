@@ -491,6 +491,7 @@
       "@lumeland/sass@1.58.0": "@lumeland/sass@1.58.0",
       "date-fns@2.29.3": "date-fns@2.29.3",
       "highlight.js@11.7.0": "highlight.js@11.7.0",
+      "markdown-it-anchor@8.6.7": "markdown-it-anchor@8.6.7_@types+markdown-it@12.2.3_markdown-it@13.0.1",
       "markdown-it-attrs@4.1.6": "markdown-it-attrs@4.1.6_markdown-it@13.0.1",
       "markdown-it-deflist@2.1.0": "markdown-it-deflist@2.1.0",
       "markdown-it@13.0.1": "markdown-it@13.0.1",
@@ -504,6 +505,21 @@
           "immutable": "immutable@4.2.4",
           "source-map-js": "source-map-js@1.0.2"
         }
+      },
+      "@types/linkify-it@3.0.2": {
+        "integrity": "sha512-HZQYqbiFVWufzCwexrvh694SOim8z2d+xJl5UNamcvQFejLY/2YUtzXHYi3cHdI7PMlS8ejH2slRAOJQ32aNbA==",
+        "dependencies": {}
+      },
+      "@types/markdown-it@12.2.3": {
+        "integrity": "sha512-GKMHFfv3458yYy+v/N8gjufHO6MSZKCOXpZc5GXIWWy8uldwfmPn98vp81gZ5f9SVw8YYBctgfJ22a2d7AOMeQ==",
+        "dependencies": {
+          "@types/linkify-it": "@types/linkify-it@3.0.2",
+          "@types/mdurl": "@types/mdurl@1.0.2"
+        }
+      },
+      "@types/mdurl@1.0.2": {
+        "integrity": "sha512-eC4U9MlIcu2q0KQmXszyn5Akca/0jrQmwDRgpAMJai7qBWq4amIQhZyNau4VYGtCeALvW1/NtjzJJ567aZxfKA==",
+        "dependencies": {}
       },
       "argparse@2.0.1": {
         "integrity": "sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==",
@@ -539,6 +555,13 @@
         "integrity": "sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==",
         "dependencies": {
           "js-tokens": "js-tokens@4.0.0"
+        }
+      },
+      "markdown-it-anchor@8.6.7_@types+markdown-it@12.2.3_markdown-it@13.0.1": {
+        "integrity": "sha512-FlCHFwNnutLgVTflOYHPW2pPcl2AACqVzExlkGQNsi4CJgqOHN7YTgDd4LuhgN1BFO3TS0vLAruV1Td6dwWPJA==",
+        "dependencies": {
+          "@types/markdown-it": "@types/markdown-it@12.2.3",
+          "markdown-it": "markdown-it@13.0.1"
         }
       },
       "markdown-it-attrs@4.1.6_markdown-it@13.0.1": {
