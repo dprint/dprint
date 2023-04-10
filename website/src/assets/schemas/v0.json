@@ -25,18 +25,15 @@
     },
     "lineWidth": {
       "description": "The width of a line the printer will try to stay under. Note that the printer may exceed this width in certain cases.",
-      "type": "number",
-      "default": 120
+      "type": "number"
     },
     "indentWidth": {
       "description": "The number of characters for an indent.",
-      "type": "number",
-      "default": 2
+      "type": "number"
     },
     "useTabs": {
       "description": "Whether to use tabs (true) or spaces (false) for indentation.",
-      "type": "boolean",
-      "default": false
+      "type": "boolean"
     },
     "newLineKind": {
       "description": "The kind of newline to use.",
