@@ -220,6 +220,7 @@ jobs:
           cd website/src/assets
           ./install.ps1
       - name: Test npm
+        if: matrix.config.target != 'aarch64-unknown-linux-musl'
         run: |-
           cd deployment/npm
           curl --fail --location --progress-bar --output "SHASUMS256.txt" "https://github.com/dprint/dprint/releases/download/0.34.1/SHASUMS256.txt"

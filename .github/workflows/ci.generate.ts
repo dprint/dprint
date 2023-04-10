@@ -271,6 +271,8 @@ const ci = {
         },
         {
           name: "Test npm",
+          // todo: temporarily ignore because a release hasn't been done with this
+          if: "matrix.config.target != 'aarch64-unknown-linux-musl'",
           run: [
             "cd deployment/npm",
             "curl --fail --location --progress-bar --output \"SHASUMS256.txt\" \"https://github.com/dprint/dprint/releases/download/0.34.1/SHASUMS256.txt\"",
