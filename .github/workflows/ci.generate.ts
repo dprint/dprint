@@ -145,6 +145,15 @@ const ci = {
           ].join("\n"),
         },
         {
+          name: "Setup (Linux aarch64-musl)",
+          if: "matrix.config.target == 'aarch64-unknown-linux-musl'",
+          run: [
+            "sudo apt update",
+            "sudo apt install -y gcc-aarch64-linux-musl",
+            "rustup target add aarch64-unknown-linux-musl",
+          ].join("\n"),
+        },
+        {
           name: "Setup (Mac aarch64)",
           if: "matrix.config.target == 'aarch64-apple-darwin'",
           run: "rustup target add aarch64-apple-darwin",
