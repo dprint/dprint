@@ -165,6 +165,7 @@ const ci = {
           env: {
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER": "aarch64-linux-musl-gcc",
+            "CC_aarch64_unknown_linux_musl": "aarch64-linux-musl-gcc",
           },
           run: [
             "cargo build -p dprint --locked --target ${{matrix.config.target}}",
@@ -176,6 +177,7 @@ const ci = {
           env: {
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER": "aarch64-linux-musl-gcc",
+            "CC_aarch64_unknown_linux_musl": "aarch64-linux-musl-gcc",
           },
           run: [
             "cargo build -p dprint --locked --target ${{matrix.config.target}} --release",
