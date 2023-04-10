@@ -65,29 +65,29 @@
       <h1>Command Line Interface (CLI)</h1>
 <pre><code class="language-sh hljs language-bash">dprint &lt;SUBCOMMAND&gt; [OPTIONS] [--] [files]...
 </code></pre>
-<h2>Installing and Setup/Initialization</h2>
+<h2 id="installing-and-setup%2Finitialization" tabindex="-1"><a class="header-anchor" href="#installing-and-setup%2Finitialization">Installing and Setup/Initialization</a></h2>
 <p>See <a href="/install">Install</a> and <a href="/setup">Setup</a>.</p>
-<h2>Upgrade</h2>
+<h2 id="upgrade" tabindex="-1"><a class="header-anchor" href="#upgrade">Upgrade</a></h2>
 <p>In versions &gt;= 0.30, you can upgrade to the latest version by running <code>dprint upgrade</code>.</p>
-<h2>Help</h2>
+<h2 id="help" tabindex="-1"><a class="header-anchor" href="#help">Help</a></h2>
 <p>The information outlined here will only be for the latest version, so <code>dprint help</code> or <code>dprint help &lt;SUBCOMMAND&gt;</code> (ex. <code>dprint help fmt</code>) will output information on how to use the CLI and give more detail about some of the flags not mentioned here.</p>
-<h2>Formatting Files</h2>
+<h2 id="formatting-files" tabindex="-1"><a class="header-anchor" href="#formatting-files">Formatting Files</a></h2>
 <p>After <a href="/setup">setting up a configuration file</a>, run the <code>fmt</code> command:</p>
 <pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span>
 </code></pre>
 <p>Or to override the configuration file's <code>includes</code> and <code>excludes</code>, you may specify the file paths to format or not format here:</p>
 <pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> **/*.js --excludes **/data
 </code></pre>
-<h3>Formatting Standard Input</h3>
+<h3 id="formatting-standard-input" tabindex="-1"><a class="header-anchor" href="#formatting-standard-input">Formatting Standard Input</a></h3>
 <p>Use <code>dprint fmt --stdin &lt;file-path/file-name/extension&gt;</code> and provide the input file text to stdin. The output will be directed by the CLI to stdout.</p>
 <p>Provide a full file path to format with inclusion/exclusion rules of your dprint configuration file or provide only a file name or extension to always format the file.</p>
-<h2>Checking What Files Aren't Formatted</h2>
+<h2 id="checking-what-files-aren't-formatted" tabindex="-1"><a class="header-anchor" href="#checking-what-files-aren't-formatted">Checking What Files Aren't Formatted</a></h2>
 <p>Instead of formatting files, you can get a report of any files that aren't formatted by running:</p>
 <pre><code class="language-sh hljs language-bash">dprint check
 </code></pre>
 <p>Example output:</p>
 <p><img src="/images/check-example.png" alt="Example of dprint check output." title="Example of dprint check output."></p>
-<h2>Incremental Formatting</h2>
+<h2 id="incremental-formatting" tabindex="-1"><a class="header-anchor" href="#incremental-formatting">Incremental Formatting</a></h2>
 <p>By default, dprint will only format files that have changed since the last time you formatted the code in order to drastically improve performance.</p>
 <p>If you want to disable this functionality, you may specify <code>--incremental=false</code> on the CLI:</p>
 <pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --incremental=<span class="hljs-literal">false</span>
@@ -98,15 +98,15 @@
   <span class="hljs-comment">// etc...</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
-<h2>Using a Custom Config File Path or URL</h2>
+<h2 id="using-a-custom-config-file-path-or-url" tabindex="-1"><a class="header-anchor" href="#using-a-custom-config-file-path-or-url">Using a Custom Config File Path or URL</a></h2>
 <p>Instead of the default dprint configuration paths you may specify a path to a configuration file via the <code>--config</code> or <code>-c</code> flag.</p>
 <pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --config path/to/my/config.json
 <span class="hljs-comment"># or specify a URL</span>
 dprint <span class="hljs-built_in">fmt</span> --config https://dprint.dev/path/to/some/config.json
 </code></pre>
 <p>This flag is more useful for one-off commands. It is recommended to use the default configuration file location and name as that will lead to a better user experience.</p>
-<h2>Diagnostic Commands and Flags</h2>
-<h3>Outputting file paths</h3>
+<h2 id="diagnostic-commands-and-flags" tabindex="-1"><a class="header-anchor" href="#diagnostic-commands-and-flags">Diagnostic Commands and Flags</a></h2>
+<h3 id="outputting-file-paths" tabindex="-1"><a class="header-anchor" href="#outputting-file-paths">Outputting file paths</a></h3>
 <p>Sometimes you may not be sure what files dprint is picking up and formatting. To check, use the <code>output-file-paths</code> subcommand to see all the resolved file paths for the current plugins based on the CLI arguments and configuration.</p>
 <pre><code class="language-sh hljs language-bash">dprint output-file-paths
 </code></pre>
@@ -119,7 +119,7 @@ C:\dev\my-project\website\playground\src\components\index.ts
 C:\dev\my-project\website\playground\src\components\Spinner.tsx
 ...etc...
 </code></pre>
-<h3>Outputting resolved configuration</h3>
+<h3 id="outputting-resolved-configuration" tabindex="-1"><a class="header-anchor" href="#outputting-resolved-configuration">Outputting resolved configuration</a></h3>
 <p>When diagnosing configuration issues it might be useful to find out what the internal lower level configuration used by the plugins is. To see that, use the following command:</p>
 <pre><code class="language-sh hljs language-bash">dprint output-resolved-config
 </code></pre>
@@ -147,7 +147,7 @@ C:\dev\my-project\website\playground\src\components\Spinner.tsx
   <span class="hljs-punctuation">}</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
-<h3>Outputting format times</h3>
+<h3 id="outputting-format-times" tabindex="-1"><a class="header-anchor" href="#outputting-format-times">Outputting format times</a></h3>
 <p>It can be useful to know what files take a long time to format as you may consider skipping them. To see this information, use the following command:</p>
 <pre><code class="language-sh hljs language-bash">dprint output-format-times
 </code></pre>
@@ -163,7 +163,7 @@ C:\dev\my-project\website\playground\src\components\Spinner.tsx
 46ms - C:\dev\my-project\docs\overview.md
 54ms - C:\dev\my-project\build.js
 </code></pre>
-<h3>Verbose</h3>
+<h3 id="verbose" tabindex="-1"><a class="header-anchor" href="#verbose">Verbose</a></h3>
 <p>It is sometimes useful to see what's going on under the hood. For those cases, run dprint with the <code>--verbose</code> flag.</p>
 <p>For example:</p>
 <pre><code class="language-sh hljs language-bash">dprint check --verbose
@@ -196,7 +196,7 @@ C:\dev\my-project\website\playground\src\components\Spinner.tsx
 ...etc....
 </code></pre>
 <p>This may be useful for finding files that are taking a long time to format and maybe should be excluded from formatting.</p>
-<h3>Clearing Cache</h3>
+<h3 id="clearing-cache" tabindex="-1"><a class="header-anchor" href="#clearing-cache">Clearing Cache</a></h3>
 <p>Internally, a cache is used to avoid re-downloading files. It may be useful in some scenarios to clear this cache by running:</p>
 <pre><code class="language-sh hljs language-bash">dprint clear-cache
 </code></pre>

@@ -64,9 +64,9 @@
     <div id="content-body" class="column documentation">
       <h1>Configuration</h1>
 <p>Configuration allows you to modify how dprint and its plugins behave.</p>
-<h2>Setup</h2>
+<h2 id="setup" tabindex="-1"><a class="header-anchor" href="#setup">Setup</a></h2>
 <p>See <a href="/setup">Setup</a>.</p>
-<h2>Example</h2>
+<h2 id="example" tabindex="-1"><a class="header-anchor" href="#example">Example</a></h2>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
   <span class="hljs-attr">"lineWidth"</span><span class="hljs-punctuation">:</span> <span class="hljs-number">80</span><span class="hljs-punctuation">,</span>
   <span class="hljs-attr">"typescript"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
@@ -92,7 +92,7 @@
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
-<h2>Plugins</h2>
+<h2 id="plugins" tabindex="-1"><a class="header-anchor" href="#plugins">Plugins</a></h2>
 <p>The <code>plugins</code> property specifies which plugins to use for formatting. These may be URLs or file paths to a WebAssembly file of the plugin.</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
   <span class="hljs-comment">// ...omitted...</span>
@@ -106,7 +106,7 @@
 </code></pre>
 <p>Alternatively, these may be provided to the CLI via the <code>--plugins &lt;plugin urls or file paths...&gt;</code> flag.</p>
 <p>Note: The order of the plugins in this array defines the precedence. If two plugins support the same file extension then define the one you want to format that extension with first. For more fine grained control, see "associations" below.</p>
-<h3>Adding Plugins via CLI</h3>
+<h3 id="adding-plugins-via-cli" tabindex="-1"><a class="header-anchor" href="#adding-plugins-via-cli">Adding Plugins via CLI</a></h3>
 <p>You may add a plugin via the CLI by running:</p>
 <pre><code class="language-sh hljs language-bash">dprint config add
 </code></pre>
@@ -120,11 +120,11 @@
 <p>Or specify a plugin url:</p>
 <pre><code class="language-sh hljs language-bash">dprint config add https://plugins.dprint.dev/json-x.x.x.wasm
 </code></pre>
-<h3>Updating Plugins via CLI</h3>
+<h3 id="updating-plugins-via-cli" tabindex="-1"><a class="header-anchor" href="#updating-plugins-via-cli">Updating Plugins via CLI</a></h3>
 <p>Plugins can be updated to the latest version in the configuration file by running:</p>
 <pre><code class="language-sh hljs language-bash">dprint config update
 </code></pre>
-<h2>Includes and Excludes</h2>
+<h2 id="includes-and-excludes" tabindex="-1"><a class="header-anchor" href="#includes-and-excludes">Includes and Excludes</a></h2>
 <p>The <code>includes</code> and <code>excludes</code> properties specify the file paths to include and exclude from formatting.</p>
 <p>These should be file globs according to <a href="https://git-scm.com/docs/gitignore#_pattern_format"><code>gitignore</code>'s extended glob syntax</a>:</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
@@ -138,7 +138,7 @@
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
-<h2>Associations</h2>
+<h2 id="associations" tabindex="-1"><a class="header-anchor" href="#associations">Associations</a></h2>
 <p>By default, plugins will pull in files based on their extension. Sometimes a file may have a different extension or no extension at all, but you still want to format it with a certain plugin. The plugin <code>"associations"</code> config allows you to do that by associating a certain file pattern to one or multiple plugins.</p>
 <p>For example:</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
@@ -163,7 +163,7 @@
 <span class="hljs-punctuation">}</span>
 </code></pre>
 <p>Note that first the <code>"includes"</code>/<code>"excludes"</code> file resolution occurs and then the associations is used to map those files to a plugin. Specifying associations may also be useful for formatting a file with multiple plugins or forcing a file to be formatted with a specific plugin.</p>
-<h3>Excluding paths from plugin</h3>
+<h3 id="excluding-paths-from-plugin" tabindex="-1"><a class="header-anchor" href="#excluding-paths-from-plugin">Excluding paths from plugin</a></h3>
 <p>Only providing negated globs as an association can be a way to exclude a file extension or path from being formatted with a certain plugin, but continue using file extensions to match a plugin otherwise.</p>
 <p>In the following example, both the TypeScript plugin and Prettier plugin support formatting <code>.js</code> and <code>.ts</code> files. Say we want to only format <code>.ts</code> files with the TypeScript plugin and <code>.js</code> files with the prettier plugin. To do that, we can place the typescript plugin to have higher precedence in the "plugins" array, then add an excludes for only <code>!**/*.js</code>. This will cause the TypeScript plugin to match based on the file extension for <code>.ts</code> files, but then be excluded from matching on <code>.js</code> files.</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
@@ -182,7 +182,7 @@
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
-<h2>Extending a Different Configuration File</h2>
+<h2 id="extending-a-different-configuration-file" tabindex="-1"><a class="header-anchor" href="#extending-a-different-configuration-file">Extending a Different Configuration File</a></h2>
 <p>You may extend other configuration files by specifying an <code>extends</code> property. This may be a file path, URL, or relative path (remote configuration may extend other configuration files via a relative path).</p>
 <!-- dprint-ignore -->
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
@@ -199,7 +199,7 @@
 <span class="hljs-punctuation">}</span>
 </code></pre>
 <p>Note: The <code>includes</code> and <code>excludes</code> of extended configuration is ignored for security reasons so you will need to specify them in the main configuration file or via the CLI.</p>
-<h2>Incremental</h2>
+<h2 id="incremental" tabindex="-1"><a class="header-anchor" href="#incremental">Incremental</a></h2>
 <p>By default, dprint will only format files that have changed since the last time you formatted the code in order to drastically improve performance.</p>
 <p>If you want to disable this functionality, you may specify the following in your dprint.json file:</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
@@ -211,7 +211,7 @@
 <p>Alternatively, specify <code>--incremental=false</code> on the CLI:</p>
 <pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --incremental=<span class="hljs-literal">false</span>
 </code></pre>
-<h2>Global Configuration</h2>
+<h2 id="global-configuration" tabindex="-1"><a class="header-anchor" href="#global-configuration">Global Configuration</a></h2>
 <p>There are certain non-language specific configuration that can be specified. These are specified on the main configuration object, but can be overridden on a per-plugin basis.</p>
 <p>For example:</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
@@ -230,11 +230,11 @@
 <span class="hljs-punctuation">}</span>
 </code></pre>
 <p>Note: dprint does not provide or enforce any defaults for the global configuration. The defaults are set on a per plugin basis. When a value is not provided, the plugin may choose to use its default.</p>
-<h3><code>lineWidth</code></h3>
+<h3 id="linewidth" tabindex="-1"><a class="header-anchor" href="#linewidth"><code>lineWidth</code></a></h3>
 <p>The width of a line the formatter will try to stay under. Note that this limit will be exceeded in certain cases.</p>
-<h3><code>indentWidth</code></h3>
+<h3 id="indentwidth" tabindex="-1"><a class="header-anchor" href="#indentwidth"><code>indentWidth</code></a></h3>
 <p>The number of spaces for an indent when using spaces or the number of characters to treat an indent as when using tabs.</p>
-<h3><code>newLineKind</code></h3>
+<h3 id="newlinekind" tabindex="-1"><a class="header-anchor" href="#newlinekind"><code>newLineKind</code></a></h3>
 <p>The kind of newline to use.</p>
 <ul>
 <li><code>auto</code> - For each file, uses the newline kind found at the end of the last line.</li>
@@ -242,13 +242,13 @@
 <li><code>lf</code> - Uses line feed.</li>
 <li><code>system</code> - Uses the system standard (ex. crlf on Windows).</li>
 </ul>
-<h3><code>useTabs</code></h3>
+<h3 id="usetabs" tabindex="-1"><a class="header-anchor" href="#usetabs"><code>useTabs</code></a></h3>
 <p>Whether to use tabs (<code>true</code>) or spaces (<code>false</code>).</p>
-<h2>Locking Configuration—Opinionated Configurations</h2>
+<h2 id="locking-configuration%E2%80%94opinionated-configurations" tabindex="-1"><a class="header-anchor" href="#locking-configuration%E2%80%94opinionated-configurations">Locking Configuration—Opinionated Configurations</a></h2>
 <p>You may want to publish your own opinionated configuration and disallow anyone using it from overriding the properties.</p>
 <p>This can be done by adding a <code>"locked": true</code> property to each plugin configuration you wish to lock.</p>
 <p>Note: When doing this, ensure you set all the global configuration values if you wish to enforce those.</p>
-<h3>Example</h3>
+<h3 id="example-1" tabindex="-1"><a class="header-anchor" href="#example-1">Example</a></h3>
 <p>Say the following configuration were published at <code>https://dprint.dev/configs/my-config.json</code>:</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
   <span class="hljs-attr">"typescript"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
@@ -299,7 +299,7 @@
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
-<h2>Plugin/Language Specific Configuration</h2>
+<h2 id="plugin%2Flanguage-specific-configuration" tabindex="-1"><a class="header-anchor" href="#plugin%2Flanguage-specific-configuration">Plugin/Language Specific Configuration</a></h2>
 <p>Running <code>dprint help</code> will list the help urls for all the configured plugins in your configuration file. On those pages you can view the help information.</p>
 <p>For information on the official plugins' configuration, see the <a href="https://dprint.dev/plugins/">plugins</a> section.</p>
 <p>Next step: <a href="/cli">CLI</a></p>
