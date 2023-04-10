@@ -212,7 +212,7 @@
 <pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --incremental=<span class="hljs-literal">false</span>
 </code></pre>
 <h2>Global Configuration</h2>
-<p>There are certain non-language specific configuration that can be specified. These are specified on the main configuration object, but can be overridden on a per-language basis.</p>
+<p>There are certain non-language specific configuration that can be specified. These are specified on the main configuration object, but can be overridden on a per-plugin basis.</p>
 <p>For example:</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
   <span class="hljs-attr">"lineWidth"</span><span class="hljs-punctuation">:</span> <span class="hljs-number">160</span><span class="hljs-punctuation">,</span>
@@ -229,15 +229,21 @@
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
+<p>Note: dprint does not provide or enforce any defaults for the global configuration. The defaults are set on a per plugin basis. When a value is not provided, the plugin may choose to use its default.</p>
 <h3><code>lineWidth</code></h3>
 <p>The width of a line the formatter will try to stay under. Note that this limit will be exceeded in certain cases.</p>
-<p>Defaults to <code>120</code>.</p>
 <h3><code>indentWidth</code></h3>
 <p>The number of spaces for an indent when using spaces or the number of characters to treat an indent as when using tabs.</p>
-<p>Defaults to <code>4</code>.</p>
+<h3><code>newLineKind</code></h3>
+<p>The kind of newline to use.</p>
+<ul>
+<li><code>auto</code> - For each file, uses the newline kind found at the end of the last line.</li>
+<li><code>crlf</code> - Uses carriage return, line feed.</li>
+<li><code>lf</code> - Uses line feed.</li>
+<li><code>system</code> - Uses the system standard (ex. crlf on Windows).</li>
+</ul>
 <h3><code>useTabs</code></h3>
 <p>Whether to use tabs (<code>true</code>) or spaces (<code>false</code>).</p>
-<p>Defaults to <code>false</code>.</p>
 <h2>Locking Configuration—Opinionated Configurations</h2>
 <p>You may want to publish your own opinionated configuration and disallow anyone using it from overriding the properties.</p>
 <p>This can be done by adding a <code>"locked": true</code> property to each plugin configuration you wish to lock.</p>
