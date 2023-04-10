@@ -38,7 +38,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
     let mut stdin_reader = MessageReader::new(std::io::stdin());
     let mut stdout_writer = MessageWriter::new(std::io::stdout());
 
-    schema_establishment_phase(&mut stdin_reader, &mut stdout_writer)?;
+    schema_establishment_phase(&mut stdin_reader, &mut stdout_writer).context("Failed estabilishing schema.")?;
 
     let handler = Arc::new(handler);
     let stdout_message_writer = SingleThreadMessageWriter::for_stdout(stdout_writer);
@@ -47,7 +47,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
 
     // read messages over stdin
     loop {
-      let message = ProcessPluginMessage::read(&mut stdin_reader).with_context(|| "Error reading message from stdin.")?;
+      let message = ProcessPluginMessage::read(&mut stdin_reader).context("Error reading message from stdin.")?;
 
       match message.body {
         MessageBody::Close => {
@@ -212,7 +212,7 @@ struct ProcessHost<TConfiguration: Serialize + Clone + Send + Sync> {
 
 impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConfiguration> {
   fn format(&self, request: HostFormatRequest) -> Pin<Box<dyn Future<Output = FormatResult> + Send>> {
-    let (tx, rx) = tokio::sync::oneshot::channel::<Result<Option<String>>>();
+    let (tx, rx) = tokio::sync::oneshot::channel::<FormatResult>();
     let id = self.context.id_generator.next();
     self.context.format_host_senders.store(id, tx);
 
