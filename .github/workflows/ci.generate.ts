@@ -3,7 +3,7 @@ import * as yaml from "https://deno.land/std@0.170.0/encoding/yaml.ts";
 enum OperatingSystem {
   Mac = "macOS-latest",
   Windows = "windows-latest",
-  Linux = "ubuntu-18.04",
+  Linux = "ubuntu-20.04",
 }
 
 interface ProfileData {
