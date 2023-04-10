@@ -163,10 +163,7 @@ const ci = {
           if: "!startsWith(github.ref, 'refs/tags/')",
           env: {
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
-            // musl env vars: https://github.com/briansmith/ring/issues/1414#issuecomment-1055177218
-            "CC_aarch64_unknown_linux_musl": "clang",
-            "AR_aarch64_unknown_linux_musl": "llvm-ar",
-            "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS": "-Clink-self-contained=yes -Clinker=rust-lld",
+            "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER": "aarch64-linux-musl-gcc",
           },
           run: [
             "cargo build -p dprint --locked --target ${{matrix.config.target}}",
@@ -177,10 +174,7 @@ const ci = {
           if: "startsWith(github.ref, 'refs/tags/')",
           env: {
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
-            // musl env vars: https://github.com/briansmith/ring/issues/1414#issuecomment-1055177218
-            "CC_aarch64_unknown_linux_musl": "clang",
-            "AR_aarch64_unknown_linux_musl": "llvm-ar",
-            "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS": "-Clink-self-contained=yes -Clinker=rust-lld",
+            "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER": "aarch64-linux-musl-gcc",
           },
           run: [
             "cargo build -p dprint --locked --target ${{matrix.config.target}} --release",
