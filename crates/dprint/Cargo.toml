@@ -1,6 +1,6 @@
 [package]
 name = "dprint"
-version = "0.35.4"
+version = "0.36.0"
 authors = ["dprint code formatting <david@dprint.dev>"]
 categories = ["development-tools"]
 default-run = "dprint"
