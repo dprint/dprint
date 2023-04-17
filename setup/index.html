@@ -63,7 +63,7 @@
     </aside>
     <div id="content-body" class="column documentation">
       <h1>Setup dprint</h1>
-<p>After <a href="/install">installing</a>, the main part of getting setup is to create a <em>dprint.json</em> or hidden <em>.dprint.json</em> file in your project.</p>
+<p>After <a href="/install">installing</a>, the main part of getting setup is to create a <em>dprint.json</em>/<em>dprint.jsonc</em>, or hidden <em>.dprint.json</em>/<em>.dprint.jsonc</em> file in your project.</p>
 <p>This file will outline:</p>
 <ol>
 <li>The plugins to use.</li>
@@ -77,14 +77,14 @@
 </code></pre>
 <p>This will create a <em>dprint.json</em> file in the current working directory. If you are connected to the internet, it will initialize the file according to the latest plugins.</p>
 <h2 id="manual-setup" tabindex="-1"><a class="header-anchor" href="#manual-setup">Manual Setup</a></h2>
-<p>Create a <em>dprint.json</em> or hidden <em>.dprint.json</em> file in the root directory of the project and read the <a href="/config">configuration documentation</a>.</p>
+<p>Create a <em>dprint.json</em>/<em>dprint.jsonc</em> or hidden <em>.dprint.json</em>/<em>.dprint.jsonc</em> file in the root directory of the project and read the <a href="/config">configuration documentation</a>.</p>
 <h2 id="hidden-config-file" tabindex="-1"><a class="header-anchor" href="#hidden-config-file">Hidden Config File</a></h2>
-<p>The dprint CLI supports a default hidden configuration at <em>.dprint.json</em>.</p>
+<p>The dprint CLI supports a default hidden configuration at <em>.dprint.json</em> or <em>.dprint.jsonc</em>.</p>
 <h2 id="custom-config-file-location" tabindex="-1"><a class="header-anchor" href="#custom-config-file-location">Custom Config File Location</a></h2>
-<p>It is recommended to use <em>dprint.json</em> or <em>.dprint.json</em> as the location of your configuration file because it will be automatically picked up by the CLI and editor plugins. If you place it in another other location then it will need to be manually specified using the <code>--config &lt;path&gt;</code> or <code>-c &lt;path&gt;</code> flag whenever you run a command.</p>
+<p>It is recommended to use an auto-discoverable dprint configuration file name (ex. <em>dprint.json</em>) as the location of your configuration file because it will be automatically picked up by the CLI and editor plugins. If you place it in another other location then it will need to be manually specified using the <code>--config &lt;path&gt;</code> or <code>-c &lt;path&gt;</code> flag whenever you run a command.</p>
 <h3 id="dprint-init-with-custom-config-file-location" tabindex="-1"><a class="header-anchor" href="#dprint-init-with-custom-config-file-location"><code>dprint init</code> with custom config file location</a></h3>
 <p>You may specify a custom path for the creation of a configuration file via <code>dprint init</code> by specifying it with the <code>-c</code> or <code>--config</code> flag.</p>
-<pre><code class="language-sh hljs language-bash">dprint init --config .dprint.json
+<pre><code class="language-sh hljs language-bash">dprint init --config .dprint.jsonc
 dprint init --config path/to/dprint.json
 </code></pre>
 <h2 id="custom-cache-directory" tabindex="-1"><a class="header-anchor" href="#custom-cache-directory">Custom Cache Directory</a></h2>
