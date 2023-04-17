@@ -167,7 +167,7 @@ SUBCOMMANDS:
 More details at `dprint help <SUBCOMMAND>`
 
 OPTIONS:
-  -c, --config <config>          Path or url to JSON configuration file. Defaults to dprint.json or .dprint.json in current or ancestor directory when not provided.
+  -c, --config <config>          Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.
       --plugins <urls/files>...  List of urls or file paths of plugins to use. This overrides what is specified in the config file.
       --verbose                  Prints additional diagnostic information.
 
