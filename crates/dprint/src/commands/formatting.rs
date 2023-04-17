@@ -1255,83 +1255,25 @@ mod test {
   }
 
   #[test]
-  fn should_format_files_with_config_in_config_sub_dir_and_warn() {
-    let file_path1 = "/file1.txt";
-    let file_path2 = "/file2.txt";
-    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
-      .write_file(file_path1, "text1")
-      .write_file(file_path2, "text2")
-      .with_local_config("./config/.dprintrc.json", |c| {
-        c.add_includes("**/*.txt").add_remote_wasm_plugin();
-      })
-      .initialize()
-      .build();
-
-    run_test_cli(vec!["fmt"], &environment).unwrap();
-
-    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
-    assert_eq!(environment.take_stderr_messages(), vec![
-            "WARNING: Automatic resolution of the configuration file in the config sub directory will be deprecated soon. Please move the configuration file to the parent directory.",
-            "WARNING: .dprintrc.json will be deprecated soon. Please rename it to dprint.json"
-        ]);
-    assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
-    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted");
-  }
-
-  #[test]
   fn should_format_using_config_in_ancestor_directory() {
-    let file_path = "/test/other/file.txt";
-    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
-      .with_default_config(|c| {
-        c.add_includes("**/*.txt");
-      })
-      .write_file(&file_path, "text")
-      .build();
-    environment.set_cwd("/test/other/");
-    run_test_cli(vec!["fmt"], &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_stderr_messages().len(), 0);
-    assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
-  }
-
-  #[test]
-  fn should_format_using_old_config_file_name_and_warn() {
-    let file_path = "/test/other/file.txt";
-    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
-      .with_local_config("/.dprintrc.json", |c| {
-        c.add_remote_wasm_plugin().add_includes("**/*.txt");
-      })
-      .initialize()
-      .set_cwd("/test/other/")
-      .write_file(&file_path, "text")
-      .build();
-    run_test_cli(vec!["fmt"], &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["WARNING: .dprintrc.json will be deprecated soon. Please rename it to dprint.json"]
-    );
-    assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
-  }
-
-  #[test]
-  fn should_format_using_config_in_ancestor_directory_config_folder_and_warn() {
-    let file_path = "/test/other/file.txt";
-    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
-      .with_local_config("./config/.dprintrc.json", |c| {
-        c.add_includes("**/*.txt").add_remote_wasm_plugin();
-      })
-      .initialize()
-      .set_cwd("/test/other/")
-      .write_file(&file_path, "text")
-      .build();
-    run_test_cli(vec!["fmt"], &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_stderr_messages(), vec![
-            "WARNING: Automatic resolution of the configuration file in the config sub directory will be deprecated soon. Please move the configuration file to the parent directory.",
-            "WARNING: .dprintrc.json will be deprecated soon. Please rename it to dprint.json"
-        ]);
-    assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
+    let config_file_names = vec!["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
+    for config_file_name in config_file_names {
+      eprintln!("CONFIG FILE: {}", config_file_name);
+      let file_path = "/test/other/file.txt";
+      let environment = TestEnvironmentBuilder::new()
+        .add_remote_wasm_plugin()
+        .with_local_config(format!("/{}", config_file_name), |config_file| {
+          config_file.add_remote_wasm_plugin().add_includes("**/*.txt");
+        })
+        .initialize()
+        .write_file(&file_path, "text")
+        .build();
+      environment.set_cwd("/test/other/");
+      run_test_cli(vec!["fmt"], &environment).unwrap();
+      assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+      assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+      assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
+    }
   }
 
   #[test]
