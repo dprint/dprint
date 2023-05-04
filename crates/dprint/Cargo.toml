@@ -34,8 +34,14 @@ tokio-util = { version = "0.7.7" }
 twox-hash = "1.6.3"
 ureq = { version = "2.6.2", features = ["socks-proxy", "tls", "native-certs"] }
 url = "2.3.1"
-wasmer = "=2.3.0"
 zip = "0.6.4"
+
+# pin these to prevent them changing with `cargo install` because
+# patch version increases of rkyv may cause panics when deserializing
+# data serialized with older versions
+rkyv = "=0.7.39"
+wasmer = "=2.3.0"
+wasmer-compiler = "=2.3.0"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.10.1"
