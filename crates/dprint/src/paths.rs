@@ -34,9 +34,10 @@ pub fn get_file_paths_by_plugins_and_err_if_empty(
   plugins: &[Box<dyn Plugin>],
   file_paths: Vec<PathBuf>,
   config_base_path: &CanonicalizedPathBuf,
+  allow_no_files: bool,
 ) -> Result<HashMap<PluginNames, Vec<PathBuf>>> {
   let result = get_file_paths_by_plugins(plugins, file_paths, config_base_path)?;
-  if result.is_empty() {
+  if !allow_no_files && result.is_empty() {
     bail!("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.");
   }
   Ok(result)

@@ -77,6 +77,11 @@
       "items": {
         "type": "string"
       }
+    },
+    "allow_no_files": {
+      "description": "Do not exit with error when passed files are excluded.",
+      "type": "boolean",
+      "default": false
     }
   },
   "additionalProperties": {

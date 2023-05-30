@@ -64,6 +64,7 @@ pub enum SubCommand {
 pub struct CheckSubCommand {
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
+  pub allow_no_files: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -72,6 +73,7 @@ pub struct FmtSubCommand {
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
   pub enable_stable_format: bool,
+  pub allow_no_files: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -156,12 +158,14 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
           patterns: parse_file_patterns(matches)?,
           incremental: parse_incremental(matches),
           enable_stable_format: !matches.get_flag("skip-stable-format"),
+          allow_no_files: matches.get_flag("allow-no-files"),
         })
       }
     }
     ("check", matches) => SubCommand::Check(CheckSubCommand {
       patterns: parse_file_patterns(matches)?,
       incremental: parse_incremental(matches),
+      allow_no_files: matches.get_flag("allow-no-files"),
     }),
     ("init", _) => SubCommand::Config(ConfigSubCommand::Init),
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
@@ -335,6 +339,7 @@ EXAMPLES:
         .about("Formats the source files and writes the result to the file system.")
         .add_resolve_file_path_args()
         .add_incremental_arg()
+        .add_allow_no_files_arg()
         .arg(
           Arg::new("stdin")
             .long("stdin")
@@ -365,6 +370,7 @@ EXAMPLES:
         .about("Checks for any files that haven't been formatted.")
         .add_resolve_file_path_args()
         .add_incremental_arg()
+        .add_allow_no_files_arg()
     )
     .subcommand(
       Command::new("config")
@@ -477,6 +483,7 @@ EXAMPLES:
 trait ClapExtensions {
   fn add_resolve_file_path_args(self) -> Self;
   fn add_incremental_arg(self) -> Self;
+  fn add_allow_no_files_arg(self) -> Self;
 }
 
 impl ClapExtensions for clap::Command {
@@ -512,6 +519,17 @@ impl ClapExtensions for clap::Command {
         .num_args(0..=1)
         .value_parser(["true", "false"])
         .require_equals(true),
+    )
+  }
+
+  fn add_allow_no_files_arg(self) -> Self {
+    use clap::Arg;
+    self.arg(
+      Arg::new("allow-no-files")
+        .long("allow-no-files")
+        .help("Do not exit with error when passed files are excluded")
+        .num_args(0)
+        .required(false),
     )
   }
 }
@@ -568,6 +586,14 @@ mod test {
     assert_eq!(fmt_cmd.incremental, Some(false));
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--incremental"]).unwrap();
     assert_eq!(fmt_cmd.incremental, Some(true));
+  }
+
+  #[test]
+  fn allow_no_files_arg() {
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt"]).unwrap();
+    assert_eq!(fmt_cmd.allow_no_files, false);
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--allow-no-files"]).unwrap();
+    assert_eq!(fmt_cmd.allow_no_files, true);
   }
 
   fn parse_fmt_sub_command(args: Vec<&str>) -> Result<FmtSubCommand> {

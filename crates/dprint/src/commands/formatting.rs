@@ -86,7 +86,7 @@ pub async fn output_format_times<TEnvironment: Environment>(
   let config = resolve_config_from_args(args, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
   let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, environment).await?;
-  let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
+  let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path, false)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -119,8 +119,9 @@ pub async fn check<TEnvironment: Environment>(
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
+  let allow_no_files = cmd.allow_no_files || config.allow_no_files.unwrap_or(false);
   let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, environment).await?;
-  let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
+  let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path, allow_no_files)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
   let incremental_file = get_incremental_file(cmd.incremental, &config, &plugin_pools, environment);
@@ -181,8 +182,9 @@ pub async fn format<TEnvironment: Environment>(
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
   let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
+  let allow_no_files = cmd.allow_no_files || config.allow_no_files.unwrap_or(false);
   let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, environment).await?;
-  let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
+  let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path, allow_no_files)?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
   let incremental_file = get_incremental_file(cmd.incremental, &config, &plugin_pools, environment);

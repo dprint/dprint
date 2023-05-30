@@ -28,6 +28,7 @@ pub struct ResolvedConfig {
   pub excludes: Vec<String>,
   pub plugins: Vec<PluginSourceReference>,
   pub incremental: Option<bool>,
+  pub allow_no_files: Option<bool>,
   pub config_map: ConfigMap,
 }
 
@@ -91,6 +92,7 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, envir
   let includes = take_array_from_config_map(&mut main_config_map, "includes")?;
   let excludes = take_array_from_config_map(&mut main_config_map, "excludes")?;
   let incremental = take_bool_from_config_map(&mut main_config_map, "incremental")?;
+  let allow_no_files = take_bool_from_config_map(&mut main_config_map, "allow_no_files")?;
   main_config_map.remove("projectType"); // this was an old config property that's no longer used
   let extends = take_extends(&mut main_config_map)?;
   let mut resolved_config = ResolvedConfig {
@@ -101,6 +103,7 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, envir
     excludes,
     plugins,
     incremental,
+    allow_no_files,
   };
 
   // resolve extends
@@ -1267,6 +1270,59 @@ mod tests {
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
     assert_eq!(result.incremental, Some(false));
+  }
+
+  #[test]
+  fn should_handle_allow_no_files_flag_when_not_specified() {
+    let environment = TestEnvironment::new();
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{
+            "plugins": ["./testing/asdf.wasm"],
+        }"#,
+      )
+      .unwrap();
+
+    let result = get_result("/test.json", &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    assert_eq!(result.allow_no_files, None);
+  }
+
+  #[test]
+  fn should_handle_allow_no_files_flag_when_true() {
+    let environment = TestEnvironment::new();
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{
+            "allow_no_files": true,
+            "plugins": ["./testing/asdf.wasm"],
+        }"#,
+      )
+      .unwrap();
+
+    let result = get_result("/test.json", &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    assert_eq!(result.allow_no_files, Some(true));
+  }
+
+  #[test]
+  fn should_handle_allow_no_files_flag_when_false() {
+    let environment = TestEnvironment::new();
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{
+            "allow_no_files": false,
+            "plugins": ["./testing/asdf.wasm"],
+        }"#,
+      )
+      .unwrap();
+
+    let result = get_result("/test.json", &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages().len(), 0);
+    assert_eq!(result.allow_no_files, Some(false));
   }
 
   #[test]
