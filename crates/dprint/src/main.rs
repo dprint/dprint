@@ -5,11 +5,9 @@ use anyhow::Result;
 use dprint_core::plugins::process::setup_exit_process_panic_hook;
 use environment::RealEnvironment;
 use environment::RealEnvironmentOptions;
+use run_cli::AppError;
 use std::sync::Arc;
-use thiserror::Error;
 use utils::RealStdInReader;
-
-use crate::arg_parser::ParseArgsError;
 
 mod arg_parser;
 mod commands;
@@ -38,32 +36,6 @@ fn main() {
       }
     }
   });
-}
-
-#[derive(Debug, Error)]
-#[error("{inner:#}")]
-pub struct AppError {
-  pub inner: anyhow::Error,
-  pub exit_code: i32,
-}
-
-impl From<anyhow::Error> for AppError {
-  fn from(inner: anyhow::Error) -> Self {
-    let inner = match inner.downcast::<ParseArgsError>() {
-      Ok(err) => return err.into(),
-      Err(err) => err,
-    };
-    AppError { inner, exit_code: 1 }
-  }
-}
-
-impl From<ParseArgsError> for AppError {
-  fn from(inner: ParseArgsError) -> Self {
-    AppError {
-      inner: inner.into(),
-      exit_code: 2,
-    }
-  }
 }
 
 async fn run(runtime_handle: tokio::runtime::Handle) -> Result<(), AppError> {

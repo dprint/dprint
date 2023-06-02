@@ -1,6 +1,8 @@
 use anyhow::Result;
 use std::sync::Arc;
+use thiserror::Error;
 
+use crate::arg_parser::ParseArgsError;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginsCollection;
@@ -9,6 +11,32 @@ use crate::arg_parser::CliArgs;
 use crate::arg_parser::ConfigSubCommand;
 use crate::arg_parser::SubCommand;
 use crate::commands;
+
+#[derive(Debug, Error)]
+#[error("{inner:#}")]
+pub struct AppError {
+  pub inner: anyhow::Error,
+  pub exit_code: i32,
+}
+
+impl From<anyhow::Error> for AppError {
+  fn from(inner: anyhow::Error) -> Self {
+    let inner = match inner.downcast::<ParseArgsError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    AppError { inner, exit_code: 1 }
+  }
+}
+
+impl From<ParseArgsError> for AppError {
+  fn from(inner: ParseArgsError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 2,
+    }
+  }
+}
 
 pub async fn run_cli<TEnvironment: Environment>(
   args: &CliArgs,
