@@ -4,8 +4,10 @@ use thiserror::Error;
 
 use crate::arg_parser::ParseArgsError;
 use crate::commands::CheckError;
+use crate::configuration::ResolveConfigFromArgsError;
 use crate::environment::Environment;
 use crate::paths::NoFilesFoundError;
+use crate::plugins::NoPluginsFoundError;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginsCollection;
 
@@ -13,6 +15,7 @@ use crate::arg_parser::CliArgs;
 use crate::arg_parser::ConfigSubCommand;
 use crate::arg_parser::SubCommand;
 use crate::commands;
+use crate::plugins::ResolvePluginsError;
 
 #[derive(Debug, Error)]
 #[error("{inner:#}")]
@@ -24,6 +27,18 @@ pub struct AppError {
 impl From<anyhow::Error> for AppError {
   fn from(inner: anyhow::Error) -> Self {
     let inner = match inner.downcast::<ParseArgsError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    let inner = match inner.downcast::<ResolveConfigFromArgsError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    let inner = match inner.downcast::<ResolvePluginsError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    let inner = match inner.downcast::<NoPluginsFoundError>() {
       Ok(err) => return err.into(),
       Err(err) => err,
     };
@@ -48,11 +63,38 @@ impl From<ParseArgsError> for AppError {
   }
 }
 
+impl From<ResolveConfigFromArgsError> for AppError {
+  fn from(inner: ResolveConfigFromArgsError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 11,
+    }
+  }
+}
+
+impl From<ResolvePluginsError> for AppError {
+  fn from(inner: ResolvePluginsError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 12,
+    }
+  }
+}
+
+impl From<NoPluginsFoundError> for AppError {
+  fn from(inner: NoPluginsFoundError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 13,
+    }
+  }
+}
+
 impl From<NoFilesFoundError> for AppError {
   fn from(inner: NoFilesFoundError) -> Self {
     AppError {
       inner: inner.into(),
-      exit_code: 11,
+      exit_code: 14,
     }
   }
 }

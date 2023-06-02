@@ -3,6 +3,7 @@ use anyhow::Result;
 use crossterm::style::Stylize;
 use dprint_core::configuration::ConfigKeyValue;
 use std::path::Path;
+use thiserror::Error;
 
 use crate::arg_parser::CliArgs;
 use crate::configuration::deserialize_config;
@@ -31,7 +32,11 @@ pub struct ResolvedConfig {
   pub config_map: ConfigMap,
 }
 
-pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<ResolvedConfig> {
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub struct ResolveConfigFromArgsError(#[from] anyhow::Error);
+
+pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<ResolvedConfig, ResolveConfigFromArgsError> {
   let resolved_config_path = resolve_main_config_path(args, environment)?;
   let base_source = resolved_config_path.resolved_path.source.parent();
   let config_file_path = &resolved_config_path.resolved_path.file_path;
@@ -44,11 +49,11 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, envir
       if !args.plugins.is_empty() && !environment.path_exists(config_file_path) {
         ConfigMap::new()
       } else {
-        bail!(
+        return Err(ResolveConfigFromArgsError(anyhow::anyhow!(
           "No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?\n  Error: {}",
           config_file_path.display(),
           err.to_string(),
-        );
+        )));
       }
     }
   };
@@ -306,7 +311,7 @@ mod tests {
 
   use super::*;
 
-  fn get_result(url: &str, environment: &impl Environment) -> Result<ResolvedConfig> {
+  fn get_result(url: &str, environment: &impl Environment) -> Result<ResolvedConfig, ResolveConfigFromArgsError> {
     let args = parse_args(
       vec![String::from(""), String::from("check"), String::from("-c"), String::from(url)],
       TestStdInReader::default(),
