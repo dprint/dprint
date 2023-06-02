@@ -84,6 +84,7 @@ pub fn run_specs(
           // very rough, but good enough
           let file_path = PathBuf::from(&file_path);
           let file_text = fs::read_to_string(&file_path).expect("Expected to read the file.");
+          assert!(!spec.expected_text.trim().is_empty(), "Cannot update when the expected text is empty.");
           let file_text = file_text.replace(&spec.expected_text, &result);
           fs::write(&file_path, file_text).expect("Expected to write to file.");
         } else {
@@ -145,6 +146,7 @@ pub fn run_specs(
   fn handle_trace(spec: &Spec, trace_json: &str) {
     let app_js_text = include_str!("../trace_analyzer/app.js");
     let app_css_text = include_str!("../trace_analyzer/app.css");
+    let types_text = include_str!("../trace_analyzer/types.d.ts");
     let html_file = r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -181,10 +183,26 @@ pub fn run_specs(
       .replace("<!-- script -->", &script)
       .replace("<!-- title -->", &format!("Trace - {}", spec.message))
       .replace("<!-- style -->", app_css_text);
-    let temp_file_path = std::env::temp_dir().join("dprint-core-trace.html");
-    fs::write(&temp_file_path, html_file).unwrap();
-    let url = format!("file://{}", temp_file_path.to_string_lossy().replace('\\', "/"));
-    panic!("\n==============\nTrace output ready! Please open your browser to: {}\n==============\n", url);
+    let temp_folder = std::env::temp_dir();
+    let html_file_path = temp_folder.join("dprint-core-trace.html");
+    fs::write(&html_file_path, html_file).unwrap();
+    let json_file_path = temp_folder.join("dprint-core-trace.json");
+    fs::write(&json_file_path, trace_json).unwrap();
+    let types_file_path = temp_folder.join("dprint-core-trace-types.d.ts");
+    fs::write(&types_file_path, types_text).unwrap();
+    let url = format!("file://{}", html_file_path.to_string_lossy().replace('\\', "/"));
+    panic!(
+      concat!(
+        "\n==============\n",
+        "Trace output ready! Please open your browser to: {}\n\n",
+        "JSON: {}\n",
+        "Types: {}\n",
+        "==============\n",
+      ),
+      url,
+      json_file_path.display(),
+      types_file_path.display(),
+    );
   }
 
   #[cfg(not(debug_assertions))]

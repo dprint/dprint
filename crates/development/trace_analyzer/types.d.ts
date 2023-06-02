@@ -1,9 +1,3 @@
-declare global {
-  const rawTraceResult: TracingResult;
-  const specMessage: string;
-  const d3: any;
-}
-
 export interface GraphPrintNode {
   id: number;
   printNode: PrintNode;

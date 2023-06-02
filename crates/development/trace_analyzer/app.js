@@ -1,5 +1,6 @@
 // @ts-check
-// <reference path="types.d.ts" />
+// <reference path="./globals.d.ts" />
+// <reference path="./types.d.ts" />
 
 const traceResult = getTransformedTraceResult();
 
