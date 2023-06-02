@@ -105,6 +105,17 @@
 dprint <span class="hljs-built_in">fmt</span> --config https://dprint.dev/path/to/some/config.json
 </code></pre>
 <p>This flag is more useful for one-off commands. It is recommended to use the default configuration file location and name as that will lead to a better user experience.</p>
+<h2 id="exit-codes" tabindex="-1"><a class="header-anchor" href="#exit-codes">Exit codes</a></h2>
+<ul>
+<li><code>0</code> - Success</li>
+<li><code>1</code> - General error</li>
+<li><code>10</code> - Argument parsing error</li>
+<li><code>11</code> - Configuration resolution error</li>
+<li><code>12</code> - Plugin resolution error</li>
+<li><code>13</code> - No plugins found error</li>
+<li><code>14</code> - No files found error (useful for pre-commit hooks)</li>
+<li><code>20</code> - <code>dprint check</code> found non-formatted files</li>
+</ul>
 <h2 id="diagnostic-commands-and-flags" tabindex="-1"><a class="header-anchor" href="#diagnostic-commands-and-flags">Diagnostic Commands and Flags</a></h2>
 <h3 id="outputting-file-paths" tabindex="-1"><a class="header-anchor" href="#outputting-file-paths">Outputting file paths</a></h3>
 <p>Sometimes you may not be sure what files dprint is picking up and formatting. To check, use the <code>output-file-paths</code> subcommand to see all the resolved file paths for the current plugins based on the CLI arguments and configuration.</p>
