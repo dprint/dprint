@@ -522,7 +522,7 @@ dependencies = [
 
 [[package]]
 name = "dprint"
-version = "0.35.4"
+version = "0.36.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -539,6 +539,7 @@ dependencies = [
  "parking_lot",
  "path-clean",
  "pretty_assertions",
+ "rkyv",
  "serde",
  "serde_json",
  "sha2",
@@ -549,6 +550,7 @@ dependencies = [
  "ureq",
  "url",
  "wasmer",
+ "wasmer-compiler",
  "winreg",
  "zip",
 ]

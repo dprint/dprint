@@ -433,7 +433,7 @@ EXAMPLES:
       Arg::new("config")
         .long("config")
         .short('c')
-        .help("Path or url to JSON configuration file. Defaults to dprint.json or .dprint.json in current or ancestor directory when not provided.")
+        .help("Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.")
         .global(true)
         .num_args(1)
     )
