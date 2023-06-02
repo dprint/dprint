@@ -3,7 +3,9 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use crate::arg_parser::ParseArgsError;
+use crate::commands::CheckError;
 use crate::environment::Environment;
+use crate::paths::NoFilesFoundError;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginsCollection;
 
@@ -25,6 +27,14 @@ impl From<anyhow::Error> for AppError {
       Ok(err) => return err.into(),
       Err(err) => err,
     };
+    let inner = match inner.downcast::<NoFilesFoundError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    let inner = match inner.downcast::<CheckError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
     AppError { inner, exit_code: 1 }
   }
 }
@@ -33,7 +43,25 @@ impl From<ParseArgsError> for AppError {
   fn from(inner: ParseArgsError) -> Self {
     AppError {
       inner: inner.into(),
-      exit_code: 2,
+      exit_code: 10,
+    }
+  }
+}
+
+impl From<NoFilesFoundError> for AppError {
+  fn from(inner: NoFilesFoundError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 11,
+    }
+  }
+}
+
+impl From<CheckError> for AppError {
+  fn from(inner: CheckError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 20,
     }
   }
 }
