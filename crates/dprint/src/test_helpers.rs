@@ -14,6 +14,7 @@ use crate::plugins::PluginResolver;
 use crate::plugins::PluginsCollection;
 use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
+use crate::AppError;
 
 // this file should automatically be built when building the workspace
 pub static TEST_PROCESS_PLUGIN_PATH: Lazy<PathBuf> = Lazy::new(|| {
@@ -54,11 +55,11 @@ pub static PROCESS_PLUGIN_ZIP_BYTES: Lazy<Vec<u8>> = Lazy::new(|| {
   zip.finish().unwrap().into_inner()
 });
 
-pub fn run_test_cli(args: Vec<&str>, environment: &TestEnvironment) -> Result<()> {
+pub fn run_test_cli(args: Vec<&str>, environment: &TestEnvironment) -> Result<(), AppError> {
   run_test_cli_with_stdin(args, environment, TestStdInReader::default())
 }
 
-pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, stdin_reader: TestStdInReader) -> Result<()> {
+pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, stdin_reader: TestStdInReader) -> Result<(), AppError> {
   let mut args: Vec<String> = args.into_iter().map(String::from).collect();
   args.insert(0, String::from(""));
   environment.set_wasm_compile_result(COMPILATION_RESULT.clone());
@@ -74,7 +75,7 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
     async move {
       let result = run_cli(&args, &environment, &plugin_resolver, plugin_pools.clone()).await;
       plugin_pools.drop_and_shutdown_initialized().await;
-      result
+      Ok(result?)
     }
   })
 }

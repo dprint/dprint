@@ -255,6 +255,7 @@ mod test {
   use crate::test_helpers::{self};
   use crate::utils::get_difference;
   use crate::utils::TestStdInReader;
+  use crate::AppError;
 
   #[test]
   fn should_output_format_times() {
@@ -980,7 +981,7 @@ mod test {
     assert_no_files_found(&error, &environment);
   }
 
-  fn assert_no_files_found(error: &anyhow::Error, environment: &TestEnvironment) {
+  fn assert_no_files_found(error: &AppError, environment: &TestEnvironment) {
     assert_eq!(
       error.to_string(),
       concat!(

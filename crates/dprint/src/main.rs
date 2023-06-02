@@ -6,7 +6,10 @@ use dprint_core::plugins::process::setup_exit_process_panic_hook;
 use environment::RealEnvironment;
 use environment::RealEnvironmentOptions;
 use std::sync::Arc;
+use thiserror::Error;
 use utils::RealStdInReader;
+
+use crate::arg_parser::ParseArgsError;
 
 mod arg_parser;
 mod commands;
@@ -30,14 +33,40 @@ fn main() {
     match run(handle).await {
       Ok(_) => {}
       Err(err) => {
-        eprintln!("{:#}", err);
-        std::process::exit(1);
+        eprintln!("{:#}", err.inner);
+        std::process::exit(err.exit_code);
       }
     }
   });
 }
 
-async fn run(runtime_handle: tokio::runtime::Handle) -> Result<()> {
+#[derive(Debug, Error)]
+#[error("{inner:#}")]
+pub struct AppError {
+  pub inner: anyhow::Error,
+  pub exit_code: i32,
+}
+
+impl From<anyhow::Error> for AppError {
+  fn from(inner: anyhow::Error) -> Self {
+    let inner = match inner.downcast::<ParseArgsError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    AppError { inner, exit_code: 1 }
+  }
+}
+
+impl From<ParseArgsError> for AppError {
+  fn from(inner: ParseArgsError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 2,
+    }
+  }
+}
+
+async fn run(runtime_handle: tokio::runtime::Handle) -> Result<(), AppError> {
   let args = arg_parser::parse_args(std::env::args().collect(), RealStdInReader)?;
   let environment = RealEnvironment::new(RealEnvironmentOptions {
     is_verbose: args.verbose,
@@ -50,5 +79,5 @@ async fn run(runtime_handle: tokio::runtime::Handle) -> Result<()> {
 
   let result = run_cli::run_cli(&args, &environment, &plugin_resolver, plugin_pools.clone()).await;
   plugin_pools.drop_and_shutdown_initialized().await;
-  result
+  Ok(result?)
 }
