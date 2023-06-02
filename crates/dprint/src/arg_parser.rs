@@ -1,6 +1,7 @@
 use anyhow::bail;
 use anyhow::Result;
 use clap::ArgMatches;
+use thiserror::Error;
 
 use crate::utils::StdInReader;
 
@@ -119,7 +120,15 @@ pub struct FilePatternArgs {
   pub allow_node_modules: bool,
 }
 
-pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: TStdInReader) -> Result<CliArgs> {
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub struct ParseArgsError(#[from] anyhow::Error);
+
+pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: TStdInReader) -> Result<CliArgs, ParseArgsError> {
+  inner_parse_args(args, std_in_reader).map_err(ParseArgsError)
+}
+
+fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: TStdInReader) -> Result<CliArgs> {
   // this is all done because clap doesn't output exactly how I like
   if args.len() == 1 || (args.len() == 2 && (args[1] == "help" || args[1] == "--help")) {
     let mut cli_parser = create_cli_parser(/* is outputting help */ true);
@@ -570,7 +579,7 @@ mod test {
     assert_eq!(fmt_cmd.incremental, Some(true));
   }
 
-  fn parse_fmt_sub_command(args: Vec<&str>) -> Result<FmtSubCommand> {
+  fn parse_fmt_sub_command(args: Vec<&str>) -> Result<FmtSubCommand, ParseArgsError> {
     let args = test_args(args)?;
     match args.sub_command {
       SubCommand::Fmt(cmd) => Ok(cmd),
@@ -578,7 +587,7 @@ mod test {
     }
   }
 
-  fn test_args(args: Vec<&str>) -> Result<CliArgs> {
+  fn test_args(args: Vec<&str>) -> Result<CliArgs, ParseArgsError> {
     let stdin_reader = TestStdInReader::default();
     let mut args: Vec<String> = args.into_iter().map(String::from).collect();
     args.insert(0, "".to_string());

@@ -1,8 +1,8 @@
-use anyhow::bail;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::Split;
+use thiserror::Error;
 
 use crate::arg_parser::FilePatternArgs;
 use crate::configuration::ResolvedConfig;
@@ -30,6 +30,10 @@ impl PluginNames {
   }
 }
 
+#[derive(Debug, Error)]
+#[error("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.")]
+pub struct NoFilesFoundError;
+
 pub fn get_file_paths_by_plugins_and_err_if_empty(
   plugins: &[Box<dyn Plugin>],
   file_paths: Vec<PathBuf>,
@@ -37,9 +41,10 @@ pub fn get_file_paths_by_plugins_and_err_if_empty(
 ) -> Result<HashMap<PluginNames, Vec<PathBuf>>> {
   let result = get_file_paths_by_plugins(plugins, file_paths, config_base_path)?;
   if result.is_empty() {
-    bail!("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.");
+    Err(NoFilesFoundError.into())
+  } else {
+    Ok(result)
   }
-  Ok(result)
 }
 
 pub fn get_file_paths_by_plugins(

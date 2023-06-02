@@ -5,6 +5,7 @@ use anyhow::Result;
 use dprint_core::plugins::process::setup_exit_process_panic_hook;
 use environment::RealEnvironment;
 use environment::RealEnvironmentOptions;
+use run_cli::AppError;
 use std::sync::Arc;
 use utils::RealStdInReader;
 
@@ -30,14 +31,14 @@ fn main() {
     match run(handle).await {
       Ok(_) => {}
       Err(err) => {
-        eprintln!("{:#}", err);
-        std::process::exit(1);
+        eprintln!("{:#}", err.inner);
+        std::process::exit(err.exit_code);
       }
     }
   });
 }
 
-async fn run(runtime_handle: tokio::runtime::Handle) -> Result<()> {
+async fn run(runtime_handle: tokio::runtime::Handle) -> Result<(), AppError> {
   let args = arg_parser::parse_args(std::env::args().collect(), RealStdInReader)?;
   let environment = RealEnvironment::new(RealEnvironmentOptions {
     is_verbose: args.verbose,
@@ -50,5 +51,5 @@ async fn run(runtime_handle: tokio::runtime::Handle) -> Result<()> {
 
   let result = run_cli::run_cli(&args, &environment, &plugin_resolver, plugin_pools.clone()).await;
   plugin_pools.drop_and_shutdown_initialized().await;
-  result
+  Ok(result?)
 }

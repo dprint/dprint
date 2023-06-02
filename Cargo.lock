@@ -544,6 +544,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "similar",
+ "thiserror",
  "tokio",
  "tokio-util",
  "twox-hash",

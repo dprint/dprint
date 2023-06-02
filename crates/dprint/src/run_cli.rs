@@ -1,7 +1,13 @@
 use anyhow::Result;
 use std::sync::Arc;
+use thiserror::Error;
 
+use crate::arg_parser::ParseArgsError;
+use crate::commands::CheckError;
+use crate::configuration::ResolveConfigFromArgsError;
 use crate::environment::Environment;
+use crate::paths::NoFilesFoundError;
+use crate::plugins::NoPluginsFoundError;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginsCollection;
 
@@ -9,6 +15,98 @@ use crate::arg_parser::CliArgs;
 use crate::arg_parser::ConfigSubCommand;
 use crate::arg_parser::SubCommand;
 use crate::commands;
+use crate::plugins::ResolvePluginsError;
+
+#[derive(Debug, Error)]
+#[error("{inner:#}")]
+pub struct AppError {
+  pub inner: anyhow::Error,
+  pub exit_code: i32,
+}
+
+impl From<anyhow::Error> for AppError {
+  fn from(inner: anyhow::Error) -> Self {
+    let inner = match inner.downcast::<ParseArgsError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    let inner = match inner.downcast::<ResolveConfigFromArgsError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    let inner = match inner.downcast::<ResolvePluginsError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    let inner = match inner.downcast::<NoPluginsFoundError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    let inner = match inner.downcast::<NoFilesFoundError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    let inner = match inner.downcast::<CheckError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    AppError { inner, exit_code: 1 }
+  }
+}
+
+impl From<ParseArgsError> for AppError {
+  fn from(inner: ParseArgsError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 10,
+    }
+  }
+}
+
+impl From<ResolveConfigFromArgsError> for AppError {
+  fn from(inner: ResolveConfigFromArgsError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 11,
+    }
+  }
+}
+
+impl From<ResolvePluginsError> for AppError {
+  fn from(inner: ResolvePluginsError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 12,
+    }
+  }
+}
+
+impl From<NoPluginsFoundError> for AppError {
+  fn from(inner: NoPluginsFoundError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 13,
+    }
+  }
+}
+
+impl From<NoFilesFoundError> for AppError {
+  fn from(inner: NoFilesFoundError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 14,
+    }
+  }
+}
+
+impl From<CheckError> for AppError {
+  fn from(inner: CheckError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 20,
+    }
+  }
+}
 
 pub async fn run_cli<TEnvironment: Environment>(
   args: &CliArgs,

@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -5,6 +6,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use crossterm::style::Stylize;
 use once_cell::sync::Lazy;
+use thiserror::Error;
 
 use crate::arg_parser::parse_args;
 use crate::environment::TestEnvironment;
@@ -14,6 +16,7 @@ use crate::plugins::PluginResolver;
 use crate::plugins::PluginsCollection;
 use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
+use crate::AppError;
 
 // this file should automatically be built when building the workspace
 pub static TEST_PROCESS_PLUGIN_PATH: Lazy<PathBuf> = Lazy::new(|| {
@@ -54,18 +57,62 @@ pub static PROCESS_PLUGIN_ZIP_BYTES: Lazy<Vec<u8>> = Lazy::new(|| {
   zip.finish().unwrap().into_inner()
 });
 
-pub fn run_test_cli(args: Vec<&str>, environment: &TestEnvironment) -> Result<()> {
+#[derive(Debug, Error)]
+#[error("{inner:#}")]
+pub struct TestAppError {
+  asserted_exit_code: RefCell<bool>,
+  inner: AppError,
+}
+
+impl TestAppError {
+  #[track_caller]
+  pub fn assert_exit_code(&self, exit_code: i32) {
+    self.asserted_exit_code.replace(true);
+    assert_eq!(self.inner.exit_code, exit_code);
+  }
+}
+
+impl From<AppError> for TestAppError {
+  fn from(inner: AppError) -> Self {
+    Self {
+      asserted_exit_code: Default::default(),
+      inner,
+    }
+  }
+}
+
+impl From<anyhow::Error> for TestAppError {
+  fn from(inner: anyhow::Error) -> Self {
+    Self {
+      asserted_exit_code: Default::default(),
+      inner: inner.into(),
+    }
+  }
+}
+
+impl Drop for TestAppError {
+  fn drop(&mut self) {
+    if std::thread::panicking() || self.inner.exit_code <= 1 {
+      return;
+    }
+    if !self.asserted_exit_code.borrow().clone() {
+      panic!("Exit code must be asserted. Was: {}", self.inner.exit_code);
+    }
+  }
+}
+
+pub fn run_test_cli(args: Vec<&str>, environment: &TestEnvironment) -> Result<(), TestAppError> {
   run_test_cli_with_stdin(args, environment, TestStdInReader::default())
 }
 
-pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, stdin_reader: TestStdInReader) -> Result<()> {
+pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, stdin_reader: TestStdInReader) -> Result<(), TestAppError> {
   let mut args: Vec<String> = args.into_iter().map(String::from).collect();
   args.insert(0, String::from(""));
   environment.set_wasm_compile_result(COMPILATION_RESULT.clone());
   let plugin_cache = Arc::new(PluginCache::new(environment.clone()));
   let plugin_pools = Arc::new(PluginsCollection::new(environment.clone()));
   let plugin_resolver = PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
-  let args = parse_args(args, stdin_reader)?;
+  let args = parse_args(args, stdin_reader).map_err(|err| Into::<AppError>::into(err))?;
   environment.set_stdout_machine_readable(args.is_stdout_machine_readable());
   environment.set_verbose(args.verbose);
 
@@ -74,7 +121,7 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
     async move {
       let result = run_cli(&args, &environment, &plugin_resolver, plugin_pools.clone()).await;
       plugin_pools.drop_and_shutdown_initialized().await;
-      result
+      Ok(result?)
     }
   })
 }
