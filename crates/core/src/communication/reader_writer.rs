@@ -88,6 +88,6 @@ impl<TWrite: Write + Unpin> MessageWriter<TWrite> {
   }
 
   pub fn flush(&mut self) -> Result<()> {
-    Ok(self.writer.flush()?)
+    self.writer.flush()
   }
 }
