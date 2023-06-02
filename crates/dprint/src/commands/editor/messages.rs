@@ -1,9 +1,9 @@
-use anyhow::bail;
-use anyhow::Result;
 use dprint_core::communication::Message;
 use dprint_core::communication::MessageReader;
 use dprint_core::communication::MessageWriter;
+use std::io::ErrorKind;
 use std::io::Read;
+use std::io::Result;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -64,7 +64,12 @@ impl EditorMessage {
         let data = match response_kind {
           0 => None,
           1 => Some(reader.read_sized_bytes()?),
-          _ => bail!("Unknown format response kind: {}", response_kind),
+          _ => {
+            return Err(std::io::Error::new(
+              ErrorKind::InvalidData,
+              format!("Unknown format response kind: {}", response_kind),
+            ))
+          }
         };
         EditorMessageBody::FormatResponse(message_id, data)
       }

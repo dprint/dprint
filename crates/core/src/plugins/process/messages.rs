@@ -1,9 +1,8 @@
+use std::io::ErrorKind;
 use std::io::Read;
+use std::io::Result;
 use std::io::Write;
 use std::path::PathBuf;
-
-use anyhow::bail;
-use anyhow::Result;
 
 use crate::communication::Message;
 use crate::plugins::FormatRange;
@@ -78,7 +77,12 @@ impl ProcessPluginMessage {
         let data = match response_kind {
           0 => None,
           1 => Some(reader.read_sized_bytes()?),
-          _ => bail!("Unknown format response kind: {}", response_kind),
+          _ => {
+            return Err(std::io::Error::new(
+              ErrorKind::InvalidData,
+              format!("Unknown format response kind: {}", response_kind),
+            ))
+          }
         };
         MessageBody::FormatResponse(ResponseBody { message_id, data })
       }
