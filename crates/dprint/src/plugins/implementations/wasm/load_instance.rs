@@ -22,7 +22,7 @@ pub fn create_module(compiled_module_bytes: &[u8]) -> Result<Module> {
     let compiler = Cranelift::default();
     let engine = EngineBuilder::new(compiler).engine();
     let engine_ref = EngineRef::new(&engine);
-    match Module::deserialize(engine_ref, compiled_module_bytes) {
+    match Module::deserialize(&engine_ref, compiled_module_bytes) {
       Ok(module) => Ok(module),
       Err(err) => bail!("Error deserializing compiled wasm module: {:#}", err),
     }
