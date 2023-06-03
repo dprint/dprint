@@ -121,9 +121,9 @@ dependencies = [
 
 [[package]]
 name = "bumpalo"
-version = "3.12.0"
+version = "3.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d261e256854913907f67ed06efbc3338dfe6179796deefc1ff763fc1aee5535"
+checksum = "a3e2c3daef883ecc1b5d58c15adae93470a91d425f3532ba1695849656af3fc1"
 
 [[package]]
 name = "bytecheck"
@@ -558,7 +558,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.61.0"
+version = "0.62.0"
 dependencies = [
  "anyhow",
  "bumpalo",
