@@ -3,7 +3,7 @@ import * as yaml from "https://deno.land/std@0.170.0/encoding/yaml.ts";
 enum OperatingSystem {
   Mac = "macOS-latest",
   Windows = "windows-latest",
-  Linux = "ubuntu-18.04",
+  Linux = "ubuntu-20.04",
 }
 
 interface ProfileData {
@@ -105,14 +105,23 @@ const ci = {
         { uses: "dsherret/rust-toolchain-file@v1" },
         { uses: "Swatinem/rust-cache@v2" },
         {
+          uses: "denoland/setup-deno@v1",
+          if: "matrix.config.target == 'x86_64-unknown-linux-gnu'",
+        },
+        {
+          name: "Verify wasmer-compiler version",
+          if: "matrix.config.target == 'x86_64-unknown-linux-gnu'",
+          run: "deno run --allow-env --allow-read --allow-net=deno.land .github/workflows/scripts/verify_wasmer_compiler_version.ts",
+        },
+        {
           name: "Build test plugins (Debug)",
           if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-          run: "cargo build --manifest-path=crates/test-process-plugin/Cargo.toml --locked",
+          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}}",
         },
         {
           name: "Build test plugins (Release)",
           if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
-          run: "cargo build --manifest-path=crates/test-process-plugin/Cargo.toml --locked --release",
+          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}} --release",
         },
         {
           name: "Setup (Linux x86_64-musl)",
@@ -160,12 +169,17 @@ const ci = {
         {
           name: "Test (Debug)",
           if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-          run: "cargo test --locked --all-features",
+          run: "cargo test --locked --target ${{matrix.config.target}} --all-features",
         },
         {
           name: "Test (Release)",
           if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
-          run: "cargo test --locked --all-features --release",
+          run: "cargo test --locked --target ${{matrix.config.target}} --all-features --release",
+        },
+        {
+          name: "Test integration",
+          if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && !startsWith(github.ref, 'refs/tags/')",
+          run: "cargo run -p dprint --locked --target ${{matrix.config.target}} -- check",
         },
         {
           name: "Create installer (Windows x86_64)",

@@ -1,6 +1,7 @@
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use once_cell::sync::Lazy;
 use std::fs;
 use std::num::NonZeroUsize;
 use std::path::Path;
@@ -55,9 +56,12 @@ impl RealEnvironment {
     };
 
     // ensure the cache directory is created
-    if let Err(err) = environment.mk_dir_all(get_cache_dir()?) {
-      bail!("Error creating cache directory: {:#}", err);
-    }
+    match (*CACHE_DIR).as_ref() {
+      Ok(cache_dir) => cache_dir,
+      Err(err) => {
+        bail!("Error creating cache directory: {:#}", err);
+      }
+    };
 
     Ok(environment)
   }
@@ -161,11 +165,7 @@ impl Environment for RealEnvironment {
   }
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
-    // use this to avoid //?//C:/etc... like paths on windows (UNC)
-    match dunce::canonicalize(path.as_ref()) {
-      Ok(result) => Ok(CanonicalizedPathBuf::new(result)),
-      Err(err) => bail!("Error canonicalizing path {}: {:#}", path.as_ref().display(), err),
-    }
+    canonicalize_path(path)
   }
 
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool {
@@ -228,9 +228,9 @@ impl Environment for RealEnvironment {
     log_action_with_progress(&self.progress_bars, message, action, total_size)
   }
 
-  fn get_cache_dir(&self) -> PathBuf {
-    // this would have errored in the constructor so it's ok to unwrap here
-    get_cache_dir().unwrap()
+  fn get_cache_dir(&self) -> CanonicalizedPathBuf {
+    // ok to unwrap because this would have errored in the constructor
+    (*CACHE_DIR.as_ref().unwrap()).clone()
   }
 
   fn cpu_arch(&self) -> String {
@@ -360,11 +360,21 @@ fn resolve_max_threads(env_var: Option<String>, available_parallelism: Option<No
   }
 }
 
+fn canonicalize_path(path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
+  // use this to avoid //?//C:/etc... like paths on windows (UNC)
+  match dunce::canonicalize(path.as_ref()) {
+    Ok(result) => Ok(CanonicalizedPathBuf::new(result)),
+    Err(err) => bail!("Error canonicalizing path {}: {:#}", path.as_ref().display(), err),
+  }
+}
+
 const CACHE_DIR_ENV_VAR_NAME: &str = "DPRINT_CACHE_DIR";
 
-fn get_cache_dir() -> Result<PathBuf> {
-  get_cache_dir_internal(|var_name| std::env::var(var_name).ok())
-}
+static CACHE_DIR: Lazy<Result<CanonicalizedPathBuf>> = Lazy::new(|| {
+  let cache_dir = get_cache_dir_internal(|var_name| std::env::var(var_name).ok())?;
+  std::fs::create_dir_all(&cache_dir)?;
+  canonicalize_path(cache_dir)
+});
 
 fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> Result<PathBuf> {
   if let Some(dir_path) = get_env_var(CACHE_DIR_ENV_VAR_NAME) {

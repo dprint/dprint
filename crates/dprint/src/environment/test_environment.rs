@@ -485,8 +485,8 @@ impl Environment for TestEnvironment {
     action(Box::new(|_| {}))
   }
 
-  fn get_cache_dir(&self) -> PathBuf {
-    PathBuf::from("/cache")
+  fn get_cache_dir(&self) -> CanonicalizedPathBuf {
+    self.canonicalize("/cache").unwrap()
   }
 
   fn cpu_arch(&self) -> String {

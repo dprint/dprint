@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use url::Url;
 
 use crate::arg_parser::CliArgs;
-use crate::cache::Cache;
 use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
 use crate::environment::Environment;
@@ -47,11 +46,10 @@ pub fn init_config_file(environment: &impl Environment, config_arg: &Option<Stri
 pub async fn add_plugin_config_file<TEnvironment: Environment>(
   args: &CliArgs,
   plugin_name_or_url: Option<&String>,
-  cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, cache, environment)?;
+  let config = resolve_config_from_args(args, environment)?;
   let config_path = match config.resolved_path.source {
     PathSource::Local(source) => source.path,
     PathSource::Remote(_) => bail!("Cannot update plugins in a remote configuration."),
@@ -165,12 +163,11 @@ async fn get_possible_plugins_to_add<TEnvironment: Environment>(
 
 pub async fn update_plugins_config_file<TEnvironment: Environment>(
   args: &CliArgs,
-  cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
   no_prompt: bool,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, cache, environment)?;
+  let config = resolve_config_from_args(args, environment)?;
   let config_path = match config.resolved_path.source {
     PathSource::Local(source) => source.path,
     PathSource::Remote(_) => bail!("Cannot update plugins in a remote configuration."),
@@ -191,7 +188,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
             info.old_version,
             info.get_full_new_config_url(),
           ));
-          environment.confirm("Do you wish to update it?", false)?
+          environment.confirm("Do you want to update it?", false)?
         };
 
         if should_update {
@@ -289,11 +286,10 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
 
 pub async fn output_resolved_config<TEnvironment: Environment>(
   args: &CliArgs,
-  cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, cache, environment)?;
+  let config = resolve_config_from_args(args, environment)?;
   let plugins = resolve_plugins(args, &config, environment, plugin_resolver).await?;
 
   let mut plugin_jsons = Vec::new();
@@ -745,7 +741,7 @@ mod test {
       confirm_results: vec![Ok(Some(true))],
       expected_logs: vec![
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url_with_checksum),
-        "Do you wish to update it? Y".to_string(),
+        "Do you want to update it? Y".to_string(),
         "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
       ],
       expected_urls: vec![new_ps_url_with_checksum.clone()],
@@ -759,7 +755,7 @@ mod test {
       confirm_results: vec![Ok(Some(true))],
       expected_logs: vec![
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url),
-        "Do you wish to update it? Y".to_string(),
+        "Do you want to update it? Y".to_string(),
         "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
       ],
       expected_urls: vec![new_ps_url.clone()],
@@ -773,7 +769,7 @@ mod test {
       confirm_results: vec![Ok(None)],
       expected_logs: vec![
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url),
-        "Do you wish to update it? N".to_string(),
+        "Do you want to update it? N".to_string(),
       ],
       expected_urls: vec![old_ps_url.clone()],
       always_update: false,
@@ -789,7 +785,7 @@ mod test {
       expected_logs: vec![
         "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url),
-        "Do you wish to update it? N".to_string(),
+        "Do you want to update it? N".to_string(),
       ],
       expected_urls: vec![new_wasm_url.clone(), old_ps_url.clone()],
       always_update: false,
@@ -959,7 +955,7 @@ mod test {
       environment.take_stderr_messages(),
       vec![
         "The process plugin test-plugin 0.1.0 has a new url: https://plugins.dprint.dev/test-plugin.json@checksum",
-        "Do you wish to update it? N"
+        "Do you want to update it? N"
       ]
     );
   }

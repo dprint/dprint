@@ -12,10 +12,8 @@ pub struct GenSeparatedValuesOptions {
   pub prefer_hanging: bool,
   pub force_use_new_lines: bool,
   pub allow_blank_lines: bool,
-  pub single_line_space_at_start: bool,
-  pub single_line_space_at_end: bool,
-  pub single_line_separator: PrintItems,
   pub indent_width: u8,
+  pub single_line_options: SingleLineOptions,
   pub multi_line_options: MultiLineOptions,
   /// Forces a possible newline at the start when there are values.
   /// If this isn't used, then a possible newline won't happen when
@@ -26,6 +24,42 @@ pub struct GenSeparatedValuesOptions {
 pub enum BoolOrCondition {
   Bool(bool),
   Condition(ConditionResolver),
+}
+
+pub struct SingleLineOptions {
+  pub space_at_start: bool,
+  pub space_at_end: bool,
+  pub separator: PrintItems,
+}
+
+impl SingleLineOptions {
+  pub fn separated_same_line(separator: PrintItems) -> Self {
+    SingleLineOptions {
+      space_at_start: false,
+      space_at_end: false,
+      separator,
+    }
+  }
+
+  pub fn same_line_maybe_space_separated() -> Self {
+    Self::separated_same_line(Signal::SpaceOrNewLine.into())
+  }
+
+  pub fn separated_line_starting_with_space() -> Self {
+    SingleLineOptions {
+      space_at_start: true,
+      space_at_end: false,
+      separator: Signal::SpaceOrNewLine.into(),
+    }
+  }
+
+  pub fn surrounded_line() -> Self {
+    SingleLineOptions {
+      space_at_start: true,
+      space_at_end: true,
+      separator: Signal::SpaceOrNewLine.into(),
+    }
+  }
 }
 
 pub struct MultiLineOptions {
@@ -179,7 +213,7 @@ pub fn gen_separated_values(
   let inner_gen_result = inner_gen(
     generated_values,
     is_multi_line.clone(),
-    opts.single_line_separator,
+    opts.single_line_options.separator,
     &multi_line_options,
     opts.allow_blank_lines,
   );
@@ -216,7 +250,7 @@ pub fn gen_separated_values(
       ),
       false_path: Some({
         let mut items = PrintItems::new();
-        let has_start_space = opts.single_line_space_at_start;
+        let has_start_space = opts.single_line_options.space_at_start;
         if has_start_space {
           items.push_signal(Signal::SpaceIfNotTrailing);
           items.push_signal(Signal::PossibleNewLine);
@@ -233,7 +267,7 @@ pub fn gen_separated_values(
           ));
         }
         items.extend(generated_values_items.into());
-        if opts.single_line_space_at_end {
+        if opts.single_line_options.space_at_end {
           items.push_str(" ");
         }
         items

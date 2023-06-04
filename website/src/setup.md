@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Setup dprint
 
-After [installing](/install), the main part of getting setup is to create a _dprint.json_ or hidden _.dprint.json_ file in your project.
+After [installing](/install), the main part of getting setup is to create a _dprint.json_/_dprint.jsonc_, or hidden _.dprint.json_/_.dprint.jsonc_ file in your project.
 
 This file will outline:
 
@@ -28,22 +28,22 @@ This will create a _dprint.json_ file in the current working directory. If you a
 
 ## Manual Setup
 
-Create a _dprint.json_ or hidden _.dprint.json_ file in the root directory of the project and read the [configuration documentation](/config).
+Create a _dprint.json_/_dprint.jsonc_ or hidden _.dprint.json_/_.dprint.jsonc_ file in the root directory of the project and read the [configuration documentation](/config).
 
 ## Hidden Config File
 
-The dprint CLI supports a default hidden configuration at _.dprint.json_.
+The dprint CLI supports a default hidden configuration at _.dprint.json_ or _.dprint.jsonc_.
 
 ## Custom Config File Location
 
-It is recommended to use _dprint.json_ or _.dprint.json_ as the location of your configuration file because it will be automatically picked up by the CLI and editor plugins. If you place it in another other location then it will need to be manually specified using the `--config <path>` or `-c <path>` flag whenever you run a command.
+It is recommended to use an auto-discoverable dprint configuration file name (ex. _dprint.json_) as the location of your configuration file because it will be automatically picked up by the CLI and editor plugins. If you place it in another other location then it will need to be manually specified using the `--config <path>` or `-c <path>` flag whenever you run a command.
 
 ### `dprint init` with custom config file location
 
 You may specify a custom path for the creation of a configuration file via `dprint init` by specifying it with the `-c` or `--config` flag.
 
 ```sh
-dprint init --config .dprint.json
+dprint init --config .dprint.jsonc
 dprint init --config path/to/dprint.json
 ```
 

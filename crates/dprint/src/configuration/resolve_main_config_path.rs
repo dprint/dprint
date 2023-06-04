@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::SubCommand;
-use crate::cache::Cache;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::utils::resolve_url_or_file_path;
@@ -12,8 +11,7 @@ use crate::utils::PathSource;
 use crate::utils::ResolvedPath;
 
 const DEFAULT_CONFIG_FILE_NAME: &str = "dprint.json";
-const HIDDEN_CONFIG_FILE_NAME: &str = ".dprint.json";
-const OLD_CONFIG_FILE_NAME: &str = ".dprintrc.json";
+const POSSIBLE_CONFIG_FILE_NAMES: [&str; 4] = [DEFAULT_CONFIG_FILE_NAME, "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
 
 #[derive(Debug)]
 pub struct ResolvedConfigPath {
@@ -21,14 +19,10 @@ pub struct ResolvedConfigPath {
   pub base_path: CanonicalizedPathBuf,
 }
 
-pub fn resolve_main_config_path<TEnvironment: Environment>(
-  args: &CliArgs,
-  cache: &Cache<TEnvironment>,
-  environment: &TEnvironment,
-) -> Result<ResolvedConfigPath> {
+pub fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<ResolvedConfigPath> {
   return Ok(if let Some(config) = &args.config {
     let base_path = environment.cwd();
-    let resolved_path = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), cache, environment)?;
+    let resolved_path = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), environment)?;
     ResolvedConfigPath { resolved_path, base_path }
   } else {
     get_default_paths(args, environment)?
@@ -84,27 +78,11 @@ pub fn resolve_main_config_path<TEnvironment: Environment>(
   }
 
   fn get_config_file_in_dir(dir: impl AsRef<Path>, environment: &impl Environment) -> Option<PathBuf> {
-    if let Some(path) = get_config_file_in_dir_with_name(&dir, DEFAULT_CONFIG_FILE_NAME, environment) {
-      Some(path)
-    } else if let Some(path) = get_config_file_in_dir_with_name(&dir, HIDDEN_CONFIG_FILE_NAME, environment) {
-      Some(path)
-    } else if let Some(path) = get_config_file_in_dir_with_name(&dir, OLD_CONFIG_FILE_NAME, environment) {
-      environment.log_stderr("WARNING: .dprintrc.json will be deprecated soon. Please rename it to dprint.json");
-      Some(path)
-    } else {
-      None
-    }
-  }
-
-  fn get_config_file_in_dir_with_name(dir: impl AsRef<Path>, file_name: &str, environment: &impl Environment) -> Option<PathBuf> {
-    let config_path = dir.as_ref().join(file_name);
-    if environment.path_exists(&config_path) {
-      return Some(config_path);
-    }
-    let config_path = dir.as_ref().join("config").join(file_name);
-    if environment.path_exists(&config_path) {
-      environment.log_stderr("WARNING: Automatic resolution of the configuration file in the config sub directory will be deprecated soon. Please move the configuration file to the parent directory.");
-      return Some(config_path);
+    for file_name in &POSSIBLE_CONFIG_FILE_NAMES {
+      let config_path = dir.as_ref().join(file_name);
+      if environment.path_exists(&config_path) {
+        return Some(config_path);
+      }
     }
     None
   }

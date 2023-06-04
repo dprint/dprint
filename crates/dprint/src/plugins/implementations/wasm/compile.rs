@@ -19,8 +19,9 @@ pub fn compile(wasm_bytes: &[u8], environment: impl Environment) -> Result<Compi
   let compiler = Cranelift::default();
   let engine = EngineBuilder::new(compiler).engine();
   //let tunables = BaseTunables::for_target(&engine.target());
-  let engineref = EngineRef::new(&engine);
-  let module = Module::new(&engineref, &wasm_bytes)?;
+  let engine: wasmer::Engine = engine.into();
+  let engine_ref = EngineRef::new(&engine);
+  let module = Module::new(&engine_ref, &wasm_bytes)?;
 
   let bytes = match module.serialize() {
     Ok(bytes) => bytes,

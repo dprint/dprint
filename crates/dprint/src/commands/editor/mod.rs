@@ -20,7 +20,6 @@ mod messages;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::EditorServiceSubCommand;
 use crate::arg_parser::FilePatternArgs;
-use crate::cache::Cache;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::ResolvedConfig;
 use crate::environment::Environment;
@@ -35,7 +34,6 @@ use self::messages::EditorMessageBody;
 
 pub async fn output_editor_info<TEnvironment: Environment>(
   args: &CliArgs,
-  cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<()> {
@@ -63,7 +61,7 @@ pub async fn output_editor_info<TEnvironment: Environment>(
 
   let mut plugins = Vec::new();
 
-  for plugin in get_plugins_from_args(args, cache, environment, plugin_resolver).await? {
+  for plugin in get_plugins_from_args(args, environment, plugin_resolver).await? {
     plugins.push(EditorPluginInfo {
       name: plugin.name().to_string(),
       version: plugin.version().to_string(),
@@ -91,7 +89,6 @@ pub async fn output_editor_info<TEnvironment: Environment>(
 
 pub async fn run_editor_service<TEnvironment: Environment>(
   args: &CliArgs,
-  cache: &Cache<TEnvironment>,
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
   plugin_pools: Arc<PluginsCollection<TEnvironment>>,
@@ -100,7 +97,7 @@ pub async fn run_editor_service<TEnvironment: Environment>(
   // poll for the existence of the parent process and terminate this process when that process no longer exists
   start_parent_process_checker_task(editor_service_cmd.parent_pid);
 
-  let mut editor_service = EditorService::new(args, cache, environment, plugin_resolver, plugin_pools);
+  let mut editor_service = EditorService::new(args, environment, plugin_resolver, plugin_pools);
   editor_service.run().await
 }
 
@@ -114,7 +111,6 @@ struct EditorService<'a, TEnvironment: Environment> {
   reader: MessageReader<Box<dyn Read + Send>>,
   config: Option<ResolvedConfig>,
   args: &'a CliArgs,
-  cache: &'a Cache<TEnvironment>,
   environment: &'a TEnvironment,
   plugin_resolver: &'a PluginResolver<TEnvironment>,
   plugins_collection: Arc<PluginsCollection<TEnvironment>>,
@@ -125,7 +121,6 @@ struct EditorService<'a, TEnvironment: Environment> {
 impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   pub fn new(
     args: &'a CliArgs,
-    cache: &'a Cache<TEnvironment>,
     environment: &'a TEnvironment,
     plugin_resolver: &'a PluginResolver<TEnvironment>,
     plugin_pools: Arc<PluginsCollection<TEnvironment>>,
@@ -141,7 +136,6 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       reader,
       config: None,
       args,
-      cache,
       environment,
       plugin_resolver,
       plugins_collection: plugin_pools,
@@ -256,7 +250,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
 
   async fn ensure_latest_config(&mut self) -> Result<()> {
     let last_config = self.config.take();
-    let config = resolve_config_from_args(self.args, self.cache, self.environment)?;
+    let config = resolve_config_from_args(self.args, self.environment)?;
 
     let has_config_changed = last_config.is_none() || last_config.unwrap() != config;
     if has_config_changed {

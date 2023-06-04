@@ -85,6 +85,17 @@ dprint fmt --config https://dprint.dev/path/to/some/config.json
 
 This flag is more useful for one-off commands. It is recommended to use the default configuration file location and name as that will lead to a better user experience.
 
+## Exit codes
+
+- `0` - Success
+- `1` - General error
+- `10` - Argument parsing error
+- `11` - Configuration resolution error
+- `12` - Plugin resolution error
+- `13` - No plugins found error
+- `14` - No files found error (useful for pre-commit hooks)
+- `20` - `dprint check` found non-formatted files
+
 ## Diagnostic Commands and Flags
 
 ### Outputting file paths

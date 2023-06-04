@@ -201,7 +201,7 @@ Note: The `includes` and `excludes` of extended configuration is ignored for sec
 
 By default, dprint will only format files that have changed since the last time you formatted the code in order to drastically improve performance.
 
-If you want to disable this functionality, you may specify the following in your dprint.json file:
+If you want to disable this functionality, you may specify the following in your dprint configuration file:
 
 ```json
 {
@@ -219,7 +219,7 @@ dprint fmt --incremental=false
 
 ## Global Configuration
 
-There are certain non-language specific configuration that can be specified. These are specified on the main configuration object, but can be overridden on a per-language basis.
+There are certain non-language specific configuration that can be specified. These are specified on the main configuration object, but can be overridden on a per-plugin basis.
 
 For example:
 
@@ -240,23 +240,28 @@ For example:
 }
 ```
 
+Note: dprint does not provide or enforce any defaults for the global configuration. The defaults are set on a per plugin basis. When a value is not provided, the plugin may choose to use its default.
+
 ### `lineWidth`
 
 The width of a line the formatter will try to stay under. Note that this limit will be exceeded in certain cases.
-
-Defaults to `120`.
 
 ### `indentWidth`
 
 The number of spaces for an indent when using spaces or the number of characters to treat an indent as when using tabs.
 
-Defaults to `4`.
+### `newLineKind`
+
+The kind of newline to use.
+
+- `auto` - For each file, uses the newline kind found at the end of the last line.
+- `crlf` - Uses carriage return, line feed.
+- `lf` - Uses line feed.
+- `system` - Uses the system standard (ex. crlf on Windows).
 
 ### `useTabs`
 
 Whether to use tabs (`true`) or spaces (`false`).
-
-Defaults to `false`.
 
 ## Locking Configuration—Opinionated Configurations
 

@@ -21,6 +21,7 @@ pub fn create_module(compiled_module_bytes: &[u8]) -> Result<Module> {
   unsafe {
     let compiler = Cranelift::default();
     let engine = EngineBuilder::new(compiler).engine();
+    let engine: wasmer::Engine = engine.into();
     let engine_ref = EngineRef::new(&engine);
     match Module::deserialize(&engine_ref, compiled_module_bytes) {
       Ok(module) => Ok(module),

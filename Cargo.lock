@@ -133,9 +133,9 @@ dependencies = [
 
 [[package]]
 name = "bumpalo"
-version = "3.12.0"
+version = "3.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d261e256854913907f67ed06efbc3338dfe6179796deefc1ff763fc1aee5535"
+checksum = "a3e2c3daef883ecc1b5d58c15adae93470a91d425f3532ba1695849656af3fc1"
 
 [[package]]
 name = "bytecheck"
@@ -400,9 +400,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.5.6"
+version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2dd04ddaf88237dc3b8d8f9a3c1004b506b54b3313403944054d23c0870c521"
+checksum = "a33c2bf77f2df06183c3aa30d1e96c0695a313d4f9c453cc3762a6db39f99200"
 dependencies = [
  "cfg-if",
  "crossbeam-utils",
@@ -583,7 +583,7 @@ dependencies = [
 
 [[package]]
 name = "dprint"
-version = "0.35.0"
+version = "0.37.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -596,27 +596,30 @@ dependencies = [
  "ignore",
  "indexmap",
  "jsonc-parser",
- "lazy_static",
+ "once_cell",
  "parking_lot",
  "path-clean",
  "pretty_assertions",
+ "rkyv",
  "serde",
  "serde_json",
  "sha2",
  "similar",
+ "thiserror",
  "tokio",
  "tokio-util",
  "twox-hash",
  "ureq",
  "url",
  "wasmer",
+ "wasmer-compiler",
  "winreg",
  "zip",
 ]
 
 [[package]]
 name = "dprint-core"
-version = "0.60.0"
+version = "0.62.0"
 dependencies = [
  "anyhow",
  "bumpalo",
@@ -1046,9 +1049,9 @@ checksum = "884e2677b40cc8c339eaefcb701c32ef1fd2493d71118dc0ca4b6a736c93bd67"
 
 [[package]]
 name = "libc"
-version = "0.2.139"
+version = "0.2.145"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "201de327520df007757c1f0adce6e827fe8562fbc28bfd9c15571c66ca1f5f79"
+checksum = "fc86cde3ff845662b8f4ef6cb50ea0e20c524eb3d29ae048287e06a1b3fa6a81"
 
 [[package]]
 name = "linux-raw-sys"
@@ -1165,9 +1168,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.16.0"
+version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86f0b0d4bf799edbc74508c1e8bf170ff5f41238e5f8225603ca7caaae2b7860"
+checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 
 [[package]]
 name = "opaque-debug"

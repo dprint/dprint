@@ -131,7 +131,8 @@ fn host_read_buffer<TEnvironment: Environment>(env: FunctionEnvMut<ImportObjectE
   let buffer_pointer: wasmer::WasmPtr<u32> = wasmer::WasmPtr::new(buffer_pointer);
   let env_data = env.data();
   let memory = env_data.memory.as_ref().unwrap();
-  let memory_view = memory.view(&env.as_store_ref());
+  let store_ref = env.as_store_ref();
+  let memory_view = memory.view(&store_ref);
 
   let length = length as usize;
   let mut shared_bytes = env_data.shared_bytes.lock();
@@ -149,7 +150,8 @@ fn host_write_buffer<TEnvironment: Environment>(env: FunctionEnvMut<ImportObject
   let buffer_pointer: wasmer::WasmPtr<u32> = wasmer::WasmPtr::new(buffer_pointer);
   let env_data = env.data();
   let memory = env_data.memory.as_ref().unwrap();
-  let memory_view = memory.view(&env.as_store_ref());
+  let store_ref = env.as_store_ref();
+  let memory_view = memory.view(&store_ref);
   let offset = offset as usize;
   let length = length as usize;
   let shared_bytes = env_data.shared_bytes.lock();
