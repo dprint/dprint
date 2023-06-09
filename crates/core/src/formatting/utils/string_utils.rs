@@ -92,8 +92,10 @@ fn get_range_text_highlight(file_text: &str, byte_range: (usize, usize)) -> Stri
     } else {
       line.chars().count()
     };
-    result.push_str(&" ".repeat(start_char_index));
-    result.push_str(&"~".repeat(end_char_index - start_char_index));
+    if end_char_index > start_char_index {
+      result.push_str(&" ".repeat(start_char_index));
+      result.push_str(&"~".repeat(end_char_index - start_char_index));
+    }
   }
   return result;
 
