@@ -1268,6 +1268,10 @@ mod test {
 
     run_test_cli(vec!["fmt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
     assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
   }
 
@@ -1657,7 +1661,6 @@ mod test {
 
   #[test]
   fn should_handle_error_for_stdin_fmt() {
-    // it should not output anything when downloading plugins
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
       .with_default_config(|c| {
@@ -1669,12 +1672,16 @@ mod test {
       .err()
       .unwrap();
     assert_eq!(error_message.to_string(), "Did error.");
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
   }
 
   #[test]
   fn should_format_for_stdin_with_absolute_paths() {
     // it should not output anything when downloading plugins
-    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
         c.add_includes("/src/**.*").add_remote_wasm_plugin();
       })

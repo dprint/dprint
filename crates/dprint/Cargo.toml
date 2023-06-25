@@ -40,9 +40,9 @@ zip = "0.6.4"
 # pin these to prevent them changing with `cargo install` because
 # patch version increases of rkyv may cause panics when deserializing
 # data serialized with older versions
-rkyv = "=0.7.39"
-wasmer = "=2.3.0"
-wasmer-compiler = "=2.3.0"
+rkyv = "=0.7.42"
+wasmer = "=4.0.0"
+wasmer-compiler = "=4.0.0"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.10.1"

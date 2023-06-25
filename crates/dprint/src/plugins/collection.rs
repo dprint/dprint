@@ -9,10 +9,10 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Instant;
 
 use anyhow::Result;
 
+use super::implementations::WasmModuleCreator;
 use super::name_resolution::PluginNameResolutionMaps;
 use super::output_plugin_config_diagnostics;
 use super::InitializedPlugin;
@@ -26,6 +26,7 @@ pub struct PluginsCollection<TEnvironment: Environment> {
   environment: TEnvironment,
   plugins: Mutex<HashMap<String, Arc<PluginWrapper<TEnvironment>>>>,
   plugin_name_maps: RwLock<PluginNameResolutionMaps>,
+  wasm_module_creator: WasmModuleCreator,
 }
 
 impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
@@ -34,7 +35,14 @@ impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
       environment,
       plugins: Default::default(),
       plugin_name_maps: Default::default(),
+      wasm_module_creator: Default::default(),
     }
+  }
+
+  pub fn create_wasm_module_from_serialized(&self, compiled_bytes: &[u8]) -> Result<wasmer::Module> {
+    // todo: this method should be removed from PluginsCollection and there
+    // should be some factory pattern that injects wasm module creator where necessary
+    self.wasm_module_creator.create_from_serialized(compiled_bytes)
   }
 
   pub async fn drop_and_shutdown_initialized(&self) {
@@ -172,7 +180,7 @@ impl<TEnvironment: Environment> PluginWrapper<TEnvironment> {
     if let Some(plugin) = initialized_plugin.clone() {
       Ok(GetPluginResult::Success(plugin))
     } else {
-      let instance = self.create_instance().await?;
+      let instance = self.plugin.initialize().await?;
 
       let has_checked_diagnostics = *self.checked_diagnostics.lock();
       match has_checked_diagnostics {
@@ -196,14 +204,5 @@ impl<TEnvironment: Environment> PluginWrapper<TEnvironment> {
       *initialized_plugin = Some(instance.clone());
       Ok(GetPluginResult::Success(instance))
     }
-  }
-
-  async fn create_instance(&self) -> Result<Arc<dyn InitializedPlugin>> {
-    let start_instant = Instant::now();
-    log_verbose!(self.environment, "Creating instance of {}", self.plugin.name());
-    let plugin = self.plugin.initialize().await?;
-    let startup_duration = start_instant.elapsed().as_millis() as u64;
-    log_verbose!(self.environment, "Created instance of {} in {}ms", self.plugin.name(), startup_duration);
-    Ok(plugin)
   }
 }
