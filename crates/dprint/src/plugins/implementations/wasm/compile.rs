@@ -2,13 +2,10 @@ use std::sync::Arc;
 
 use anyhow::bail;
 use anyhow::Result;
-use wasmer::Cranelift;
-use wasmer::EngineBuilder;
-use wasmer::EngineRef;
-use wasmer::Module;
 
 use super::create_identity_import_object;
 use super::load_instance::load_instance;
+use super::load_instance::WasmModuleCreator;
 use super::InitializedWasmPlugin;
 use crate::environment::Environment;
 use crate::plugins::CompilationResult;
@@ -16,12 +13,8 @@ use crate::plugins::CompilationResult;
 /// Compiles a Wasm module.
 pub fn compile(wasm_bytes: &[u8], environment: impl Environment) -> Result<CompilationResult> {
   // https://github.com/wasmerio/wasmer/pull/3378#issuecomment-1327679422
-  let compiler = Cranelift::default();
-  let engine = EngineBuilder::new(compiler).engine();
-  //let tunables = BaseTunables::for_target(&engine.target());
-  let engine: wasmer::Engine = engine.into();
-  let engine_ref = EngineRef::new(&engine);
-  let module = Module::new(&engine_ref, &wasm_bytes)?;
+  let wasm_module_creator = WasmModuleCreator::default();
+  let module = wasm_module_creator.create_from_wasm_bytes(&wasm_bytes)?;
 
   let bytes = match module.serialize() {
     Ok(bytes) => bytes,

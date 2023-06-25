@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
+use super::implementations::WasmModuleCreator;
 use super::name_resolution::PluginNameResolutionMaps;
 use super::output_plugin_config_diagnostics;
 use super::InitializedPlugin;
@@ -25,6 +26,7 @@ pub struct PluginsCollection<TEnvironment: Environment> {
   environment: TEnvironment,
   plugins: Mutex<HashMap<String, Arc<PluginWrapper<TEnvironment>>>>,
   plugin_name_maps: RwLock<PluginNameResolutionMaps>,
+  wasm_module_creator: WasmModuleCreator,
 }
 
 impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
@@ -33,7 +35,14 @@ impl<TEnvironment: Environment> PluginsCollection<TEnvironment> {
       environment,
       plugins: Default::default(),
       plugin_name_maps: Default::default(),
+      wasm_module_creator: Default::default(),
     }
+  }
+
+  pub fn create_wasm_module_from_serialized(&self, compiled_bytes: &[u8]) -> Result<wasmer::Module> {
+    // todo: this method should be removed from PluginsCollection and there
+    // should be some factory pattern that injects wasm module creator where necessary
+    self.wasm_module_creator.create_from_serialized(compiled_bytes)
   }
 
   pub async fn drop_and_shutdown_initialized(&self) {

@@ -16,7 +16,6 @@ use dprint_core::plugins::PluginInfo;
 
 use super::create_pools_import_object;
 use super::load_instance;
-use super::load_instance::create_module;
 use super::WasmFormatResult;
 use super::WasmFunctions;
 use crate::configuration::RawPluginConfig;
@@ -41,7 +40,7 @@ impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
     environment: TEnvironment,
     plugin_pools: Arc<PluginsCollection<TEnvironment>>,
   ) -> Result<Self> {
-    let module = create_module(compiled_wasm_bytes)?;
+    let module = plugin_pools.create_wasm_module_from_serialized(compiled_wasm_bytes)?;
     Ok(WasmPlugin {
       module,
       environment,

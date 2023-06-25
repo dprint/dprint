@@ -17,15 +17,32 @@ pub fn load_instance(store: &mut Store, module: &Module, import_object: &Imports
   }
 }
 
-pub fn create_module(compiled_module_bytes: &[u8]) -> Result<Module> {
-  unsafe {
+pub struct WasmModuleCreator {
+  engine: wasmer::Engine,
+}
+
+impl Default for WasmModuleCreator {
+  fn default() -> Self {
     let compiler = Cranelift::default();
     let engine = EngineBuilder::new(compiler).engine();
     let engine: wasmer::Engine = engine.into();
-    let engine_ref = EngineRef::new(&engine);
-    match Module::deserialize(&engine_ref, compiled_module_bytes) {
-      Ok(module) => Ok(module),
-      Err(err) => bail!("Error deserializing compiled wasm module: {:#}", err),
+    Self { engine }
+  }
+}
+
+impl WasmModuleCreator {
+  pub fn create_from_wasm_bytes(&self, wasm_bytes: &[u8]) -> Result<Module> {
+    let engine_ref = EngineRef::new(&self.engine);
+    Ok(Module::new(&engine_ref, wasm_bytes)?)
+  }
+
+  pub fn create_from_serialized(&self, compiled_module_bytes: &[u8]) -> Result<Module> {
+    unsafe {
+      let engine_ref = EngineRef::new(&self.engine);
+      match Module::deserialize(&engine_ref, compiled_module_bytes) {
+        Ok(module) => Ok(module),
+        Err(err) => bail!("Error deserializing compiled wasm module: {:#}", err),
+      }
     }
   }
 }

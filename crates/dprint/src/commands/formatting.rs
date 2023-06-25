@@ -1258,7 +1258,7 @@ mod test {
   #[test]
   fn should_format_using_hidden_config_file_name() {
     let file_path = "/test/other/file.txt";
-    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_local_config("/.dprint.json", |c| {
         c.add_includes("**/*.txt").add_remote_wasm_plugin();
       })
@@ -1663,7 +1663,7 @@ mod test {
       .with_default_config(|c| {
         c.add_remote_wasm_plugin();
       })
-      .build(); // don't initialize
+      .build();
     let test_std_in = TestStdInReader::from("should_error");
     let error_message = run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in)
       .err()
@@ -1674,7 +1674,7 @@ mod test {
   #[test]
   fn should_format_for_stdin_with_absolute_paths() {
     // it should not output anything when downloading plugins
-    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
         c.add_includes("/src/**.*").add_remote_wasm_plugin();
       })
