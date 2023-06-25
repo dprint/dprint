@@ -215,7 +215,7 @@ mod test {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_source = PluginSourceReference::new_local(original_file_path.clone());
     let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
-    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.1.0-2.3.0-x86_64");
+    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.1.0-4.0.0-x86_64");
 
     assert_eq!(file_path, expected_file_path);
 
