@@ -1,4 +1,3 @@
-use anyhow::bail;
 use anyhow::Result;
 use crossterm::style::Stylize;
 use dprint_core::plugins::Host;
@@ -10,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use thiserror::Error;
 
 use crate::arg_parser::CheckSubCommand;
 use crate::arg_parser::CliArgs;
@@ -110,6 +110,12 @@ pub async fn output_format_times<TEnvironment: Environment>(
   Ok(())
 }
 
+#[derive(Error, Debug)]
+#[error("Found {} not formatted {}.", files_count.to_string().bold().to_string(), if *files_count == 1 { "file" } else { "files" })]
+pub struct CheckError {
+  pub files_count: usize,
+}
+
 pub async fn check<TEnvironment: Environment>(
   cmd: &CheckSubCommand,
   args: &CliArgs,
@@ -162,8 +168,12 @@ pub async fn check<TEnvironment: Environment>(
   if not_formatted_files_count == 0 {
     Ok(())
   } else {
-    let f = if not_formatted_files_count == 1 { "file" } else { "files" };
-    bail!("Found {} not formatted {}.", not_formatted_files_count.to_string().bold().to_string(), f)
+    Err(
+      CheckError {
+        files_count: not_formatted_files_count,
+      }
+      .into(),
+    )
   }
 }
 
@@ -246,13 +256,14 @@ mod test {
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
+  use crate::test_helpers;
   use crate::test_helpers::get_plural_check_text;
   use crate::test_helpers::get_plural_formatted_text;
   use crate::test_helpers::get_singular_check_text;
   use crate::test_helpers::get_singular_formatted_text;
   use crate::test_helpers::run_test_cli;
   use crate::test_helpers::run_test_cli_with_stdin;
-  use crate::test_helpers::{self};
+  use crate::test_helpers::TestAppError;
   use crate::utils::get_difference;
   use crate::utils::TestStdInReader;
 
@@ -606,10 +617,11 @@ mod test {
     let environment = TestEnvironment::new();
     environment.write_file("/test.txt", "test").unwrap();
 
-    let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
+    let err = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
+    err.assert_exit_code(11);
 
     assert_eq!(
-      error_message.to_string(),
+      err.to_string(),
       concat!(
         "No config file found at /dprint.json. Did you mean to create (dprint init) or specify one (--config <path>)?\n",
         "  Error: Could not find file at path /dprint.json"
@@ -867,10 +879,11 @@ mod test {
       .write_file("/test.txt", "test")
       .build();
 
-    let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
+    let err = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
+    err.assert_exit_code(13);
 
     assert_eq!(
-      error_message.to_string(),
+      err.to_string(),
       "No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file."
     );
     assert_eq!(environment.take_stdout_messages().len(), 0);
@@ -932,9 +945,10 @@ mod test {
     assert_eq!(environment.take_stderr_messages().len(), 0);
 
     // now it errors because no --plugins specified
-    let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
+    let err = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
+    err.assert_exit_code(12);
     assert_eq!(
-      error_message.to_string(),
+      err.to_string(),
       "Error resolving global config from configuration file. Unexpected non-string, boolean, or int property 'excess-object'."
     );
     assert_eq!(environment.take_stderr_messages().len(), 0);
@@ -960,9 +974,10 @@ mod test {
     assert_eq!(environment.take_stderr_messages().len(), 0);
 
     // now it errors because no --plugins specified
-    let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
+    let err = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
+    err.assert_exit_code(12);
     assert_eq!(
-      error_message.to_string(),
+      err.to_string(),
       "Error resolving global config from configuration file. Had 1 config diagnostic(s)."
     );
     assert_eq!(
@@ -980,7 +995,8 @@ mod test {
     assert_no_files_found(&error, &environment);
   }
 
-  fn assert_no_files_found(error: &anyhow::Error, environment: &TestEnvironment) {
+  #[track_caller]
+  fn assert_no_files_found(error: &TestAppError, environment: &TestEnvironment) {
     assert_eq!(
       error.to_string(),
       concat!(
@@ -988,6 +1004,7 @@ mod test {
         "You may want to try using `dprint output-file-paths` to see which files it's finding."
       )
     );
+    error.assert_exit_code(14);
     assert_eq!(environment.take_stdout_messages().len(), 0);
     assert_eq!(environment.take_stderr_messages().len(), 0);
   }
@@ -1251,87 +1268,33 @@ mod test {
 
     run_test_cli(vec!["fmt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
-  }
-
-  #[test]
-  fn should_format_files_with_config_in_config_sub_dir_and_warn() {
-    let file_path1 = "/file1.txt";
-    let file_path2 = "/file2.txt";
-    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
-      .write_file(file_path1, "text1")
-      .write_file(file_path2, "text2")
-      .with_local_config("./config/.dprintrc.json", |c| {
-        c.add_includes("**/*.txt").add_remote_wasm_plugin();
-      })
-      .initialize()
-      .build();
-
-    run_test_cli(vec!["fmt"], &environment).unwrap();
-
-    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
-    assert_eq!(environment.take_stderr_messages(), vec![
-            "WARNING: Automatic resolution of the configuration file in the config sub directory will be deprecated soon. Please move the configuration file to the parent directory.",
-            "WARNING: .dprintrc.json will be deprecated soon. Please rename it to dprint.json"
-        ]);
-    assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
-    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted");
-  }
-
-  #[test]
-  fn should_format_using_config_in_ancestor_directory() {
-    let file_path = "/test/other/file.txt";
-    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
-      .with_default_config(|c| {
-        c.add_includes("**/*.txt");
-      })
-      .write_file(&file_path, "text")
-      .build();
-    environment.set_cwd("/test/other/");
-    run_test_cli(vec!["fmt"], &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_stderr_messages().len(), 0);
-    assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
-  }
-
-  #[test]
-  fn should_format_using_old_config_file_name_and_warn() {
-    let file_path = "/test/other/file.txt";
-    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
-      .with_local_config("/.dprintrc.json", |c| {
-        c.add_remote_wasm_plugin().add_includes("**/*.txt");
-      })
-      .initialize()
-      .set_cwd("/test/other/")
-      .write_file(&file_path, "text")
-      .build();
-    run_test_cli(vec!["fmt"], &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(
       environment.take_stderr_messages(),
-      vec!["WARNING: .dprintrc.json will be deprecated soon. Please rename it to dprint.json"]
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
     );
     assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
   }
 
   #[test]
-  fn should_format_using_config_in_ancestor_directory_config_folder_and_warn() {
-    let file_path = "/test/other/file.txt";
-    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
-      .with_local_config("./config/.dprintrc.json", |c| {
-        c.add_includes("**/*.txt").add_remote_wasm_plugin();
-      })
-      .initialize()
-      .set_cwd("/test/other/")
-      .write_file(&file_path, "text")
-      .build();
-    run_test_cli(vec!["fmt"], &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.take_stderr_messages(), vec![
-            "WARNING: Automatic resolution of the configuration file in the config sub directory will be deprecated soon. Please move the configuration file to the parent directory.",
-            "WARNING: .dprintrc.json will be deprecated soon. Please rename it to dprint.json"
-        ]);
-    assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
+  fn should_format_using_config_in_ancestor_directory() {
+    let config_file_names = vec!["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
+    for config_file_name in config_file_names {
+      eprintln!("CONFIG FILE: {}", config_file_name);
+      let file_path = "/test/other/file.txt";
+      let environment = TestEnvironmentBuilder::new()
+        .add_remote_wasm_plugin()
+        .with_local_config(format!("/{}", config_file_name), |config_file| {
+          config_file.add_remote_wasm_plugin().add_includes("**/*.txt");
+        })
+        .initialize()
+        .write_file(&file_path, "text")
+        .build();
+      environment.set_cwd("/test/other/");
+      run_test_cli(vec!["fmt"], &environment).unwrap();
+      assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+      assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+      assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
+    }
   }
 
   #[test]
@@ -1503,7 +1466,8 @@ mod test {
     run_test_cli(vec!["check", "--incremental"], &environment).unwrap();
 
     environment.write_file(file_path1, "text1").unwrap();
-    assert!(run_test_cli(vec!["check", "--incremental"], &environment).is_err());
+    let err = run_test_cli(vec!["check", "--incremental"], &environment).unwrap_err();
+    err.assert_exit_code(20);
 
     environment.write_file(file_path1, "text1_formatted").unwrap();
     run_test_cli(vec!["check", "--incremental"], &environment).unwrap();
@@ -1594,8 +1558,9 @@ mod test {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file("/file.txt", "const t=4;")
       .build();
-    let error_message = run_test_cli(vec!["check", "/file.txt"], &environment).err().unwrap();
-    assert_eq!(error_message.to_string(), get_singular_check_text());
+    let err = run_test_cli(vec!["check", "/file.txt"], &environment).unwrap_err();
+    err.assert_exit_code(20);
+    assert_eq!(err.to_string(), get_singular_check_text());
     assert_eq!(
       environment.take_stdout_messages(),
       vec![format!(
@@ -1614,8 +1579,9 @@ mod test {
       .write_file("/file2.txt", "const t=5;")
       .build();
 
-    let error_message = run_test_cli(vec!["check", "/file1.txt", "/file2.txt"], &environment).err().unwrap();
-    assert_eq!(error_message.to_string(), get_plural_check_text(2));
+    let err = run_test_cli(vec!["check", "/file1.txt", "/file2.txt"], &environment).unwrap_err();
+    err.assert_exit_code(20);
+    assert_eq!(err.to_string(), get_plural_check_text(2));
     let mut logged_messages = environment.take_stdout_messages();
     logged_messages.sort(); // seems like the order is not deterministic
     assert_eq!(
@@ -1695,7 +1661,6 @@ mod test {
 
   #[test]
   fn should_handle_error_for_stdin_fmt() {
-    // it should not output anything when downloading plugins
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
       .with_default_config(|c| {
@@ -1707,12 +1672,16 @@ mod test {
       .err()
       .unwrap();
     assert_eq!(error_message.to_string(), "Did error.");
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
   }
 
   #[test]
   fn should_format_for_stdin_with_absolute_paths() {
     // it should not output anything when downloading plugins
-    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
         c.add_includes("/src/**.*").add_remote_wasm_plugin();
       })
@@ -1786,11 +1755,12 @@ mod test {
       })
       .write_file("/test.txt_ps", "")
       .build();
-    let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
+    let err = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
+    err.assert_exit_code(12);
     let actual_plugin_file_checksum = test_helpers::get_test_process_plugin_checksum();
 
     assert_eq!(
-      error_message.to_string(),
+      err.to_string(),
       format!(
         concat!(
           "Error resolving plugin https://plugins.dprint.dev/test-process.json: The plugin must have a checksum specified ",
@@ -1811,10 +1781,11 @@ mod test {
       .write_file("/test.txt_ps", "")
       .build();
     let actual_plugin_file_checksum = test_helpers::get_test_process_plugin_checksum();
-    let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
+    let err = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
+    err.assert_exit_code(12);
 
     assert_eq!(
-      error_message.to_string(),
+      err.to_string(),
       format!(
         concat!(
           "Error resolving plugin https://plugins.dprint.dev/test-process.json: Invalid checksum specified ",
@@ -1837,10 +1808,11 @@ mod test {
       .write_file("/test.txt", "")
       .build();
     let actual_plugin_file_checksum = test_helpers::get_test_wasm_plugin_checksum();
-    let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
+    let err = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
+    err.assert_exit_code(12);
 
     assert_eq!(
-      error_message.to_string(),
+      err.to_string(),
       format!(
         concat!(
           "Error resolving plugin https://plugins.dprint.dev/test-plugin.wasm: Invalid checksum specified ",
@@ -1883,10 +1855,11 @@ mod test {
       .write_file("/test.txt_ps", "")
       .build();
     let actual_plugin_zip_file_checksum = test_helpers::get_test_process_plugin_zip_checksum();
-    let error_message = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
+    let err = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
+    err.assert_exit_code(12);
 
     assert_eq!(
-      error_message.to_string(),
+      err.to_string(),
       format!(
         concat!(
           "Error resolving plugin https://plugins.dprint.dev/test-process.json: Invalid checksum found ",

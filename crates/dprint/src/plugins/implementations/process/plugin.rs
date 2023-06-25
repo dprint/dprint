@@ -7,6 +7,7 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::configuration::RawPluginConfig;
 use crate::environment::Environment;
@@ -114,6 +115,8 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
   }
 
   fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
+    let start_instant = Instant::now();
+    log_verbose!(self.environment, "Creating instance of {}", self.name());
     let config = self.config.as_ref().expect("Call set_config first.");
     let plugin_name = self.plugin_info.name.clone();
     let executable_file_path = self.executable_file_path.clone();
@@ -121,11 +124,23 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
     let environment = self.environment.clone();
     let plugins_collection = self.plugins_collection.clone();
     async move {
-      let communicator =
-        InitializedProcessPluginCommunicator::new(plugin_name, executable_file_path, config, environment.clone(), plugins_collection.clone()).await?;
+      let communicator = InitializedProcessPluginCommunicator::new(
+        plugin_name.clone(),
+        executable_file_path,
+        config,
+        environment.clone(),
+        plugins_collection.clone(),
+      )
+      .await?;
       let process_plugin = InitializedProcessPlugin::new(communicator)?;
 
       let result: Arc<dyn InitializedPlugin> = Arc::new(process_plugin);
+      log_verbose!(
+        environment,
+        "Created instance of {} in {}ms",
+        plugin_name,
+        start_instant.elapsed().as_millis() as u64
+      );
       Ok(result)
     }
     .boxed()

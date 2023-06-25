@@ -201,7 +201,7 @@ Note: The `includes` and `excludes` of extended configuration is ignored for sec
 
 By default, dprint will only format files that have changed since the last time you formatted the code in order to drastically improve performance.
 
-If you want to disable this functionality, you may specify the following in your dprint.json file:
+If you want to disable this functionality, you may specify the following in your dprint configuration file:
 
 ```json
 {

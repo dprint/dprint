@@ -1,14 +1,13 @@
+use std::io::ErrorKind;
 use std::io::Write;
 use std::sync::Arc;
-
-use anyhow::Result;
 
 use crate::communication::MessageWriter;
 
 use super::Poisoner;
 
 pub trait Message: std::fmt::Debug + Send + Sync + 'static {
-  fn write<TWrite: Write + Unpin>(&self, writer: &mut MessageWriter<TWrite>) -> Result<()>;
+  fn write<TWrite: Write + Unpin>(&self, writer: &mut MessageWriter<TWrite>) -> std::io::Result<()>;
 }
 
 struct SingleThreadMessageWriterOptions<TWrite: Write + Unpin> {
@@ -71,7 +70,7 @@ impl<TMessage: Message> SingleThreadMessageWriter<TMessage> {
     Self { tx: Arc::new(tx) }
   }
 
-  pub fn send(&self, message: TMessage) -> Result<()> {
-    Ok(self.tx.send(message)?)
+  pub fn send(&self, message: TMessage) -> std::io::Result<()> {
+    self.tx.send(message).map_err(|err| std::io::Error::new(ErrorKind::BrokenPipe, err))
   }
 }

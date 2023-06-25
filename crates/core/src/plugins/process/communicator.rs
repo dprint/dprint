@@ -482,14 +482,15 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
 }
 
 async fn host_format(context: Context, message_id: u32, body: HostFormatMessageBody) -> FormatResult {
+  let file_text = String::from_utf8(body.file_text)?; // surface error before storing token
+
   let token = Arc::new(CancellationToken::new());
   context.format_request_tokens.store(message_id, token.clone());
-
   let result = context
     .host
     .format(HostFormatRequest {
       file_path: body.file_path,
-      file_text: String::from_utf8(body.file_text)?,
+      file_text,
       range: body.range,
       override_config: serde_json::from_slice(&body.override_config).unwrap(),
       token,

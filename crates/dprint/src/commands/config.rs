@@ -188,7 +188,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
             info.old_version,
             info.get_full_new_config_url(),
           ));
-          environment.confirm("Do you wish to update it?", false)?
+          environment.confirm("Do you want to update it?", false)?
         };
 
         if should_update {
@@ -741,7 +741,7 @@ mod test {
       confirm_results: vec![Ok(Some(true))],
       expected_logs: vec![
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url_with_checksum),
-        "Do you wish to update it? Y".to_string(),
+        "Do you want to update it? Y".to_string(),
         "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
       ],
       expected_urls: vec![new_ps_url_with_checksum.clone()],
@@ -755,7 +755,7 @@ mod test {
       confirm_results: vec![Ok(Some(true))],
       expected_logs: vec![
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url),
-        "Do you wish to update it? Y".to_string(),
+        "Do you want to update it? Y".to_string(),
         "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
       ],
       expected_urls: vec![new_ps_url.clone()],
@@ -769,7 +769,7 @@ mod test {
       confirm_results: vec![Ok(None)],
       expected_logs: vec![
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url),
-        "Do you wish to update it? N".to_string(),
+        "Do you want to update it? N".to_string(),
       ],
       expected_urls: vec![old_ps_url.clone()],
       always_update: false,
@@ -785,7 +785,7 @@ mod test {
       expected_logs: vec![
         "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url),
-        "Do you wish to update it? N".to_string(),
+        "Do you want to update it? N".to_string(),
       ],
       expected_urls: vec![new_wasm_url.clone(), old_ps_url.clone()],
       always_update: false,
@@ -955,7 +955,7 @@ mod test {
       environment.take_stderr_messages(),
       vec![
         "The process plugin test-plugin 0.1.0 has a new url: https://plugins.dprint.dev/test-plugin.json@checksum",
-        "Do you wish to update it? N"
+        "Do you want to update it? N"
       ]
     );
   }

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use anyhow::Result;
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
@@ -8,12 +7,13 @@ use crate::communication::SingleThreadMessageWriter;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
+use crate::plugins::FormatResult;
 
 use super::messages::ProcessPluginMessage;
 use crate::communication::ArcIdStore;
 use crate::communication::IdGenerator;
 
-pub type FormatHostSender = tokio::sync::oneshot::Sender<Result<Option<String>>>;
+pub type FormatHostSender = tokio::sync::oneshot::Sender<FormatResult>;
 
 pub struct StoredConfig<TConfiguration: Serialize + Clone> {
   pub config: Arc<TConfiguration>,

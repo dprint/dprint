@@ -4,6 +4,7 @@ import codeHighlight from "lume/plugins/code_highlight.ts";
 import date from "lume/plugins/date.ts";
 import esbuild from "lume/plugins/esbuild.ts";
 import sass from "lume/plugins/sass.ts";
+import anchor from "npm:markdown-it-anchor@8.6.7";
 
 await buildSass();
 
@@ -15,6 +16,10 @@ const site = lume({
     options: {
       linkify: true,
     },
+    plugins: [[anchor, {
+      level: 2,
+      permalink: anchor.permalink.headerLink(),
+    }]],
   },
 });
 
