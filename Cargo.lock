@@ -583,7 +583,7 @@ dependencies = [
 
 [[package]]
 name = "dprint"
-version = "0.37.0"
+version = "0.37.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -619,7 +619,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.62.0"
+version = "0.62.1"
 dependencies = [
  "anyhow",
  "bumpalo",
