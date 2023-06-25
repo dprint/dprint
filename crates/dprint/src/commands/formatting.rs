@@ -1258,7 +1258,7 @@ mod test {
   #[test]
   fn should_format_using_hidden_config_file_name() {
     let file_path = "/test/other/file.txt";
-    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_local_config("/.dprint.json", |c| {
         c.add_includes("**/*.txt").add_remote_wasm_plugin();
       })
@@ -1268,6 +1268,10 @@ mod test {
 
     run_test_cli(vec!["fmt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
     assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
   }
 
@@ -1657,18 +1661,21 @@ mod test {
 
   #[test]
   fn should_handle_error_for_stdin_fmt() {
-    // it should not output anything when downloading plugins
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
       .with_default_config(|c| {
         c.add_remote_wasm_plugin();
       })
-      .build();
+      .build(); // don't initialize
     let test_std_in = TestStdInReader::from("should_error");
     let error_message = run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in)
       .err()
       .unwrap();
     assert_eq!(error_message.to_string(), "Did error.");
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
   }
 
   #[test]

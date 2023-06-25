@@ -166,7 +166,7 @@ impl WasmFunctions {
     Rets: WasmTypeList,
   {
     match self.instance.exports.get_function(name) {
-      Ok(func) => match func.typed::<Args, Rets>(&mut self.store) {
+      Ok(func) => match func.typed::<Args, Rets>(&self.store) {
         Ok(native_func) => Ok(native_func),
         Err(err) => bail!("Error creating function '{}'. Message: {:#}", name, err),
       },

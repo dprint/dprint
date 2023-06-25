@@ -12,9 +12,8 @@ use crate::plugins::CompilationResult;
 
 /// Compiles a Wasm module.
 pub fn compile(wasm_bytes: &[u8], environment: impl Environment) -> Result<CompilationResult> {
-  // https://github.com/wasmerio/wasmer/pull/3378#issuecomment-1327679422
   let wasm_module_creator = WasmModuleCreator::default();
-  let module = wasm_module_creator.create_from_wasm_bytes(&wasm_bytes)?;
+  let module = wasm_module_creator.create_from_wasm_bytes(wasm_bytes)?;
 
   let bytes = match module.serialize() {
     Ok(bytes) => bytes,
@@ -28,7 +27,7 @@ pub fn compile(wasm_bytes: &[u8], environment: impl Environment) -> Result<Compi
     Arc::new(move |store, module| {
       // we're not formatting anything so using an identity import is ok
       let imports = create_identity_import_object(store);
-      load_instance(store, &module, &imports)
+      load_instance(store, module, &imports)
     }),
     Default::default(),
     Default::default(),

@@ -253,11 +253,13 @@ impl InitializedWasmPluginInstance {
   }
 }
 
+type LoadInstanceFn = dyn Fn(&mut wasmer::Store, &wasmer::Module) -> Result<wasmer::Instance> + Send + Sync;
+
 struct InitializedWasmPluginInner<TEnvironment: Environment> {
   name: String,
   instances: Mutex<Vec<InitializedWasmPluginInstance>>,
   module: wasmer::Module,
-  load_instance: Arc<dyn Fn(&mut wasmer::Store, &wasmer::Module) -> Result<wasmer::Instance> + Send + Sync>,
+  load_instance: Arc<LoadInstanceFn>,
   global_config: GlobalConfiguration,
   plugin_config: ConfigKeyMap,
   environment: TEnvironment,
@@ -288,7 +290,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
   pub fn new(
     name: String,
     module: wasmer::Module,
-    load_instance: Arc<dyn Fn(&mut wasmer::Store, &wasmer::Module) -> Result<wasmer::Instance> + Send + Sync>,
+    load_instance: Arc<LoadInstanceFn>,
     global_config: GlobalConfiguration,
     plugin_config: ConfigKeyMap,
     environment: TEnvironment,

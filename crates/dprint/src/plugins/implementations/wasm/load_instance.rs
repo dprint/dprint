@@ -17,6 +17,7 @@ pub fn load_instance(store: &mut Store, module: &Module, import_object: &Imports
   }
 }
 
+// https://github.com/wasmerio/wasmer/pull/3378#issuecomment-1327679422
 pub struct WasmModuleCreator {
   engine: wasmer::Engine,
 }
