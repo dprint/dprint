@@ -210,6 +210,7 @@ SUBCOMMANDS:
   clear-cache             Deletes the plugin cache directory.
   upgrade                 Upgrades the dprint executable.
   license                 Outputs the software license.
+  generate-completions    Generate shell completions script for dprint
 
 More details at `dprint help <SUBCOMMAND>`
 

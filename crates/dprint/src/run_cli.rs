@@ -132,6 +132,8 @@ pub async fn run_cli<TEnvironment: Environment>(
     SubCommand::OutputFormatTimes(cmd) => commands::output_format_times(cmd, args, environment, plugin_resolver, plugin_pools).await,
     SubCommand::Check(cmd) => commands::check(cmd, args, environment, plugin_resolver, plugin_pools).await,
     SubCommand::Fmt(cmd) => commands::format(cmd, args, environment, plugin_resolver, plugin_pools).await,
+    #[cfg(feature = "completions_generator")]
+    SubCommand::GenerateCompletions => unreachable!(),
     SubCommand::Upgrade => commands::upgrade(environment).await,
     #[cfg(target_os = "windows")]
     SubCommand::Hidden(hidden_command) => match hidden_command {
