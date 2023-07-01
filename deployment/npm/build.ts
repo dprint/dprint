@@ -57,6 +57,7 @@ if (version == null) {
 }
 
 // setup dprint packages
+$.logStep(`Setting up dprint ${version}...`);
 const pkgJson = {
   "name": "dprint",
   "version": version,
@@ -90,6 +91,7 @@ dprintDir.join("README.md").writeTextSync(markdownText);
 // setup each binary package
 for (const pkg of packages) {
   const pkgName = getPackageNameNoScope(pkg);
+  $.logStep(`Setting up @dprint/${pkgName}...`);
   const pkgDir = outputDir.join(pkgName);
   const zipPath = pkgDir.join("output.zip");
 
