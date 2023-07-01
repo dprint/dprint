@@ -1649,6 +1649,11 @@ mod test {
       environment.take_stderr_messages(),
       vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
     );
+
+    // now try with a leading period
+    let test_std_in = TestStdInReader::from("text");
+    run_test_cli_with_stdin(vec!["fmt", "--stdin", ".txt"], &environment, test_std_in).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
   }
 
   #[test]
