@@ -242,6 +242,7 @@ const ci = {
         }),
         {
           name: "Test shell installer",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
           run: [
             "cd website/src/assets",
             "chmod +x install.sh",
@@ -250,15 +251,16 @@ const ci = {
         },
         {
           name: "Test powershell installer (Windows)",
-          if: "startsWith(matrix.config.os, 'windows')",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/') && startsWith(matrix.config.os, 'windows')",
           shell: "pwsh",
           run: ["cd website/src/assets", "./install.ps1"].join("\n"),
         },
         {
           name: "Test npm",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
           run: [
             "cd deployment/npm",
-            "deno run -A build.ts 0.34.1",
+            "deno run -A build.ts 0.37.1",
           ].join("\n"),
         },
       ],

@@ -185,20 +185,22 @@ jobs:
           name: aarch64-unknown-linux-gnu-artifacts
           path: target/aarch64-unknown-linux-gnu/release/dprint-aarch64-unknown-linux-gnu.zip
       - name: Test shell installer
+        if: 'matrix.config.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'')'
         run: |-
           cd website/src/assets
           chmod +x install.sh
           ./install.sh
       - name: Test powershell installer (Windows)
-        if: 'startsWith(matrix.config.os, ''windows'')'
+        if: 'matrix.config.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'') && startsWith(matrix.config.os, ''windows'')'
         shell: pwsh
         run: |-
           cd website/src/assets
           ./install.ps1
       - name: Test npm
+        if: 'matrix.config.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'')'
         run: |-
           cd deployment/npm
-          deno run -A build.ts 0.34.1
+          deno run -A build.ts 0.37.1
   draft_release:
     name: draft_release
     if: 'startsWith(github.ref, ''refs/tags/'')'
