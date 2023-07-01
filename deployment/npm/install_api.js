@@ -19,10 +19,12 @@ module.exports = {
       return Promise.resolve();
     }
 
-    const executablePath = path.join("../", "@dprint", getTarget(), dprintFileName);
+    const target = getTarget();
+    const executablePath = path.join(__dirname, "../", "@dprint", target, dprintFileName);
     if (!fs.existsSync(executablePath)) {
+      throw new Error(`Could not find executable for @dprint/${target} at ${executablePath}`);
     }
-    fs.copyFileSync(executableFilePath, executablePath);
+    fs.copyFileSync(executablePath, executableFilePath);
 
     function getTarget() {
       const platform = os.platform();
