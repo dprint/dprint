@@ -22,16 +22,16 @@ module.exports = {
     const target = getTarget();
     const executablePath = path.join(__dirname, "../", "@dprint", target, dprintFileName);
     if (!fs.existsSync(executablePath)) {
-      throw new Error(`Could not find executable for @dprint/${target} at ${executablePath}`);
+      throw new Error("Could not find executable for @dprint/" + target + " at " + executablePath);
     }
     fs.copyFileSync(executablePath, executableFilePath);
 
     function getTarget() {
       const platform = os.platform();
       if (platform === "linux") {
-        return `${platform}-${getArch()}-${getLinuxFamily()}`;
+        return platform + "-" + getArch() + "-" + getLinuxFamily();
       } else {
-        return `${platform}-${getArch()}`;
+        return platform + "-" + getArch();
       }
     }
 
