@@ -126,6 +126,7 @@ for (const pkg of packages) {
         "homepage": "https://github.com/dprint/dprint#readme",
         "os": [pkg.os],
         "cpu": [pkg.cpu],
+        libc: pkg.libc == null ? undefined : [pkg.libc],
       },
       null,
       2,
