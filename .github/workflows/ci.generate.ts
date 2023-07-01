@@ -182,7 +182,7 @@ const ci = {
           name: "Create installer (Windows x86_64)",
           uses: "joncloud/makensis-action@v2.0",
           if: "startsWith(matrix.config.os, 'windows') && startsWith(github.ref, 'refs/tags/')",
-          with: { "script-file": "${{ github.workspace }}/.github/workflows/scripts/dprint-installer.nsi" },
+          with: { "script-file": "${{ github.workspace }}/deployment/installer/dprint-installer.nsi" },
         },
         // zip files
         ...profiles.map(profile => {
