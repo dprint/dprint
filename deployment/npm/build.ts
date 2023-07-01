@@ -134,6 +134,18 @@ for (const pkg of packages) {
   );
 }
 
+if (Deno.args.includes("--publish")) {
+  for (const pkg of packages) {
+    const pkgName = getPackageNameNoScope(pkg);
+    $.logStep(`Publishing @dprint/${pkgName}...`);
+    const pkgDir = outputDir.join(pkgName);
+    await $`cd ${pkgDir} && npm publish --access public`;
+  }
+
+  $.logStep(`Publishing dprint...`);
+  await $`cd ${dprintDir} && npm publish --access public`;
+}
+
 function getPackageNameNoScope(name: Package) {
   const libc = name.libc == null ? "" : `-${name.libc}`;
   return `${name.os}-${name.cpu}${libc}`;
