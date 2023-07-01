@@ -9,16 +9,17 @@ const fs = require("fs");
 const exePath = path.join(__dirname, os.platform() === "win32" ? "dprint.exe" : "dprint");
 
 if (!fs.existsSync(exePath)) {
-  require("./install_api").runInstall().then(() => {
-    // I'm not sure why (I think due zip extraction), but the executable
-    // doesn't seem fully ready unless waiting for the next tick
-    setTimeout(() => {
-      runDprintExe();
-    }, 0);
-  }).catch(err => {
-    console.error(err);
+  try {
+    require("./install_api").runInstall();
+    runDprintExe();
+  } catch (err) {
+    if (err !== undefined && typeof err.message === "string") {
+      console.error(err.message);
+    } else {
+      console.error(err);
+    }
     process.exit(1);
-  });
+  }
 } else {
   runDprintExe();
 }

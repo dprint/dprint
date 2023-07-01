@@ -81,6 +81,7 @@ const pkgJson = {
     .reduce((obj, pkgName) => ({ ...obj, [pkgName]: version }), {}),
 };
 currentDir.join("bin.js").copyFileSync(dprintDir.join("bin.js"));
+currentDir.join("install_api.js").copyFileSync(dprintDir.join("install_api.js"));
 dprintDir.join("package.json")
   .writeTextSync(JSON.stringify(pkgJson, undefined, 2) + "\n");
 rootDir.join("LICENSE").copyFileSync(dprintDir.join("LICENSE"));
