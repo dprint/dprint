@@ -104,10 +104,7 @@ const ci = {
         { name: "Checkout", uses: "actions/checkout@v2" },
         { uses: "dsherret/rust-toolchain-file@v1" },
         { uses: "Swatinem/rust-cache@v2" },
-        {
-          uses: "denoland/setup-deno@v1",
-          if: "matrix.config.target == 'x86_64-unknown-linux-gnu'",
-        },
+        { uses: "denoland/setup-deno@v1" },
         {
           name: "Verify wasmer-compiler version",
           if: "matrix.config.target == 'x86_64-unknown-linux-gnu'",
@@ -185,7 +182,7 @@ const ci = {
           name: "Create installer (Windows x86_64)",
           uses: "joncloud/makensis-action@v2.0",
           if: "startsWith(matrix.config.os, 'windows') && startsWith(github.ref, 'refs/tags/')",
-          with: { "script-file": "${{ github.workspace }}/deployment/installer/dprint-installer.nsi" },
+          with: { "script-file": "${{ github.workspace }}/.github/workflows/scripts/dprint-installer.nsi" },
         },
         // zip files
         ...profiles.map(profile => {
