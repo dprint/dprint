@@ -6,6 +6,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use crate::plugins::CompilationResult;
+use crate::utils::ProgressBars;
 
 use super::CanonicalizedPathBuf;
 
@@ -103,6 +104,9 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn stdout(&self) -> Box<dyn Write + Send>;
   fn stdin(&self) -> Box<dyn Read + Send>;
   fn runtime_handle(&self) -> tokio::runtime::Handle;
+  fn progress_bars(&self) -> Option<ProgressBars> {
+    None
+  }
   #[cfg(windows)]
   fn ensure_system_path(&self, directory_path: &str) -> Result<()>;
   #[cfg(windows)]

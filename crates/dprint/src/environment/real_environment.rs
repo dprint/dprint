@@ -297,6 +297,10 @@ impl Environment for RealEnvironment {
     (*self.runtime_handle).clone()
   }
 
+  fn progress_bars(&self) -> Option<ProgressBars> {
+    self.progress_bars.clone()
+  }
+
   #[cfg(windows)]
   fn ensure_system_path(&self, directory_path: &str) -> Result<()> {
     use winreg::enums::*;
