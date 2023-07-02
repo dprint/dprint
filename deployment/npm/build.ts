@@ -88,7 +88,7 @@ dprintDir.join("package.json").writeJsonPrettySync(pkgJson);
 rootDir.join("LICENSE").copyFileSync(dprintDir.join("LICENSE"));
 dprintDir.join("README.md").writeTextSync(markdownText);
 // ensure the test files don't get published
-dprintDir.join(".npmignore.md").writeTextSync("dprint\ndprint.exe\n");
+dprintDir.join(".npmignore").writeTextSync("dprint\ndprint.exe\n");
 
 // setup each binary package
 for (const pkg of packages) {
