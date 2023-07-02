@@ -78,6 +78,8 @@ const pkgJson = {
     "url": "https://github.com/dprint/dprint/issues",
   },
   "homepage": "https://github.com/dprint/dprint#readme",
+  // for yarn berry (https://github.com/dprint/dprint/issues/686)
+  "preferUnplugged": true,
   optionalDependencies: packages
     .map(pkg => `@dprint/${getPackageNameNoScope(pkg)}`)
     .reduce((obj, pkgName) => ({ ...obj, [pkgName]: version }), {}),
@@ -147,8 +149,8 @@ outputDir.join("package.json").writeJsonPrettySync({
     testPlatform,
   ],
 });
-// run once without the cache and once with
-await $`cd ${dprintDir} && npm install && node bin.js -v && node bin.js -v`;
+// run once with a simulated readonly file system, once creating the cache and once with
+await $`cd ${dprintDir} && npm install && DPRINT_SIMULATED_READONLY_FILE_SYSTEM=1 node bin.js -v && node bin.js -v && node bin.js -v`;
 
 // publish if necessary
 if (Deno.args.includes("--publish")) {
