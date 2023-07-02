@@ -132,8 +132,20 @@ for (const pkg of packages) {
 
 // verify that the package is created correctly
 $.logStep("Verifying packages...");
-outputDir.join("package.json").writeJson({
-  workspaces: packages.map(p => `@dprint/${getPackageNameNoScope(p)}`),
+const testPlatform = Deno.build.os == "windows"
+  ? "@dprint/win32-x64"
+  : Deno.build.os === "darwin"
+  ? "@dprint/darwin-x64"
+  : "@dprint/linux-x64-glibc";
+outputDir.join("package.json").writeJsonPrettySync({
+  workspaces: [
+    "dprint",
+    // There seems to be a bug with npm workspaces where this doesn't
+    // work, so for now make some assumptions and only include the package
+    // that works on the CI for the current operating system
+    // ...packages.map(p => `@dprint/${getPackageNameNoScope(p)}`),
+    testPlatform,
+  ],
 });
 // run once without the cache and once with
 await $`cd ${dprintDir} && npm install && node bin.js -v && node bin.js -v`;
