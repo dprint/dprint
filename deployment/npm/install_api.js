@@ -27,7 +27,9 @@ module.exports = {
     }
     fs.copyFileSync(executablePath, executableFilePath);
     if (os.platform() !== "win32") {
-      fs.chmodSync(executableFilePath, 0o755);
+      // chomd +x
+      const perms = fs.statSync(executableFilePath).mode;
+      fs.chmodSync(executableFilePath, perms | 0o111);
     }
 
     function getTarget() {
