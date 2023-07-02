@@ -20,11 +20,17 @@ module.exports = {
     }
 
     const target = getTarget();
-    const executablePath = path.join(__dirname, "../", "@dprint", target, dprintFileName);
+    const targetPackagePath = path.dirname(require.resolve("@dprint/" + target + "/package.json"));
+    const executablePath = path.join(targetPackagePath, dprintFileName);
     if (!fs.existsSync(executablePath)) {
       throw new Error("Could not find executable for @dprint/" + target + " at " + executablePath);
     }
     fs.copyFileSync(executablePath, executableFilePath);
+    if (os.platform() !== "win32") {
+      // chomd +x
+      const perms = fs.statSync(executableFilePath).mode;
+      fs.chmodSync(executableFilePath, perms | 0o111);
+    }
 
     function getTarget() {
       const platform = os.platform();
