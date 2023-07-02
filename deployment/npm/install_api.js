@@ -25,7 +25,11 @@ module.exports = {
     if (!fs.existsSync(executablePath)) {
       throw new Error("Could not find executable for @dprint/" + target + " at " + executablePath);
     }
-    fs.copyFileSync(executablePath, executableFilePath);
+    if (os.platform() !== "win32") {
+      fs.symlinkSync(executablePath, executableFilePath);
+    } else {
+      fs.copyFileSync(executablePath, executableFilePath);
+    }
 
     function getTarget() {
       const platform = os.platform();
