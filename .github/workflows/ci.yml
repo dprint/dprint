@@ -55,7 +55,6 @@ jobs:
       - uses: dsherret/rust-toolchain-file@v1
       - uses: Swatinem/rust-cache@v2
       - uses: denoland/setup-deno@v1
-        if: matrix.config.target == 'x86_64-unknown-linux-gnu'
       - name: Verify wasmer-compiler version
         if: matrix.config.target == 'x86_64-unknown-linux-gnu'
         run: deno run --allow-env --allow-read --allow-net=deno.land .github/workflows/scripts/verify_wasmer_compiler_version.ts
@@ -186,23 +185,22 @@ jobs:
           name: aarch64-unknown-linux-gnu-artifacts
           path: target/aarch64-unknown-linux-gnu/release/dprint-aarch64-unknown-linux-gnu.zip
       - name: Test shell installer
+        if: 'matrix.config.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'')'
         run: |-
           cd website/src/assets
           chmod +x install.sh
           ./install.sh
       - name: Test powershell installer (Windows)
-        if: 'startsWith(matrix.config.os, ''windows'')'
+        if: 'matrix.config.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'') && startsWith(matrix.config.os, ''windows'')'
         shell: pwsh
         run: |-
           cd website/src/assets
           ./install.ps1
       - name: Test npm
+        if: 'matrix.config.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'')'
         run: |-
           cd deployment/npm
-          curl --fail --location --progress-bar --output "SHASUMS256.txt" "https://github.com/dprint/dprint/releases/download/0.34.1/SHASUMS256.txt"
-          node setup.js 0.34.1
-          npm install
-          node bin.js -v
+          deno run -A build.ts 0.37.1
   draft_release:
     name: draft_release
     if: 'startsWith(github.ref, ''refs/tags/'')'

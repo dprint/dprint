@@ -28,14 +28,13 @@ jobs:
       # NPM PUBLISH
     - uses: actions/setup-node@v2
       with:
-        node-version: '16.x'
+        node-version: '18.x'
         registry-url: 'https://registry.npmjs.org'
+    - uses: denoland/setup-deno@v1
 
     - name: npm publish
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       run: |
         cd deployment/npm
-        curl --fail --location --progress-bar --output "SHASUMS256.txt" "https://github.com/dprint/dprint/releases/download/${{steps.get_tag_version.outputs.TAG_VERSION}}/SHASUMS256.txt"
-        node setup.js ${{steps.get_tag_version.outputs.TAG_VERSION}}
-        npm publish
+        deno run -A build.ts ${{steps.get_tag_version.outputs.TAG_VERSION}} --publish

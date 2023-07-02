@@ -104,10 +104,7 @@ const ci = {
         { name: "Checkout", uses: "actions/checkout@v2" },
         { uses: "dsherret/rust-toolchain-file@v1" },
         { uses: "Swatinem/rust-cache@v2" },
-        {
-          uses: "denoland/setup-deno@v1",
-          if: "matrix.config.target == 'x86_64-unknown-linux-gnu'",
-        },
+        { uses: "denoland/setup-deno@v1" },
         {
           name: "Verify wasmer-compiler version",
           if: "matrix.config.target == 'x86_64-unknown-linux-gnu'",
@@ -245,6 +242,7 @@ const ci = {
         }),
         {
           name: "Test shell installer",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
           run: [
             "cd website/src/assets",
             "chmod +x install.sh",
@@ -253,18 +251,16 @@ const ci = {
         },
         {
           name: "Test powershell installer (Windows)",
-          if: "startsWith(matrix.config.os, 'windows')",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/') && startsWith(matrix.config.os, 'windows')",
           shell: "pwsh",
           run: ["cd website/src/assets", "./install.ps1"].join("\n"),
         },
         {
           name: "Test npm",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
           run: [
             "cd deployment/npm",
-            "curl --fail --location --progress-bar --output \"SHASUMS256.txt\" \"https://github.com/dprint/dprint/releases/download/0.34.1/SHASUMS256.txt\"",
-            "node setup.js 0.34.1",
-            "npm install",
-            "node bin.js -v",
+            "deno run -A build.ts 0.37.1",
           ].join("\n"),
         },
       ],
