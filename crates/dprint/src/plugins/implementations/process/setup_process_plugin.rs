@@ -17,6 +17,7 @@ use crate::utils::extract_zip;
 use crate::utils::fetch_file_or_url_bytes;
 use crate::utils::resolve_url_or_file_path_to_path_source;
 use crate::utils::verify_sha256_checksum;
+use crate::utils::LaxSingleProcessFsFlag;
 use crate::utils::PathSource;
 
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> PathBuf {
@@ -69,13 +70,20 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
     zip_bytes: &[u8],
     environment: &TEnvironment,
   ) -> Result<SetupPluginResult> {
-    if environment.path_exists(plugin_cache_dir_path) {
-      environment.remove_dir_all(plugin_cache_dir_path)?;
+    environment.mk_dir_all(plugin_cache_dir_path)?;
+    let long_wait_message = format!("Waiting for file lock for plugin '{}' setup...", plugin_name);
+    let _setup_lock = LaxSingleProcessFsFlag::lock(environment, plugin_cache_dir_path.join(".dprint.init.lock"), &long_wait_message).await;
+    let initialized_file_path = plugin_cache_dir_path.join(".dprint-initialized");
+    let initialized_file_exists = environment.path_exists(&initialized_file_path);
+    if initialized_file_exists {
+      log_verbose!(environment, "Found {} -- Plugin was initialized.", initialized_file_path.display());
+    }
+    let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
+
+    if !initialized_file_exists || !environment.path_exists(&plugin_executable_file_path) {
+      extract_zip(&format!("Extracting zip for {}", plugin_name), zip_bytes, plugin_cache_dir_path, environment)?;
     }
 
-    extract_zip(&format!("Extracting zip for {}", plugin_name), zip_bytes, plugin_cache_dir_path, environment)?;
-
-    let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
     if !environment.path_exists(&plugin_executable_file_path) {
       bail!(
         "Plugin zip file did not contain required executable at: {}",
@@ -99,6 +107,9 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
     .await?;
     let plugin_info = communicator.plugin_info().await?;
     communicator.shutdown().await;
+
+    // write out a file to indicate that this plugin has been initialized before
+    environment.write_file(initialized_file_path, "")?;
 
     Ok(SetupPluginResult {
       plugin_info,

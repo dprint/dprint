@@ -22,15 +22,16 @@ pub enum ProgressBarStyle {
   Action,
 }
 
-#[derive(Clone)]
 pub struct ProgressBar {
   id: usize,
-  start_time: SystemTime,
   progress_bars: ProgressBars,
-  message: String,
-  size: usize,
-  style: ProgressBarStyle,
   pos: Arc<RwLock<usize>>,
+}
+
+impl Drop for ProgressBar {
+  fn drop(&mut self) {
+    self.finish();
+  }
 }
 
 impl ProgressBar {
@@ -50,11 +51,20 @@ pub struct ProgressBars {
   state: Arc<Mutex<InternalState>>,
 }
 
+struct ProgressBarState {
+  id: usize,
+  start_time: SystemTime,
+  message: String,
+  size: usize,
+  style: ProgressBarStyle,
+  pos: Arc<RwLock<usize>>,
+}
+
 struct InternalState {
   // this ensures only one draw thread is running
   drawer_id: usize,
   progress_bar_counter: usize,
-  progress_bars: Vec<ProgressBar>,
+  progress_bars: Vec<ProgressBarState>,
 }
 
 impl ProgressBars {
@@ -82,16 +92,21 @@ impl ProgressBars {
   pub fn add_progress(&self, message: String, style: ProgressBarStyle, total_size: usize) -> ProgressBar {
     let mut internal_state = self.state.lock();
     let id = internal_state.progress_bar_counter;
-    let pb = ProgressBar {
+    let pos = Arc::new(RwLock::new(0));
+    let pb_state = ProgressBarState {
       id,
-      progress_bars: self.clone(),
       start_time: SystemTime::now(),
       message,
       size: total_size,
       style,
-      pos: Arc::new(RwLock::new(0)),
+      pos: pos.clone(),
     };
-    internal_state.progress_bars.push(pb.clone());
+    let pb = ProgressBar {
+      id,
+      progress_bars: self.clone(),
+      pos,
+    };
+    internal_state.progress_bars.push(pb_state);
     internal_state.progress_bar_counter += 1;
 
     if internal_state.progress_bars.len() == 1 {

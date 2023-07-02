@@ -19,6 +19,7 @@ crossterm = "0.25.0" # manually retest everything when bumping this crate
 dirs = "4.0.0"
 dprint-core = { path = "../core", version = "0.62.1", features = ["process", "wasm"] }
 dunce = "1.0.3"
+fs3 = "0.5.0"
 futures = "0.3.26"
 ignore = "0.4.20"
 indexmap = { version = "1.9.2", features = ["serde-1"] }
@@ -29,6 +30,7 @@ serde = { version = "1.0.147", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 sha2 = "0.10.6"
 similar = { version = "2.2.1", features = ["inline"] }
+tempfile = "3.6"
 thiserror = "1"
 tokio = { version = "1", features = ["rt", "time", "macros", "rt-multi-thread"] }
 tokio-util = { version = "0.7.7" }
