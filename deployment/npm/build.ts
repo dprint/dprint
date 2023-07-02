@@ -78,6 +78,8 @@ const pkgJson = {
     "url": "https://github.com/dprint/dprint/issues",
   },
   "homepage": "https://github.com/dprint/dprint#readme",
+  // for yarn berry (https://github.com/dprint/dprint/issues/686)
+  "preferUnplugged": true,
   optionalDependencies: packages
     .map(pkg => `@dprint/${getPackageNameNoScope(pkg)}`)
     .reduce((obj, pkgName) => ({ ...obj, [pkgName]: version }), {}),
