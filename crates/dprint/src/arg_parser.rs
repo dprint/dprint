@@ -56,8 +56,7 @@ pub enum SubCommand {
   EditorInfo,
   EditorService(EditorServiceSubCommand),
   StdInFmt(StdInFmtSubCommand),
-  #[cfg(feature = "completions_generator")]
-  GenerateCompletions,
+  Completions(clap_complete::Shell),
   Upgrade,
   #[cfg(target_os = "windows")]
   Hidden(HiddenSubCommand),
@@ -197,19 +196,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("editor-service", matches) => SubCommand::EditorService(EditorServiceSubCommand {
       parent_pid: matches.get_one::<String>("parent-pid").and_then(|v| v.parse::<u32>().ok()).unwrap(),
     }),
-    #[cfg(feature = "completions_generator")]
-    ("generate-completions", matches) => {
-      let mut cmd = create_cli_parser(false);
-
-      clap_complete::generate(
-        matches.get_one::<clap_complete::Shell>("shell").unwrap().to_owned(),
-        &mut cmd,
-        "dprint",
-        &mut std::io::stdout(),
-      );
-
-      SubCommand::GenerateCompletions
-    }
+    ("completions", matches) => SubCommand::Completions(matches.get_one::<clap_complete::Shell>("shell").unwrap().to_owned()),
     ("upgrade", _) => SubCommand::Upgrade,
     #[cfg(target_os = "windows")]
     ("hidden", matches) => SubCommand::Hidden(match matches.subcommand().unwrap() {
@@ -285,7 +272,7 @@ fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
   Ok(())
 }
 
-fn create_cli_parser(is_outputting_main_help: bool) -> clap::Command {
+pub fn create_cli_parser(is_outputting_main_help: bool) -> clap::Command {
   use clap::{Arg, Command};
 
   let mut app = Command::new("dprint");
@@ -436,6 +423,14 @@ EXAMPLES:
         .about("Upgrades the dprint executable.")
     )
     .subcommand(
+      Command::new("completions").about("Generate shell completions script for dprint").arg(
+        Arg::new("shell")
+          .action(clap::ArgAction::Set)
+          .value_parser(clap::value_parser!(clap_complete::Shell))
+          .default_value("bash"),
+      )
+    )
+    .subcommand(
       Command::new("license")
         .about("Outputs the software license.")
     )
@@ -483,16 +478,6 @@ EXAMPLES:
       .hide(true)
       .subcommand(Command::new("windows-install").arg(Arg::new("install-path").num_args(1).required(true)))
       .subcommand(Command::new("windows-uninstall").arg(Arg::new("install-path").num_args(1).required(true))),
-  );
-
-  #[cfg(feature = "completions_generator")]
-  let app = app.subcommand(
-    Command::new("generate-completions").about("Generate shell completions script for dprint").arg(
-      Arg::new("shell")
-        .action(clap::ArgAction::Set)
-        .value_parser(clap::value_parser!(clap_complete::Shell))
-        .default_value("bash"),
-    ),
   );
 
   app

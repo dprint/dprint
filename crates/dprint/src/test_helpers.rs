@@ -209,8 +209,8 @@ SUBCOMMANDS:
   output-format-times     Prints the amount of time it takes to format each file. Use this for debugging.
   clear-cache             Deletes the plugin cache directory.
   upgrade                 Upgrades the dprint executable.
+  completions             Generate shell completions script for dprint
   license                 Outputs the software license.
-  generate-completions    Generate shell completions script for dprint
 
 More details at `dprint help <SUBCOMMAND>`
 
