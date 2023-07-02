@@ -20,7 +20,8 @@ module.exports = {
     }
 
     const target = getTarget();
-    const executablePath = path.join(__dirname, "../", "@dprint", target, dprintFileName);
+    const targetPackagePath = path.dirname(require.resolve("@dprint/" + target + "/package.json"));
+    const executablePath = path.join(targetPackagePath, dprintFileName);
     if (!fs.existsSync(executablePath)) {
       throw new Error("Could not find executable for @dprint/" + target + " at " + executablePath);
     }
