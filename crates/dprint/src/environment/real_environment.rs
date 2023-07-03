@@ -65,6 +65,20 @@ impl RealEnvironment {
 
     Ok(environment)
   }
+
+  #[cfg(test)]
+  pub fn run_test_with_real_env(run_with_env: impl Fn(RealEnvironment) -> futures::future::BoxFuture<'static, ()>) {
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_time().build().unwrap();
+    let handle = rt.handle().clone();
+    let env = RealEnvironment::new(RealEnvironmentOptions {
+      is_verbose: false,
+      is_stdout_machine_readable: false,
+      runtime_handle: Arc::new(handle),
+    })
+    .unwrap();
+
+    rt.block_on(async move { run_with_env(env).await });
+  }
 }
 
 impl UrlDownloader for RealEnvironment {

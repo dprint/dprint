@@ -47,7 +47,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     match create_plugin(self.plugins_collection.clone(), &self.plugin_cache, self.environment.clone(), plugin_reference).await {
       Ok(plugin) => Ok(plugin),
       Err(err) => {
-        match self.plugin_cache.forget(plugin_reference) {
+        match self.plugin_cache.forget(plugin_reference).await {
           Ok(()) => {}
           Err(inner_err) => {
             bail!(
