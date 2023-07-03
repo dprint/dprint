@@ -17,6 +17,7 @@ use crate::plugins::PluginSourceReference;
 use crate::utils::get_bytes_hash;
 use crate::utils::get_sha256_checksum;
 use crate::utils::verify_sha256_checksum;
+use crate::utils::LaxSingleProcessFsFlag;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 
@@ -57,44 +58,49 @@ where
   pub async fn get_plugin_cache_item(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem> {
     match &source_reference.path_source {
       PathSource::Remote(_) => self.get_plugin(source_reference.clone(), false, download_url).await,
-      PathSource::Local(_) => self.get_plugin(source_reference.clone(), true, get_file_bytes).await,
+      PathSource::Local(_) => {
+        if let Some(manifest_item) = self.get_plugin_manifest_item_from_cache(source_reference)? {
+          let file_bytes = get_file_bytes(source_reference.path_source.clone(), self.environment.clone())?;
+          let file_hash = get_bytes_hash(&file_bytes);
+          let cache_file_hash = match &manifest_item.file_hash {
+            Some(file_hash) => *file_hash,
+            None => bail!("Expected to have the plugin file hash stored in the cache."),
+          };
+
+          if file_hash == cache_file_hash {
+            return Ok(PluginCacheItem {
+              file_path: get_file_path_from_plugin_info(&source_reference.path_source, &manifest_item.info, &self.environment)?,
+              info: manifest_item.info,
+            });
+          } else {
+            self.forget(&source_reference)?;
+          }
+        }
+
+        self.get_plugin(source_reference.clone(), true, get_file_bytes).await
+      }
     }
   }
 
   async fn get_plugin(
     &self,
     source_reference: PluginSourceReference,
-    check_file_hash: bool,
+    include_file_hash: bool,
     read_bytes: impl Fn(PathSource, TEnvironment) -> Result<Vec<u8>>,
   ) -> Result<PluginCacheItem> {
     let cache_key = self.get_cache_key(&source_reference.path_source)?;
-    let cache_item = self.manifest.read().get_item(&cache_key).map(|x| x.to_owned()); // drop lock
-    if let Some(cache_item) = cache_item {
-      let file_path = get_file_path_from_plugin_info(&source_reference.path_source, &cache_item.info, &self.environment)?;
 
-      if check_file_hash {
-        let file_bytes = read_bytes(source_reference.path_source.clone(), self.environment.clone())?;
-        let file_hash = get_bytes_hash(&file_bytes);
-        let cache_file_hash = match &cache_item.file_hash {
-          Some(file_hash) => *file_hash,
-          None => bail!("Expected to have the plugin file hash stored in the cache."),
-        };
-
-        if file_hash == cache_file_hash {
-          return Ok(PluginCacheItem {
-            file_path,
-            info: cache_item.info,
-          });
-        } else {
-          self.forget(&source_reference)?;
-        }
-      } else {
-        return Ok(PluginCacheItem {
-          file_path,
-          info: cache_item.info,
-        });
-      }
+    if let Some(item) = self.get_plugin_manifest_item_from_cache(&source_reference)? {
+      return Ok(PluginCacheItem {
+        file_path: get_file_path_from_plugin_info(&source_reference.path_source, &item.info, &self.environment)?,
+        info: item.info,
+      });
     }
+
+    // prevent multiple processes from downloading the same plugin at the same time
+    let plugin_sync_id = format!(".dprint.{}.lock", get_bytes_hash(source_reference.path_source.display().as_bytes()));
+    let long_wait_message = format!("Waiting for file lock for '{}'...", source_reference.path_source.display());
+    let _setup_lock = LaxSingleProcessFsFlag::lock(&self.environment, self.environment.get_cache_dir().join(&plugin_sync_id), &long_wait_message).await;
 
     // get bytes
     let file_bytes = read_bytes(source_reference.path_source.clone(), self.environment.clone())?;
@@ -122,7 +128,7 @@ where
     let setup_result = setup_plugin(&source_reference.path_source, &file_bytes, &self.environment).await?;
     let cache_item = PluginCacheManifestItem {
       info: setup_result.plugin_info.clone(),
-      file_hash: if check_file_hash { Some(get_bytes_hash(&file_bytes)) } else { None },
+      file_hash: if include_file_hash { Some(get_bytes_hash(&file_bytes)) } else { None },
       created_time: self.environment.get_time_secs(),
     };
 
@@ -134,6 +140,11 @@ where
       file_path: setup_result.file_path,
       info: setup_result.plugin_info,
     })
+  }
+
+  fn get_plugin_manifest_item_from_cache(&self, source_reference: &PluginSourceReference) -> Result<Option<PluginCacheManifestItem>> {
+    let cache_key = self.get_cache_key(&source_reference.path_source)?;
+    Ok(self.manifest.read().get_item(&cache_key).map(|x| x.to_owned()))
   }
 
   fn get_cache_key(&self, path_source: &PathSource) -> Result<String> {
