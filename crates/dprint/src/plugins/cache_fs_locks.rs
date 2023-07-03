@@ -24,7 +24,8 @@ impl<TEnvironment: Environment> Drop for CacheFsLockGuardInner<TEnvironment> {
 
 pub struct CacheFsLockGuard<TEnvironment: Environment>(Option<CacheFsLockGuardInner<TEnvironment>>);
 
-/// Re-entrant LaxSingleProcessFsFlag at a path source.
+/// Re-entrant LaxSingleProcessFsFlag at a path source. This attempts to
+/// prevent multiple processes from modifying the cache at the same time.
 pub struct CacheFsLockPool<TEnvironment: Environment> {
   environment: TEnvironment,
   locks: Arc<Mutex<HashSet<u64>>>,
@@ -44,8 +45,8 @@ impl<TEnvironment: Environment> CacheFsLockPool<TEnvironment> {
     if self.locks.lock().insert(id) {
       let plugin_sync_id = format!(".{}.lock", id);
       let long_wait_message = format!("Waiting for file lock for '{}'...", path_source.display());
-      let plugins_dir = self.environment.get_cache_dir();
-      let fs_flag = LaxSingleProcessFsFlag::lock(&self.environment, plugins_dir.join(&plugin_sync_id), &long_wait_message).await;
+      let cache_dir = self.environment.get_cache_dir();
+      let fs_flag = LaxSingleProcessFsFlag::lock(&self.environment, cache_dir.join(&plugin_sync_id), &long_wait_message).await;
       CacheFsLockGuard(Some(CacheFsLockGuardInner {
         id,
         locks: self.locks.clone(),
