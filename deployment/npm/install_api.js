@@ -33,9 +33,10 @@ module.exports = {
         throw new Error("Throwing for testing purposes.");
       }
 
-      // in order to make things faster the next time we run, copy the
-      // executable into the dprint package folder
-      fs.copyFileSync(sourceExecutablePath, targetExecutablePath);
+      // in order to make things faster the next time we run and to allow the
+      // dprint vscode extension to easily pick this up, copy the executable
+      // into the dprint package folder
+      atomicCopyFileSync(sourceExecutablePath, targetExecutablePath);
       if (os.platform() !== "win32") {
         // chomd +x
         chmodX(targetExecutablePath);
@@ -137,4 +138,16 @@ function getLinuxFamily() {
       }
     }
   }
+}
+
+/**
+ * @param sourcePath {string}
+ * @param destinationPath {string}
+ */
+function atomicCopyFileSync(sourcePath, destinationPath) {
+  const crypto = require("crypto");
+  const rand = crypto.randomBytes(4).toString("hex");
+  const tempFilePath = destinationPath + "." + rand;
+  fs.copyFileSync(sourcePath, tempFilePath);
+  fs.renameSync(tempFilePath, destinationPath);
 }
