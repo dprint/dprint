@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use dprint_core::plugins::PluginInfo;
 
+use super::cache_fs_locks::CacheFsLockPool;
 use super::implementations::cleanup_plugin;
 use super::implementations::get_file_path_from_plugin_info;
 use super::implementations::setup_plugin;
@@ -17,7 +18,6 @@ use crate::plugins::PluginSourceReference;
 use crate::utils::get_bytes_hash;
 use crate::utils::get_sha256_checksum;
 use crate::utils::verify_sha256_checksum;
-use crate::utils::LaxSingleProcessFsFlag;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 
@@ -28,7 +28,8 @@ pub struct PluginCacheItem {
 
 pub struct PluginCache<TEnvironment: Environment> {
   environment: TEnvironment,
-  manifest: RwLock<PluginCacheManifest>,
+  manifest: ConcurrentPluginCacheManifest<TEnvironment>,
+  fs_locks: CacheFsLockPool<TEnvironment>,
 }
 
 impl<TEnvironment> PluginCache<TEnvironment>
@@ -36,17 +37,24 @@ where
   TEnvironment: Environment,
 {
   pub fn new(environment: TEnvironment) -> Self {
-    let manifest = RwLock::new(read_manifest(&environment));
-    PluginCache { environment, manifest }
+    PluginCache {
+      manifest: ConcurrentPluginCacheManifest::new(environment.clone()),
+      fs_locks: CacheFsLockPool::new(environment.clone()),
+      environment,
+    }
   }
 
-  pub fn forget(&self, source_reference: &PluginSourceReference) -> Result<()> {
-    let cache_key = self.get_cache_key(&source_reference.path_source)?;
-    let mut manifest = self.manifest.write();
-    let cache_item = manifest.remove_item(&cache_key);
-    write_manifest(&manifest, &self.environment)?;
+  pub async fn forget_and_recreate(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem> {
+    let _setup_guard = self.fs_locks.lock(&source_reference.path_source).await;
+    self.forget(source_reference).await?;
+    self.get_plugin_cache_item(source_reference).await
+  }
 
-    if let Some(cache_item) = cache_item {
+  pub async fn forget(&self, source_reference: &PluginSourceReference) -> Result<()> {
+    let _setup_guard = self.fs_locks.lock(&source_reference.path_source).await;
+    let removed_cache_item = self.manifest.remove(&source_reference.path_source)?;
+
+    if let Some(cache_item) = removed_cache_item {
       if let Err(err) = cleanup_plugin(&source_reference.path_source, &cache_item.info, &self.environment) {
         self.environment.log_stderr(&format!("Error forgetting plugin: {:#}", err))
       }
@@ -57,9 +65,9 @@ where
 
   pub async fn get_plugin_cache_item(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem> {
     match &source_reference.path_source {
-      PathSource::Remote(_) => self.get_plugin(source_reference.clone(), false, download_url).await,
+      PathSource::Remote(_) => self.get_plugin(source_reference, false, download_url).await,
       PathSource::Local(_) => {
-        if let Some(manifest_item) = self.get_plugin_manifest_item_from_cache(source_reference)? {
+        if let Some(manifest_item) = self.manifest.get(&source_reference.path_source)? {
           let file_bytes = get_file_bytes(source_reference.path_source.clone(), self.environment.clone())?;
           let file_hash = get_bytes_hash(&file_bytes);
           let cache_file_hash = match &manifest_item.file_hash {
@@ -73,34 +81,33 @@ where
               info: manifest_item.info,
             });
           } else {
-            self.forget(&source_reference)?;
+            self.forget(source_reference).await?;
           }
         }
 
-        self.get_plugin(source_reference.clone(), true, get_file_bytes).await
+        self.get_plugin(source_reference, true, get_file_bytes).await
       }
     }
   }
 
   async fn get_plugin(
     &self,
-    source_reference: PluginSourceReference,
+    source_reference: &PluginSourceReference,
     include_file_hash: bool,
     read_bytes: impl Fn(PathSource, TEnvironment) -> Result<Vec<u8>>,
   ) -> Result<PluginCacheItem> {
-    let cache_key = self.get_cache_key(&source_reference.path_source)?;
-
-    if let Some(item) = self.get_plugin_manifest_item_from_cache(&source_reference)? {
-      return Ok(PluginCacheItem {
-        file_path: get_file_path_from_plugin_info(&source_reference.path_source, &item.info, &self.environment)?,
-        info: item.info,
-      });
+    if let Some(item) = self.get_plugin_cache_item_from_cache(&source_reference.path_source)? {
+      return Ok(item);
     }
 
     // prevent multiple processes from downloading the same plugin at the same time
-    let plugin_sync_id = format!(".dprint.{}.lock", get_bytes_hash(source_reference.path_source.display().as_bytes()));
-    let long_wait_message = format!("Waiting for file lock for '{}'...", source_reference.path_source.display());
-    let _setup_lock = LaxSingleProcessFsFlag::lock(&self.environment, self.environment.get_cache_dir().join(&plugin_sync_id), &long_wait_message).await;
+    let _setup_guard = self.fs_locks.lock(&source_reference.path_source).await;
+
+    // once in the lock, attempt to reload and see if the item is in the cache now
+    self.manifest.reload_from_disk();
+    if let Some(item) = self.get_plugin_cache_item_from_cache(&source_reference.path_source)? {
+      return Ok(item);
+    }
 
     // get bytes
     let file_bytes = read_bytes(source_reference.path_source.clone(), self.environment.clone())?;
@@ -132,9 +139,7 @@ where
       created_time: self.environment.get_time_secs(),
     };
 
-    let mut manifest = self.manifest.write();
-    manifest.add_item(cache_key, cache_item);
-    write_manifest(&manifest, &self.environment)?;
+    self.manifest.add(&source_reference.path_source, cache_item)?;
 
     Ok(PluginCacheItem {
       file_path: setup_result.file_path,
@@ -142,9 +147,51 @@ where
     })
   }
 
-  fn get_plugin_manifest_item_from_cache(&self, source_reference: &PluginSourceReference) -> Result<Option<PluginCacheManifestItem>> {
-    let cache_key = self.get_cache_key(&source_reference.path_source)?;
+  fn get_plugin_cache_item_from_cache(&self, path_source: &PathSource) -> Result<Option<PluginCacheItem>> {
+    if let Some(item) = self.manifest.get(path_source)? {
+      Ok(Some(PluginCacheItem {
+        file_path: get_file_path_from_plugin_info(path_source, &item.info, &self.environment)?,
+        info: item.info,
+      }))
+    } else {
+      Ok(None)
+    }
+  }
+}
+
+struct ConcurrentPluginCacheManifest<TEnvironment: Environment> {
+  environment: TEnvironment,
+  manifest: RwLock<PluginCacheManifest>,
+}
+
+impl<TEnvironment: Environment> ConcurrentPluginCacheManifest<TEnvironment> {
+  pub fn new(environment: TEnvironment) -> Self {
+    let manifest = RwLock::new(read_manifest(&environment));
+    Self { environment, manifest }
+  }
+
+  pub fn get(&self, path_source: &PathSource) -> Result<Option<PluginCacheManifestItem>> {
+    let cache_key = self.get_cache_key(path_source)?;
     Ok(self.manifest.read().get_item(&cache_key).map(|x| x.to_owned()))
+  }
+
+  pub fn add(&self, path_source: &PathSource, cache_item: PluginCacheManifestItem) -> Result<()> {
+    let mut manifest = self.manifest.write();
+    manifest.add_item(self.get_cache_key(path_source)?, cache_item);
+    write_manifest(&manifest, &self.environment)?;
+    Ok(())
+  }
+
+  pub fn remove(&self, path_source: &PathSource) -> Result<Option<PluginCacheManifestItem>> {
+    let cache_key = self.get_cache_key(path_source)?;
+    let mut manifest = self.manifest.write();
+    let cache_item = manifest.remove_item(&cache_key);
+    write_manifest(&manifest, &self.environment)?;
+    Ok(cache_item)
+  }
+
+  pub fn reload_from_disk(&self) {
+    *self.manifest.write() = read_manifest(&self.environment);
   }
 
   fn get_cache_key(&self, path_source: &PathSource) -> Result<String> {
@@ -203,7 +250,7 @@ mod test {
     );
 
     // should forget it afterwards
-    plugin_cache.forget(&plugin_source).unwrap();
+    plugin_cache.forget(&plugin_source).await.unwrap();
 
     assert_eq!(environment.path_exists(&file_path), false);
     // should have saved the manifest
@@ -271,7 +318,7 @@ mod test {
     assert_eq!(environment.take_stderr_messages(), vec!["Compiling /test.wasm"]);
 
     // should forget it afterwards
-    plugin_cache.forget(&plugin_source).unwrap();
+    plugin_cache.forget(&plugin_source).await.unwrap();
 
     assert_eq!(environment.path_exists(&file_path), false);
     // should have saved the manifest

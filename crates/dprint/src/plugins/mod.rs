@@ -1,4 +1,5 @@
 mod cache;
+mod cache_fs_locks;
 mod cache_manifest;
 mod collection;
 mod helpers;

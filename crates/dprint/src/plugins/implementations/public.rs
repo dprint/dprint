@@ -65,9 +65,8 @@ pub async fn create_plugin<TEnvironment: Environment>(
   environment: TEnvironment,
   plugin_reference: &PluginSourceReference,
 ) -> Result<Box<dyn Plugin>> {
-  let cache_item = plugin_cache.get_plugin_cache_item(plugin_reference).await;
-  let cache_item = match cache_item {
-    Ok(cache_item) => Ok(cache_item),
+  let cache_item = match plugin_cache.get_plugin_cache_item(plugin_reference).await {
+    Ok(cache_item) => cache_item,
     Err(err) => {
       log_verbose!(
         environment,
@@ -76,10 +75,9 @@ pub async fn create_plugin<TEnvironment: Environment>(
       );
 
       // forget and try again
-      plugin_cache.forget(plugin_reference)?;
-      plugin_cache.get_plugin_cache_item(plugin_reference).await
+      plugin_cache.forget_and_recreate(plugin_reference).await?
     }
-  }?;
+  };
 
   match plugin_reference.plugin_kind() {
     Some(PluginKind::Wasm) => {
@@ -93,8 +91,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
           );
 
           // forget and try again
-          plugin_cache.forget(plugin_reference)?;
-          let cache_item = plugin_cache.get_plugin_cache_item(plugin_reference).await?;
+          let cache_item = plugin_cache.forget_and_recreate(plugin_reference).await?;
           environment.read_file_bytes(cache_item.file_path)?
         }
       };
@@ -110,8 +107,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
         );
 
         // forget and try again
-        plugin_cache.forget(plugin_reference)?;
-        plugin_cache.get_plugin_cache_item(plugin_reference).await?
+        plugin_cache.forget_and_recreate(plugin_reference).await?
       } else {
         cache_item
       };
