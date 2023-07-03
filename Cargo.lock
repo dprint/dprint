@@ -670,6 +670,7 @@ dependencies = [
  "parking_lot",
  "path-clean",
  "pretty_assertions",
+ "rand",
  "rkyv",
  "serde",
  "serde_json",

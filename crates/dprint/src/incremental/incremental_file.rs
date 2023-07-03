@@ -108,7 +108,7 @@ fn write_incremental(file_path: impl AsRef<Path>, file_data: &IncrementalFileDat
       return;
     }
   };
-  if let Err(err) = environment.write_file(&file_path, &json_text) {
+  if let Err(err) = environment.atomic_write_file_bytes(&file_path, json_text.as_bytes()) {
     environment.log_stderr(&format!("Error saving incremental file {}: {}", file_path.as_ref().display(), err));
   }
 }
