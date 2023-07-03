@@ -321,10 +321,6 @@ impl Environment for TestEnvironment {
     }
   }
 
-  fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> Result<()> {
-    self.write_file_bytes(file_path, file_text.as_bytes())
-  }
-
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()> {
     let file_path = self.clean_path(file_path);
     let mut files = self.files.lock();

@@ -92,10 +92,6 @@ impl Environment for RealEnvironment {
     }
   }
 
-  fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> Result<()> {
-    self.write_file_bytes(file_path, file_text.as_bytes())
-  }
-
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()> {
     log_verbose!(self, "Writing file: {}", file_path.as_ref().display());
     match fs::write(&file_path, bytes) {
