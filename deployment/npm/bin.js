@@ -29,6 +29,8 @@ function runDprintExe(exePath) {
 
   function throwIfNoExePath() {
     if (!fs.existsSync(exePath)) {
+      clearCacheData();
+      // clear the cache
       throw new Error("Could not find exe at path '" + exePath + "'. Maybe try running dprint again.");
     }
   }
@@ -145,6 +147,11 @@ function getCacheData() {
     cacheData = {};
     return cacheData;
   }
+}
+
+function clearCacheData() {
+  cacheData = {};
+  saveCacheData();
 }
 
 function saveCacheData() {
