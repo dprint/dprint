@@ -80,12 +80,16 @@ const pkgJson = {
   "homepage": "https://github.com/dprint/dprint#readme",
   // for yarn berry (https://github.com/dprint/dprint/issues/686)
   "preferUnplugged": true,
+  "scripts": {
+    "postinstall": "node ./install.js",
+  },
   optionalDependencies: packages
     .map(pkg => `@dprint/${getPackageNameNoScope(pkg)}`)
     .reduce((obj, pkgName) => ({ ...obj, [pkgName]: version }), {}),
 };
 currentDir.join("bin.js").copyFileSync(dprintDir.join("bin.js"));
 currentDir.join("install_api.js").copyFileSync(dprintDir.join("install_api.js"));
+currentDir.join("install.js").copyFileSync(dprintDir.join("install.js"));
 dprintDir.join("package.json").writeJsonPrettySync(pkgJson);
 rootDir.join("LICENSE").copyFileSync(dprintDir.join("LICENSE"));
 dprintDir.join("README.md").writeTextSync(markdownText);
