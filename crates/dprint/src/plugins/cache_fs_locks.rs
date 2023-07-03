@@ -35,7 +35,8 @@ pub struct CacheFsLockPool<TEnvironment: Environment> {
 
 impl<TEnvironment: Environment> CacheFsLockPool<TEnvironment> {
   pub fn new(environment: TEnvironment) -> Self {
-    let cache_dir = environment.get_cache_dir().into_path_buf();
+    let cache_dir = environment.get_cache_dir().join("locks");
+    let _ = environment.mk_dir_all(&cache_dir);
     Self::new_with_cache_dir(environment, cache_dir)
   }
 
