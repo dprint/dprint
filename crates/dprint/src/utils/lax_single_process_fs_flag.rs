@@ -149,20 +149,18 @@ impl<TEnvironment: Environment> Drop for LaxSingleProcessFsFlagInner<TEnvironmen
 mod test {
   use std::sync::Arc;
 
-  use futures::future::BoxFuture;
   use futures::FutureExt;
   use parking_lot::Mutex;
   use tempfile::TempDir;
   use tokio::sync::Notify;
 
   use crate::environment::RealEnvironment;
-  use crate::environment::RealEnvironmentOptions;
 
   use super::*;
 
   #[test]
   fn lax_fs_lock() {
-    test_with_real_env(|env| {
+    RealEnvironment::run_test_with_real_env(|env| {
       async move {
         let temp_dir = TempDir::new().unwrap();
         let lock_path = temp_dir.path().join("file.lock");
@@ -216,7 +214,7 @@ mod test {
 
   #[test]
   fn lax_fs_lock_ordered() {
-    test_with_real_env(|env| {
+    RealEnvironment::run_test_with_real_env(|env| {
       async move {
         let temp_dir = TempDir::new().unwrap();
         let lock_path = temp_dir.path().join("file.lock");
@@ -252,18 +250,5 @@ mod test {
       }
       .boxed()
     })
-  }
-
-  fn test_with_real_env(run_with_env: impl Fn(RealEnvironment) -> BoxFuture<'static, ()>) {
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_time().build().unwrap();
-    let handle = rt.handle().clone();
-    let env = RealEnvironment::new(RealEnvironmentOptions {
-      is_verbose: false,
-      is_stdout_machine_readable: false,
-      runtime_handle: Arc::new(handle),
-    })
-    .unwrap();
-
-    rt.block_on(async move { run_with_env(env).await });
   }
 }
