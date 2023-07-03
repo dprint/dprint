@@ -58,103 +58,122 @@ if (version == null) {
 }
 
 // setup dprint packages
-$.logStep(`Setting up dprint ${version}...`);
-const pkgJson = {
-  "name": "dprint",
-  "version": version,
-  "description": "Pluggable and configurable code formatting platform written in Rust.",
-  "bin": "bin.js",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/dprint/dprint.git",
-  },
-  "keywords": [
-    "code",
-    "formatter",
-  ],
-  "author": "David Sherret",
-  "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/dprint/dprint/issues",
-  },
-  "homepage": "https://github.com/dprint/dprint#readme",
-  // for yarn berry (https://github.com/dprint/dprint/issues/686)
-  "preferUnplugged": true,
-  "scripts": {
-    "postinstall": "node ./install.js",
-  },
-  optionalDependencies: packages
-    .map(pkg => `@dprint/${getPackageNameNoScope(pkg)}`)
-    .reduce((obj, pkgName) => ({ ...obj, [pkgName]: version }), {}),
-};
-currentDir.join("bin.js").copyFileSync(dprintDir.join("bin.js"));
-currentDir.join("install_api.js").copyFileSync(dprintDir.join("install_api.js"));
-currentDir.join("install.js").copyFileSync(dprintDir.join("install.js"));
-dprintDir.join("package.json").writeJsonPrettySync(pkgJson);
-rootDir.join("LICENSE").copyFileSync(dprintDir.join("LICENSE"));
-dprintDir.join("README.md").writeTextSync(markdownText);
-// ensure the test files don't get published
-dprintDir.join(".npmignore").writeTextSync("dprint\ndprint.exe\n");
-
-// setup each binary package
-for (const pkg of packages) {
-  const pkgName = getPackageNameNoScope(pkg);
-  $.logStep(`Setting up @dprint/${pkgName}...`);
-  const pkgDir = scopeDir.join(pkgName);
-  const zipPath = pkgDir.join("output.zip");
-
-  await $`mkdir -p ${pkgDir}`;
-
-  // download and extract the zip file
-  const zipUrl = `https://github.com/dprint/dprint/releases/download/${version}/${pkg.zipFileName}`;
-  await $.request(zipUrl).showProgress().pipeToPath(zipPath);
-  await decompress(zipPath.toString(), pkgDir.toString());
-  zipPath.removeSync();
-
-  // create the package.json and readme
-  pkgDir.join("README.md").writeTextSync(`# @dprint/${pkgName}\n\n${pkgName} distribution of dprint.\n`);
-  pkgDir.join("package.json").writeJsonPrettySync({
-    "name": `@dprint/${pkgName}`,
+{
+  $.logStep(`Setting up dprint ${version}...`);
+  const pkgJson = {
+    "name": "dprint",
     "version": version,
-    "description": `${pkgName} distribution of the dprint code formatter`,
+    "description": "Pluggable and configurable code formatting platform written in Rust.",
     "bin": "bin.js",
     "repository": {
       "type": "git",
       "url": "git+https://github.com/dprint/dprint.git",
     },
-    // force yarn to unpack
-    "preferUnplugged": true,
+    "keywords": [
+      "code",
+      "formatter",
+    ],
     "author": "David Sherret",
     "license": "MIT",
     "bugs": {
       "url": "https://github.com/dprint/dprint/issues",
     },
     "homepage": "https://github.com/dprint/dprint#readme",
-    "os": [pkg.os],
-    "cpu": [pkg.cpu],
-    libc: pkg.libc == null ? undefined : [pkg.libc],
-  });
+    // for yarn berry (https://github.com/dprint/dprint/issues/686)
+    "preferUnplugged": true,
+    "scripts": {
+      "postinstall": "node ./install.js",
+    },
+    optionalDependencies: packages
+      .map(pkg => `@dprint/${getPackageNameNoScope(pkg)}`)
+      .reduce((obj, pkgName) => ({ ...obj, [pkgName]: version }), {}),
+  };
+  currentDir.join("bin.js").copyFileSync(dprintDir.join("bin.js"));
+  currentDir.join("install_api.js").copyFileSync(dprintDir.join("install_api.js"));
+  currentDir.join("install.js").copyFileSync(dprintDir.join("install.js"));
+  dprintDir.join("package.json").writeJsonPrettySync(pkgJson);
+  rootDir.join("LICENSE").copyFileSync(dprintDir.join("LICENSE"));
+  dprintDir.join("README.md").writeTextSync(markdownText);
+  // ensure the test files don't get published
+  dprintDir.join(".npmignore").writeTextSync("dprint\ndprint.exe\n");
+
+  // setup each binary package
+  for (const pkg of packages) {
+    const pkgName = getPackageNameNoScope(pkg);
+    $.logStep(`Setting up @dprint/${pkgName}...`);
+    const pkgDir = scopeDir.join(pkgName);
+    const zipPath = pkgDir.join("output.zip");
+
+    await $`mkdir -p ${pkgDir}`;
+
+    // download and extract the zip file
+    const zipUrl = `https://github.com/dprint/dprint/releases/download/${version}/${pkg.zipFileName}`;
+    await $.request(zipUrl).showProgress().pipeToPath(zipPath);
+    await decompress(zipPath.toString(), pkgDir.toString());
+    zipPath.removeSync();
+
+    // create the package.json and readme
+    pkgDir.join("README.md").writeTextSync(`# @dprint/${pkgName}\n\n${pkgName} distribution of dprint.\n`);
+    pkgDir.join("package.json").writeJsonPrettySync({
+      "name": `@dprint/${pkgName}`,
+      "version": version,
+      "description": `${pkgName} distribution of the dprint code formatter`,
+      "bin": "bin.js",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/dprint/dprint.git",
+      },
+      // force yarn to unpack
+      "preferUnplugged": true,
+      "author": "David Sherret",
+      "license": "MIT",
+      "bugs": {
+        "url": "https://github.com/dprint/dprint/issues",
+      },
+      "homepage": "https://github.com/dprint/dprint#readme",
+      "os": [pkg.os],
+      "cpu": [pkg.cpu],
+      libc: pkg.libc == null ? undefined : [pkg.libc],
+    });
+  }
 }
 
 // verify that the package is created correctly
-$.logStep("Verifying packages...");
-const testPlatform = Deno.build.os == "windows"
-  ? "@dprint/win32-x64"
-  : Deno.build.os === "darwin"
-  ? "@dprint/darwin-x64"
-  : "@dprint/linux-x64-glibc";
-outputDir.join("package.json").writeJsonPrettySync({
-  workspaces: [
-    "dprint",
-    // There seems to be a bug with npm workspaces where this doesn't
-    // work, so for now make some assumptions and only include the package
-    // that works on the CI for the current operating system
-    // ...packages.map(p => `@dprint/${getPackageNameNoScope(p)}`),
-    testPlatform,
-  ],
-});
-// run once with a simulated readonly file system, once creating the cache and once with
-await $`cd ${dprintDir} && npm install && DPRINT_SIMULATED_READONLY_FILE_SYSTEM=1 node bin.js -v && node bin.js -v && node bin.js -v`;
+{
+  $.logStep("Verifying packages...");
+  const testPlatform = Deno.build.os == "windows"
+    ? "@dprint/win32-x64"
+    : Deno.build.os === "darwin"
+    ? "@dprint/darwin-x64"
+    : "@dprint/linux-x64-glibc";
+  outputDir.join("package.json").writeJsonPrettySync({
+    workspaces: [
+      "dprint",
+      // There seems to be a bug with npm workspaces where this doesn't
+      // work, so for now make some assumptions and only include the package
+      // that works on the CI for the current operating system
+      // ...packages.map(p => `@dprint/${getPackageNameNoScope(p)}`),
+      testPlatform,
+    ],
+  });
+
+  const dprintExe = Deno.build.os === "windows" ? "dprint.exe" : "dprint";
+  await $`npm install`.cwd(dprintDir);
+
+  // ensure the post-install script adds the executable to the dprint package,
+  // which is necessary for faster caching and to ensure the vscode extension
+  // picks it up
+  if (!dprintDir.join(dprintExe).existsSync()) {
+    throw new Error("dprint executable did not exist after post install");
+  }
+
+  // run once after post install created dprint, once with a simulated readonly file system, once creating the cache and once with
+  await $`node bin.js -v && rm ${dprintExe} && DPRINT_SIMULATED_READONLY_FILE_SYSTEM=1 node bin.js -v && node bin.js -v && node bin.js -v`.cwd(dprintDir);
+
+  if (!dprintDir.join(dprintExe).existsSync()) {
+    throw new Error("dprint executable did not exist when lazily initialized");
+  }
+}
 
 // publish if necessary
 if (Deno.args.includes("--publish")) {
