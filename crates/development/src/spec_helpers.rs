@@ -70,8 +70,11 @@ pub fn run_specs(
     let file_path_buf = PathBuf::from(&spec.file_name);
     let format = |file_text: &str| {
       let result = catch_unwind(AssertUnwindSafe(|| format_text(&file_path_buf, file_text, &spec.config)));
-      let result = result.unwrap_or_else(|err| panic!("Panic in spec '{}' in {}.\n\n{:?}", spec.message, file_path.display(), err));
-      result.unwrap_or_else(|err| panic!("Could not parse spec '{}' in {}. Message: {:#}", spec.message, file_path.display(), err,))
+      if result.is_err() {
+        eprintln!("Panic in spec '{}' in {}\n", spec.message, file_path.display());
+      }
+      let result = result.unwrap();
+      result.unwrap_or_else(|err| panic!("Could not parse spec '{}' in {}\nMessage: {:#}", spec.message, file_path.display(), err,))
     };
 
     if spec.is_trace {
