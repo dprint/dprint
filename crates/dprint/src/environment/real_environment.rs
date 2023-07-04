@@ -100,6 +100,7 @@ impl Environment for RealEnvironment {
 
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>> {
     log_verbose!(self, "Reading file: {}", file_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
     match fs::read(&file_path) {
       Ok(bytes) => Ok(bytes),
       Err(err) => bail!("Error reading file {}: {:#}", file_path.as_ref().display(), err),
@@ -108,6 +109,7 @@ impl Environment for RealEnvironment {
 
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()> {
     log_verbose!(self, "Writing file: {}", file_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
     match fs::write(&file_path, bytes) {
       Ok(_) => Ok(()),
       Err(err) => bail!("Error writing file {}: {:#}", file_path.as_ref().display(), err),
@@ -115,11 +117,13 @@ impl Environment for RealEnvironment {
   }
 
   fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> Result<()> {
+    #[allow(clippy::disallowed_methods)]
     fs::rename(&path_from, &path_to).with_context(|| format!("Error renaming {} to {}", path_from.as_ref().display(), path_to.as_ref().display()))
   }
 
   fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<()> {
     log_verbose!(self, "Deleting file: {}", file_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
     match fs::remove_file(&file_path) {
       Ok(_) => Ok(()),
       Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -129,6 +133,7 @@ impl Environment for RealEnvironment {
 
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<()> {
     log_verbose!(self, "Deleting directory: {}", dir_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
     match fs::remove_dir_all(&dir_path) {
       Ok(_) => Ok(()),
       Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -139,6 +144,7 @@ impl Environment for RealEnvironment {
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>> {
     let mut entries = Vec::new();
 
+    #[allow(clippy::disallowed_methods)]
     let dir_info = match std::fs::read_dir(&dir_path) {
       Ok(result) => result,
       Err(err) => {
@@ -171,6 +177,7 @@ impl Environment for RealEnvironment {
 
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
     log_verbose!(self, "Checking path exists: {}", file_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
     file_path.as_ref().exists()
   }
 
@@ -184,6 +191,7 @@ impl Environment for RealEnvironment {
 
   fn file_permissions(&self, path: impl AsRef<Path>) -> Result<FilePermissions> {
     Ok(FilePermissions::Std(
+      #[allow(clippy::disallowed_methods)]
       fs::metadata(&path)
         .with_context(|| format!("Error getting file permissions for: {}", path.as_ref().display()))?
         .permissions(),
@@ -195,12 +203,14 @@ impl Environment for RealEnvironment {
       FilePermissions::Std(p) => p,
       _ => panic!("Programming error. Permissions did not contain an std permission."),
     };
+    #[allow(clippy::disallowed_methods)]
     fs::set_permissions(&path, permissions).with_context(|| format!("Error setting file permissions for: {}", path.as_ref().display()))?;
     Ok(())
   }
 
   fn mk_dir_all(&self, path: impl AsRef<Path>) -> Result<()> {
     log_verbose!(self, "Creating directory: {}", path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
     match fs::create_dir_all(&path) {
       Ok(_) => Ok(()),
       Err(err) => bail!("Error creating directory {}: {:#}", path.as_ref().display(), err),
@@ -208,6 +218,7 @@ impl Environment for RealEnvironment {
   }
 
   fn cwd(&self) -> CanonicalizedPathBuf {
+    #[allow(clippy::disallowed_methods)]
     self
       .canonicalize(std::env::current_dir().expect("Expected to get the current working directory."))
       .expect("expected to canonicalize the cwd")
@@ -386,6 +397,7 @@ const CACHE_DIR_ENV_VAR_NAME: &str = "DPRINT_CACHE_DIR";
 
 static CACHE_DIR: Lazy<Result<CanonicalizedPathBuf>> = Lazy::new(|| {
   let cache_dir = get_cache_dir_internal(|var_name| std::env::var(var_name).ok())?;
+  #[allow(clippy::disallowed_methods)]
   std::fs::create_dir_all(&cache_dir)?;
   canonicalize_path(cache_dir)
 });
