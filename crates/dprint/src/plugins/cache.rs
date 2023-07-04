@@ -191,7 +191,11 @@ impl<TEnvironment: Environment> ConcurrentPluginCacheManifest<TEnvironment> {
   }
 
   pub fn reload_from_disk(&self) {
-    *self.manifest.write() = read_manifest(&self.environment);
+    // ensure the lock is held while reading from the file system
+    // in order to prevent another thread writing to the file system
+    // at the same time
+    let mut manifest = self.manifest.write();
+    *manifest = read_manifest(&self.environment);
   }
 
   fn get_cache_key(&self, path_source: &PathSource) -> Result<String> {

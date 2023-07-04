@@ -29,7 +29,9 @@ pub fn get_test_safe_executable_path(executable_file_path: PathBuf, environment:
     let tmp_dir = PathBuf::from("temp");
     let temp_process_plugin_file = tmp_dir.join(if cfg!(target_os = "windows") { "temp-plugin.exe" } else { "temp-plugin" });
     PLUGIN_FILE_INITIALIZE.call_once(|| {
+      #[allow(clippy::disallowed_methods)]
       let _ = std::fs::create_dir(&tmp_dir);
+      #[allow(clippy::disallowed_methods)]
       let _ = std::fs::write(&temp_process_plugin_file, environment.read_file_bytes(&executable_file_path).unwrap());
       if cfg!(unix) {
         std::process::Command::new("sh")

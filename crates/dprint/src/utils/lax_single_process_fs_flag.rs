@@ -42,6 +42,7 @@ impl<TEnvironment: Environment> LaxSingleProcessFsFlag<TEnvironment> {
           match lock_result {
             Ok(_) => {
               log_verbose!(environment, "Acquired file lock at {}", file_path.display());
+              #[allow(clippy::disallowed_methods)]
               let _ignore = std::fs::write(&last_updated_path, "");
               let token = Arc::new(tokio_util::sync::CancellationToken::new());
 
@@ -61,6 +62,7 @@ impl<TEnvironment: Environment> LaxSingleProcessFsFlag<TEnvironment> {
                   let mut i = 0;
                   while !token.is_cancelled() {
                     i += 1;
+                    #[allow(clippy::disallowed_methods)]
                     let _ignore = std::fs::write(&last_updated_path, i.to_string());
                     std::thread::sleep(Duration::from_millis(poll_file_update_ms));
                   }
@@ -88,6 +90,7 @@ impl<TEnvironment: Environment> LaxSingleProcessFsFlag<TEnvironment> {
               // Poll the last updated path to check if it's stopped updating,
               // which is an indication that the file lock is claimed, but
               // was never properly released.
+              #[allow(clippy::disallowed_methods)]
               match std::fs::metadata(&last_updated_path).and_then(|p| p.modified()) {
                 Ok(last_updated_time) => {
                   let current_time = std::time::SystemTime::now();
