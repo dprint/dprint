@@ -195,7 +195,7 @@ Referencing multiple configuration files is also supported. These should be orde
 }
 ```
 
-Note: The `includes` property of extended _remote_ configuration is ignored for security reasons so you will need that in the main configuration file or via the CLI.
+Note: The `includes` property of extended _remote_ configuration is ignored for security reasons out of an abundance of caution (to disallow the dprint cli pulling in sensitive files) and additionally non-Wasm plugins are ignored in remote configuration because they don't run sandboxed.
 
 ## Incremental
 
