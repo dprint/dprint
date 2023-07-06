@@ -83,12 +83,10 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, envir
   // files that it could change. Basically, the end user should have 100%
   // control over what files get formatted.
   if !resolved_config_path.resolved_path.is_local() {
-    // Careful! Don't be fancy and ensure both of these are removed.
+    // Careful! Don't be fancy and ensure this is removed.
     let removed_includes = main_config_map.remove("includes").is_some(); // NEVER REMOVE THIS STATEMENT
-    let removed_excludes = main_config_map.remove("excludes").is_some(); // NEVER REMOVE THIS STATEMENT
-    let was_removed = removed_includes || removed_excludes;
-    if was_removed && resolved_config_path.resolved_path.is_first_download {
-      environment.log_stderr(&get_warn_includes_excludes_message());
+    if removed_includes && resolved_config_path.resolved_path.is_first_download {
+      environment.log_stderr(&get_warn_includes_message());
     }
   }
   // =========
@@ -276,9 +274,9 @@ fn filter_non_wasm_plugins(plugins: Vec<PluginSourceReference>, environment: &im
   }
 }
 
-fn get_warn_includes_excludes_message() -> String {
+fn get_warn_includes_message() -> String {
   format!(
-    "{} The 'includes' and 'excludes' properties are ignored for security reasons on remote configuration.",
+    "{} The 'includes' property is ignored for security reasons on remote configuration.",
     "Note: ".bold(),
   )
 }
@@ -375,35 +373,13 @@ mod tests {
 
     let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(environment.take_stderr_messages(), vec![get_warn_includes_excludes_message()]);
+    assert_eq!(environment.take_stderr_messages(), vec![get_warn_includes_message()]);
     assert_eq!(result.includes.len(), 0);
 
     environment.clear_logs();
     let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
     assert_eq!(environment.take_stderr_messages().len(), 0); // no warning this time
     assert_eq!(result.includes.len(), 0);
-  }
-
-  #[test]
-  fn should_warn_on_first_download_for_remote_config_with_excludes() {
-    let environment = TestEnvironment::new();
-    environment.add_remote_file(
-      "https://dprint.dev/test.json",
-      r#"{
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
-            "excludes": ["test"]
-        }"#
-        .as_bytes(),
-    );
-
-    let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages(), vec![get_warn_includes_excludes_message()]);
-    assert_eq!(result.excludes.len(), 0);
-
-    environment.clear_logs();
-    let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages().len(), 0); // no warning this time
-    assert_eq!(result.excludes.len(), 0);
   }
 
   #[test]
@@ -420,7 +396,7 @@ mod tests {
     );
 
     let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages(), vec![get_warn_includes_excludes_message()]);
+    assert_eq!(environment.take_stderr_messages(), vec![get_warn_includes_message()]);
     assert_eq!(result.includes.len(), 0);
     assert_eq!(result.excludes.len(), 0);
 
