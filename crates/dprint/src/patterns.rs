@@ -25,6 +25,7 @@ impl FileMatcher {
       patterns,
       &GlobMatcherOptions {
         case_sensitive: !cfg!(windows),
+        base_dir: cwd,
       },
     )?;
 
@@ -48,11 +49,12 @@ pub fn get_patterns_as_glob_matcher(patterns: &[String], config_base_path: &Cano
   let (includes, excludes) = patterns.into_iter().partition(|p| !is_negated_glob(p));
   GlobMatcher::new(
     GlobPatterns {
-      includes: GlobPattern::new_vec(includes, config_base_path.clone()),
+      includes: Some(GlobPattern::new_vec(includes, config_base_path.clone())),
       excludes: GlobPattern::new_vec(excludes, config_base_path.clone()),
     },
     &GlobMatcherOptions {
       case_sensitive: !cfg!(windows),
+      base_dir: config_base_path.clone(),
     },
   )
 }
@@ -64,12 +66,12 @@ pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cw
   }
 }
 
-fn get_include_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
+fn get_include_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> Option<Vec<GlobPattern>> {
   let mut file_patterns = Vec::new();
 
   file_patterns.extend(if args.file_patterns.is_empty() {
     GlobPattern::new_vec(
-      process_config_patterns(process_file_patterns_slashes(&config.includes)),
+      process_config_patterns(process_file_patterns_slashes(config.includes.as_ref()?)),
       config.base_path.clone(),
     )
   } else {
@@ -77,7 +79,7 @@ fn get_include_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cw
     GlobPattern::new_vec(process_cli_arg_patterns(process_file_patterns_slashes(&args.file_patterns), cwd), cwd.clone())
   });
 
-  file_patterns
+  Some(file_patterns)
 }
 
 fn get_exclude_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
@@ -85,10 +87,11 @@ fn get_exclude_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cw
 
   file_patterns.extend(
     if args.exclude_file_patterns.is_empty() {
-      GlobPattern::new_vec(
-        process_config_patterns(process_file_patterns_slashes(&config.excludes)),
-        config.base_path.clone(),
-      )
+      if let Some(excludes) = &config.excludes {
+        GlobPattern::new_vec(process_config_patterns(process_file_patterns_slashes(excludes)), config.base_path.clone())
+      } else {
+        Vec::new()
+      }
     } else {
       // resolve CLI patterns based on the current working directory
       GlobPattern::new_vec(
