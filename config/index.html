@@ -198,7 +198,7 @@
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
-<p>Note: The <code>includes</code> and <code>excludes</code> of extended configuration is ignored for security reasons so you will need to specify them in the main configuration file or via the CLI.</p>
+<p>Note: The <code>includes</code> property of extended <em>remote</em> configuration is ignored for security reasons out of an abundance of caution (to disallow the dprint cli pulling in sensitive files) and additionally non-Wasm plugins are ignored in remote configuration because they don't run sandboxed.</p>
 <h2 id="incremental" tabindex="-1"><a class="header-anchor" href="#incremental">Incremental</a></h2>
 <p>By default, dprint will only format files that have changed since the last time you formatted the code in order to drastically improve performance.</p>
 <p>If you want to disable this functionality, you may specify the following in your dprint configuration file:</p>
