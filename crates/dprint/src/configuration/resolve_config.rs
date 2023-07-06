@@ -84,8 +84,8 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, envir
   // control over what files get formatted.
   if !resolved_config_path.resolved_path.is_local() {
     // Careful! Don't be fancy and ensure this is removed.
-    let removed_includes = main_config_map.remove("includes").is_some(); // NEVER REMOVE THIS STATEMENT
-    if removed_includes && resolved_config_path.resolved_path.is_first_download {
+    let removed_includes = main_config_map.remove("includes"); // NEVER REMOVE THIS STATEMENT
+    if removed_includes.is_some() && resolved_config_path.resolved_path.is_first_download {
       environment.log_stderr(&get_warn_includes_message());
     }
   }
@@ -137,17 +137,21 @@ fn handle_config_file<TEnvironment: Environment>(resolved_path: &ResolvedPath, r
   let extends = take_extends(&mut new_config_map)?;
 
   // Discard any properties that shouldn't be inherited
-  new_config_map.remove("projectType");
-  // IMPORTANT
-  // =========
-  // Remove the includes and excludes from all referenced configuration since
-  // we don't want it specifying something like system or some configuration
-  // files that it could change. Basically, the end user should have 100%
-  // control over what files get formatted.
-  new_config_map.remove("includes"); // NEVER REMOVE THIS STATEMENT
-  new_config_map.remove("excludes"); // NEVER REMOVE THIS STATEMENT
-                                     // Also remove any non-wasm plugins, but only for remote configurations.
-                                     // The assumption here is that the user won't be malicious to themselves.
+  if !resolved_path.is_local() {
+    // IMPORTANT
+    // =========
+    // Remove the includes from all referenced remote configuration since
+    // we don't want it specifying something like system or some configuration
+    // files that it could change. Basically, the end user should have 100%
+    // control over what files get formatted.
+    let removed_includes = new_config_map.remove("includes"); // NEVER REMOVE THIS STATEMENT
+    if removed_includes.is_some() && resolved_path.is_first_download {
+      environment.log_stderr(&get_warn_includes_message());
+    }
+  }
+
+  // Also remove any non-wasm plugins, but only for remote configurations.
+  // The assumption here is that the user won't be malicious to themselves.
   let plugins = take_plugins_array_from_config_map(&mut new_config_map, &resolved_path.source.parent(), environment)?;
   let plugins = if !resolved_path.is_local() {
     filter_non_wasm_plugins(plugins, environment)
@@ -440,7 +444,7 @@ mod tests {
                 "prop": 2
             },
             "includes": ["test"],
-            "excludes": ["test"]
+            "excludes": ["test-excludes"]
         }"#
         .as_bytes(),
     );
@@ -496,9 +500,12 @@ mod tests {
           properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
         }),
       ),
+      ("excludes".to_string(), ConfigMapValue::Vec(vec!["test-excludes".to_string()])),
     ]);
 
     assert_eq!(result.config_map, expected_config_map);
+    let logged_warnings = environment.take_stderr_messages();
+    assert_eq!(logged_warnings, vec![get_warn_includes_message()]);
   }
 
   #[test]
