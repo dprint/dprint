@@ -363,4 +363,4 @@ finalText += yaml.stringify(ci, {
 });
 
 Deno.writeTextFileSync(new URL("./ci.yml", import.meta.url), finalText);
-await `dprint fmt **/ci.yml`;
+await `dprint fmt **/*.yml`;

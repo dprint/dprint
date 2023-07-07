@@ -45,7 +45,7 @@ impl FileMatcher {
 }
 
 pub fn get_patterns_as_glob_matcher(patterns: &[String], config_base_path: &CanonicalizedPathBuf) -> Result<GlobMatcher> {
-  let patterns = process_config_patterns(process_file_patterns_slashes(patterns));
+  let patterns = process_config_patterns(patterns);
   let (includes, excludes) = patterns.into_iter().partition(|p| !is_negated_glob(p));
   GlobMatcher::new(
     GlobPatterns {
@@ -70,13 +70,10 @@ fn get_include_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cw
   let mut file_patterns = Vec::new();
 
   file_patterns.extend(if args.file_patterns.is_empty() {
-    GlobPattern::new_vec(
-      process_config_patterns(process_file_patterns_slashes(config.includes.as_ref()?)),
-      config.base_path.clone(),
-    )
+    GlobPattern::new_vec(process_config_patterns(config.includes.as_ref()?).collect(), config.base_path.clone())
   } else {
     // resolve CLI patterns based on the current working directory
-    GlobPattern::new_vec(process_cli_arg_patterns(process_file_patterns_slashes(&args.file_patterns), cwd), cwd.clone())
+    GlobPattern::new_vec(args.file_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect(), cwd.clone())
   });
 
   Some(file_patterns)
@@ -88,16 +85,13 @@ fn get_exclude_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cw
   file_patterns.extend(
     if args.exclude_file_patterns.is_empty() {
       if let Some(excludes) = &config.excludes {
-        GlobPattern::new_vec(process_config_patterns(process_file_patterns_slashes(excludes)), config.base_path.clone())
+        GlobPattern::new_vec(process_config_patterns(excludes).collect(), config.base_path.clone())
       } else {
         Vec::new()
       }
     } else {
       // resolve CLI patterns based on the current working directory
-      GlobPattern::new_vec(
-        process_cli_arg_patterns(process_file_patterns_slashes(&args.exclude_file_patterns), cwd),
-        cwd.clone(),
-      )
+      GlobPattern::new_vec(args.exclude_file_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect(), cwd.clone())
     }
     .into_iter()
     .map(|pattern| pattern.into_negated()),
@@ -119,10 +113,6 @@ fn get_exclude_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cw
   file_patterns
 }
 
-fn process_file_patterns_slashes(file_patterns: &[String]) -> Vec<String> {
-  file_patterns.iter().map(|p| p.as_str()).map(process_file_pattern_slashes).collect()
-}
-
 fn process_file_pattern_slashes(file_pattern: &str) -> String {
   // Convert all backslashes to forward slashes.
   // It is true that this means someone cannot specify patterns that
@@ -133,11 +123,8 @@ fn process_file_pattern_slashes(file_pattern: &str) -> String {
   file_pattern.replace('\\', "/")
 }
 
-fn process_cli_arg_patterns(file_patterns: Vec<String>, cwd: &CanonicalizedPathBuf) -> Vec<String> {
-  file_patterns.into_iter().map(|p| process_cli_pattern(p, cwd)).collect()
-}
-
-fn process_cli_pattern(file_pattern: String, cwd: &CanonicalizedPathBuf) -> String {
+fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf) -> String {
+  let file_pattern = process_file_pattern_slashes(&file_pattern);
   if is_absolute_pattern(&file_pattern) {
     let is_negated = is_negated_glob(&file_pattern);
     let cwd = process_file_pattern_slashes(&cwd.to_string_lossy());
@@ -163,11 +150,12 @@ fn process_cli_pattern(file_pattern: String, cwd: &CanonicalizedPathBuf) -> Stri
   }
 }
 
-fn process_config_patterns(file_patterns: Vec<String>) -> Vec<String> {
-  file_patterns.into_iter().map(process_config_pattern).collect()
+pub fn process_config_patterns<'a>(file_patterns: &'a [String]) -> impl Iterator<Item = String> + 'a {
+  file_patterns.iter().map(|p| process_config_pattern(&p))
 }
 
-fn process_config_pattern(file_pattern: String) -> String {
+fn process_config_pattern(file_pattern: &str) -> String {
+  let file_pattern = process_file_pattern_slashes(file_pattern);
   // make config patterns that start with `/` be relative
   if file_pattern.starts_with('/') {
     format!(".{}", file_pattern)
@@ -207,19 +195,19 @@ mod test {
   }
 
   fn do_process_cli_pattern(file_pattern: &str, cwd: &str) -> String {
-    process_cli_pattern(file_pattern.to_string(), &CanonicalizedPathBuf::new_for_testing(cwd))
+    process_cli_pattern(file_pattern, &CanonicalizedPathBuf::new_for_testing(cwd))
   }
 
   #[test]
   fn should_process_config_pattern() {
-    assert_eq!(process_config_pattern("/test".to_string()), "./test");
-    assert_eq!(process_config_pattern("./test".to_string()), "./test");
-    assert_eq!(process_config_pattern("test".to_string()), "test");
-    assert_eq!(process_config_pattern("**/test".to_string()), "**/test");
+    assert_eq!(process_config_pattern("/test"), "./test");
+    assert_eq!(process_config_pattern("./test"), "./test");
+    assert_eq!(process_config_pattern("test"), "test");
+    assert_eq!(process_config_pattern("**/test"), "**/test");
 
-    assert_eq!(process_config_pattern("!/test".to_string()), "!./test");
-    assert_eq!(process_config_pattern("!./test".to_string()), "!./test");
-    assert_eq!(process_config_pattern("!test".to_string()), "!test");
-    assert_eq!(process_config_pattern("!**/test".to_string()), "!**/test");
+    assert_eq!(process_config_pattern("!/test"), "!./test");
+    assert_eq!(process_config_pattern("!./test"), "!./test");
+    assert_eq!(process_config_pattern("!test"), "!test");
+    assert_eq!(process_config_pattern("!**/test"), "!**/test");
   }
 }
