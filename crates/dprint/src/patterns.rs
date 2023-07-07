@@ -124,7 +124,7 @@ fn process_file_pattern_slashes(file_pattern: &str) -> String {
 }
 
 fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf) -> String {
-  let file_pattern = process_file_pattern_slashes(&file_pattern);
+  let file_pattern = process_file_pattern_slashes(file_pattern);
   if is_absolute_pattern(&file_pattern) {
     let is_negated = is_negated_glob(&file_pattern);
     let cwd = process_file_pattern_slashes(&cwd.to_string_lossy());
@@ -150,8 +150,8 @@ fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf) -> String
   }
 }
 
-pub fn process_config_patterns<'a>(file_patterns: &'a [String]) -> impl Iterator<Item = String> + 'a {
-  file_patterns.iter().map(|p| process_config_pattern(&p))
+pub fn process_config_patterns(file_patterns: &[String]) -> impl Iterator<Item = String> + '_ {
+  file_patterns.iter().map(|p| process_config_pattern(p))
 }
 
 fn process_config_pattern(file_pattern: &str) -> String {
