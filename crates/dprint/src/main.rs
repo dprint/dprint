@@ -40,6 +40,7 @@ fn main() {
 
 async fn run(runtime_handle: tokio::runtime::Handle) -> Result<(), AppError> {
   let args = arg_parser::parse_args(std::env::args().collect(), RealStdInReader)?;
+
   let environment = RealEnvironment::new(RealEnvironmentOptions {
     is_verbose: args.verbose,
     is_stdout_machine_readable: args.is_stdout_machine_readable(),

@@ -12,7 +12,8 @@ description = "Binary for dprint code formatter—a pluggable and configurable c
 
 [dependencies]
 anyhow = "1.0.69"
-clap = "4.1.4"
+clap = "4.3.8"
+clap_complete = "4.3.1"
 console_static_text = "0.7.1"
 # don't upgrade to 0.26 https://github.com/crossterm-rs/crossterm/issues/752
 crossterm = "0.25.0" # manually retest everything when bumping this crate
