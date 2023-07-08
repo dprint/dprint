@@ -74,7 +74,6 @@
 <p>In a dprint configuration file:</p>
 <ol>
 <li>Specify the plugin url in the <code>"plugins"</code> array.</li>
-<li>Ensure <code>.dockerfile</code> file extensions are matched in an <code>"includes"</code> pattern.</li>
 <li>Add a <code>"dockerfile"</code> configuration property if desired.</li>
 </ol>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
@@ -82,9 +81,6 @@
   <span class="hljs-attr">"dockerfile"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
     <span class="hljs-comment">// dockerfile config goes here</span>
   <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
-  <span class="hljs-attr">"includes"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
-    <span class="hljs-string">"**/*.{dockerfile}"</span>
-  <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
   <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
     <span class="hljs-string">"https://plugins.dprint.dev/dockerfile-x.x.x.wasm"</span>
   <span class="hljs-punctuation">]</span>
