@@ -1,5 +1,7 @@
 use anyhow::Result;
 
+use crate::arg_parser::create_cli_parser;
+use crate::arg_parser::CliArgParserKind;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::OutputFilePathsSubCommand;
 use crate::configuration::resolve_config_from_args;
@@ -98,6 +100,16 @@ pub async fn output_file_paths<TEnvironment: Environment>(
   for file_path in file_paths {
     environment.log(&file_path.display().to_string())
   }
+  Ok(())
+}
+
+pub fn completions<TEnvironment: Environment>(shell: clap_complete::Shell, environment: &TEnvironment) -> Result<()> {
+  let mut cmd = create_cli_parser(CliArgParserKind::ForCompletions);
+
+  let mut buffer = Vec::new();
+  clap_complete::generate(shell, &mut cmd, "dprint", &mut buffer);
+  environment.log_machine_readable(&String::from_utf8_lossy(&buffer));
+
   Ok(())
 }
 
@@ -372,5 +384,16 @@ SOFTWARE.
         "License text."
       ]
     );
+  }
+
+  #[test]
+  fn should_output_shell_completions() {
+    let environment = TestEnvironment::new();
+    for kind in ["bash", "elvish", "fish", "powershell", "zsh"] {
+      run_test_cli(vec!["completions", kind], &environment).unwrap();
+      let logged_messages = environment.take_stdout_messages();
+      assert_eq!(logged_messages.len(), 1);
+      assert!(!logged_messages[0].contains("hidden"));
+    }
   }
 }

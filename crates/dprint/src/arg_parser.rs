@@ -27,7 +27,7 @@ impl CliArgs {
     // these output json or other text that's read by stdout
     matches!(
       self.sub_command,
-      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig
+      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig | SubCommand::Completions(..)
     )
   }
 
@@ -132,7 +132,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
 fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: TStdInReader) -> Result<CliArgs> {
   // this is all done because clap doesn't output exactly how I like
   if args.len() == 1 || (args.len() == 2 && (args[1] == "help" || args[1] == "--help")) {
-    let mut cli_parser = create_cli_parser(/* is outputting help */ true);
+    let mut cli_parser = create_cli_parser(CliArgParserKind::ForOutputtingMainHelp);
     cli_parser.try_get_matches_from_mut(vec![""])?;
     let help_text = format!("{}", cli_parser.render_help());
     return Ok(CliArgs::new_with_sub_command(SubCommand::Help(help_text)));
@@ -140,7 +140,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     return Ok(CliArgs::new_with_sub_command(SubCommand::Version));
   }
 
-  let cli_parser = create_cli_parser(false);
+  let cli_parser = create_cli_parser(CliArgParserKind::Default);
   let matches = match cli_parser.try_get_matches_from(&args) {
     Ok(result) => result,
     Err(err) => return Err(err.into()),
@@ -272,13 +272,21 @@ fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
   Ok(())
 }
 
-pub fn create_cli_parser(is_outputting_main_help: bool) -> clap::Command {
+#[derive(Default, PartialEq, Eq)]
+pub enum CliArgParserKind {
+  ForOutputtingMainHelp,
+  ForCompletions,
+  #[default]
+  Default,
+}
+
+pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
   use clap::{Arg, Command};
 
   let mut app = Command::new("dprint");
 
   // hack to get this to display the way I want
-  app = if is_outputting_main_help {
+  app = if kind == CliArgParserKind::ForOutputtingMainHelp {
     app.disable_help_subcommand(true).disable_version_flag(true).disable_help_flag(true)
   } else {
     app.subcommand_required(true)
@@ -427,7 +435,7 @@ EXAMPLES:
         Arg::new("shell")
           .action(clap::ArgAction::Set)
           .value_parser(clap::value_parser!(clap_complete::Shell))
-          .default_value("bash"),
+          .required(true)
       )
     )
     .subcommand(
@@ -473,12 +481,14 @@ EXAMPLES:
     );
 
   #[cfg(target_os = "windows")]
-  let app = app.subcommand(
-    Command::new("hidden")
-      .hide(true)
-      .subcommand(Command::new("windows-install").arg(Arg::new("install-path").num_args(1).required(true)))
-      .subcommand(Command::new("windows-uninstall").arg(Arg::new("install-path").num_args(1).required(true))),
-  );
+  if kind == CliArgParserKind::Default {
+    app = app.subcommand(
+      Command::new("hidden")
+        .hide(true)
+        .subcommand(Command::new("windows-install").arg(Arg::new("install-path").num_args(1).required(true)))
+        .subcommand(Command::new("windows-uninstall").arg(Arg::new("install-path").num_args(1).required(true))),
+    );
+  }
 
   app
 }
