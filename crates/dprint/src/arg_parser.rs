@@ -281,7 +281,8 @@ pub enum CliArgParserKind {
 }
 
 pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
-  use clap::{Arg, Command};
+  use clap::Arg;
+  use clap::Command;
 
   let mut app = Command::new("dprint");
 
