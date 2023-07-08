@@ -20,8 +20,7 @@ Formats [TOML](https://toml.io) files.
 In a dprint configuration file:
 
 1. Specify the plugin url in the `"plugins"` array.
-2. Ensure `.toml` file extensions are matched in an `"includes"` pattern.
-3. Add a `"toml"` configuration property if desired.
+2. Add a `"toml"` configuration property if desired.
 
 ```json
 {
@@ -29,9 +28,6 @@ In a dprint configuration file:
   "toml": {
     // toml config goes here
   },
-  "includes": [
-    "**/*.{toml}"
-  ],
   "plugins": [
     "https://plugins.dprint.dev/toml-x.x.x.wasm"
   ]

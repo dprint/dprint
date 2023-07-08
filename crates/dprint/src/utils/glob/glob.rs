@@ -16,7 +16,7 @@ use super::GlobMatcherOptions;
 use super::GlobPatterns;
 
 pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: GlobPatterns) -> Result<Vec<PathBuf>> {
-  if file_patterns.includes.iter().all(|p| p.is_negated()) {
+  if file_patterns.includes.is_some() && file_patterns.includes.as_ref().unwrap().iter().all(|p| p.is_negated()) {
     // performance improvement (see issue #379)
     log_verbose!(environment, "Skipping negated globs: {:?}", file_patterns.includes);
     return Ok(Vec::with_capacity(0));
@@ -29,6 +29,7 @@ pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_pattern
     file_patterns,
     &GlobMatcherOptions {
       case_sensitive: !cfg!(windows),
+      base_dir: environment.cwd(),
     },
   )?;
 
@@ -284,7 +285,7 @@ mod test {
       &environment,
       "/",
       GlobPatterns {
-        includes: vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())],
+        includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
         excludes: vec![GlobPattern::new("**/ignore".to_string(), root_dir)],
       },
     )
@@ -304,7 +305,7 @@ mod test {
       &environment,
       "/",
       GlobPatterns {
-        includes: vec![GlobPattern::new("**/*.txt".to_string(), root_dir)],
+        includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
         excludes: Vec::new(),
       },
     )
@@ -322,10 +323,10 @@ mod test {
       &environment,
       "/",
       GlobPatterns {
-        includes: vec![
+        includes: Some(vec![
           GlobPattern::new("!**/*.*".to_string(), root_dir.clone()),
           GlobPattern::new("**/a.txt".to_string(), root_dir),
-        ],
+        ]),
         excludes: Vec::new(),
       },
     )
@@ -347,11 +348,11 @@ mod test {
       &environment,
       "/",
       GlobPatterns {
-        includes: vec![
+        includes: Some(vec![
           GlobPattern::new("**/*.json".to_string(), root_dir.clone()),
           GlobPattern::new("!**/*.json".to_string(), root_dir.clone()),
           GlobPattern::new("**/a.json".to_string(), root_dir),
-        ],
+        ]),
         excludes: Vec::new(),
       },
     )
@@ -374,11 +375,11 @@ mod test {
       &environment,
       "/test/",
       GlobPatterns {
-        includes: vec![
+        includes: Some(vec![
           GlobPattern::new("**/*.json".to_string(), test_dir.clone()),
           GlobPattern::new("!a/**/*.json".to_string(), test_dir.clone()),
           GlobPattern::new("a/b/**/*.json".to_string(), test_dir),
-        ],
+        ]),
         excludes: Vec::new(),
       },
     )
@@ -400,11 +401,11 @@ mod test {
       &environment,
       "/",
       GlobPatterns {
-        includes: vec![
+        includes: Some(vec![
           GlobPattern::new("**/*.*".to_string(), root_dir.clone()),
           GlobPattern::new("!dir/a/**/*".to_string(), root_dir.clone()),
           GlobPattern::new("dir/b/b/**/*".to_string(), root_dir),
-        ],
+        ]),
         excludes: Vec::new(),
       },
     )

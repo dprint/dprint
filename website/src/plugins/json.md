@@ -23,8 +23,7 @@ Supports:
 In a dprint configuration file:
 
 1. Specify the plugin url in the `"plugins"` array.
-2. Ensure `.json` file extensions are matched in an `"includes"` pattern.
-3. Add a `"json"` configuration property if desired.
+2. Add a `"json"` configuration property if desired.
 
 ```json
 {
@@ -32,9 +31,6 @@ In a dprint configuration file:
   "json": {
     // json config goes here
   },
-  "includes": [
-    "**/*.{json}"
-  ],
   "plugins": [
     "https://plugins.dprint.dev/json-x.x.x.wasm"
   ]

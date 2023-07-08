@@ -25,8 +25,8 @@ pub struct ResolvedConfig {
   pub resolved_path: ResolvedPath,
   /// The folder that should be considered the "root".
   pub base_path: CanonicalizedPathBuf,
-  pub includes: Vec<String>,
-  pub excludes: Vec<String>,
+  pub includes: Option<Vec<String>>,
+  pub excludes: Option<Vec<String>>,
   pub plugins: Vec<PluginSourceReference>,
   pub incremental: Option<bool>,
   pub config_map: ConfigMap,
@@ -78,8 +78,8 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, envir
 
   // IMPORTANT
   // =========
-  // Remove the includes and excludes from remote configuration since
-  // we don't want it specifying something like system or some configuration
+  // Remove the includes from remote configuration since we don't want it
+  // specifying something like system or some configuration
   // files that it could change. Basically, the end user should have 100%
   // control over what files get formatted.
   if !resolved_config_path.resolved_path.is_local() {
@@ -237,7 +237,7 @@ fn take_plugins_array_from_config_map(
   base_path: &PathSource,
   environment: &impl Environment,
 ) -> Result<Vec<PluginSourceReference>> {
-  let plugin_url_or_file_paths = take_array_from_config_map(config_map, "plugins")?;
+  let plugin_url_or_file_paths = take_array_from_config_map(config_map, "plugins")?.unwrap_or_default();
   let mut plugins = Vec::with_capacity(plugin_url_or_file_paths.len());
   for url_or_file_path in plugin_url_or_file_paths {
     plugins.push(parse_plugin_source_reference(&url_or_file_path, base_path, environment)?);
@@ -245,17 +245,12 @@ fn take_plugins_array_from_config_map(
   Ok(plugins)
 }
 
-fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Vec<String>> {
-  let mut result = Vec::new();
-  if let Some(value) = config_map.remove(property_name) {
-    match value {
-      ConfigMapValue::Vec(elements) => {
-        result.extend(elements);
-      }
-      _ => bail!("Expected array in '{}' property.", property_name),
-    }
+fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Option<Vec<String>>> {
+  match config_map.remove(property_name) {
+    Some(ConfigMapValue::Vec(elements)) => Ok(Some(elements)),
+    Some(_) => bail!("Expected array in '{}' property.", property_name),
+    None => Ok(None),
   }
-  Ok(result)
 }
 
 fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Option<bool>> {
@@ -331,7 +326,7 @@ mod tests {
         r#"{
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
             "includes": ["test"],
-            "excludes": ["test"]
+            "excludes": ["test-excludes"]
         }"#,
       )
       .unwrap();
@@ -342,8 +337,8 @@ mod tests {
     assert_eq!(result.resolved_path.is_local(), true);
     assert_eq!(result.config_map.contains_key("includes"), false);
     assert_eq!(result.config_map.contains_key("excludes"), false);
-    assert_eq!(result.includes, vec!["test"]);
-    assert_eq!(result.excludes, vec!["test"]);
+    assert_eq!(result.includes, Some(vec!["test".to_string()]));
+    assert_eq!(result.excludes, Some(vec!["test-excludes".to_string()]));
   }
 
   #[test]
@@ -378,12 +373,12 @@ mod tests {
     let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
     assert_eq!(environment.take_stderr_messages(), vec![get_warn_includes_message()]);
-    assert_eq!(result.includes.len(), 0);
+    assert_eq!(result.includes, None);
 
     environment.clear_logs();
     let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
     assert_eq!(environment.take_stderr_messages().len(), 0); // no warning this time
-    assert_eq!(result.includes.len(), 0);
+    assert_eq!(result.includes, None);
   }
 
   #[test]
@@ -401,14 +396,14 @@ mod tests {
 
     let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
     assert_eq!(environment.take_stderr_messages(), vec![get_warn_includes_message()]);
-    assert_eq!(result.includes.len(), 0);
-    assert_eq!(result.excludes.len(), 0);
+    assert_eq!(result.includes, None);
+    assert_eq!(result.excludes, Some(vec![]));
 
     environment.clear_logs();
     let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
     assert_eq!(environment.take_stderr_messages().len(), 0); // no warning this time
-    assert_eq!(result.includes.len(), 0);
-    assert_eq!(result.excludes.len(), 0);
+    assert_eq!(result.includes, None);
+    assert_eq!(result.excludes, Some(vec![]));
   }
 
   #[test]
@@ -467,8 +462,8 @@ mod tests {
     assert_eq!(environment.take_stdout_messages().len(), 0);
     assert_eq!(result.base_path, CanonicalizedPathBuf::new_for_testing("/"));
     assert_eq!(result.resolved_path.is_local(), true);
-    assert_eq!(result.includes.len(), 0);
-    assert_eq!(result.excludes.len(), 0);
+    assert_eq!(result.includes, None);
+    assert_eq!(result.excludes, None);
     assert_eq!(
       result.plugins,
       vec![
@@ -558,8 +553,8 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.includes.len(), 0);
-    assert_eq!(result.excludes.len(), 0);
+    assert_eq!(result.includes, None);
+    assert_eq!(result.excludes, None);
     assert_eq!(
       result.plugins,
       vec![
@@ -656,8 +651,8 @@ mod tests {
 
     let result = get_result("/test.json", &environment).unwrap();
     assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.includes.len(), 0);
-    assert_eq!(result.excludes.len(), 0);
+    assert_eq!(result.includes, None);
+    assert_eq!(result.excludes, None);
     assert_eq!(
       result.plugins,
       vec![

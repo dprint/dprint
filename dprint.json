@@ -5,9 +5,6 @@
     "associations": "**/*.rs",
     "rustfmt": "rustfmt --edition 2021"
   },
-  "includes": [
-    "**/*.{ts,tsx,js,jsx,json,md,html,scss,css,toml,rs}"
-  ],
   "excludes": [
     "website/playground/build",
     "website/_site",

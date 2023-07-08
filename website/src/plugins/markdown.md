@@ -18,8 +18,7 @@ layout: layouts/documentation.njk
 In a dprint configuration file:
 
 1. Specify the plugin url in the `"plugins"` array.
-2. Ensure `.md` file extensions are matched in an `"includes"` pattern.
-3. Add a `"markdown"` configuration property if desired.
+2. Add a `"markdown"` configuration property if desired.
 
 ```json
 {
@@ -27,9 +26,6 @@ In a dprint configuration file:
   "markdown": {
     // markdown config goes here
   },
-  "includes": [
-    "**/*.{md}"
-  ],
   "plugins": [
     "https://plugins.dprint.dev/markdown-x.x.x.wasm"
   ]

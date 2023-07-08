@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::str::Split;
 use thiserror::Error;
@@ -9,9 +10,12 @@ use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::patterns::get_all_file_patterns;
+use crate::patterns::process_config_patterns;
 use crate::plugins::Plugin;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::utils::glob;
+use crate::utils::is_negated_glob;
+use crate::utils::GlobPattern;
 
 /// Struct that allows using plugin names as a key
 /// in a hash map.
@@ -69,14 +73,56 @@ pub fn get_file_paths_by_plugins(
   Ok(file_paths_by_plugin)
 }
 
-pub async fn get_and_resolve_file_paths(config: &ResolvedConfig, args: &FilePatternArgs, environment: &impl Environment) -> Result<Vec<PathBuf>> {
+pub async fn get_and_resolve_file_paths(
+  config: &ResolvedConfig,
+  args: &FilePatternArgs,
+  plugins: &[Box<dyn Plugin>],
+  environment: &impl Environment,
+) -> Result<Vec<PathBuf>> {
   let cwd = environment.cwd();
-  let file_patterns = get_all_file_patterns(config, args, &cwd);
+  let mut file_patterns = get_all_file_patterns(config, args, &cwd);
+  if file_patterns.includes.is_none() {
+    // If no includes patterns were specified, derive one from the list of plugins
+    // as this is a massive performance improvement, because it collects less file
+    // paths to examine and match to plugins later.
+    file_patterns.includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), cwd.clone()));
+  }
   let is_in_sub_dir = cwd != config.base_path && cwd.starts_with(&config.base_path);
   let base_dir = if is_in_sub_dir { cwd } else { config.base_path.clone() };
   let environment = environment.clone();
 
   // This is intensive so do it in a blocking task
-  // Eventually this could should maybe be changed to use tokio tasks
   tokio::task::spawn_blocking(move || glob(&environment, &base_dir, file_patterns)).await.unwrap()
+}
+
+fn get_plugin_patterns(plugins: &[Box<dyn Plugin>]) -> Vec<String> {
+  let mut file_names = HashSet::new();
+  let mut file_exts = HashSet::new();
+  let mut association_globs = Vec::new();
+  for plugin in plugins {
+    let mut had_positive_association = false;
+    if let Some(associations) = plugin.get_config().0.associations.as_ref() {
+      for pattern in process_config_patterns(associations) {
+        if !is_negated_glob(&pattern) {
+          had_positive_association = true;
+          association_globs.push(pattern);
+        }
+      }
+    }
+    if !had_positive_association {
+      file_names.extend(plugin.file_names());
+      file_exts.extend(plugin.file_extensions());
+    }
+  }
+  let mut result = Vec::new();
+  if !file_exts.is_empty() {
+    result.push(format!("**/*.{{{}}}", file_exts.into_iter().map(|s| s.as_str()).collect::<Vec<_>>().join(",")));
+  }
+  if !file_names.is_empty() {
+    result.push(format!("**/{{{}}}", file_names.into_iter().map(|s| s.as_str()).collect::<Vec<_>>().join(",")));
+  }
+  // add the association globs last as they're least likely to be matched
+  result.extend(association_globs);
+
+  result
 }

@@ -1,9 +1,9 @@
 name: Website
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -20,7 +20,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-
       - uses: denoland/setup-deno@v1
-
       - name: Install playground dependencies
         run: (cd website/playground && npm ci --legacy-peer-deps)
 
