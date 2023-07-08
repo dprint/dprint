@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::sync::Arc;
 use thiserror::Error;
 
-use crate::arg_parser::{create_cli_parser, ParseArgsError};
+use crate::arg_parser::{create_cli_parser, CliArgParserKind, ParseArgsError};
 use crate::commands::CheckError;
 use crate::configuration::ResolveConfigFromArgsError;
 use crate::environment::Environment;
@@ -133,9 +133,11 @@ pub async fn run_cli<TEnvironment: Environment>(
     SubCommand::Check(cmd) => commands::check(cmd, args, environment, plugin_resolver, plugin_pools).await,
     SubCommand::Fmt(cmd) => commands::format(cmd, args, environment, plugin_resolver, plugin_pools).await,
     SubCommand::Completions(shell) => {
-      let mut cmd = create_cli_parser(false);
+      let mut cmd = create_cli_parser(CliArgParserKind::ForCompletions);
 
-      clap_complete::generate(shell.to_owned(), &mut cmd, "dprint", &mut std::io::stdout());
+      let mut buffer = Vec::new();
+      clap_complete::generate(shell.to_owned(), &mut cmd, "dprint", &mut buffer);
+      environment.log_machine_readable(&String::from_utf8_lossy(&buffer));
 
       Ok(())
     }
