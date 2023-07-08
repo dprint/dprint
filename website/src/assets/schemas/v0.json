@@ -5,6 +5,10 @@
   "description": "Schema for a dprint configuration file.",
   "type": "object",
   "properties": {
+    "$schema": {
+      "description": "The JSON schema reference. Normally you shouldn't bother to provide this as the dprint vscode editor extension will handle constructing the schema for you based on the plugins provided.",
+      "type": "string"
+    },
     "incremental": {
       "description": "Whether to format files only when they change.",
       "type": "boolean",
