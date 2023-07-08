@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::sync::Arc;
 use thiserror::Error;
 
-use crate::arg_parser::{create_cli_parser, CliArgParserKind, ParseArgsError};
+use crate::arg_parser::ParseArgsError;
 use crate::commands::CheckError;
 use crate::configuration::ResolveConfigFromArgsError;
 use crate::environment::Environment;
@@ -132,15 +132,7 @@ pub async fn run_cli<TEnvironment: Environment>(
     SubCommand::OutputFormatTimes(cmd) => commands::output_format_times(cmd, args, environment, plugin_resolver, plugin_pools).await,
     SubCommand::Check(cmd) => commands::check(cmd, args, environment, plugin_resolver, plugin_pools).await,
     SubCommand::Fmt(cmd) => commands::format(cmd, args, environment, plugin_resolver, plugin_pools).await,
-    SubCommand::Completions(shell) => {
-      let mut cmd = create_cli_parser(CliArgParserKind::ForCompletions);
-
-      let mut buffer = Vec::new();
-      clap_complete::generate(shell.to_owned(), &mut cmd, "dprint", &mut buffer);
-      environment.log_machine_readable(&String::from_utf8_lossy(&buffer));
-
-      Ok(())
-    }
+    SubCommand::Completions(shell) => commands::completions(shell.to_owned(), environment),
     SubCommand::Upgrade => commands::upgrade(environment).await,
     #[cfg(target_os = "windows")]
     SubCommand::Hidden(hidden_command) => match hidden_command {
