@@ -73,6 +73,7 @@
 <p>In a dprint configuration file:</p>
 <ol>
 <li>Specify the plugin url in the <code>"plugins"</code> array.</li>
+<li>Ensure <code>.md</code> file extensions are matched in an <code>"includes"</code> pattern.</li>
 <li>Add a <code>"markdown"</code> configuration property if desired.</li>
 </ol>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
@@ -80,6 +81,9 @@
   <span class="hljs-attr">"markdown"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
     <span class="hljs-comment">// markdown config goes here</span>
   <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">"includes"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"**/*.{md}"</span>
+  <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
   <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
     <span class="hljs-string">"https://plugins.dprint.dev/markdown-x.x.x.wasm"</span>
   <span class="hljs-punctuation">]</span>
