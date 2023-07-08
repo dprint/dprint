@@ -389,9 +389,11 @@ SOFTWARE.
   #[test]
   fn should_output_shell_completions() {
     let environment = TestEnvironment::new();
-    run_test_cli(vec!["completions"], &environment).unwrap();
-    let logged_messages = environment.take_stdout_messages();
-    assert_eq!(logged_messages.len(), 1);
-    assert!(!logged_messages[0].contains("hidden"));
+    for kind in ["bash", "elvish", "fish", "powershell", "zsh"] {
+      run_test_cli(vec!["completions", kind], &environment).unwrap();
+      let logged_messages = environment.take_stdout_messages();
+      assert_eq!(logged_messages.len(), 1);
+      assert!(!logged_messages[0].contains("hidden"));
+    }
   }
 }

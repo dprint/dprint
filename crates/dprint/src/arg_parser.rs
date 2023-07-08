@@ -435,11 +435,7 @@ EXAMPLES:
         Arg::new("shell")
           .action(clap::ArgAction::Set)
           .value_parser(clap::value_parser!(clap_complete::Shell))
-          .default_value(if cfg!(windows) {
-            "powershell"
-          } else {
-            "bash"
-          }),
+          .required(true)
       )
     )
     .subcommand(
