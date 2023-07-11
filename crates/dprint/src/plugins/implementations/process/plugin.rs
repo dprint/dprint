@@ -1,6 +1,7 @@
 use anyhow::Result;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
+use dprint_core::plugins::process::ProcessPluginExecutableInfo;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
 use futures::future::BoxFuture;
@@ -48,7 +49,7 @@ pub fn get_test_safe_executable_path(executable_file_path: PathBuf, environment:
 
 pub struct ProcessPlugin<TEnvironment: Environment> {
   environment: TEnvironment,
-  executable_file_path: PathBuf,
+  executable_info: ProcessPluginExecutableInfo,
   plugin_info: PluginInfo,
   config: Option<(RawPluginConfig, GlobalConfiguration)>,
   plugins_collection: Arc<PluginsCollection<TEnvironment>>,
@@ -57,13 +58,13 @@ pub struct ProcessPlugin<TEnvironment: Environment> {
 impl<TEnvironment: Environment> ProcessPlugin<TEnvironment> {
   pub fn new(
     environment: TEnvironment,
-    executable_file_path: PathBuf,
+    executable_info: ProcessPluginExecutableInfo,
     plugin_info: PluginInfo,
     plugins_collection: Arc<PluginsCollection<TEnvironment>>,
   ) -> Self {
     ProcessPlugin {
       environment,
-      executable_file_path,
+      executable_info,
       plugin_info,
       config: None,
       plugins_collection,
@@ -121,19 +122,13 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
     log_verbose!(self.environment, "Creating instance of {}", self.name());
     let config = self.config.as_ref().expect("Call set_config first.");
     let plugin_name = self.plugin_info.name.clone();
-    let executable_file_path = self.executable_file_path.clone();
+    let executable_info = self.executable_info.clone();
     let config = (config.1.clone(), config.0.properties.clone());
     let environment = self.environment.clone();
     let plugins_collection = self.plugins_collection.clone();
     async move {
-      let communicator = InitializedProcessPluginCommunicator::new(
-        plugin_name.clone(),
-        executable_file_path,
-        config,
-        environment.clone(),
-        plugins_collection.clone(),
-      )
-      .await?;
+      let communicator =
+        InitializedProcessPluginCommunicator::new(plugin_name.clone(), executable_info, config, environment.clone(), plugins_collection.clone()).await?;
       let process_plugin = InitializedProcessPlugin::new(communicator)?;
 
       let result: Arc<dyn InitializedPlugin> = Arc::new(process_plugin);

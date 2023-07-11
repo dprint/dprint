@@ -7,7 +7,7 @@ use crate::environment::Environment;
 
 pub fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &Path, environment: &impl Environment) -> Result<()> {
   // adapted from https://github.com/mvdnes/zip-rs/blob/master/examples/extract.rs
-  let reader = std::io::Cursor::new(&zip_bytes);
+  let reader = std::io::Cursor::new(zip_bytes);
   let mut zip = zip::ZipArchive::new(reader)?;
   let length = zip.len();
 

@@ -7,7 +7,6 @@ use serde::de::DeserializeOwned;
 use std::io::BufRead;
 use std::io::Read;
 use std::io::Write;
-use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
 use std::process::ChildStderr;
@@ -44,6 +43,12 @@ use crate::plugins::HostFormatRequest;
 use crate::plugins::NullCancellationToken;
 use crate::plugins::PluginInfo;
 
+#[derive(Debug, Clone)]
+pub struct ProcessPluginExecutableInfo {
+  pub path: PathBuf,
+  pub args: Vec<String>,
+}
+
 type DprintCancellationToken = Arc<dyn super::super::CancellationToken>;
 
 enum MessageResponseChannel {
@@ -76,35 +81,45 @@ impl Drop for ProcessPluginCommunicator {
 }
 
 impl ProcessPluginCommunicator {
-  pub async fn new(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static, host: Arc<dyn Host>) -> Result<Self> {
-    ProcessPluginCommunicator::new_internal(executable_file_path, false, on_std_err, host).await
+  pub async fn new(
+    executable_info: &ProcessPluginExecutableInfo,
+    on_std_err: impl Fn(String) + Clone + Send + Sync + 'static,
+    host: Arc<dyn Host>,
+  ) -> Result<Self> {
+    ProcessPluginCommunicator::new_internal(executable_info, false, on_std_err, host).await
   }
 
   /// Provides the `--init` CLI flag to tell the process plugin to do any initialization necessary
-  pub async fn new_with_init(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static, host: Arc<dyn Host>) -> Result<Self> {
-    ProcessPluginCommunicator::new_internal(executable_file_path, true, on_std_err, host).await
+  pub async fn new_with_init(
+    executable_info: &ProcessPluginExecutableInfo,
+    on_std_err: impl Fn(String) + Clone + Send + Sync + 'static,
+    host: Arc<dyn Host>,
+  ) -> Result<Self> {
+    ProcessPluginCommunicator::new_internal(executable_info, true, on_std_err, host).await
   }
 
   async fn new_internal(
-    executable_file_path: &Path,
+    executable_info: &ProcessPluginExecutableInfo,
     is_init: bool,
     on_std_err: impl Fn(String) + Clone + Send + Sync + 'static,
     host: Arc<dyn Host>,
   ) -> Result<Self> {
-    let mut args = vec!["--parent-pid".to_string(), std::process::id().to_string()];
+    let mut args = Vec::with_capacity(executable_info.args.len() + 3);
+    args.extend(executable_info.args.iter().cloned());
+    args.extend(["--parent-pid".to_string(), std::process::id().to_string()]);
     if is_init {
       args.push("--init".to_string());
     }
 
     let poisoner = Poisoner::default();
     let shutdown_flag = ArcFlag::default();
-    let mut child = Command::new(executable_file_path)
+    let mut child = Command::new(&executable_info.path)
       .args(&args)
       .stdin(Stdio::piped())
       .stderr(Stdio::piped())
       .stdout(Stdio::piped())
       .spawn()
-      .map_err(|err| anyhow!("Error starting {} with args [{}]. {:#}", executable_file_path.display(), args.join(" "), err))?;
+      .map_err(|err| anyhow!("Error starting {} with args [{}]. {:#}", executable_info.path.display(), args.join(" "), err))?;
 
     // read and output stderr prefixed
     let stderr = child.stderr.take().unwrap();

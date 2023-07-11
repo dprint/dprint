@@ -6,8 +6,9 @@ use std::path::PathBuf;
 use dprint_core::plugins::PluginInfo;
 
 use super::cache_fs_locks::CacheFsLockPool;
+use super::cache_manifest::NodePluginCacheManifestItem;
+use super::cache_manifest::PluginCacheManifestItemKind;
 use super::implementations::cleanup_plugin;
-use super::implementations::get_file_path_from_plugin_info;
 use super::implementations::setup_plugin;
 use super::read_manifest;
 use super::write_manifest;
@@ -21,9 +22,52 @@ use crate::utils::verify_sha256_checksum;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 
-pub struct PluginCacheItem {
-  pub file_path: PathBuf,
+pub enum PluginCacheItem {
+  Wasm(WasmPluginCacheItem),
+  Exec(ExecProcessPluginCacheItem),
+  Node(NodeProcessPluginCacheItem),
+}
+
+impl PluginCacheItem {
+  pub fn into_wasm(self) -> Option<WasmPluginCacheItem> {
+    if let PluginCacheItem::Wasm(item) = self {
+      Some(item)
+    } else {
+      None
+    }
+  }
+
+  pub fn into_exec(self) -> Option<ExecProcessPluginCacheItem> {
+    if let PluginCacheItem::Exec(item) = self {
+      Some(item)
+    } else {
+      None
+    }
+  }
+
+  pub fn into_node(self) -> Option<NodeProcessPluginCacheItem> {
+    if let PluginCacheItem::Node(item) = self {
+      Some(item)
+    } else {
+      None
+    }
+  }
+}
+
+pub struct WasmPluginCacheItem {
+  pub compiled_wasm_path: PathBuf,
   pub info: PluginInfo,
+}
+
+pub struct ExecProcessPluginCacheItem {
+  pub exe_path: PathBuf,
+  pub info: PluginInfo,
+}
+
+pub struct NodeProcessPluginCacheItem {
+  pub script: PathBuf,
+  pub info: PluginInfo,
+  pub snapshottable: bool,
 }
 
 pub struct PluginCache<TEnvironment: Environment> {
@@ -55,7 +99,7 @@ where
     let removed_cache_item = self.manifest.remove(&source_reference.path_source)?;
 
     if let Some(cache_item) = removed_cache_item {
-      if let Err(err) = cleanup_plugin(&source_reference.path_source, &cache_item.info, &self.environment) {
+      if let Err(err) = cleanup_plugin(&cache_item, &self.environment) {
         self.environment.log_stderr(&format!("Error forgetting plugin: {:#}", err))
       }
     }
@@ -76,10 +120,7 @@ where
           };
 
           if file_hash == cache_file_hash {
-            return Ok(PluginCacheItem {
-              file_path: get_file_path_from_plugin_info(&source_reference.path_source, &manifest_item.info, &self.environment)?,
-              info: manifest_item.info,
-            });
+            return Ok(self.manifest_item_to_plugin_cache_item(manifest_item));
           } else {
             self.forget(source_reference).await?;
           }
@@ -133,28 +174,57 @@ where
     }
 
     let setup_result = setup_plugin(&source_reference.path_source, &file_bytes, &self.environment).await?;
-    let cache_item = PluginCacheManifestItem {
-      info: setup_result.plugin_info.clone(),
-      file_hash: if include_file_hash { Some(get_bytes_hash(&file_bytes)) } else { None },
-      created_time: self.environment.get_time_secs(),
+    let file_hash = if include_file_hash { Some(get_bytes_hash(&file_bytes)) } else { None };
+    let created_time = self.environment.get_time_secs();
+    let cache_item = match &setup_result {
+      super::implementations::SetupPluginResult::Wasm { plugin_info } => PluginCacheManifestItem {
+        kind: PluginCacheManifestItemKind::Wasm,
+        info: plugin_info.clone(),
+        file_hash,
+        created_time,
+      },
+      super::implementations::SetupPluginResult::Exec { plugin_info } => PluginCacheManifestItem {
+        kind: PluginCacheManifestItemKind::Exec,
+        info: plugin_info.clone(),
+        file_hash,
+        created_time,
+      },
+      super::implementations::SetupPluginResult::Node { plugin_info, snapshottable } => PluginCacheManifestItem {
+        kind: PluginCacheManifestItemKind::Node(NodePluginCacheManifestItem { snapshottable: *snapshottable }),
+        created_time,
+        file_hash,
+        info: plugin_info.clone(),
+      },
     };
 
-    self.manifest.add(&source_reference.path_source, cache_item)?;
+    self.manifest.add(&source_reference.path_source, cache_item.clone())?;
 
-    Ok(PluginCacheItem {
-      file_path: setup_result.file_path,
-      info: setup_result.plugin_info,
-    })
+    Ok(self.manifest_item_to_plugin_cache_item(cache_item))
   }
 
   fn get_plugin_cache_item_from_cache(&self, path_source: &PathSource) -> Result<Option<PluginCacheItem>> {
     if let Some(item) = self.manifest.get(path_source)? {
-      Ok(Some(PluginCacheItem {
-        file_path: get_file_path_from_plugin_info(path_source, &item.info, &self.environment)?,
-        info: item.info,
-      }))
+      Ok(Some(self.manifest_item_to_plugin_cache_item(item)))
     } else {
       Ok(None)
+    }
+  }
+
+  fn manifest_item_to_plugin_cache_item(&self, item: PluginCacheManifestItem) -> PluginCacheItem {
+    match item.kind {
+      PluginCacheManifestItemKind::Wasm => PluginCacheItem::Wasm(WasmPluginCacheItem {
+        compiled_wasm_path: super::implementations::get_wasm_plugin_file_path(&item.info, &self.environment),
+        info: item.info,
+      }),
+      PluginCacheManifestItemKind::Exec => PluginCacheItem::Exec(ExecProcessPluginCacheItem {
+        exe_path: super::implementations::get_exec_plugin_file_path(&item.info, &self.environment),
+        info: item.info,
+      }),
+      PluginCacheManifestItemKind::Node(cache_item) => PluginCacheItem::Node(NodeProcessPluginCacheItem {
+        script: super::implementations::get_node_process_plugin_file_path(&item.info, &self.environment),
+        info: item.info,
+        snapshottable: cache_item.snapshottable,
+      }),
     }
   }
 }
@@ -237,20 +307,30 @@ mod test {
 
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_source = PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test.wasm");
-    let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
+    let file_path = plugin_cache
+      .get_plugin_cache_item(&plugin_source)
+      .await?
+      .into_wasm()
+      .unwrap()
+      .compiled_wasm_path;
     let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.1.0-4.0.0-aarch64");
 
     assert_eq!(file_path, expected_file_path);
     assert_eq!(environment.take_stderr_messages(), vec!["Compiling https://plugins.dprint.dev/test.wasm"]);
 
     // should be the same when requesting it again
-    let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
+    let file_path = plugin_cache
+      .get_plugin_cache_item(&plugin_source)
+      .await?
+      .into_wasm()
+      .unwrap()
+      .compiled_wasm_path;
     assert_eq!(file_path, expected_file_path);
 
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":7,"wasmCacheVersion":"4.0.0","plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
+      r#"{"schemaVersion":8,"wasmCacheVersion":"4.0.0","plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"},"kind":"wasm"}}}"#,
     );
 
     // should forget it afterwards
@@ -260,7 +340,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":7,"wasmCacheVersion":"4.0.0","plugins":{}}"#,
+      r#"{"schemaVersion":8,"wasmCacheVersion":"4.0.0","plugins":{}}"#,
     );
 
     Ok(())
@@ -276,7 +356,12 @@ mod test {
 
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_source = PluginSourceReference::new_local(original_file_path.clone());
-    let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
+    let file_path = plugin_cache
+      .get_plugin_cache_item(&plugin_source)
+      .await?
+      .into_wasm()
+      .unwrap()
+      .compiled_wasm_path;
     let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.1.0-4.0.0-x86_64");
 
     assert_eq!(file_path, expected_file_path);
@@ -284,16 +369,21 @@ mod test {
     assert_eq!(environment.take_stderr_messages(), vec!["Compiling /test.wasm"]);
 
     // should be the same when requesting it again
-    let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
+    let file_path = plugin_cache
+      .get_plugin_cache_item(&plugin_source)
+      .await?
+      .into_wasm()
+      .unwrap()
+      .compiled_wasm_path;
     assert_eq!(file_path, expected_file_path);
 
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
       concat!(
-        r#"{"schemaVersion":7,"wasmCacheVersion":"4.0.0","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":10632242795325663332,"info":{"#,
+        r#"{"schemaVersion":8,"wasmCacheVersion":"4.0.0","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":10632242795325663332,"info":{"#,
         r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
-        r#""fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
+        r#""fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"},"kind":"wasm"}}}"#,
       )
     );
 
@@ -307,15 +397,17 @@ mod test {
     let file_path = plugin_cache
       .get_plugin_cache_item(&PluginSourceReference::new_local(original_file_path.clone()))
       .await?
-      .file_path;
+      .into_wasm()
+      .unwrap()
+      .compiled_wasm_path;
     assert_eq!(file_path, expected_file_path);
 
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
       concat!(
-        r#"{"schemaVersion":7,"wasmCacheVersion":"4.0.0","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":6989588595861227504,"info":{"#,
+        r#"{"schemaVersion":8,"wasmCacheVersion":"4.0.0","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":6989588595861227504,"info":{"#,
         r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
-        r#""fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
+        r#""fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"},"kind":"wasm"}}}"#,
       )
     );
 
@@ -328,7 +420,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":7,"wasmCacheVersion":"4.0.0","plugins":{}}"#,
+      r#"{"schemaVersion":8,"wasmCacheVersion":"4.0.0","plugins":{}}"#,
     );
 
     Ok(())

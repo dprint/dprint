@@ -181,6 +181,12 @@ impl Environment for RealEnvironment {
     file_path.as_ref().exists()
   }
 
+  fn path_is_file(&self, path: impl AsRef<Path>) -> bool {
+    log_verbose!(self, "Checking path is file: {}", path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
+    path.as_ref().is_file()
+  }
+
   fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
     canonicalize_path(path)
   }
@@ -320,6 +326,10 @@ impl Environment for RealEnvironment {
 
   fn progress_bars(&self) -> Option<ProgressBars> {
     self.progress_bars.clone()
+  }
+
+  fn var(&self, name: &str) -> Option<String> {
+    std::env::var(name).ok()
   }
 
   #[cfg(windows)]

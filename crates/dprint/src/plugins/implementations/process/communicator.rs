@@ -6,8 +6,8 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
+use dprint_core::plugins::process::ProcessPluginExecutableInfo;
 use dprint_core::plugins::FormatResult;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 // We only need to support having one configuration set at a time
@@ -17,7 +17,7 @@ const CONFIG_ID: u32 = 1;
 struct ProcessRestartInfo<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_name: String,
-  executable_file_path: PathBuf,
+  executable_info: ProcessPluginExecutableInfo,
   config: (GlobalConfiguration, ConfigKeyMap),
   plugin_collection: Arc<PluginsCollection<TEnvironment>>,
 }
@@ -30,7 +30,7 @@ pub struct InitializedProcessPluginCommunicator<TEnvironment: Environment> {
 impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironment> {
   pub async fn new(
     plugin_name: String,
-    executable_file_path: PathBuf,
+    executable_info: ProcessPluginExecutableInfo,
     config: (GlobalConfiguration, ConfigKeyMap),
     environment: TEnvironment,
     plugin_collection: Arc<PluginsCollection<TEnvironment>>,
@@ -38,7 +38,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     let restart_info = ProcessRestartInfo {
       environment,
       plugin_name,
-      executable_file_path,
+      executable_info,
       config,
       plugin_collection,
     };
@@ -53,15 +53,18 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
 
   #[cfg(test)]
   pub async fn new_test_plugin_communicator(environment: TEnvironment, collection: Arc<PluginsCollection<TEnvironment>>, plugin_config: ConfigKeyMap) -> Self {
-    use crate::plugins::implementations::process::get_file_path_from_name_and_version;
+    use crate::plugins::implementations::process::get_exec_plugin_file_path;
     use crate::plugins::implementations::process::get_test_safe_executable_path;
 
-    let plugin_file_path = get_file_path_from_name_and_version("test-process-plugin", "0.1.0", &environment);
+    let plugin_file_path = get_exec_plugin_file_path("test-process-plugin", "0.1.0", &environment);
     let test_plugin_file_path = get_test_safe_executable_path(plugin_file_path, &environment);
 
     Self::new(
       "test-process-plugin".to_string(),
-      test_plugin_file_path,
+      ProcessPluginExecutableInfo {
+        path: test_plugin_file_path,
+        args: Vec::new(),
+      },
       (Default::default(), plugin_config),
       environment.clone(),
       collection,
@@ -124,7 +127,7 @@ async fn create_new_communicator<TEnvironment: Environment>(restart_info: &Proce
   let plugin_name = restart_info.plugin_name.to_string();
   let environment = restart_info.environment.clone();
   let communicator = ProcessPluginCommunicator::new(
-    &restart_info.executable_file_path,
+    &restart_info.executable_info,
     move |error_message| {
       environment.log_stderr_with_context(&error_message, &plugin_name);
     },
@@ -137,6 +140,7 @@ async fn create_new_communicator<TEnvironment: Environment>(restart_info: &Proce
 
 #[cfg(test)]
 mod test {
+  use std::path::PathBuf;
   use std::time::Duration;
 
   use dprint_core::plugins::NullCancellationToken;

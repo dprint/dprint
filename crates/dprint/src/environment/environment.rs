@@ -75,6 +75,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<()>;
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>>;
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool;
+  fn path_is_file(&self, path: impl AsRef<Path>) -> bool;
   fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf>;
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool;
   fn file_permissions(&self, path: impl AsRef<Path>) -> Result<FilePermissions>;
@@ -118,6 +119,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn progress_bars(&self) -> Option<ProgressBars> {
     None
   }
+  fn var(&self, name: &str) -> Option<String>;
   #[cfg(windows)]
   fn ensure_system_path(&self, directory_path: &str) -> Result<()>;
   #[cfg(windows)]

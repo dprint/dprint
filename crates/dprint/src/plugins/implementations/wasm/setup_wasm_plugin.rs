@@ -28,14 +28,5 @@ pub fn setup_wasm_plugin<TEnvironment: Environment>(url_or_file_path: &PathSourc
   environment.mk_dir_all(plugin_cache_file_path.parent().unwrap())?;
   environment.atomic_write_file_bytes(&plugin_cache_file_path, &compile_result.bytes)?;
 
-  Ok(SetupPluginResult {
-    plugin_info,
-    file_path: plugin_cache_file_path,
-  })
-}
-
-pub fn cleanup_wasm_plugin(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<()> {
-  let plugin_file_path = get_file_path_from_plugin_info(plugin_info, environment);
-  environment.remove_file(plugin_file_path)?;
-  Ok(())
+  Ok(SetupPluginResult::Wasm { plugin_info })
 }

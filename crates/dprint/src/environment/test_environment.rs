@@ -111,6 +111,7 @@ pub struct TestEnvironment {
   std_in_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
   std_out_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
   runtime_handle: Arc<Mutex<Option<tokio::runtime::Handle>>>,
+  vars: Arc<Mutex<HashMap<String, String>>>,
   #[cfg(windows)]
   path_dirs: Arc<Mutex<Vec<PathBuf>>>,
   cpu_arch: Arc<Mutex<String>>,
@@ -144,6 +145,7 @@ impl TestEnvironment {
         (Some(pipe.0), pipe.1)
       })),
       runtime_handle: Default::default(),
+      vars: Default::default(),
       #[cfg(windows)]
       path_dirs: Default::default(),
       cpu_arch: Arc::new(Mutex::new("x86_64".to_string())),
@@ -416,6 +418,11 @@ impl Environment for TestEnvironment {
     files.contains_key(&self.clean_path(file_path))
   }
 
+  fn path_is_file(&self, path: impl AsRef<Path>) -> bool {
+    let files = self.files.lock();
+    files.contains_key(&self.clean_path(path))
+  }
+
   fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
     Ok(CanonicalizedPathBuf::new(self.clean_path(path)))
   }
@@ -555,6 +562,10 @@ impl Environment for TestEnvironment {
   fn runtime_handle(&self) -> tokio::runtime::Handle {
     // need to call set_runtime_handle to make this not panic
     self.runtime_handle.lock().as_ref().unwrap().clone()
+  }
+
+  fn var(&self, name: &str) -> Option<String> {
+    self.vars.lock().get(name).cloned()
   }
 
   #[cfg(windows)]

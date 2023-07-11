@@ -9,7 +9,7 @@ use dprint_core::plugins::PluginInfo;
 use super::implementations::WASMER_COMPILER_VERSION;
 use crate::environment::Environment;
 
-const PLUGIN_CACHE_SCHEMA_VERSION: usize = 7;
+const PLUGIN_CACHE_SCHEMA_VERSION: usize = 8;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +77,23 @@ pub struct PluginCacheManifestItem {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub file_hash: Option<u64>,
   pub info: PluginInfo,
+  #[serde(flatten)]
+  pub kind: PluginCacheManifestItemKind,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[serde(tag = "kind")]
+pub enum PluginCacheManifestItemKind {
+  Wasm,
+  Exec,
+  Node(NodePluginCacheManifestItem),
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NodePluginCacheManifestItem {
+  pub snapshottable: bool,
 }
 
 pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
@@ -104,10 +121,10 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
 
   fn try_deserialize(environment: &impl Environment) -> Result<PluginCacheManifest> {
     let file_path = get_manifest_file_path(environment);
-    match environment.read_file(file_path) {
-      Ok(text) => Ok(serde_json::from_str::<PluginCacheManifest>(&text)?),
-      Err(_) => Ok(PluginCacheManifest::new()),
-    }
+    let Ok(text) = environment.read_file(file_path) else {
+      return Ok(PluginCacheManifest::new());
+    };
+    Ok(serde_json::from_str::<PluginCacheManifest>(&text)?)
   }
 }
 
@@ -135,7 +152,7 @@ mod test {
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
         r#"{
-    "schemaVersion": 7,
+    "schemaVersion": 8,
     "wasmCacheVersion": "99.9.9",
     "plugins": {
         "a": {
@@ -147,7 +164,8 @@ mod test {
                 "fileExtensions": [".ts"],
                 "helpUrl": "help url",
                 "configSchemaUrl": "schema url"
-            }
+            },
+            "kind": "wasm"
         },
         "c": {
             "createdTime": 456,
@@ -159,7 +177,9 @@ mod test {
                 "fileExtensions": [".json"],
                 "helpUrl": "help url 2",
                 "configSchemaUrl": "schema url 2"
-            }
+            },
+            "kind": "node",
+            "snapshottable": true
         },
         "cargo": {
             "createdTime": 210530,
@@ -173,7 +193,8 @@ mod test {
                 "helpUrl": "cargo help url",
                 "configSchemaUrl": "cargo schema url",
                 "updateUrl": "cargo update url"
-            }
+            },
+            "kind": "exec"
         }
     }
 }"#,
@@ -198,6 +219,7 @@ mod test {
           config_schema_url: "schema url".to_string(),
           update_url: None,
         },
+        kind: PluginCacheManifestItemKind::Wasm,
       },
     );
     expected_manifest.add_item(
@@ -215,6 +237,7 @@ mod test {
           config_schema_url: "schema url 2".to_string(),
           update_url: None,
         },
+        kind: PluginCacheManifestItemKind::Node(NodePluginCacheManifestItem { snapshottable: true }),
       },
     );
     expected_manifest.add_item(
@@ -232,6 +255,7 @@ mod test {
           config_schema_url: "cargo schema url".to_string(),
           update_url: Some("cargo update url".to_string()),
         },
+        kind: PluginCacheManifestItemKind::Exec,
       },
     );
 
@@ -338,6 +362,7 @@ mod test {
           config_schema_url: "schema url".to_string(),
           update_url: Some("update url".to_string()),
         },
+        kind: PluginCacheManifestItemKind::Wasm,
       },
     );
     manifest.add_item(
@@ -355,6 +380,25 @@ mod test {
           config_schema_url: "schema url 2".to_string(),
           update_url: None,
         },
+        kind: PluginCacheManifestItemKind::Exec,
+      },
+    );
+    manifest.add_item(
+      String::from("c"),
+      PluginCacheManifestItem {
+        created_time: 456,
+        file_hash: None,
+        info: PluginInfo {
+          name: "dprint-plugin-other".to_string(),
+          version: "0.2.0".to_string(),
+          config_key: "json".to_string(),
+          file_extensions: vec![".json".to_string()],
+          file_names: vec!["file.test".to_string()],
+          help_url: "help url 2".to_string(),
+          config_schema_url: "schema url 2".to_string(),
+          update_url: None,
+        },
+        kind: PluginCacheManifestItemKind::Node(NodePluginCacheManifestItem { snapshottable: true }),
       },
     );
     write_manifest(&manifest, &environment).unwrap();
