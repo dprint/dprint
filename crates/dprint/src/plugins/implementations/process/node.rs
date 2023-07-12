@@ -15,7 +15,9 @@ pub fn resolve_node_executable(environment: &impl Environment) -> Result<&'stati
       if let Some(path) = environment.var(DPRINT_NODE_PATH_ENV_VAR_NAME) {
         return Ok(PathBuf::from(path));
       }
-      which_global("node", environment)
+      let exe_path = which_global("node", environment)?;
+      log_verbose!(environment, "Resolved node executable path: {}", exe_path.display());
+      Ok(exe_path)
     })
     .as_ref()
     .map_err(|err| {
@@ -42,7 +44,10 @@ pub fn resolve_npm_executable(environment: &impl Environment) -> Result<&'static
         return Ok(PathBuf::from(path));
       }
 
-      which_global(&npm_executable_name(environment), environment)
+      let command_name = npm_command_name(environment);
+      let exe_path = which_global(&command_name, environment)?;
+      log_verbose!(environment, "Resolved npm executable path: {}", exe_path.display());
+      Ok(exe_path)
     })
     .as_ref()
     .map_err(|err| {
@@ -52,7 +57,7 @@ pub fn resolve_npm_executable(environment: &impl Environment) -> Result<&'static
           "installed and available on the path. Alternatively, you may supply a {} ",
           "or {} environment variable.\n\n{:#}"
         ),
-        npm_executable_name(environment),
+        npm_command_name(environment),
         DPRINT_NPM_PATH_ENV_VAR_NAME,
         DPRINT_NPM_COMMAND_ENV_VAR_NAME,
         err,
@@ -60,9 +65,11 @@ pub fn resolve_npm_executable(environment: &impl Environment) -> Result<&'static
     })
 }
 
-fn npm_executable_name(environment: &impl Environment) -> String {
-  match environment.var(DPRINT_NPM_COMMAND_ENV_VAR_NAME) {
+fn npm_command_name(environment: &impl Environment) -> String {
+  let name = match environment.var(DPRINT_NPM_COMMAND_ENV_VAR_NAME) {
     Some(cmd) => cmd,
     None => "npm".to_string(),
-  }
+  };
+  log_verbose!(environment, "Resolved npm command name: {}", name);
+  name
 }

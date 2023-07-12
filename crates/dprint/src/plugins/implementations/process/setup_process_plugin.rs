@@ -1,4 +1,5 @@
 use anyhow::bail;
+use anyhow::Context;
 use anyhow::Result;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::plugins::process::ProcessPluginExecutableInfo;
@@ -6,6 +7,9 @@ use dprint_core::plugins::NoopHost;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
+use std::io::BufRead;
+use std::io::ErrorKind;
+use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -185,15 +189,30 @@ async fn setup_node<TEnvironment: Environment>(
     bail!("Plugin zip file did not contain required script file at: {}", plugin_mjs_file_path.display());
   }
   if environment.path_exists(plugin_cache_dir_path.join("package.json")) {
-    let npm_executable_path = resolve_npm_executable(environment)?.clone();
-    log_verbose!(environment, "Running npm install.");
-    let exit_code = Command::new(npm_executable_path)
-      .arg("install")
-      .stdout(Stdio::null())
-      .current_dir(&plugin_cache_dir_path)
-      .status()?;
-    if !exit_code.success() {
-      bail!("Failed to install npm dependencies for plugin: {}", plugin_file.name);
+    if environment.path_exists(plugin_cache_dir_path.join("package-lock.json")) {
+      let npm_executable_path = resolve_npm_executable(environment)?.clone();
+      log_verbose!(environment, "Running npm install with {}", npm_executable_path.display());
+      let mut child = Command::new(npm_executable_path)
+        .arg("install")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .current_dir(plugin_cache_dir_path)
+        .spawn()
+        .with_context(|| format!("Failed to npm install in {}", plugin_cache_dir_path.display()))?;
+
+      log_pipe(&plugin_file.name, child.stdout.take().unwrap(), environment);
+      log_pipe(&plugin_file.name, child.stderr.take().unwrap(), environment);
+
+      let exit_status = child.wait()?;
+      if !exit_status.success() {
+        bail!("Failed to install npm dependencies for plugin: {}", plugin_file.name);
+      }
+    } else {
+      log_verbose!(
+        environment,
+        "{}: Skipping npm install because package-lock.json was not found.",
+        plugin_file.name
+      );
     }
   }
 
@@ -240,6 +259,29 @@ fn get_plugin_zip_bytes<TEnvironment: Environment>(
   }
 
   Ok(plugin_zip_bytes)
+}
+
+fn log_pipe(plugin_name: &str, pipe: impl Read + Send + Sync + 'static, environment: &impl Environment) {
+  tokio::task::spawn_blocking({
+    let environment = environment.clone();
+    let plugin_name = plugin_name.to_string();
+    move || {
+      let reader = std::io::BufReader::new(pipe);
+      for line in reader.lines() {
+        match line {
+          Ok(line) => {
+            environment.log_stderr_with_context(&line, &plugin_name);
+          }
+          Err(err) => {
+            if err.kind() != ErrorKind::BrokenPipe {
+              log_verbose!(environment, "Error reading output from npm install: {:#}", err)
+            }
+            return;
+          }
+        }
+      }
+    }
+  });
 }
 
 #[allow(clippy::large_enum_variant)]
