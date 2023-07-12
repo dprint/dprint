@@ -8,6 +8,8 @@ use serde::Serialize;
 use serde_json::Value;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::Command;
+use std::process::Stdio;
 use std::str;
 use std::sync::Arc;
 
@@ -20,6 +22,7 @@ use crate::utils::verify_sha256_checksum;
 use crate::utils::PathSource;
 
 use super::resolve_node_executable;
+use super::resolve_npm_executable;
 
 pub fn get_exec_plugin_file_path(name: &str, version: &str, environment: &impl Environment) -> PathBuf {
   get_exec_plugin_dir_path(name, version, environment).join(get_exec_plugin_file_name(name))
@@ -167,6 +170,7 @@ async fn setup_node<TEnvironment: Environment>(
   plugin_file: NodeProcessPluginFile,
   environment: &TEnvironment,
 ) -> std::result::Result<SetupPluginResult, anyhow::Error> {
+  let executable_path = resolve_node_executable(environment)?.clone();
   let zip_bytes = get_plugin_zip_bytes(url_or_file_path, &plugin_file.archive, environment)?;
   let plugin_mjs_file_path = plugin_cache_dir_path.join("main.mjs");
 
@@ -180,9 +184,21 @@ async fn setup_node<TEnvironment: Environment>(
   if !environment.path_exists(&plugin_mjs_file_path) {
     bail!("Plugin zip file did not contain required script file at: {}", plugin_mjs_file_path.display());
   }
+  if environment.path_exists(plugin_cache_dir_path.join("package.json")) {
+    let npm_executable_path = resolve_npm_executable(environment)?.clone();
+    log_verbose!(environment, "Running npm install.");
+    let exit_code = Command::new(npm_executable_path)
+      .arg("install")
+      .stdout(Stdio::null())
+      .current_dir(&plugin_cache_dir_path)
+      .status()?;
+    if !exit_code.success() {
+      bail!("Failed to install npm dependencies for plugin: {}", plugin_file.name);
+    }
+  }
+
   let snapshottable = environment.path_exists(plugin_cache_dir_path.join("snapshot.mjs"));
 
-  let executable_path = resolve_node_executable(environment)?.clone();
   let communicator = ProcessPluginCommunicator::new_with_init(
     &ProcessPluginExecutableInfo {
       path: executable_path,
