@@ -117,6 +117,7 @@ impl Environment for RealEnvironment {
   }
 
   fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> Result<()> {
+    log_verbose!(self, "Renaming {} -> {}", path_from.as_ref().display(), path_to.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     fs::rename(&path_from, &path_to).with_context(|| format!("Error renaming {} to {}", path_from.as_ref().display(), path_to.as_ref().display()))
   }

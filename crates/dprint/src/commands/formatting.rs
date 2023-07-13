@@ -1758,7 +1758,7 @@ mod test {
         concat!(
           "Error resolving plugin https://plugins.dprint.dev/test-process.json: The plugin must have a checksum specified ",
           "for security reasons since it is not a Wasm plugin. Check the plugin's release notes for what the checksum is or if ",
-          "you trust the source, you may specify \"https://plugins.dprint.dev/test-process.json@{}\"."
+          "you trust the source, you may specify: https://plugins.dprint.dev/test-process.json@{}"
         ),
         actual_plugin_file_checksum,
       ),
