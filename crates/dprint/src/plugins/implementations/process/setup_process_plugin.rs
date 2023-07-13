@@ -253,7 +253,7 @@ mod test {
         .err()
         .unwrap()
         .to_string(),
-      "Only process plugins are supported by this version of dprint. Please upgrade your CLI.",
+      "Unsupported plugin kind: other\nOnly process plugins are supported by this version of dprint. Please upgrade your CLI.",
     );
   }
 }
