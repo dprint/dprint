@@ -150,6 +150,15 @@ fn handle_config_file<TEnvironment: Environment>(resolved_path: &ResolvedPath, r
     }
   }
 
+  // combine excludes
+  let excludes = take_array_from_config_map(&mut new_config_map, "excludes")?;
+  if let Some(excludes) = excludes {
+    match &mut resolved_config.excludes {
+      Some(resolved_excludes) => resolved_excludes.extend(excludes),
+      None => resolved_config.excludes = Some(excludes),
+    }
+  }
+
   // Also remove any non-wasm plugins, but only for remote configurations.
   // The assumption here is that the user won't be malicious to themselves.
   let plugins = take_plugins_array_from_config_map(&mut new_config_map, &resolved_path.source.parent(), environment)?;
@@ -463,7 +472,7 @@ mod tests {
     assert_eq!(result.base_path, CanonicalizedPathBuf::new_for_testing("/"));
     assert_eq!(result.resolved_path.is_local(), true);
     assert_eq!(result.includes, None);
-    assert_eq!(result.excludes, None);
+    assert_eq!(result.excludes, Some(vec!["test-excludes".to_string()]));
     assert_eq!(
       result.plugins,
       vec![
@@ -495,7 +504,6 @@ mod tests {
           properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
         }),
       ),
-      ("excludes".to_string(), ConfigMapValue::Vec(vec!["test-excludes".to_string()])),
     ]);
 
     assert_eq!(result.config_map, expected_config_map);
