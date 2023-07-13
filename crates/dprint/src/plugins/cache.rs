@@ -125,7 +125,7 @@ where
         concat!(
           "The plugin must have a checksum specified for security reasons ",
           "since it is not a Wasm plugin. Check the plugin's release notes for what ",
-          "the checksum is or if you trust the source, you may specify \"{}@{}\"."
+          "the checksum is or if you trust the source, you may specify: {}@{}"
         ),
         source_reference.path_source.display(),
         get_sha256_checksum(&file_bytes),

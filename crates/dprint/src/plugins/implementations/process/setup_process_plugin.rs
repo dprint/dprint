@@ -197,8 +197,10 @@ fn verify_plugin_file(plugin_file: &Value) -> Result<()> {
 
   let kind = plugin_file.as_object().and_then(|o| o.get("kind")).and_then(|v| v.as_str());
 
-  if kind.is_some() && kind != Some("process") {
-    bail!("Only process plugins are supported by this version of dprint. Please upgrade your CLI.");
+  if let Some(kind) = kind {
+    if kind != "process" {
+      bail!("Unsupported plugin kind: {kind}\nOnly process plugins are supported by this version of dprint. Please upgrade your CLI.");
+    }
   }
 
   Ok(())
@@ -251,7 +253,7 @@ mod test {
         .err()
         .unwrap()
         .to_string(),
-      "Only process plugins are supported by this version of dprint. Please upgrade your CLI.",
+      "Unsupported plugin kind: other\nOnly process plugins are supported by this version of dprint. Please upgrade your CLI.",
     );
   }
 }
