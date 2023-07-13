@@ -118,7 +118,6 @@ if (version == null) {
       "name": `@dprint/${pkgName}`,
       "version": version,
       "description": `${pkgName} distribution of the dprint code formatter`,
-      "bin": "bin.js",
       "repository": {
         "type": "git",
         "url": "git+https://github.com/dprint/dprint.git",
