@@ -92,7 +92,10 @@ pub async fn get_and_resolve_file_paths(
   let environment = environment.clone();
 
   // This is intensive so do it in a blocking task
-  tokio::task::spawn_blocking(move || glob(&environment, &base_dir, file_patterns)).await.unwrap()
+  tokio::task::spawn_blocking(move || glob(&environment, &base_dir, file_patterns))
+    .await
+    .unwrap()
+    .map(|f| f.file_paths) // todo: change the parent functions to deal with more config files
 }
 
 fn get_plugin_patterns(plugins: &[Box<dyn Plugin>]) -> Vec<String> {

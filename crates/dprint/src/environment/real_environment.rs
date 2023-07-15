@@ -11,7 +11,6 @@ use std::time::SystemTime;
 
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
-use super::DirEntryKind;
 use super::Environment;
 use super::FilePermissions;
 use super::UrlDownloader;
@@ -161,14 +160,11 @@ impl Environment for RealEnvironment {
       let entry = entry?;
       let file_type = entry.file_type()?;
       if file_type.is_dir() {
-        entries.push(DirEntry {
-          kind: DirEntryKind::Directory,
-          path: entry.path().to_path_buf(),
-        });
+        entries.push(DirEntry::Directory(entry.path()));
       } else if file_type.is_file() {
-        entries.push(DirEntry {
-          kind: DirEntryKind::File,
-          path: entry.path().to_path_buf(),
+        entries.push(DirEntry::File {
+          name: entry.file_name(),
+          path: entry.path(),
         });
       }
     }

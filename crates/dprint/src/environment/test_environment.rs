@@ -16,7 +16,6 @@ use std::sync::Arc;
 
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
-use super::DirEntryKind;
 use super::Environment;
 use super::FilePermissions;
 use super::UrlDownloader;
@@ -384,8 +383,8 @@ impl Environment for TestEnvironment {
     let files = self.files.lock();
     for key in files.keys() {
       if key.parent().unwrap() == dir_path {
-        entries.push(DirEntry {
-          kind: DirEntryKind::File,
+        entries.push(DirEntry::File {
+          name: key.file_name().unwrap().to_os_string(),
           path: key.clone(),
         });
       } else {
@@ -397,10 +396,7 @@ impl Environment for TestEnvironment {
           };
 
           if ancestor_parent_dir == dir_path && found_directories.insert(ancestor_dir) {
-            entries.push(DirEntry {
-              kind: DirEntryKind::Directory,
-              path: ancestor_dir.to_path_buf(),
-            });
+            entries.push(DirEntry::Directory(ancestor_dir.to_path_buf()));
             break;
           }
           current_dir = ancestor_dir.parent();

@@ -11,15 +11,9 @@ use crate::utils::ProgressBars;
 use super::CanonicalizedPathBuf;
 
 #[derive(Debug)]
-pub struct DirEntry {
-  pub kind: DirEntryKind,
-  pub path: PathBuf,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum DirEntryKind {
-  Directory,
-  File,
+pub enum DirEntry {
+  Directory(PathBuf),
+  File { name: std::ffi::OsString, path: PathBuf },
 }
 
 #[derive(Debug, Clone)]
