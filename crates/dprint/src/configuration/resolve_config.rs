@@ -19,6 +19,7 @@ use crate::utils::PluginKind;
 use crate::utils::ResolvedPath;
 
 use super::resolve_main_config_path::resolve_main_config_path;
+use super::resolve_main_config_path::ResolvedConfigPath;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ResolvedConfig {
@@ -34,46 +35,76 @@ pub struct ResolvedConfig {
 
 #[derive(Debug, Error)]
 #[error(transparent)]
-pub struct ResolveConfigFromArgsError(#[from] anyhow::Error);
+pub enum ResolveConfigError {
+  #[error("No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?\n  Error: {inner:#}", .config_path.display())]
+  NotFound {
+    config_path: CanonicalizedPathBuf,
+    inner: anyhow::Error,
+  },
+  Other(#[from] anyhow::Error),
+}
 
-pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<ResolvedConfig, ResolveConfigFromArgsError> {
+pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<ResolvedConfig, ResolveConfigError> {
   let resolved_config_path = resolve_main_config_path(args, environment)?;
-  let base_source = resolved_config_path.resolved_path.source.parent();
-  let config_file_path = &resolved_config_path.resolved_path.file_path;
-  let main_config_map = get_config_map_from_path(config_file_path, environment)?;
-
-  let mut main_config_map = match main_config_map {
-    Ok(main_config_map) => main_config_map,
+  let mut resolved_config = match resolve_config_from_path(&resolved_config_path, environment) {
+    Ok(resolved_config) => resolved_config,
     Err(err) => {
-      // allow no config file when plugins are specified
-      if !args.plugins.is_empty() && !environment.path_exists(config_file_path) {
-        ConfigMap::new()
+      if !args.plugins.is_empty() && matches!(err, ResolveConfigError::NotFound { .. }) {
+        // allow no config file when plugins are specified
+        ResolvedConfig {
+          config_map: ConfigMap::new(),
+          base_path: resolved_config_path.base_path.clone(),
+          resolved_path: resolved_config_path.resolved_path.clone(),
+          excludes: None,
+          includes: None,
+          incremental: None,
+          plugins: Vec::new(),
+        }
       } else {
-        return Err(ResolveConfigFromArgsError(anyhow::anyhow!(
-          "No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?\n  Error: {}",
-          config_file_path.display(),
-          err.to_string(),
-        )));
+        return Err(err);
       }
     }
   };
 
-  let plugins_vec = take_plugins_array_from_config_map(&mut main_config_map, &base_source, environment)?; // always take this out of the config map
-  let plugins = filter_duplicate_plugin_sources(if args.plugins.is_empty() {
+  if !args.plugins.is_empty() {
+    let base_path = PathSource::new_local(resolved_config_path.base_path);
+    let mut plugins = Vec::with_capacity(args.plugins.len());
+    for url_or_file_path in args.plugins.iter() {
+      plugins.push(parse_plugin_source_reference(url_or_file_path, &base_path, environment)?);
+    }
+
+    resolved_config.plugins = plugins;
+  }
+
+  Ok(resolved_config)
+}
+
+pub fn resolve_config_from_path<TEnvironment: Environment>(
+  resolved_config_path: &ResolvedConfigPath,
+  environment: &TEnvironment,
+) -> Result<ResolvedConfig, ResolveConfigError> {
+  let base_source = resolved_config_path.resolved_path.source.parent();
+  let config_file_path = &resolved_config_path.resolved_path.file_path;
+  let config_map = get_config_map_from_path(config_file_path, environment)?;
+
+  let mut config_map = match config_map {
+    Ok(main_config_map) => main_config_map,
+    Err(err) => {
+      return Err(ResolveConfigError::NotFound {
+        config_path: config_file_path.to_owned(),
+        inner: err,
+      });
+    }
+  };
+
+  let plugins_vec = take_plugins_array_from_config_map(&mut config_map, &base_source, environment)?; // always take this out of the config map
+  let plugins = filter_duplicate_plugin_sources({
     // filter out any non-wasm plugins from remote config
     if !resolved_config_path.resolved_path.is_local() {
       filter_non_wasm_plugins(plugins_vec, environment) // NEVER REMOVE THIS STATEMENT
     } else {
       plugins_vec
     }
-  } else {
-    let base_path = PathSource::new_local(resolved_config_path.base_path.clone());
-    let mut plugins = Vec::with_capacity(args.plugins.len());
-    for url_or_file_path in args.plugins.iter() {
-      plugins.push(parse_plugin_source_reference(url_or_file_path, &base_path, environment)?);
-    }
-
-    plugins
   });
 
   // IMPORTANT
@@ -84,22 +115,22 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, envir
   // control over what files get formatted.
   if !resolved_config_path.resolved_path.is_local() {
     // Careful! Don't be fancy and ensure this is removed.
-    let removed_includes = main_config_map.remove("includes"); // NEVER REMOVE THIS STATEMENT
+    let removed_includes = config_map.remove("includes"); // NEVER REMOVE THIS STATEMENT
     if removed_includes.is_some() && resolved_config_path.resolved_path.is_first_download {
       environment.log_stderr(&get_warn_includes_message());
     }
   }
   // =========
 
-  let includes = take_array_from_config_map(&mut main_config_map, "includes")?;
-  let excludes = take_array_from_config_map(&mut main_config_map, "excludes")?;
-  let incremental = take_bool_from_config_map(&mut main_config_map, "incremental")?;
-  main_config_map.remove("projectType"); // this was an old config property that's no longer used
-  let extends = take_extends(&mut main_config_map)?;
+  let includes = take_array_from_config_map(&mut config_map, "includes")?;
+  let excludes = take_array_from_config_map(&mut config_map, "excludes")?;
+  let incremental = take_bool_from_config_map(&mut config_map, "incremental")?;
+  config_map.remove("projectType"); // this was an old config property that's no longer used
+  let extends = take_extends(&mut config_map)?;
   let mut resolved_config = ResolvedConfig {
-    resolved_path: resolved_config_path.resolved_path,
-    base_path: resolved_config_path.base_path,
-    config_map: main_config_map,
+    resolved_path: resolved_config_path.resolved_path.clone(),
+    base_path: resolved_config_path.base_path.clone(),
+    config_map,
     includes,
     excludes,
     plugins,
@@ -317,7 +348,7 @@ mod tests {
 
   use super::*;
 
-  fn get_result(url: &str, environment: &impl Environment) -> Result<ResolvedConfig, ResolveConfigFromArgsError> {
+  fn get_result(url: &str, environment: &impl Environment) -> Result<ResolvedConfig, ResolveConfigError> {
     let args = parse_args(
       vec![String::from(""), String::from("check"), String::from("-c"), String::from(url)],
       TestStdInReader::default(),

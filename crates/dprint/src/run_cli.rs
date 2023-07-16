@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::arg_parser::ParseArgsError;
 use crate::commands::CheckError;
-use crate::configuration::ResolveConfigFromArgsError;
+use crate::configuration::ResolveConfigError;
 use crate::environment::Environment;
 use crate::paths::NoFilesFoundError;
 use crate::plugins::NoPluginsFoundError;
@@ -30,7 +30,7 @@ impl From<anyhow::Error> for AppError {
       Ok(err) => return err.into(),
       Err(err) => err,
     };
-    let inner = match inner.downcast::<ResolveConfigFromArgsError>() {
+    let inner = match inner.downcast::<ResolveConfigError>() {
       Ok(err) => return err.into(),
       Err(err) => err,
     };
@@ -63,8 +63,8 @@ impl From<ParseArgsError> for AppError {
   }
 }
 
-impl From<ResolveConfigFromArgsError> for AppError {
-  fn from(inner: ResolveConfigFromArgsError) -> Self {
+impl From<ResolveConfigError> for AppError {
+  fn from(inner: ResolveConfigError) -> Self {
     AppError {
       inner: inner.into(),
       exit_code: 11,
