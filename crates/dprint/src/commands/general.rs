@@ -4,13 +4,11 @@ use crate::arg_parser::create_cli_parser;
 use crate::arg_parser::CliArgParserKind;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::OutputFilePathsSubCommand;
-use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
-use crate::paths::get_and_resolve_file_paths;
-use crate::paths::get_file_paths_by_plugins;
+use crate::paths::NoFilesFoundError;
 use crate::plugins::get_plugins_from_args;
-use crate::plugins::resolve_plugins_and_err_if_empty;
 use crate::plugins::PluginResolver;
+use crate::resolution::resolve_plugins_and_paths;
 use crate::utils::get_table_text;
 use crate::utils::is_out_of_date;
 
@@ -91,12 +89,13 @@ pub async fn output_file_paths<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &PluginResolver<TEnvironment>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  let resolved_file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, &plugins, environment).await?;
-  let file_paths_by_plugin = get_file_paths_by_plugins(&plugins, resolved_file_paths, &config.base_path)?;
+  let file_paths_by_plugins = match resolve_plugins_and_paths(args, &cmd.patterns, environment, plugin_resolver).await {
+    Ok(result) => result.file_paths_by_plugins,
+    Err(err) if err.downcast_ref::<NoFilesFoundError>().is_some() => Default::default(),
+    Err(err) => return Err(err),
+  };
 
-  let file_paths = file_paths_by_plugin.values().flat_map(|x| x.iter());
+  let file_paths = file_paths_by_plugins.values().flat_map(|x| x.iter());
   for file_path in file_paths {
     environment.log(&file_path.display().to_string())
   }

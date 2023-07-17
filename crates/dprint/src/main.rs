@@ -17,6 +17,7 @@ mod incremental;
 mod paths;
 mod patterns;
 mod plugins;
+mod resolution;
 mod run_cli;
 mod utils;
 

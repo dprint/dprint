@@ -15,6 +15,7 @@ use crate::plugins::Plugin;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::utils::glob;
 use crate::utils::is_negated_glob;
+use crate::utils::GlobOutput;
 use crate::utils::GlobPattern;
 
 /// Struct that allows using plugin names as a key
@@ -78,7 +79,7 @@ pub async fn get_and_resolve_file_paths(
   args: &FilePatternArgs,
   plugins: &[Box<dyn Plugin>],
   environment: &impl Environment,
-) -> Result<Vec<PathBuf>> {
+) -> Result<GlobOutput> {
   let cwd = environment.cwd();
   let mut file_patterns = get_all_file_patterns(config, args, &cwd);
   if file_patterns.includes.is_none() {
@@ -92,10 +93,7 @@ pub async fn get_and_resolve_file_paths(
   let environment = environment.clone();
 
   // This is intensive so do it in a blocking task
-  tokio::task::spawn_blocking(move || glob(&environment, &base_dir, file_patterns))
-    .await
-    .unwrap()
-    .map(|f| f.file_paths) // todo: change the parent functions to deal with more config files
+  tokio::task::spawn_blocking(move || glob(&environment, &base_dir, file_patterns)).await.unwrap()
 }
 
 fn get_plugin_patterns(plugins: &[Box<dyn Plugin>]) -> Vec<String> {

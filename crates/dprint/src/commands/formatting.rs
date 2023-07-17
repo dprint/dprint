@@ -21,12 +21,12 @@ use crate::environment::Environment;
 use crate::format::run_parallelized;
 use crate::format::EnsureStableFormat;
 use crate::incremental::get_incremental_file;
-use crate::paths::get_and_resolve_file_paths;
-use crate::paths::get_file_paths_by_plugins_and_err_if_empty;
 use crate::patterns::FileMatcher;
 use crate::plugins::resolve_plugins_and_err_if_empty;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginsCollection;
+use crate::resolution::resolve_plugins_and_paths;
+use crate::resolution::PluginsAndPaths;
 use crate::utils::get_difference;
 use crate::utils::BOM_CHAR;
 
@@ -84,13 +84,14 @@ pub async fn output_format_times<TEnvironment: Environment>(
   plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, &plugins, environment).await?;
-  let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
+  let PluginsAndPaths {
+    plugins,
+    file_paths_by_plugins,
+  } = resolve_plugins_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
-  run_parallelized(file_paths_by_plugin, environment, plugin_pools, None, EnsureStableFormat(false), {
+  run_parallelized(file_paths_by_plugins, environment, plugin_pools, None, EnsureStableFormat(false), {
     let durations = durations.clone();
     move |file_path, _, _, _, start_instant, _| {
       let duration = start_instant.elapsed().as_millis();
@@ -124,16 +125,17 @@ pub async fn check<TEnvironment: Environment>(
   plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, &plugins, environment).await?;
-  let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
+  let PluginsAndPaths {
+    plugins,
+    file_paths_by_plugins,
+  } = resolve_plugins_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
   let incremental_file = get_incremental_file(cmd.incremental, &config, &plugin_pools, environment);
   let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
   run_parallelized(
-    file_paths_by_plugin,
+    file_paths_by_plugins,
     environment,
     plugin_pools,
     incremental_file.clone(),
@@ -190,9 +192,10 @@ pub async fn format<TEnvironment: Environment>(
   plugin_pools: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, &plugins, environment).await?;
-  let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
+  let PluginsAndPaths {
+    plugins,
+    file_paths_by_plugins,
+  } = resolve_plugins_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
   plugin_pools.set_plugins(plugins, &config.base_path)?;
 
   let incremental_file = get_incremental_file(cmd.incremental, &config, &plugin_pools, environment);
