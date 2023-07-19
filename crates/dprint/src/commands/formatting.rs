@@ -22,11 +22,12 @@ use crate::format::run_parallelized;
 use crate::format::EnsureStableFormat;
 use crate::incremental::get_incremental_file;
 use crate::patterns::FileMatcher;
-use crate::plugins::resolve_plugins_and_err_if_empty;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginsCollection;
 use crate::resolution::resolve_plugins_and_paths;
+use crate::resolution::resolve_plugins_scope_and_err_if_empty;
 use crate::resolution::PluginsAndPaths;
+use crate::resolution::ResolvePluginsOptions;
 use crate::utils::get_difference;
 use crate::utils::BOM_CHAR;
 
@@ -34,12 +35,20 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
   cmd: &StdInFmtSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
+  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  plugin_pools.set_plugins(plugins, &config.base_path)?;
+  let plugins = resolve_plugins_scope_and_err_if_empty(
+    &config,
+    environment,
+    plugin_resolver,
+    &ResolvePluginsOptions {
+      check_top_level_unknown_property_diagnostics: false,
+    },
+  )
+  .await?;
+  plugins_collection.set_plugins(plugins, &config.base_path)?;
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
     let file_matcher = FileMatcher::new(&config, &cmd.patterns, environment)?;
@@ -51,7 +60,7 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
       return Ok(());
     }
   }
-  output_stdin_format(PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, environment, plugin_pools).await
+  output_stdin_format(PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, environment, plugins_collection).await
 }
 
 async fn output_stdin_format<TEnvironment: Environment>(

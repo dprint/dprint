@@ -7,12 +7,11 @@ use thiserror::Error;
 
 use crate::arg_parser::FilePatternArgs;
 use crate::configuration::ResolvedConfig;
-use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::patterns::get_all_file_patterns;
 use crate::patterns::process_config_patterns;
-use crate::plugins::Plugin;
 use crate::plugins::PluginNameResolutionMaps;
+use crate::resolution::PluginWithConfig;
 use crate::utils::glob;
 use crate::utils::is_negated_glob;
 use crate::utils::GlobOutput;
@@ -40,11 +39,10 @@ impl PluginNames {
 pub struct NoFilesFoundError;
 
 pub fn get_file_paths_by_plugins_and_err_if_empty(
-  plugins: &[Box<dyn Plugin>],
+  plugin_name_maps: &PluginNameResolutionMaps,
   file_paths: Vec<PathBuf>,
-  config_base_path: &CanonicalizedPathBuf,
 ) -> Result<HashMap<PluginNames, Vec<PathBuf>>> {
-  let result = get_file_paths_by_plugins(plugins, file_paths, config_base_path)?;
+  let result = get_file_paths_by_plugins(plugin_name_maps, file_paths)?;
   if result.is_empty() {
     Err(NoFilesFoundError.into())
   } else {
@@ -52,13 +50,7 @@ pub fn get_file_paths_by_plugins_and_err_if_empty(
   }
 }
 
-pub fn get_file_paths_by_plugins(
-  plugins: &[Box<dyn Plugin>],
-  file_paths: Vec<PathBuf>,
-  config_base_path: &CanonicalizedPathBuf,
-) -> Result<HashMap<PluginNames, Vec<PathBuf>>> {
-  let plugin_name_maps = PluginNameResolutionMaps::from_plugins(plugins, config_base_path)?;
-
+pub fn get_file_paths_by_plugins(plugin_name_maps: &PluginNameResolutionMaps, file_paths: Vec<PathBuf>) -> Result<HashMap<PluginNames, Vec<PathBuf>>> {
   let mut file_paths_by_plugin: HashMap<PluginNames, Vec<PathBuf>> = HashMap::new();
 
   for file_path in file_paths.into_iter() {
@@ -77,7 +69,7 @@ pub fn get_file_paths_by_plugins(
 pub async fn get_and_resolve_file_paths(
   config: &ResolvedConfig,
   args: &FilePatternArgs,
-  plugins: &[Box<dyn Plugin>],
+  plugins: &[PluginWithConfig],
   environment: &impl Environment,
 ) -> Result<GlobOutput> {
   let cwd = environment.cwd();
@@ -96,13 +88,13 @@ pub async fn get_and_resolve_file_paths(
   tokio::task::spawn_blocking(move || glob(&environment, &base_dir, file_patterns)).await.unwrap()
 }
 
-fn get_plugin_patterns(plugins: &[Box<dyn Plugin>]) -> Vec<String> {
+fn get_plugin_patterns(plugins: &[PluginWithConfig]) -> Vec<String> {
   let mut file_names = HashSet::new();
   let mut file_exts = HashSet::new();
   let mut association_globs = Vec::new();
   for plugin in plugins {
     let mut had_positive_association = false;
-    if let Some(associations) = plugin.get_config().0.associations.as_ref() {
+    if let Some(associations) = plugin.raw_config.associations.as_ref() {
       for pattern in process_config_patterns(associations) {
         if !is_negated_glob(&pattern) {
           had_positive_association = true;
@@ -111,8 +103,8 @@ fn get_plugin_patterns(plugins: &[Box<dyn Plugin>]) -> Vec<String> {
       }
     }
     if !had_positive_association {
-      file_names.extend(plugin.file_names());
-      file_exts.extend(plugin.file_extensions());
+      file_names.extend(plugin.plugin.file_names());
+      file_exts.extend(plugin.plugin.file_extensions());
     }
   }
   let mut result = Vec::new();

@@ -33,11 +33,14 @@ mod test {
       async move {
         let collection = Arc::new(PluginsCollection::new(environment.clone()));
         let plugin_cache = Arc::new(PluginCache::new(environment.clone()));
-        let resolver = PluginResolver::new(environment.clone(), plugin_cache, collection.clone());
+        let resolver = Arc::new(PluginResolver::new(environment.clone(), plugin_cache, collection.clone()));
         let cli_args = CliArgs::empty();
         let config = resolve_config_from_args(&cli_args, &environment).unwrap();
         let mut plugins = resolver.resolve_plugins(config.plugins).await.unwrap();
-        assert_eq!(plugins.iter().map(|p| p.name()).collect::<Vec<_>>(), vec!["test-plugin", "test-process-plugin"]);
+        assert_eq!(
+          plugins.iter().map(|p| &p.info().name).collect::<Vec<_>>(),
+          vec!["test-plugin", "test-process-plugin"]
+        );
         for plugin in plugins.iter_mut() {
           plugin.set_config(Default::default(), Default::default());
         }

@@ -4,6 +4,7 @@ use anyhow::Error;
 use anyhow::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 use url::Url;
 
 use crate::arg_parser::CliArgs;
@@ -13,11 +14,12 @@ use crate::environment::Environment;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
-use crate::plugins::resolve_plugins;
 use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::Plugin;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
+use crate::resolution::resolve_plugins_scope;
+use crate::resolution::ResolvePluginsOptions;
 use crate::utils::pretty_print_json_text;
 use crate::utils::CachedDownloader;
 use crate::utils::ErrorCountLogger;
@@ -214,7 +216,7 @@ struct PluginUpdateError {
 
 async fn get_plugins_to_update<TEnvironment: Environment>(
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
+  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
   plugins: Vec<PluginSourceReference>,
 ) -> Result<Vec<Result<PluginUpdateInfo, PluginUpdateError>>> {
   let info_file = match read_info_file(environment) {
@@ -287,10 +289,21 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
 pub async fn output_resolved_config<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
+  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
-  let plugins = resolve_plugins(args, &config, environment, plugin_resolver).await?;
+  let plugins = resolve_plugins_scope(
+    &config,
+    environment,
+    plugin_resolver,
+    &ResolvePluginsOptions {
+      // Skip checking these diagnostics when the user provides
+      // plugins from the CLI args. They may be doing this to filter
+      // to only specific plugins.
+      check_top_level_unknown_property_diagnostics: args.plugins.is_empty(),
+    },
+  )
+  .await?;
 
   let mut plugin_jsons = Vec::new();
   for plugin in plugins {
@@ -298,7 +311,7 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
 
     // get an initialized plugin and output its diagnostics
     let initialized_plugin = plugin.initialize().await?;
-    output_plugin_config_diagnostics(plugin.name(), initialized_plugin.clone(), ErrorCountLogger::from_environment(environment)).await?;
+    output_plugin_config_diagnostics(plugin.name(), initialized_plugin.clone(), environment).await?;
 
     let text = initialized_plugin.resolved_config().await?;
     let pretty_text = pretty_print_json_text(&text)?;
@@ -316,15 +329,15 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
 }
 
 async fn get_config_file_plugins<TEnvironment: Environment>(
-  plugin_resolver: &PluginResolver<TEnvironment>,
+  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
   current_plugins: Vec<PluginSourceReference>,
-) -> Vec<(PluginSourceReference, Result<Box<dyn Plugin>>)> {
+) -> Vec<(PluginSourceReference, Result<Arc<dyn Plugin>>)> {
   let tasks = current_plugins
     .into_iter()
     .map(|plugin_reference| {
       let plugin_resolver = plugin_resolver.clone();
       tokio::task::spawn(async move {
-        let resolve_result = plugin_resolver.resolve_plugin(&plugin_reference).await;
+        let resolve_result = plugin_resolver.resolve_plugin(plugin_reference).await;
         (plugin_reference, resolve_result)
       })
     })

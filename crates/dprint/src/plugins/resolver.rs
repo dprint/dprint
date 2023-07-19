@@ -1,5 +1,7 @@
 use anyhow::bail;
 use anyhow::Result;
+use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::implementations::create_plugin;
@@ -9,11 +11,11 @@ use crate::plugins::PluginCache;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginsCollection;
 
-#[derive(Clone)]
 pub struct PluginResolver<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_cache: Arc<PluginCache<TEnvironment>>,
   plugins_collection: Arc<PluginsCollection<TEnvironment>>,
+  memory_cache: Mutex<HashMap<PluginSourceReference, Arc<tokio::sync::OnceCell<Arc<dyn Plugin>>>>>,
 }
 
 impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
@@ -22,15 +24,16 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
       environment,
       plugin_cache,
       plugins_collection,
+      memory_cache: Default::default(),
     }
   }
 
-  pub async fn resolve_plugins(&self, plugin_references: Vec<PluginSourceReference>) -> Result<Vec<Box<dyn Plugin>>> {
+  pub async fn resolve_plugins(self: &Arc<Self>, plugin_references: Vec<PluginSourceReference>) -> Result<Vec<Arc<dyn Plugin>>> {
     let handles = plugin_references
       .into_iter()
       .map(|plugin_ref| {
         let resolver = self.clone();
-        tokio::task::spawn(async move { resolver.resolve_plugin(&plugin_ref).await })
+        tokio::task::spawn(async move { resolver.resolve_plugin(plugin_ref).await })
       })
       .collect::<Vec<_>>();
 
@@ -43,23 +46,37 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     Ok(plugins)
   }
 
-  pub async fn resolve_plugin(&self, plugin_reference: &PluginSourceReference) -> Result<Box<dyn Plugin>> {
-    match create_plugin(self.plugins_collection.clone(), &self.plugin_cache, self.environment.clone(), plugin_reference).await {
-      Ok(plugin) => Ok(plugin),
-      Err(err) => {
-        match self.plugin_cache.forget(plugin_reference).await {
-          Ok(()) => {}
-          Err(inner_err) => {
-            bail!(
-              "Error resolving plugin {} and forgetting from cache: {:#}\n{:#}",
-              plugin_reference.display(),
-              err,
-              inner_err
-            )
+  pub async fn resolve_plugin(&self, plugin_reference: PluginSourceReference) -> Result<Arc<dyn Plugin>> {
+    let cell = {
+      let mut mem_cache = self.memory_cache.lock();
+      mem_cache
+        .entry(plugin_reference.clone())
+        .or_insert_with(|| Arc::new(tokio::sync::OnceCell::new()))
+        .clone()
+    };
+    let cache = self.plugin_cache.clone();
+    let environment = self.environment.clone();
+    cell
+      .get_or_try_init(|| async {
+        match create_plugin(&self.plugin_cache, self.environment.clone(), &plugin_reference).await {
+          Ok(plugin) => Ok(plugin),
+          Err(err) => {
+            match self.plugin_cache.forget(&plugin_reference).await {
+              Ok(()) => {}
+              Err(inner_err) => {
+                bail!(
+                  "Error resolving plugin {} and forgetting from cache: {:#}\n{:#}",
+                  plugin_reference.display(),
+                  err,
+                  inner_err
+                )
+              }
+            }
+            bail!("Error resolving plugin {}: {:#}", plugin_reference.display(), err);
           }
         }
-        bail!("Error resolving plugin {}: {:#}", plugin_reference.display(), err);
-      }
-    }
+      })
+      .await
+      .map(|p| p.clone())
   }
 }

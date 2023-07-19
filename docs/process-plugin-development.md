@@ -1,4 +1,4 @@
-# Creating a Process Plugin (Schema Version 4)
+# Creating a Process Plugin (Schema Version 5)
 
 Process plugins are created (as opposed to the recommended Wasm plugins), when the language does not have good support for compiling to a single _.wasm_ file.
 
@@ -132,7 +132,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    handle_process_stdio_messages(MyPluginHandler).await
    ```
 
-## Schema Version 4 Overview
+## Schema Version 5 Overview
 
 Process plugins are expected to read and respond to messages on a single thread, then spawn formatting threads/tasks for doing concurrent formatting.
 
@@ -141,7 +141,7 @@ Process plugins are expected to read and respond to messages on a single thread,
 To maintain compatibility with past dprint clients, an initial schema version establishment phase occurs that is the same as past schema versions.
 
 1. An initial `0` (4 bytes) is sent asking for the schema version.
-2. At this point, the client responds with `0` (4 bytes) for success, then `4` (4 bytes) for the schema version.
+2. At this point, the client responds with `0` (4 bytes) for success, then `5` (4 bytes) for the schema version.
 
 ### Messages
 
@@ -263,7 +263,7 @@ Message body:
 - u32 - Start byte index to format
 - u32 - End byte index to format
 - u32 - Configuration identifier
-- u32 - Override configuration length -- TODO: Is this necessary anymore?
+- u32 - Override configuration length
 - JSON override configuration
 - u32 - File text content length
 - File text
@@ -300,6 +300,7 @@ Message body:
 - File path
 - u32 - Start byte index to format
 - u32 - End byte index to format
+- u32 - Configuration identifier
 - u32 - Size of the override configuration
 - JSON serialized override configuration
 - u32 - Size of the file text

@@ -9,12 +9,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::configuration::RawPluginConfig;
 use crate::environment::Environment;
+use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
-use crate::plugins::PluginsCollection;
 
 use super::InitializedProcessPluginCommunicator;
 
@@ -50,66 +49,21 @@ pub struct ProcessPlugin<TEnvironment: Environment> {
   environment: TEnvironment,
   executable_file_path: PathBuf,
   plugin_info: PluginInfo,
-  config: Option<(RawPluginConfig, GlobalConfiguration)>,
-  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> ProcessPlugin<TEnvironment> {
-  pub fn new(
-    environment: TEnvironment,
-    executable_file_path: PathBuf,
-    plugin_info: PluginInfo,
-    plugins_collection: Arc<PluginsCollection<TEnvironment>>,
-  ) -> Self {
+  pub fn new(environment: TEnvironment, executable_file_path: PathBuf, plugin_info: PluginInfo) -> Self {
     ProcessPlugin {
       environment,
       executable_file_path,
       plugin_info,
-      config: None,
-      plugins_collection,
     }
   }
 }
 
 impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
-  fn name(&self) -> &str {
-    &self.plugin_info.name
-  }
-
-  fn version(&self) -> &str {
-    &self.plugin_info.version
-  }
-
-  fn config_key(&self) -> &str {
-    &self.plugin_info.config_key
-  }
-
-  fn file_extensions(&self) -> &Vec<String> {
-    &self.plugin_info.file_extensions
-  }
-
-  fn file_names(&self) -> &Vec<String> {
-    &self.plugin_info.file_names
-  }
-
-  fn help_url(&self) -> &str {
-    &self.plugin_info.help_url
-  }
-
-  fn config_schema_url(&self) -> &str {
-    &self.plugin_info.config_schema_url
-  }
-
-  fn update_url(&self) -> Option<&str> {
-    self.plugin_info.update_url.as_deref()
-  }
-
-  fn set_config(&mut self, plugin_config: RawPluginConfig, global_config: GlobalConfiguration) {
-    self.config = Some((plugin_config, global_config));
-  }
-
-  fn get_config(&self) -> &(RawPluginConfig, GlobalConfiguration) {
-    self.config.as_ref().expect("Call set_config first.")
+  fn info(&self) -> &PluginInfo {
+    &self.plugin_info
   }
 
   fn is_process_plugin(&self) -> bool {
@@ -119,21 +73,11 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
   fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
     let start_instant = Instant::now();
     log_verbose!(self.environment, "Creating instance of {}", self.name());
-    let config = self.config.as_ref().expect("Call set_config first.");
     let plugin_name = self.plugin_info.name.clone();
     let executable_file_path = self.executable_file_path.clone();
-    let config = (config.1.clone(), config.0.properties.clone());
     let environment = self.environment.clone();
-    let plugins_collection = self.plugins_collection.clone();
     async move {
-      let communicator = InitializedProcessPluginCommunicator::new(
-        plugin_name.clone(),
-        executable_file_path,
-        config,
-        environment.clone(),
-        plugins_collection.clone(),
-      )
-      .await?;
+      let communicator = InitializedProcessPluginCommunicator::new(plugin_name.clone(), executable_file_path, environment.clone()).await?;
       let process_plugin = InitializedProcessPlugin::new(communicator)?;
 
       let result: Arc<dyn InitializedPlugin> = Arc::new(process_plugin);
@@ -168,14 +112,14 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
     async move { communicator.get_license_text().await }.boxed()
   }
 
-  fn resolved_config(&self) -> BoxFuture<'static, Result<String>> {
+  fn resolved_config(&self, config: Arc<FormatConfig>) -> BoxFuture<'static, Result<String>> {
     let communicator = self.communicator.clone();
-    async move { communicator.get_resolved_config().await }.boxed()
+    async move { communicator.get_resolved_config(&config).await }.boxed()
   }
 
-  fn config_diagnostics(&self) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
+  fn config_diagnostics(&self, config: Arc<FormatConfig>) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
     let communicator = self.communicator.clone();
-    async move { communicator.get_config_diagnostics().await }.boxed()
+    async move { communicator.get_config_diagnostics(&config).await }.boxed()
   }
 
   fn format_text(&self, request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult> {

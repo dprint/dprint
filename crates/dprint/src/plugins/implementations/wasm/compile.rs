@@ -29,8 +29,6 @@ pub fn compile(wasm_bytes: &[u8], environment: impl Environment) -> Result<Compi
       let imports = create_identity_import_object(store);
       load_instance(store, module, &imports)
     }),
-    Default::default(),
-    Default::default(),
     environment,
   );
 

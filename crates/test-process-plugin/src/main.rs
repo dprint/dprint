@@ -99,6 +99,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
             file_path: PathBuf::from("./test.txt"),
             file_text: new_text.to_string(),
             range: None,
+            config_id: request.config_id,
             override_config: Default::default(),
             token: request.token.clone(),
           })
@@ -112,6 +113,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
             file_path: PathBuf::from("./test.txt"),
             file_text: new_text.to_string(),
             range: None,
+            config_id: request.config_id,
             override_config: config_map,
             token: request.token.clone(),
           })

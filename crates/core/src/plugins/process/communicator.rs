@@ -26,8 +26,8 @@ use super::messages::ProcessPluginMessage;
 use super::messages::RegisterConfigMessageBody;
 use super::messages::ResponseBody;
 use super::PLUGIN_SCHEMA_VERSION;
-use crate::communication::ArcFlag;
 use crate::communication::ArcIdStore;
+use crate::communication::AtomicFlag;
 use crate::communication::IdGenerator;
 use crate::communication::MessageReader;
 use crate::communication::MessageWriter;
@@ -37,6 +37,7 @@ use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
 use crate::plugins::CriticalFormatError;
+use crate::plugins::FormatConfigId;
 use crate::plugins::FormatRange;
 use crate::plugins::FormatResult;
 use crate::plugins::Host;
@@ -56,7 +57,7 @@ enum MessageResponseChannel {
 struct Context {
   stdin_writer: SingleThreadMessageWriter<ProcessPluginMessage>,
   poisoner: Poisoner,
-  shutdown_flag: ArcFlag,
+  shutdown_flag: Arc<AtomicFlag>,
   id_generator: IdGenerator,
   messages: ArcIdStore<MessageResponseChannel>,
   format_request_tokens: ArcIdStore<Arc<CancellationToken>>,
@@ -97,7 +98,7 @@ impl ProcessPluginCommunicator {
     }
 
     let poisoner = Poisoner::default();
-    let shutdown_flag = ArcFlag::default();
+    let shutdown_flag = Arc::new(AtomicFlag::default());
     let mut child = Command::new(executable_file_path)
       .args(&args)
       .stdin(Stdio::piped())
@@ -183,7 +184,7 @@ impl ProcessPluginCommunicator {
     }
   }
 
-  pub async fn register_config(&self, config_id: u32, global_config: &GlobalConfiguration, plugin_config: &ConfigKeyMap) -> Result<()> {
+  pub async fn register_config(&self, config_id: FormatConfigId, global_config: &GlobalConfiguration, plugin_config: &ConfigKeyMap) -> Result<()> {
     let global_config = serde_json::to_vec(global_config)?;
     let plugin_config = serde_json::to_vec(plugin_config)?;
     self
@@ -196,7 +197,7 @@ impl ProcessPluginCommunicator {
     Ok(())
   }
 
-  pub async fn release_config(&self, config_id: u32) -> Result<()> {
+  pub async fn release_config(&self, config_id: FormatConfigId) -> Result<()> {
     self.send_with_acknowledgement(MessageBody::ReleaseConfig(config_id)).await?;
     Ok(())
   }
@@ -213,11 +214,11 @@ impl ProcessPluginCommunicator {
     self.send_receiving_string(MessageBody::GetLicenseText).await
   }
 
-  pub async fn resolved_config(&self, config_id: u32) -> Result<String> {
+  pub async fn resolved_config(&self, config_id: FormatConfigId) -> Result<String> {
     self.send_receiving_string(MessageBody::GetResolvedConfig(config_id)).await
   }
 
-  pub async fn config_diagnostics(&self, config_id: u32) -> Result<Vec<ConfigurationDiagnostic>> {
+  pub async fn config_diagnostics(&self, config_id: FormatConfigId) -> Result<Vec<ConfigurationDiagnostic>> {
     self.send_receiving_data(MessageBody::GetConfigDiagnostics(config_id)).await
   }
 
@@ -226,7 +227,7 @@ impl ProcessPluginCommunicator {
     file_path: PathBuf,
     file_text: String,
     range: FormatRange,
-    config_id: u32,
+    config_id: FormatConfigId,
     override_config: ConfigKeyMap,
     token: DprintCancellationToken,
   ) -> FormatResult {
@@ -343,7 +344,7 @@ fn verify_plugin_schema_version<TRead: Read + Unpin, TWrite: Write + Unpin>(
   Ok(())
 }
 
-fn std_err_redirect(poisoner: Poisoner, shutdown_flag: ArcFlag, stderr: ChildStderr, on_std_err: impl Fn(String) + Send + Sync + 'static) {
+fn std_err_redirect(poisoner: Poisoner, shutdown_flag: Arc<AtomicFlag>, stderr: ChildStderr, on_std_err: impl Fn(String) + Send + Sync + 'static) {
   use std::io::ErrorKind;
   let reader = std::io::BufReader::new(stderr);
   for line in reader.lines() {
@@ -492,6 +493,7 @@ async fn host_format(context: Context, message_id: u32, body: HostFormatMessageB
       file_path: body.file_path,
       file_text,
       range: body.range,
+      config_id: body.config_id,
       override_config: serde_json::from_slice(&body.override_config).unwrap(),
       token,
     })

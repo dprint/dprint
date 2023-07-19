@@ -5,6 +5,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::communication::Message;
+use crate::plugins::FormatConfigId;
 use crate::plugins::FormatRange;
 
 use crate::communication::MessageReader;
@@ -37,7 +38,7 @@ impl ProcessPluginMessage {
       5 => MessageBody::GetPluginInfo,
       6 => MessageBody::GetLicenseText,
       7 => {
-        let config_id = reader.read_u32()?;
+        let config_id = FormatConfigId::from_raw(reader.read_u32()?);
         let global_config = reader.read_sized_bytes()?;
         let plugin_config = reader.read_sized_bytes()?;
         MessageBody::RegisterConfig(RegisterConfigMessageBody {
@@ -46,14 +47,14 @@ impl ProcessPluginMessage {
           plugin_config,
         })
       }
-      8 => MessageBody::ReleaseConfig(reader.read_u32()?),
-      9 => MessageBody::GetConfigDiagnostics(reader.read_u32()?),
-      10 => MessageBody::GetResolvedConfig(reader.read_u32()?),
+      8 => MessageBody::ReleaseConfig(FormatConfigId::from_raw(reader.read_u32()?)),
+      9 => MessageBody::GetConfigDiagnostics(FormatConfigId::from_raw(reader.read_u32()?)),
+      10 => MessageBody::GetResolvedConfig(FormatConfigId::from_raw(reader.read_u32()?)),
       11 => {
         let file_path = reader.read_sized_bytes()?;
         let start_byte_index = reader.read_u32()?;
         let end_byte_index = reader.read_u32()?;
-        let config_id = reader.read_u32()?;
+        let config_id = FormatConfigId::from_raw(reader.read_u32()?);
         let override_config = reader.read_sized_bytes()?;
         let file_text = reader.read_sized_bytes()?;
         MessageBody::Format(FormatMessageBody {
@@ -91,10 +92,12 @@ impl ProcessPluginMessage {
         let file_path = reader.read_sized_bytes()?;
         let start_byte_index = reader.read_u32()?;
         let end_byte_index = reader.read_u32()?;
+        let config_id = FormatConfigId::from_raw(reader.read_u32()?);
         let override_config = reader.read_sized_bytes()?;
         let file_text = reader.read_sized_bytes()?;
         MessageBody::HostFormat(HostFormatMessageBody {
           file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
+          config_id,
           range: if start_byte_index == 0 && end_byte_index == file_text.len() as u32 {
             None
           } else {
@@ -154,28 +157,28 @@ impl Message for ProcessPluginMessage {
       }
       MessageBody::RegisterConfig(body) => {
         writer.send_u32(7)?;
-        writer.send_u32(body.config_id)?;
+        writer.send_u32(body.config_id.as_raw())?;
         writer.send_sized_bytes(&body.global_config)?;
         writer.send_sized_bytes(&body.plugin_config)?;
       }
       MessageBody::ReleaseConfig(config_id) => {
         writer.send_u32(8)?;
-        writer.send_u32(*config_id)?;
+        writer.send_u32(config_id.as_raw())?;
       }
       MessageBody::GetConfigDiagnostics(config_id) => {
         writer.send_u32(9)?;
-        writer.send_u32(*config_id)?;
+        writer.send_u32(config_id.as_raw())?;
       }
       MessageBody::GetResolvedConfig(config_id) => {
         writer.send_u32(10)?;
-        writer.send_u32(*config_id)?;
+        writer.send_u32(config_id.as_raw())?;
       }
       MessageBody::Format(body) => {
         writer.send_u32(11)?;
         writer.send_sized_bytes(body.file_path.to_string_lossy().as_bytes())?;
         writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32)?;
         writer.send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_text.len()) as u32)?;
-        writer.send_u32(body.config_id)?;
+        writer.send_u32(body.config_id.as_raw())?;
         writer.send_sized_bytes(&body.override_config)?;
         writer.send_sized_bytes(&body.file_text)?;
       }
@@ -221,9 +224,9 @@ pub enum MessageBody {
   GetPluginInfo,
   GetLicenseText,
   RegisterConfig(RegisterConfigMessageBody),
-  ReleaseConfig(u32),
-  GetConfigDiagnostics(u32),
-  GetResolvedConfig(u32),
+  ReleaseConfig(FormatConfigId),
+  GetConfigDiagnostics(FormatConfigId),
+  GetResolvedConfig(FormatConfigId),
   Format(FormatMessageBody),
   FormatResponse(ResponseBody<Option<Vec<u8>>>),
   CancelFormat(u32),
@@ -241,7 +244,7 @@ pub struct ResponseBody<T: std::fmt::Debug> {
 
 #[derive(Debug)]
 pub struct RegisterConfigMessageBody {
-  pub config_id: u32,
+  pub config_id: FormatConfigId,
   pub global_config: Vec<u8>,
   pub plugin_config: Vec<u8>,
 }
@@ -250,7 +253,7 @@ pub struct RegisterConfigMessageBody {
 pub struct FormatMessageBody {
   pub file_path: PathBuf,
   pub range: FormatRange,
-  pub config_id: u32,
+  pub config_id: FormatConfigId,
   pub override_config: Vec<u8>,
   pub file_text: Vec<u8>,
 }
@@ -259,6 +262,7 @@ pub struct FormatMessageBody {
 pub struct HostFormatMessageBody {
   pub file_path: PathBuf,
   pub range: FormatRange,
+  pub config_id: FormatConfigId,
   pub override_config: Vec<u8>,
   pub file_text: Vec<u8>,
 }

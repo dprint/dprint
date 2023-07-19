@@ -26,10 +26,10 @@ impl Poisoner {
   }
 }
 
-#[derive(Default, Clone)]
-pub struct ArcFlag(Arc<AtomicBool>);
+#[derive(Default)]
+pub struct AtomicFlag(AtomicBool);
 
-impl ArcFlag {
+impl AtomicFlag {
   pub fn raise(&self) {
     self.0.store(true, Ordering::SeqCst)
   }

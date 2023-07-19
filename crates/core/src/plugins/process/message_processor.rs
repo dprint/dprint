@@ -76,7 +76,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
             let config_map: ConfigKeyMap = serde_json::from_slice(&body.plugin_config)?;
             let result = handler.resolve_config(config_map.clone(), global_config.clone());
             context.configs.store(
-              body.config_id,
+              body.config_id.as_raw(),
               Arc::new(StoredConfig {
                 config: Arc::new(result.config),
                 diagnostics: Arc::new(result.diagnostics),
@@ -89,20 +89,24 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
         }
         MessageBody::ReleaseConfig(config_id) => {
           handle_message(&context, message.id, || {
-            context.configs.take(config_id);
+            context.configs.take(config_id.as_raw());
             Ok(MessageBody::Success(message.id))
           });
         }
         MessageBody::GetConfigDiagnostics(config_id) => {
           handle_message(&context, message.id, || {
-            let diagnostics = context.configs.get_cloned(config_id).map(|c| c.diagnostics.clone()).unwrap_or_default();
+            let diagnostics = context
+              .configs
+              .get_cloned(config_id.as_raw())
+              .map(|c| c.diagnostics.clone())
+              .unwrap_or_default();
             let data = serde_json::to_vec(&*diagnostics)?;
             Ok(MessageBody::DataResponse(ResponseBody { message_id: message.id, data }))
           });
         }
         MessageBody::GetResolvedConfig(config_id) => {
           handle_message(&context, message.id, || {
-            let data = match context.configs.get_cloned(config_id) {
+            let data = match context.configs.get_cloned(config_id.as_raw()) {
               Some(config) => serde_json::to_vec(&*config.config)?,
               None => bail!("Did not find configuration for id: {}", config_id),
             };
@@ -115,7 +119,8 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           let request = FormatRequest {
             file_path: body.file_path,
             range: body.range,
-            config: match context.configs.get_cloned(body.config_id) {
+            config_id: body.config_id,
+            config: match context.configs.get_cloned(body.config_id.as_raw()) {
               Some(config) => {
                 if body.override_config.is_empty() {
                   config.config.clone()
@@ -225,6 +230,7 @@ impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConf
           file_path: request.file_path,
           file_text: request.file_text.into_bytes(),
           range: request.range,
+          config_id: request.config_id,
           override_config: serde_json::to_vec(&request.override_config).unwrap(),
         }),
       })

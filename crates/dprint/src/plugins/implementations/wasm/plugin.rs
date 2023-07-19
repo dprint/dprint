@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use anyhow::Result;
 use dprint_core::plugins::BoxFuture;
 use dprint_core::plugins::CriticalFormatError;
+use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatResult;
 use futures::FutureExt;
 use parking_lot::Mutex;
@@ -18,78 +19,33 @@ use super::create_pools_import_object;
 use super::load_instance;
 use super::WasmFormatResult;
 use super::WasmFunctions;
-use crate::configuration::RawPluginConfig;
+use super::WasmModuleCreator;
 use crate::environment::Environment;
+use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
-use crate::plugins::PluginsCollection;
 
 pub struct WasmPlugin<TEnvironment: Environment> {
   module: wasmer::Module,
   environment: TEnvironment,
-  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
   plugin_info: PluginInfo,
-  config: Option<(RawPluginConfig, GlobalConfiguration)>,
 }
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
-  pub fn new(
-    compiled_wasm_bytes: &[u8],
-    plugin_info: PluginInfo,
-    environment: TEnvironment,
-    plugin_pools: Arc<PluginsCollection<TEnvironment>>,
-  ) -> Result<Self> {
-    let module = plugin_pools.create_wasm_module_from_serialized(compiled_wasm_bytes)?;
+  pub fn new(compiled_wasm_bytes: &[u8], plugin_info: PluginInfo, wasm_module_creator: WasmModuleCreator, environment: TEnvironment) -> Result<Self> {
+    let module = wasm_module_creator.create_from_serialized(compiled_wasm_bytes)?;
     Ok(WasmPlugin {
       module,
       environment,
-      plugin_pools,
       plugin_info,
-      config: None,
     })
   }
 }
 
 impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
-  fn name(&self) -> &str {
-    &self.plugin_info.name
-  }
-
-  fn version(&self) -> &str {
-    &self.plugin_info.version
-  }
-
-  fn config_key(&self) -> &str {
-    &self.plugin_info.config_key
-  }
-
-  fn file_extensions(&self) -> &Vec<String> {
-    &self.plugin_info.file_extensions
-  }
-
-  fn file_names(&self) -> &Vec<String> {
-    &self.plugin_info.file_names
-  }
-
-  fn help_url(&self) -> &str {
-    &self.plugin_info.help_url
-  }
-
-  fn config_schema_url(&self) -> &str {
-    &self.plugin_info.config_schema_url
-  }
-
-  fn update_url(&self) -> Option<&str> {
-    self.plugin_info.update_url.as_deref()
-  }
-
-  fn set_config(&mut self, plugin_config: RawPluginConfig, global_config: GlobalConfiguration) {
-    self.config = Some((plugin_config, global_config));
-  }
-
-  fn get_config(&self) -> &(RawPluginConfig, GlobalConfiguration) {
-    self.config.as_ref().expect("Call set_config first.")
+  fn info(&self) -> &PluginInfo {
+    &self.plugin_info
   }
 
   fn is_process_plugin(&self) -> bool {
@@ -97,23 +53,18 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
   }
 
   fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
-    // need to call set_config first to ensure this doesn't fail
-    let (plugin_config, global_config) = self.config.as_ref().unwrap();
     let plugin = InitializedWasmPlugin::new(
-      self.name().to_string(),
+      self.info().name.to_string(),
       self.module.clone(),
       Arc::new({
-        let plugin_pools = self.plugin_pools.clone();
         let environment = self.environment.clone();
-        move |store, module| {
-          let (import_object, env) = create_pools_import_object(environment.clone(), plugin_pools.clone(), store);
+        move |store, module, host| {
+          let (import_object, env) = create_pools_import_object(environment.clone(), host, store);
           let instance = load_instance(store, module, &import_object)?;
           env.as_mut(store).initialize(&instance)?;
           Ok(instance)
         }
       }),
-      global_config.clone(),
-      plugin_config.properties.clone(),
       self.environment.clone(),
     );
     async move {
@@ -127,6 +78,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
 struct InitializedWasmPluginInstance {
   wasm_functions: WasmFunctions,
   buffer_size: usize,
+  current_config_id: FormatConfigId,
 }
 
 impl InitializedWasmPluginInstance {
@@ -155,18 +107,21 @@ impl InitializedWasmPluginInstance {
     self.receive_string(len)
   }
 
-  fn resolved_config(&mut self) -> Result<String> {
+  fn resolved_config(&mut self, config: &FormatConfig) -> Result<String> {
+    self.ensure_config(config)?;
     let len = self.wasm_functions.get_resolved_config()?;
     self.receive_string(len)
   }
 
-  fn config_diagnostics(&mut self) -> Result<Vec<ConfigurationDiagnostic>> {
+  fn config_diagnostics(&mut self, config: &FormatConfig) -> Result<Vec<ConfigurationDiagnostic>> {
+    self.ensure_config(config)?;
     let len = self.wasm_functions.get_config_diagnostics()?;
     let json_text = self.receive_string(len)?;
     Ok(serde_json::from_str(&json_text)?)
   }
 
-  fn format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> FormatResult {
+  fn format_text(&mut self, file_path: &Path, file_text: &str, config: &FormatConfig, override_config: &ConfigKeyMap) -> FormatResult {
+    self.ensure_config(&config)?;
     match self.inner_format_text(file_path, file_text, override_config) {
       Ok(inner) => inner,
       Err(err) => Err(CriticalFormatError(err).into()),
@@ -205,6 +160,19 @@ impl InitializedWasmPluginInstance {
         Ok(Err(anyhow!("{}", text)))
       }
     }
+  }
+
+  fn ensure_config(&mut self, config: &FormatConfig) -> Result<()> {
+    if self.current_config_id != config.id {
+      // set this to uninitialized in case it errors below
+      self.current_config_id = FormatConfigId::uninitialized();
+      // update the plugin
+      self.set_global_config(&config.global)?;
+      self.set_plugin_config(&config.raw)?;
+      // now mark this as successfully set
+      self.current_config_id = config.id;
+    }
+    Ok(())
   }
 
   /* LOW LEVEL SENDING AND RECEIVING */
@@ -260,8 +228,6 @@ struct InitializedWasmPluginInner<TEnvironment: Environment> {
   instances: Mutex<Vec<InitializedWasmPluginInstance>>,
   module: wasmer::Module,
   load_instance: Arc<LoadInstanceFn>,
-  global_config: GlobalConfiguration,
-  plugin_config: ConfigKeyMap,
   environment: TEnvironment,
 }
 
@@ -287,21 +253,12 @@ impl<TEnvironment: Environment> Drop for InitializedWasmPluginInner<TEnvironment
 pub struct InitializedWasmPlugin<TEnvironment: Environment>(Arc<InitializedWasmPluginInner<TEnvironment>>);
 
 impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
-  pub fn new(
-    name: String,
-    module: wasmer::Module,
-    load_instance: Arc<LoadInstanceFn>,
-    global_config: GlobalConfiguration,
-    plugin_config: ConfigKeyMap,
-    environment: TEnvironment,
-  ) -> Self {
+  pub fn new(name: String, module: wasmer::Module, load_instance: Arc<LoadInstanceFn>, environment: TEnvironment) -> Self {
     Self(Arc::new(InitializedWasmPluginInner {
       name,
       instances: Default::default(),
       module,
       load_instance,
-      global_config,
-      plugin_config,
       environment,
     }))
   }
@@ -377,11 +334,11 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     let mut wasm_functions = WasmFunctions::new(store, instance)?;
     let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
 
-    let mut instance = InitializedWasmPluginInstance { wasm_functions, buffer_size };
-
-    instance.set_global_config(&self.0.global_config)?;
-    instance.set_plugin_config(&self.0.plugin_config)?;
-
+    let mut instance = InitializedWasmPluginInstance {
+      wasm_functions,
+      buffer_size,
+      current_config_id: FormatConfigId::uninitialized(),
+    };
     log_verbose!(
       self.0.environment,
       "Created instance of {} in {}ms",
@@ -403,20 +360,20 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
     .boxed()
   }
 
-  fn resolved_config(&self) -> BoxFuture<'static, Result<String>> {
+  fn resolved_config(&self, config: Arc<FormatConfig>) -> BoxFuture<'static, Result<String>> {
     let plugin = self.clone();
     async move {
-      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.resolved_config()))
+      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.resolved_config(&config)))
         .await
         .unwrap()
     }
     .boxed()
   }
 
-  fn config_diagnostics(&self) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
+  fn config_diagnostics(&self, config: Arc<FormatConfig>) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
     let plugin = self.clone();
     async move {
-      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.config_diagnostics()))
+      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.config_diagnostics(&config)))
         .await
         .unwrap()
     }
@@ -428,6 +385,7 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
     async move {
       let file_path = request.file_path;
       let file_text = request.file_text;
+      let config = request.config;
       let override_config = request.override_config;
       // Wasm plugins do not currently support range formatting
       // so always return back None for now.
@@ -439,7 +397,7 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
       }
 
       // todo: support cancellation in Wasm plugins
-      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.format_text(&file_path, &file_text, &override_config))).await?
+      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.format_text(&file_path, &file_text, &config, &override_config))).await?
     }
     .boxed()
   }

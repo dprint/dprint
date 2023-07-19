@@ -24,10 +24,11 @@ use crate::configuration::resolve_config_from_args;
 use crate::configuration::ResolvedConfig;
 use crate::environment::Environment;
 use crate::patterns::FileMatcher;
-use crate::plugins::get_plugins_from_args;
-use crate::plugins::resolve_plugins;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginsCollection;
+use crate::resolution::get_plugins_with_config_from_args;
+use crate::resolution::resolve_plugins_scope;
+use crate::resolution::ResolvePluginsOptions;
 
 use self::messages::EditorMessage;
 use self::messages::EditorMessageBody;
@@ -35,7 +36,7 @@ use self::messages::EditorMessageBody;
 pub async fn output_editor_info<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
+  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   #[derive(serde::Serialize)]
   #[serde(rename_all = "camelCase")]
@@ -61,7 +62,7 @@ pub async fn output_editor_info<TEnvironment: Environment>(
 
   let mut plugins = Vec::new();
 
-  for plugin in get_plugins_from_args(args, environment, plugin_resolver).await? {
+  for plugin in get_plugins_with_config_from_args(args, environment, plugin_resolver).await? {
     plugins.push(EditorPluginInfo {
       name: plugin.name().to_string(),
       version: plugin.version().to_string(),
@@ -112,7 +113,7 @@ struct EditorService<'a, TEnvironment: Environment> {
   config: Option<ResolvedConfig>,
   args: &'a CliArgs,
   environment: &'a TEnvironment,
-  plugin_resolver: &'a PluginResolver<TEnvironment>,
+  plugin_resolver: &'a Arc<PluginResolver<TEnvironment>>,
   plugins_collection: Arc<PluginsCollection<TEnvironment>>,
   context: Arc<EditorContext>,
   concurrency_limiter: Arc<Semaphore>,
@@ -122,7 +123,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   pub fn new(
     args: &'a CliArgs,
     environment: &'a TEnvironment,
-    plugin_resolver: &'a PluginResolver<TEnvironment>,
+    plugin_resolver: &'a Arc<PluginResolver<TEnvironment>>,
     plugin_pools: Arc<PluginsCollection<TEnvironment>>,
   ) -> Self {
     let stdin = environment.stdin();
@@ -255,7 +256,15 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     let has_config_changed = last_config.is_none() || last_config.unwrap() != config;
     if has_config_changed {
       self.plugins_collection.drop_and_shutdown_initialized().await; // clear the existing plugins
-      let plugins = resolve_plugins(self.args, &config, self.environment, self.plugin_resolver).await?;
+      let plugins = resolve_plugins_scope(
+        &config,
+        self.environment,
+        self.plugin_resolver,
+        &ResolvePluginsOptions {
+          check_top_level_unknown_property_diagnostics: false, // ignore in the editor
+        },
+      )
+      .await?;
       self.plugins_collection.set_plugins(plugins, &config.base_path)?;
     }
 

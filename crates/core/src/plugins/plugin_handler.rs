@@ -58,6 +58,7 @@ pub struct HostFormatRequest {
   pub file_text: String,
   /// Range to format.
   pub range: FormatRange,
+  pub config_id: FormatConfigId,
   pub override_config: ConfigKeyMap,
   pub token: Arc<dyn CancellationToken>,
 }
@@ -81,9 +82,34 @@ impl Host for NoopHost {
 /// `Err(err)` - Error formatting. Use a `CriticalError` to signal that the plugin can't recover.
 pub type FormatResult = Result<Option<String>>;
 
+/// A unique configuration id used for formatting.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct FormatConfigId(u32);
+
+impl std::fmt::Display for FormatConfigId {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "${}", self.0)
+  }
+}
+
+impl FormatConfigId {
+  pub fn from_raw(raw: u32) -> FormatConfigId {
+    FormatConfigId(raw)
+  }
+
+  pub fn uninitialized() -> FormatConfigId {
+    FormatConfigId(0)
+  }
+
+  pub fn as_raw(&self) -> u32 {
+    self.0
+  }
+}
+
 pub struct FormatRequest<TConfiguration> {
   pub file_path: PathBuf,
   pub file_text: String,
+  pub config_id: FormatConfigId,
   pub config: Arc<TConfiguration>,
   /// Range to format.
   pub range: FormatRange,

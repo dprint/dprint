@@ -1,50 +1,44 @@
 use crate::environment::Environment;
+use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPluginFormatRequest;
-use crate::plugins::PluginsCollection;
 use anyhow::Result;
-use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
-use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
+use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatResult;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-
-// We only need to support having one configuration set at a time
-// so hardcode this.
-const CONFIG_ID: u32 = 1;
 
 struct ProcessRestartInfo<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_name: String,
   executable_file_path: PathBuf,
-  config: (GlobalConfiguration, ConfigKeyMap),
-  plugin_collection: Arc<PluginsCollection<TEnvironment>>,
+}
+
+struct InnerState {
+  registered_configs: parking_lot::Mutex<HashSet<FormatConfigId>>,
+  communicator: Arc<ProcessPluginCommunicator>,
 }
 
 pub struct InitializedProcessPluginCommunicator<TEnvironment: Environment> {
-  communicator: tokio::sync::RwLock<Arc<ProcessPluginCommunicator>>,
+  inner: tokio::sync::RwLock<InnerState>,
   restart_info: ProcessRestartInfo<TEnvironment>,
 }
 
 impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironment> {
-  pub async fn new(
-    plugin_name: String,
-    executable_file_path: PathBuf,
-    config: (GlobalConfiguration, ConfigKeyMap),
-    environment: TEnvironment,
-    plugin_collection: Arc<PluginsCollection<TEnvironment>>,
-  ) -> Result<Self> {
+  pub async fn new(plugin_name: String, executable_file_path: PathBuf, environment: TEnvironment) -> Result<Self> {
     let restart_info = ProcessRestartInfo {
       environment,
       plugin_name,
       executable_file_path,
-      config,
-      plugin_collection,
     };
     let communicator = create_new_communicator(&restart_info).await?;
     let initialized_communicator = Self {
-      communicator: tokio::sync::RwLock::new(Arc::new(communicator)),
+      inner: tokio::sync::RwLock::new(InnerState {
+        registered_configs: Default::default(),
+        communicator: Arc::new(communicator),
+      }),
       restart_info,
     };
 
@@ -52,22 +46,16 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
   }
 
   #[cfg(test)]
-  pub async fn new_test_plugin_communicator(environment: TEnvironment, collection: Arc<PluginsCollection<TEnvironment>>, plugin_config: ConfigKeyMap) -> Self {
+  pub async fn new_test_plugin_communicator(environment: TEnvironment) -> Self {
     use crate::plugins::implementations::process::get_file_path_from_name_and_version;
     use crate::plugins::implementations::process::get_test_safe_executable_path;
 
     let plugin_file_path = get_file_path_from_name_and_version("test-process-plugin", "0.1.0", &environment);
     let test_plugin_file_path = get_test_safe_executable_path(plugin_file_path, &environment);
 
-    Self::new(
-      "test-process-plugin".to_string(),
-      test_plugin_file_path,
-      (Default::default(), plugin_config),
-      environment.clone(),
-      collection,
-    )
-    .await
-    .unwrap()
+    Self::new("test-process-plugin".to_string(), test_plugin_file_path, environment.clone())
+      .await
+      .unwrap()
   }
 
   pub async fn shutdown(&self) {
@@ -78,23 +66,23 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     self.get_inner().await.license_text().await
   }
 
-  pub async fn get_resolved_config(&self) -> Result<String> {
-    self.get_inner().await.resolved_config(CONFIG_ID).await
+  pub async fn get_resolved_config(&self, config: &FormatConfig) -> Result<String> {
+    self.get_inner_ensure_config(config).await?.resolved_config(config.id).await
   }
 
-  pub async fn get_config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>> {
-    self.get_inner().await.config_diagnostics(CONFIG_ID).await
+  pub async fn get_config_diagnostics(&self, config: &FormatConfig) -> Result<Vec<ConfigurationDiagnostic>> {
+    self.get_inner_ensure_config(config).await?.config_diagnostics(config.id).await
   }
 
   pub async fn format_text(&self, request: InitializedPluginFormatRequest) -> FormatResult {
     match self
-      .get_inner()
-      .await
+      .get_inner_ensure_config(&request.config)
+      .await?
       .format_text(
         request.file_path,
         request.file_text,
         request.range,
-        CONFIG_ID,
+        request.config.id,
         request.override_config,
         request.token,
       )
@@ -103,11 +91,14 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
       Ok(result) => Ok(result),
       Err(err) => {
         // attempt to restart the communicator if this fails and it's no longer alive
-        let mut communicator = self.communicator.write().await;
-        if communicator.is_process_alive().await {
+        let mut inner = self.inner.write().await;
+        if inner.communicator.is_process_alive().await {
           Err(err)
         } else {
-          *communicator = Arc::new(create_new_communicator(&self.restart_info).await?);
+          *inner = InnerState {
+            registered_configs: Default::default(),
+            communicator: Arc::new(create_new_communicator(&self.restart_info).await?),
+          };
           Err(err)
         }
       }
@@ -115,7 +106,17 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
   }
 
   pub async fn get_inner(&self) -> Arc<ProcessPluginCommunicator> {
-    self.communicator.read().await.clone()
+    self.inner.read().await.communicator.clone()
+  }
+
+  pub async fn get_inner_ensure_config(&self, config: &FormatConfig) -> Result<Arc<ProcessPluginCommunicator>> {
+    let inner = self.inner.read().await;
+    let has_config = inner.registered_configs.lock().contains(&config.id);
+    if !has_config {
+      inner.communicator.register_config(config.id, &config.global, &config.raw).await?;
+      inner.registered_configs.lock().insert(config.id);
+    }
+    Ok(inner.communicator.clone())
   }
 }
 
@@ -123,15 +124,10 @@ async fn create_new_communicator<TEnvironment: Environment>(restart_info: &Proce
   // ensure it's initialized each time
   let plugin_name = restart_info.plugin_name.to_string();
   let environment = restart_info.environment.clone();
-  let communicator = ProcessPluginCommunicator::new(
-    &restart_info.executable_file_path,
-    move |error_message| {
-      environment.log_stderr_with_context(&error_message, &plugin_name);
-    },
-    restart_info.plugin_collection.clone(),
-  )
+  let communicator = ProcessPluginCommunicator::new(&restart_info.executable_file_path, move |error_message| {
+    environment.log_stderr_with_context(&error_message, &plugin_name);
+  })
   .await?;
-  communicator.register_config(CONFIG_ID, &restart_info.config.0, &restart_info.config.1).await?;
   Ok(communicator)
 }
 
@@ -139,6 +135,7 @@ async fn create_new_communicator<TEnvironment: Environment>(restart_info: &Proce
 mod test {
   use std::time::Duration;
 
+  use dprint_core::configuration::ConfigKeyMap;
   use dprint_core::plugins::NullCancellationToken;
   use tokio_util::sync::CancellationToken;
 
@@ -151,11 +148,17 @@ mod test {
     environment.run_in_runtime({
       let environment = environment.clone();
       async move {
-        let collection = Arc::new(PluginsCollection::new(environment.clone()));
         // ensure that the config gets recreated as well
-        let mut config = ConfigKeyMap::new();
-        config.insert("ending".to_string(), "custom".to_string().into());
-        let communicator = InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone(), collection.clone(), config).await;
+        let communicator = InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone()).await;
+        let format_config = Arc::new(FormatConfig {
+          id: FormatConfigId::from_raw(1),
+          raw: {
+            let mut config = ConfigKeyMap::new();
+            config.insert("ending".to_string(), "custom".to_string().into());
+            config
+          },
+          global: Default::default(),
+        });
 
         // ensure basic formatting works
         {
@@ -164,6 +167,7 @@ mod test {
               file_path: PathBuf::from("test.txt"),
               file_text: "testing".to_string(),
               range: None,
+              config: format_config.clone(),
               override_config: Default::default(),
               token: Arc::new(NullCancellationToken),
             })
@@ -180,6 +184,7 @@ mod test {
             // special text that makes it wait for cancellation
             file_text: "wait_cancellation".to_string(),
             range: None,
+            config: format_config.clone(),
             override_config: Default::default(),
             token: Arc::new(NullCancellationToken),
           }));
@@ -206,6 +211,7 @@ mod test {
               file_path: PathBuf::from("test.txt"),
               file_text: "testing".to_string(),
               range: None,
+              config: format_config.clone(),
               override_config: Default::default(),
               token: Arc::new(NullCancellationToken),
             })
@@ -216,7 +222,7 @@ mod test {
 
         assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
 
-        collection.drop_and_shutdown_initialized().await;
+        communicator.shutdown().await;
       }
     })
   }
@@ -227,9 +233,12 @@ mod test {
     environment.run_in_runtime({
       let environment = environment.clone();
       async move {
-        let collection = Arc::new(PluginsCollection::new(environment.clone()));
-        let communicator =
-          InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone(), collection.clone(), Default::default()).await;
+        let communicator = InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone()).await;
+        let format_config = Arc::new(FormatConfig {
+          id: FormatConfigId::from_raw(1),
+          raw: Default::default(),
+          global: Default::default(),
+        });
 
         // start up a format that will wait for cancellation
         let token = Arc::new(CancellationToken::new());
@@ -237,6 +246,7 @@ mod test {
           file_path: PathBuf::from("test.txt"),
           // special text that makes it wait for cancellation
           file_text: "wait_cancellation".to_string(),
+          config: format_config.clone(),
           range: None,
           override_config: Default::default(),
           token: token.clone(),
@@ -255,7 +265,7 @@ mod test {
         // should return Ok(None)
         assert_eq!(result.unwrap(), None);
 
-        collection.drop_and_shutdown_initialized().await;
+        communicator.shutdown().await;
       }
     })
   }
