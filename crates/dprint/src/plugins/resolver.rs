@@ -9,21 +9,18 @@ use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginSourceReference;
-use crate::plugins::PluginsCollection;
 
 pub struct PluginResolver<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_cache: Arc<PluginCache<TEnvironment>>,
-  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
   memory_cache: Mutex<HashMap<PluginSourceReference, Arc<tokio::sync::OnceCell<Arc<dyn Plugin>>>>>,
 }
 
 impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
-  pub fn new(environment: TEnvironment, plugin_cache: Arc<PluginCache<TEnvironment>>, plugins_collection: Arc<PluginsCollection<TEnvironment>>) -> Self {
+  pub fn new(environment: TEnvironment, plugin_cache: Arc<PluginCache<TEnvironment>>) -> Self {
     PluginResolver {
       environment,
       plugin_cache,
-      plugins_collection,
       memory_cache: Default::default(),
     }
   }

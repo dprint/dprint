@@ -36,16 +36,28 @@ use crate::communication::SingleThreadMessageWriter;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
+use crate::plugins::BoxFuture;
 use crate::plugins::CriticalFormatError;
 use crate::plugins::FormatConfigId;
 use crate::plugins::FormatRange;
 use crate::plugins::FormatResult;
-use crate::plugins::Host;
 use crate::plugins::HostFormatRequest;
 use crate::plugins::NullCancellationToken;
 use crate::plugins::PluginInfo;
 
 type DprintCancellationToken = Arc<dyn super::super::CancellationToken>;
+
+pub type HostFormatCallback = Arc<dyn Fn(HostFormatRequest) -> BoxFuture<'static, FormatResult> + Send + Sync>;
+
+pub struct ProcessPluginCommunicatorFormatRequest {
+  pub file_path: PathBuf,
+  pub file_text: String,
+  pub range: FormatRange,
+  pub config_id: FormatConfigId,
+  pub override_config: ConfigKeyMap,
+  pub on_host_format: HostFormatCallback,
+  pub token: DprintCancellationToken,
+}
 
 enum MessageResponseChannel {
   Acknowledgement(oneshot::Sender<Result<()>>),
@@ -61,7 +73,7 @@ struct Context {
   id_generator: IdGenerator,
   messages: ArcIdStore<MessageResponseChannel>,
   format_request_tokens: ArcIdStore<Arc<CancellationToken>>,
-  host: Arc<dyn Host>,
+  host_format_callbacks: ArcIdStore<HostFormatCallback>,
 }
 
 /// Communicates with a process plugin.
@@ -77,21 +89,16 @@ impl Drop for ProcessPluginCommunicator {
 }
 
 impl ProcessPluginCommunicator {
-  pub async fn new(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static, host: Arc<dyn Host>) -> Result<Self> {
-    ProcessPluginCommunicator::new_internal(executable_file_path, false, on_std_err, host).await
+  pub async fn new(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static) -> Result<Self> {
+    ProcessPluginCommunicator::new_internal(executable_file_path, false, on_std_err).await
   }
 
   /// Provides the `--init` CLI flag to tell the process plugin to do any initialization necessary
-  pub async fn new_with_init(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static, host: Arc<dyn Host>) -> Result<Self> {
-    ProcessPluginCommunicator::new_internal(executable_file_path, true, on_std_err, host).await
+  pub async fn new_with_init(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static) -> Result<Self> {
+    ProcessPluginCommunicator::new_internal(executable_file_path, true, on_std_err).await
   }
 
-  async fn new_internal(
-    executable_file_path: &Path,
-    is_init: bool,
-    on_std_err: impl Fn(String) + Clone + Send + Sync + 'static,
-    host: Arc<dyn Host>,
-  ) -> Result<Self> {
+  async fn new_internal(executable_file_path: &Path, is_init: bool, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static) -> Result<Self> {
     let mut args = vec!["--parent-pid".to_string(), std::process::id().to_string()];
     if is_init {
       args.push("--init".to_string());
@@ -133,7 +140,7 @@ impl ProcessPluginCommunicator {
       poisoner,
       messages: Default::default(),
       format_request_tokens: Default::default(),
-      host,
+      host_format_callbacks: Default::default(),
     };
 
     // read from stdout
@@ -222,33 +229,30 @@ impl ProcessPluginCommunicator {
     self.send_receiving_data(MessageBody::GetConfigDiagnostics(config_id)).await
   }
 
-  pub async fn format_text(
-    &self,
-    file_path: PathBuf,
-    file_text: String,
-    range: FormatRange,
-    config_id: FormatConfigId,
-    override_config: ConfigKeyMap,
-    token: DprintCancellationToken,
-  ) -> FormatResult {
+  pub async fn format_text(&self, request: ProcessPluginCommunicatorFormatRequest) -> FormatResult {
     let (tx, rx) = oneshot::channel::<Result<Option<Vec<u8>>>>();
 
+    let message_id = self.context.id_generator.next();
+    let store_guard = self.context.host_format_callbacks.store_with_guard(message_id, request.on_host_format);
     let maybe_result = self
-      .send_message(
+      .send_message_with_id(
+        message_id,
         MessageBody::Format(FormatMessageBody {
-          file_path,
-          file_text: file_text.into_bytes(),
-          range,
-          config_id,
-          override_config: serde_json::to_vec(&override_config).unwrap(),
+          file_path: request.file_path,
+          file_text: request.file_text.into_bytes(),
+          range: request.range,
+          config_id: request.config_id,
+          override_config: serde_json::to_vec(&request.override_config).unwrap(),
         }),
         MessageResponseChannel::Format(tx),
         rx,
-        token.clone(),
+        request.token.clone(),
       )
       .await;
 
-    if token.is_cancelled() {
+    drop(store_guard); // explicit for clarity
+
+    if request.token.is_cancelled() {
       Ok(None)
     } else {
       match maybe_result {
@@ -297,6 +301,17 @@ impl ProcessPluginCommunicator {
     token: Arc<dyn super::super::CancellationToken>,
   ) -> Result<Result<T>> {
     let message_id = self.context.id_generator.next();
+    self.send_message_with_id(message_id, body, response_channel, receiver, token).await
+  }
+
+  async fn send_message_with_id<T: Default>(
+    &self,
+    message_id: u32,
+    body: MessageBody,
+    response_channel: MessageResponseChannel,
+    receiver: oneshot::Receiver<Result<T>>,
+    token: Arc<dyn super::super::CancellationToken>,
+  ) -> Result<Result<T>> {
     self.context.messages.store(message_id, response_channel);
     self.context.stdin_writer.send(ProcessPluginMessage { id: message_id, body })?;
     tokio::select! {
@@ -306,6 +321,11 @@ impl ProcessPluginCommunicator {
       }
       _ = token.wait_cancellation() => {
         self.context.messages.take(message_id); // clear memory
+        // send cancellation to the client
+        let _ = self.context.stdin_writer.send(ProcessPluginMessage {
+          id: self.context.id_generator.next(),
+          body: MessageBody::CancelFormat(message_id),
+        });
         Ok(Ok(Default::default()))
       }
       response = receiver => {
@@ -424,6 +444,7 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
       if let Some(token) = context.format_request_tokens.take(message_id) {
         token.cancel();
       }
+      context.host_format_callbacks.take(message_id);
     }
     MessageBody::HostFormat(body) => {
       // spawn a task to do the host formatting, then send a message back to the
@@ -485,22 +506,20 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
 async fn host_format(context: Context, message_id: u32, body: HostFormatMessageBody) -> FormatResult {
   let file_text = String::from_utf8(body.file_text)?; // surface error before storing token
 
+  let Some(callback) = context.host_format_callbacks.get_cloned(body.original_message_id) else {
+    return FormatResult::Err(anyhow!("Could not find host format callback for message id: {}", body.original_message_id));
+  };
+
   let token = Arc::new(CancellationToken::new());
-  context.format_request_tokens.store(message_id, token.clone());
-  let result = context
-    .host
-    .format(HostFormatRequest {
-      file_path: body.file_path,
-      file_text,
-      range: body.range,
-      config_id: body.config_id,
-      override_config: serde_json::from_slice(&body.override_config).unwrap(),
-      token,
-    })
-    .await;
-
-  // don't leak cancellation tokens
-  context.format_request_tokens.take(message_id);
-
+  let store_guard = context.format_request_tokens.store_with_guard(message_id, token.clone());
+  let result = callback(HostFormatRequest {
+    file_path: body.file_path,
+    file_text,
+    range: body.range,
+    override_config: serde_json::from_slice(&body.override_config).unwrap(),
+    token,
+  })
+  .await;
+  drop(store_guard); // explicit for clarity
   result
 }

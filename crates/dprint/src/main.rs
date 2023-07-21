@@ -50,10 +50,8 @@ async fn run(runtime_handle: tokio::runtime::Handle) -> Result<(), AppError> {
     runtime_handle: Arc::new(runtime_handle),
   })?;
   let plugin_cache = Arc::new(plugins::PluginCache::new(environment.clone()));
-  let plugin_pools = Arc::new(plugins::PluginsCollection::new(environment.clone()));
-  let plugin_resolver = plugins::PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
+  let plugin_resolver = Arc::new(plugins::PluginResolver::new(environment.clone(), plugin_cache));
 
-  let result = run_cli::run_cli(&args, &environment, &plugin_resolver, plugin_pools.clone()).await;
-  plugin_pools.drop_and_shutdown_initialized().await;
+  let result = run_cli::run_cli(&args, &environment, &plugin_resolver).await;
   Ok(result?)
 }

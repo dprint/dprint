@@ -5,7 +5,6 @@ use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,18 +15,18 @@ use tokio_util::sync::CancellationToken;
 
 use crate::environment::Environment;
 use crate::incremental::IncrementalFile;
-use crate::paths::PluginNames;
-use crate::plugins::GetPluginResult;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
-use crate::plugins::PluginWrapper;
-use crate::plugins::PluginsCollection;
+use crate::resolution::GetPluginResult;
+use crate::resolution::InitializedPluginWithConfig;
+use crate::resolution::PluginWithConfig;
+use crate::resolution::PluginsScopeAndPaths;
 use crate::utils::ErrorCountLogger;
 use crate::utils::FileText;
 
-struct TaskWork<TEnvironment: Environment> {
+struct TaskWork {
   semaphore: Arc<Semaphore>,
-  plugins: Vec<Arc<PluginWrapper<TEnvironment>>>,
+  plugins: Vec<Arc<PluginWithConfig>>,
   file_paths: Vec<PathBuf>,
 }
 
@@ -41,9 +40,8 @@ struct StoredSemaphore {
 pub struct EnsureStableFormat(pub bool);
 
 pub async fn run_parallelized<F, TEnvironment: Environment>(
-  file_paths_by_plugins: HashMap<PluginNames, Vec<PathBuf>>,
+  scope_and_paths: PluginsScopeAndPaths<TEnvironment>,
   environment: &TEnvironment,
-  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
   incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
   ensure_stable_format: EnsureStableFormat,
   f: F,
@@ -52,21 +50,22 @@ where
   F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<()> + Send + Sync + 'static + Clone,
 {
   let max_threads = environment.max_threads();
-  let number_process_plugins = plugins_collection.process_plugin_count();
+  let number_process_plugins = scope_and_paths.scope.process_plugin_count();
   let reduction_count = number_process_plugins + 1; // + 1 for each process plugin's possible runtime thread and this runtime's thread
   let number_threads = if max_threads > reduction_count { max_threads - reduction_count } else { 1 };
   log_verbose!(environment, "Max threads: {}\nThread count: {}", max_threads, number_threads);
 
   let error_logger = ErrorCountLogger::from_environment(environment);
 
-  let mut file_paths_by_plugins = file_paths_by_plugins.into_iter().collect::<Vec<_>>();
+  let scope = scope_and_paths.scope;
+  let mut file_paths_by_plugins = scope_and_paths.file_paths_by_plugins.into_iter().collect::<Vec<_>>();
   // favour giving semaphore permits to ones with more items at the start
   file_paths_by_plugins.sort_by_key(|(_, file_paths)| 0i32 - file_paths.len() as i32);
   let collection_count = file_paths_by_plugins.len();
   let mut semaphores = Vec::with_capacity(collection_count);
   let mut task_works = Vec::with_capacity(collection_count);
   for (i, (plugin_names, file_paths)) in file_paths_by_plugins.into_iter().enumerate() {
-    let plugins = plugin_names.names().map(|plugin_name| plugins_collection.get_plugin(plugin_name)).collect();
+    let plugins = plugin_names.names().map(|plugin_name| scope.get_plugin(plugin_name)).collect();
     let additional_thread = i < number_threads % collection_count;
     let permits = number_threads / collection_count + if additional_thread { 1 } else { 0 };
     let semaphore = Arc::new(Semaphore::new(permits));
@@ -94,16 +93,17 @@ where
         let _semaphore_permits = SemaphorePermitReleaser { index, semaphores };
         // resolve the plugins
         let mut plugins = Vec::with_capacity(task_work.plugins.len());
-        for plugin_wrapper in task_work.plugins {
-          let result = match plugin_wrapper.get_or_create_checking_config_diagnostics(error_logger.clone()).await {
+        for plugin in task_work.plugins {
+          let result = match plugin.get_or_create_checking_config_diagnostics(&environment).await {
             Ok(result) => result,
             Err(err) => {
-              error_logger.log_error(&format!("Error creating plugin {}. Message: {}", plugin_wrapper.name(), err));
+              error_logger.log_error(&format!("Error creating plugin {}. Message: {}", plugin.name(), err));
               return;
             }
           };
           plugins.push(match result {
-            GetPluginResult::HadDiagnostics => {
+            GetPluginResult::HadDiagnostics(count) => {
+              error_logger.add_error_count(count);
               return;
             }
             GetPluginResult::Success(plugin) => plugin,
@@ -175,7 +175,7 @@ where
   async fn run_for_file_path<F, TEnvironment: Environment>(
     environment: TEnvironment,
     incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
-    plugins: Arc<Vec<Arc<dyn InitializedPlugin>>>,
+    plugins: Arc<Vec<Arc<InitializedPluginWithConfig>>>,
     file_path: PathBuf,
     ensure_stable_format: EnsureStableFormat,
     f: F,
@@ -249,7 +249,7 @@ where
 
   async fn run_single_pass_for_file_path<TEnvironment: Environment>(
     environment: TEnvironment,
-    plugins: Arc<Vec<Arc<dyn InitializedPlugin>>>,
+    plugins: Arc<Vec<InitializedPluginWithConfig>>,
     file_path: PathBuf,
     file_text: &str,
   ) -> Result<(Instant, String)> {

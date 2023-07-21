@@ -2,11 +2,10 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use futures::FutureExt;
 use serde::Serialize;
-use std::future::Future;
 use std::io::Read;
 use std::io::Write;
-use std::pin::Pin;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -24,9 +23,9 @@ use crate::communication::SingleThreadMessageWriter;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::GlobalConfiguration;
 use crate::plugins::AsyncPluginHandler;
+use crate::plugins::BoxFuture;
 use crate::plugins::FormatRequest;
 use crate::plugins::FormatResult;
-use crate::plugins::Host;
 use crate::plugins::HostFormatRequest;
 
 /// Handles the process' messages based on the provided handler.
@@ -43,7 +42,6 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
     let handler = Arc::new(handler);
     let stdout_message_writer = SingleThreadMessageWriter::for_stdout(stdout_writer);
     let context: ProcessContext<THandler::Configuration> = ProcessContext::new(stdout_message_writer);
-    let host = Arc::new(ProcessHost { context: context.clone() });
 
     // read messages over stdin
     loop {
@@ -153,9 +151,14 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           context.cancellation_tokens.store(message.id, token.clone());
           let context = context.clone();
           let handler = handler.clone();
-          let host = host.clone();
           tokio::task::spawn(async move {
-            let result = handler.format(request, host).await;
+            let original_message_id = message.id;
+            let result = handler
+              .format(request, {
+                let context = context.clone();
+                move |request| host_format(&context, original_message_id, request)
+              })
+              .await;
             context.cancellation_tokens.take(message.id);
             if !token.is_cancelled() {
               let body = match result {
@@ -211,60 +214,58 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
   .unwrap()
 }
 
-struct ProcessHost<TConfiguration: Serialize + Clone + Send + Sync> {
-  context: ProcessContext<TConfiguration>,
-}
+fn host_format<TConfiguration: Serialize + Clone + Send + Sync>(
+  context: &ProcessContext<TConfiguration>,
+  original_message_id: u32,
+  request: HostFormatRequest,
+) -> BoxFuture<'static, FormatResult> {
+  let (tx, rx) = tokio::sync::oneshot::channel::<FormatResult>();
+  let id = context.id_generator.next();
+  context.format_host_senders.store(id, tx);
 
-impl<TConfiguration: Serialize + Clone + Send + Sync> Host for ProcessHost<TConfiguration> {
-  fn format(&self, request: HostFormatRequest) -> Pin<Box<dyn Future<Output = FormatResult> + Send>> {
-    let (tx, rx) = tokio::sync::oneshot::channel::<FormatResult>();
-    let id = self.context.id_generator.next();
-    self.context.format_host_senders.store(id, tx);
+  context
+    .stdout_writer
+    .send(ProcessPluginMessage {
+      id,
+      body: MessageBody::HostFormat(HostFormatMessageBody {
+        original_message_id,
+        file_path: request.file_path,
+        file_text: request.file_text.into_bytes(),
+        range: request.range,
+        override_config: serde_json::to_vec(&request.override_config).unwrap(),
+      }),
+    })
+    .unwrap_or_else(|err| panic!("Error sending host format response: {:#}", err));
 
-    self
-      .context
-      .stdout_writer
-      .send(ProcessPluginMessage {
-        id,
-        body: MessageBody::HostFormat(HostFormatMessageBody {
-          file_path: request.file_path,
-          file_text: request.file_text.into_bytes(),
-          range: request.range,
-          config_id: request.config_id,
-          override_config: serde_json::to_vec(&request.override_config).unwrap(),
-        }),
-      })
-      .unwrap_or_else(|err| panic!("Error sending host format response: {:#}", err));
+  let token = request.token;
+  let stdout_writer = context.stdout_writer.clone();
+  let id_generator = context.id_generator.clone();
+  let original_message_id = id;
 
-    let token = request.token;
-    let stdout_writer = self.context.stdout_writer.clone();
-    let id_generator = self.context.id_generator.clone();
-    let original_message_id = id;
+  async move {
+    tokio::select! {
+      _ = token.wait_cancellation() => {
+        // send a cancellation to the host
+        stdout_writer.send(ProcessPluginMessage {
+          id: id_generator.next(),
+          body: MessageBody::CancelFormat(original_message_id),
+        }).unwrap_or_else(|err| panic!("Error sending host format cancellation: {:#}", err));
 
-    Box::pin(async move {
-      tokio::select! {
-        _ = token.wait_cancellation() => {
-          // send a cancellation to the host
-          stdout_writer.send(ProcessPluginMessage {
-            id: id_generator.next(),
-            body: MessageBody::CancelFormat(original_message_id),
-          }).unwrap_or_else(|err| panic!("Error sending host format cancellation: {:#}", err));
-
-          // return no change
-          Ok(None)
-        }
-        value = rx => {
-          match value {
-            Ok(Ok(Some(value))) => Ok(Some(value)),
-            Ok(Ok(None)) => Ok(None),
-            Ok(Err(err)) => Err(err),
-            // means the rx was closed, so just ignore
-            Err(err) => Err(err.into()),
-          }
+        // return no change
+        Ok(None)
+      }
+      value = rx => {
+        match value {
+          Ok(Ok(Some(value))) => Ok(Some(value)),
+          Ok(Ok(None)) => Ok(None),
+          Ok(Err(err)) => Err(err),
+          // means the rx was closed, so just ignore
+          Err(err) => Err(err.into()),
         }
       }
-    })
+    }
   }
+  .boxed()
 }
 
 fn handle_message<TConfiguration: Serialize + Clone + Send + Sync>(

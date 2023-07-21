@@ -48,6 +48,17 @@ impl IdGenerator {
   }
 }
 
+pub struct ArcIdStoreGuard<'a, T> {
+  store: &'a ArcIdStore<T>,
+  message_id: u32,
+}
+
+impl<'a, T> Drop for ArcIdStoreGuard<'a, T> {
+  fn drop(&mut self) {
+    self.store.take(self.message_id);
+  }
+}
+
 /// A store that can be shared across multiple threads, keyed by id.
 pub struct ArcIdStore<T>(Arc<Mutex<HashMap<u32, T>>>);
 
@@ -64,6 +75,11 @@ impl<T> ArcIdStore<T> {
 
   pub fn store(&self, message_id: u32, data: T) {
     self.0.lock().insert(message_id, data);
+  }
+
+  pub fn store_with_guard(&self, message_id: u32, data: T) -> ArcIdStoreGuard<'_, T> {
+    self.store(message_id, data);
+    ArcIdStoreGuard { store: self, message_id }
   }
 
   pub fn take(&self, message_id: u32) -> Option<T> {

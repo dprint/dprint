@@ -22,7 +22,7 @@ pub struct PluginNameResolutionMaps {
 }
 
 impl PluginNameResolutionMaps {
-  pub fn from_plugins(plugins: &[PluginWithConfig], config_base_path: &CanonicalizedPathBuf) -> Result<Self> {
+  pub fn from_plugins<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>, config_base_path: &CanonicalizedPathBuf) -> Result<Self> {
     let mut plugin_name_maps = PluginNameResolutionMaps::default();
     for plugin in plugins {
       let info = &plugin.info();
@@ -98,7 +98,7 @@ impl PluginNameResolutionMaps {
 }
 
 fn get_plugin_association_glob_matcher(plugin: &PluginWithConfig, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>> {
-  Ok(if let Some(associations) = plugin.raw_config.associations.as_ref() {
+  Ok(if let Some(associations) = plugin.associations.as_ref() {
     Some(get_patterns_as_glob_matcher(associations, config_base_path)?)
   } else {
     None

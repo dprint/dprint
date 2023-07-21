@@ -9,3 +9,6 @@ members = [
 exclude = [
   "crates/test-plugin",
 ]
+
+[workspace.dependencies]
+futures = "0.3.26"

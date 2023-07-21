@@ -1,5 +1,4 @@
 use dprint_core::configuration::ConfigKeyMap;
-use dprint_core::plugins::Host;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
@@ -42,12 +41,11 @@ pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
 }
 
 /// Create an import object that formats text using plugins from the plugin pool
-pub fn create_pools_import_object<TEnvironment: Environment, THost: Host>(
+pub fn create_pools_import_object<TEnvironment: Environment>(
   environment: TEnvironment,
-  host: Arc<THost>,
   store: &mut Store,
-) -> (wasmer::Imports, FunctionEnv<ImportObjectEnvironment<TEnvironment, THost>>) {
-  let env = ImportObjectEnvironment::new(environment, host);
+) -> (wasmer::Imports, FunctionEnv<ImportObjectEnvironment<TEnvironment>>) {
+  let env = ImportObjectEnvironment::new(environment);
   let env = FunctionEnv::new(store, env);
 
   (
@@ -83,9 +81,8 @@ impl SharedBytes {
   }
 }
 
-pub struct ImportObjectEnvironment<TEnvironment: Environment, THost: Host> {
+pub struct ImportObjectEnvironment<TEnvironment: Environment> {
   memory: Option<Memory>,
-  host: Arc<THost>,
   override_config: Option<ConfigKeyMap>,
   file_path: Option<PathBuf>,
   formatted_text_store: String,
@@ -94,10 +91,9 @@ pub struct ImportObjectEnvironment<TEnvironment: Environment, THost: Host> {
   environment: TEnvironment,
 }
 
-impl<TEnvironment: Environment, THost: Host> ImportObjectEnvironment<TEnvironment, THost> {
-  pub fn new(environment: TEnvironment, host: Arc<THost>) -> Self {
+impl<TEnvironment: Environment> ImportObjectEnvironment<TEnvironment> {
+  pub fn new(environment: TEnvironment) -> Self {
     ImportObjectEnvironment {
-      host,
       memory: None,
       override_config: None,
       file_path: None,
@@ -121,16 +117,12 @@ impl<TEnvironment: Environment, THost: Host> ImportObjectEnvironment<TEnvironmen
   }
 }
 
-fn host_clear_bytes<TEnvironment: Environment, THost: Host>(env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment, THost>>, length: u32) {
+fn host_clear_bytes<TEnvironment: Environment>(env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment>>, length: u32) {
   let env = env.data();
   *env.shared_bytes.lock() = SharedBytes::with_size(length as usize);
 }
 
-fn host_read_buffer<TEnvironment: Environment, THost: Host>(
-  env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment, THost>>,
-  buffer_pointer: u32,
-  length: u32,
-) {
+fn host_read_buffer<TEnvironment: Environment>(env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment>>, buffer_pointer: u32, length: u32) {
   let buffer_pointer: wasmer::WasmPtr<u32> = wasmer::WasmPtr::new(buffer_pointer);
   let env_data = env.data();
   let memory = env_data.memory.as_ref().unwrap();
@@ -149,12 +141,7 @@ fn host_read_buffer<TEnvironment: Environment, THost: Host>(
   shared_bytes.index += length;
 }
 
-fn host_write_buffer<TEnvironment: Environment, THost: Host>(
-  env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment, THost>>,
-  buffer_pointer: u32,
-  offset: u32,
-  length: u32,
-) {
+fn host_write_buffer<TEnvironment: Environment>(env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment>>, buffer_pointer: u32, offset: u32, length: u32) {
   let buffer_pointer: wasmer::WasmPtr<u32> = wasmer::WasmPtr::new(buffer_pointer);
   let env_data = env.data();
   let memory = env_data.memory.as_ref().unwrap();
@@ -168,21 +155,21 @@ fn host_write_buffer<TEnvironment: Environment, THost: Host>(
     .unwrap();
 }
 
-fn host_take_override_config<TEnvironment: Environment, THost: Host>(mut env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment, THost>>) {
+fn host_take_override_config<TEnvironment: Environment>(mut env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment>>) {
   let env = env.data_mut();
   let bytes = env.take_shared_bytes();
   let config_key_map: ConfigKeyMap = serde_json::from_slice(&bytes).unwrap_or_default();
   env.override_config.replace(config_key_map);
 }
 
-fn host_take_file_path<TEnvironment: Environment, THost: Host>(mut env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment, THost>>) {
+fn host_take_file_path<TEnvironment: Environment>(mut env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment>>) {
   let env = env.data_mut();
   let bytes = env.take_shared_bytes();
   let file_path_str = String::from_utf8(bytes).unwrap();
   env.file_path.replace(PathBuf::from(file_path_str));
 }
 
-fn host_format<TEnvironment: Environment, THost: Host>(mut env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment, THost>>) -> u32 {
+fn host_format<TEnvironment: Environment>(mut env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment>>) -> u32 {
   let (handle, runtime_handle) = {
     let env = env.data_mut();
     let override_config = env.override_config.take().unwrap_or_default();
@@ -240,7 +227,7 @@ fn host_format<TEnvironment: Environment, THost: Host>(mut env: FunctionEnvMut<I
   }
 }
 
-fn host_get_formatted_text<TEnvironment: Environment, THost: Host>(mut env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment, THost>>) -> u32 {
+fn host_get_formatted_text<TEnvironment: Environment>(mut env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment>>) -> u32 {
   let env = env.data_mut();
   let formatted_text = std::mem::take(&mut env.formatted_text_store);
   let len = formatted_text.len();
@@ -248,7 +235,7 @@ fn host_get_formatted_text<TEnvironment: Environment, THost: Host>(mut env: Func
   len as u32
 }
 
-fn host_get_error_text<TEnvironment: Environment, THost: Host>(mut env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment, THost>>) -> u32 {
+fn host_get_error_text<TEnvironment: Environment>(mut env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment>>) -> u32 {
   let env = env.data_mut();
   let error_text = std::mem::take(&mut env.error_text_store);
   let len = error_text.len();

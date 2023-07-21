@@ -296,11 +296,11 @@ the CLI or plugin may still respond with a given request.
 
 Message body:
 
+- u32 - Message id of the original format request
 - u32 - Size of the file path
 - File path
 - u32 - Start byte index to format
 - u32 - End byte index to format
-- u32 - Configuration identifier
 - u32 - Size of the override configuration
 - JSON serialized override configuration
 - u32 - Size of the file text

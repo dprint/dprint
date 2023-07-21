@@ -4,6 +4,7 @@ use crate::plugins::InitializedPluginFormatRequest;
 use anyhow::Result;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
+use dprint_core::plugins::process::ProcessPluginCommunicatorFormatRequest;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatResult;
 use std::collections::HashSet;
@@ -78,14 +79,15 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     match self
       .get_inner_ensure_config(&request.config)
       .await?
-      .format_text(
-        request.file_path,
-        request.file_text,
-        request.range,
-        request.config.id,
-        request.override_config,
-        request.token,
-      )
+      .format_text(ProcessPluginCommunicatorFormatRequest {
+        file_path: request.file_path,
+        file_text: request.file_text,
+        range: request.range,
+        config_id: request.config.id,
+        override_config: request.override_config,
+        on_host_format: request.on_host_format,
+        token: request.token,
+      })
       .await
     {
       Ok(result) => Ok(result),

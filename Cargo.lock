@@ -706,6 +706,7 @@ dependencies = [
  "anyhow",
  "bumpalo",
  "crossbeam-channel",
+ "futures",
  "indexmap 1.9.3",
  "libc",
  "parking_lot",

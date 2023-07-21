@@ -25,8 +25,7 @@ use crate::configuration::ResolvedConfig;
 use crate::environment::Environment;
 use crate::patterns::FileMatcher;
 use crate::plugins::PluginResolver;
-use crate::plugins::PluginsCollection;
-use crate::resolution::get_plugins_with_config_from_args;
+use crate::resolution::get_plugins_scope_from_args;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::ResolvePluginsOptions;
 
@@ -62,19 +61,19 @@ pub async fn output_editor_info<TEnvironment: Environment>(
 
   let mut plugins = Vec::new();
 
-  for plugin in get_plugins_with_config_from_args(args, environment, plugin_resolver).await? {
+  for plugin in get_plugins_scope_from_args(args, environment, plugin_resolver).await?.plugins.values() {
     plugins.push(EditorPluginInfo {
-      name: plugin.name().to_string(),
-      version: plugin.version().to_string(),
-      config_key: plugin.config_key().to_string(),
-      file_extensions: plugin.file_extensions().iter().map(|ext| ext.to_string()).collect(),
-      file_names: plugin.file_names().iter().map(|ext| ext.to_string()).collect(),
-      config_schema_url: if plugin.config_schema_url().trim().is_empty() {
+      name: plugin.info().name.to_string(),
+      version: plugin.info().version.to_string(),
+      config_key: plugin.info().config_key.to_string(),
+      file_extensions: plugin.info().file_extensions.iter().map(|ext| ext.to_string()).collect(),
+      file_names: plugin.info().file_names.iter().map(|ext| ext.to_string()).collect(),
+      config_schema_url: if plugin.info().config_schema_url.trim().is_empty() {
         None
       } else {
-        Some(plugin.config_schema_url().trim().to_string())
+        Some(plugin.info().config_schema_url.trim().to_string())
       },
-      help_url: plugin.help_url().to_string(),
+      help_url: plugin.info().help_url.trim().to_string(),
     });
   }
 
@@ -91,14 +90,13 @@ pub async fn output_editor_info<TEnvironment: Environment>(
 pub async fn run_editor_service<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
+  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
   editor_service_cmd: &EditorServiceSubCommand,
 ) -> Result<()> {
   // poll for the existence of the parent process and terminate this process when that process no longer exists
   start_parent_process_checker_task(editor_service_cmd.parent_pid);
 
-  let mut editor_service = EditorService::new(args, environment, plugin_resolver, plugin_pools);
+  let mut editor_service = EditorService::new(args, environment, plugin_resolver);
   editor_service.run().await
 }
 
@@ -114,18 +112,12 @@ struct EditorService<'a, TEnvironment: Environment> {
   args: &'a CliArgs,
   environment: &'a TEnvironment,
   plugin_resolver: &'a Arc<PluginResolver<TEnvironment>>,
-  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
   context: Arc<EditorContext>,
   concurrency_limiter: Arc<Semaphore>,
 }
 
 impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
-  pub fn new(
-    args: &'a CliArgs,
-    environment: &'a TEnvironment,
-    plugin_resolver: &'a Arc<PluginResolver<TEnvironment>>,
-    plugin_pools: Arc<PluginsCollection<TEnvironment>>,
-  ) -> Self {
+  pub fn new(args: &'a CliArgs, environment: &'a TEnvironment, plugin_resolver: &'a Arc<PluginResolver<TEnvironment>>) -> Self {
     let stdin = environment.stdin();
     let stdout = environment.stdout();
     let reader = MessageReader::new(stdin);
@@ -139,7 +131,6 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       args,
       environment,
       plugin_resolver,
-      plugins_collection: plugin_pools,
       context: Arc::new(EditorContext {
         id_generator: Default::default(),
         cancellation_tokens: Default::default(),
@@ -202,7 +193,6 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           };
 
           self.context.cancellation_tokens.store(message.id, token.clone());
-          let plugins_collection = self.plugins_collection.clone();
           let context = self.context.clone();
           let concurrency_limiter = self.concurrency_limiter.clone();
           let _ignore = tokio::task::spawn(async move {

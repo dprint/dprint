@@ -11,9 +11,11 @@ use crate::plugins::FormatRange;
 use crate::communication::MessageReader;
 use crate::communication::MessageWriter;
 
+pub type MessageId = u32;
+
 #[derive(Debug)]
 pub struct ProcessPluginMessage {
-  pub id: u32,
+  pub id: MessageId,
   pub body: MessageBody,
 }
 
@@ -89,15 +91,15 @@ impl ProcessPluginMessage {
       }
       13 => MessageBody::CancelFormat(reader.read_u32()?),
       14 => {
+        let original_message_id = reader.read_u32()?;
         let file_path = reader.read_sized_bytes()?;
         let start_byte_index = reader.read_u32()?;
         let end_byte_index = reader.read_u32()?;
-        let config_id = FormatConfigId::from_raw(reader.read_u32()?);
         let override_config = reader.read_sized_bytes()?;
         let file_text = reader.read_sized_bytes()?;
         MessageBody::HostFormat(HostFormatMessageBody {
+          original_message_id,
           file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
-          config_id,
           range: if start_byte_index == 0 && end_byte_index == file_text.len() as u32 {
             None
           } else {
@@ -216,7 +218,7 @@ impl Message for ProcessPluginMessage {
 
 #[derive(Debug)]
 pub enum MessageBody {
-  Success(u32),
+  Success(MessageId),
   DataResponse(ResponseBody<Vec<u8>>),
   Error(ResponseBody<Vec<u8>>),
   Close,
@@ -229,7 +231,7 @@ pub enum MessageBody {
   GetResolvedConfig(FormatConfigId),
   Format(FormatMessageBody),
   FormatResponse(ResponseBody<Option<Vec<u8>>>),
-  CancelFormat(u32),
+  CancelFormat(MessageId),
   HostFormat(HostFormatMessageBody),
   /// If encountered, process plugin should panic and
   /// the CLI should kill the process plugin.
@@ -238,7 +240,7 @@ pub enum MessageBody {
 
 #[derive(Debug)]
 pub struct ResponseBody<T: std::fmt::Debug> {
-  pub message_id: u32,
+  pub message_id: MessageId,
   pub data: T,
 }
 
@@ -260,9 +262,9 @@ pub struct FormatMessageBody {
 
 #[derive(Debug)]
 pub struct HostFormatMessageBody {
+  pub original_message_id: MessageId,
   pub file_path: PathBuf,
   pub range: FormatRange,
-  pub config_id: FormatConfigId,
   pub override_config: Vec<u8>,
   pub file_text: Vec<u8>,
 }

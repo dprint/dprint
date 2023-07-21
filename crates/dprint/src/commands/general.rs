@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 
 use crate::arg_parser::create_cli_parser;
@@ -6,9 +8,8 @@ use crate::arg_parser::CliArgs;
 use crate::arg_parser::OutputFilePathsSubCommand;
 use crate::environment::Environment;
 use crate::paths::NoFilesFoundError;
-use crate::plugins::get_plugins_from_args;
 use crate::plugins::PluginResolver;
-use crate::resolution::resolve_plugins_and_paths;
+use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::utils::get_table_text;
 use crate::utils::is_out_of_date;
 
@@ -87,9 +88,9 @@ pub async fn output_file_paths<TEnvironment: Environment>(
   cmd: &OutputFilePathsSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
+  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let file_paths_by_plugins = match resolve_plugins_and_paths(args, &cmd.patterns, environment, plugin_resolver).await {
+  let file_paths_by_plugins = match resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await {
     Ok(result) => result.file_paths_by_plugins,
     Err(err) if err.downcast_ref::<NoFilesFoundError>().is_some() => Default::default(),
     Err(err) => return Err(err),

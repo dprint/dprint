@@ -1,7 +1,6 @@
 use anyhow::bail;
 use anyhow::Result;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
-use dprint_core::plugins::NoopHost;
 use dprint_core::plugins::PluginInfo;
 use serde::Deserialize;
 use serde::Serialize;
@@ -9,7 +8,6 @@ use serde_json::Value;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str;
-use std::sync::Arc;
 
 use crate::environment::Environment;
 use crate::plugins::implementations::SetupPluginResult;
@@ -83,18 +81,12 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
     }
 
     let executable_path = super::get_test_safe_executable_path(plugin_executable_file_path.clone(), environment);
-    let communicator = ProcessPluginCommunicator::new_with_init(
-      &executable_path,
-      {
-        let environment = environment.clone();
-        move |error_message| {
-          environment.log_stderr_with_context(&error_message, &plugin_name);
-        }
-      },
-      // it's ok to use a no-op host here because
-      // we're only getting the plugin information
-      Arc::new(NoopHost),
-    )
+    let communicator = ProcessPluginCommunicator::new_with_init(&executable_path, {
+      let environment = environment.clone();
+      move |error_message| {
+        environment.log_stderr_with_context(&error_message, &plugin_name);
+      }
+    })
     .await?;
     let plugin_info = communicator.plugin_info().await?;
     communicator.shutdown().await;

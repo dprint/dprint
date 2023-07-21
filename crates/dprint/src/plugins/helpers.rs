@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use anyhow::bail;
 use anyhow::Result;
 use thiserror::Error;
 
@@ -20,20 +19,20 @@ pub async fn output_plugin_config_diagnostics<TEnvironment: Environment>(
   plugin: &dyn InitializedPlugin,
   format_config: Arc<FormatConfig>,
   environment: &TEnvironment,
-) -> Result<(), OutputPluginConfigDiagnosticsError> {
+) -> Result<Result<(), OutputPluginConfigDiagnosticsError>> {
   let mut diagnostic_count = 0;
 
   for diagnostic in plugin.config_diagnostics(format_config).await? {
-    environment.log_error(&format!("[{}]: {}", plugin_name, diagnostic));
+    environment.log_stderr(&format!("[{}]: {}", plugin_name, diagnostic));
     diagnostic_count += 1;
   }
 
   if diagnostic_count > 0 {
-    Err(OutputPluginConfigDiagnosticsError {
+    Ok(Err(OutputPluginConfigDiagnosticsError {
       plugin_name: plugin_name.to_string(),
       diagnostic_count,
-    })
+    }))
   } else {
-    Ok(())
+    Ok(Ok(()))
   }
 }

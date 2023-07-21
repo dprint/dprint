@@ -66,10 +66,10 @@ pub fn get_file_paths_by_plugins(plugin_name_maps: &PluginNameResolutionMaps, fi
   Ok(file_paths_by_plugin)
 }
 
-pub async fn get_and_resolve_file_paths(
+pub async fn get_and_resolve_file_paths<'a>(
   config: &ResolvedConfig,
   args: &FilePatternArgs,
-  plugins: &[PluginWithConfig],
+  plugins: impl Iterator<Item = &'a PluginWithConfig>,
   environment: &impl Environment,
 ) -> Result<GlobOutput> {
   let cwd = environment.cwd();
@@ -88,13 +88,13 @@ pub async fn get_and_resolve_file_paths(
   tokio::task::spawn_blocking(move || glob(&environment, &base_dir, file_patterns)).await.unwrap()
 }
 
-fn get_plugin_patterns(plugins: &[PluginWithConfig]) -> Vec<String> {
+fn get_plugin_patterns<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>) -> Vec<String> {
   let mut file_names = HashSet::new();
   let mut file_exts = HashSet::new();
   let mut association_globs = Vec::new();
   for plugin in plugins {
     let mut had_positive_association = false;
-    if let Some(associations) = plugin.raw_config.associations.as_ref() {
+    if let Some(associations) = plugin.associations.as_ref() {
       for pattern in process_config_patterns(associations) {
         if !is_negated_glob(&pattern) {
           had_positive_association = true;
@@ -103,8 +103,8 @@ fn get_plugin_patterns(plugins: &[PluginWithConfig]) -> Vec<String> {
       }
     }
     if !had_positive_association {
-      file_names.extend(plugin.plugin.file_names());
-      file_exts.extend(plugin.plugin.file_extensions());
+      file_names.extend(&plugin.info().file_names);
+      file_exts.extend(&plugin.info().file_extensions);
     }
   }
   let mut result = Vec::new();

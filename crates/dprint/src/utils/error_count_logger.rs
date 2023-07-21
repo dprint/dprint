@@ -20,7 +20,11 @@ impl<TEnvironment: Environment> ErrorCountLogger<TEnvironment> {
 
   pub fn log_error(&self, message: &str) {
     self.environment.log_stderr(message);
-    self.error_count.fetch_add(1, Ordering::SeqCst);
+    self.add_error_count(1);
+  }
+
+  pub fn add_error_count(&self, count: usize) {
+    self.error_count.fetch_add(count, Ordering::SeqCst);
   }
 
   pub fn get_error_count(&self) -> usize {

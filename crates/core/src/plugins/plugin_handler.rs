@@ -1,9 +1,7 @@
 use anyhow::Result;
 use serde::Serialize;
-use std::future::Future;
 use std::path::Path;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::configuration::ConfigKeyMap;
@@ -11,7 +9,7 @@ use crate::configuration::GlobalConfiguration;
 use crate::configuration::ResolveConfigurationResult;
 use crate::plugins::PluginInfo;
 
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+pub type BoxFuture<'a, T> = futures::future::BoxFuture<'a, T>;
 
 pub type FormatRange = Option<std::ops::Range<usize>>;
 
@@ -58,23 +56,8 @@ pub struct HostFormatRequest {
   pub file_text: String,
   /// Range to format.
   pub range: FormatRange,
-  pub config_id: FormatConfigId,
   pub override_config: ConfigKeyMap,
   pub token: Arc<dyn CancellationToken>,
-}
-
-pub trait Host: Send + Sync {
-  fn format(&self, request: HostFormatRequest) -> BoxFuture<FormatResult>;
-}
-
-/// Implementation of Host that always returns that
-/// it can't format something.
-pub struct NoopHost;
-
-impl Host for NoopHost {
-  fn format(&self, _: HostFormatRequest) -> BoxFuture<FormatResult> {
-    Box::pin(async { Ok(None) })
-  }
 }
 
 /// `Ok(Some(text))` - Changes due to the format.
@@ -127,7 +110,11 @@ pub trait AsyncPluginHandler: Send + Sync + 'static {
   /// Gets the plugin's license text.
   fn license_text(&self) -> String;
   /// Formats the provided file text based on the provided file path and configuration.
-  fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<FormatResult>;
+  fn format(
+    &self,
+    request: FormatRequest<Self::Configuration>,
+    format_with_host: impl FnMut(HostFormatRequest) -> BoxFuture<'static, FormatResult>,
+  ) -> BoxFuture<FormatResult>;
 }
 
 /// Trait for implementing a Wasm plugin. Eventually this will be combined with AsyncPluginHandler.

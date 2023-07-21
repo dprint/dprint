@@ -5,10 +5,11 @@ use std::sync::Arc;
 
 use anyhow::bail;
 use anyhow::Result;
-use dprint_core::communication::AtomicFlag;
-use dprint_core::configuration::GlobalConfiguration;
+use dprint_core::configuration::ConfigKeyMap;
+use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FormatConfigId;
+use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::Host;
 use dprint_core::plugins::HostFormatRequest;
@@ -25,7 +26,6 @@ use crate::configuration::get_plugin_config_map;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::resolve_config_from_path;
 use crate::configuration::GetGlobalConfigOptions;
-use crate::configuration::RawPluginConfig;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPath;
 use crate::environment::Environment;
@@ -36,10 +36,10 @@ use crate::plugins::output_plugin_config_diagnostics;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
+use crate::plugins::OutputPluginConfigDiagnosticsError;
 use crate::plugins::Plugin;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::plugins::PluginResolver;
-use crate::utils::ErrorCountLogger;
 use crate::utils::ResolvedPath;
 
 pub struct PluginWrapper {
@@ -53,13 +53,17 @@ impl PluginWrapper {
   }
 
   pub async fn initialize(&self) -> Result<Arc<dyn InitializedPlugin>> {
-    self.initialized_plugin.get_or_try_init(|| async move { Ok(self.plugin.initialize().await?) })
+    self
+      .initialized_plugin
+      .get_or_try_init(|| async move { Ok(self.plugin.initialize().await?) })
+      .await
+      .map(|x| x.clone())
   }
 }
 
-enum GetPluginResult {
+pub enum GetPluginResult {
   HadDiagnostics(usize),
-  Success(Arc<dyn InitializedPlugin>),
+  Success(InitializedPluginWithConfig),
 }
 
 pub struct PluginWithConfig {
@@ -85,19 +89,27 @@ impl PluginWithConfig {
     hash_str.push_str(&serde_json::to_string(&sorted_config).unwrap());
 
     hash_str.push_str(&serde_json::to_string(&self.associations).unwrap());
-    hash_str.push_str(&serde_json::to_string(&self.global_config).unwrap());
+    hash_str.push_str(&serde_json::to_string(&self.format_config.global).unwrap());
 
     crate::utils::get_bytes_hash(hash_str.as_bytes())
+  }
+
+  pub fn name(&self) -> &str {
+    &self.info().name
   }
 
   pub fn info(&self) -> &PluginInfo {
     self.plugin.info()
   }
 
-  async fn get_or_create_checking_config_diagnostics<TEnvironment: Environment>(&self, environment: &TEnvironment) -> Result<GetPluginResult> {
+  pub async fn get_or_create_checking_config_diagnostics<TEnvironment: Environment>(self: &Arc<Self>, environment: &TEnvironment) -> Result<GetPluginResult> {
     // only allow one thread to initialize and output the diagnostics (we don't want the messages being spammed)
     let instance = self.plugin.initialize().await?;
-    let config_diagnostic_count = self.config_diagnostic_count.lock();
+    let instance = InitializedPluginWithConfig {
+      instance,
+      plugin: self.clone(),
+    };
+    let mut config_diagnostic_count = self.config_diagnostic_count.lock().await;
     match *config_diagnostic_count {
       Some(count) => {
         if count > 0 {
@@ -106,19 +118,61 @@ impl PluginWithConfig {
         Ok(GetPluginResult::Success(instance))
       }
       None => {
-        let result = output_plugin_config_diagnostics(&self.info().name, &instance, self.format_config.clone(), environment).await;
-        *self.config_diagnostic_count.lock() = Some(result.is_ok());
+        let result = instance.output_config_diagnostics(environment).await?;
         if let Err(err) = result {
           environment.log_stderr(&err.to_string());
-          instance.shutdown().await;
+          *config_diagnostic_count = Some(err.diagnostic_count);
           return Ok(GetPluginResult::HadDiagnostics(err.diagnostic_count));
+        } else {
+          *config_diagnostic_count = Some(0);
+          Ok(GetPluginResult::Success(instance))
         }
       }
     }
   }
 }
 
-#[derive(Default)]
+pub struct InitializedPluginWithConfigFormatRequest {
+  pub file_path: PathBuf,
+  pub file_text: String,
+  pub range: FormatRange,
+  pub override_config: ConfigKeyMap,
+  pub token: Arc<dyn CancellationToken>,
+}
+
+#[derive(Clone)]
+pub struct InitializedPluginWithConfig {
+  plugin: Arc<PluginWithConfig>,
+  instance: Arc<dyn InitializedPlugin>,
+}
+
+impl InitializedPluginWithConfig {
+  pub fn info(&self) -> &PluginInfo {
+    self.plugin.info()
+  }
+
+  pub async fn output_config_diagnostics<TEnvironment: Environment>(
+    &self,
+    environment: &TEnvironment,
+  ) -> Result<Result<(), OutputPluginConfigDiagnosticsError>> {
+    output_plugin_config_diagnostics(&self.info().name, &*self.instance, self.plugin.format_config.clone(), environment).await
+  }
+
+  pub async fn format_text(&self, request: InitializedPluginWithConfigFormatRequest) -> FormatResult {
+    self
+      .instance
+      .format_text(InitializedPluginFormatRequest {
+        file_path: request.file_path,
+        file_text: request.file_text,
+        range: request.range,
+        config: self.plugin.format_config.clone(),
+        override_config: request.override_config,
+        token: request.token,
+      })
+      .await
+  }
+}
+
 pub struct PluginsScope<TEnvironment: Environment> {
   environment: TEnvironment,
   pub plugins: IndexMap<String, Arc<PluginWithConfig>>,
@@ -126,12 +180,28 @@ pub struct PluginsScope<TEnvironment: Environment> {
 }
 
 impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
-  fn get_plugin(&self, name: &str) -> Arc<PluginWithConfig> {
+  pub fn process_plugin_count(&self) -> usize {
+    self.plugins.values().filter(|p| p.plugin.plugin.is_process_plugin()).count()
+  }
+
+  pub fn get_plugin(&self, name: &str) -> Arc<PluginWithConfig> {
     self
       .plugins
       .get(name)
       .cloned()
       .unwrap_or_else(|| panic!("Expected to find plugin in collection: {}", name))
+  }
+
+  pub fn plugins_hash(&self) -> u64 {
+    // todo(THIS PR): replace this with a hasher
+    use std::num::Wrapping;
+    // yeah, I know adding hashes isn't right, but the chance of this not working
+    // in order to tell when a plugin has changed is super low.
+    let mut hash_sum = Wrapping(0);
+    for plugin in self.plugins.values() {
+      hash_sum += Wrapping(plugin.get_hash());
+    }
+    hash_sum.0
   }
 }
 
@@ -154,11 +224,10 @@ impl<TEnvironment: Environment> Host for PluginsScope<TEnvironment> {
         match plugin.get_or_create_checking_config_diagnostics(&self.environment).await {
           Ok(GetPluginResult::Success(initialized_plugin)) => {
             let result = initialized_plugin
-              .format_text(InitializedPluginFormatRequest {
+              .format_text(InitializedPluginWithConfigFormatRequest {
                 file_path: request.file_path.clone(),
                 file_text: file_text.clone(),
                 range: request.range.clone(),
-                config: plugin.format_config.clone(),
                 override_config: request.override_config.clone(),
                 token: request.token.clone(),
               })
@@ -179,17 +248,17 @@ impl<TEnvironment: Environment> Host for PluginsScope<TEnvironment> {
   }
 }
 
-pub struct PluginsAndPaths<TEnvironment: Environment> {
+pub struct PluginsScopeAndPaths<TEnvironment: Environment> {
   pub scope: PluginsScope<TEnvironment>,
   pub file_paths_by_plugins: HashMap<PluginNames, Vec<PathBuf>>,
 }
 
-pub async fn resolve_plugins_and_paths<TEnvironment: Environment>(
+pub async fn resolve_plugins_scope_and_paths<TEnvironment: Environment>(
   args: &CliArgs,
   patterns: &FilePatternArgs,
   environment: &TEnvironment,
   plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
-) -> Result<PluginsAndPaths<TEnvironment>> {
+) -> Result<PluginsScopeAndPaths<TEnvironment>> {
   let resolve_plugins_options = ResolvePluginsOptions {
     // Skip checking these diagnostics when the user provides
     // plugins from the CLI args. They may be doing this to filter
@@ -216,13 +285,13 @@ struct PluginsAndPathsResolver<'a, TEnvironment: Environment> {
 }
 
 impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
-  pub async fn resolve_config(&self) -> Result<PluginsAndPaths<TEnvironment>> {
+  pub async fn resolve_config(&self) -> Result<PluginsScopeAndPaths<TEnvironment>> {
     let config = resolve_config_from_args(self.args, self.environment)?;
     let scope = resolve_plugins_scope_and_err_if_empty(&config, self.environment, self.plugin_resolver, self.resolve_plugins_options).await?;
-    let glob_output = get_and_resolve_file_paths(&config, self.patterns, &scope.plugins, self.environment).await?;
+    let glob_output = get_and_resolve_file_paths(&config, self.patterns, scope.plugins.values().map(|p| p.as_ref()), self.environment).await?;
     let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&scope.plugin_name_maps, glob_output.file_paths)?;
 
-    let mut result = vec![PluginsAndPaths { scope, file_paths_by_plugins }];
+    let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
     for config_file_path in glob_output.config_files {
       result.extend(self.resolve_sub_config(config_file_path, &config).await?);
     }
@@ -235,7 +304,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     &'a self,
     config_file_path: PathBuf,
     parent_config: &'a ResolvedConfig,
-  ) -> LocalBoxFuture<'a, Result<Vec<PluginsAndPaths<TEnvironment>>>> {
+  ) -> LocalBoxFuture<'a, Result<Vec<PluginsScopeAndPaths<TEnvironment>>>> {
     async move {
       log_verbose!(self.environment, "Analyzing config file {}", config_file_path.display());
       let config_file_path = self.environment.canonicalize(&config_file_path)?;
@@ -248,10 +317,10 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
         config.plugins = parent_config.plugins.clone();
       }
       let scope = resolve_plugins_scope_and_err_if_empty(&config, self.environment, self.plugin_resolver, self.resolve_plugins_options).await?;
-      let glob_output = get_and_resolve_file_paths(&config, self.patterns, &scope.plugins, self.environment).await?;
+      let glob_output = get_and_resolve_file_paths(&config, self.patterns, scope.plugins.values().map(|p| p.as_ref()), self.environment).await?;
       let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&scope.plugin_name_maps, glob_output.file_paths)?;
 
-      let mut result = vec![PluginsAndPaths { scope, file_paths_by_plugins }];
+      let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
       for config_file_path in glob_output.config_files {
         result.extend(self.resolve_sub_config(config_file_path, &config).await?);
       }
@@ -262,7 +331,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
   }
 }
 
-pub async fn get_plugins_with_config_from_args<TEnvironment: Environment>(
+pub async fn get_plugins_scope_from_args<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
   plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
@@ -282,7 +351,12 @@ pub async fn get_plugins_with_config_from_args<TEnvironment: Environment>(
       )
       .await
     }
-    Err(_) => Ok(PluginsScope::default()), // ignore
+    // ignore
+    Err(_) => Ok(PluginsScope {
+      environment: environment.clone(),
+      plugin_name_maps: Default::default(),
+      plugins: Default::default(),
+    }),
   }
 }
 
@@ -338,22 +412,27 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   )?;
 
   // now set each plugin's config
-  let mut plugins = Vec::with_capacity(plugins_with_config.len());
+  let mut plugins = IndexMap::with_capacity(plugins_with_config.len());
   for (plugin_config, plugin) in plugins_with_config {
-    plugins.push(PluginWithConfig {
-      plugin,
-      associations: plugin_config.associations,
-      format_config: Arc::new(FormatConfig {
-        id: FormatConfigId::from_raw(1),
-        global: global_config.clone(),
-        raw: plugin_config.config,
+    plugins.insert(
+      plugin.info().name.clone(),
+      Arc::new(PluginWithConfig {
+        plugin: PluginWrapper {
+          plugin,
+          initialized_plugin: Default::default(),
+        },
+        associations: plugin_config.associations,
+        format_config: Arc::new(FormatConfig {
+          id: FormatConfigId::from_raw(1),
+          global: global_config.clone(),
+          raw: plugin_config.properties,
+        }),
+        config_diagnostic_count: Default::default(),
       }),
-      has_checked_diagnostics: Default::default(),
-      initialized_plugin: Default::default(),
-    });
+    );
   }
 
-  let plugin_name_maps = PluginNameResolutionMaps::from_plugins(&plugins, &config.base_path)?;
+  let plugin_name_maps = PluginNameResolutionMaps::from_plugins(plugins.values().map(|p| p.as_ref()), &config.base_path)?;
   Ok(PluginsScope {
     environment: environment.clone(),
     plugin_name_maps,

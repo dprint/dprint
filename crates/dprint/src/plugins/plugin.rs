@@ -9,6 +9,7 @@ use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
+use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::PluginInfo;
 use futures::future::BoxFuture;
 
@@ -48,6 +49,7 @@ pub struct InitializedPluginFormatRequest {
   pub range: FormatRange,
   pub config: Arc<FormatConfig>,
   pub override_config: ConfigKeyMap,
+  pub on_host_format: Box<dyn Fn(HostFormatRequest) -> BoxFuture<'static, FormatResult> + Send + Sync>,
   pub token: Arc<dyn CancellationToken>,
 }
 

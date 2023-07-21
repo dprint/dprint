@@ -22,7 +22,6 @@ use crate::resolution::resolve_plugins_scope;
 use crate::resolution::ResolvePluginsOptions;
 use crate::utils::pretty_print_json_text;
 use crate::utils::CachedDownloader;
-use crate::utils::ErrorCountLogger;
 use crate::utils::PathSource;
 
 pub fn init_config_file(environment: &impl Environment, config_arg: &Option<String>) -> Result<()> {
@@ -49,7 +48,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
   args: &CliArgs,
   plugin_name_or_url: Option<&String>,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
+  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
   let config_path = match config.resolved_path.source {
@@ -90,7 +89,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
         };
         for (config_plugin_reference, config_plugin) in get_config_file_plugins(plugin_resolver, config.plugins).await {
           if let Ok(config_plugin) = config_plugin {
-            if let Some(update_url) = config_plugin.update_url() {
+            if let Some(update_url) = &config_plugin.info().update_url {
               if let Ok(Some(config_plugin_latest)) = read_update_url(&cached_downloader, update_url) {
                 // if two plugins have the same URL to be updated to then they're the same plugin
                 if config_plugin_latest.url == plugin.url {
@@ -99,8 +98,8 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
                   let file_text = update_plugin_in_config(
                     &file_text,
                     PluginUpdateInfo {
-                      name: config_plugin.name().to_string(),
-                      old_version: config_plugin.version().to_string(),
+                      name: config_plugin.info().name.to_string(),
+                      old_version: config_plugin.info().version.to_string(),
                       old_reference: config_plugin_reference,
                       new_version: plugin.version,
                       new_reference,
@@ -139,7 +138,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
 
 async fn get_possible_plugins_to_add<TEnvironment: Environment>(
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
+  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
   current_plugins: Vec<PluginSourceReference>,
 ) -> Result<Vec<InfoFilePluginInfo>> {
   let info_file = read_info_file(environment).map_err(|err| anyhow!("Error downloading info file. {:#}", err))?;
@@ -147,7 +146,7 @@ async fn get_possible_plugins_to_add<TEnvironment: Environment>(
     .await
     .into_iter()
     .filter_map(|(plugin_reference, plugin_result)| match plugin_result {
-      Ok(plugin) => Some(plugin.name().to_string()),
+      Ok(plugin) => Some(plugin.info().name.to_string()),
       Err(err) => {
         environment.log_stderr(&format!("Error resolving plugin: {}\n\n{:#}", plugin_reference.path_source.display(), err));
         None
@@ -166,7 +165,7 @@ async fn get_possible_plugins_to_add<TEnvironment: Environment>(
 pub async fn update_plugins_config_file<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
+  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
   no_prompt: bool,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
@@ -242,7 +241,7 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
         };
 
         // request
-        if let Some(plugin_update_url) = plugin.update_url() {
+        if let Some(plugin_update_url) = &plugin.info().update_url {
           match read_update_url(environment, plugin_update_url).and_then(|result| match result {
             Some(info) => match info.as_source_reference() {
               Ok(source_reference) => Ok((info, source_reference)),
@@ -252,9 +251,9 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
           }) {
             Ok((info, new_reference)) => {
               return Some(Ok(PluginUpdateInfo {
-                name: plugin.name().to_string(),
+                name: plugin.info().name.to_string(),
                 old_reference: plugin_reference,
-                old_version: plugin.version().to_string(),
+                old_version: plugin.info().version.to_string(),
                 new_version: info.version,
                 new_reference,
               }));
@@ -271,12 +270,12 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
         // have a url.
 
         let info_file = info_file.as_ref()?;
-        let latest_plugin_info = info_file.latest_plugins.iter().find(|p| p.name == plugin.name());
+        let latest_plugin_info = info_file.latest_plugins.iter().find(|p| p.name == plugin.info().name);
         let latest_plugin_info = latest_plugin_info?;
         Some(Ok(PluginUpdateInfo {
-          name: plugin.name().to_string(),
+          name: plugin.info().name.to_string(),
           old_reference: plugin_reference,
-          old_version: plugin.version().to_string(),
+          old_version: plugin.info().version.to_string(),
           new_version: latest_plugin_info.version.clone(),
           new_reference: latest_plugin_info.as_source_reference().ok()?,
         }))
@@ -292,7 +291,7 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
   plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
-  let plugins = resolve_plugins_scope(
+  let plugins_scope = resolve_plugins_scope(
     &config,
     environment,
     plugin_resolver,
@@ -306,12 +305,11 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
   .await?;
 
   let mut plugin_jsons = Vec::new();
-  for plugin in plugins {
-    let config_key = String::from(plugin.config_key());
+  for plugin in plugins_scope.plugins.values() {
+    let config_key = String::from(plugin.info().config_key);
 
-    // get an initialized plugin and output its diagnostics
-    let initialized_plugin = plugin.initialize().await?;
-    output_plugin_config_diagnostics(plugin.name(), initialized_plugin.clone(), environment).await?;
+    // output its diagnostics
+    plugin.output_config_diagnostics(environment)?;
 
     let text = initialized_plugin.resolved_config().await?;
     let pretty_text = pretty_print_json_text(&text)?;
