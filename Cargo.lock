@@ -2065,6 +2065,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dprint-core",
+ "futures",
  "serde",
  "serde_json",
  "tokio",

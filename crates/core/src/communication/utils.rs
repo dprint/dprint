@@ -85,6 +85,11 @@ impl<T> ArcIdStore<T> {
   pub fn take(&self, message_id: u32) -> Option<T> {
     self.0.lock().remove(&message_id)
   }
+
+  pub fn take_all(&self) -> HashMap<u32, T> {
+    let mut map = self.0.lock();
+    std::mem::replace(&mut *map, HashMap::new())
+  }
 }
 
 impl<T: Clone> ArcIdStore<T> {

@@ -7,15 +7,14 @@ use crate::commands::CheckError;
 use crate::configuration::ResolveConfigError;
 use crate::environment::Environment;
 use crate::paths::NoFilesFoundError;
-use crate::plugins::NoPluginsFoundError;
 use crate::plugins::PluginResolver;
-use crate::plugins::PluginsCollection;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::ConfigSubCommand;
 use crate::arg_parser::SubCommand;
 use crate::commands;
-use crate::plugins::ResolvePluginsError;
+use crate::resolution::NoPluginsFoundError;
+use crate::resolution::ResolvePluginsError;
 
 #[derive(Debug, Error)]
 #[error("{inner:#}")]

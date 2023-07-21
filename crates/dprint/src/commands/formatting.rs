@@ -1,7 +1,5 @@
 use anyhow::Result;
 use crossterm::style::Stylize;
-use dprint_core::plugins::FormatConfigId;
-use dprint_core::plugins::Host;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
@@ -27,7 +25,6 @@ use crate::plugins::PluginResolver;
 use crate::resolution::resolve_plugins_scope_and_err_if_empty;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::resolution::PluginsScope;
-use crate::resolution::PluginsScopeAndPaths;
 use crate::resolution::ResolvePluginsOptions;
 use crate::utils::get_difference;
 use crate::utils::BOM_CHAR;
@@ -39,15 +36,17 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
   plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
-  let plugins_scope = resolve_plugins_scope_and_err_if_empty(
-    &config,
-    environment,
-    plugin_resolver,
-    &ResolvePluginsOptions {
-      check_top_level_unknown_property_diagnostics: false,
-    },
-  )
-  .await?;
+  let plugins_scope = Arc::new(
+    resolve_plugins_scope_and_err_if_empty(
+      &config,
+      environment,
+      plugin_resolver,
+      &ResolvePluginsOptions {
+        check_top_level_unknown_property_diagnostics: false,
+      },
+    )
+    .await?,
+  );
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
     let file_matcher = FileMatcher::new(&config, &cmd.patterns, environment)?;
@@ -65,7 +64,7 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
 async fn output_stdin_format<TEnvironment: Environment>(
   file_name: PathBuf,
   file_text: &str,
-  plugins_scope: PluginsScope<TEnvironment>,
+  plugins_scope: Arc<PluginsScope<TEnvironment>>,
   environment: &TEnvironment,
 ) -> Result<()> {
   let result = plugins_scope
@@ -73,7 +72,6 @@ async fn output_stdin_format<TEnvironment: Environment>(
       file_path: file_name,
       file_text: file_text.to_string(),
       range: None,
-      config_id: FormatConfigId::uninitialized(),
       override_config: Default::default(),
       token: Arc::new(NullCancellationToken),
     })

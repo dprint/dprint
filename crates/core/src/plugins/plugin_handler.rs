@@ -113,8 +113,8 @@ pub trait AsyncPluginHandler: Send + Sync + 'static {
   fn format(
     &self,
     request: FormatRequest<Self::Configuration>,
-    format_with_host: impl FnMut(HostFormatRequest) -> BoxFuture<'static, FormatResult>,
-  ) -> BoxFuture<FormatResult>;
+    format_with_host: impl FnMut(HostFormatRequest) -> BoxFuture<'static, FormatResult> + Send + 'static,
+  ) -> BoxFuture<'static, FormatResult>;
 }
 
 /// Trait for implementing a Wasm plugin. Eventually this will be combined with AsyncPluginHandler.

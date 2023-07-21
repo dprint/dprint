@@ -11,7 +11,6 @@ use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginSourceReference;
-use crate::plugins::PluginsCollection;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 

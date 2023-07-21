@@ -5,7 +5,6 @@ use dprint_core::communication::IdGenerator;
 use dprint_core::communication::MessageReader;
 use dprint_core::communication::MessageWriter;
 use dprint_core::communication::SingleThreadMessageWriter;
-use dprint_core::plugins::Host;
 use dprint_core::plugins::HostFormatRequest;
 use std::io::Read;
 use std::path::Path;
@@ -27,6 +26,7 @@ use crate::patterns::FileMatcher;
 use crate::plugins::PluginResolver;
 use crate::resolution::get_plugins_scope_from_args;
 use crate::resolution::resolve_plugins_scope;
+use crate::resolution::PluginsScope;
 use crate::resolution::ResolvePluginsOptions;
 
 use self::messages::EditorMessage;
@@ -112,6 +112,7 @@ struct EditorService<'a, TEnvironment: Environment> {
   args: &'a CliArgs,
   environment: &'a TEnvironment,
   plugin_resolver: &'a Arc<PluginResolver<TEnvironment>>,
+  plugins_scope: Option<Arc<PluginsScope<TEnvironment>>>,
   context: Arc<EditorContext>,
   concurrency_limiter: Arc<Semaphore>,
 }
@@ -131,6 +132,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       args,
       environment,
       plugin_resolver,
+      plugins_scope: None,
       context: Arc::new(EditorContext {
         id_generator: Default::default(),
         cancellation_tokens: Default::default(),
@@ -164,7 +166,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           send_error_response(&self.context, message.id, anyhow!("CLI cannot handle a CanFormatResponse message."));
         }
         EditorMessageBody::Format(body) => {
-          if self.config.is_none() {
+          if self.config.is_none() || self.plugins_scope.is_none() {
             self.ensure_latest_config().await?;
           }
           let token = Arc::new(CancellationToken::new());
@@ -195,13 +197,14 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           self.context.cancellation_tokens.store(message.id, token.clone());
           let context = self.context.clone();
           let concurrency_limiter = self.concurrency_limiter.clone();
+          let scope = self.plugins_scope.clone().unwrap();
           let _ignore = tokio::task::spawn(async move {
             let _permit = concurrency_limiter.acquire().await;
             if token.is_cancelled() {
               return;
             }
 
-            let result = plugins_collection.format(request).await;
+            let result = scope.format(request).await;
             context.cancellation_tokens.take(message.id);
             if token.is_cancelled() {
               return;
@@ -240,13 +243,21 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   }
 
   async fn ensure_latest_config(&mut self) -> Result<()> {
+    // todo: use a semaphore around here to ensure single concurrency
     let last_config = self.config.take();
     let config = resolve_config_from_args(self.args, self.environment)?;
 
-    let has_config_changed = last_config.is_none() || last_config.unwrap() != config;
+    let has_config_changed = last_config.is_none() || last_config.unwrap() != config || self.plugins_scope.is_none();
     if has_config_changed {
-      self.plugins_collection.drop_and_shutdown_initialized().await; // clear the existing plugins
-      let plugins = resolve_plugins_scope(
+      if let Some(previous_scope) = self.plugins_scope.take() {
+        let tokens = self.context.cancellation_tokens.take_all();
+        for token in tokens.values() {
+          token.cancel();
+        }
+        previous_scope.shutdown_initialized().await; // graceful shutdown
+      }
+
+      let scope = resolve_plugins_scope(
         &config,
         self.environment,
         self.plugin_resolver,
@@ -255,7 +266,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
         },
       )
       .await?;
-      self.plugins_collection.set_plugins(plugins, &config.base_path)?;
+      self.plugins_scope = Some(Arc::new(scope));
     }
 
     self.config = Some(config);

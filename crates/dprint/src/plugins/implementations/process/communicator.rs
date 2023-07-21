@@ -139,6 +139,7 @@ mod test {
 
   use dprint_core::configuration::ConfigKeyMap;
   use dprint_core::plugins::NullCancellationToken;
+  use futures::FutureExt;
   use tokio_util::sync::CancellationToken;
 
   use super::*;
@@ -171,6 +172,7 @@ mod test {
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),
+              on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed()),
               token: Arc::new(NullCancellationToken),
             })
             .await
@@ -188,6 +190,7 @@ mod test {
             range: None,
             config: format_config.clone(),
             override_config: Default::default(),
+            on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed()),
             token: Arc::new(NullCancellationToken),
           }));
         }
@@ -215,6 +218,7 @@ mod test {
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),
+              on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed()),
               token: Arc::new(NullCancellationToken),
             })
             .await
@@ -251,6 +255,7 @@ mod test {
           config: format_config.clone(),
           range: None,
           override_config: Default::default(),
+          on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed()),
           token: token.clone(),
         });
 

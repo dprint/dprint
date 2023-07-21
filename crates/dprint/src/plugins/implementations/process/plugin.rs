@@ -72,8 +72,8 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
 
   fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
     let start_instant = Instant::now();
-    log_verbose!(self.environment, "Creating instance of {}", self.name());
-    let plugin_name = self.plugin_info.name.clone();
+    let plugin_name = self.info().name.clone();
+    log_verbose!(self.environment, "Creating instance of {}", plugin_name);
     let executable_file_path = self.executable_file_path.clone();
     let environment = self.environment.clone();
     async move {

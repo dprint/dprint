@@ -3,12 +3,11 @@ use anyhow::Result;
 use dprint_core::plugins::BoxFuture;
 use dprint_core::plugins::FormatRequest;
 use dprint_core::plugins::FormatResult;
-use dprint_core::plugins::Host;
 use dprint_core::plugins::HostFormatRequest;
+use futures::FutureExt;
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use dprint_core::configuration::get_unknown_property_diagnostics;
 use dprint_core::configuration::get_value;
@@ -79,8 +78,12 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
     }
   }
 
-  fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<FormatResult> {
-    Box::pin(async move {
+  fn format(
+    &self,
+    request: FormatRequest<Self::Configuration>,
+    mut format_with_host: impl FnMut(HostFormatRequest) -> BoxFuture<'static, FormatResult> + Send + 'static,
+  ) -> BoxFuture<'static, FormatResult> {
+    async move {
       let (had_suffix, file_text) = if let Some(text) = request.file_text.strip_suffix(&format!("_{}", request.config.ending)) {
         (true, text.to_string())
       } else {
@@ -94,30 +97,26 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
         request.token.wait_cancellation().await;
         return Ok(None);
       } else if let Some(new_text) = file_text.strip_prefix("plugin: ") {
-        let result = host
-          .format(HostFormatRequest {
-            file_path: PathBuf::from("./test.txt"),
-            file_text: new_text.to_string(),
-            range: None,
-            config_id: request.config_id,
-            override_config: Default::default(),
-            token: request.token.clone(),
-          })
-          .await?;
+        let result = (format_with_host)(HostFormatRequest {
+          file_path: PathBuf::from("./test.txt"),
+          file_text: new_text.to_string(),
+          range: None,
+          override_config: Default::default(),
+          token: request.token.clone(),
+        })
+        .await?;
         format!("plugin: {}", result.unwrap_or_else(|| new_text.to_string()))
       } else if let Some(new_text) = file_text.strip_prefix("plugin-config: ") {
         let mut config_map = ConfigKeyMap::new();
         config_map.insert("ending".to_string(), "custom_config".into());
-        let result = host
-          .format(HostFormatRequest {
-            file_path: PathBuf::from("./test.txt"),
-            file_text: new_text.to_string(),
-            range: None,
-            config_id: request.config_id,
-            override_config: config_map,
-            token: request.token.clone(),
-          })
-          .await?;
+        let result = (format_with_host)(HostFormatRequest {
+          file_path: PathBuf::from("./test.txt"),
+          file_text: new_text.to_string(),
+          range: None,
+          override_config: config_map,
+          token: request.token.clone(),
+        })
+        .await?;
         format!("plugin-config: {}", result.unwrap_or_else(|| new_text.to_string()))
       } else if file_text == "should_error" {
         bail!("Did error.")
@@ -130,6 +129,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
       } else {
         Ok(Some(format!("{}_{}", inner_format_text, request.config.ending)))
       }
-    })
+    }
+    .boxed()
   }
 }

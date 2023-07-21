@@ -15,17 +15,18 @@ use tokio_util::sync::CancellationToken;
 
 use crate::environment::Environment;
 use crate::incremental::IncrementalFile;
-use crate::plugins::InitializedPlugin;
-use crate::plugins::InitializedPluginFormatRequest;
 use crate::resolution::GetPluginResult;
 use crate::resolution::InitializedPluginWithConfig;
+use crate::resolution::InitializedPluginWithConfigFormatRequest;
 use crate::resolution::PluginWithConfig;
+use crate::resolution::PluginsScope;
 use crate::resolution::PluginsScopeAndPaths;
 use crate::utils::ErrorCountLogger;
 use crate::utils::FileText;
 
-struct TaskWork {
+struct TaskWork<TEnvironment: Environment> {
   semaphore: Arc<Semaphore>,
+  scope: Arc<PluginsScope<TEnvironment>>,
   plugins: Vec<Arc<PluginWithConfig>>,
   file_paths: Vec<PathBuf>,
 }
@@ -57,7 +58,7 @@ where
 
   let error_logger = ErrorCountLogger::from_environment(environment);
 
-  let scope = scope_and_paths.scope;
+  let scope = Arc::new(scope_and_paths.scope);
   let mut file_paths_by_plugins = scope_and_paths.file_paths_by_plugins.into_iter().collect::<Vec<_>>();
   // favour giving semaphore permits to ones with more items at the start
   file_paths_by_plugins.sort_by_key(|(_, file_paths)| 0i32 - file_paths.len() as i32);
@@ -76,6 +77,7 @@ where
     });
     task_works.push(TaskWork {
       semaphore,
+      scope: scope.clone(),
       plugins,
       file_paths,
     });
@@ -89,6 +91,7 @@ where
       let incremental_file = incremental_file.clone();
       let f = f.clone();
       let semaphores = semaphores.clone();
+      let scope = scope.clone();
       async move {
         let _semaphore_permits = SemaphorePermitReleaser { index, semaphores };
         // resolve the plugins
@@ -123,6 +126,7 @@ where
           let f = f.clone();
           let plugins = plugins.clone();
           let error_logger = error_logger.clone();
+          let scope = scope.clone();
           format_handles.push(tokio::task::spawn(async move {
             let long_format_token = CancellationToken::new();
             tokio::task::spawn({
@@ -140,7 +144,7 @@ where
                 }
               }
             });
-            let result = run_for_file_path(environment, incremental_file, plugins, file_path.clone(), ensure_stable_format, f).await;
+            let result = run_for_file_path(environment, incremental_file, scope, plugins, file_path.clone(), ensure_stable_format, f).await;
             long_format_token.cancel();
             if let Err(err) = result {
               if let Some(err) = err.downcast_ref::<CriticalFormatError>() {
@@ -175,7 +179,8 @@ where
   async fn run_for_file_path<F, TEnvironment: Environment>(
     environment: TEnvironment,
     incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
-    plugins: Arc<Vec<Arc<InitializedPluginWithConfig>>>,
+    scope: Arc<PluginsScope<TEnvironment>>,
+    plugins: Arc<Vec<InitializedPluginWithConfig>>,
     file_path: PathBuf,
     ensure_stable_format: EnsureStableFormat,
     f: F,
@@ -192,10 +197,11 @@ where
       }
     }
 
-    let (start_instant, formatted_text) = run_single_pass_for_file_path(environment.clone(), plugins.clone(), file_path.clone(), file_text.as_str()).await?;
+    let (start_instant, formatted_text) =
+      run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), file_text.as_str()).await?;
 
     let formatted_text = if ensure_stable_format.0 && formatted_text != file_text.as_str() {
-      get_stabilized_format_text(environment.clone(), plugins, file_path.clone(), formatted_text).await?
+      get_stabilized_format_text(environment.clone(), scope, plugins, file_path.clone(), formatted_text).await?
     } else {
       formatted_text
     };
@@ -207,14 +213,15 @@ where
 
   async fn get_stabilized_format_text<TEnvironment: Environment>(
     environment: TEnvironment,
-    plugins: Arc<Vec<Arc<dyn InitializedPlugin>>>,
+    scope: Arc<PluginsScope<TEnvironment>>,
+    plugins: Arc<Vec<InitializedPluginWithConfig>>,
     file_path: PathBuf,
     mut formatted_text: String,
   ) -> Result<String> {
     log_verbose!(environment, "Ensuring stable format: {}", file_path.display());
     let mut count = 0;
     loop {
-      match run_single_pass_for_file_path(environment.clone(), plugins.clone(), file_path.clone(), &formatted_text).await {
+      match run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), &formatted_text).await {
         Ok((_, next_pass_text)) => {
           if next_pass_text == formatted_text {
             return Ok(formatted_text);
@@ -249,6 +256,7 @@ where
 
   async fn run_single_pass_for_file_path<TEnvironment: Environment>(
     environment: TEnvironment,
+    scope: Arc<PluginsScope<TEnvironment>>,
     plugins: Arc<Vec<InitializedPluginWithConfig>>,
     file_path: PathBuf,
     file_text: &str,
@@ -259,11 +267,12 @@ where
     for (i, plugin) in plugins.iter().enumerate() {
       let start_instant = Instant::now();
       let format_text_result = plugin
-        .format_text(InitializedPluginFormatRequest {
+        .format_text(InitializedPluginWithConfigFormatRequest {
           file_path: file_path.to_path_buf(),
           file_text: file_text.to_string(),
           range: None,
           override_config: ConfigKeyMap::new(),
+          on_host_format: scope.create_host_format_callback(),
           token: Arc::new(NullCancellationToken),
         })
         .await;

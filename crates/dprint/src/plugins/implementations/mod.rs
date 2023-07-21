@@ -14,16 +14,20 @@ mod test {
   use std::sync::Arc;
   use std::time::Duration;
 
-  use dprint_core::plugins::Host;
+  use dprint_core::plugins::FormatConfigId;
   use dprint_core::plugins::HostFormatRequest;
   use tokio_util::sync::CancellationToken;
 
   use crate::arg_parser::CliArgs;
   use crate::configuration::resolve_config_from_args;
+  use crate::environment::Environment;
   use crate::environment::TestEnvironmentBuilder;
+  use crate::plugins::FormatConfig;
   use crate::plugins::PluginCache;
   use crate::plugins::PluginResolver;
-  use crate::plugins::PluginsCollection;
+  use crate::resolution::PluginWithConfig;
+  use crate::resolution::PluginWrapper;
+  use crate::resolution::PluginsScope;
 
   #[test]
   fn should_support_host_format_cancellation() {
@@ -31,9 +35,8 @@ mod test {
     environment.run_in_runtime({
       let environment = environment.clone();
       async move {
-        let collection = Arc::new(PluginsCollection::new(environment.clone()));
         let plugin_cache = Arc::new(PluginCache::new(environment.clone()));
-        let resolver = Arc::new(PluginResolver::new(environment.clone(), plugin_cache, collection.clone()));
+        let resolver = Arc::new(PluginResolver::new(environment.clone(), plugin_cache));
         let cli_args = CliArgs::empty();
         let config = resolve_config_from_args(&cli_args, &environment).unwrap();
         let mut plugins = resolver.resolve_plugins(config.plugins).await.unwrap();
@@ -41,11 +44,22 @@ mod test {
           plugins.iter().map(|p| &p.info().name).collect::<Vec<_>>(),
           vec!["test-plugin", "test-process-plugin"]
         );
-        for plugin in plugins.iter_mut() {
-          plugin.set_config(Default::default(), Default::default());
-        }
-        collection.set_plugins(plugins, &config.base_path).unwrap();
-
+        let plugins = plugins
+          .into_iter()
+          .map(|p| {
+            let plugin_wrapper = PluginWrapper::new(p);
+            Arc::new(PluginWithConfig::new(
+              plugin_wrapper,
+              None,
+              Arc::new(FormatConfig {
+                id: FormatConfigId::from_raw(1),
+                global: Default::default(),
+                raw: Default::default(),
+              }),
+            ))
+          })
+          .collect();
+        let scope = Arc::new(PluginsScope::new(environment.clone(), plugins, &environment.cwd()).unwrap());
         let token = Arc::new(CancellationToken::new());
         tokio::task::spawn({
           let token = token.clone();
@@ -54,7 +68,7 @@ mod test {
             token.cancel();
           }
         });
-        let result = collection
+        let result = scope
           .format(HostFormatRequest {
             file_path: PathBuf::from("file.txt_ps"),
             // This should cause the process plugin to format with the
@@ -67,8 +81,6 @@ mod test {
           })
           .await
           .unwrap();
-
-        collection.drop_and_shutdown_initialized().await;
         assert_eq!(result, None);
       }
     });

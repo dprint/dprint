@@ -19,6 +19,7 @@ use crate::plugins::Plugin;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
 use crate::resolution::resolve_plugins_scope;
+use crate::resolution::GetPluginResult;
 use crate::resolution::ResolvePluginsOptions;
 use crate::utils::pretty_print_json_text;
 use crate::utils::CachedDownloader;
@@ -306,12 +307,15 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
 
   let mut plugin_jsons = Vec::new();
   for plugin in plugins_scope.plugins.values() {
-    let config_key = String::from(plugin.info().config_key);
+    let config_key = &plugin.info().config_key;
 
     // output its diagnostics
-    plugin.output_config_diagnostics(environment)?;
+    let plugin = match plugin.get_or_create_checking_config_diagnostics(environment).await? {
+      GetPluginResult::HadDiagnostics(count) => bail!("Plugin had {} diagnostic(s)", count),
+      GetPluginResult::Success(plugin) => plugin,
+    };
 
-    let text = initialized_plugin.resolved_config().await?;
+    let text = plugin.resolved_config().await?;
     let pretty_text = pretty_print_json_text(&text)?;
     plugin_jsons.push(format!("\"{}\": {}", config_key, pretty_text));
   }
@@ -335,7 +339,7 @@ async fn get_config_file_plugins<TEnvironment: Environment>(
     .map(|plugin_reference| {
       let plugin_resolver = plugin_resolver.clone();
       tokio::task::spawn(async move {
-        let resolve_result = plugin_resolver.resolve_plugin(plugin_reference).await;
+        let resolve_result = plugin_resolver.resolve_plugin(plugin_reference.clone()).await;
         (plugin_reference, resolve_result)
       })
     })
