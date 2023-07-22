@@ -89,7 +89,6 @@ pub async fn output_format_times<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment)?;
   let scope_and_paths = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 

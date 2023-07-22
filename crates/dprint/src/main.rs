@@ -53,5 +53,6 @@ async fn run(runtime_handle: tokio::runtime::Handle) -> Result<(), AppError> {
   let plugin_resolver = Arc::new(plugins::PluginResolver::new(environment.clone(), plugin_cache));
 
   let result = run_cli::run_cli(&args, &environment, &plugin_resolver).await;
+  plugin_resolver.clear_and_shutdown_initialized().await;
   Ok(result?)
 }

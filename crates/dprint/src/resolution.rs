@@ -38,42 +38,10 @@ use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::OutputPluginConfigDiagnosticsError;
-use crate::plugins::Plugin;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::plugins::PluginResolver;
+use crate::plugins::PluginWrapper;
 use crate::utils::ResolvedPath;
-
-pub struct PluginWrapper {
-  plugin: Arc<dyn Plugin>,
-  initialized_plugin: tokio::sync::OnceCell<Arc<dyn InitializedPlugin>>,
-}
-
-impl PluginWrapper {
-  pub fn new(plugin: Arc<dyn Plugin>) -> Self {
-    Self {
-      plugin,
-      initialized_plugin: Default::default(),
-    }
-  }
-
-  pub fn info(&self) -> &PluginInfo {
-    self.plugin.info()
-  }
-
-  pub async fn initialize(&self) -> Result<Arc<dyn InitializedPlugin>> {
-    self
-      .initialized_plugin
-      .get_or_try_init(|| async move { Ok(self.plugin.initialize().await?) })
-      .await
-      .map(|x| x.clone())
-  }
-
-  pub async fn shutdown(&self) {
-    if let Some(plugin) = self.initialized_plugin.get() {
-      plugin.shutdown().await;
-    }
-  }
-}
 
 pub enum GetPluginResult {
   HadDiagnostics(usize),
@@ -81,14 +49,14 @@ pub enum GetPluginResult {
 }
 
 pub struct PluginWithConfig {
-  pub plugin: PluginWrapper,
+  pub plugin: Arc<PluginWrapper>,
   pub associations: Option<Vec<String>>,
   pub format_config: Arc<FormatConfig>,
   config_diagnostic_count: tokio::sync::Mutex<Option<usize>>,
 }
 
 impl PluginWithConfig {
-  pub fn new(plugin: PluginWrapper, associations: Option<Vec<String>>, format_config: Arc<FormatConfig>) -> Self {
+  pub fn new(plugin: Arc<PluginWrapper>, associations: Option<Vec<String>>, format_config: Arc<FormatConfig>) -> Self {
     Self {
       plugin,
       associations,
@@ -232,13 +200,12 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 
   pub async fn shutdown_initialized(&self) {
-    for plugin in self.plugins.values() {
-      plugin.shutdown().await;
-    }
+    let futures = self.plugins.values().map(|p| p.shutdown());
+    futures::future::join_all(futures).await;
   }
 
   pub fn process_plugin_count(&self) -> usize {
-    self.plugins.values().filter(|p| p.plugin.plugin.is_process_plugin()).count()
+    self.plugins.values().filter(|p| p.plugin.is_process_plugin()).count()
   }
 
   pub fn get_plugin(&self, name: &str) -> Arc<PluginWithConfig> {
@@ -263,7 +230,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
 
   pub fn create_host_format_callback(self: &Arc<Self>) -> HostFormatCallback {
     let scope = self.clone();
-    Arc::new(|host_request| scope.format(host_request))
+    Arc::new(move |host_request| scope.format(host_request))
   }
 
   pub fn format(self: &Arc<Self>, request: HostFormatRequest) -> dprint_core::plugins::BoxFuture<'static, FormatResult> {
@@ -276,12 +243,13 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       plugin_names.join(", "),
       request.range,
     );
+    let scope = self.clone();
     async move {
       let mut file_text = request.file_text;
       let mut had_change = false;
       for plugin_name in plugin_names {
-        let plugin = self.get_plugin(&plugin_name);
-        match plugin.get_or_create_checking_config_diagnostics(&self.environment).await {
+        let plugin = scope.get_plugin(&plugin_name);
+        match plugin.get_or_create_checking_config_diagnostics(&scope.environment).await {
           Ok(GetPluginResult::Success(initialized_plugin)) => {
             let result = initialized_plugin
               .format_text(InitializedPluginWithConfigFormatRequest {
@@ -289,7 +257,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
                 file_text: file_text.clone(),
                 range: request.range.clone(),
                 override_config: request.override_config.clone(),
-                on_host_format: self.create_host_format_callback(),
+                on_host_format: scope.create_host_format_callback(),
                 token: request.token.clone(),
               })
               .await;
@@ -477,7 +445,7 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
     .into_iter()
     .map(|(plugin_config, plugin)| {
       Arc::new(PluginWithConfig::new(
-        PluginWrapper::new(plugin),
+        plugin,
         plugin_config.associations,
         Arc::new(FormatConfig {
           // todo(THIS PR): should be unique

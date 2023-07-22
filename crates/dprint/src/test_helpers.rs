@@ -116,7 +116,11 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
 
   environment.run_in_runtime({
     let environment = environment.clone();
-    async move { Ok(run_cli(&args, &environment, &plugin_resolver).await?) }
+    async move {
+      let result = run_cli(&args, &environment, &plugin_resolver).await;
+      plugin_resolver.clear_and_shutdown_initialized().await;
+      Ok(result?)
+    }
   })
 }
 

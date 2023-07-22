@@ -26,7 +26,6 @@ mod test {
   use crate::plugins::PluginCache;
   use crate::plugins::PluginResolver;
   use crate::resolution::PluginWithConfig;
-  use crate::resolution::PluginWrapper;
   use crate::resolution::PluginsScope;
 
   #[test]
@@ -46,8 +45,7 @@ mod test {
         );
         let plugins = plugins
           .into_iter()
-          .map(|p| {
-            let plugin_wrapper = PluginWrapper::new(p);
+          .map(|plugin_wrapper| {
             Arc::new(PluginWithConfig::new(
               plugin_wrapper,
               None,

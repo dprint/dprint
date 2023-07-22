@@ -4,16 +4,16 @@ use anyhow::Result;
 use super::ConfigMap;
 use super::ConfigMapValue;
 use super::RawPluginConfig;
-use crate::plugins::Plugin;
+use crate::plugins::PluginWrapper;
 
-pub fn get_plugin_config_map(plugin: &dyn Plugin, config_map: &mut ConfigMap) -> Result<RawPluginConfig> {
+pub fn get_plugin_config_map(plugin: &PluginWrapper, config_map: &mut ConfigMap) -> Result<RawPluginConfig> {
   match get_plugin_config_map_inner(plugin, config_map) {
     Ok(result) => Ok(result),
     Err(err) => bail!("Error initializing from configuration file. {:#}", err),
   }
 }
 
-fn get_plugin_config_map_inner(plugin: &dyn Plugin, config_map: &mut ConfigMap) -> Result<RawPluginConfig> {
+fn get_plugin_config_map_inner(plugin: &PluginWrapper, config_map: &mut ConfigMap) -> Result<RawPluginConfig> {
   let config_key = &plugin.info().config_key;
 
   if let Some(plugin_config) = config_map.remove(config_key) {
@@ -47,7 +47,7 @@ mod tests {
     };
     config_map.insert(String::from("lineWidth"), ConfigMapValue::from_i32(80));
     config_map.insert(String::from("typescript"), ConfigMapValue::PluginConfig(ts_plugin.clone()));
-    let plugin = create_plugin();
+    let plugin = PluginWrapper::new(Box::new(create_plugin()));
     let result = get_plugin_config_map(&plugin, &mut config_map).unwrap();
     assert_eq!(result, ts_plugin);
     assert_eq!(config_map.contains_key("typescript"), false);
@@ -62,8 +62,8 @@ mod tests {
   }
 
   fn assert_errors(config_map: &mut ConfigMap, message: &str) {
-    let test_plugin = create_plugin();
-    let result = get_plugin_config_map(&test_plugin, config_map);
+    let plugin = PluginWrapper::new(Box::new(create_plugin()));
+    let result = get_plugin_config_map(&plugin, config_map);
     assert_eq!(
       result.err().unwrap().to_string(),
       format!("Error initializing from configuration file. {}", message)

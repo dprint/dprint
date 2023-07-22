@@ -1,7 +1,6 @@
 use anyhow::bail;
 use anyhow::Result;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use dprint_core::plugins::PluginInfo;
 
@@ -64,7 +63,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
   environment: TEnvironment,
   plugin_reference: &PluginSourceReference,
   wasm_module_creator: &WasmModuleCreator,
-) -> Result<Arc<dyn Plugin>> {
+) -> Result<Box<dyn Plugin>> {
   let cache_item = match plugin_cache.get_plugin_cache_item(plugin_reference).await {
     Ok(cache_item) => cache_item,
     Err(err) => {
@@ -96,7 +95,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
         }
       };
 
-      Ok(Arc::new(wasm::WasmPlugin::new(&file_bytes, cache_item.info, wasm_module_creator, environment)?))
+      Ok(Box::new(wasm::WasmPlugin::new(&file_bytes, cache_item.info, wasm_module_creator, environment)?))
     }
     Some(PluginKind::Process) => {
       let cache_item = if !environment.path_exists(&cache_item.file_path) {
@@ -113,7 +112,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
       };
 
       let executable_path = super::process::get_test_safe_executable_path(cache_item.file_path, &environment);
-      Ok(Arc::new(process::ProcessPlugin::new(environment, executable_path, cache_item.info)))
+      Ok(Box::new(process::ProcessPlugin::new(environment, executable_path, cache_item.info)))
     }
     None => {
       bail!("Could not resolve plugin type from url or file path: {}", plugin_reference.display());

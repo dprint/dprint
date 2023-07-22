@@ -11,13 +11,12 @@ use crate::arg_parser::CliArgs;
 use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
 use crate::environment::Environment;
-use crate::plugins::output_plugin_config_diagnostics;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
 use crate::plugins::InfoFilePluginInfo;
-use crate::plugins::Plugin;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
+use crate::plugins::PluginWrapper;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::GetPluginResult;
 use crate::resolution::ResolvePluginsOptions;
@@ -333,7 +332,7 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
 async fn get_config_file_plugins<TEnvironment: Environment>(
   plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
   current_plugins: Vec<PluginSourceReference>,
-) -> Vec<(PluginSourceReference, Result<Arc<dyn Plugin>>)> {
+) -> Vec<(PluginSourceReference, Result<Arc<PluginWrapper>>)> {
   let tasks = current_plugins
     .into_iter()
     .map(|plugin_reference| {

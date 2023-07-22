@@ -346,7 +346,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     let mut wasm_functions = WasmFunctions::new(store, instance)?;
     let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
 
-    let mut instance = InitializedWasmPluginInstance {
+    let instance = InitializedWasmPluginInstance {
       wasm_functions,
       buffer_size,
       current_config_id: FormatConfigId::uninitialized(),
