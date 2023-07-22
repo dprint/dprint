@@ -24,7 +24,7 @@ pub fn compile(wasm_bytes: &[u8], environment: impl Environment) -> Result<Compi
   let plugin = InitializedWasmPlugin::new(
     "compiling".to_string(),
     module,
-    Arc::new(move |store, module| {
+    Arc::new(move |store, module, _host_format_cell| {
       // we're not formatting anything so using an identity import is ok
       let imports = create_identity_import_object(store);
       load_instance(store, module, &imports)

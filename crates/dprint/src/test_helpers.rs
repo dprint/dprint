@@ -13,7 +13,6 @@ use crate::environment::TestEnvironment;
 use crate::plugins::CompilationResult;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginResolver;
-use crate::plugins::PluginsCollection;
 use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
 use crate::AppError;
@@ -110,19 +109,14 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
   args.insert(0, String::from(""));
   environment.set_wasm_compile_result(COMPILATION_RESULT.clone());
   let plugin_cache = Arc::new(PluginCache::new(environment.clone()));
-  let plugin_pools = Arc::new(PluginsCollection::new(environment.clone()));
-  let plugin_resolver = PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
+  let plugin_resolver = Arc::new(PluginResolver::new(environment.clone(), plugin_cache));
   let args = parse_args(args, stdin_reader).map_err(|err| Into::<AppError>::into(err))?;
   environment.set_stdout_machine_readable(args.is_stdout_machine_readable());
   environment.set_verbose(args.verbose);
 
   environment.run_in_runtime({
     let environment = environment.clone();
-    async move {
-      let result = run_cli(&args, &environment, &plugin_resolver, plugin_pools.clone()).await;
-      plugin_pools.drop_and_shutdown_initialized().await;
-      Ok(result?)
-    }
+    async move { Ok(run_cli(&args, &environment, &plugin_resolver).await?) }
   })
 }
 

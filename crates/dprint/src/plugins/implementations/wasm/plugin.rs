@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use anyhow::Result;
+use dprint_core::plugins::process::HostFormatCallback;
 use dprint_core::plugins::BoxFuture;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FormatConfigId;
@@ -19,6 +20,7 @@ use super::create_pools_import_object;
 use super::load_instance;
 use super::WasmFormatResult;
 use super::WasmFunctions;
+use super::WasmHostFormatCell;
 use super::WasmModuleCreator;
 use crate::environment::Environment;
 use crate::plugins::FormatConfig;
@@ -33,7 +35,7 @@ pub struct WasmPlugin<TEnvironment: Environment> {
 }
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
-  pub fn new(compiled_wasm_bytes: &[u8], plugin_info: PluginInfo, wasm_module_creator: WasmModuleCreator, environment: TEnvironment) -> Result<Self> {
+  pub fn new(compiled_wasm_bytes: &[u8], plugin_info: PluginInfo, wasm_module_creator: &WasmModuleCreator, environment: TEnvironment) -> Result<Self> {
     let module = wasm_module_creator.create_from_serialized(compiled_wasm_bytes)?;
     Ok(WasmPlugin {
       module,
@@ -58,8 +60,8 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
       self.module.clone(),
       Arc::new({
         let environment = self.environment.clone();
-        move |store, module, host| {
-          let (import_object, env) = create_pools_import_object(environment.clone(), host, store);
+        move |store, module, host_format_cell| {
+          let (import_object, env) = create_pools_import_object(environment.clone(), store, host_format_cell);
           let instance = load_instance(store, module, &import_object)?;
           env.as_mut(store).initialize(&instance)?;
           Ok(instance)
@@ -79,6 +81,7 @@ struct InitializedWasmPluginInstance {
   wasm_functions: WasmFunctions,
   buffer_size: usize,
   current_config_id: FormatConfigId,
+  host_format_cell: WasmHostFormatCell,
 }
 
 impl InitializedWasmPluginInstance {
@@ -120,8 +123,16 @@ impl InitializedWasmPluginInstance {
     Ok(serde_json::from_str(&json_text)?)
   }
 
-  fn format_text(&mut self, file_path: &Path, file_text: &str, config: &FormatConfig, override_config: &ConfigKeyMap) -> FormatResult {
+  fn format_text(
+    &mut self,
+    file_path: &Path,
+    file_text: &str,
+    config: &FormatConfig,
+    override_config: &ConfigKeyMap,
+    on_host_format: HostFormatCallback,
+  ) -> FormatResult {
     self.ensure_config(&config)?;
+    self.host_format_cell.set(on_host_format);
     match self.inner_format_text(file_path, file_text, override_config) {
       Ok(inner) => inner,
       Err(err) => Err(CriticalFormatError(err).into()),
@@ -221,7 +232,7 @@ impl InitializedWasmPluginInstance {
   }
 }
 
-type LoadInstanceFn = dyn Fn(&mut wasmer::Store, &wasmer::Module) -> Result<wasmer::Instance> + Send + Sync;
+type LoadInstanceFn = dyn Fn(&mut wasmer::Store, &wasmer::Module, WasmHostFormatCell) -> Result<wasmer::Instance> + Send + Sync;
 
 struct InitializedWasmPluginInner<TEnvironment: Environment> {
   name: String,
@@ -330,7 +341,8 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     let start_instant = Instant::now();
     log_verbose!(self.0.environment, "Creating instance of {}", self.0.name);
     let mut store = wasmer::Store::default();
-    let instance = (self.0.load_instance)(&mut store, &self.0.module)?;
+    let host_format_cell = WasmHostFormatCell::new();
+    let instance = (self.0.load_instance)(&mut store, &self.0.module, host_format_cell.clone())?;
     let mut wasm_functions = WasmFunctions::new(store, instance)?;
     let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
 
@@ -338,6 +350,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
       wasm_functions,
       buffer_size,
       current_config_id: FormatConfigId::uninitialized(),
+      host_format_cell,
     };
     log_verbose!(
       self.0.environment,
@@ -383,10 +396,6 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
   fn format_text(&self, request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult> {
     let plugin = self.clone();
     async move {
-      let file_path = request.file_path;
-      let file_text = request.file_text;
-      let config = request.config;
-      let override_config = request.override_config;
       // Wasm plugins do not currently support range formatting
       // so always return back None for now.
       if request.range.is_some() {
@@ -397,7 +406,18 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
       }
 
       // todo: support cancellation in Wasm plugins
-      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.format_text(&file_path, &file_text, &config, &override_config))).await?
+      tokio::task::spawn_blocking(move || {
+        plugin.with_instance(move |instance| {
+          instance.format_text(
+            &request.file_path,
+            &request.file_text,
+            &request.config,
+            &request.override_config,
+            request.on_host_format.clone(),
+          )
+        })
+      })
+      .await?
     }
     .boxed()
   }

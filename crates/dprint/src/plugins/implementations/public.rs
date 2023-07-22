@@ -7,6 +7,7 @@ use dprint_core::plugins::PluginInfo;
 
 use super::process;
 use super::wasm;
+use super::WasmModuleCreator;
 use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
@@ -62,6 +63,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
   plugin_cache: &PluginCache<TEnvironment>,
   environment: TEnvironment,
   plugin_reference: &PluginSourceReference,
+  wasm_module_creator: &WasmModuleCreator,
 ) -> Result<Arc<dyn Plugin>> {
   let cache_item = match plugin_cache.get_plugin_cache_item(plugin_reference).await {
     Ok(cache_item) => cache_item,
@@ -94,7 +96,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
         }
       };
 
-      Ok(Arc::new(wasm::WasmPlugin::new(&file_bytes, cache_item.info, environment)?))
+      Ok(Arc::new(wasm::WasmPlugin::new(&file_bytes, cache_item.info, wasm_module_creator, environment)?))
     }
     Some(PluginKind::Process) => {
       let cache_item = if !environment.path_exists(&cache_item.file_path) {

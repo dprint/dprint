@@ -2,6 +2,7 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::process::HostFormatCallback;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
+use futures::FutureExt;
 use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -41,15 +42,30 @@ pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
   }
 }
 
-pub type HostFormatProvider = Arc<dyn Fn() -> HostFormatCallback>;
+#[derive(Clone)]
+pub struct WasmHostFormatCell(Arc<Mutex<HostFormatCallback>>);
+
+impl WasmHostFormatCell {
+  pub fn no_op() -> Self {
+    Self(Arc::new(Mutex::new(Arc::new(|_request| futures::future::ready(Ok(None)).boxed()))))
+  }
+
+  pub fn new() -> Self {
+    Self::no_op()
+  }
+
+  pub fn set(&self, host_format: HostFormatCallback) {
+    *self.0.lock() = host_format;
+  }
+}
 
 /// Create an import object that formats text using plugins from the plugin pool
 pub fn create_pools_import_object<TEnvironment: Environment>(
   environment: TEnvironment,
-  host_format_provider: HostFormatProvider,
   store: &mut Store,
+  host_format_cell: WasmHostFormatCell,
 ) -> (wasmer::Imports, FunctionEnv<ImportObjectEnvironment<TEnvironment>>) {
-  let env = ImportObjectEnvironment::new(environment, host_format_provider);
+  let env = ImportObjectEnvironment::new(environment, host_format_cell);
   let env = FunctionEnv::new(store, env);
 
   (
@@ -93,11 +109,11 @@ pub struct ImportObjectEnvironment<TEnvironment: Environment> {
   shared_bytes: Mutex<SharedBytes>,
   error_text_store: String,
   environment: TEnvironment,
-  host_format_provider: HostFormatProvider,
+  host_format_cell: WasmHostFormatCell,
 }
 
 impl<TEnvironment: Environment> ImportObjectEnvironment<TEnvironment> {
-  pub fn new(environment: TEnvironment, host_format_provider: HostFormatProvider) -> Self {
+  pub fn new(environment: TEnvironment, host_format_cell: WasmHostFormatCell) -> Self {
     ImportObjectEnvironment {
       memory: None,
       override_config: None,
@@ -106,7 +122,7 @@ impl<TEnvironment: Environment> ImportObjectEnvironment<TEnvironment> {
       formatted_text_store: String::new(),
       error_text_store: String::new(),
       environment,
-      host_format_provider,
+      host_format_cell,
     }
   }
 
@@ -183,11 +199,12 @@ fn host_format<TEnvironment: Environment>(mut env: FunctionEnvMut<ImportObjectEn
     let bytes = env.take_shared_bytes();
     let file_text = String::from_utf8(bytes).unwrap();
     let runtime_handle = env.environment.runtime_handle();
+    let host_format_cell = env.host_format_cell.clone();
 
-    let host_format = (env.host_format_provider)();
     (
       tokio::task::spawn(async move {
-        host_format(HostFormatRequest {
+        let host_format = host_format_cell.0.lock().clone();
+        (host_format)(HostFormatRequest {
           file_path,
           file_text,
           range: None,

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::implementations::create_plugin;
+use super::implementations::WasmModuleCreator;
 use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
@@ -14,6 +15,7 @@ pub struct PluginResolver<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_cache: Arc<PluginCache<TEnvironment>>,
   memory_cache: Mutex<HashMap<PluginSourceReference, Arc<tokio::sync::OnceCell<Arc<dyn Plugin>>>>>,
+  wasm_module_creator: WasmModuleCreator,
 }
 
 impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
@@ -22,6 +24,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
       environment,
       plugin_cache,
       memory_cache: Default::default(),
+      wasm_module_creator: Default::default(),
     }
   }
 
@@ -55,7 +58,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     let environment = self.environment.clone();
     cell
       .get_or_try_init(|| async {
-        match create_plugin(&self.plugin_cache, self.environment.clone(), &plugin_reference).await {
+        match create_plugin(&self.plugin_cache, self.environment.clone(), &plugin_reference, &self.wasm_module_creator).await {
           Ok(plugin) => Ok(plugin),
           Err(err) => {
             match self.plugin_cache.forget(&plugin_reference).await {
