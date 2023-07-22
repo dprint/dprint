@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 use indexmap::IndexMap;
 use serde::Deserialize;
 use serde::Serialize;
@@ -35,7 +37,7 @@ macro_rules! generate_str_to_from {
     };
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Copy, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Copy, Serialize, Deserialize, Hash)]
 pub enum NewLineKind {
   /// Decide which newline kind to use based on the last newline in the file.
   #[serde(rename = "auto")]
@@ -105,6 +107,41 @@ pub enum ConfigKeyValue {
 }
 
 impl ConfigKeyValue {
+  /// Gets a hash of the configuration value. This is used for incremental formatting
+  /// and the Hash trait is not implemented to discourage using this in other places.
+  pub fn hash(&self, hasher: &mut impl std::hash::Hasher) {
+    match self {
+      ConfigKeyValue::String(value) => {
+        hasher.write_u8(0);
+        hasher.write(value.as_bytes())
+      }
+      ConfigKeyValue::Number(value) => {
+        hasher.write_u8(1);
+        hasher.write_i32(*value)
+      }
+      ConfigKeyValue::Bool(value) => {
+        hasher.write_u8(2);
+        hasher.write_u8(if *value { 1 } else { 0 })
+      }
+      ConfigKeyValue::Array(values) => {
+        hasher.write_u8(3);
+        for value in values {
+          value.hash(hasher);
+        }
+      }
+      ConfigKeyValue::Object(key_values) => {
+        hasher.write_u8(4);
+        for (key, value) in key_values {
+          hasher.write(key.as_bytes());
+          value.hash(hasher);
+        }
+      }
+      ConfigKeyValue::Null => {
+        hasher.write_u8(5);
+      }
+    }
+  }
+
   pub fn from_i32(value: i32) -> ConfigKeyValue {
     ConfigKeyValue::Number(value)
   }
@@ -143,7 +180,7 @@ impl From<&str> for ConfigKeyValue {
   }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct GlobalConfiguration {
   pub line_width: Option<u32>,

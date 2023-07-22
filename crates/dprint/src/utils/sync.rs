@@ -10,7 +10,7 @@ use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
 
-// todo(THIS PR): unit tests
+// todo: unit tests
 
 pub struct MutexGuard<'a, T> {
   state: RefMut<'a, T>,

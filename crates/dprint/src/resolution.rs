@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::hash::Hasher;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -41,6 +42,7 @@ use crate::plugins::OutputPluginConfigDiagnosticsError;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginWrapper;
+use crate::utils::FastInsecureHasher;
 use crate::utils::ResolvedPath;
 
 pub enum GetPluginResult {
@@ -67,22 +69,25 @@ impl PluginWithConfig {
 
   /// Gets a hash that represents the current state of the plugin.
   /// This is used for the "incremental" feature to tell if a plugin has changed state.
-  pub fn get_hash(&self) -> u64 {
-    // todo: update this to be passed a hasher
-    let mut hash_str = String::new();
-
+  pub fn incremental_hash(&self, hasher: &mut impl Hasher) {
+    use std::hash::Hash;
     // list everything in here that would affect formatting
-    hash_str.push_str(&self.info().name);
-    hash_str.push_str(&self.info().version);
+    hasher.write(self.info().name.as_bytes());
+    hasher.write(self.info().version.as_bytes());
 
     // serialize the config keys in order to prevent the hash from changing
     let sorted_config = self.format_config.raw.iter().collect::<BTreeMap<_, _>>();
-    hash_str.push_str(&serde_json::to_string(&sorted_config).unwrap());
+    for (key, value) in sorted_config {
+      hasher.write(key.as_bytes());
+      value.hash(hasher);
+    }
 
-    hash_str.push_str(&serde_json::to_string(&self.associations).unwrap());
-    hash_str.push_str(&serde_json::to_string(&self.format_config.global).unwrap());
-
-    crate::utils::get_bytes_hash(hash_str.as_bytes())
+    if let Some(associations) = &self.associations {
+      for association in associations {
+        hasher.write(association.as_bytes());
+      }
+    }
+    self.format_config.global.hash(hasher);
   }
 
   pub fn name(&self) -> &str {
@@ -208,15 +213,11 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 
   pub fn plugins_hash(&self) -> u64 {
-    // todo(THIS PR): replace this with a hasher
-    use std::num::Wrapping;
-    // yeah, I know adding hashes isn't right, but the chance of this not working
-    // in order to tell when a plugin has changed is super low.
-    let mut hash_sum = Wrapping(0);
+    let mut hasher = FastInsecureHasher::default();
     for plugin in self.plugins.values() {
-      hash_sum += Wrapping(plugin.get_hash());
+      plugin.incremental_hash(&mut hasher);
     }
-    hash_sum.0
+    hasher.finish()
   }
 
   pub fn create_host_format_callback(self: &Rc<Self>) -> HostFormatCallback {
