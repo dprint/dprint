@@ -131,12 +131,16 @@ impl InitializedWasmPluginInstance {
     override_config: &ConfigKeyMap,
     on_host_format: HostFormatCallback,
   ) -> FormatResult {
-    self.ensure_config(&config)?;
+    self.ensure_config(config)?;
     self.host_format_cell.set(on_host_format);
-    match self.inner_format_text(file_path, file_text, override_config) {
+    let result = match self.inner_format_text(file_path, file_text, override_config) {
       Ok(inner) => inner,
       Err(err) => Err(CriticalFormatError(err).into()),
-    }
+    };
+    // I have no idea why, but to prevent wasmer from panicking, we need
+    // to clear the previous host format cell here.
+    self.host_format_cell.clear();
+    result
   }
 
   fn inner_format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<FormatResult> {

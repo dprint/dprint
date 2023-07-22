@@ -9,7 +9,6 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::process::HostFormatCallback;
 use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CriticalFormatError;
-use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
@@ -65,10 +64,6 @@ impl PluginWithConfig {
     }
   }
 
-  pub async fn shutdown(&self) {
-    self.plugin.shutdown().await;
-  }
-
   /// Gets a hash that represents the current state of the plugin.
   /// This is used for the "incremental" feature to tell if a plugin has changed state.
   pub fn get_hash(&self) -> u64 {
@@ -121,7 +116,7 @@ impl PluginWithConfig {
         if let Err(err) = result {
           environment.log_stderr(&err.to_string());
           *config_diagnostic_count = Some(err.diagnostic_count);
-          return Ok(GetPluginResult::HadDiagnostics(err.diagnostic_count));
+          Ok(GetPluginResult::HadDiagnostics(err.diagnostic_count))
         } else {
           *config_diagnostic_count = Some(0);
           Ok(GetPluginResult::Success(instance))
@@ -193,15 +188,10 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     let plugin_name_maps = PluginNameResolutionMaps::from_plugins(plugins.iter().map(|p| p.as_ref()), base_path)?;
 
     Ok(PluginsScope {
-      environment: environment.clone(),
+      environment,
       plugin_name_maps,
       plugins: plugins.into_iter().map(|p| (p.name().to_string(), p)).collect(),
     })
-  }
-
-  pub async fn shutdown_initialized(&self) {
-    let futures = self.plugins.values().map(|p| p.shutdown());
-    futures::future::join_all(futures).await;
   }
 
   pub fn process_plugin_count(&self) -> usize {
@@ -338,7 +328,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       log_verbose!(self.environment, "Analyzing config file {}", config_file_path.display());
       let config_file_path = self.environment.canonicalize(&config_file_path)?;
       let config_path = ResolvedConfigPath {
-        base_path: config_file_path.parent().unwrap().to_owned(),
+        base_path: config_file_path.parent().unwrap(),
         resolved_path: ResolvedPath::local(config_file_path),
       };
       let mut config = resolve_config_from_path(&config_path, self.environment)?;
@@ -428,7 +418,7 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   // resolve each plugin's configuration
   let mut plugins_with_config = Vec::new();
   for plugin in plugins.into_iter() {
-    plugins_with_config.push((get_plugin_config_map(&*plugin, &mut config_map)?, plugin));
+    plugins_with_config.push((get_plugin_config_map(&plugin, &mut config_map)?, plugin));
   }
 
   // now get global config
@@ -448,8 +438,7 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
         plugin,
         plugin_config.associations,
         Arc::new(FormatConfig {
-          // todo(THIS PR): should be unique
-          id: FormatConfigId::from_raw(1),
+          id: plugin_resolver.next_config_id(),
           global: global_config.clone(),
           raw: plugin_config.properties,
         }),

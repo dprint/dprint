@@ -1,5 +1,7 @@
 use anyhow::bail;
 use anyhow::Result;
+use dprint_core::communication::IdGenerator;
+use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::PluginInfo;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -35,11 +37,7 @@ impl PluginWrapper {
   }
 
   pub async fn initialize(&self) -> Result<Arc<dyn InitializedPlugin>> {
-    self
-      .initialized_plugin
-      .get_or_try_init(|| async move { Ok(self.plugin.initialize().await?) })
-      .await
-      .map(|x| x.clone())
+    self.initialized_plugin.get_or_try_init(|| self.plugin.initialize()).await.map(|x| x.clone())
   }
 
   pub async fn shutdown(&self) {
@@ -54,6 +52,7 @@ pub struct PluginResolver<TEnvironment: Environment> {
   plugin_cache: Arc<PluginCache<TEnvironment>>,
   memory_cache: Mutex<HashMap<PluginSourceReference, Arc<tokio::sync::OnceCell<Arc<PluginWrapper>>>>>,
   wasm_module_creator: WasmModuleCreator,
+  next_config_id: IdGenerator,
 }
 
 impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
@@ -63,6 +62,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
       plugin_cache,
       memory_cache: Default::default(),
       wasm_module_creator: Default::default(),
+      next_config_id: Default::default(),
     }
   }
 
@@ -70,6 +70,11 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     let plugins = self.memory_cache.lock().drain().collect::<Vec<_>>();
     let futures = plugins.iter().filter_map(|p| p.1.get()).map(|p| p.shutdown());
     futures::future::join_all(futures).await;
+  }
+
+  pub fn next_config_id(&self) -> FormatConfigId {
+    // + 1 because 0 is reserved for uninitialized
+    FormatConfigId::from_raw(self.next_config_id.next() + 1)
   }
 
   pub async fn resolve_plugins(self: &Arc<Self>, plugin_references: Vec<PluginSourceReference>) -> Result<Vec<Arc<PluginWrapper>>> {
@@ -98,8 +103,6 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
         .or_insert_with(|| Arc::new(tokio::sync::OnceCell::new()))
         .clone()
     };
-    let cache = self.plugin_cache.clone();
-    let environment = self.environment.clone();
     cell
       .get_or_try_init(|| async {
         match create_plugin(&self.plugin_cache, self.environment.clone(), &plugin_reference, &self.wasm_module_creator).await {

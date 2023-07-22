@@ -12,7 +12,6 @@ use utils::RealStdInReader;
 mod arg_parser;
 mod commands;
 mod configuration;
-mod factory;
 mod format;
 mod incremental;
 mod paths;
@@ -20,7 +19,6 @@ mod patterns;
 mod plugins;
 mod resolution;
 mod run_cli;
-mod scope;
 mod utils;
 
 #[cfg(test)]

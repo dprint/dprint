@@ -88,7 +88,7 @@ impl<T> ArcIdStore<T> {
 
   pub fn take_all(&self) -> HashMap<u32, T> {
     let mut map = self.0.lock();
-    std::mem::replace(&mut *map, HashMap::new())
+    std::mem::take(&mut *map)
   }
 }
 

@@ -249,13 +249,12 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
 
     let has_config_changed = last_config.is_none() || last_config.unwrap() != config || self.plugins_scope.is_none();
     if has_config_changed {
-      if let Some(previous_scope) = self.plugins_scope.take() {
-        let tokens = self.context.cancellation_tokens.take_all();
-        for token in tokens.values() {
-          token.cancel();
-        }
-        previous_scope.shutdown_initialized().await; // graceful shutdown
+      self.plugins_scope.take();
+      let tokens = self.context.cancellation_tokens.take_all();
+      for token in tokens.values() {
+        token.cancel();
       }
+      self.plugin_resolver.clear_and_shutdown_initialized().await;
 
       let scope = resolve_plugins_scope(
         &config,

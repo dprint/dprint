@@ -23,20 +23,6 @@ pub trait Plugin: Send + Sync {
   fn is_process_plugin(&self) -> bool;
 }
 
-pub struct FormatConfigFactory {
-  next_id: FormatConfigId,
-}
-
-impl Default for FormatConfigFactory {
-  fn default() -> Self {
-    Self {
-      next_id: FormatConfigId::from_raw(1),
-    }
-  }
-}
-
-impl FormatConfigFactory {}
-
 pub struct FormatConfig {
   pub id: FormatConfigId,
   pub raw: ConfigKeyMap,
@@ -131,12 +117,12 @@ impl InitializedPlugin for InitializedTestPlugin {
     async move { Ok(String::from("License Text")) }.boxed()
   }
 
-  fn resolved_config(&self, config: Arc<FormatConfig>) -> BoxFuture<'static, Result<String>> {
+  fn resolved_config(&self, _config: Arc<FormatConfig>) -> BoxFuture<'static, Result<String>> {
     use futures::FutureExt;
     async move { Ok(String::from("{}")) }.boxed()
   }
 
-  fn config_diagnostics(&self, config: Arc<FormatConfig>) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
+  fn config_diagnostics(&self, _config: Arc<FormatConfig>) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
     use futures::FutureExt;
     async move { Ok(vec![]) }.boxed()
   }

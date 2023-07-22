@@ -38,7 +38,7 @@ mod test {
         let resolver = Arc::new(PluginResolver::new(environment.clone(), plugin_cache));
         let cli_args = CliArgs::empty();
         let config = resolve_config_from_args(&cli_args, &environment).unwrap();
-        let mut plugins = resolver.resolve_plugins(config.plugins).await.unwrap();
+        let plugins = resolver.resolve_plugins(config.plugins).await.unwrap();
         assert_eq!(
           plugins.iter().map(|p| &p.info().name).collect::<Vec<_>>(),
           vec!["test-plugin", "test-process-plugin"]

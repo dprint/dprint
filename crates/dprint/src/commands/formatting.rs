@@ -1272,7 +1272,6 @@ mod test {
   fn should_format_using_config_in_ancestor_directory() {
     let config_file_names = vec!["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
     for config_file_name in config_file_names {
-      eprintln!("CONFIG FILE: {}", config_file_name);
       let file_path = "/test/other/file.txt";
       let environment = TestEnvironmentBuilder::new()
         .add_remote_wasm_plugin()

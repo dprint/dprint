@@ -24,9 +24,8 @@ use crate::resolution::PluginsScopeAndPaths;
 use crate::utils::ErrorCountLogger;
 use crate::utils::FileText;
 
-struct TaskWork<TEnvironment: Environment> {
+struct TaskWork {
   semaphore: Arc<Semaphore>,
-  scope: Arc<PluginsScope<TEnvironment>>,
   plugins: Vec<Arc<PluginWithConfig>>,
   file_paths: Vec<PathBuf>,
 }
@@ -77,7 +76,6 @@ where
     });
     task_works.push(TaskWork {
       semaphore,
-      scope: scope.clone(),
       plugins,
       file_paths,
     });

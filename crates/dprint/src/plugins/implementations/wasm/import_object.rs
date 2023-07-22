@@ -2,7 +2,6 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::process::HostFormatCallback;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
-use futures::FutureExt;
 use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,11 +42,11 @@ pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
 }
 
 #[derive(Clone)]
-pub struct WasmHostFormatCell(Arc<Mutex<HostFormatCallback>>);
+pub struct WasmHostFormatCell(Arc<Mutex<Option<HostFormatCallback>>>);
 
 impl WasmHostFormatCell {
   pub fn no_op() -> Self {
-    Self(Arc::new(Mutex::new(Arc::new(|_request| futures::future::ready(Ok(None)).boxed()))))
+    Self(Arc::new(Mutex::new(None)))
   }
 
   pub fn new() -> Self {
@@ -55,7 +54,11 @@ impl WasmHostFormatCell {
   }
 
   pub fn set(&self, host_format: HostFormatCallback) {
-    *self.0.lock() = host_format;
+    *self.0.lock() = Some(host_format);
+  }
+
+  pub fn clear(&self) {
+    *self.0.lock() = None;
   }
 }
 
@@ -204,6 +207,11 @@ fn host_format<TEnvironment: Environment>(mut env: FunctionEnvMut<ImportObjectEn
     (
       tokio::task::spawn(async move {
         let host_format = host_format_cell.0.lock().clone();
+        debug_assert!(host_format.is_some(), "Expected host format to be set.");
+        let host_format = match host_format {
+          Some(host_format) => host_format,
+          None => return Ok(None),
+        };
         (host_format)(HostFormatRequest {
           file_path,
           file_text,

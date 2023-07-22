@@ -9,15 +9,12 @@ mod repo;
 mod resolver;
 mod types;
 
-use std::sync::Arc;
-
 pub use cache::*;
 use cache_manifest::*;
 pub use helpers::*;
 pub use plugin::*;
 pub use repo::*;
 pub use resolver::*;
-use thiserror::Error;
 pub use types::*;
 
 pub use implementations::compile_wasm;

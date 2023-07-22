@@ -1,6 +1,5 @@
 use anyhow::Result;
 use dprint_core::configuration::ConfigurationDiagnostic;
-use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
 use futures::future::BoxFuture;

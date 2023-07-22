@@ -203,6 +203,7 @@ impl Message for ProcessPluginMessage {
       }
       MessageBody::HostFormat(body) => {
         writer.send_u32(14)?;
+        writer.send_u32(body.original_message_id)?;
         writer.send_sized_bytes(body.file_path.to_string_lossy().as_bytes())?;
         writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32)?;
         writer.send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_text.len()) as u32)?;
