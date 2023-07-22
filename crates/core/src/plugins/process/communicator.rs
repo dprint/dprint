@@ -2,8 +2,8 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context as AnyhowContext;
 use anyhow::Result;
-use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
+use std::cell::RefCell;
 use std::io::BufRead;
 use std::io::Read;
 use std::io::Write;
@@ -11,9 +11,9 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
 use std::process::ChildStderr;
-use std::process::ChildStdout;
 use std::process::Command;
 use std::process::Stdio;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
@@ -27,12 +27,12 @@ use super::messages::RegisterConfigMessageBody;
 use super::messages::ResponseBody;
 use super::PLUGIN_SCHEMA_VERSION;
 use crate::async_runtime::LocalBoxFuture;
-use crate::communication::ArcIdStore;
 use crate::communication::AtomicFlag;
 use crate::communication::IdGenerator;
 use crate::communication::MessageReader;
 use crate::communication::MessageWriter;
 use crate::communication::Poisoner;
+use crate::communication::RcIdStore;
 use crate::communication::SingleThreadMessageWriter;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
@@ -47,7 +47,7 @@ use crate::plugins::PluginInfo;
 
 type DprintCancellationToken = Arc<dyn super::super::CancellationToken>;
 
-pub type HostFormatCallback = Arc<dyn Fn(HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> + Send + Sync>;
+pub type HostFormatCallback = Rc<dyn Fn(HostFormatRequest) -> LocalBoxFuture<'static, FormatResult>>;
 
 pub struct ProcessPluginCommunicatorFormatRequest {
   pub file_path: PathBuf,
@@ -65,21 +65,20 @@ enum MessageResponseChannel {
   Format(oneshot::Sender<Result<Option<Vec<u8>>>>),
 }
 
-#[derive(Clone)]
 struct Context {
   stdin_writer: SingleThreadMessageWriter<ProcessPluginMessage>,
   poisoner: Poisoner,
   shutdown_flag: Arc<AtomicFlag>,
   id_generator: IdGenerator,
-  messages: ArcIdStore<MessageResponseChannel>,
-  format_request_tokens: ArcIdStore<Arc<CancellationToken>>,
-  host_format_callbacks: ArcIdStore<HostFormatCallback>,
+  messages: RcIdStore<MessageResponseChannel>,
+  format_request_tokens: RcIdStore<Arc<CancellationToken>>,
+  host_format_callbacks: RcIdStore<HostFormatCallback>,
 }
 
 /// Communicates with a process plugin.
 pub struct ProcessPluginCommunicator {
-  child: Mutex<Option<Child>>,
-  context: Context,
+  child: RefCell<Option<Child>>,
+  context: Rc<Context>,
 }
 
 impl Drop for ProcessPluginCommunicator {
@@ -133,7 +132,7 @@ impl ProcessPluginCommunicator {
       .context("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade.")?;
 
     let stdin_writer = SingleThreadMessageWriter::for_stdin(stdin_writer, poisoner.clone());
-    let context = Context {
+    let context = Rc::new(Context {
       id_generator: Default::default(),
       shutdown_flag,
       stdin_writer,
@@ -141,14 +140,38 @@ impl ProcessPluginCommunicator {
       messages: Default::default(),
       format_request_tokens: Default::default(),
       host_format_callbacks: Default::default(),
-    };
+    });
 
     // read from stdout
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     crate::async_runtime::spawn_blocking({
-      let context = context.clone();
+      let poisoner = context.poisoner.clone();
+      let shutdown_flag = context.shutdown_flag.clone();
+      let on_std_err = on_std_err.clone();
       move || {
         loop {
-          if let Err(err) = read_stdout_message(&mut stdout_reader, &context) {
+          match ProcessPluginMessage::read(&mut stdout_reader) {
+            Ok(message) => {
+              if tx.send(message).is_err() {
+                break; // closed
+              }
+            }
+            Err(err) => {
+              if !poisoner.is_poisoned() && !shutdown_flag.is_raised() {
+                on_std_err(format!("Error reading stdout message: {:#}", err));
+              }
+              break;
+            }
+          }
+        }
+        poisoner.poison();
+      }
+    });
+    crate::async_runtime::spawn({
+      let context = context.clone();
+      async move {
+        while let Some(message) = rx.recv().await {
+          if let Err(err) = handle_stdout_message(message, &context) {
             if !context.poisoner.is_poisoned() && !context.shutdown_flag.is_raised() {
               on_std_err(format!("Error reading stdout message: {:#}", err));
             }
@@ -160,7 +183,7 @@ impl ProcessPluginCommunicator {
     });
 
     Ok(Self {
-      child: Mutex::new(Some(child)),
+      child: RefCell::new(Some(child)),
       context,
     })
   }
@@ -186,7 +209,7 @@ impl ProcessPluginCommunicator {
   pub fn kill(&self) {
     self.context.shutdown_flag.raise();
     self.context.poisoner.poison();
-    if let Some(mut child) = self.child.lock().take() {
+    if let Some(mut child) = self.child.borrow_mut().take() {
       let _ignore = child.kill();
     }
   }
@@ -385,9 +408,7 @@ fn std_err_redirect(poisoner: Poisoner, shutdown_flag: Arc<AtomicFlag>, stderr: 
   }
 }
 
-fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Context) -> Result<()> {
-  let message = ProcessPluginMessage::read(reader)?;
-
+fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -> Result<()> {
   match message.body {
     MessageBody::Success(message_id) => match context.messages.take(message_id) {
       Some(MessageResponseChannel::Acknowledgement(channel)) => {
@@ -503,7 +524,7 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
   Ok(())
 }
 
-async fn host_format(context: Context, message_id: u32, body: HostFormatMessageBody) -> FormatResult {
+async fn host_format(context: Rc<Context>, message_id: u32, body: HostFormatMessageBody) -> FormatResult {
   let file_text = String::from_utf8(body.file_text)?; // surface error before storing token
 
   let Some(callback) = context.host_format_callbacks.get_cloned(body.original_message_id) else {

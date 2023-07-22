@@ -4,6 +4,7 @@ use anyhow::Error;
 use anyhow::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use url::Url;
 
@@ -48,7 +49,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
   args: &CliArgs,
   plugin_name_or_url: Option<&String>,
   environment: &TEnvironment,
-  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
   let config_path = match config.resolved_path.source {
@@ -138,7 +139,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
 
 async fn get_possible_plugins_to_add<TEnvironment: Environment>(
   environment: &TEnvironment,
-  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   current_plugins: Vec<PluginSourceReference>,
 ) -> Result<Vec<InfoFilePluginInfo>> {
   let info_file = read_info_file(environment).map_err(|err| anyhow!("Error downloading info file. {:#}", err))?;
@@ -165,7 +166,7 @@ async fn get_possible_plugins_to_add<TEnvironment: Environment>(
 pub async fn update_plugins_config_file<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   no_prompt: bool,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
@@ -215,7 +216,7 @@ struct PluginUpdateError {
 
 async fn get_plugins_to_update<TEnvironment: Environment>(
   environment: &TEnvironment,
-  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   plugins: Vec<PluginSourceReference>,
 ) -> Result<Vec<Result<PluginUpdateInfo, PluginUpdateError>>> {
   let info_file = match read_info_file(environment) {
@@ -288,7 +289,7 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
 pub async fn output_resolved_config<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
   let plugins_scope = resolve_plugins_scope(
@@ -330,9 +331,9 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
 }
 
 async fn get_config_file_plugins<TEnvironment: Environment>(
-  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   current_plugins: Vec<PluginSourceReference>,
-) -> Vec<(PluginSourceReference, Result<Arc<PluginWrapper>>)> {
+) -> Vec<(PluginSourceReference, Result<Rc<PluginWrapper>>)> {
   let tasks = current_plugins
     .into_iter()
     .map(|plugin_reference| {

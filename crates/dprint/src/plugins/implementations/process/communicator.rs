@@ -23,6 +23,7 @@ struct InnerState {
 }
 
 pub struct InitializedProcessPluginCommunicator<TEnvironment: Environment> {
+  // todo: move away from RwLock to something that works on a single thread
   inner: tokio::sync::RwLock<InnerState>,
   restart_info: ProcessRestartInfo<TEnvironment>,
 }
@@ -135,6 +136,7 @@ async fn create_new_communicator<TEnvironment: Environment>(restart_info: &Proce
 
 #[cfg(test)]
 mod test {
+  use std::rc::Rc;
   use std::time::Duration;
 
   use dprint_core::configuration::ConfigKeyMap;
@@ -172,7 +174,7 @@ mod test {
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),
-              on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
+              on_host_format: Rc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
               token: Arc::new(NullCancellationToken),
             })
             .await
@@ -190,7 +192,7 @@ mod test {
             range: None,
             config: format_config.clone(),
             override_config: Default::default(),
-            on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
+            on_host_format: Rc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
             token: Arc::new(NullCancellationToken),
           }));
         }
@@ -218,7 +220,7 @@ mod test {
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),
-              on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
+              on_host_format: Rc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
               token: Arc::new(NullCancellationToken),
             })
             .await
@@ -255,7 +257,7 @@ mod test {
           config: format_config.clone(),
           range: None,
           override_config: Default::default(),
-          on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
+          on_host_format: Rc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
           token: token.clone(),
         });
 

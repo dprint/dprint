@@ -6,6 +6,7 @@ use futures::FutureExt;
 use serde::Serialize;
 use std::io::Read;
 use std::io::Write;
+use std::rc::Rc;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -33,19 +34,40 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
   // ensure all process plugins exit on panic on any tokio task
   setup_exit_process_panic_hook();
 
-  crate::async_runtime::spawn_blocking(move || {
+  // estabilish the schema
+  let (mut stdin_reader, stdout_writer) = crate::async_runtime::spawn_blocking(move || {
     let mut stdin_reader = MessageReader::new(std::io::stdin());
     let mut stdout_writer = MessageWriter::new(std::io::stdout());
 
     schema_establishment_phase(&mut stdin_reader, &mut stdout_writer).context("Failed estabilishing schema.")?;
+    Ok::<_, anyhow::Error>((stdin_reader, stdout_writer))
+  })
+  .await??;
 
+  // now start reading messages
+  let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<std::io::Result<ProcessPluginMessage>>();
+  crate::async_runtime::spawn_blocking(move || loop {
+    let message_result = ProcessPluginMessage::read(&mut stdin_reader);
+    let is_err = message_result.is_err();
+    if tx.send(message_result).is_err() {
+      return; // disconnected
+    }
+    if is_err {
+      return; // shut down
+    }
+  });
+
+  crate::async_runtime::spawn(async move {
     let handler = Arc::new(handler);
     let stdout_message_writer = SingleThreadMessageWriter::for_stdout(stdout_writer);
-    let context: ProcessContext<THandler::Configuration> = ProcessContext::new(stdout_message_writer);
+    let context: Rc<ProcessContext<THandler::Configuration>> = Rc::new(ProcessContext::new(stdout_message_writer));
 
     // read messages over stdin
     loop {
-      let message = ProcessPluginMessage::read(&mut stdin_reader).context("Error reading message from stdin.")?;
+      let message = match rx.recv().await {
+        Some(message_result) => message_result?,
+        None => return Ok(()), // disconnected
+      };
 
       match message.body {
         MessageBody::Close => {
@@ -75,7 +97,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
             let result = handler.resolve_config(config_map.clone(), global_config.clone());
             context.configs.store(
               body.config_id.as_raw(),
-              Arc::new(StoredConfig {
+              Rc::new(StoredConfig {
                 config: Arc::new(result.config),
                 diagnostics: Arc::new(result.diagnostics),
                 config_map,

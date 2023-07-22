@@ -11,6 +11,7 @@ pub use wasm::WasmModuleCreator;
 #[cfg(test)]
 mod test {
   use std::path::PathBuf;
+  use std::rc::Rc;
   use std::sync::Arc;
   use std::time::Duration;
 
@@ -34,8 +35,8 @@ mod test {
     environment.run_in_runtime({
       let environment = environment.clone();
       async move {
-        let plugin_cache = Arc::new(PluginCache::new(environment.clone()));
-        let resolver = Arc::new(PluginResolver::new(environment.clone(), plugin_cache));
+        let plugin_cache = PluginCache::new(environment.clone());
+        let resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
         let cli_args = CliArgs::empty();
         let config = resolve_config_from_args(&cli_args, &environment).unwrap();
         let plugins = resolver.resolve_plugins(config.plugins).await.unwrap();
@@ -46,7 +47,7 @@ mod test {
         let plugins = plugins
           .into_iter()
           .map(|plugin_wrapper| {
-            Arc::new(PluginWithConfig::new(
+            Rc::new(PluginWithConfig::new(
               plugin_wrapper,
               None,
               Arc::new(FormatConfig {
@@ -57,7 +58,7 @@ mod test {
             ))
           })
           .collect();
-        let scope = Arc::new(PluginsScope::new(environment.clone(), plugins, &environment.cwd()).unwrap());
+        let scope = Rc::new(PluginsScope::new(environment.clone(), plugins, &environment.cwd()).unwrap());
         let token = Arc::new(CancellationToken::new());
         dprint_core::async_runtime::spawn({
           let token = token.clone();

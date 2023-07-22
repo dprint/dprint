@@ -3,9 +3,9 @@ use anyhow::Result;
 use dprint_core::communication::IdGenerator;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::PluginInfo;
-use parking_lot::Mutex;
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use super::implementations::create_plugin;
 use super::implementations::WasmModuleCreator;
@@ -17,7 +17,9 @@ use crate::plugins::PluginSourceReference;
 
 pub struct PluginWrapper {
   plugin: Box<dyn Plugin>,
-  initialized_plugin: tokio::sync::OnceCell<Arc<dyn InitializedPlugin>>,
+  // todo: move away from tokio OnceCell to something that works
+  // more efficiently with a current thread runtime
+  initialized_plugin: tokio::sync::OnceCell<Rc<dyn InitializedPlugin>>,
 }
 
 impl PluginWrapper {
@@ -36,7 +38,7 @@ impl PluginWrapper {
     self.plugin.is_process_plugin()
   }
 
-  pub async fn initialize(&self) -> Result<Arc<dyn InitializedPlugin>> {
+  pub async fn initialize(&self) -> Result<Rc<dyn InitializedPlugin>> {
     self.initialized_plugin.get_or_try_init(|| self.plugin.initialize()).await.map(|x| x.clone())
   }
 
@@ -49,14 +51,14 @@ impl PluginWrapper {
 
 pub struct PluginResolver<TEnvironment: Environment> {
   environment: TEnvironment,
-  plugin_cache: Arc<PluginCache<TEnvironment>>,
-  memory_cache: Mutex<HashMap<PluginSourceReference, Arc<tokio::sync::OnceCell<Arc<PluginWrapper>>>>>,
+  plugin_cache: PluginCache<TEnvironment>,
+  memory_cache: RefCell<HashMap<PluginSourceReference, Rc<tokio::sync::OnceCell<Rc<PluginWrapper>>>>>,
   wasm_module_creator: WasmModuleCreator,
   next_config_id: IdGenerator,
 }
 
 impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
-  pub fn new(environment: TEnvironment, plugin_cache: Arc<PluginCache<TEnvironment>>) -> Self {
+  pub fn new(environment: TEnvironment, plugin_cache: PluginCache<TEnvironment>) -> Self {
     PluginResolver {
       environment,
       plugin_cache,
@@ -67,7 +69,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
   }
 
   pub async fn clear_and_shutdown_initialized(&self) {
-    let plugins = self.memory_cache.lock().drain().collect::<Vec<_>>();
+    let plugins = self.memory_cache.borrow_mut().drain().collect::<Vec<_>>();
     let futures = plugins.iter().filter_map(|p| p.1.get()).map(|p| p.shutdown());
     futures::future::join_all(futures).await;
   }
@@ -77,7 +79,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     FormatConfigId::from_raw(self.next_config_id.next() + 1)
   }
 
-  pub async fn resolve_plugins(self: &Arc<Self>, plugin_references: Vec<PluginSourceReference>) -> Result<Vec<Arc<PluginWrapper>>> {
+  pub async fn resolve_plugins(self: &Rc<Self>, plugin_references: Vec<PluginSourceReference>) -> Result<Vec<Rc<PluginWrapper>>> {
     let handles = plugin_references
       .into_iter()
       .map(|plugin_ref| {
@@ -95,18 +97,18 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     Ok(plugins)
   }
 
-  pub async fn resolve_plugin(&self, plugin_reference: PluginSourceReference) -> Result<Arc<PluginWrapper>> {
+  pub async fn resolve_plugin(&self, plugin_reference: PluginSourceReference) -> Result<Rc<PluginWrapper>> {
     let cell = {
-      let mut mem_cache = self.memory_cache.lock();
+      let mut mem_cache = self.memory_cache.borrow_mut();
       mem_cache
         .entry(plugin_reference.clone())
-        .or_insert_with(|| Arc::new(tokio::sync::OnceCell::new()))
+        .or_insert_with(|| Rc::new(tokio::sync::OnceCell::new()))
         .clone()
     };
     cell
       .get_or_try_init(|| async {
         match create_plugin(&self.plugin_cache, self.environment.clone(), &plugin_reference, &self.wasm_module_creator).await {
-          Ok(plugin) => Ok(Arc::new(PluginWrapper::new(plugin))),
+          Ok(plugin) => Ok(Rc::new(PluginWrapper::new(plugin))),
           Err(err) => {
             match self.plugin_cache.forget(&plugin_reference).await {
               Ok(()) => {}

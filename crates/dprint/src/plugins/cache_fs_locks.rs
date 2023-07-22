@@ -1,8 +1,7 @@
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::Arc;
-
-use parking_lot::Mutex;
+use std::rc::Rc;
 
 use crate::environment::Environment;
 use crate::utils::get_bytes_hash;
@@ -11,7 +10,7 @@ use crate::utils::PathSource;
 
 struct CacheFsLockGuardInner<TEnvironment: Environment> {
   id: u64,
-  locks: Arc<Mutex<HashSet<u64>>>,
+  locks: Rc<RefCell<HashSet<u64>>>,
   // keep this alive for the duration of the guard
   _fs_flag: LaxSingleProcessFsFlag<TEnvironment>,
 }
@@ -19,7 +18,7 @@ struct CacheFsLockGuardInner<TEnvironment: Environment> {
 impl<TEnvironment: Environment> Drop for CacheFsLockGuardInner<TEnvironment> {
   fn drop(&mut self) {
     // allow this process to set the lock again
-    self.locks.lock().remove(&self.id);
+    self.locks.borrow_mut().remove(&self.id);
   }
 }
 
@@ -29,7 +28,7 @@ pub struct CacheFsLockGuard<TEnvironment: Environment>(Option<CacheFsLockGuardIn
 /// prevent multiple processes from modifying the cache at the same time.
 pub struct CacheFsLockPool<TEnvironment: Environment> {
   environment: TEnvironment,
-  locks: Arc<Mutex<HashSet<u64>>>,
+  locks: Rc<RefCell<HashSet<u64>>>,
   cache_dir: PathBuf,
 }
 
@@ -44,7 +43,7 @@ impl<TEnvironment: Environment> CacheFsLockPool<TEnvironment> {
     Self {
       environment,
       cache_dir,
-      locks: Arc::new(Mutex::new(HashSet::new())),
+      locks: Default::default(),
     }
   }
 
@@ -54,7 +53,7 @@ impl<TEnvironment: Environment> CacheFsLockPool<TEnvironment> {
   pub async fn lock(&self, path_source: &PathSource) -> CacheFsLockGuard<TEnvironment> {
     let id = get_bytes_hash(path_source.display().as_bytes());
     // ensure this process only sets the lock once for this id
-    if self.locks.lock().insert(id) {
+    if self.locks.borrow_mut().insert(id) {
       let plugin_sync_id = format!(".{}.lock", id);
       let long_wait_message = format!("Waiting for file lock for '{}'...", path_source.display());
       let fs_flag = LaxSingleProcessFsFlag::lock(&self.environment, self.cache_dir.join(&plugin_sync_id), &long_wait_message).await;

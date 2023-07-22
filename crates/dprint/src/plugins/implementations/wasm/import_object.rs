@@ -1,9 +1,12 @@
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::process::HostFormatCallback;
+use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
+use std::cell::RefCell;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use wasmer::AsStoreRef;
 use wasmer::ExportError;
@@ -42,33 +45,39 @@ pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
 }
 
 #[derive(Clone)]
-pub struct WasmHostFormatCell(Arc<Mutex<Option<HostFormatCallback>>>);
+pub struct WasmHostFormatCell(Rc<RefCell<Option<HostFormatCallback>>>);
 
 impl WasmHostFormatCell {
   pub fn no_op() -> Self {
-    Self(Arc::new(Mutex::new(None)))
+    Self(Default::default())
   }
 
   pub fn new() -> Self {
     Self::no_op()
   }
 
-  pub fn set(&self, host_format: HostFormatCallback) {
-    *self.0.lock() = Some(host_format);
+  pub fn set(&self, host_format: Option<HostFormatCallback>) {
+    *self.0.borrow_mut() = host_format;
+  }
+
+  pub fn get(&self) -> Option<HostFormatCallback> {
+    self.0.borrow().clone()
   }
 
   pub fn clear(&self) {
-    *self.0.lock() = None;
+    *self.0.borrow_mut() = None;
   }
 }
+
+pub type WasmHostFormatCallback = Box<dyn Fn(HostFormatRequest) -> FormatResult + Send + Sync>;
 
 /// Create an import object that formats text using plugins from the plugin pool
 pub fn create_pools_import_object<TEnvironment: Environment>(
   environment: TEnvironment,
   store: &mut Store,
-  host_format_cell: WasmHostFormatCell,
+  host_format_callback: WasmHostFormatCallback,
 ) -> (wasmer::Imports, FunctionEnv<ImportObjectEnvironment<TEnvironment>>) {
-  let env = ImportObjectEnvironment::new(environment, host_format_cell);
+  let env = ImportObjectEnvironment::new(environment, host_format_callback);
   let env = FunctionEnv::new(store, env);
 
   (
@@ -112,11 +121,11 @@ pub struct ImportObjectEnvironment<TEnvironment: Environment> {
   shared_bytes: Mutex<SharedBytes>,
   error_text_store: String,
   environment: TEnvironment,
-  host_format_cell: WasmHostFormatCell,
+  host_format_callback: WasmHostFormatCallback,
 }
 
 impl<TEnvironment: Environment> ImportObjectEnvironment<TEnvironment> {
-  pub fn new(environment: TEnvironment, host_format_cell: WasmHostFormatCell) -> Self {
+  pub fn new(environment: TEnvironment, host_format_callback: WasmHostFormatCallback) -> Self {
     ImportObjectEnvironment {
       memory: None,
       override_config: None,
@@ -125,7 +134,7 @@ impl<TEnvironment: Environment> ImportObjectEnvironment<TEnvironment> {
       formatted_text_store: String::new(),
       error_text_store: String::new(),
       environment,
-      host_format_cell,
+      host_format_callback,
     }
   }
 
@@ -195,53 +204,25 @@ fn host_take_file_path<TEnvironment: Environment>(mut env: FunctionEnvMut<Import
 }
 
 fn host_format<TEnvironment: Environment>(mut env: FunctionEnvMut<ImportObjectEnvironment<TEnvironment>>) -> u32 {
-  let (handle, runtime_handle) = {
-    let env = env.data_mut();
-    let override_config = env.override_config.take().unwrap_or_default();
-    let file_path = env.file_path.take().expect("Expected to have file path.");
-    let bytes = env.take_shared_bytes();
-    let file_text = String::from_utf8(bytes).unwrap();
-    let runtime_handle = env.environment.runtime_handle();
-    let host_format_cell = env.host_format_cell.clone();
-
-    (
-      dprint_core::async_runtime::spawn(async move {
-        let host_format = host_format_cell.0.lock().clone();
-        debug_assert!(host_format.is_some(), "Expected host format to be set.");
-        let host_format = match host_format {
-          Some(host_format) => host_format,
-          None => return Ok(None),
-        };
-        (host_format)(HostFormatRequest {
-          file_path,
-          file_text,
-          range: None,
-          override_config,
-          // Wasm plugins currently don't support cancellation
-          token: Arc::new(NullCancellationToken),
-        })
-        .await
-      }),
-      runtime_handle,
-    )
+  let env = env.data_mut();
+  let override_config = env.override_config.take().unwrap_or_default();
+  let file_path = env.file_path.take().expect("Expected to have file path.");
+  let bytes = env.take_shared_bytes();
+  let file_text = String::from_utf8(bytes).unwrap();
+  let request = HostFormatRequest {
+    file_path,
+    file_text,
+    range: None,
+    override_config,
+    // Wasm plugins currently don't support cancellation
+    token: Arc::new(NullCancellationToken),
   };
-
-  let result = match runtime_handle.block_on(handle) {
-    Ok(result) => result,
-    Err(join_err) => {
-      if join_err.is_cancelled() {
-        return 0; // no change
-      } else {
-        let mut env = env.data_mut();
-        env.error_text_store = join_err.to_string();
-        return 2; // error
-      }
-    }
-  };
+  // todo: should the env be released during this call? I think no
+  let result = (env.host_format_callback)(request);
 
   match result {
     Ok(Some(formatted_text)) => {
-      let mut env = env.data_mut();
+      //let mut env = env.data_mut();
       env.formatted_text_store = formatted_text;
       1 // change
     }
@@ -250,7 +231,7 @@ fn host_format<TEnvironment: Environment>(mut env: FunctionEnvMut<ImportObjectEn
     }
     // ignore critical error as we can just continue formatting
     Err(err) => {
-      let mut env = env.data_mut();
+      //let mut env = env.data_mut();
       env.error_text_store = err.to_string();
       2 // error
     }

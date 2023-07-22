@@ -1,10 +1,12 @@
 use anyhow::Result;
+use async_trait::async_trait;
 use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
 use futures::FutureExt;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -69,7 +71,7 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
     true
   }
 
-  fn initialize(&self) -> LocalBoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
+  fn initialize(&self) -> LocalBoxFuture<'static, Result<Rc<dyn InitializedPlugin>>> {
     let start_instant = Instant::now();
     let plugin_name = self.info().name.clone();
     log_verbose!(self.environment, "Creating instance of {}", plugin_name);
@@ -79,7 +81,7 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
       let communicator = InitializedProcessPluginCommunicator::new(plugin_name.clone(), executable_file_path, environment.clone()).await?;
       let process_plugin = InitializedProcessPlugin::new(communicator)?;
 
-      let result: Arc<dyn InitializedPlugin> = Arc::new(process_plugin);
+      let result: Rc<dyn InitializedPlugin> = Rc::new(process_plugin);
       log_verbose!(
         environment,
         "Created instance of {} in {}ms",
@@ -92,42 +94,37 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
   }
 }
 
-#[derive(Clone)]
 pub struct InitializedProcessPlugin<TEnvironment: Environment> {
-  communicator: Arc<InitializedProcessPluginCommunicator<TEnvironment>>,
+  communicator: Rc<InitializedProcessPluginCommunicator<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
   pub fn new(communicator: InitializedProcessPluginCommunicator<TEnvironment>) -> Result<Self> {
     Ok(Self {
-      communicator: Arc::new(communicator),
+      communicator: Rc::new(communicator),
     })
   }
 }
 
+#[async_trait(?Send)]
 impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<TEnvironment> {
-  fn license_text(&self) -> LocalBoxFuture<'static, Result<String>> {
-    let communicator = self.communicator.clone();
-    async move { communicator.get_license_text().await }.boxed_local()
+  async fn license_text(&self) -> Result<String> {
+    self.communicator.get_license_text().await
   }
 
-  fn resolved_config(&self, config: Arc<FormatConfig>) -> LocalBoxFuture<'static, Result<String>> {
-    let communicator = self.communicator.clone();
-    async move { communicator.get_resolved_config(&config).await }.boxed_local()
+  async fn resolved_config(&self, config: Arc<FormatConfig>) -> Result<String> {
+    self.communicator.get_resolved_config(&config).await
   }
 
-  fn config_diagnostics(&self, config: Arc<FormatConfig>) -> LocalBoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
-    let communicator = self.communicator.clone();
-    async move { communicator.get_config_diagnostics(&config).await }.boxed_local()
+  async fn config_diagnostics(&self, config: Arc<FormatConfig>) -> Result<Vec<ConfigurationDiagnostic>> {
+    self.communicator.get_config_diagnostics(&config).await
   }
 
-  fn format_text(&self, request: InitializedPluginFormatRequest) -> LocalBoxFuture<'static, FormatResult> {
-    let communicator = self.communicator.clone();
-    async move { communicator.format_text(request).await }.boxed_local()
+  async fn format_text(&self, request: InitializedPluginFormatRequest) -> FormatResult {
+    self.communicator.format_text(request).await
   }
 
-  fn shutdown(&self) -> LocalBoxFuture<'static, ()> {
-    let communicator = self.communicator.clone();
-    async move { communicator.shutdown().await }.boxed_local()
+  async fn shutdown(&self) -> () {
+    self.communicator.shutdown().await
   }
 }

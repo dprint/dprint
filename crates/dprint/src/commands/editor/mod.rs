@@ -1,15 +1,15 @@
 use anyhow::anyhow;
 use anyhow::Result;
-use dprint_core::communication::ArcIdStore;
 use dprint_core::communication::IdGenerator;
 use dprint_core::communication::MessageReader;
 use dprint_core::communication::MessageWriter;
+use dprint_core::communication::RcIdStore;
 use dprint_core::communication::SingleThreadMessageWriter;
 use dprint_core::plugins::HostFormatRequest;
 use std::io::ErrorKind;
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::Arc;
-use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use dprint_core::plugins::process::start_parent_process_checker_task;
@@ -28,6 +28,7 @@ use crate::resolution::get_plugins_scope_from_args;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::PluginsScope;
 use crate::resolution::ResolvePluginsOptions;
+use crate::utils::Semaphore;
 
 use self::messages::EditorMessage;
 use self::messages::EditorMessageBody;
@@ -35,7 +36,7 @@ use self::messages::EditorMessageBody;
 pub async fn output_editor_info<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   #[derive(serde::Serialize)]
   #[serde(rename_all = "camelCase")]
@@ -90,7 +91,7 @@ pub async fn output_editor_info<TEnvironment: Environment>(
 pub async fn run_editor_service<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   editor_service_cmd: &EditorServiceSubCommand,
 ) -> Result<()> {
   // poll for the existence of the parent process and terminate this process when that process no longer exists
@@ -103,25 +104,25 @@ pub async fn run_editor_service<TEnvironment: Environment>(
 struct EditorContext {
   pub id_generator: IdGenerator,
   pub writer: SingleThreadMessageWriter<EditorMessage>,
-  pub cancellation_tokens: ArcIdStore<Arc<CancellationToken>>,
+  pub cancellation_tokens: RcIdStore<Arc<CancellationToken>>,
 }
 
 struct EditorService<'a, TEnvironment: Environment> {
   config: Option<ResolvedConfig>,
   args: &'a CliArgs,
   environment: &'a TEnvironment,
-  plugin_resolver: &'a Arc<PluginResolver<TEnvironment>>,
-  plugins_scope: Option<Arc<PluginsScope<TEnvironment>>>,
-  context: Arc<EditorContext>,
-  concurrency_limiter: Arc<Semaphore>,
+  plugin_resolver: &'a Rc<PluginResolver<TEnvironment>>,
+  plugins_scope: Option<Rc<PluginsScope<TEnvironment>>>,
+  context: Rc<EditorContext>,
+  concurrency_limiter: Rc<Semaphore>,
 }
 
 impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
-  pub fn new(args: &'a CliArgs, environment: &'a TEnvironment, plugin_resolver: &'a Arc<PluginResolver<TEnvironment>>) -> Self {
+  pub fn new(args: &'a CliArgs, environment: &'a TEnvironment, plugin_resolver: &'a Rc<PluginResolver<TEnvironment>>) -> Self {
     let stdout = environment.stdout();
     let writer = SingleThreadMessageWriter::for_stdout(MessageWriter::new(stdout));
     let max_cores = environment.max_threads();
-    let concurrency_limiter = Arc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
+    let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
 
     Self {
       config: None,
@@ -129,7 +130,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       environment,
       plugin_resolver,
       plugins_scope: None,
-      context: Arc::new(EditorContext {
+      context: Rc::new(EditorContext {
         id_generator: Default::default(),
         cancellation_tokens: Default::default(),
         writer,
@@ -155,7 +156,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
             return;
           }
         };
-        if let Err(_) = tx.send(read_message) {
+        if tx.send(read_message).is_err() {
           return; // channel disconnected
         }
       }
@@ -284,7 +285,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
         },
       )
       .await?;
-      self.plugins_scope = Some(Arc::new(scope));
+      self.plugins_scope = Some(Rc::new(scope));
     }
 
     self.config = Some(config);
@@ -319,11 +320,11 @@ fn send_response_body(context: &EditorContext, body: EditorMessageBody) {
 mod test {
   use anyhow::anyhow;
   use anyhow::Result;
-  use dprint_core::communication::ArcIdStore;
   use dprint_core::communication::IdGenerator;
   use dprint_core::communication::MessageReader;
   use dprint_core::communication::MessageWriter;
   use dprint_core::communication::Poisoner;
+  use dprint_core::communication::RcIdStore;
   use dprint_core::communication::SingleThreadMessageWriter;
   use dprint_core::configuration::ConfigKeyMap;
   use dprint_core::plugins::FormatRange;
@@ -333,6 +334,7 @@ mod test {
   use std::io::Write;
   use std::path::Path;
   use std::path::PathBuf;
+  use std::rc::Rc;
   use std::sync::Arc;
   use std::time::Duration;
   use tokio::sync::oneshot;
@@ -385,8 +387,8 @@ mod test {
   #[derive(Clone)]
   struct EditorServiceCommunicator {
     writer: SingleThreadMessageWriter<EditorMessage>,
-    id_generator: IdGenerator,
-    messages: ArcIdStore<MessageResponseChannel>,
+    id_generator: Rc<IdGenerator>,
+    messages: RcIdStore<MessageResponseChannel>,
   }
 
   impl EditorServiceCommunicator {
@@ -400,10 +402,21 @@ mod test {
         messages: Default::default(),
       };
 
+      let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
       dprint_core::async_runtime::spawn_blocking({
-        let messages = communicator.messages.clone();
         move || loop {
-          if let Err(_) = read_stdout_message(&mut reader, &messages) {
+          let message = EditorMessage::read(&mut reader);
+          let msg_was_err = message.is_err();
+          if tx.send(message).is_err() || msg_was_err {
+            break;
+          }
+        }
+      });
+
+      let messages = communicator.messages.clone();
+      dprint_core::async_runtime::spawn(async move {
+        while let Some(Ok(message)) = rx.recv().await {
+          if let Err(_) = handle_stdout_message(message, &messages) {
             break;
           }
         }
@@ -490,9 +503,7 @@ mod test {
     }
   }
 
-  fn read_stdout_message(reader: &mut MessageReader<Box<dyn Read + Send>>, messages: &ArcIdStore<MessageResponseChannel>) -> Result<()> {
-    let message = EditorMessage::read(reader)?;
-
+  fn handle_stdout_message(message: EditorMessage, messages: &RcIdStore<MessageResponseChannel>) -> Result<()> {
     match message.body {
       EditorMessageBody::Success(message_id) => match messages.take(message_id) {
         Some(MessageResponseChannel::Success(channel)) => {

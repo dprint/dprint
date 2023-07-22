@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use anyhow::Result;
 use crossterm::style::Stylize;
@@ -108,8 +108,8 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
   let mut args: Vec<String> = args.into_iter().map(String::from).collect();
   args.insert(0, String::from(""));
   environment.set_wasm_compile_result(COMPILATION_RESULT.clone());
-  let plugin_cache = Arc::new(PluginCache::new(environment.clone()));
-  let plugin_resolver = Arc::new(PluginResolver::new(environment.clone(), plugin_cache));
+  let plugin_cache = PluginCache::new(environment.clone());
+  let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
   let args = parse_args(args, stdin_reader).map_err(|err| Into::<AppError>::into(err))?;
   environment.set_stdout_machine_readable(args.is_stdout_machine_readable());
   environment.set_verbose(args.verbose);

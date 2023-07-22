@@ -3,8 +3,10 @@ use crossterm::style::Stylize;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
+use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -33,10 +35,10 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
   cmd: &StdInFmtSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
-  let plugins_scope = Arc::new(
+  let plugins_scope = Rc::new(
     resolve_plugins_scope_and_err_if_empty(
       &config,
       environment,
@@ -64,7 +66,7 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
 async fn output_stdin_format<TEnvironment: Environment>(
   file_name: PathBuf,
   file_text: &str,
-  plugins_scope: Arc<PluginsScope<TEnvironment>>,
+  plugins_scope: Rc<PluginsScope<TEnvironment>>,
   environment: &TEnvironment,
 ) -> Result<()> {
   let result = plugins_scope
@@ -87,23 +89,23 @@ pub async fn output_format_times<TEnvironment: Environment>(
   cmd: &OutputFormatTimesSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let scope_and_paths = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
-  let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
+  let durations: Rc<RefCell<Vec<(PathBuf, u128)>>> = Rc::new(RefCell::new(Vec::new()));
 
   run_parallelized(scope_and_paths, environment, None, EnsureStableFormat(false), {
     let durations = durations.clone();
     move |file_path, _, _, _, start_instant, _| {
       let duration = start_instant.elapsed().as_millis();
-      let mut durations = durations.lock();
+      let mut durations = durations.borrow_mut();
       durations.push((file_path.to_owned(), duration));
       Ok(())
     }
   })
   .await?;
 
-  let mut durations = durations.lock();
+  let mut durations = durations.borrow_mut();
   durations.sort_by_key(|k| k.1);
   for (file_path, duration) in durations.iter() {
     environment.log(&format!("{}ms - {}", duration, file_path.display()));
@@ -122,7 +124,7 @@ pub async fn check<TEnvironment: Environment>(
   cmd: &CheckSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
   let scope_and_paths = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
@@ -177,7 +179,7 @@ pub async fn format<TEnvironment: Environment>(
   cmd: &FmtSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment)?;
   let scope_and_paths = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;

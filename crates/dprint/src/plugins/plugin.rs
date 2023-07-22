@@ -1,7 +1,9 @@
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::Result;
+use async_trait::async_trait;
 use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
@@ -17,7 +19,7 @@ pub trait Plugin: Send + Sync {
   fn info(&self) -> &PluginInfo;
 
   /// Initializes the plugin.
-  fn initialize(&self) -> LocalBoxFuture<'static, Result<Arc<dyn InitializedPlugin>>>;
+  fn initialize(&self) -> LocalBoxFuture<'static, Result<Rc<dyn InitializedPlugin>>>;
 
   /// Gets if this is a process plugin.
   fn is_process_plugin(&self) -> bool;
@@ -39,18 +41,18 @@ pub struct InitializedPluginFormatRequest {
   pub token: Arc<dyn CancellationToken>,
 }
 
-// todo: use async_trait
-pub trait InitializedPlugin: Send + Sync {
+#[async_trait(?Send)]
+pub trait InitializedPlugin {
   /// Gets the license text
-  fn license_text(&self) -> LocalBoxFuture<'static, Result<String>>;
+  async fn license_text(&self) -> Result<String>;
   /// Gets the configuration as a collection of key value pairs.
-  fn resolved_config(&self, config: Arc<FormatConfig>) -> LocalBoxFuture<'static, Result<String>>;
+  async fn resolved_config(&self, config: Arc<FormatConfig>) -> Result<String>;
   /// Gets the configuration diagnostics.
-  fn config_diagnostics(&self, config: Arc<FormatConfig>) -> LocalBoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>>;
+  async fn config_diagnostics(&self, config: Arc<FormatConfig>) -> Result<Vec<ConfigurationDiagnostic>>;
   /// Formats the text in memory based on the file path and file text.
-  fn format_text(&self, format_request: InitializedPluginFormatRequest) -> LocalBoxFuture<'static, FormatResult>;
+  async fn format_text(&self, format_request: InitializedPluginFormatRequest) -> FormatResult;
   /// Shuts down the plugin. This is used for process plugins.
-  fn shutdown(&self) -> LocalBoxFuture<'static, ()>;
+  async fn shutdown(&self) -> ();
 }
 
 #[cfg(test)]
@@ -88,14 +90,10 @@ impl Plugin for TestPlugin {
     false
   }
 
-  fn initialize(&self) -> LocalBoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
+  fn initialize(&self) -> LocalBoxFuture<'static, Result<Rc<dyn InitializedPlugin>>> {
     use futures::FutureExt;
-    let test_plugin = Arc::new(self.initialized_test_plugin.clone().unwrap());
-    async move {
-      let result: Arc<dyn InitializedPlugin> = test_plugin;
-      Ok(result)
-    }
-    .boxed_local()
+    let test_plugin: Rc<dyn InitializedPlugin> = Rc::new(self.initialized_test_plugin.clone().unwrap());
+    async move { Ok(test_plugin) }.boxed_local()
   }
 }
 
@@ -111,29 +109,25 @@ impl InitializedTestPlugin {
 }
 
 #[cfg(test)]
+#[async_trait(?Send)]
 impl InitializedPlugin for InitializedTestPlugin {
-  fn license_text(&self) -> LocalBoxFuture<'static, Result<String>> {
-    use futures::FutureExt;
-    async move { Ok(String::from("License Text")) }.boxed_local()
+  async fn license_text(&self) -> Result<String> {
+    Ok(String::from("License Text"))
   }
 
-  fn resolved_config(&self, _config: Arc<FormatConfig>) -> LocalBoxFuture<'static, Result<String>> {
-    use futures::FutureExt;
-    async move { Ok(String::from("{}")) }.boxed_local()
+  async fn resolved_config(&self, _config: Arc<FormatConfig>) -> Result<String> {
+    Ok(String::from("{}"))
   }
 
-  fn config_diagnostics(&self, _config: Arc<FormatConfig>) -> LocalBoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
-    use futures::FutureExt;
-    async move { Ok(vec![]) }.boxed_local()
+  async fn config_diagnostics(&self, _config: Arc<FormatConfig>) -> Result<Vec<ConfigurationDiagnostic>> {
+    Ok(vec![])
   }
 
-  fn format_text(&self, format_request: InitializedPluginFormatRequest) -> LocalBoxFuture<'static, FormatResult> {
-    use futures::FutureExt;
-    async move { Ok(Some(format!("{}_formatted", format_request.file_text))) }.boxed_local()
+  async fn format_text(&self, format_request: InitializedPluginFormatRequest) -> FormatResult {
+    Ok(Some(format!("{}_formatted", format_request.file_text)))
   }
 
-  fn shutdown(&self) -> LocalBoxFuture<'static, ()> {
-    use futures::FutureExt;
-    futures::future::ready(()).boxed_local()
+  async fn shutdown(&self) -> () {
+    // do nothing
   }
 }

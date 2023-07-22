@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use anyhow::Result;
 
@@ -23,7 +23,7 @@ pub fn output_version<TEnvironment: Environment>(environment: &TEnvironment) -> 
 pub async fn output_help<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   help_text: &str,
 ) -> Result<()> {
   // log the cli's help first
@@ -63,7 +63,7 @@ pub async fn output_help<TEnvironment: Environment>(
 pub async fn output_license<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   environment.log("==== DPRINT CLI LICENSE ====");
   environment.log(std::str::from_utf8(include_bytes!("../../LICENSE"))?);
@@ -89,7 +89,7 @@ pub async fn output_file_paths<TEnvironment: Environment>(
   cmd: &OutputFilePathsSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &Arc<PluginResolver<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let file_paths_by_plugins = match resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await {
     Ok(result) => result.file_paths_by_plugins,

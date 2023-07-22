@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::sync::Arc;
+use std::rc::Rc;
 use thiserror::Error;
 
 use crate::arg_parser::ParseArgsError;
@@ -107,7 +107,7 @@ impl From<CheckError> for AppError {
   }
 }
 
-pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment, plugin_resolver: &Arc<PluginResolver<TEnvironment>>) -> Result<()> {
+pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment, plugin_resolver: &Rc<PluginResolver<TEnvironment>>) -> Result<()> {
   match &args.sub_command {
     SubCommand::Help(help_text) => commands::output_help(args, environment, plugin_resolver, help_text).await,
     SubCommand::License => commands::output_license(args, environment, plugin_resolver).await,
