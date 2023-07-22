@@ -69,7 +69,7 @@ impl WasmHostFormatCell {
   }
 }
 
-pub type WasmHostFormatCallback = Box<dyn Fn(HostFormatRequest) -> FormatResult + Send + Sync>;
+pub type WasmHostFormatCallback = Box<dyn Fn(HostFormatRequest) -> FormatResult + Send>;
 
 /// Create an import object that formats text using plugins from the plugin pool
 pub fn create_pools_import_object<TEnvironment: Environment>(

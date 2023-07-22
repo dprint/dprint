@@ -373,7 +373,6 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
 
     struct SendWrapper(WasmHostFormatCell);
     unsafe impl Send for SendWrapper {}
-    unsafe impl Sync for SendWrapper {}
 
     let host_format_func: WasmHostFormatCallback = {
       let environment = environment.clone();
