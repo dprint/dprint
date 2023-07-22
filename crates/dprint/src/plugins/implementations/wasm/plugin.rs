@@ -371,35 +371,29 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     let environment = self.0.environment.clone();
     let host_format_cell = WasmHostFormatCell::new();
 
-    struct SendWrapper(Pin<Box<dyn Fn(HostFormatRequest) -> LocalBoxFuture<'static, FormatResult>>>);
+    struct SendWrapper(WasmHostFormatCell);
     unsafe impl Send for SendWrapper {}
+    unsafe impl Sync for SendWrapper {}
 
-    let host_format = {
-      let host_format_cell = host_format_cell.clone();
-      let environment = environment.clone();
-      SendWrapper(Box::pin(move |req: HostFormatRequest| {
-        let host_format_cell = host_format_cell.clone();
-        let environment = environment.clone();
-        async move {
-          let host_format = host_format_cell.get();
-          debug_assert!(host_format.is_some(), "Expected host format callback to be set.");
-          if host_format.is_none() {
-            log_verbose!(environment, "WARNING: Host format callback was not set.");
-          }
-          match host_format {
-            Some(host_format) => (host_format)(req).await,
-            None => Ok(None),
-          }
-        }
-        .boxed_local()
-      }))
-    };
     let host_format_func: WasmHostFormatCallback = {
       let environment = environment.clone();
+      let host_format_cell = SendWrapper(host_format_cell.clone());
       Box::new(move |req| {
-        let runtime_handle = environment.runtime_handle();
-        let handle = dprint_core::async_runtime::spawn(async move { (host_format.0)(req).await }.boxed_local());
-        runtime_handle.block_on(handle)?
+        dprint_core::async_runtime::spawn_block_on_with_handle(
+          environment.runtime_handle(),
+          async move {
+            let host_format = host_format_cell.0.get();
+            debug_assert!(host_format.is_some(), "Expected host format callback to be set.");
+            if host_format.is_none() {
+              log_verbose!(environment, "WARNING: Host format callback was not set.");
+            }
+            match host_format {
+              Some(host_format) => (host_format)(req).await,
+              None => Ok(None),
+            }
+          }
+          .boxed_local(),
+        )?
       })
     };
 
