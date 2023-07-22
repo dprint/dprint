@@ -9,7 +9,3 @@ members = [
 exclude = [
   "crates/test-plugin",
 ]
-
-[workspace.dependencies]
-async-trait = "0.1.72"
-futures = "0.3.26"

@@ -6,11 +6,10 @@ use super::functions::WasmFunctions;
 use super::load_instance::load_instance;
 use super::load_instance::WasmModuleCreator;
 use super::InitializedWasmPluginInstance;
-use crate::environment::Environment;
 use crate::plugins::CompilationResult;
 
 /// Compiles a Wasm module.
-pub fn compile(wasm_bytes: &[u8], environment: impl Environment) -> Result<CompilationResult> {
+pub fn compile(wasm_bytes: &[u8]) -> Result<CompilationResult> {
   let wasm_module_creator = WasmModuleCreator::default();
   let module = wasm_module_creator.create_from_wasm_bytes(wasm_bytes)?;
 

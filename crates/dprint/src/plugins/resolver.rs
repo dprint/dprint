@@ -1,5 +1,6 @@
 use anyhow::bail;
 use anyhow::Result;
+use dprint_core::async_runtime::future;
 use dprint_core::communication::IdGenerator;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::PluginInfo;
@@ -71,7 +72,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
   pub async fn clear_and_shutdown_initialized(&self) {
     let plugins = self.memory_cache.borrow_mut().drain().collect::<Vec<_>>();
     let futures = plugins.iter().filter_map(|p| p.1.get()).map(|p| p.shutdown());
-    futures::future::join_all(futures).await;
+    future::join_all(futures).await;
   }
 
   pub fn next_config_id(&self) -> FormatConfigId {
@@ -88,7 +89,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
       })
       .collect::<Vec<_>>();
 
-    let results = futures::future::join_all(handles).await;
+    let results = future::join_all(handles).await;
     let mut plugins = Vec::with_capacity(results.len());
     for result in results {
       plugins.push(result??);

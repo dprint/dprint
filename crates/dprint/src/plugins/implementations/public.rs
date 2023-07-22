@@ -21,12 +21,12 @@ pub struct SetupPluginResult {
 
 pub async fn setup_plugin<TEnvironment: Environment>(
   url_or_file_path: &PathSource,
-  file_bytes: &[u8],
+  file_bytes: Vec<u8>,
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
   match url_or_file_path.plugin_kind() {
-    Some(PluginKind::Wasm) => wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment),
-    Some(PluginKind::Process) => process::setup_process_plugin(url_or_file_path, file_bytes, environment).await,
+    Some(PluginKind::Wasm) => wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment).await,
+    Some(PluginKind::Process) => process::setup_process_plugin(url_or_file_path, &file_bytes, environment).await,
     None => {
       bail!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
     }

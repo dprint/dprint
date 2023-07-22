@@ -684,7 +684,6 @@ dependencies = [
  "dprint-core",
  "dunce",
  "fs3",
- "futures",
  "ignore",
  "indexmap 1.9.3",
  "jsonc-parser",
@@ -2077,7 +2076,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dprint-core",
- "futures",
  "serde",
  "serde_json",
  "tokio",

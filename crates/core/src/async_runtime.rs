@@ -8,7 +8,11 @@ use tokio::runtime::Handle;
 use tokio::runtime::RuntimeFlavor;
 use tokio::task::JoinError;
 
+pub use futures::FutureExt;
+
 pub type LocalBoxFuture<'a, T> = futures::future::LocalBoxFuture<'a, T>;
+
+pub use futures::future;
 
 // The below is lifted from https://github.com/denoland/deno_core/blob/80c7f5551a907def8253af8c6d4e9ded49ee638d/core/task.rs#L48
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.

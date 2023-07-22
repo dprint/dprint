@@ -4,11 +4,11 @@ use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
-use std::cell::RefCell;
 use std::cell::UnsafeCell;
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::sync::Arc;
+use tokio::runtime::Handle;
+use tokio::runtime::RuntimeFlavor;
 use wasmer::AsStoreRef;
 use wasmer::ExportError;
 use wasmer::Function;
@@ -45,6 +45,7 @@ pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
   }
 }
 
+/// This cell is unsafe on a thread other than the main runtime thread.
 #[derive(Clone)]
 pub struct WasmHostFormatCell(Arc<UnsafeCell<Option<HostFormatCallback>>>);
 
@@ -60,17 +61,20 @@ impl WasmHostFormatCell {
     Self::no_op()
   }
 
-  pub fn set(&self, host_format: Option<HostFormatCallback>) {
+  pub fn set_from_main_thread(&self, host_format: Option<HostFormatCallback>) {
+    debug_assert!(Handle::current().runtime_flavor() == RuntimeFlavor::CurrentThread);
     unsafe {
       *self.0.get() = host_format;
     }
   }
 
-  pub fn get(&self) -> Option<HostFormatCallback> {
+  pub fn get_from_main_thread(&self) -> Option<HostFormatCallback> {
+    debug_assert!(Handle::current().runtime_flavor() == RuntimeFlavor::CurrentThread);
     unsafe { (*self.0.get()).clone() }
   }
 
-  pub fn clear(&self) {
+  pub fn clear_from_main_thread(&self) {
+    debug_assert!(Handle::current().runtime_flavor() == RuntimeFlavor::CurrentThread);
     unsafe {
       *self.0.get() = None;
     }
@@ -128,7 +132,7 @@ pub struct ImportObjectEnvironment<TEnvironment: Environment> {
   formatted_text_store: String,
   shared_bytes: Mutex<SharedBytes>,
   error_text_store: String,
-  environment: TEnvironment,
+  _environment: TEnvironment, // maybe for the future
   host_format_callback: WasmHostFormatCallback,
 }
 
@@ -141,7 +145,7 @@ impl<TEnvironment: Environment> ImportObjectEnvironment<TEnvironment> {
       shared_bytes: Mutex::new(SharedBytes::default()),
       formatted_text_store: String::new(),
       error_text_store: String::new(),
-      environment,
+      _environment: environment,
       host_format_callback,
     }
   }

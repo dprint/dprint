@@ -1,17 +1,13 @@
 use anyhow::anyhow;
 use anyhow::Result;
 use async_trait::async_trait;
-use dprint_core::async_runtime::LocalBoxFuture;
+use dprint_core::async_runtime::FutureExt;
 use dprint_core::plugins::process::HostFormatCallback;
-use dprint_core::plugins::wasm;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatResult;
-use dprint_core::plugins::HostFormatRequest;
-use futures::FutureExt;
 use std::cell::RefCell;
 use std::path::Path;
-use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -28,7 +24,6 @@ use super::WasmFunctions;
 use super::WasmHostFormatCallback;
 use super::WasmHostFormatCell;
 use super::WasmModuleCreator;
-use crate::environment;
 use crate::environment::Environment;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
@@ -52,6 +47,7 @@ impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
   }
 }
 
+#[async_trait(?Send)]
 impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
   fn info(&self) -> &PluginInfo {
     &self.plugin_info
@@ -61,8 +57,8 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
     false
   }
 
-  fn initialize(&self) -> LocalBoxFuture<'static, Result<Rc<dyn InitializedPlugin>>> {
-    let plugin = InitializedWasmPlugin::new(
+  async fn initialize(&self) -> Result<Rc<dyn InitializedPlugin>> {
+    let plugin: Rc<dyn InitializedPlugin> = Rc::new(InitializedWasmPlugin::new(
       self.info().name.to_string(),
       self.module.clone(),
       Arc::new({
@@ -75,12 +71,9 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
         }
       }),
       self.environment.clone(),
-    );
-    async move {
-      let result: Rc<dyn InitializedPlugin> = Rc::new(plugin);
-      Ok(result)
-    }
-    .boxed_local()
+    ));
+
+    Ok(plugin)
   }
 }
 
@@ -360,12 +353,12 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
       Some(instance) => instance,
       None => self.create_instance().await?,
     };
-    plugin.host_format_cell.set(host_format_callback);
+    plugin.host_format_cell.set_from_main_thread(host_format_callback);
     Ok(plugin)
   }
 
   fn release_instance(&self, plugin: InitializedWasmPluginInstanceWithHostFormatCell) {
-    plugin.host_format_cell.clear();
+    plugin.host_format_cell.clear_from_main_thread();
     self.0.instances.borrow_mut().push(plugin);
   }
 
@@ -385,7 +378,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
         dprint_core::async_runtime::spawn_block_on_with_handle(
           environment.runtime_handle(),
           async move {
-            let host_format = host_format_cell.get();
+            let host_format = host_format_cell.get_from_main_thread();
             debug_assert!(host_format.is_some(), "Expected host format callback to be set.");
             if host_format.is_none() {
               log_verbose!(environment, "WARNING: Host format callback was not set.");

@@ -72,7 +72,7 @@ impl<TEnvironment: Environment> CacheFsLockPool<TEnvironment> {
 mod test {
   use std::sync::Arc;
 
-  use futures::FutureExt;
+  use dprint_core::async_runtime::FutureExt;
   use tempfile::TempDir;
   use url::Url;
 

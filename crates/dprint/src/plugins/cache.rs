@@ -132,10 +132,11 @@ where
       );
     }
 
-    let setup_result = setup_plugin(&source_reference.path_source, &file_bytes, &self.environment).await?;
+    let file_hash = if include_file_hash { Some(get_bytes_hash(&file_bytes)) } else { None };
+    let setup_result = setup_plugin(&source_reference.path_source, file_bytes, &self.environment).await?;
     let cache_item = PluginCacheManifestItem {
       info: setup_result.plugin_info.clone(),
-      file_hash: if include_file_hash { Some(get_bytes_hash(&file_bytes)) } else { None },
+      file_hash,
       created_time: self.environment.get_time_secs(),
     };
 

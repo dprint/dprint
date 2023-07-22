@@ -1,6 +1,9 @@
-use futures::Future;
 use std::cell::RefCell;
+use std::cell::RefMut;
 use std::collections::VecDeque;
+use std::future::Future;
+use std::ops::Deref;
+use std::ops::DerefMut;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::Context;
@@ -8,6 +11,54 @@ use std::task::Poll;
 use std::task::Waker;
 
 // todo(THIS PR): unit tests
+
+pub struct MutexGuard<'a, T> {
+  state: RefMut<'a, T>,
+  _permit: SemaphorePermit,
+}
+
+impl<'a, T> Deref for MutexGuard<'a, T> {
+  type Target = T;
+
+  fn deref(&self) -> &Self::Target {
+    &self.state
+  }
+}
+
+impl<'a, T> DerefMut for MutexGuard<'a, T> {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    self.state.deref_mut()
+  }
+}
+
+pub struct AsyncMutex<T> {
+  state: RefCell<T>,
+  semaphore: Rc<Semaphore>,
+}
+
+impl<T> Default for AsyncMutex<T>
+where
+  T: Default,
+{
+  fn default() -> Self {
+    Self::new(Default::default())
+  }
+}
+
+impl<T> AsyncMutex<T> {
+  pub fn new(value: T) -> Self {
+    Self {
+      state: RefCell::new(value),
+      semaphore: Rc::new(Semaphore::new(1)),
+    }
+  }
+
+  pub async fn lock(&self) -> MutexGuard<'_, T> {
+    let permit = self.semaphore.acquire().await.unwrap();
+    let state = self.state.borrow_mut();
+    MutexGuard { state, _permit: permit }
+  }
+}
 
 struct SemaphoreState {
   closed: bool,
@@ -38,7 +89,7 @@ impl Semaphore {
     }
   }
 
-  pub fn acquire(self: Rc<Self>) -> impl Future<Output = Result<SemaphorePermit, ()>> {
+  pub fn acquire(self: &Rc<Self>) -> impl Future<Output = Result<SemaphorePermit, ()>> {
     AcquireFuture { semaphore: self.clone() }
   }
 

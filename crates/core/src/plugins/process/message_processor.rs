@@ -2,7 +2,6 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
-use futures::FutureExt;
 use serde::Serialize;
 use std::io::Read;
 use std::io::Write;
@@ -18,6 +17,8 @@ use super::messages::ProcessPluginMessage;
 use super::messages::ResponseBody;
 use super::utils::setup_exit_process_panic_hook;
 use super::PLUGIN_SCHEMA_VERSION;
+
+use crate::async_runtime::FutureExt;
 use crate::async_runtime::LocalBoxFuture;
 use crate::communication::MessageReader;
 use crate::communication::MessageWriter;

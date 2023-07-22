@@ -300,7 +300,7 @@ impl Environment for RealEnvironment {
   }
 
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult> {
-    crate::plugins::compile_wasm(wasm_bytes, self.clone())
+    crate::plugins::compile_wasm(wasm_bytes)
   }
 
   fn stdout(&self) -> Box<dyn std::io::Write + Send> {

@@ -2,10 +2,10 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Error;
 use anyhow::Result;
+use dprint_core::async_runtime::future;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::Arc;
 use url::Url;
 
 use crate::arg_parser::CliArgs;
@@ -346,7 +346,7 @@ async fn get_config_file_plugins<TEnvironment: Environment>(
     .collect::<Vec<_>>();
 
   let mut results = Vec::with_capacity(tasks.len());
-  for result in futures::future::join_all(tasks).await {
+  for result in future::join_all(tasks).await {
     results.push(result.unwrap());
   }
   results

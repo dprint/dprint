@@ -1,10 +1,8 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
-use futures::FutureExt;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -62,6 +60,7 @@ impl<TEnvironment: Environment> ProcessPlugin<TEnvironment> {
   }
 }
 
+#[async_trait(?Send)]
 impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
   fn info(&self) -> &PluginInfo {
     &self.plugin_info
@@ -71,26 +70,21 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
     true
   }
 
-  fn initialize(&self) -> LocalBoxFuture<'static, Result<Rc<dyn InitializedPlugin>>> {
+  async fn initialize(&self) -> Result<Rc<dyn InitializedPlugin>> {
     let start_instant = Instant::now();
-    let plugin_name = self.info().name.clone();
+    let plugin_name = &self.info().name;
     log_verbose!(self.environment, "Creating instance of {}", plugin_name);
-    let executable_file_path = self.executable_file_path.clone();
-    let environment = self.environment.clone();
-    async move {
-      let communicator = InitializedProcessPluginCommunicator::new(plugin_name.clone(), executable_file_path, environment.clone()).await?;
-      let process_plugin = InitializedProcessPlugin::new(communicator)?;
+    let communicator = InitializedProcessPluginCommunicator::new(plugin_name.to_string(), self.executable_file_path.clone(), self.environment.clone()).await?;
+    let process_plugin = InitializedProcessPlugin::new(communicator)?;
 
-      let result: Rc<dyn InitializedPlugin> = Rc::new(process_plugin);
-      log_verbose!(
-        environment,
-        "Created instance of {} in {}ms",
-        plugin_name,
-        start_instant.elapsed().as_millis() as u64
-      );
-      Ok(result)
-    }
-    .boxed_local()
+    let result: Rc<dyn InitializedPlugin> = Rc::new(process_plugin);
+    log_verbose!(
+      self.environment,
+      "Created instance of {} in {}ms",
+      plugin_name,
+      start_instant.elapsed().as_millis() as u64
+    );
+    Ok(result)
   }
 }
 

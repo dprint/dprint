@@ -2,7 +2,6 @@ use anyhow::Result;
 use crossterm::style::Stylize;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
-use parking_lot::Mutex;
 use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;

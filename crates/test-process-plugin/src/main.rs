@@ -1,14 +1,9 @@
-use anyhow::bail;
-use anyhow::Result;
-use dprint_core::async_runtime::LocalBoxFuture;
-use dprint_core::plugins::FormatRequest;
-use dprint_core::plugins::FormatResult;
-use dprint_core::plugins::HostFormatRequest;
-use futures::FutureExt;
-use serde::Deserialize;
-use serde::Serialize;
 use std::path::PathBuf;
 
+use anyhow::bail;
+use anyhow::Result;
+use dprint_core::async_runtime::FutureExt;
+use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::get_unknown_property_diagnostics;
 use dprint_core::configuration::get_value;
 use dprint_core::configuration::ConfigKeyMap;
@@ -18,15 +13,22 @@ use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
 use dprint_core::plugins::process::handle_process_stdio_messages;
 use dprint_core::plugins::process::start_parent_process_checker_task;
 use dprint_core::plugins::AsyncPluginHandler;
+use dprint_core::plugins::FormatRequest;
+use dprint_core::plugins::FormatResult;
+use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::PluginInfo;
+use serde::Deserialize;
+use serde::Serialize;
 
-#[tokio::main]
-async fn main() -> Result<()> {
-  if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
-    start_parent_process_checker_task(parent_process_id);
-  }
+fn main() -> Result<()> {
+  let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+  rt.block_on(async move {
+    if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
+      start_parent_process_checker_task(parent_process_id);
+    }
 
-  handle_process_stdio_messages(TestProcessPluginHandler::new()).await
+    handle_process_stdio_messages(TestProcessPluginHandler::new()).await
+  })
 }
 
 #[derive(Clone, Serialize, Deserialize)]

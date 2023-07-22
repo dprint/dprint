@@ -1,5 +1,6 @@
 use anyhow::bail;
 use anyhow::Result;
+use dprint_core::async_runtime::future;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::NullCancellationToken;
@@ -115,7 +116,7 @@ where
         let plugins = Rc::new(plugins);
         let mut format_handles = Vec::with_capacity(task_work.file_paths.len());
         for file_path in task_work.file_paths.into_iter() {
-          let permit = match task_work.semaphore.clone().acquire().await {
+          let permit = match task_work.semaphore.acquire().await {
             Ok(permit) => permit,
             Err(_) => return, // semaphore was closed, so stop working
           };
@@ -161,11 +162,11 @@ where
             drop(permit);
           }));
         }
-        futures::future::join_all(format_handles).await;
+        future::join_all(format_handles).await;
       }
     })
   });
-  futures::future::join_all(handles).await;
+  future::join_all(handles).await;
 
   let error_count = error_logger.get_error_count();
   return if error_count == 0 {

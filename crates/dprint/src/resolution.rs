@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use anyhow::bail;
 use anyhow::Result;
+use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::process::HostFormatCallback;
@@ -15,7 +16,6 @@ use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::PluginInfo;
-use futures::FutureExt;
 use indexmap::IndexMap;
 use thiserror::Error;
 

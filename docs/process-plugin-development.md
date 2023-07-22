@@ -37,13 +37,14 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    use std::path::PathBuf;
 
    use anyhow::Result;
+   use dprint_core::async_runtime::FutureExt;
+   use dprint_core::async_runtime::LocalBoxFuture;
    use dprint_core::configuration::get_unknown_property_diagnostics;
    use dprint_core::configuration::get_value;
    use dprint_core::configuration::ConfigKeyMap;
    use dprint_core::configuration::GlobalConfiguration;
    use dprint_core::configuration::ResolveConfigurationResult;
    use dprint_core::plugins::AsyncPluginHandler;
-   use dprint_core::plugins::BoxFuture;
    use dprint_core::plugins::FormatRequest;
    use dprint_core::plugins::FormatResult;
    use dprint_core::plugins::Host;
@@ -88,21 +89,25 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
        }
      }
 
-     fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<FormatResult> {
-       Box::pin(async move {
+     fn format(
+       &self,
+       request: FormatRequest<Self::Configuration>,
+       mut format_with_host: impl FnMut(HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> + 'static,
+     ) -> LocalBoxFuture<FormatResult> {
+       async move {
          // format here
          //
          // - make sure to check the range of the request!! If you can't handle
          //   range formatting, then return `Ok(None)` to signify no change.
          // - use `host.format` to format with another plugin
-         // - if you are doing a lot of synchronous work, it's probably better
-         //   to format with a blocking task like so (especially if you're using
-         //   a tokio single threaded runtime):
+         // - if you are doing a lot of synchronous work, you should format with
+         //   a blocking task like so or else you will block the main thread:
          //
-         //   tokio:task::spawn_blocking(move || {
+         //   dprint_core::async_runtime::spawn_blocking(move || {
          //     // format in here
          //   }).await.unwrap()
-       })
+       }
+       .boxed_local()
      }
    }
    ```
@@ -115,22 +120,24 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    use dprint_core::plugins::process::handle_process_stdio_messages;
    use dprint_core::plugins::process::start_parent_process_checker_task;
 
-   #[tokio::main]
-   async fn main() -> Result<()> {
-     if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
-       start_parent_process_checker_task(parent_process_id);
-     }
+   fn main() -> Result<()> {
+     // NOTE: You MUST use a current thread runtime or else this will not work
+     let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+     rt.block_on(async move {
+       if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
+         start_parent_process_checker_task(parent_process_id);
+       }
 
-     handle_process_stdio_messages(MyPluginHandler).await
+       handle_process_stdio_messages(TestProcessPluginHandler::new()).await
+     })
    }
-   ```
-
+   ````
 5. Finally, use your created plugin handler to start reading and writing to stdin and stdout:
 
    <!-- dprint-ignore -->
    ```rust
    handle_process_stdio_messages(MyPluginHandler).await
-   ```
+   ````
 
 ## Schema Version 5 Overview
 

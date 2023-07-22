@@ -23,7 +23,7 @@ tracing = ["formatting"]
 anyhow = "1.0.69"
 bumpalo = { version = "3.13.0", optional = true }
 crossbeam-channel = { version = "0.5.7", optional = true }
-futures = { workspace = true, optional = true }
+futures = { version = "0.3.26", optional = true }
 indexmap = { version = "1.9.2", features = ["serde-1"] }
 parking_lot = { version = "0.12.1", optional = true }
 rustc-hash = { version = "1.1.0", optional = true }

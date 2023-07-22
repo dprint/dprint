@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
@@ -15,11 +14,12 @@ use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
 
+#[async_trait(?Send)]
 pub trait Plugin: Send + Sync {
   fn info(&self) -> &PluginInfo;
 
   /// Initializes the plugin.
-  fn initialize(&self) -> LocalBoxFuture<'static, Result<Rc<dyn InitializedPlugin>>>;
+  async fn initialize(&self) -> Result<Rc<dyn InitializedPlugin>>;
 
   /// Gets if this is a process plugin.
   fn is_process_plugin(&self) -> bool;
@@ -81,6 +81,7 @@ impl TestPlugin {
 }
 
 #[cfg(test)]
+#[async_trait(?Send)]
 impl Plugin for TestPlugin {
   fn info(&self) -> &PluginInfo {
     &self.info
@@ -90,10 +91,9 @@ impl Plugin for TestPlugin {
     false
   }
 
-  fn initialize(&self) -> LocalBoxFuture<'static, Result<Rc<dyn InitializedPlugin>>> {
-    use futures::FutureExt;
+  async fn initialize(&self) -> Result<Rc<dyn InitializedPlugin>> {
     let test_plugin: Rc<dyn InitializedPlugin> = Rc::new(self.initialized_test_plugin.clone().unwrap());
-    async move { Ok(test_plugin) }.boxed_local()
+    Ok(test_plugin)
   }
 }
 

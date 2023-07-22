@@ -1,15 +1,17 @@
 use crate::environment::Environment;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPluginFormatRequest;
+use crate::utils::AsyncMutex;
 use anyhow::Result;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::plugins::process::ProcessPluginCommunicatorFormatRequest;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatResult;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::rc::Rc;
 
 struct ProcessRestartInfo<TEnvironment: Environment> {
   environment: TEnvironment,
@@ -18,13 +20,12 @@ struct ProcessRestartInfo<TEnvironment: Environment> {
 }
 
 struct InnerState {
-  registered_configs: parking_lot::Mutex<HashSet<FormatConfigId>>,
-  communicator: Arc<ProcessPluginCommunicator>,
+  registered_configs: RefCell<HashSet<FormatConfigId>>,
+  communicator: Rc<ProcessPluginCommunicator>,
 }
 
 pub struct InitializedProcessPluginCommunicator<TEnvironment: Environment> {
-  // todo: move away from RwLock to something that works on a single thread
-  inner: tokio::sync::RwLock<InnerState>,
+  inner: AsyncMutex<InnerState>,
   restart_info: ProcessRestartInfo<TEnvironment>,
 }
 
@@ -37,9 +38,9 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     };
     let communicator = create_new_communicator(&restart_info).await?;
     let initialized_communicator = Self {
-      inner: tokio::sync::RwLock::new(InnerState {
+      inner: AsyncMutex::new(InnerState {
         registered_configs: Default::default(),
-        communicator: Arc::new(communicator),
+        communicator: Rc::new(communicator),
       }),
       restart_info,
     };
@@ -94,13 +95,13 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
       Ok(result) => Ok(result),
       Err(err) => {
         // attempt to restart the communicator if this fails and it's no longer alive
-        let mut inner = self.inner.write().await;
+        let mut inner = self.inner.lock().await;
         if inner.communicator.is_process_alive().await {
           Err(err)
         } else {
           *inner = InnerState {
             registered_configs: Default::default(),
-            communicator: Arc::new(create_new_communicator(&self.restart_info).await?),
+            communicator: Rc::new(create_new_communicator(&self.restart_info).await?),
           };
           Err(err)
         }
@@ -108,16 +109,16 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     }
   }
 
-  pub async fn get_inner(&self) -> Arc<ProcessPluginCommunicator> {
-    self.inner.read().await.communicator.clone()
+  pub async fn get_inner(&self) -> Rc<ProcessPluginCommunicator> {
+    self.inner.lock().await.communicator.clone()
   }
 
-  pub async fn get_inner_ensure_config(&self, config: &FormatConfig) -> Result<Arc<ProcessPluginCommunicator>> {
-    let inner = self.inner.read().await;
-    let has_config = inner.registered_configs.lock().contains(&config.id);
+  pub async fn get_inner_ensure_config(&self, config: &FormatConfig) -> Result<Rc<ProcessPluginCommunicator>> {
+    let inner = self.inner.lock().await;
+    let has_config = inner.registered_configs.borrow_mut().contains(&config.id);
     if !has_config {
       inner.communicator.register_config(config.id, &config.global, &config.raw).await?;
-      inner.registered_configs.lock().insert(config.id);
+      inner.registered_configs.borrow_mut().insert(config.id);
     }
     Ok(inner.communicator.clone())
   }
@@ -137,11 +138,13 @@ async fn create_new_communicator<TEnvironment: Environment>(restart_info: &Proce
 #[cfg(test)]
 mod test {
   use std::rc::Rc;
+  use std::sync::Arc;
   use std::time::Duration;
 
+  use dprint_core::async_runtime::future;
+  use dprint_core::async_runtime::FutureExt;
   use dprint_core::configuration::ConfigKeyMap;
   use dprint_core::plugins::NullCancellationToken;
-  use futures::FutureExt;
   use tokio_util::sync::CancellationToken;
 
   use super::*;
@@ -174,7 +177,7 @@ mod test {
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),
-              on_host_format: Rc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
+              on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
               token: Arc::new(NullCancellationToken),
             })
             .await
@@ -192,7 +195,7 @@ mod test {
             range: None,
             config: format_config.clone(),
             override_config: Default::default(),
-            on_host_format: Rc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
+            on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
             token: Arc::new(NullCancellationToken),
           }));
         }
@@ -206,7 +209,7 @@ mod test {
         });
 
         // get all the results and they should be error messages
-        let results = futures::future::join_all(futures).await;
+        let results = future::join_all(futures).await;
         for result in results {
           assert_eq!(result.err().unwrap().to_string(), "Sending message failed because the process plugin failed.");
         }
@@ -220,7 +223,7 @@ mod test {
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),
-              on_host_format: Rc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
+              on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
               token: Arc::new(NullCancellationToken),
             })
             .await
@@ -257,7 +260,7 @@ mod test {
           config: format_config.clone(),
           range: None,
           override_config: Default::default(),
-          on_host_format: Rc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
+          on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
           token: token.clone(),
         });
 

@@ -320,6 +320,7 @@ fn send_response_body(context: &EditorContext, body: EditorMessageBody) {
 mod test {
   use anyhow::anyhow;
   use anyhow::Result;
+  use dprint_core::async_runtime::future;
   use dprint_core::communication::IdGenerator;
   use dprint_core::communication::MessageReader;
   use dprint_core::communication::MessageWriter;
@@ -685,7 +686,7 @@ mod test {
           }
 
           // ensure nothing panicked
-          let results = futures::future::join_all(handles).await;
+          let results = future::join_all(handles).await;
           for result in results {
             result.unwrap();
           }

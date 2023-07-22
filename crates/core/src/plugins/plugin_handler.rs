@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[cfg(feature = "async_runtime")]
-use crate::async_runtime::LocalBoxFuture;
+use crate::async_runtime::FutureExt;
 #[cfg(feature = "async_runtime")]
-use futures::FutureExt;
+use crate::async_runtime::LocalBoxFuture;
 
 #[cfg(any(feature = "wasm", feature = "process"))]
 use crate::configuration::ConfigKeyMap;

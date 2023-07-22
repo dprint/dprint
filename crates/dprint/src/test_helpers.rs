@@ -35,7 +35,7 @@ pub static TEST_PROCESS_PLUGIN_PATH: Lazy<PathBuf> = Lazy::new(|| {
 // Regenerate this by running `./rebuild.sh` in /crates/test-plugin
 pub static WASM_PLUGIN_BYTES: &'static [u8] = include_bytes!("../../test-plugin/test_plugin.wasm");
 // cache these so it only has to be done once across all tests
-static COMPILATION_RESULT: Lazy<CompilationResult> = Lazy::new(|| crate::plugins::compile_wasm(WASM_PLUGIN_BYTES, TestEnvironment::new()).unwrap());
+static COMPILATION_RESULT: Lazy<CompilationResult> = Lazy::new(|| crate::plugins::compile_wasm(WASM_PLUGIN_BYTES).unwrap());
 pub static PROCESS_PLUGIN_ZIP_BYTES: Lazy<Vec<u8>> = Lazy::new(|| {
   let buf: Vec<u8> = Vec::new();
   let w = std::io::Cursor::new(buf);
