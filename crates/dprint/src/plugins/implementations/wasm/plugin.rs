@@ -28,6 +28,7 @@ use super::WasmFunctions;
 use super::WasmHostFormatCallback;
 use super::WasmHostFormatCell;
 use super::WasmModuleCreator;
+use crate::environment;
 use crate::environment::Environment;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
@@ -257,9 +258,12 @@ impl<TEnvironment: Environment> Drop for InitializedWasmPluginInner<TEnvironment
   fn drop(&mut self) {
     let start = Instant::now();
     let len = {
-      let mut instances = self.instances.borrow_mut();
-      let result = std::mem::take(&mut *instances);
-      result.len()
+      let instances = {
+        let mut instances = self.instances.borrow_mut();
+        std::mem::take(&mut *instances)
+      };
+
+      instances.len()
     };
     log_verbose!(
       self.environment,
@@ -351,7 +355,8 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
   }
 
   async fn get_or_create_instance(&self, host_format_callback: Option<HostFormatCallback>) -> Result<InitializedWasmPluginInstanceWithHostFormatCell> {
-    let plugin = match self.0.instances.borrow_mut().pop() {
+    let maybe_instance = self.0.instances.borrow_mut().pop(); // needs to be on a separate line
+    let plugin = match maybe_instance {
       Some(instance) => instance,
       None => self.create_instance().await?,
     };
@@ -371,17 +376,16 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     let environment = self.0.environment.clone();
     let host_format_cell = WasmHostFormatCell::new();
 
-    struct SendWrapper(WasmHostFormatCell);
-    unsafe impl Send for SendWrapper {}
-
     let host_format_func: WasmHostFormatCallback = {
       let environment = environment.clone();
-      let host_format_cell = SendWrapper(host_format_cell.clone());
+      let host_format_cell = host_format_cell.clone();
       Box::new(move |req| {
+        let host_format_cell = host_format_cell.clone();
+        let environment = environment.clone();
         dprint_core::async_runtime::spawn_block_on_with_handle(
           environment.runtime_handle(),
           async move {
-            let host_format = host_format_cell.0.get();
+            let host_format = host_format_cell.get();
             debug_assert!(host_format.is_some(), "Expected host format callback to be set.");
             if host_format.is_none() {
               log_verbose!(environment, "WARNING: Host format callback was not set.");

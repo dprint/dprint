@@ -5,6 +5,7 @@ use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
 use std::cell::RefCell;
+use std::cell::UnsafeCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -45,7 +46,10 @@ pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
 }
 
 #[derive(Clone)]
-pub struct WasmHostFormatCell(Rc<RefCell<Option<HostFormatCallback>>>);
+pub struct WasmHostFormatCell(Arc<UnsafeCell<Option<HostFormatCallback>>>);
+
+unsafe impl Send for WasmHostFormatCell {}
+unsafe impl Sync for WasmHostFormatCell {}
 
 impl WasmHostFormatCell {
   pub fn no_op() -> Self {
@@ -57,15 +61,19 @@ impl WasmHostFormatCell {
   }
 
   pub fn set(&self, host_format: Option<HostFormatCallback>) {
-    *self.0.borrow_mut() = host_format;
+    unsafe {
+      *self.0.get() = host_format;
+    }
   }
 
   pub fn get(&self) -> Option<HostFormatCallback> {
-    self.0.borrow().clone()
+    unsafe { (*self.0.get()).clone() }
   }
 
   pub fn clear(&self) {
-    *self.0.borrow_mut() = None;
+    unsafe {
+      *self.0.get() = None;
+    }
   }
 }
 
