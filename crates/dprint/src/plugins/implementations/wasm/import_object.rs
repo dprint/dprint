@@ -205,7 +205,7 @@ fn host_format<TEnvironment: Environment>(mut env: FunctionEnvMut<ImportObjectEn
     let host_format_cell = env.host_format_cell.clone();
 
     (
-      tokio::task::spawn(async move {
+      dprint_core::async_runtime::spawn(async move {
         let host_format = host_format_cell.0.lock().clone();
         debug_assert!(host_format.is_some(), "Expected host format to be set.");
         let host_format = match host_format {

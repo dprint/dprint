@@ -103,7 +103,7 @@ mod test {
         assert!(flag1.0.is_some());
         assert!(flag2.0.is_none());
       }
-      .boxed()
+      .boxed_local()
     })
   }
 }

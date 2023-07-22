@@ -66,7 +66,7 @@ impl RealEnvironment {
   }
 
   #[cfg(test)]
-  pub fn run_test_with_real_env(run_with_env: impl Fn(RealEnvironment) -> futures::future::BoxFuture<'static, ()>) {
+  pub fn run_test_with_real_env(run_with_env: impl Fn(RealEnvironment) -> dprint_core::async_runtime::LocalBoxFuture<'static, ()>) {
     let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
     let handle = rt.handle().clone();
     let env = RealEnvironment::new(RealEnvironmentOptions {

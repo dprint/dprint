@@ -337,7 +337,7 @@ async fn get_config_file_plugins<TEnvironment: Environment>(
     .into_iter()
     .map(|plugin_reference| {
       let plugin_resolver = plugin_resolver.clone();
-      tokio::task::spawn(async move {
+      dprint_core::async_runtime::spawn(async move {
         let resolve_result = plugin_resolver.resolve_plugin(plugin_reference.clone()).await;
         (plugin_reference, resolve_result)
       })

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use anyhow::bail;
 use anyhow::Result;
+use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::process::HostFormatCallback;
 use dprint_core::plugins::CancellationToken;
@@ -13,7 +14,6 @@ use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::PluginInfo;
-use futures::future::LocalBoxFuture;
 use futures::FutureExt;
 use indexmap::IndexMap;
 use thiserror::Error;
@@ -223,7 +223,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     Arc::new(move |host_request| scope.format(host_request))
   }
 
-  pub fn format(self: &Arc<Self>, request: HostFormatRequest) -> dprint_core::plugins::BoxFuture<'static, FormatResult> {
+  pub fn format(self: &Arc<Self>, request: HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> {
     let plugin_names = self.plugin_name_maps.get_plugin_names_from_file_path(&request.file_path);
     log_verbose!(
       self.environment,
@@ -263,7 +263,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
 
       Ok(if had_change { Some(file_text) } else { None })
     }
-    .boxed()
+    .boxed_local()
   }
 }
 

@@ -59,7 +59,7 @@ mod test {
           .collect();
         let scope = Arc::new(PluginsScope::new(environment.clone(), plugins, &environment.cwd()).unwrap());
         let token = Arc::new(CancellationToken::new());
-        tokio::task::spawn({
+        dprint_core::async_runtime::spawn({
           let token = token.clone();
           async move {
             tokio::time::sleep(Duration::from_millis(100)).await;

@@ -17,13 +17,13 @@ use super::messages::ProcessPluginMessage;
 use super::messages::ResponseBody;
 use super::utils::setup_exit_process_panic_hook;
 use super::PLUGIN_SCHEMA_VERSION;
+use crate::async_runtime::LocalBoxFuture;
 use crate::communication::MessageReader;
 use crate::communication::MessageWriter;
 use crate::communication::SingleThreadMessageWriter;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::GlobalConfiguration;
 use crate::plugins::AsyncPluginHandler;
-use crate::plugins::BoxFuture;
 use crate::plugins::FormatRequest;
 use crate::plugins::FormatResult;
 use crate::plugins::HostFormatRequest;
@@ -33,7 +33,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
   // ensure all process plugins exit on panic on any tokio task
   setup_exit_process_panic_hook();
 
-  tokio::task::spawn_blocking(move || {
+  crate::async_runtime::spawn_blocking(move || {
     let mut stdin_reader = MessageReader::new(std::io::stdin());
     let mut stdout_writer = MessageWriter::new(std::io::stdout());
 
@@ -151,7 +151,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           context.cancellation_tokens.store(message.id, token.clone());
           let context = context.clone();
           let handler = handler.clone();
-          tokio::task::spawn(async move {
+          crate::async_runtime::spawn(async move {
             let original_message_id = message.id;
             let result = handler
               .format(request, {
@@ -218,7 +218,7 @@ fn host_format<TConfiguration: Serialize + Clone + Send + Sync>(
   context: &ProcessContext<TConfiguration>,
   original_message_id: u32,
   request: HostFormatRequest,
-) -> BoxFuture<'static, FormatResult> {
+) -> LocalBoxFuture<'static, FormatResult> {
   let (tx, rx) = tokio::sync::oneshot::channel::<FormatResult>();
   let id = context.id_generator.next();
   context.format_host_senders.store(id, tx);
@@ -265,7 +265,7 @@ fn host_format<TConfiguration: Serialize + Clone + Send + Sync>(
       }
     }
   }
-  .boxed()
+  .boxed_local()
 }
 
 fn handle_message<TConfiguration: Serialize + Clone + Send + Sync>(

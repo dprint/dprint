@@ -1,8 +1,8 @@
 use anyhow::Result;
+use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
-use futures::future::BoxFuture;
 use futures::FutureExt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -69,7 +69,7 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
     true
   }
 
-  fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
+  fn initialize(&self) -> LocalBoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
     let start_instant = Instant::now();
     let plugin_name = self.info().name.clone();
     log_verbose!(self.environment, "Creating instance of {}", plugin_name);
@@ -88,7 +88,7 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
       );
       Ok(result)
     }
-    .boxed()
+    .boxed_local()
   }
 }
 
@@ -106,28 +106,28 @@ impl<TEnvironment: Environment> InitializedProcessPlugin<TEnvironment> {
 }
 
 impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<TEnvironment> {
-  fn license_text(&self) -> BoxFuture<'static, Result<String>> {
+  fn license_text(&self) -> LocalBoxFuture<'static, Result<String>> {
     let communicator = self.communicator.clone();
-    async move { communicator.get_license_text().await }.boxed()
+    async move { communicator.get_license_text().await }.boxed_local()
   }
 
-  fn resolved_config(&self, config: Arc<FormatConfig>) -> BoxFuture<'static, Result<String>> {
+  fn resolved_config(&self, config: Arc<FormatConfig>) -> LocalBoxFuture<'static, Result<String>> {
     let communicator = self.communicator.clone();
-    async move { communicator.get_resolved_config(&config).await }.boxed()
+    async move { communicator.get_resolved_config(&config).await }.boxed_local()
   }
 
-  fn config_diagnostics(&self, config: Arc<FormatConfig>) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
+  fn config_diagnostics(&self, config: Arc<FormatConfig>) -> LocalBoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
     let communicator = self.communicator.clone();
-    async move { communicator.get_config_diagnostics(&config).await }.boxed()
+    async move { communicator.get_config_diagnostics(&config).await }.boxed_local()
   }
 
-  fn format_text(&self, request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult> {
+  fn format_text(&self, request: InitializedPluginFormatRequest) -> LocalBoxFuture<'static, FormatResult> {
     let communicator = self.communicator.clone();
-    async move { communicator.format_text(request).await }.boxed()
+    async move { communicator.format_text(request).await }.boxed_local()
   }
 
-  fn shutdown(&self) -> BoxFuture<'static, ()> {
+  fn shutdown(&self) -> LocalBoxFuture<'static, ()> {
     let communicator = self.communicator.clone();
-    async move { communicator.shutdown().await }.boxed()
+    async move { communicator.shutdown().await }.boxed_local()
   }
 }

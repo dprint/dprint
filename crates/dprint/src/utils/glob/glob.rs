@@ -46,7 +46,7 @@ pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_pattern
   // to the speed of `fs::read_dir` calls. Essentially, run all the `fs::read_dir` calls
   // on a new thread and do the glob matching on the other thread.
   let read_dir_runner = ReadDirRunner::new(start_dir, environment.clone(), shared_state.clone());
-  tokio::task::spawn_blocking(move || read_dir_runner.run());
+  dprint_core::async_runtime::spawn_blocking(move || read_dir_runner.run());
 
   // run the glob matching on the current thread (the two threads will communicate with each other)
   let glob_matching_processor = GlobMatchingProcessor::new(shared_state, glob_matcher);

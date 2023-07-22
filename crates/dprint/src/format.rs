@@ -83,7 +83,7 @@ where
 
   let semaphores = Arc::new(Mutex::new(semaphores));
   let handles = task_works.into_iter().enumerate().map(|(index, task_work)| {
-    tokio::task::spawn({
+    dprint_core::async_runtime::spawn({
       let error_logger = error_logger.clone();
       let environment = environment.clone();
       let incremental_file = incremental_file.clone();
@@ -125,9 +125,9 @@ where
           let plugins = plugins.clone();
           let error_logger = error_logger.clone();
           let scope = scope.clone();
-          format_handles.push(tokio::task::spawn(async move {
+          format_handles.push(dprint_core::async_runtime::spawn(async move {
             let long_format_token = CancellationToken::new();
-            tokio::task::spawn({
+            dprint_core::async_runtime::spawn({
               let long_format_token = long_format_token.clone();
               let environment = environment.clone();
               let file_path = file_path.clone();

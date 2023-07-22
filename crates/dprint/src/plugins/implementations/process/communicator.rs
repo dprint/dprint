@@ -172,7 +172,7 @@ mod test {
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),
-              on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed()),
+              on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
               token: Arc::new(NullCancellationToken),
             })
             .await
@@ -190,14 +190,14 @@ mod test {
             range: None,
             config: format_config.clone(),
             override_config: Default::default(),
-            on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed()),
+            on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
             token: Arc::new(NullCancellationToken),
           }));
         }
 
         // spawn a task to kill the process plugin after a bit of time
         let inner_communicator = communicator.get_inner().await;
-        tokio::task::spawn(async move {
+        dprint_core::async_runtime::spawn(async move {
           // give everything some time to queue up then kill the process
           tokio::time::sleep(Duration::from_millis(100)).await;
           inner_communicator.kill();
@@ -218,7 +218,7 @@ mod test {
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),
-              on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed()),
+              on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
               token: Arc::new(NullCancellationToken),
             })
             .await
@@ -255,12 +255,12 @@ mod test {
           config: format_config.clone(),
           range: None,
           override_config: Default::default(),
-          on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed()),
+          on_host_format: Arc::new(|_| futures::future::ready(Ok(None)).boxed_local()),
           token: token.clone(),
         });
 
         // spawn a task to wait a bit and then cancel the token
-        tokio::task::spawn(async move {
+        dprint_core::async_runtime::spawn(async move {
           // give everything some time to queue up
           tokio::time::sleep(Duration::from_millis(100)).await;
           token.cancel();

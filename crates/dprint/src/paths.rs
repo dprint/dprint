@@ -85,7 +85,9 @@ pub async fn get_and_resolve_file_paths<'a>(
   let environment = environment.clone();
 
   // This is intensive so do it in a blocking task
-  tokio::task::spawn_blocking(move || glob(&environment, &base_dir, file_patterns)).await.unwrap()
+  dprint_core::async_runtime::spawn_blocking(move || glob(&environment, &base_dir, file_patterns))
+    .await
+    .unwrap()
 }
 
 fn get_plugin_patterns<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>) -> Vec<String> {

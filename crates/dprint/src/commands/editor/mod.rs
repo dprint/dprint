@@ -141,7 +141,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   pub async fn run(&mut self) -> Result<()> {
     let environment = self.environment.clone();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<EditorMessage>();
-    tokio::task::spawn_blocking(move || {
+    dprint_core::async_runtime::spawn_blocking(move || {
       let stdin = environment.stdin();
       let mut reader = MessageReader::new(stdin);
       loop {
@@ -217,7 +217,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           let context = self.context.clone();
           let concurrency_limiter = self.concurrency_limiter.clone();
           let scope = self.plugins_scope.clone().unwrap();
-          let _ignore = tokio::task::spawn(async move {
+          let _ignore = dprint_core::async_runtime::spawn(async move {
             let _permit = concurrency_limiter.acquire().await;
             if token.is_cancelled() {
               return;
@@ -400,7 +400,7 @@ mod test {
         messages: Default::default(),
       };
 
-      tokio::task::spawn_blocking({
+      dprint_core::async_runtime::spawn_blocking({
         let messages = communicator.messages.clone();
         move || loop {
           if let Err(_) = read_stdout_message(&mut reader, &messages) {
@@ -637,14 +637,14 @@ mod test {
           // try parallelizing many things
           let mut handles = Vec::new();
           for _ in 0..50 {
-            handles.push(tokio::task::spawn({
+            handles.push(dprint_core::async_runtime::spawn({
               let communicator = communicator.clone();
               let txt_file_path = txt_file_path.clone();
               async move {
                 assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true);
               }
             }));
-            handles.push(tokio::task::spawn({
+            handles.push(dprint_core::async_runtime::spawn({
               let communicator = communicator.clone();
               let txt_file_path = txt_file_path.clone();
               async move {
@@ -658,7 +658,7 @@ mod test {
                 );
               }
             }));
-            handles.push(tokio::task::spawn({
+            handles.push(dprint_core::async_runtime::spawn({
               let communicator = communicator.clone();
               async move {
                 assert_eq!(
@@ -691,7 +691,7 @@ mod test {
 
           // test cancellation
           let token = CancellationToken::new();
-          let handle = tokio::task::spawn({
+          let handle = dprint_core::async_runtime::spawn({
             let communicator = communicator.clone();
             let token = token.clone();
             async move {

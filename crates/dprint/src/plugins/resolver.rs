@@ -82,7 +82,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
       .into_iter()
       .map(|plugin_ref| {
         let resolver = self.clone();
-        tokio::task::spawn(async move { resolver.resolve_plugin(plugin_ref).await })
+        dprint_core::async_runtime::spawn(async move { resolver.resolve_plugin(plugin_ref).await })
       })
       .collect::<Vec<_>>();
 

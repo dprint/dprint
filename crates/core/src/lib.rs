@@ -7,5 +7,7 @@ pub mod communication;
 pub mod formatting;
 
 pub mod configuration;
-
 pub mod plugins;
+
+#[cfg(feature = "async_runtime")]
+pub mod async_runtime;

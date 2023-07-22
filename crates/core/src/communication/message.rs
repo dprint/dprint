@@ -52,7 +52,7 @@ impl<TMessage: Message> SingleThreadMessageWriter<TMessage> {
     let (tx, rx) = crossbeam_channel::unbounded::<TMessage>();
 
     // use a dedicated thread for writing messages
-    tokio::task::spawn_blocking({
+    crate::async_runtime::spawn_blocking({
       move || {
         while let Ok(result) = rx.recv() {
           if let Err(err) = result.write(&mut opts.writer) {

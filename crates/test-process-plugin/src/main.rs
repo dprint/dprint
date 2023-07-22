@@ -1,6 +1,6 @@
 use anyhow::bail;
 use anyhow::Result;
-use dprint_core::plugins::BoxFuture;
+use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::plugins::FormatRequest;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
@@ -81,8 +81,8 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
   fn format(
     &self,
     request: FormatRequest<Self::Configuration>,
-    mut format_with_host: impl FnMut(HostFormatRequest) -> BoxFuture<'static, FormatResult> + Send + 'static,
-  ) -> BoxFuture<'static, FormatResult> {
+    mut format_with_host: impl FnMut(HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> + 'static,
+  ) -> LocalBoxFuture<'static, FormatResult> {
     async move {
       let (had_suffix, file_text) = if let Some(text) = request.file_text.strip_suffix(&format!("_{}", request.config.ending)) {
         (true, text.to_string())
@@ -130,6 +130,6 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
         Ok(Some(format!("{}_{}", inner_format_text, request.config.ending)))
       }
     }
-    .boxed()
+    .boxed_local()
   }
 }

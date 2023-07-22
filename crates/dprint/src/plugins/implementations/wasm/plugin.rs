@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use anyhow::Result;
+use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::plugins::process::HostFormatCallback;
-use dprint_core::plugins::BoxFuture;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatResult;
@@ -54,7 +54,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
     false
   }
 
-  fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
+  fn initialize(&self) -> LocalBoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
     let plugin = InitializedWasmPlugin::new(
       self.info().name.to_string(),
       self.module.clone(),
@@ -73,7 +73,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
       let result: Arc<dyn InitializedPlugin> = Arc::new(plugin);
       Ok(result)
     }
-    .boxed()
+    .boxed_local()
   }
 }
 
@@ -367,37 +367,37 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
 }
 
 impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnvironment> {
-  fn license_text(&self) -> BoxFuture<'static, Result<String>> {
+  fn license_text(&self) -> LocalBoxFuture<'static, Result<String>> {
     let plugin = self.clone();
     async move {
-      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.license_text()))
+      dprint_core::async_runtime::spawn_blocking(move || plugin.with_instance(move |instance| instance.license_text()))
         .await
         .unwrap()
     }
-    .boxed()
+    .boxed_local()
   }
 
-  fn resolved_config(&self, config: Arc<FormatConfig>) -> BoxFuture<'static, Result<String>> {
+  fn resolved_config(&self, config: Arc<FormatConfig>) -> LocalBoxFuture<'static, Result<String>> {
     let plugin = self.clone();
     async move {
-      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.resolved_config(&config)))
+      dprint_core::async_runtime::spawn_blocking(move || plugin.with_instance(move |instance| instance.resolved_config(&config)))
         .await
         .unwrap()
     }
-    .boxed()
+    .boxed_local()
   }
 
-  fn config_diagnostics(&self, config: Arc<FormatConfig>) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
+  fn config_diagnostics(&self, config: Arc<FormatConfig>) -> LocalBoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
     let plugin = self.clone();
     async move {
-      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.config_diagnostics(&config)))
+      dprint_core::async_runtime::spawn_blocking(move || plugin.with_instance(move |instance| instance.config_diagnostics(&config)))
         .await
         .unwrap()
     }
-    .boxed()
+    .boxed_local()
   }
 
-  fn format_text(&self, request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult> {
+  fn format_text(&self, request: InitializedPluginFormatRequest) -> LocalBoxFuture<'static, FormatResult> {
     let plugin = self.clone();
     async move {
       // Wasm plugins do not currently support range formatting
@@ -410,7 +410,7 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
       }
 
       // todo: support cancellation in Wasm plugins
-      tokio::task::spawn_blocking(move || {
+      dprint_core::async_runtime::spawn_blocking(move || {
         plugin.with_instance(move |instance| {
           instance.format_text(
             &request.file_path,
@@ -423,10 +423,10 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
       })
       .await?
     }
-    .boxed()
+    .boxed_local()
   }
 
-  fn shutdown(&self) -> BoxFuture<'static, ()> {
-    Box::pin(futures::future::ready(()))
+  fn shutdown(&self) -> LocalBoxFuture<'static, ()> {
+    futures::future::ready(()).boxed_local()
   }
 }

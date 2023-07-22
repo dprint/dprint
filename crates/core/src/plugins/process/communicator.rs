@@ -26,6 +26,7 @@ use super::messages::ProcessPluginMessage;
 use super::messages::RegisterConfigMessageBody;
 use super::messages::ResponseBody;
 use super::PLUGIN_SCHEMA_VERSION;
+use crate::async_runtime::LocalBoxFuture;
 use crate::communication::ArcIdStore;
 use crate::communication::AtomicFlag;
 use crate::communication::IdGenerator;
@@ -36,7 +37,6 @@ use crate::communication::SingleThreadMessageWriter;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
-use crate::plugins::BoxFuture;
 use crate::plugins::CriticalFormatError;
 use crate::plugins::FormatConfigId;
 use crate::plugins::FormatRange;
@@ -47,7 +47,7 @@ use crate::plugins::PluginInfo;
 
 type DprintCancellationToken = Arc<dyn super::super::CancellationToken>;
 
-pub type HostFormatCallback = Arc<dyn Fn(HostFormatRequest) -> BoxFuture<'static, FormatResult> + Send + Sync>;
+pub type HostFormatCallback = Arc<dyn Fn(HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> + Send + Sync>;
 
 pub struct ProcessPluginCommunicatorFormatRequest {
   pub file_path: PathBuf,
@@ -116,7 +116,7 @@ impl ProcessPluginCommunicator {
 
     // read and output stderr prefixed
     let stderr = child.stderr.take().unwrap();
-    tokio::task::spawn_blocking({
+    crate::async_runtime::spawn_blocking({
       let poisoner = poisoner.clone();
       let shutdown_flag = shutdown_flag.clone();
       let on_std_err = on_std_err.clone();
@@ -144,7 +144,7 @@ impl ProcessPluginCommunicator {
     };
 
     // read from stdout
-    tokio::task::spawn_blocking({
+    crate::async_runtime::spawn_blocking({
       let context = context.clone();
       move || {
         loop {
@@ -450,7 +450,7 @@ fn read_stdout_message(reader: &mut MessageReader<ChildStdout>, context: &Contex
       // spawn a task to do the host formatting, then send a message back to the
       // plugin with the result
       let context = context.clone();
-      tokio::task::spawn(async move {
+      crate::async_runtime::spawn(async move {
         let result = host_format(context.clone(), message.id, body).await;
 
         // ignore failure, as this means that the process shut down
