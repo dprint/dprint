@@ -311,6 +311,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&scope.plugin_name_maps, glob_output.file_paths)?;
 
     let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
+    // todo: this will always return an empty vector until #711 is merged
     for config_file_path in glob_output.config_files {
       result.extend(self.resolve_sub_config(config_file_path, &config).await?);
     }
