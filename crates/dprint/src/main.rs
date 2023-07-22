@@ -26,7 +26,7 @@ mod test_helpers;
 
 fn main() {
   setup_exit_process_panic_hook();
-  let rt = tokio::runtime::Builder::new_multi_thread().enable_time().build().unwrap();
+  let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
   let handle = rt.handle().clone();
   rt.block_on(async move {
     match run(handle).await {

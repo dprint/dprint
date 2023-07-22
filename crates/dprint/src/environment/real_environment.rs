@@ -67,7 +67,7 @@ impl RealEnvironment {
 
   #[cfg(test)]
   pub fn run_test_with_real_env(run_with_env: impl Fn(RealEnvironment) -> futures::future::BoxFuture<'static, ()>) {
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_time().build().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
     let handle = rt.handle().clone();
     let env = RealEnvironment::new(RealEnvironmentOptions {
       is_verbose: false,

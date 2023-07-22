@@ -6,7 +6,7 @@ use dprint_core::communication::MessageReader;
 use dprint_core::communication::MessageWriter;
 use dprint_core::communication::SingleThreadMessageWriter;
 use dprint_core::plugins::HostFormatRequest;
-use std::io::Read;
+use std::io::ErrorKind;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -107,7 +107,6 @@ struct EditorContext {
 }
 
 struct EditorService<'a, TEnvironment: Environment> {
-  reader: MessageReader<Box<dyn Read + Send>>,
   config: Option<ResolvedConfig>,
   args: &'a CliArgs,
   environment: &'a TEnvironment,
@@ -119,15 +118,12 @@ struct EditorService<'a, TEnvironment: Environment> {
 
 impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   pub fn new(args: &'a CliArgs, environment: &'a TEnvironment, plugin_resolver: &'a Arc<PluginResolver<TEnvironment>>) -> Self {
-    let stdin = environment.stdin();
     let stdout = environment.stdout();
-    let reader = MessageReader::new(stdin);
     let writer = SingleThreadMessageWriter::for_stdout(MessageWriter::new(stdout));
     let max_cores = environment.max_threads();
     let concurrency_limiter = Arc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
 
     Self {
-      reader,
       config: None,
       args,
       environment,
@@ -143,8 +139,31 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   }
 
   pub async fn run(&mut self) -> Result<()> {
+    let environment = self.environment.clone();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<EditorMessage>();
+    tokio::task::spawn_blocking(move || {
+      let stdin = environment.stdin();
+      let mut reader = MessageReader::new(stdin);
+      loop {
+        let read_message = match EditorMessage::read(&mut reader) {
+          Ok(message) => message,
+          Err(err) if err.kind() == ErrorKind::BrokenPipe => {
+            return;
+          }
+          Err(err) => {
+            environment.log_stderr(&format!("Editor service failed reading from stdin: {:#}", err));
+            return;
+          }
+        };
+        if let Err(_) = tx.send(read_message) {
+          return; // channel disconnected
+        }
+      }
+    });
     loop {
-      let message = EditorMessage::read(&mut self.reader)?;
+      let Some(message) = rx.recv().await else {
+        return Ok(())
+      };
       match message.body {
         EditorMessageBody::Success(_message_id) => {}
         EditorMessageBody::Error(_message_id, _data) => {}
