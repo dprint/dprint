@@ -109,6 +109,7 @@ pub enum ConfigKeyValue {
 impl ConfigKeyValue {
   /// Gets a hash of the configuration value. This is used for incremental formatting
   /// and the Hash trait is not implemented to discourage using this in other places.
+  #[allow(clippy::should_implement_trait)]
   pub fn hash(&self, hasher: &mut impl std::hash::Hasher) {
     match self {
       ConfigKeyValue::String(value) => {

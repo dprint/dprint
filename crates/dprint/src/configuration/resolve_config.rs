@@ -252,7 +252,7 @@ async fn handle_config_file<TEnvironment: Environment>(
     }
   }
 
-  Ok(resolve_extends(resolved_config, extends, resolved_path.source.parent(), environment.clone()).await?)
+  resolve_extends(resolved_config, extends, resolved_path.source.parent(), environment.clone()).await
 }
 
 fn take_extends(config_map: &mut ConfigMap) -> Result<Vec<String>> {

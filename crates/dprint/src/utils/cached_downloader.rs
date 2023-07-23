@@ -25,23 +25,23 @@ impl<TInner: UrlDownloader> CachedDownloader<TInner> {
 #[async_trait(?Send)]
 impl<TInner: UrlDownloader> UrlDownloader for CachedDownloader<TInner> {
   async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
-    let mut results = self.results.borrow_mut();
-    if let Some(result) = results.get(url) {
-      match result {
-        Ok(result) => Ok(result.clone()),
-        Err(err) => Err(anyhow!("{:#}", err)),
-      }
-    } else {
-      let result = self.inner.download_file(url).await;
-      results.insert(
-        url.to_string(),
-        match &result {
+    {
+      if let Some(result) = self.results.borrow().get(url) {
+        return match result {
           Ok(result) => Ok(result.clone()),
-          Err(err) => Err(format!("{:#}", err)),
-        },
-      );
-      result
+          Err(err) => Err(anyhow!("{:#}", err)),
+        };
+      }
     }
+    let result = self.inner.download_file(url).await;
+    self.results.borrow_mut().insert(
+      url.to_string(),
+      match &result {
+        Ok(result) => Ok(result.clone()),
+        Err(err) => Err(format!("{:#}", err)),
+      },
+    );
+    result
   }
 }
 

@@ -6,7 +6,6 @@ use std::task::Poll;
 use futures::Future;
 use tokio::runtime::Handle;
 use tokio::runtime::RuntimeFlavor;
-use tokio::task::JoinError;
 
 pub use futures::FutureExt;
 
@@ -60,18 +59,6 @@ pub fn spawn<F: Future<Output = R> + 'static, R: 'static>(f: F) -> JoinHandle<R>
     handle: tokio::task::spawn(future),
     _r: Default::default(),
   }
-}
-
-#[inline(always)]
-pub fn spawn_block_on_with_handle<F: Future<Output = R> + 'static, R: 'static>(handle: Handle, f: F) -> Result<R, JoinError> {
-  debug_assert!(handle.runtime_flavor() == RuntimeFlavor::CurrentThread);
-  // SAFETY: we know this is a current-thread executor
-  let future = unsafe { MaskFutureAsSend::new(f) };
-  let join_handle = JoinHandle {
-    handle: tokio::task::spawn(future),
-    _r: Default::default(),
-  };
-  handle.block_on(join_handle)
 }
 
 /// Equivalent to [`tokio::task::spawn_blocking`]. Currently a thin wrapper around the tokio API, but this
