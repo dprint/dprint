@@ -15,12 +15,11 @@ use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginSourceReference;
+use crate::utils::AsyncCell;
 
 pub struct PluginWrapper {
   plugin: Box<dyn Plugin>,
-  // todo: move away from tokio OnceCell to something that works
-  // more efficiently with a current thread runtime
-  initialized_plugin: tokio::sync::OnceCell<Rc<dyn InitializedPlugin>>,
+  initialized_plugin: AsyncCell<Rc<dyn InitializedPlugin>>,
 }
 
 impl PluginWrapper {
@@ -44,9 +43,11 @@ impl PluginWrapper {
   }
 
   pub async fn shutdown(&self) {
+    self.initialized_plugin.poison();
     if let Some(plugin) = self.initialized_plugin.get() {
       plugin.shutdown().await;
     }
+    eprintln!("DONE");
   }
 }
 

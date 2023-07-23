@@ -81,6 +81,59 @@ mod test {
           .await
           .unwrap();
         assert_eq!(result, None);
+        resolver.clear_and_shutdown_initialized().await;
+      }
+    });
+  }
+
+  #[test]
+  fn should_support_shutdown_during_indefinite_host_formatting() {
+    // same as above test, but the cancellation token is never cancelled
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
+    environment.run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let plugin_cache = PluginCache::new(environment.clone());
+        let resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
+        let cli_args = CliArgs::empty();
+        let config = resolve_config_from_args(&cli_args, &environment).await.unwrap();
+        let plugins = resolver.resolve_plugins(config.plugins).await.unwrap();
+        assert_eq!(
+          plugins.iter().map(|p| &p.info().name).collect::<Vec<_>>(),
+          vec!["test-plugin", "test-process-plugin"]
+        );
+        let plugins = plugins
+          .into_iter()
+          .map(|plugin_wrapper| {
+            Rc::new(PluginWithConfig::new(
+              plugin_wrapper,
+              None,
+              Arc::new(FormatConfig {
+                id: FormatConfigId::from_raw(1),
+                global: Default::default(),
+                raw: Default::default(),
+              }),
+            ))
+          })
+          .collect();
+        let scope = Rc::new(PluginsScope::new(environment.clone(), plugins, &environment.cwd()).unwrap());
+        let token = Arc::new(CancellationToken::new());
+        let result = scope
+          .format(HostFormatRequest {
+            file_path: PathBuf::from("file.txt_ps"),
+            // This should cause the process plugin to format with the
+            // Wasm plugin which will then try to format with the process plugin
+            // and finally it will wait for cancellation to occur
+            file_text: "plugin: plugin: wait_cancellation".to_string(),
+            range: None,
+            override_config: Default::default(),
+            token,
+          })
+          .await
+          .unwrap();
+        assert_eq!(result, None);
+        resolver.clear_and_shutdown_initialized().await;
+        eprintln!("DONE");
       }
     });
   }

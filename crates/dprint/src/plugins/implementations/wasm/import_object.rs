@@ -205,7 +205,6 @@ fn host_format(mut env: FunctionEnvMut<ImportObjectEnvironment>) -> u32 {
     }
     // ignore critical error as we can just continue formatting
     Err(err) => {
-      //let mut env = env.data_mut();
       env.error_text_store = err.to_string();
       2 // error
     }

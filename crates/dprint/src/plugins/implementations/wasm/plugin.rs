@@ -1,9 +1,13 @@
 use anyhow::anyhow;
+use anyhow::bail;
 use anyhow::Result;
 use async_trait::async_trait;
 use dprint_core::async_runtime::FutureExt;
+use dprint_core::async_runtime::JoinHandle;
 use dprint_core::async_runtime::LocalBoxFuture;
+use dprint_core::communication::Poisoner;
 use dprint_core::plugins::process::HostFormatCallback;
+use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatResult;
@@ -22,6 +26,8 @@ use dprint_core::plugins::PluginInfo;
 
 use super::create_pools_import_object;
 use super::load_instance;
+use super::load_instance::WasmInstance;
+use super::load_instance::WasmModule;
 use super::WasmFormatResult;
 use super::WasmFunctions;
 use super::WasmHostFormatSender;
@@ -33,7 +39,7 @@ use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
 
 pub struct WasmPlugin<TEnvironment: Environment> {
-  module: wasmer::Module,
+  module: WasmModule,
   environment: TEnvironment,
   plugin_info: PluginInfo,
 }
@@ -67,7 +73,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
         move |store, module, host_format_callback| {
           let (import_object, env) = create_pools_import_object(store, host_format_callback);
           let instance = load_instance(store, module, &import_object)?;
-          env.as_mut(store).initialize(&instance)?;
+          env.as_mut(store).initialize(&instance.inner)?;
           Ok(instance)
         }
       }),
@@ -96,9 +102,21 @@ enum WasmPluginMessage {
 
 type WasmPluginSender = std::sync::mpsc::Sender<WasmPluginMessage>;
 
-struct WasmPluginSenderWithCell {
+#[derive(Clone)]
+struct InstanceState {
+  host_format_callback: HostFormatCallback,
+  token: Arc<dyn CancellationToken>,
+}
+
+struct WasmCreatedInstanceInfo {
+  poisoner: Poisoner,
+  handle: Option<JoinHandle<()>>,
+}
+
+struct WasmPluginSenderWithState {
   sender: Rc<WasmPluginSender>,
-  host_format_cell: Rc<RefCell<Option<HostFormatCallback>>>,
+  instance_state_cell: Rc<RefCell<Option<InstanceState>>>,
+  poisoner: Poisoner,
 }
 
 pub(super) struct InitializedWasmPluginInstance {
@@ -256,12 +274,13 @@ impl InitializedWasmPluginInstance {
   }
 }
 
-type LoadInstanceFn = dyn Fn(&mut wasmer::Store, &wasmer::Module, WasmHostFormatSender) -> Result<wasmer::Instance> + Send + Sync;
+type LoadInstanceFn = dyn Fn(&mut wasmer::Store, &WasmModule, WasmHostFormatSender) -> Result<WasmInstance> + Send + Sync;
 
 struct InitializedWasmPluginInner<TEnvironment: Environment> {
   name: String,
-  instances: RefCell<Vec<WasmPluginSenderWithCell>>,
-  module: wasmer::Module,
+  created_instances: RefCell<Vec<WasmCreatedInstanceInfo>>,
+  pending_instances: RefCell<Vec<WasmPluginSenderWithState>>,
+  module: WasmModule,
   load_instance: Arc<LoadInstanceFn>,
   environment: TEnvironment,
 }
@@ -271,7 +290,7 @@ impl<TEnvironment: Environment> Drop for InitializedWasmPluginInner<TEnvironment
     let start = Instant::now();
     let len = {
       let instances = {
-        let mut instances = self.instances.borrow_mut();
+        let mut instances = self.pending_instances.borrow_mut();
         std::mem::take(&mut *instances)
       };
 
@@ -290,10 +309,11 @@ impl<TEnvironment: Environment> Drop for InitializedWasmPluginInner<TEnvironment
 pub struct InitializedWasmPlugin<TEnvironment: Environment>(InitializedWasmPluginInner<TEnvironment>);
 
 impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
-  pub fn new(name: String, module: wasmer::Module, load_instance: Arc<LoadInstanceFn>, environment: TEnvironment) -> Self {
+  pub fn new(name: String, module: WasmModule, load_instance: Arc<LoadInstanceFn>, environment: TEnvironment) -> Self {
     Self(InitializedWasmPluginInner {
       name,
-      instances: Default::default(),
+      pending_instances: Default::default(),
+      created_instances: Default::default(),
       module,
       load_instance,
       environment,
@@ -302,27 +322,37 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
 
   async fn with_instance<T>(
     &self,
-    host_format_callback: Option<HostFormatCallback>,
+    instance_state: Option<InstanceState>,
     action: impl Fn(Rc<WasmPluginSender>) -> LocalBoxFuture<'static, Result<T>>,
   ) -> Result<T> {
-    let plugin = match self.get_or_create_instance(host_format_callback.clone()).await {
+    let plugin = match self.get_or_create_instance(instance_state.clone()).await {
       Ok(instance) => instance,
       Err(err) => return Err(CriticalFormatError(err).into()),
     };
-    let result = action(plugin.sender.clone()).await;
+    let result = tokio::select! {
+      result = action(plugin.sender.clone()) => result,
+      _ = plugin.poisoner.wait_poisoned() => {
+        bail!("poisoned")
+      }
+    };
     match result {
       Ok(result) => {
         self.release_instance(plugin);
         Ok(result)
       }
       Err(original_err) if original_err.downcast_ref::<CriticalFormatError>().is_some() => {
-        let plugin = match self.get_or_create_instance(host_format_callback).await {
+        let plugin = match self.get_or_create_instance(instance_state).await {
           Ok(plugin) => plugin,
           Err(err) => return Err(CriticalFormatError(err).into()),
         };
 
         // try again
-        let result = action(plugin.sender.clone()).await;
+        let result = tokio::select! {
+          result = action(plugin.sender.clone()) => result,
+          _ = plugin.poisoner.wait_poisoned() => {
+            bail!("poisoned")
+          }
+        };
         match result {
           Ok(result) => {
             self.release_instance(plugin);
@@ -354,39 +384,60 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     }
   }
 
-  async fn get_or_create_instance(&self, host_format_callback: Option<HostFormatCallback>) -> Result<WasmPluginSenderWithCell> {
-    let maybe_instance = self.0.instances.borrow_mut().pop(); // needs to be on a separate line
+  async fn get_or_create_instance(&self, instance_state: Option<InstanceState>) -> Result<WasmPluginSenderWithState> {
+    let maybe_instance = self.0.pending_instances.borrow_mut().pop(); // needs to be on a separate line
     let plugin_sender = match maybe_instance {
       Some(instance) => instance,
-      None => self.create_instance().await?,
+      None => {
+        let (instance, created_info) = self.create_instance().await?;
+        self.0.created_instances.borrow_mut().push(created_info);
+        instance
+      }
     };
-    *plugin_sender.host_format_cell.borrow_mut() = host_format_callback;
+    *plugin_sender.instance_state_cell.borrow_mut() = instance_state;
     Ok(plugin_sender)
   }
 
-  fn release_instance(&self, plugin_sender: WasmPluginSenderWithCell) {
-    *plugin_sender.host_format_cell.borrow_mut() = None;
-    self.0.instances.borrow_mut().push(plugin_sender);
+  fn release_instance(&self, plugin_sender: WasmPluginSenderWithState) {
+    *plugin_sender.instance_state_cell.borrow_mut() = None;
+    self.0.pending_instances.borrow_mut().push(plugin_sender);
   }
 
-  async fn create_instance(&self) -> Result<WasmPluginSenderWithCell> {
+  async fn create_instance(&self) -> Result<(WasmPluginSenderWithState, WasmCreatedInstanceInfo)> {
     let start_instant = Instant::now();
     log_verbose!(self.0.environment, "Creating instance of {}", self.0.name);
     let mut store = wasmer::Store::default();
 
     let (host_format_tx, mut host_format_rx) = tokio::sync::mpsc::unbounded_channel::<(HostFormatRequest, std::sync::mpsc::Sender<FormatResult>)>();
-    let host_format_cell: Rc<RefCell<Option<HostFormatCallback>>> = Default::default();
+    let instance_state_cell: Rc<RefCell<Option<InstanceState>>> = Default::default();
+    let poisoner = Poisoner::default();
 
     dprint_core::async_runtime::spawn({
-      let host_format_cell = host_format_cell.clone();
+      let instance_state_cell = instance_state_cell.clone();
+      let poisoner = poisoner.clone();
       async move {
-        while let Some((request, sender)) = host_format_rx.recv().await {
-          let host_format_callback = host_format_cell.borrow().clone();
-          match host_format_callback {
-            Some(host_format_callback) => {
-              let result = host_format_callback(request).await;
-              if sender.send(result).is_err() {
-                return; // disconnected
+        while let Some((mut request, sender)) = host_format_rx.recv().await {
+          let instance_state = instance_state_cell.borrow().clone();
+          match instance_state {
+            Some(instance_state) => {
+              // forward the provided token on to the host format
+              request.token = instance_state.token.clone();
+              eprintln!("1");
+              let message = (instance_state.host_format_callback)(request);
+              eprintln!("2");
+              tokio::select! {
+                _ = poisoner.wait_poisoned() => {
+                  eprintln!("EXITED");
+                  // in this case, we're shutting down, so just quit
+                  let _ = sender.send(Ok(None)); // poisoned
+                  return; // quit
+                }
+                result = message => {
+              eprintln!("333");
+                  if sender.send(result).is_err() {
+                    return; // disconnected
+                  }
+                }
               }
             }
             None => {
@@ -403,7 +454,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     let (initialize_tx, initialize_rx) = tokio::sync::oneshot::channel::<Result<(), anyhow::Error>>();
 
     // spawn the wasm instance on a dedicated thread to reduce issues
-    dprint_core::async_runtime::spawn_blocking({
+    let handle = dprint_core::async_runtime::spawn_blocking({
       let load_instance = self.0.load_instance.clone();
       let module = self.0.module.clone();
       move || {
@@ -465,10 +516,17 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
       self.0.name,
       start_instant.elapsed().as_millis() as u64
     );
-    Ok(WasmPluginSenderWithCell {
-      sender: Rc::new(tx),
-      host_format_cell,
-    })
+    Ok((
+      WasmPluginSenderWithState {
+        sender: Rc::new(tx),
+        instance_state_cell,
+        poisoner: poisoner.clone(),
+      },
+      WasmCreatedInstanceInfo {
+        poisoner,
+        handle: Some(handle),
+      },
+    ))
   }
 }
 
@@ -530,8 +588,12 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
       config: request.config,
       override_config: request.override_config,
     });
+    let instance_state = InstanceState {
+      host_format_callback: request.on_host_format,
+      token: request.token,
+    };
     self
-      .with_instance(Some(request.on_host_format), move |plugin_sender| {
+      .with_instance(Some(instance_state), move |plugin_sender| {
         let message = message.clone();
         async move {
           let (tx, rx) = tokio::sync::oneshot::channel();
@@ -544,6 +606,31 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
   }
 
   async fn shutdown(&self) {
-    // do nothing
+    // drain the pending instances
+    {
+      self.0.pending_instances.borrow_mut().drain(..);
+    }
+    let created_instance_infos = self.0.created_instances.borrow_mut().drain(..).collect::<Vec<_>>();
+
+    // poison all the created instances
+    for info in &created_instance_infos {
+      eprintln!("POISTONED");
+      info.poisoner.poison();
+    }
+
+    // Now finally wait for everything to shut down nicely. This is necessary
+    // because there might be a plugin that's stuck in host formatting and
+    // now we want it to finish gracefully before the engine shuts down.
+    for mut info in created_instance_infos {
+      eprintln!("a1");
+      let handle = info.handle.take();
+      drop(info);
+      eprintln!("a2");
+      if let Some(handle) = handle {
+        eprintln!("a3");
+        handle.await.unwrap();
+        eprintln!("a4");
+      }
+    }
   }
 }

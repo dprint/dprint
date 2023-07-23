@@ -13,7 +13,7 @@ pub fn compile(wasm_bytes: &[u8]) -> Result<CompilationResult> {
   let wasm_module_creator = WasmModuleCreator::default();
   let module = wasm_module_creator.create_from_wasm_bytes(wasm_bytes)?;
 
-  let bytes = match module.serialize() {
+  let bytes = match module.inner.serialize() {
     Ok(bytes) => bytes,
     Err(err) => bail!("Error serializing wasm module: {:#}", err),
   };
