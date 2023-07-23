@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use crate::environment::CanonicalizedPathBuf;
 use crate::patterns::get_patterns_as_glob_matcher;
@@ -16,9 +16,9 @@ pub struct PluginNameResolutionMaps {
   extension_to_plugin_names_map: HashMap<String, Vec<String>>,
   file_name_to_plugin_names_map: HashMap<String, Vec<String>>,
   /// Associations matchers ordered by precedence.
-  association_matchers: Vec<(String, Arc<GlobMatcher>)>,
+  association_matchers: Vec<(String, Rc<GlobMatcher>)>,
   /// Associations matchers in a map.
-  association_matchers_map: HashMap<String, Arc<GlobMatcher>>,
+  association_matchers_map: HashMap<String, Rc<GlobMatcher>>,
 }
 
 impl PluginNameResolutionMaps {
@@ -44,7 +44,7 @@ impl PluginNameResolutionMaps {
       }
 
       if let Some(matcher) = get_plugin_association_glob_matcher(plugin, config_base_path)? {
-        let matcher = Arc::new(matcher);
+        let matcher = Rc::new(matcher);
         plugin_name_maps.association_matchers.push((plugin_name.to_string(), matcher.clone()));
         plugin_name_maps.association_matchers_map.insert(plugin_name.to_string(), matcher);
       }

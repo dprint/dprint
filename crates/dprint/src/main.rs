@@ -7,7 +7,6 @@ use environment::RealEnvironment;
 use environment::RealEnvironmentOptions;
 use run_cli::AppError;
 use std::rc::Rc;
-use std::sync::Arc;
 use utils::RealStdInReader;
 
 mod arg_parser;
@@ -28,9 +27,8 @@ mod test_helpers;
 fn main() {
   setup_exit_process_panic_hook();
   let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
-  let handle = rt.handle().clone();
   rt.block_on(async move {
-    match run(handle).await {
+    match run().await {
       Ok(_) => {}
       Err(err) => {
         eprintln!("{:#}", err.inner);
@@ -40,13 +38,12 @@ fn main() {
   });
 }
 
-async fn run(runtime_handle: tokio::runtime::Handle) -> Result<(), AppError> {
+async fn run() -> Result<(), AppError> {
   let args = arg_parser::parse_args(std::env::args().collect(), RealStdInReader)?;
 
   let environment = RealEnvironment::new(RealEnvironmentOptions {
     is_verbose: args.verbose,
     is_stdout_machine_readable: args.is_stdout_machine_readable(),
-    runtime_handle: Arc::new(runtime_handle),
   })?;
   let plugin_cache = plugins::PluginCache::new(environment.clone());
   let plugin_resolver = Rc::new(plugins::PluginResolver::new(environment.clone(), plugin_cache));

@@ -100,7 +100,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
               body.config_id.as_raw(),
               Rc::new(StoredConfig {
                 config: Arc::new(result.config),
-                diagnostics: Arc::new(result.diagnostics),
+                diagnostics: Rc::new(result.diagnostics),
                 config_map,
                 global_config,
               }),

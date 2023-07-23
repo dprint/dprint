@@ -109,7 +109,6 @@ pub struct TestEnvironment {
   dir_info_error: Arc<Mutex<Option<Error>>>,
   std_in_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
   std_out_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
-  runtime_handle: Arc<Mutex<Option<tokio::runtime::Handle>>>,
   #[cfg(windows)]
   path_dirs: Arc<Mutex<Vec<PathBuf>>>,
   cpu_arch: Arc<Mutex<String>>,
@@ -142,7 +141,6 @@ impl TestEnvironment {
         let pipe = create_test_pipe();
         (Some(pipe.0), pipe.1)
       })),
-      runtime_handle: Default::default(),
       #[cfg(windows)]
       path_dirs: Default::default(),
       cpu_arch: Arc::new(Mutex::new("x86_64".to_string())),
@@ -256,14 +254,9 @@ impl TestEnvironment {
     *self.max_threads_count.lock() = value;
   }
 
-  pub fn set_runtime_handle(&self, handle: tokio::runtime::Handle) {
-    *self.runtime_handle.lock() = Some(handle);
-  }
-
   /// Remember to drop the plugins collection manually if using this with one.
   pub fn run_in_runtime<T>(&self, future: impl Future<Output = T>) -> T {
     let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
-    self.set_runtime_handle(rt.handle().clone());
     rt.block_on(future)
   }
 
@@ -551,11 +544,6 @@ impl Environment for TestEnvironment {
 
   fn stdin(&self) -> Box<dyn Read + Send> {
     Box::new(self.std_in_pipe.lock().1.clone())
-  }
-
-  fn runtime_handle(&self) -> tokio::runtime::Handle {
-    // need to call set_runtime_handle to make this not panic
-    self.runtime_handle.lock().as_ref().unwrap().clone()
   }
 
   #[cfg(windows)]

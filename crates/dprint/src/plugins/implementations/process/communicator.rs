@@ -156,8 +156,9 @@ mod test {
     environment.run_in_runtime({
       let environment = environment.clone();
       async move {
+        //debug_here::debug_here!();
         // ensure that the config gets recreated as well
-        let communicator = InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone()).await;
+        let communicator = Rc::new(InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone()).await);
         let format_config = Arc::new(FormatConfig {
           id: FormatConfigId::from_raw(1),
           raw: {
@@ -186,17 +187,23 @@ mod test {
         }
 
         // now start up a few formats that will never finish
-        let mut futures = Vec::new();
+        let mut futures = Vec::with_capacity(10);
         for _ in 0..10 {
-          futures.push(communicator.format_text(InitializedPluginFormatRequest {
-            file_path: PathBuf::from("test.txt"),
-            // special text that makes it wait for cancellation
-            file_text: "wait_cancellation".to_string(),
-            range: None,
-            config: format_config.clone(),
-            override_config: Default::default(),
-            on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
-            token: Arc::new(NullCancellationToken),
+          let communicator = communicator.clone();
+          let format_config = format_config.clone();
+          futures.push(dprint_core::async_runtime::spawn(async move {
+            communicator
+              .format_text(InitializedPluginFormatRequest {
+                file_path: PathBuf::from("test.txt"),
+                // special text that makes it wait for cancellation
+                file_text: "wait_cancellation".to_string(),
+                range: None,
+                config: format_config,
+                override_config: Default::default(),
+                on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
+                token: Arc::new(NullCancellationToken),
+              })
+              .await
           }));
         }
 
@@ -211,7 +218,9 @@ mod test {
         // get all the results and they should be error messages
         let results = future::join_all(futures).await;
         for result in results {
-          assert_eq!(result.err().unwrap().to_string(), "Sending message failed because the process plugin failed.");
+          let err_text = result.unwrap().err().unwrap().to_string();
+          assert!(err_text.contains("Error waiting on message"), "{}", err_text);
+          assert!(err_text.contains("channel closed"), "{}", err_text);
         }
 
         // ensure we can still format with the original config

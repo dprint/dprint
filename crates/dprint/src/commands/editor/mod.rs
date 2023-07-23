@@ -324,7 +324,6 @@ mod test {
   use dprint_core::communication::IdGenerator;
   use dprint_core::communication::MessageReader;
   use dprint_core::communication::MessageWriter;
-  use dprint_core::communication::Poisoner;
   use dprint_core::communication::RcIdStore;
   use dprint_core::communication::SingleThreadMessageWriter;
   use dprint_core::configuration::ConfigKeyMap;
@@ -387,7 +386,7 @@ mod test {
 
   #[derive(Clone)]
   struct EditorServiceCommunicator {
-    writer: SingleThreadMessageWriter<EditorMessage>,
+    writer: Rc<SingleThreadMessageWriter<EditorMessage>>,
     id_generator: Rc<IdGenerator>,
     messages: RcIdStore<MessageResponseChannel>,
   }
@@ -395,7 +394,7 @@ mod test {
   impl EditorServiceCommunicator {
     pub fn new(stdin: Box<dyn Write + Send>, stdout: Box<dyn Read + Send>) -> Self {
       let mut reader = MessageReader::new(stdout);
-      let writer = SingleThreadMessageWriter::for_stdin(MessageWriter::new(stdin), Poisoner::default());
+      let writer = Rc::new(SingleThreadMessageWriter::for_stdin(MessageWriter::new(stdin)));
 
       let communicator = EditorServiceCommunicator {
         writer,

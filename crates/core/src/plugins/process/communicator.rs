@@ -5,6 +5,7 @@ use anyhow::Result;
 use serde::de::DeserializeOwned;
 use std::cell::RefCell;
 use std::io::BufRead;
+use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
@@ -31,7 +32,6 @@ use crate::communication::AtomicFlag;
 use crate::communication::IdGenerator;
 use crate::communication::MessageReader;
 use crate::communication::MessageWriter;
-use crate::communication::Poisoner;
 use crate::communication::RcIdStore;
 use crate::communication::SingleThreadMessageWriter;
 use crate::configuration::ConfigKeyMap;
@@ -67,7 +67,6 @@ enum MessageResponseChannel {
 
 struct Context {
   stdin_writer: SingleThreadMessageWriter<ProcessPluginMessage>,
-  poisoner: Poisoner,
   shutdown_flag: Arc<AtomicFlag>,
   id_generator: IdGenerator,
   messages: RcIdStore<MessageResponseChannel>,
@@ -103,7 +102,6 @@ impl ProcessPluginCommunicator {
       args.push("--init".to_string());
     }
 
-    let poisoner = Poisoner::default();
     let shutdown_flag = Arc::new(AtomicFlag::default());
     let mut child = Command::new(executable_file_path)
       .args(&args)
@@ -116,11 +114,10 @@ impl ProcessPluginCommunicator {
     // read and output stderr prefixed
     let stderr = child.stderr.take().unwrap();
     crate::async_runtime::spawn_blocking({
-      let poisoner = poisoner.clone();
       let shutdown_flag = shutdown_flag.clone();
       let on_std_err = on_std_err.clone();
       move || {
-        std_err_redirect(poisoner, shutdown_flag, stderr, on_std_err);
+        std_err_redirect(shutdown_flag, stderr, on_std_err);
       }
     });
 
@@ -128,15 +125,18 @@ impl ProcessPluginCommunicator {
     let mut stdout_reader = MessageReader::new(child.stdout.take().unwrap());
     let mut stdin_writer = MessageWriter::new(child.stdin.take().unwrap());
 
-    verify_plugin_schema_version(&mut stdout_reader, &mut stdin_writer)
-      .context("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade.")?;
+    let (mut stdout_reader, stdin_writer) = tokio::task::spawn_blocking(move || {
+      verify_plugin_schema_version(&mut stdout_reader, &mut stdin_writer)
+        .context("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade.")?;
+      Ok::<_, anyhow::Error>((stdout_reader, stdin_writer))
+    })
+    .await??;
 
-    let stdin_writer = SingleThreadMessageWriter::for_stdin(stdin_writer, poisoner.clone());
+    let stdin_writer = SingleThreadMessageWriter::for_stdin(stdin_writer);
     let context = Rc::new(Context {
       id_generator: Default::default(),
       shutdown_flag,
       stdin_writer,
-      poisoner,
       messages: Default::default(),
       format_request_tokens: Default::default(),
       host_format_callbacks: Default::default(),
@@ -145,7 +145,6 @@ impl ProcessPluginCommunicator {
     // read from stdout
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     crate::async_runtime::spawn_blocking({
-      let poisoner = context.poisoner.clone();
       let shutdown_flag = context.shutdown_flag.clone();
       let on_std_err = on_std_err.clone();
       move || {
@@ -156,15 +155,17 @@ impl ProcessPluginCommunicator {
                 break; // closed
               }
             }
+            Err(err) if err.kind() == ErrorKind::BrokenPipe => {
+              break;
+            }
             Err(err) => {
-              if !poisoner.is_poisoned() && !shutdown_flag.is_raised() {
+              if !shutdown_flag.is_raised() {
                 on_std_err(format!("Error reading stdout message: {:#}", err));
               }
               break;
             }
           }
         }
-        poisoner.poison();
       }
     });
     crate::async_runtime::spawn({
@@ -172,13 +173,14 @@ impl ProcessPluginCommunicator {
       async move {
         while let Some(message) = rx.recv().await {
           if let Err(err) = handle_stdout_message(message, &context) {
-            if !context.poisoner.is_poisoned() && !context.shutdown_flag.is_raised() {
+            if !context.shutdown_flag.is_raised() {
               on_std_err(format!("Error reading stdout message: {:#}", err));
             }
             break;
           }
         }
-        context.poisoner.poison();
+        // clear out all the messages
+        context.messages.take_all();
       }
     });
 
@@ -190,25 +192,24 @@ impl ProcessPluginCommunicator {
 
   /// Perform a graceful shutdown.
   pub async fn shutdown(&self) {
-    self.context.shutdown_flag.raise();
-    if self.context.poisoner.is_poisoned() {
-      self.kill();
-    } else {
+    if self.context.shutdown_flag.raise() {
       // attempt to exit nicely
       tokio::select! {
         // we wait for acknowledgement in order to give the process
         // plugin a chance to clean up (ex. in case it has spawned
         // any processes it needs to kill or something like that)
         _ = self.send_with_acknowledgement(MessageBody::Close) => {}
-        _ = tokio::time::sleep(Duration::from_millis(250)) => {}
+        _ = tokio::time::sleep(Duration::from_millis(250)) => {
+          self.kill();
+        }
       }
-      self.context.poisoner.poison();
+    } else {
+      self.kill();
     }
   }
 
   pub fn kill(&self) {
     self.context.shutdown_flag.raise();
-    self.context.poisoner.poison();
     if let Some(mut child) = self.child.borrow_mut().take() {
       let _ignore = child.kill();
     }
@@ -289,7 +290,11 @@ impl ProcessPluginCommunicator {
 
   /// Checks if the process is functioning.
   pub async fn is_process_alive(&self) -> bool {
-    !self.context.poisoner.is_poisoned() || self.ask_is_alive().await
+    if self.context.shutdown_flag.is_raised() {
+      false
+    } else {
+      self.ask_is_alive().await
+    }
   }
 
   async fn send_with_acknowledgement(&self, body: MessageBody) -> Result<()> {
@@ -338,10 +343,6 @@ impl ProcessPluginCommunicator {
     self.context.messages.store(message_id, response_channel);
     self.context.stdin_writer.send(ProcessPluginMessage { id: message_id, body })?;
     tokio::select! {
-      _ = self.context.poisoner.wait_poisoned() => {
-        self.context.messages.take(message_id); // clear memory
-        bail!("Sending message failed because the process plugin failed.");
-      }
       _ = token.wait_cancellation() => {
         self.context.messages.take(message_id); // clear memory
         // send cancellation to the client
@@ -355,7 +356,6 @@ impl ProcessPluginCommunicator {
         match response {
           Ok(data) => Ok(data),
           Err(err) => {
-            self.context.poisoner.poison();
             bail!("Error waiting on message ({}). {:#}", message_id, err)
           }
         }
@@ -387,18 +387,13 @@ fn verify_plugin_schema_version<TRead: Read + Unpin, TWrite: Write + Unpin>(
   Ok(())
 }
 
-fn std_err_redirect(poisoner: Poisoner, shutdown_flag: Arc<AtomicFlag>, stderr: ChildStderr, on_std_err: impl Fn(String) + Send + Sync + 'static) {
-  use std::io::ErrorKind;
+fn std_err_redirect(shutdown_flag: Arc<AtomicFlag>, stderr: ChildStderr, on_std_err: impl Fn(String) + Send + Sync + 'static) {
   let reader = std::io::BufReader::new(stderr);
   for line in reader.lines() {
     match line {
       Ok(line) => on_std_err(line),
       Err(err) => {
-        if poisoner.is_poisoned() || shutdown_flag.is_raised() {
-          return;
-        }
-        if err.kind() == ErrorKind::BrokenPipe {
-          poisoner.poison();
+        if shutdown_flag.is_raised() || err.kind() == ErrorKind::BrokenPipe {
           return;
         } else {
           on_std_err(format!("Error reading line from process plugin stderr. {:#}", err));
@@ -466,6 +461,7 @@ fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -
         token.cancel();
       }
       context.host_format_callbacks.take(message_id);
+      // do not clear from context.messages here because the cancellation will do that
     }
     MessageBody::HostFormat(body) => {
       // spawn a task to do the host formatting, then send a message back to the

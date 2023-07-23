@@ -28,13 +28,11 @@ use crate::utils::RealUrlDownloader;
 pub struct RealEnvironmentOptions {
   pub is_verbose: bool,
   pub is_stdout_machine_readable: bool,
-  pub runtime_handle: Arc<tokio::runtime::Handle>,
 }
 
 #[derive(Clone)]
 pub struct RealEnvironment {
   progress_bars: Option<ProgressBars>,
-  runtime_handle: Arc<tokio::runtime::Handle>,
   url_downloader: Arc<RealUrlDownloader>,
   logger: Logger,
 }
@@ -54,7 +52,6 @@ impl RealEnvironment {
       url_downloader,
       logger,
       progress_bars,
-      runtime_handle: options.runtime_handle,
     };
 
     // ensure the cache directory is created
@@ -71,11 +68,9 @@ impl RealEnvironment {
   #[cfg(test)]
   pub fn run_test_with_real_env(run_with_env: impl Fn(RealEnvironment) -> dprint_core::async_runtime::LocalBoxFuture<'static, ()>) {
     let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
-    let handle = rt.handle().clone();
     let env = RealEnvironment::new(RealEnvironmentOptions {
       is_verbose: false,
       is_stdout_machine_readable: false,
-      runtime_handle: Arc::new(handle),
     })
     .unwrap();
 
@@ -315,10 +310,6 @@ impl Environment for RealEnvironment {
 
   fn stdin(&self) -> Box<dyn std::io::Read + Send> {
     Box::new(std::io::stdin())
-  }
-
-  fn runtime_handle(&self) -> tokio::runtime::Handle {
-    (*self.runtime_handle).clone()
   }
 
   fn progress_bars(&self) -> Option<ProgressBars> {

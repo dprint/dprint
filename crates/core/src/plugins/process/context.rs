@@ -18,7 +18,7 @@ pub type FormatHostSender = tokio::sync::oneshot::Sender<FormatResult>;
 
 pub struct StoredConfig<TConfiguration: Serialize + Clone> {
   pub config: Arc<TConfiguration>,
-  pub diagnostics: Arc<Vec<ConfigurationDiagnostic>>,
+  pub diagnostics: Rc<Vec<ConfigurationDiagnostic>>,
   pub config_map: ConfigKeyMap,
   pub global_config: GlobalConfiguration,
 }
@@ -28,7 +28,7 @@ pub struct ProcessContext<TConfiguration: Serialize + Clone> {
   pub configs: RcIdStore<Rc<StoredConfig<TConfiguration>>>,
   pub cancellation_tokens: RcIdStore<Arc<CancellationToken>>,
   pub format_host_senders: RcIdStore<FormatHostSender>,
-  pub stdout_writer: SingleThreadMessageWriter<ProcessPluginMessage>,
+  pub stdout_writer: Rc<SingleThreadMessageWriter<ProcessPluginMessage>>,
 }
 
 impl<TConfiguration: Serialize + Clone> ProcessContext<TConfiguration> {
@@ -38,7 +38,7 @@ impl<TConfiguration: Serialize + Clone> ProcessContext<TConfiguration> {
       configs: Default::default(),
       cancellation_tokens: Default::default(),
       format_host_senders: Default::default(),
-      stdout_writer,
+      stdout_writer: Rc::new(stdout_writer),
     }
   }
 }

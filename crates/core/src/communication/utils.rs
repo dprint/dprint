@@ -3,34 +3,13 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
-
-use tokio_util::sync::CancellationToken;
-use tokio_util::sync::WaitForCancellationFuture;
-
-#[derive(Default, Clone)]
-pub struct Poisoner(Arc<CancellationToken>);
-
-impl Poisoner {
-  pub fn poison(&self) {
-    self.0.cancel()
-  }
-
-  pub fn is_poisoned(&self) -> bool {
-    self.0.is_cancelled()
-  }
-
-  pub fn wait_poisoned(&self) -> WaitForCancellationFuture {
-    self.0.cancelled()
-  }
-}
 
 #[derive(Default)]
 pub struct AtomicFlag(AtomicBool);
 
 impl AtomicFlag {
-  pub fn raise(&self) {
-    self.0.store(true, Ordering::SeqCst)
+  pub fn raise(&self) -> bool {
+    !self.0.swap(true, Ordering::SeqCst)
   }
 
   pub fn is_raised(&self) -> bool {

@@ -110,7 +110,6 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult>;
   fn stdout(&self) -> Box<dyn Write + Send>;
   fn stdin(&self) -> Box<dyn Read + Send>;
-  fn runtime_handle(&self) -> tokio::runtime::Handle;
   fn progress_bars(&self) -> Option<ProgressBars> {
     None
   }
