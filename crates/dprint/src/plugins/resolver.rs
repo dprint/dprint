@@ -47,7 +47,6 @@ impl PluginWrapper {
     if let Some(plugin) = self.initialized_plugin.get() {
       plugin.shutdown().await;
     }
-    eprintln!("DONE");
   }
 }
 

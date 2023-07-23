@@ -70,8 +70,8 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
       self.info().name.to_string(),
       self.module.clone(),
       Arc::new({
-        move |store, module, host_format_callback| {
-          let (import_object, env) = create_pools_import_object(store, host_format_callback);
+        move |store, module, host_format_sender| {
+          let (import_object, env) = create_pools_import_object(store, host_format_sender);
           let instance = load_instance(store, module, &import_object)?;
           env.as_mut(store).initialize(&instance.inner)?;
           Ok(instance)
@@ -422,18 +422,14 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
             Some(instance_state) => {
               // forward the provided token on to the host format
               request.token = instance_state.token.clone();
-              eprintln!("1");
               let message = (instance_state.host_format_callback)(request);
-              eprintln!("2");
               tokio::select! {
                 _ = poisoner.wait_poisoned() => {
-                  eprintln!("EXITED");
                   // in this case, we're shutting down, so just quit
                   let _ = sender.send(Ok(None)); // poisoned
                   return; // quit
                 }
                 result = message => {
-              eprintln!("333");
                   if sender.send(result).is_err() {
                     return; // disconnected
                   }
@@ -614,7 +610,6 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
 
     // poison all the created instances
     for info in &created_instance_infos {
-      eprintln!("POISTONED");
       info.poisoner.poison();
     }
 
@@ -622,14 +617,10 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
     // because there might be a plugin that's stuck in host formatting and
     // now we want it to finish gracefully before the engine shuts down.
     for mut info in created_instance_infos {
-      eprintln!("a1");
       let handle = info.handle.take();
       drop(info);
-      eprintln!("a2");
       if let Some(handle) = handle {
-        eprintln!("a3");
         handle.await.unwrap();
-        eprintln!("a4");
       }
     }
   }

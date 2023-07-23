@@ -118,22 +118,27 @@ mod test {
           .collect();
         let scope = Rc::new(PluginsScope::new(environment.clone(), plugins, &environment.cwd()).unwrap());
         let token = Arc::new(CancellationToken::new());
-        let result = scope
-          .format(HostFormatRequest {
-            file_path: PathBuf::from("file.txt_ps"),
-            // This should cause the process plugin to format with the
-            // Wasm plugin which will then try to format with the process plugin
-            // and finally it will wait for cancellation to occur
-            file_text: "plugin: plugin: wait_cancellation".to_string(),
-            range: None,
-            override_config: Default::default(),
-            token,
-          })
-          .await
-          .unwrap();
-        assert_eq!(result, None);
+
+        // start up a format that will hang forever
+        dprint_core::async_runtime::spawn(async move {
+          scope
+            .format(HostFormatRequest {
+              file_path: PathBuf::from("file.txt_ps"),
+              // This should cause the process plugin to format with the
+              // Wasm plugin which will then try to format with the process plugin
+              // and then will hang forever
+              file_text: "plugin: plugin: wait_cancellation".to_string(),
+              range: None,
+              override_config: Default::default(),
+              token,
+            })
+            .await
+            .unwrap();
+        });
+
+        // give it some time to start and hang
+        tokio::time::sleep(Duration::from_millis(20)).await;
         resolver.clear_and_shutdown_initialized().await;
-        eprintln!("DONE");
       }
     });
   }
