@@ -9,46 +9,46 @@ on:
     branches:
       - main
     tags:
-      - '*'
+      - "*"
 concurrency:
-  group: '${{ github.workflow }}-${{ github.head_ref || github.run_id }}'
+  group: "${{ github.workflow }}-${{ github.head_ref || github.run_id }}"
   cancel-in-progress: true
 jobs:
   build:
-    name: '${{ matrix.config.target }}'
-    runs-on: '${{ matrix.config.os }}'
+    name: "${{ matrix.config.target }}"
+    runs-on: "${{ matrix.config.os }}"
     strategy:
       matrix:
         config:
           - os: macOS-latest
-            run_tests: 'true'
+            run_tests: "true"
             target: x86_64-apple-darwin
           - os: macOS-latest
-            run_tests: 'false'
+            run_tests: "false"
             target: aarch64-apple-darwin
           - os: windows-latest
-            run_tests: 'true'
+            run_tests: "true"
             target: x86_64-pc-windows-msvc
           - os: ubuntu-20.04
-            run_tests: 'true'
+            run_tests: "true"
             target: x86_64-unknown-linux-gnu
           - os: ubuntu-20.04
-            run_tests: 'false'
+            run_tests: "false"
             target: x86_64-unknown-linux-musl
           - os: ubuntu-20.04
-            run_tests: 'false'
+            run_tests: "false"
             target: aarch64-unknown-linux-gnu
     env:
       CARGO_INCREMENTAL: 0
       RUST_BACKTRACE: full
     outputs:
-      ZIP_CHECKSUM_X86_64_APPLE_DARWIN: '${{steps.pre_release_x86_64_apple_darwin.outputs.ZIP_CHECKSUM}}'
-      ZIP_CHECKSUM_AARCH64_APPLE_DARWIN: '${{steps.pre_release_aarch64_apple_darwin.outputs.ZIP_CHECKSUM}}'
-      ZIP_CHECKSUM_X86_64_PC_WINDOWS_MSVC: '${{steps.pre_release_x86_64_pc_windows_msvc.outputs.ZIP_CHECKSUM}}'
-      INSTALLER_CHECKSUM_X86_64_PC_WINDOWS_MSVC: '${{steps.pre_release_x86_64_pc_windows_msvc.outputs.INSTALLER_CHECKSUM}}'
-      ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_GNU: '${{steps.pre_release_x86_64_unknown_linux_gnu.outputs.ZIP_CHECKSUM}}'
-      ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_MUSL: '${{steps.pre_release_x86_64_unknown_linux_musl.outputs.ZIP_CHECKSUM}}'
-      ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_GNU: '${{steps.pre_release_aarch64_unknown_linux_gnu.outputs.ZIP_CHECKSUM}}'
+      ZIP_CHECKSUM_X86_64_APPLE_DARWIN: "${{steps.pre_release_x86_64_apple_darwin.outputs.ZIP_CHECKSUM}}"
+      ZIP_CHECKSUM_AARCH64_APPLE_DARWIN: "${{steps.pre_release_aarch64_apple_darwin.outputs.ZIP_CHECKSUM}}"
+      ZIP_CHECKSUM_X86_64_PC_WINDOWS_MSVC: "${{steps.pre_release_x86_64_pc_windows_msvc.outputs.ZIP_CHECKSUM}}"
+      INSTALLER_CHECKSUM_X86_64_PC_WINDOWS_MSVC: "${{steps.pre_release_x86_64_pc_windows_msvc.outputs.INSTALLER_CHECKSUM}}"
+      ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_GNU: "${{steps.pre_release_x86_64_unknown_linux_gnu.outputs.ZIP_CHECKSUM}}"
+      ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_MUSL: "${{steps.pre_release_x86_64_unknown_linux_musl.outputs.ZIP_CHECKSUM}}"
+      ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_GNU: "${{steps.pre_release_aarch64_unknown_linux_gnu.outputs.ZIP_CHECKSUM}}"
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -59,11 +59,11 @@ jobs:
         if: matrix.config.target == 'x86_64-unknown-linux-gnu'
         run: deno run --allow-env --allow-read --allow-net=deno.land .github/workflows/scripts/verify_wasmer_compiler_version.ts
       - name: Build test plugins (Debug)
-        if: 'matrix.config.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'')'
-        run: 'cargo build -p test-process-plugin --locked --target ${{matrix.config.target}}'
+        if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')"
+        run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}}"
       - name: Build test plugins (Release)
-        if: 'matrix.config.run_tests == ''true'' && startsWith(github.ref, ''refs/tags/'')'
-        run: 'cargo build -p test-process-plugin --locked --target ${{matrix.config.target}} --release'
+        if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')"
+        run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}} --release"
       - name: Setup (Linux x86_64-musl)
         if: matrix.config.target == 'x86_64-unknown-linux-musl'
         run: |-
@@ -80,43 +80,43 @@ jobs:
         if: matrix.config.target == 'aarch64-apple-darwin'
         run: rustup target add aarch64-apple-darwin
       - name: Build (Debug)
-        if: '!startsWith(github.ref, ''refs/tags/'')'
+        if: "!startsWith(github.ref, 'refs/tags/')"
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: 'cargo build -p dprint --locked --target ${{matrix.config.target}}'
+        run: "cargo build -p dprint --locked --target ${{matrix.config.target}}"
       - name: Build (Release)
-        if: 'startsWith(github.ref, ''refs/tags/'')'
+        if: "startsWith(github.ref, 'refs/tags/')"
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: 'cargo build -p dprint --locked --target ${{matrix.config.target}} --release'
+        run: "cargo build -p dprint --locked --target ${{matrix.config.target}} --release"
       - name: Test (Debug)
-        if: 'matrix.config.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'')'
-        run: 'cargo test --locked --target ${{matrix.config.target}} --all-features'
+        if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')"
+        run: "cargo test --locked --target ${{matrix.config.target}} --all-features"
       - name: Test (Release)
-        if: 'matrix.config.run_tests == ''true'' && startsWith(github.ref, ''refs/tags/'')'
-        run: 'cargo test --locked --target ${{matrix.config.target}} --all-features --release'
+        if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')"
+        run: "cargo test --locked --target ${{matrix.config.target}} --all-features --release"
       - name: Create installer (Windows x86_64)
         uses: joncloud/makensis-action@v2.0
-        if: 'startsWith(matrix.config.os, ''windows'') && startsWith(github.ref, ''refs/tags/'')'
+        if: "startsWith(matrix.config.os, 'windows') && startsWith(github.ref, 'refs/tags/')"
         with:
-          script-file: '${{ github.workspace }}/deployment/installer/dprint-installer.nsi'
+          script-file: "${{ github.workspace }}/deployment/installer/dprint-installer.nsi"
       - name: Pre-release (x86_64-apple-darwin)
         id: pre_release_x86_64_apple_darwin
-        if: 'matrix.config.target == ''x86_64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
+        if: "matrix.config.target == 'x86_64-apple-darwin' && startsWith(github.ref, 'refs/tags/')"
         run: |-
           cd target/x86_64-apple-darwin/release
           zip -r dprint-x86_64-apple-darwin.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-apple-darwin.zip | awk '{print $1}')"
       - name: Pre-release (aarch64-apple-darwin)
         id: pre_release_aarch64_apple_darwin
-        if: 'matrix.config.target == ''aarch64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
+        if: "matrix.config.target == 'aarch64-apple-darwin' && startsWith(github.ref, 'refs/tags/')"
         run: |-
           cd target/aarch64-apple-darwin/release
           zip -r dprint-aarch64-apple-darwin.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-aarch64-apple-darwin.zip | awk '{print $1}')"
       - name: Pre-release (x86_64-pc-windows-msvc)
         id: pre_release_x86_64_pc_windows_msvc
-        if: 'matrix.config.target == ''x86_64-pc-windows-msvc'' && startsWith(github.ref, ''refs/tags/'')'
+        if: "matrix.config.target == 'x86_64-pc-windows-msvc' && startsWith(github.ref, 'refs/tags/')"
         run: |-
           Compress-Archive -CompressionLevel Optimal -Force -Path target/x86_64-pc-windows-msvc/release/dprint.exe -DestinationPath target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc.zip
           mv deployment/installer/dprint-x86_64-pc-windows-msvc-installer.exe target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe
@@ -124,39 +124,39 @@ jobs:
           echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')"
       - name: Pre-release (x86_64-unknown-linux-gnu)
         id: pre_release_x86_64_unknown_linux_gnu
-        if: 'matrix.config.target == ''x86_64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/')"
         run: |-
           cd target/x86_64-unknown-linux-gnu/release
           zip -r dprint-x86_64-unknown-linux-gnu.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-unknown-linux-gnu.zip | awk '{print $1}')"
       - name: Pre-release (x86_64-unknown-linux-musl)
         id: pre_release_x86_64_unknown_linux_musl
-        if: 'matrix.config.target == ''x86_64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
+        if: "matrix.config.target == 'x86_64-unknown-linux-musl' && startsWith(github.ref, 'refs/tags/')"
         run: |-
           cd target/x86_64-unknown-linux-musl/release
           zip -r dprint-x86_64-unknown-linux-musl.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-unknown-linux-musl.zip | awk '{print $1}')"
       - name: Pre-release (aarch64-unknown-linux-gnu)
         id: pre_release_aarch64_unknown_linux_gnu
-        if: 'matrix.config.target == ''aarch64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: "matrix.config.target == 'aarch64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/')"
         run: |-
           cd target/aarch64-unknown-linux-gnu/release
           zip -r dprint-aarch64-unknown-linux-gnu.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-aarch64-unknown-linux-gnu.zip | awk '{print $1}')"
       - name: Upload artifacts (x86_64-apple-darwin)
-        if: 'matrix.config.target == ''x86_64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
+        if: "matrix.config.target == 'x86_64-apple-darwin' && startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v2
         with:
           name: x86_64-apple-darwin-artifacts
           path: target/x86_64-apple-darwin/release/dprint-x86_64-apple-darwin.zip
       - name: Upload artifacts (aarch64-apple-darwin)
-        if: 'matrix.config.target == ''aarch64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
+        if: "matrix.config.target == 'aarch64-apple-darwin' && startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v2
         with:
           name: aarch64-apple-darwin-artifacts
           path: target/aarch64-apple-darwin/release/dprint-aarch64-apple-darwin.zip
       - name: Upload artifacts (x86_64-pc-windows-msvc)
-        if: 'matrix.config.target == ''x86_64-pc-windows-msvc'' && startsWith(github.ref, ''refs/tags/'')'
+        if: "matrix.config.target == 'x86_64-pc-windows-msvc' && startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v2
         with:
           name: x86_64-pc-windows-msvc-artifacts
@@ -164,43 +164,43 @@ jobs:
             target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc.zip
             target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe
       - name: Upload artifacts (x86_64-unknown-linux-gnu)
-        if: 'matrix.config.target == ''x86_64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v2
         with:
           name: x86_64-unknown-linux-gnu-artifacts
           path: target/x86_64-unknown-linux-gnu/release/dprint-x86_64-unknown-linux-gnu.zip
       - name: Upload artifacts (x86_64-unknown-linux-musl)
-        if: 'matrix.config.target == ''x86_64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
+        if: "matrix.config.target == 'x86_64-unknown-linux-musl' && startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v2
         with:
           name: x86_64-unknown-linux-musl-artifacts
           path: target/x86_64-unknown-linux-musl/release/dprint-x86_64-unknown-linux-musl.zip
       - name: Upload artifacts (aarch64-unknown-linux-gnu)
-        if: 'matrix.config.target == ''aarch64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: "matrix.config.target == 'aarch64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v2
         with:
           name: aarch64-unknown-linux-gnu-artifacts
           path: target/aarch64-unknown-linux-gnu/release/dprint-aarch64-unknown-linux-gnu.zip
       - name: Test shell installer
-        if: 'matrix.config.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'')'
+        if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')"
         run: |-
           cd website/src/assets
           chmod +x install.sh
           ./install.sh
       - name: Test powershell installer (Windows)
-        if: 'matrix.config.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'') && startsWith(matrix.config.os, ''windows'')'
+        if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/') && startsWith(matrix.config.os, 'windows')"
         shell: pwsh
         run: |-
           cd website/src/assets
           ./install.ps1
       - name: Test npm
-        if: 'matrix.config.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'')'
+        if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')"
         run: |-
           cd deployment/npm
           deno run -A build.ts 0.37.1
   draft_release:
     name: draft_release
-    if: 'startsWith(github.ref, ''refs/tags/'')'
+    if: "startsWith(github.ref, 'refs/tags/')"
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -227,7 +227,7 @@ jobs:
       - name: Draft release
         uses: softprops/action-gh-release@v1
         env:
-          GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         with:
           files: |-
             x86_64-apple-darwin-artifacts/dprint-x86_64-apple-darwin.zip
