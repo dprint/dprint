@@ -29,6 +29,17 @@ impl IdGenerator {
   }
 }
 
+pub struct RcIdStoreOwnedGuard<T> {
+  store: RcIdStore<T>,
+  message_id: u32,
+}
+
+impl<T> Drop for RcIdStoreOwnedGuard<T> {
+  fn drop(&mut self) {
+    self.store.take(self.message_id);
+  }
+}
+
 pub struct RcIdStoreGuard<'a, T> {
   store: &'a RcIdStore<T>,
   message_id: u32,
@@ -61,6 +72,14 @@ impl<T> RcIdStore<T> {
   pub fn store_with_guard(&self, message_id: u32, data: T) -> RcIdStoreGuard<'_, T> {
     self.store(message_id, data);
     RcIdStoreGuard { store: self, message_id }
+  }
+
+  pub fn store_with_owned_guard(&self, message_id: u32, data: T) -> RcIdStoreOwnedGuard<T> {
+    self.store(message_id, data);
+    RcIdStoreOwnedGuard {
+      store: self.clone(),
+      message_id,
+    }
   }
 
   pub fn take(&self, message_id: u32) -> Option<T> {

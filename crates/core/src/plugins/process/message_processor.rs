@@ -171,9 +171,9 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           };
 
           // start the task
-          context.cancellation_tokens.store(message.id, token.clone());
           let context = context.clone();
           let handler = handler.clone();
+          let token_storage_guard = context.cancellation_tokens.store_with_owned_guard(message.id, token.clone());
           crate::async_runtime::spawn(async move {
             let original_message_id = message.id;
             let result = handler
@@ -182,7 +182,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
                 move |request| host_format(&context, original_message_id, request)
               })
               .await;
-            context.cancellation_tokens.take(message.id);
+            drop(token_storage_guard);
             if !token.is_cancelled() {
               let body = match result {
                 Ok(text) => MessageBody::FormatResponse(ResponseBody {
