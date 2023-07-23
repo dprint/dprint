@@ -127,3 +127,30 @@ impl<F: Future> Future for MaskFutureAsSend<F> {
     }
   }
 }
+
+/// A drop guard that runs a finalizer when dropped.
+///
+/// This is useful in scenarios when you need to ensure cleanup happens
+/// after awaiting a future.
+pub struct DropGuardAction<T: FnOnce()> {
+  finalizer: Option<T>,
+}
+
+impl<T: FnOnce()> Drop for DropGuardAction<T> {
+  fn drop(&mut self) {
+    if let Some(finalizer) = self.finalizer.take() {
+      (finalizer)();
+    }
+  }
+}
+
+impl<T: FnOnce()> DropGuardAction<T> {
+  pub fn new(finalizer: T) -> Self {
+    Self { finalizer: Some(finalizer) }
+  }
+
+  /// Forget about running the finalizer on this drop guard.
+  pub fn forget(&mut self) {
+    self.finalizer.take();
+  }
+}

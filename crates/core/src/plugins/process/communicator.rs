@@ -27,6 +27,7 @@ use super::messages::ProcessPluginMessage;
 use super::messages::RegisterConfigMessageBody;
 use super::messages::ResponseBody;
 use super::PLUGIN_SCHEMA_VERSION;
+use crate::async_runtime::DropGuardAction;
 use crate::async_runtime::LocalBoxFuture;
 use crate::communication::AtomicFlag;
 use crate::communication::IdGenerator;
@@ -340,19 +341,25 @@ impl ProcessPluginCommunicator {
     receiver: oneshot::Receiver<Result<T>>,
     token: Arc<dyn super::super::CancellationToken>,
   ) -> Result<Result<T>> {
+    let mut drop_guard = DropGuardAction::new(|| {
+      // clear up memory
+      self.context.messages.take(message_id);
+      // send cancellation to the client
+      let _ = self.context.stdin_writer.send(ProcessPluginMessage {
+        id: self.context.id_generator.next(),
+        body: MessageBody::CancelFormat(message_id),
+      });
+    });
+
     self.context.messages.store(message_id, response_channel);
     self.context.stdin_writer.send(ProcessPluginMessage { id: message_id, body })?;
     tokio::select! {
       _ = token.wait_cancellation() => {
-        self.context.messages.take(message_id); // clear memory
-        // send cancellation to the client
-        let _ = self.context.stdin_writer.send(ProcessPluginMessage {
-          id: self.context.id_generator.next(),
-          body: MessageBody::CancelFormat(message_id),
-        });
+        drop(drop_guard); // explicit
         Ok(Ok(Default::default()))
       }
       response = receiver => {
+        drop_guard.forget(); // we completed, so don't run the drop guard
         match response {
           Ok(data) => Ok(data),
           Err(err) => {

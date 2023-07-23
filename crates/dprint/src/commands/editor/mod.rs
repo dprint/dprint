@@ -214,7 +214,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
             token: token.clone(),
           };
 
-          self.context.cancellation_tokens.store(message.id, token.clone());
+          let token_storage_guard = self.context.cancellation_tokens.store_with_owned_guard(message.id, token.clone());
           let context = self.context.clone();
           let concurrency_limiter = self.concurrency_limiter.clone();
           let scope = self.plugins_scope.clone().unwrap();
@@ -225,7 +225,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
             }
 
             let result = scope.format(request).await;
-            context.cancellation_tokens.take(message.id);
+            drop(token_storage_guard);
             if token.is_cancelled() {
               return;
             }
@@ -321,6 +321,7 @@ mod test {
   use anyhow::anyhow;
   use anyhow::Result;
   use dprint_core::async_runtime::future;
+  use dprint_core::async_runtime::DropGuardAction;
   use dprint_core::communication::IdGenerator;
   use dprint_core::communication::MessageReader;
   use dprint_core::communication::MessageWriter;
@@ -485,15 +486,22 @@ mod test {
       token: Arc<CancellationToken>,
     ) -> Result<T> {
       let message_id = self.id_generator.next();
+      let mut drop_guard = DropGuardAction::new(|| {
+        let _ = self.writer.send(EditorMessage {
+          id: self.id_generator.next(),
+          body: EditorMessageBody::CancelFormat(message_id),
+        });
+        self.messages.take(message_id); // clear memory
+      });
       self.messages.store(message_id, response_channel);
       self.writer.send(EditorMessage { id: message_id, body })?;
       tokio::select! {
         _ = token.cancelled() => {
-          self.writer.send(EditorMessage { id: self.id_generator.next(), body: EditorMessageBody::CancelFormat(message_id) })?;
-          self.messages.take(message_id); // clear memory
+          drop(drop_guard); // be explicit
           Ok(Default::default())
         }
         response = receiver => {
+          drop_guard.forget(); // we completed successfully, so don't run the drop guard code
           match response {
             Ok(data) => data,
             Err(err) => panic!("{:#}", err)
