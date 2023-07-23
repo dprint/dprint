@@ -263,9 +263,9 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   }
 
   async fn ensure_latest_config(&mut self) -> Result<()> {
-    // todo: use a semaphore around here to ensure single concurrency
+    // todo(THIS PR): use a semaphore around here to ensure single concurrency
     let last_config = self.config.take();
-    let config = resolve_config_from_args(self.args, self.environment)?;
+    let config = resolve_config_from_args(self.args, self.environment).await?;
 
     let has_config_changed = last_config.is_none() || last_config.unwrap() != config || self.plugins_scope.is_none();
     if has_config_changed {

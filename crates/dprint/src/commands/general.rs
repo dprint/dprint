@@ -49,7 +49,7 @@ pub async fn output_help<TEnvironment: Environment>(
     }
   }
 
-  if let Some(latest_version) = is_out_of_date(environment) {
+  if let Some(latest_version) = is_out_of_date(environment).await {
     environment.log(&format!(
       "\nLatest version: {} (Current is {})\nDownload the latest version by running: dprint upgrade",
       latest_version,

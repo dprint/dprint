@@ -9,7 +9,6 @@ use super::Logger;
 
 const MAX_RETRIES: u8 = 2;
 
-#[derive(Clone)]
 pub struct RealUrlDownloader {
   https_agent: ureq::Agent,
   http_agent: ureq::Agent,

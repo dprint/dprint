@@ -307,7 +307,7 @@ struct PluginsAndPathsResolver<'a, TEnvironment: Environment> {
 
 impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
   pub async fn resolve_config(&self) -> Result<PluginsScopeAndPaths<TEnvironment>> {
-    let config = resolve_config_from_args(self.args, self.environment)?;
+    let config = resolve_config_from_args(self.args, self.environment).await?;
     let scope = resolve_plugins_scope_and_err_if_empty(&config, self.environment, self.plugin_resolver, self.resolve_plugins_options).await?;
     let glob_output = get_and_resolve_file_paths(&config, self.patterns, scope.plugins.values().map(|p| p.as_ref()), self.environment).await?;
     let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&scope.plugin_name_maps, glob_output.file_paths)?;
@@ -334,7 +334,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
         base_path: config_file_path.parent().unwrap(),
         resolved_path: ResolvedPath::local(config_file_path),
       };
-      let mut config = resolve_config_from_path(&config_path, self.environment)?;
+      let mut config = resolve_config_from_path(&config_path, self.environment).await?;
       if !self.args.plugins.is_empty() {
         config.plugins = parent_config.plugins.clone();
       }
@@ -358,7 +358,7 @@ pub async fn get_plugins_scope_from_args<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
-  match resolve_config_from_args(args, environment) {
+  match resolve_config_from_args(args, environment).await {
     Ok(config) => {
       resolve_plugins_scope(
         &config,

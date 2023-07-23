@@ -38,7 +38,7 @@ mod test {
         let plugin_cache = PluginCache::new(environment.clone());
         let resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
         let cli_args = CliArgs::empty();
-        let config = resolve_config_from_args(&cli_args, &environment).unwrap();
+        let config = resolve_config_from_args(&cli_args, &environment).await.unwrap();
         let plugins = resolver.resolve_plugins(config.plugins).await.unwrap();
         assert_eq!(
           plugins.iter().map(|p| &p.info().name).collect::<Vec<_>>(),

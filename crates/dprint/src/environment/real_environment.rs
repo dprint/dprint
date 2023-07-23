@@ -1,6 +1,7 @@
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use async_trait::async_trait;
 use once_cell::sync::Lazy;
 use std::fs;
 use std::num::NonZeroUsize;
@@ -34,7 +35,7 @@ pub struct RealEnvironmentOptions {
 pub struct RealEnvironment {
   progress_bars: Option<ProgressBars>,
   runtime_handle: Arc<tokio::runtime::Handle>,
-  url_downloader: RealUrlDownloader,
+  url_downloader: Arc<RealUrlDownloader>,
   logger: Logger,
 }
 
@@ -46,7 +47,9 @@ impl RealEnvironment {
       is_verbose: options.is_verbose,
     });
     let progress_bars = ProgressBars::new(&logger);
-    let url_downloader = RealUrlDownloader::new(progress_bars.clone(), logger.clone(), |env_var_name| std::env::var(env_var_name).ok())?;
+    let url_downloader = Arc::new(RealUrlDownloader::new(progress_bars.clone(), logger.clone(), |env_var_name| {
+      std::env::var(env_var_name).ok()
+    })?);
     let environment = RealEnvironment {
       url_downloader,
       logger,
@@ -80,11 +83,14 @@ impl RealEnvironment {
   }
 }
 
+#[async_trait(?Send)]
 impl UrlDownloader for RealEnvironment {
-  fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
+  async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
     log_verbose!(self, "Downloading url: {}", url);
 
-    self.url_downloader.download(url)
+    let downloader = self.url_downloader.clone();
+    let url = url.to_string();
+    dprint_core::async_runtime::spawn_blocking(move || downloader.download(&url)).await?
   }
 }
 

@@ -46,7 +46,7 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
   plugin_file_bytes: &[u8],
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
-  let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment)?;
+  let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment).await?;
   let plugin_cache_dir_path = get_plugin_dir_path(&plugin_zip_bytes.name, &plugin_zip_bytes.version, environment);
 
   let result = setup_inner(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment).await;
@@ -137,7 +137,7 @@ struct ProcessPluginZipBytes {
   zip_bytes: Vec<u8>,
 }
 
-fn get_plugin_zip_bytes<TEnvironment: Environment>(
+async fn get_plugin_zip_bytes<TEnvironment: Environment>(
   url_or_file_path: &PathSource,
   plugin_file_bytes: &[u8],
   environment: &TEnvironment,
@@ -145,7 +145,7 @@ fn get_plugin_zip_bytes<TEnvironment: Environment>(
   let plugin_file = deserialize_file(plugin_file_bytes)?;
   let plugin_path = get_os_path(&plugin_file, environment)?;
   let plugin_zip_path = resolve_url_or_file_path_to_path_source(&plugin_path.reference, &url_or_file_path.parent(), environment)?;
-  let plugin_zip_bytes = fetch_file_or_url_bytes(&plugin_zip_path, environment)?;
+  let plugin_zip_bytes = fetch_file_or_url_bytes(&plugin_zip_path, environment).await?;
   if let Err(err) = verify_sha256_checksum(&plugin_zip_bytes, &plugin_path.checksum) {
     bail!(
       concat!(

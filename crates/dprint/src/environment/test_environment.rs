@@ -178,6 +178,15 @@ impl TestEnvironment {
     remote_files.insert(String::from(path), Err(anyhow!("{}", err)));
   }
 
+  pub fn get_remote_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
+    let remote_files = self.remote_files.lock();
+    match remote_files.get(&String::from(url)) {
+      Some(Ok(result)) => Ok(Some(result.clone())),
+      Some(Err(err)) => Err(anyhow!("{:#}", err)),
+      None => Ok(None),
+    }
+  }
+
   pub fn is_dir_deleted(&self, path: impl AsRef<Path>) -> bool {
     let deleted_directories = self.deleted_directories.lock();
     deleted_directories.contains(&path.as_ref().to_path_buf())
@@ -290,14 +299,10 @@ impl Drop for TestEnvironment {
   }
 }
 
+#[async_trait::async_trait(?Send)]
 impl UrlDownloader for TestEnvironment {
-  fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
-    let remote_files = self.remote_files.lock();
-    match remote_files.get(&String::from(url)) {
-      Some(Ok(result)) => Ok(Some(result.clone())),
-      Some(Err(err)) => Err(anyhow!("{:#}", err)),
-      None => Ok(None),
-    }
+  async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
+    self.get_remote_file(url)
   }
 }
 

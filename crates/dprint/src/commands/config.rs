@@ -14,6 +14,7 @@ use crate::configuration::*;
 use crate::environment::Environment;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
+use crate::plugins::InfoFile;
 use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
@@ -25,10 +26,10 @@ use crate::utils::pretty_print_json_text;
 use crate::utils::CachedDownloader;
 use crate::utils::PathSource;
 
-pub fn init_config_file(environment: &impl Environment, config_arg: &Option<String>) -> Result<()> {
+pub async fn init_config_file(environment: &impl Environment, config_arg: &Option<String>) -> Result<()> {
   let config_file_path = get_config_path(config_arg)?;
   return if !environment.path_exists(&config_file_path) {
-    environment.write_file(&config_file_path, &get_init_config_file_text(environment)?)?;
+    environment.write_file(&config_file_path, &get_init_config_file_text(environment).await?)?;
     environment.log_stderr(&format!("\nCreated {}", config_file_path.display()));
     environment.log_stderr("\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor");
     Ok(())
@@ -51,7 +52,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment)?;
+  let config = resolve_config_from_args(args, environment).await?;
   let config_path = match config.resolved_path.source {
     PathSource::Local(source) => source.path,
     PathSource::Remote(_) => bail!("Cannot update plugins in a remote configuration."),
@@ -66,7 +67,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
         } else {
           format!("dprint/{}", plugin_name_or_url)
         };
-        let plugin = match read_update_url(&cached_downloader, &format!("https://plugins.dprint.dev/{}/latest.json", plugin_name))? {
+        let plugin = match read_update_url(&cached_downloader, &format!("https://plugins.dprint.dev/{}/latest.json", plugin_name)).await? {
           Some(result) => result,
           None => {
             let trailing_message = if let Ok(possible_plugins) = get_possible_plugins_to_add(environment, plugin_resolver, config.plugins).await {
@@ -91,7 +92,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
         for (config_plugin_reference, config_plugin) in get_config_file_plugins(plugin_resolver, config.plugins).await {
           if let Ok(config_plugin) = config_plugin {
             if let Some(update_url) = &config_plugin.info().update_url {
-              if let Ok(Some(config_plugin_latest)) = read_update_url(&cached_downloader, update_url) {
+              if let Ok(Some(config_plugin_latest)) = read_update_url(&cached_downloader, update_url).await {
                 // if two plugins have the same URL to be updated to then they're the same plugin
                 if config_plugin_latest.url == plugin.url {
                   let file_text = environment.read_file(&config_path)?;
@@ -142,7 +143,9 @@ async fn get_possible_plugins_to_add<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   current_plugins: Vec<PluginSourceReference>,
 ) -> Result<Vec<InfoFilePluginInfo>> {
-  let info_file = read_info_file(environment).map_err(|err| anyhow!("Error downloading info file. {:#}", err))?;
+  let info_file = read_info_file(environment)
+    .await
+    .map_err(|err| anyhow!("Error downloading info file. {:#}", err))?;
   let current_plugin_names = get_config_file_plugins(plugin_resolver, current_plugins)
     .await
     .into_iter()
@@ -169,7 +172,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   no_prompt: bool,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment)?;
+  let config = resolve_config_from_args(args, environment).await?;
   let config_path = match config.resolved_path.source {
     PathSource::Local(source) => source.path,
     PathSource::Remote(_) => bail!("Cannot update plugins in a remote configuration."),
@@ -219,7 +222,64 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   plugins: Vec<PluginSourceReference>,
 ) -> Result<Vec<Result<PluginUpdateInfo, PluginUpdateError>>> {
-  let info_file = match read_info_file(environment) {
+  async fn resolve_plugin_update_info<TEnvironment: Environment>(
+    environment: &TEnvironment,
+    info_file: Option<&InfoFile>,
+    plugin_reference: PluginSourceReference,
+    plugin_result: Result<Rc<PluginWrapper>>,
+  ) -> Option<Result<PluginUpdateInfo, PluginUpdateError>> {
+    let plugin = match plugin_result {
+      Ok(plugin) => plugin,
+      Err(error) => {
+        return Some(Err(PluginUpdateError {
+          name: plugin_reference.path_source.display(),
+          error,
+        }))
+      }
+    };
+
+    // request
+    if let Some(plugin_update_url) = &plugin.info().update_url {
+      match read_update_url(environment, plugin_update_url).await.and_then(|result| match result {
+        Some(info) => match info.as_source_reference() {
+          Ok(source_reference) => Ok((info, source_reference)),
+          Err(err) => Err(err),
+        },
+        None => Err(anyhow!("Error downloading {} - 404 Not Found", plugin_update_url)),
+      }) {
+        Ok((info, new_reference)) => {
+          return Some(Ok(PluginUpdateInfo {
+            name: plugin.info().name.to_string(),
+            old_reference: plugin_reference,
+            old_version: plugin.info().version.to_string(),
+            new_version: info.version,
+            new_reference,
+          }));
+        }
+        Err(err) => {
+          // output and fallback to using the info file
+          environment.log_stderr(&format!("Error reading plugin latest info. {:#}", err));
+        }
+      }
+    }
+
+    // todo: in the future this should be removed -- let's say June 2022
+    // When this occurs, it should probably warn above when the plugin doesn't
+    // have a url.
+
+    let info_file = info_file.as_ref()?;
+    let latest_plugin_info = info_file.latest_plugins.iter().find(|p| p.name == plugin.info().name);
+    let latest_plugin_info = latest_plugin_info?;
+    Some(Ok(PluginUpdateInfo {
+      name: plugin.info().name.to_string(),
+      old_reference: plugin_reference,
+      old_version: plugin.info().version.to_string(),
+      new_version: latest_plugin_info.version.clone(),
+      new_reference: latest_plugin_info.as_source_reference().ok()?,
+    }))
+  }
+
+  let info_file = match read_info_file(environment).await {
     Ok(info_file) => Some(info_file),
     Err(err) => {
       environment.log_stderr(&format!("Error downloading info file. {:#}", err));
@@ -227,63 +287,16 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
     }
   };
   let config_file_plugins = get_config_file_plugins(plugin_resolver, plugins).await;
-  Ok(
-    config_file_plugins
-      .into_iter()
-      .filter_map(|(plugin_reference, plugin_result)| {
-        let plugin = match plugin_result {
-          Ok(plugin) => plugin,
-          Err(error) => {
-            return Some(Err(PluginUpdateError {
-              name: plugin_reference.path_source.display(),
-              error,
-            }))
-          }
-        };
-
-        // request
-        if let Some(plugin_update_url) = &plugin.info().update_url {
-          match read_update_url(environment, plugin_update_url).and_then(|result| match result {
-            Some(info) => match info.as_source_reference() {
-              Ok(source_reference) => Ok((info, source_reference)),
-              Err(err) => Err(err),
-            },
-            None => Err(anyhow!("Error downloading {} - 404 Not Found", plugin_update_url)),
-          }) {
-            Ok((info, new_reference)) => {
-              return Some(Ok(PluginUpdateInfo {
-                name: plugin.info().name.to_string(),
-                old_reference: plugin_reference,
-                old_version: plugin.info().version.to_string(),
-                new_version: info.version,
-                new_reference,
-              }));
-            }
-            Err(err) => {
-              // output and fallback to using the info file
-              environment.log_stderr(&format!("Error reading plugin latest info. {:#}", err));
-            }
-          }
-        }
-
-        // todo: in the future this should be removed -- let's say June 2022
-        // When this occurs, it should probably warn above when the plugin doesn't
-        // have a url.
-
-        let info_file = info_file.as_ref()?;
-        let latest_plugin_info = info_file.latest_plugins.iter().find(|p| p.name == plugin.info().name);
-        let latest_plugin_info = latest_plugin_info?;
-        Some(Ok(PluginUpdateInfo {
-          name: plugin.info().name.to_string(),
-          old_reference: plugin_reference,
-          old_version: plugin.info().version.to_string(),
-          new_version: latest_plugin_info.version.clone(),
-          new_reference: latest_plugin_info.as_source_reference().ok()?,
-        }))
-      })
-      .filter(|info| info.as_ref().ok().map(|info| info.old_version != info.new_version).unwrap_or(true))
-      .collect::<Vec<_>>(),
-  )
+  let mut final_infos = Vec::with_capacity(config_file_plugins.len());
+  for (plugin_reference, plugin_result) in config_file_plugins {
+    let maybe_info = resolve_plugin_update_info(environment, info_file.as_ref(), plugin_reference, plugin_result).await;
+    if let Some(info) = maybe_info {
+      if info.as_ref().ok().map(|info| info.old_version != info.new_version).unwrap_or(true) {
+        final_infos.push(info);
+      }
+    }
+  }
+  Ok(final_infos)
 }
 
 pub async fn output_resolved_config<TEnvironment: Environment>(
@@ -291,7 +304,7 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment)?;
+  let config = resolve_config_from_args(args, environment).await?;
   let plugins_scope = resolve_plugins_scope(
     &config,
     environment,
@@ -391,8 +404,14 @@ mod test {
           });
       })
       .build();
-    let expected_text = get_init_config_file_text(&environment).unwrap();
-    environment.clear_logs();
+    let expected_text = environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        environment.clear_logs();
+        expected_text
+      }
+    });
     run_test_cli(vec!["init"], &environment).unwrap();
     assert_eq!(
       environment.take_stderr_messages(),
@@ -408,8 +427,15 @@ mod test {
   #[test]
   fn should_use_dprint_config_init_as_alias() {
     let environment = TestEnvironment::new();
-    let expected_text = get_init_config_file_text(&environment).unwrap();
-    environment.clear_logs();
+    let expected_text = environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        environment.clear_logs();
+        expected_text
+      }
+    });
+
     run_test_cli(vec!["config", "init"], &environment).unwrap();
     environment.take_stderr_messages();
     environment.take_stdout_messages();
@@ -431,8 +457,14 @@ mod test {
         });
       })
       .build();
-    let expected_text = get_init_config_file_text(&environment).unwrap();
-    environment.clear_logs();
+    let expected_text = environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        environment.clear_logs();
+        expected_text
+      }
+    });
     run_test_cli(vec!["init", "--config", "./test.config.json"], &environment).unwrap();
     assert_eq!(
       environment.take_stderr_messages(),

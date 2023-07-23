@@ -36,7 +36,7 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment)?;
+  let config = resolve_config_from_args(args, environment).await?;
   let plugins_scope = Rc::new(
     resolve_plugins_scope_and_err_if_empty(
       &config,
@@ -125,7 +125,7 @@ pub async fn check<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment)?;
+  let config = resolve_config_from_args(args, environment).await?;
   let scope_and_paths = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
 
   let incremental_file = get_incremental_file(cmd.incremental, &config, &scope_and_paths.scope, environment);
@@ -180,7 +180,7 @@ pub async fn format<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment)?;
+  let config = resolve_config_from_args(args, environment).await?;
   let scope_and_paths = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
 
   let incremental_file = get_incremental_file(cmd.incremental, &config, &scope_and_paths.scope, environment);

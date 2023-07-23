@@ -1,5 +1,6 @@
 use anyhow::bail;
 use anyhow::Result;
+use async_trait::async_trait;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
@@ -37,10 +38,11 @@ pub struct TestFilePermissions {
   pub readonly: bool,
 }
 
+#[async_trait(?Send)]
 pub trait UrlDownloader {
-  fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>>;
-  fn download_file_err_404(&self, url: &str) -> Result<Vec<u8>> {
-    match self.download_file(url)? {
+  async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>>;
+  async fn download_file_err_404(&self, url: &str) -> Result<Vec<u8>> {
+    match self.download_file(url).await? {
       Some(result) => Ok(result),
       None => bail!("Error downloading {} - 404 Not Found", url),
     }
