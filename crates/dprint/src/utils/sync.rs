@@ -12,27 +12,12 @@ use std::task::Waker;
 
 use anyhow::Result;
 
-use anyhow::bail;
 use dprint_core::async_runtime::LocalBoxFuture;
 
 // todo: unit tests
 
-struct AsyncCellState<T> {
-  value: Option<T>,
-  poisoned: bool,
-}
-
-impl<T> Default for AsyncCellState<T> {
-  fn default() -> Self {
-    Self {
-      value: Default::default(),
-      poisoned: Default::default(),
-    }
-  }
-}
-
 pub struct AsyncCell<T> {
-  state: RefCell<AsyncCellState<T>>,
+  state: RefCell<Option<T>>,
   semaphore: Rc<Semaphore>,
 }
 
@@ -50,33 +35,19 @@ impl<T> AsyncCell<T> {
     let _permit = self.semaphore.acquire();
     unsafe {
       if let Ok(state) = self.state.try_borrow_unguarded() {
-        if state.poisoned {
-          bail!("Async cell state was poisoned.");
-        }
-        if let Some(value) = state.value.as_ref() {
+        if let Some(value) = state.as_ref() {
           return Ok(value);
         }
       }
     }
     let value = create().await?;
-    {
-      let mut state = self.state.borrow_mut();
-      if state.poisoned {
-        bail!("Async cell state was poisoned.");
-      }
-      state.value = Some(value);
-    }
+    *self.state.borrow_mut() = Some(value);
 
     Ok(self.get().unwrap())
   }
 
   pub fn get(&self) -> Option<&T> {
-    unsafe { self.state.try_borrow_unguarded().unwrap().value.as_ref() }
-  }
-
-  pub fn poison(&self) {
-    let mut state = self.state.borrow_mut();
-    state.poisoned = true;
+    unsafe { self.state.try_borrow_unguarded().unwrap().as_ref() }
   }
 }
 

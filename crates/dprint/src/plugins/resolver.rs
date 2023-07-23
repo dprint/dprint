@@ -43,7 +43,6 @@ impl PluginWrapper {
   }
 
   pub async fn shutdown(&self) {
-    self.initialized_plugin.poison();
     if let Some(plugin) = self.initialized_plugin.get() {
       plugin.shutdown().await;
     }
