@@ -1,10 +1,7 @@
 use std::io::ErrorKind;
 use std::io::Write;
-use std::sync::Arc;
 
 use crate::communication::MessageWriter;
-
-use super::Poisoner;
 
 pub trait Message: std::fmt::Debug + Send + Sync + 'static {
   fn write<TWrite: Write + Unpin>(&self, writer: &mut MessageWriter<TWrite>) -> std::io::Result<()>;
@@ -13,20 +10,11 @@ pub trait Message: std::fmt::Debug + Send + Sync + 'static {
 struct SingleThreadMessageWriterOptions<TWrite: Write + Unpin> {
   pub writer: MessageWriter<TWrite>,
   pub panic_on_write_fail: bool,
-  pub on_exit: Box<dyn Fn() + Send + 'static>,
 }
 
 /// Writes messages on a separate thread.
 pub struct SingleThreadMessageWriter<TMessage: Message> {
-  tx: Arc<crossbeam_channel::Sender<TMessage>>,
-}
-
-// the #[derive(Clone)] macro wasn't working with the type parameter properly
-// https://github.com/rust-lang/rust/issues/26925
-impl<TMessage: Message> Clone for SingleThreadMessageWriter<TMessage> {
-  fn clone(&self) -> Self {
-    Self { tx: self.tx.clone() }
-  }
+  tx: crossbeam_channel::Sender<TMessage>,
 }
 
 impl<TMessage: Message> SingleThreadMessageWriter<TMessage> {
@@ -34,17 +22,13 @@ impl<TMessage: Message> SingleThreadMessageWriter<TMessage> {
     Self::new(SingleThreadMessageWriterOptions {
       writer,
       panic_on_write_fail: true,
-      on_exit: Box::new(|| {}),
     })
   }
 
-  pub fn for_stdin<TWrite: Write + Unpin + Send + 'static>(writer: MessageWriter<TWrite>, poisoner: Poisoner) -> Self {
+  pub fn for_stdin<TWrite: Write + Unpin + Send + 'static>(writer: MessageWriter<TWrite>) -> Self {
     Self::new(SingleThreadMessageWriterOptions {
       writer,
       panic_on_write_fail: false,
-      on_exit: Box::new(move || {
-        poisoner.poison();
-      }),
     })
   }
 
@@ -52,7 +36,7 @@ impl<TMessage: Message> SingleThreadMessageWriter<TMessage> {
     let (tx, rx) = crossbeam_channel::unbounded::<TMessage>();
 
     // use a dedicated thread for writing messages
-    tokio::task::spawn_blocking({
+    crate::async_runtime::spawn_blocking({
       move || {
         while let Ok(result) = rx.recv() {
           if let Err(err) = result.write(&mut opts.writer) {
@@ -63,11 +47,10 @@ impl<TMessage: Message> SingleThreadMessageWriter<TMessage> {
             }
           }
         }
-        (opts.on_exit)();
       }
     });
 
-    Self { tx: Arc::new(tx) }
+    Self { tx }
   }
 
   pub fn send(&self, message: TMessage) -> std::io::Result<()> {

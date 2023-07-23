@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use anyhow::Result;
 use crossterm::style::Stylize;
@@ -13,7 +13,6 @@ use crate::environment::TestEnvironment;
 use crate::plugins::CompilationResult;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginResolver;
-use crate::plugins::PluginsCollection;
 use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
 use crate::AppError;
@@ -36,7 +35,7 @@ pub static TEST_PROCESS_PLUGIN_PATH: Lazy<PathBuf> = Lazy::new(|| {
 // Regenerate this by running `./rebuild.sh` in /crates/test-plugin
 pub static WASM_PLUGIN_BYTES: &'static [u8] = include_bytes!("../../test-plugin/test_plugin.wasm");
 // cache these so it only has to be done once across all tests
-static COMPILATION_RESULT: Lazy<CompilationResult> = Lazy::new(|| crate::plugins::compile_wasm(WASM_PLUGIN_BYTES, TestEnvironment::new()).unwrap());
+static COMPILATION_RESULT: Lazy<CompilationResult> = Lazy::new(|| crate::plugins::compile_wasm(WASM_PLUGIN_BYTES).unwrap());
 pub static PROCESS_PLUGIN_ZIP_BYTES: Lazy<Vec<u8>> = Lazy::new(|| {
   let buf: Vec<u8> = Vec::new();
   let w = std::io::Cursor::new(buf);
@@ -109,9 +108,8 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
   let mut args: Vec<String> = args.into_iter().map(String::from).collect();
   args.insert(0, String::from(""));
   environment.set_wasm_compile_result(COMPILATION_RESULT.clone());
-  let plugin_cache = Arc::new(PluginCache::new(environment.clone()));
-  let plugin_pools = Arc::new(PluginsCollection::new(environment.clone()));
-  let plugin_resolver = PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
+  let plugin_cache = PluginCache::new(environment.clone());
+  let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
   let args = parse_args(args, stdin_reader).map_err(|err| Into::<AppError>::into(err))?;
   environment.set_stdout_machine_readable(args.is_stdout_machine_readable());
   environment.set_verbose(args.verbose);
@@ -119,8 +117,8 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
   environment.run_in_runtime({
     let environment = environment.clone();
     async move {
-      let result = run_cli(&args, &environment, &plugin_resolver, plugin_pools.clone()).await;
-      plugin_pools.drop_and_shutdown_initialized().await;
+      let result = run_cli(&args, &environment, &plugin_resolver).await;
+      plugin_resolver.clear_and_shutdown_initialized().await;
       Ok(result?)
     }
   })

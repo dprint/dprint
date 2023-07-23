@@ -6,7 +6,7 @@ use dprint_core::plugins::process::setup_exit_process_panic_hook;
 use environment::RealEnvironment;
 use environment::RealEnvironmentOptions;
 use run_cli::AppError;
-use std::sync::Arc;
+use std::rc::Rc;
 use utils::RealStdInReader;
 
 mod arg_parser;
@@ -17,6 +17,7 @@ mod incremental;
 mod paths;
 mod patterns;
 mod plugins;
+mod resolution;
 mod run_cli;
 mod utils;
 
@@ -25,10 +26,9 @@ mod test_helpers;
 
 fn main() {
   setup_exit_process_panic_hook();
-  let rt = tokio::runtime::Builder::new_multi_thread().enable_time().build().unwrap();
-  let handle = rt.handle().clone();
+  let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
   rt.block_on(async move {
-    match run(handle).await {
+    match run().await {
       Ok(_) => {}
       Err(err) => {
         eprintln!("{:#}", err.inner);
@@ -38,19 +38,17 @@ fn main() {
   });
 }
 
-async fn run(runtime_handle: tokio::runtime::Handle) -> Result<(), AppError> {
+async fn run() -> Result<(), AppError> {
   let args = arg_parser::parse_args(std::env::args().collect(), RealStdInReader)?;
 
   let environment = RealEnvironment::new(RealEnvironmentOptions {
     is_verbose: args.verbose,
     is_stdout_machine_readable: args.is_stdout_machine_readable(),
-    runtime_handle: Arc::new(runtime_handle),
   })?;
-  let plugin_cache = Arc::new(plugins::PluginCache::new(environment.clone()));
-  let plugin_pools = Arc::new(plugins::PluginsCollection::new(environment.clone()));
-  let plugin_resolver = plugins::PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
+  let plugin_cache = plugins::PluginCache::new(environment.clone());
+  let plugin_resolver = Rc::new(plugins::PluginResolver::new(environment.clone(), plugin_cache));
 
-  let result = run_cli::run_cli(&args, &environment, &plugin_resolver, plugin_pools.clone()).await;
-  plugin_pools.drop_and_shutdown_initialized().await;
+  let result = run_cli::run_cli(&args, &environment, &plugin_resolver).await;
+  plugin_resolver.clear_and_shutdown_initialized().await;
   Ok(result?)
 }

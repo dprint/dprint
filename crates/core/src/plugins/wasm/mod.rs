@@ -79,7 +79,7 @@ pub mod macros {
             let error_text = get_string_from_host(length);
             Err(anyhow::anyhow!("{}", error_text))
           }
-          _ => unreachable!(),
+          value => panic!("unknown host format value: {}", value),
         };
 
         fn send_string_to_host(text: String) {

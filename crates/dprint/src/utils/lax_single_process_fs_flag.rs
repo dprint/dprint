@@ -55,7 +55,7 @@ impl<TEnvironment: Environment> LaxSingleProcessFsFlag<TEnvironment> {
               // This uses a blocking task because we use a single threaded
               // runtime and this is time sensitive so we don't want it to update
               // at the whims of of whatever is occurring on the runtime thread.
-              tokio::task::spawn_blocking({
+              dprint_core::async_runtime::spawn_blocking({
                 let token = token.clone();
                 let last_updated_path = last_updated_path.clone();
                 move || {
@@ -152,7 +152,8 @@ impl<TEnvironment: Environment> Drop for LaxSingleProcessFsFlagInner<TEnvironmen
 mod test {
   use std::sync::Arc;
 
-  use futures::FutureExt;
+  use dprint_core::async_runtime::future;
+  use dprint_core::async_runtime::FutureExt;
   use parking_lot::Mutex;
   use tempfile::TempDir;
   use tokio::sync::Notify;
@@ -211,7 +212,7 @@ mod test {
         signal5.notified().await;
         assert_eq!(std::fs::read_to_string(temp_dir.path().join("file.txt")).unwrap(), "update2");
       }
-      .boxed()
+      .boxed_local()
     });
   }
 
@@ -247,11 +248,11 @@ mod test {
           }));
         }
 
-        futures::future::join_all(tasks).await;
+        future::join_all(tasks).await;
         let expected_output = expected_order.lock().join("\n");
         assert_eq!(std::fs::read_to_string(output_path).unwrap(), expected_output);
       }
-      .boxed()
+      .boxed_local()
     })
   }
 }

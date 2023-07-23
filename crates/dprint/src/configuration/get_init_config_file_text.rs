@@ -4,8 +4,8 @@ use dprint_core::plugins::wasm::{self};
 use crate::environment::Environment;
 use crate::plugins::read_info_file;
 
-pub fn get_init_config_file_text(environment: &impl Environment) -> Result<String> {
-  let info = match read_info_file(environment) {
+pub async fn get_init_config_file_text(environment: &impl Environment) -> Result<String> {
+  let info = match read_info_file(environment).await {
     Ok(info) => {
       // ok to only check wasm here because the configuration file is only ever initialized with wasm plugins
       if info.plugin_system_schema_version != wasm::PLUGIN_SYSTEM_SCHEMA_VERSION {
@@ -176,10 +176,11 @@ mod test {
         }
       })
       .build();
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "typescript": {
   },
   "json": {
@@ -195,9 +196,10 @@ mod test {
   ]
 }
 "#
-    );
+      );
 
-    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
   }
 
   #[test]
@@ -210,10 +212,11 @@ mod test {
       })
       .build();
     environment.set_multi_selection_result(vec![0, 1, 2]);
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "typescript": {
   },
   "json": {
@@ -231,9 +234,10 @@ mod test {
   ]
 }
 "#
-    );
+      );
 
-    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
   }
 
   #[test]
@@ -246,10 +250,11 @@ mod test {
       })
       .build();
     environment.set_multi_selection_result(vec![1]);
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "json": {
   },
   "includes": ["**/*.{json}"],
@@ -261,9 +266,10 @@ mod test {
   ]
 }
 "#
-    );
+      );
 
-    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
   }
 
   #[test]
@@ -276,10 +282,11 @@ mod test {
       })
       .build();
     environment.set_multi_selection_result(vec![]);
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "includes": ["**/*.*"],
   "excludes": [],
   "plugins": [
@@ -287,9 +294,10 @@ mod test {
   ]
 }
 "#
-    );
+      );
 
-    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
   }
 
   #[test]
@@ -302,10 +310,11 @@ mod test {
       })
       .build();
     environment.set_multi_selection_result(vec![3]);
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "includes": ["**/*.{ps}"],
   "excludes": [],
   "plugins": [
@@ -313,18 +322,20 @@ mod test {
   ]
 }
 "#
-    );
+      );
 
-    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
   }
 
   #[test]
   fn should_get_initialization_text_when_cannot_access_url() {
     let environment = TestEnvironment::new();
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "includes": ["**/*.*"],
   "excludes": [
     "**/node_modules",
@@ -335,14 +346,15 @@ mod test {
   ]
 }
 "#
-    );
-    let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
-    expected_messages.push(concat!(
-      "There was a problem getting the latest plugin info. ",
-      "The created config file may not be as helpful of a starting point. ",
-      "Error: Error downloading https://plugins.dprint.dev/info.json - 404 Not Found"
-    ));
-    assert_eq!(environment.take_stderr_messages(), expected_messages);
+      );
+      let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
+      expected_messages.push(concat!(
+        "There was a problem getting the latest plugin info. ",
+        "The created config file may not be as helpful of a starting point. ",
+        "Error: Error downloading https://plugins.dprint.dev/info.json - 404 Not Found"
+      ));
+      assert_eq!(environment.take_stderr_messages(), expected_messages);
+    });
   }
 
   #[test]
@@ -362,10 +374,11 @@ mod test {
       .build();
     environment.set_selection_result(1);
     environment.set_multi_selection_result(vec![0]);
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "typescript": {
   },
   "includes": ["**/*.{ts}"],
@@ -377,9 +390,10 @@ mod test {
   ]
 }
 "#
-    );
+      );
 
-    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
   }
 
   #[test]
@@ -398,10 +412,11 @@ mod test {
       })
       .build();
     environment.set_multi_selection_result(vec![0]);
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "includes": ["**/*.*"],
   "excludes": [
     "**/node_modules",
@@ -412,14 +427,15 @@ mod test {
   ]
 }
 "#
-    );
-    let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
-    expected_messages.push(concat!(
-      "You are using an old version of dprint so the created config file may not be as helpful of a starting point. ",
-      "Consider upgrading to support new plugins. ",
-      "Plugin system schema version is 3, latest is 9."
-    ));
-    assert_eq!(environment.take_stderr_messages(), expected_messages);
+      );
+      let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
+      expected_messages.push(concat!(
+        "You are using an old version of dprint so the created config file may not be as helpful of a starting point. ",
+        "Consider upgrading to support new plugins. ",
+        "Plugin system schema version is 3, latest is 9."
+      ));
+      assert_eq!(environment.take_stderr_messages(), expected_messages);
+    });
   }
 
   fn get_standard_logged_messages_no_plugin_selection() -> Vec<&'static str> {

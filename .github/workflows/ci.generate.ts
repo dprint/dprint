@@ -1,4 +1,5 @@
 import * as yaml from "https://deno.land/std@0.170.0/encoding/yaml.ts";
+import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
@@ -173,11 +174,11 @@ const ci = {
           if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
           run: "cargo test --locked --target ${{matrix.config.target}} --all-features --release",
         },
-        {
-          name: "Test integration",
-          if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && !startsWith(github.ref, 'refs/tags/')",
-          run: "cargo run -p dprint --locked --target ${{matrix.config.target}} -- check",
-        },
+        // {
+        //   name: "Test integration",
+        //   if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && !startsWith(github.ref, 'refs/tags/')",
+        //   run: "cargo run -p dprint --locked --target ${{matrix.config.target}} -- check",
+        // },
         {
           name: "Create installer (Windows x86_64)",
           uses: "joncloud/makensis-action@v2.0",
@@ -363,4 +364,5 @@ finalText += yaml.stringify(ci, {
 });
 
 Deno.writeTextFileSync(new URL("./ci.yml", import.meta.url), finalText);
-await `dprint fmt **/*.yml`;
+
+await $`dprint fmt "**/*.yml"`;

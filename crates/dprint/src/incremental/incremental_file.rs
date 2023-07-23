@@ -1,6 +1,6 @@
-use parking_lot::Mutex;
 use serde::Deserialize;
 use serde::Serialize;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -27,7 +27,7 @@ impl IncrementalFileData {
 pub struct IncrementalFile<TEnvironment: Environment> {
   file_path: CanonicalizedPathBuf,
   read_data: IncrementalFileData,
-  write_data: Mutex<IncrementalFileData>,
+  write_data: RefCell<IncrementalFileData>,
   environment: TEnvironment,
 }
 
@@ -47,7 +47,7 @@ impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
     IncrementalFile {
       file_path,
       read_data,
-      write_data: Mutex::new(IncrementalFileData::new(plugins_hash)),
+      write_data: RefCell::new(IncrementalFileData::new(plugins_hash)),
       environment,
     }
   }
@@ -70,12 +70,12 @@ impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
   }
 
   fn add_to_write_data(&self, hash: u64) {
-    let mut write_data = self.write_data.lock();
+    let mut write_data = self.write_data.borrow_mut();
     write_data.file_hashes.insert(hash);
   }
 
   pub fn write(&self) {
-    let write_data = self.write_data.lock();
+    let write_data = self.write_data.borrow_mut();
     write_incremental(&self.file_path, &write_data, &self.environment);
   }
 }

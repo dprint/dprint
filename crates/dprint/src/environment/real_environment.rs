@@ -1,6 +1,7 @@
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use async_trait::async_trait;
 use once_cell::sync::Lazy;
 use std::fs;
 use std::num::NonZeroUsize;
@@ -11,7 +12,6 @@ use std::time::SystemTime;
 
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
-use super::DirEntryKind;
 use super::Environment;
 use super::FilePermissions;
 use super::UrlDownloader;
@@ -28,14 +28,12 @@ use crate::utils::RealUrlDownloader;
 pub struct RealEnvironmentOptions {
   pub is_verbose: bool,
   pub is_stdout_machine_readable: bool,
-  pub runtime_handle: Arc<tokio::runtime::Handle>,
 }
 
 #[derive(Clone)]
 pub struct RealEnvironment {
   progress_bars: Option<ProgressBars>,
-  runtime_handle: Arc<tokio::runtime::Handle>,
-  url_downloader: RealUrlDownloader,
+  url_downloader: Arc<RealUrlDownloader>,
   logger: Logger,
 }
 
@@ -47,12 +45,13 @@ impl RealEnvironment {
       is_verbose: options.is_verbose,
     });
     let progress_bars = ProgressBars::new(&logger);
-    let url_downloader = RealUrlDownloader::new(progress_bars.clone(), logger.clone(), |env_var_name| std::env::var(env_var_name).ok())?;
+    let url_downloader = Arc::new(RealUrlDownloader::new(progress_bars.clone(), logger.clone(), |env_var_name| {
+      std::env::var(env_var_name).ok()
+    })?);
     let environment = RealEnvironment {
       url_downloader,
       logger,
       progress_bars,
-      runtime_handle: options.runtime_handle,
     };
 
     // ensure the cache directory is created
@@ -67,13 +66,11 @@ impl RealEnvironment {
   }
 
   #[cfg(test)]
-  pub fn run_test_with_real_env(run_with_env: impl Fn(RealEnvironment) -> futures::future::BoxFuture<'static, ()>) {
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_time().build().unwrap();
-    let handle = rt.handle().clone();
+  pub fn run_test_with_real_env(run_with_env: impl Fn(RealEnvironment) -> dprint_core::async_runtime::LocalBoxFuture<'static, ()>) {
+    let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
     let env = RealEnvironment::new(RealEnvironmentOptions {
       is_verbose: false,
       is_stdout_machine_readable: false,
-      runtime_handle: Arc::new(handle),
     })
     .unwrap();
 
@@ -81,11 +78,14 @@ impl RealEnvironment {
   }
 }
 
+#[async_trait(?Send)]
 impl UrlDownloader for RealEnvironment {
-  fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
+  async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
     log_verbose!(self, "Downloading url: {}", url);
 
-    self.url_downloader.download(url)
+    let downloader = self.url_downloader.clone();
+    let url = url.to_string();
+    dprint_core::async_runtime::spawn_blocking(move || downloader.download(&url)).await?
   }
 }
 
@@ -161,14 +161,11 @@ impl Environment for RealEnvironment {
       let entry = entry?;
       let file_type = entry.file_type()?;
       if file_type.is_dir() {
-        entries.push(DirEntry {
-          kind: DirEntryKind::Directory,
-          path: entry.path().to_path_buf(),
-        });
+        entries.push(DirEntry::Directory(entry.path()));
       } else if file_type.is_file() {
-        entries.push(DirEntry {
-          kind: DirEntryKind::File,
-          path: entry.path().to_path_buf(),
+        entries.push(DirEntry::File {
+          name: entry.file_name(),
+          path: entry.path(),
         });
       }
     }
@@ -304,7 +301,7 @@ impl Environment for RealEnvironment {
   }
 
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult> {
-    crate::plugins::compile_wasm(wasm_bytes, self.clone())
+    crate::plugins::compile_wasm(wasm_bytes)
   }
 
   fn stdout(&self) -> Box<dyn std::io::Write + Send> {
@@ -313,10 +310,6 @@ impl Environment for RealEnvironment {
 
   fn stdin(&self) -> Box<dyn std::io::Read + Send> {
     Box::new(std::io::stdin())
-  }
-
-  fn runtime_handle(&self) -> tokio::runtime::Handle {
-    (*self.runtime_handle).clone()
   }
 
   fn progress_bars(&self) -> Option<ProgressBars> {

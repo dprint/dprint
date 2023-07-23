@@ -1,5 +1,7 @@
 use anyhow::bail;
 use anyhow::Result;
+use dprint_core::async_runtime::FutureExt;
+use dprint_core::async_runtime::LocalBoxFuture;
 use parking_lot::RwLock;
 use std::path::PathBuf;
 
@@ -68,7 +70,7 @@ where
       PathSource::Remote(_) => self.get_plugin(source_reference, false, download_url).await,
       PathSource::Local(_) => {
         if let Some(manifest_item) = self.manifest.get(&source_reference.path_source)? {
-          let file_bytes = get_file_bytes(source_reference.path_source.clone(), self.environment.clone())?;
+          let file_bytes = get_file_bytes(source_reference.path_source.clone(), self.environment.clone()).await?;
           let file_hash = get_bytes_hash(&file_bytes);
           let cache_file_hash = match &manifest_item.file_hash {
             Some(file_hash) => *file_hash,
@@ -94,7 +96,7 @@ where
     &self,
     source_reference: &PluginSourceReference,
     include_file_hash: bool,
-    read_bytes: impl Fn(PathSource, TEnvironment) -> Result<Vec<u8>>,
+    read_bytes: impl Fn(PathSource, TEnvironment) -> LocalBoxFuture<'static, Result<Vec<u8>>>,
   ) -> Result<PluginCacheItem> {
     if let Some(item) = self.get_plugin_cache_item_from_cache(&source_reference.path_source)? {
       return Ok(item);
@@ -110,7 +112,7 @@ where
     }
 
     // get bytes
-    let file_bytes = read_bytes(source_reference.path_source.clone(), self.environment.clone())?;
+    let file_bytes = read_bytes(source_reference.path_source.clone(), self.environment.clone()).await?;
 
     // check checksum only if provided (not required for Wasm plugins)
     if let Some(checksum) = &source_reference.checksum {
@@ -132,10 +134,11 @@ where
       );
     }
 
-    let setup_result = setup_plugin(&source_reference.path_source, &file_bytes, &self.environment).await?;
+    let file_hash = if include_file_hash { Some(get_bytes_hash(&file_bytes)) } else { None };
+    let setup_result = setup_plugin(&source_reference.path_source, file_bytes, &self.environment).await?;
     let cache_item = PluginCacheManifestItem {
       info: setup_result.plugin_info.clone(),
-      file_hash: if include_file_hash { Some(get_bytes_hash(&file_bytes)) } else { None },
+      file_hash,
       created_time: self.environment.get_time_secs(),
     };
 
@@ -209,12 +212,12 @@ impl<TEnvironment: Environment> ConcurrentPluginCacheManifest<TEnvironment> {
   }
 }
 
-fn download_url<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>> {
-  environment.download_file_err_404(path_source.unwrap_remote().url.as_str())
+fn download_url<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> LocalBoxFuture<'static, Result<Vec<u8>>> {
+  async move { environment.download_file_err_404(path_source.unwrap_remote().url.as_str()).await }.boxed_local()
 }
 
-fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>> {
-  environment.read_file_bytes(path_source.unwrap_local().path)
+fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> LocalBoxFuture<'static, Result<Vec<u8>>> {
+  async move { environment.read_file_bytes(path_source.unwrap_local().path) }.boxed_local()
 }
 
 #[cfg(test)]

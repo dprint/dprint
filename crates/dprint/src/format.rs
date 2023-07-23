@@ -1,75 +1,76 @@
 use anyhow::bail;
 use anyhow::Result;
+use dprint_core::async_runtime::future;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::NullCancellationToken;
-use parking_lot::Mutex;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
-use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use crate::environment::Environment;
 use crate::incremental::IncrementalFile;
-use crate::paths::PluginNames;
-use crate::plugins::GetPluginResult;
-use crate::plugins::InitializedPlugin;
-use crate::plugins::InitializedPluginFormatRequest;
-use crate::plugins::PluginWrapper;
-use crate::plugins::PluginsCollection;
+use crate::resolution::GetPluginResult;
+use crate::resolution::InitializedPluginWithConfig;
+use crate::resolution::InitializedPluginWithConfigFormatRequest;
+use crate::resolution::PluginWithConfig;
+use crate::resolution::PluginsScope;
+use crate::resolution::PluginsScopeAndPaths;
 use crate::utils::ErrorCountLogger;
 use crate::utils::FileText;
+use crate::utils::Semaphore;
 
-struct TaskWork<TEnvironment: Environment> {
-  semaphore: Arc<Semaphore>,
-  plugins: Vec<Arc<PluginWrapper<TEnvironment>>>,
+struct TaskWork {
+  semaphore: Rc<Semaphore>,
+  plugins: Vec<Rc<PluginWithConfig>>,
   file_paths: Vec<PathBuf>,
 }
 
 struct StoredSemaphore {
   finished: bool,
   permits: usize,
-  semaphore: Arc<Semaphore>,
+  semaphore: Rc<Semaphore>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct EnsureStableFormat(pub bool);
 
 pub async fn run_parallelized<F, TEnvironment: Environment>(
-  file_paths_by_plugins: HashMap<PluginNames, Vec<PathBuf>>,
+  scope_and_paths: PluginsScopeAndPaths<TEnvironment>,
   environment: &TEnvironment,
-  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
-  incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
+  incremental_file: Option<Rc<IncrementalFile<TEnvironment>>>,
   ensure_stable_format: EnsureStableFormat,
   f: F,
 ) -> Result<()>
 where
-  F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<()> + Send + Sync + 'static + Clone,
+  F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<()> + 'static + Clone,
 {
   let max_threads = environment.max_threads();
-  let number_process_plugins = plugins_collection.process_plugin_count();
+  let number_process_plugins = scope_and_paths.scope.process_plugin_count();
   let reduction_count = number_process_plugins + 1; // + 1 for each process plugin's possible runtime thread and this runtime's thread
   let number_threads = if max_threads > reduction_count { max_threads - reduction_count } else { 1 };
   log_verbose!(environment, "Max threads: {}\nThread count: {}", max_threads, number_threads);
 
   let error_logger = ErrorCountLogger::from_environment(environment);
 
-  let mut file_paths_by_plugins = file_paths_by_plugins.into_iter().collect::<Vec<_>>();
+  let scope = Rc::new(scope_and_paths.scope);
+  let mut file_paths_by_plugins = scope_and_paths.file_paths_by_plugins.into_iter().collect::<Vec<_>>();
   // favour giving semaphore permits to ones with more items at the start
   file_paths_by_plugins.sort_by_key(|(_, file_paths)| 0i32 - file_paths.len() as i32);
   let collection_count = file_paths_by_plugins.len();
   let mut semaphores = Vec::with_capacity(collection_count);
   let mut task_works = Vec::with_capacity(collection_count);
   for (i, (plugin_names, file_paths)) in file_paths_by_plugins.into_iter().enumerate() {
-    let plugins = plugin_names.names().map(|plugin_name| plugins_collection.get_plugin(plugin_name)).collect();
+    let plugins = plugin_names.names().map(|plugin_name| scope.get_plugin(plugin_name)).collect();
     let additional_thread = i < number_threads % collection_count;
     let permits = number_threads / collection_count + if additional_thread { 1 } else { 0 };
-    let semaphore = Arc::new(Semaphore::new(permits));
+    let semaphore = Rc::new(Semaphore::new(permits));
     semaphores.push(StoredSemaphore {
       finished: false,
       permits,
@@ -82,38 +83,40 @@ where
     });
   }
 
-  let semaphores = Arc::new(Mutex::new(semaphores));
+  let semaphores = Rc::new(RefCell::new(semaphores));
   let handles = task_works.into_iter().enumerate().map(|(index, task_work)| {
-    tokio::task::spawn({
+    dprint_core::async_runtime::spawn({
       let error_logger = error_logger.clone();
       let environment = environment.clone();
       let incremental_file = incremental_file.clone();
       let f = f.clone();
       let semaphores = semaphores.clone();
+      let scope = scope.clone();
       async move {
         let _semaphore_permits = SemaphorePermitReleaser { index, semaphores };
         // resolve the plugins
         let mut plugins = Vec::with_capacity(task_work.plugins.len());
-        for plugin_wrapper in task_work.plugins {
-          let result = match plugin_wrapper.get_or_create_checking_config_diagnostics(error_logger.clone()).await {
+        for plugin in task_work.plugins {
+          let result = match plugin.get_or_create_checking_config_diagnostics(&environment).await {
             Ok(result) => result,
             Err(err) => {
-              error_logger.log_error(&format!("Error creating plugin {}. Message: {}", plugin_wrapper.name(), err));
+              error_logger.log_error(&format!("Error creating plugin {}. Message: {}", plugin.name(), err));
               return;
             }
           };
           plugins.push(match result {
-            GetPluginResult::HadDiagnostics => {
+            GetPluginResult::HadDiagnostics(count) => {
+              error_logger.add_error_count(count);
               return;
             }
             GetPluginResult::Success(plugin) => plugin,
           })
         }
 
-        let plugins = Arc::new(plugins);
+        let plugins = Rc::new(plugins);
         let mut format_handles = Vec::with_capacity(task_work.file_paths.len());
         for file_path in task_work.file_paths.into_iter() {
-          let permit = match task_work.semaphore.clone().acquire_owned().await {
+          let permit = match task_work.semaphore.acquire().await {
             Ok(permit) => permit,
             Err(_) => return, // semaphore was closed, so stop working
           };
@@ -123,9 +126,10 @@ where
           let f = f.clone();
           let plugins = plugins.clone();
           let error_logger = error_logger.clone();
-          format_handles.push(tokio::task::spawn(async move {
+          let scope = scope.clone();
+          format_handles.push(dprint_core::async_runtime::spawn(async move {
             let long_format_token = CancellationToken::new();
-            tokio::task::spawn({
+            dprint_core::async_runtime::spawn({
               let long_format_token = long_format_token.clone();
               let environment = environment.clone();
               let file_path = file_path.clone();
@@ -140,7 +144,7 @@ where
                 }
               }
             });
-            let result = run_for_file_path(environment, incremental_file, plugins, file_path.clone(), ensure_stable_format, f).await;
+            let result = run_for_file_path(environment, incremental_file, scope, plugins, file_path.clone(), ensure_stable_format, f).await;
             long_format_token.cancel();
             if let Err(err) = result {
               if let Some(err) = err.downcast_ref::<CriticalFormatError>() {
@@ -158,11 +162,11 @@ where
             drop(permit);
           }));
         }
-        futures::future::join_all(format_handles).await;
+        future::join_all(format_handles).await;
       }
     })
   });
-  futures::future::join_all(handles).await;
+  future::join_all(handles).await;
 
   let error_count = error_logger.get_error_count();
   return if error_count == 0 {
@@ -174,14 +178,15 @@ where
   #[inline]
   async fn run_for_file_path<F, TEnvironment: Environment>(
     environment: TEnvironment,
-    incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
-    plugins: Arc<Vec<Arc<dyn InitializedPlugin>>>,
+    incremental_file: Option<Rc<IncrementalFile<TEnvironment>>>,
+    scope: Rc<PluginsScope<TEnvironment>>,
+    plugins: Rc<Vec<InitializedPluginWithConfig>>,
     file_path: PathBuf,
     ensure_stable_format: EnsureStableFormat,
     f: F,
   ) -> Result<()>
   where
-    F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<()> + Send + 'static + Clone,
+    F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<()> + 'static + Clone,
   {
     let file_text = FileText::new(environment.read_file(&file_path)?);
 
@@ -192,10 +197,11 @@ where
       }
     }
 
-    let (start_instant, formatted_text) = run_single_pass_for_file_path(environment.clone(), plugins.clone(), file_path.clone(), file_text.as_str()).await?;
+    let (start_instant, formatted_text) =
+      run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), file_text.as_str()).await?;
 
     let formatted_text = if ensure_stable_format.0 && formatted_text != file_text.as_str() {
-      get_stabilized_format_text(environment.clone(), plugins, file_path.clone(), formatted_text).await?
+      get_stabilized_format_text(environment.clone(), scope, plugins, file_path.clone(), formatted_text).await?
     } else {
       formatted_text
     };
@@ -207,14 +213,15 @@ where
 
   async fn get_stabilized_format_text<TEnvironment: Environment>(
     environment: TEnvironment,
-    plugins: Arc<Vec<Arc<dyn InitializedPlugin>>>,
+    scope: Rc<PluginsScope<TEnvironment>>,
+    plugins: Rc<Vec<InitializedPluginWithConfig>>,
     file_path: PathBuf,
     mut formatted_text: String,
   ) -> Result<String> {
     log_verbose!(environment, "Ensuring stable format: {}", file_path.display());
     let mut count = 0;
     loop {
-      match run_single_pass_for_file_path(environment.clone(), plugins.clone(), file_path.clone(), &formatted_text).await {
+      match run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), &formatted_text).await {
         Ok((_, next_pass_text)) => {
           if next_pass_text == formatted_text {
             return Ok(formatted_text);
@@ -249,7 +256,8 @@ where
 
   async fn run_single_pass_for_file_path<TEnvironment: Environment>(
     environment: TEnvironment,
-    plugins: Arc<Vec<Arc<dyn InitializedPlugin>>>,
+    scope: Rc<PluginsScope<TEnvironment>>,
+    plugins: Rc<Vec<InitializedPluginWithConfig>>,
     file_path: PathBuf,
     file_text: &str,
   ) -> Result<(Instant, String)> {
@@ -259,11 +267,12 @@ where
     for (i, plugin) in plugins.iter().enumerate() {
       let start_instant = Instant::now();
       let format_text_result = plugin
-        .format_text(InitializedPluginFormatRequest {
+        .format_text(InitializedPluginWithConfigFormatRequest {
           file_path: file_path.to_path_buf(),
           file_text: file_text.to_string(),
           range: None,
           override_config: ConfigKeyMap::new(),
+          on_host_format: scope.create_host_format_callback(),
           token: Arc::new(NullCancellationToken),
         })
         .await;
@@ -290,13 +299,13 @@ where
 /// so that other threads can do more work.
 struct SemaphorePermitReleaser {
   index: usize,
-  semaphores: Arc<Mutex<Vec<StoredSemaphore>>>,
+  semaphores: Rc<RefCell<Vec<StoredSemaphore>>>,
 }
 
 impl Drop for SemaphorePermitReleaser {
   fn drop(&mut self) {
     // release the permits to other semaphores so other tasks start doing more work
-    let mut semaphores = self.semaphores.lock();
+    let mut semaphores = self.semaphores.borrow_mut();
     semaphores[self.index].finished = true;
     let permits = semaphores[self.index].permits;
     let mut remaining_semaphores = semaphores.iter_mut().filter(|s| !s.finished).collect::<Vec<_>>();

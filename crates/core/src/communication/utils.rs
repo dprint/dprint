@@ -1,37 +1,15 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
-use parking_lot::Mutex;
+#[derive(Default)]
+pub struct AtomicFlag(AtomicBool);
 
-use tokio_util::sync::CancellationToken;
-use tokio_util::sync::WaitForCancellationFuture;
-
-#[derive(Default, Clone)]
-pub struct Poisoner(Arc<CancellationToken>);
-
-impl Poisoner {
-  pub fn poison(&self) {
-    self.0.cancel()
-  }
-
-  pub fn is_poisoned(&self) -> bool {
-    self.0.is_cancelled()
-  }
-
-  pub fn wait_poisoned(&self) -> WaitForCancellationFuture {
-    self.0.cancelled()
-  }
-}
-
-#[derive(Default, Clone)]
-pub struct ArcFlag(Arc<AtomicBool>);
-
-impl ArcFlag {
-  pub fn raise(&self) {
-    self.0.store(true, Ordering::SeqCst)
+impl AtomicFlag {
+  pub fn raise(&self) -> bool {
+    !self.0.swap(true, Ordering::SeqCst)
   }
 
   pub fn is_raised(&self) -> bool {
@@ -39,47 +17,71 @@ impl ArcFlag {
   }
 }
 
-#[derive(Default, Clone)]
-pub struct IdGenerator(Arc<AtomicU32>);
+#[derive(Default)]
+pub struct IdGenerator(RefCell<u32>);
 
 impl IdGenerator {
   pub fn next(&self) -> u32 {
-    self.0.fetch_add(1, Ordering::SeqCst)
+    let mut borrow = self.0.borrow_mut();
+    let next = *borrow;
+    *borrow += 1;
+    next
   }
 }
 
-/// A store that can be shared across multiple threads, keyed by id.
-pub struct ArcIdStore<T>(Arc<Mutex<HashMap<u32, T>>>);
+pub struct RcIdStoreGuard<'a, T> {
+  store: &'a RcIdStore<T>,
+  message_id: u32,
+}
 
-impl<T> Default for ArcIdStore<T> {
+impl<'a, T> Drop for RcIdStoreGuard<'a, T> {
+  fn drop(&mut self) {
+    self.store.take(self.message_id);
+  }
+}
+
+/// A store keyed by id.
+pub struct RcIdStore<T>(Rc<RefCell<HashMap<u32, T>>>);
+
+impl<T> Default for RcIdStore<T> {
   fn default() -> Self {
     Self(Default::default())
   }
 }
 
-impl<T> ArcIdStore<T> {
+impl<T> RcIdStore<T> {
   pub fn new() -> Self {
     Default::default()
   }
 
   pub fn store(&self, message_id: u32, data: T) {
-    self.0.lock().insert(message_id, data);
+    self.0.borrow_mut().insert(message_id, data);
+  }
+
+  pub fn store_with_guard(&self, message_id: u32, data: T) -> RcIdStoreGuard<'_, T> {
+    self.store(message_id, data);
+    RcIdStoreGuard { store: self, message_id }
   }
 
   pub fn take(&self, message_id: u32) -> Option<T> {
-    self.0.lock().remove(&message_id)
+    self.0.borrow_mut().remove(&message_id)
+  }
+
+  pub fn take_all(&self) -> HashMap<u32, T> {
+    let mut map = self.0.borrow_mut();
+    std::mem::take(&mut *map)
   }
 }
 
-impl<T: Clone> ArcIdStore<T> {
+impl<T: Clone> RcIdStore<T> {
   pub fn get_cloned(&self, message_id: u32) -> Option<T> {
-    self.0.lock().get(&message_id).cloned()
+    self.0.borrow().get(&message_id).cloned()
   }
 }
 
 // the #[derive(Clone)] macro wasn't working with the type parameter properly
 // https://github.com/rust-lang/rust/issues/26925
-impl<T> Clone for ArcIdStore<T> {
+impl<T> Clone for RcIdStore<T> {
   fn clone(&self) -> Self {
     Self(self.0.clone())
   }

@@ -1,11 +1,11 @@
 use anyhow::Result;
 use crossterm::style::Stylize;
-use dprint_core::plugins::Host;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
-use parking_lot::Mutex;
+use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -21,12 +21,12 @@ use crate::environment::Environment;
 use crate::format::run_parallelized;
 use crate::format::EnsureStableFormat;
 use crate::incremental::get_incremental_file;
-use crate::paths::get_and_resolve_file_paths;
-use crate::paths::get_file_paths_by_plugins_and_err_if_empty;
 use crate::patterns::FileMatcher;
-use crate::plugins::resolve_plugins_and_err_if_empty;
 use crate::plugins::PluginResolver;
-use crate::plugins::PluginsCollection;
+use crate::resolution::resolve_plugins_scope_and_err_if_empty;
+use crate::resolution::resolve_plugins_scope_and_paths;
+use crate::resolution::PluginsScope;
+use crate::resolution::ResolvePluginsOptions;
 use crate::utils::get_difference;
 use crate::utils::BOM_CHAR;
 
@@ -34,12 +34,20 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
   cmd: &StdInFmtSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  plugin_pools.set_plugins(plugins, &config.base_path)?;
+  let config = resolve_config_from_args(args, environment).await?;
+  let plugins_scope = Rc::new(
+    resolve_plugins_scope_and_err_if_empty(
+      &config,
+      environment,
+      plugin_resolver,
+      &ResolvePluginsOptions {
+        check_top_level_unknown_property_diagnostics: false,
+      },
+    )
+    .await?,
+  );
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
     let file_matcher = FileMatcher::new(&config, &cmd.patterns, environment)?;
@@ -51,16 +59,16 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
       return Ok(());
     }
   }
-  output_stdin_format(PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, environment, plugin_pools).await
+  output_stdin_format(PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, plugins_scope, environment).await
 }
 
 async fn output_stdin_format<TEnvironment: Environment>(
   file_name: PathBuf,
   file_text: &str,
+  plugins_scope: Rc<PluginsScope<TEnvironment>>,
   environment: &TEnvironment,
-  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
 ) -> Result<()> {
-  let result = plugins_collection
+  let result = plugins_scope
     .format(HostFormatRequest {
       file_path: file_name,
       file_text: file_text.to_string(),
@@ -80,28 +88,23 @@ pub async fn output_format_times<TEnvironment: Environment>(
   cmd: &OutputFormatTimesSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, &plugins, environment).await?;
-  let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
-  plugin_pools.set_plugins(plugins, &config.base_path)?;
-  let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
+  let scope_and_paths = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
+  let durations: Rc<RefCell<Vec<(PathBuf, u128)>>> = Rc::new(RefCell::new(Vec::new()));
 
-  run_parallelized(file_paths_by_plugin, environment, plugin_pools, None, EnsureStableFormat(false), {
+  run_parallelized(scope_and_paths, environment, None, EnsureStableFormat(false), {
     let durations = durations.clone();
     move |file_path, _, _, _, start_instant, _| {
       let duration = start_instant.elapsed().as_millis();
-      let mut durations = durations.lock();
+      let mut durations = durations.borrow_mut();
       durations.push((file_path.to_owned(), duration));
       Ok(())
     }
   })
   .await?;
 
-  let mut durations = durations.lock();
+  let mut durations = durations.borrow_mut();
   durations.sort_by_key(|k| k.1);
   for (file_path, duration) in durations.iter() {
     environment.log(&format!("{}ms - {}", duration, file_path.display()));
@@ -120,44 +123,33 @@ pub async fn check<TEnvironment: Environment>(
   cmd: &CheckSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, &plugins, environment).await?;
-  let file_paths_by_plugin = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
-  plugin_pools.set_plugins(plugins, &config.base_path)?;
+  let config = resolve_config_from_args(args, environment).await?;
+  let scope_and_paths = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
 
-  let incremental_file = get_incremental_file(cmd.incremental, &config, &plugin_pools, environment);
+  let incremental_file = get_incremental_file(cmd.incremental, &config, &scope_and_paths.scope, environment);
   let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
-  run_parallelized(
-    file_paths_by_plugin,
-    environment,
-    plugin_pools,
-    incremental_file.clone(),
-    EnsureStableFormat(false),
-    {
-      let not_formatted_files_count = not_formatted_files_count.clone();
-      let incremental_file = incremental_file.clone();
-      move |file_path, file_text, formatted_text, _, _, environment| {
-        if formatted_text != file_text {
-          not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
-          output_difference(file_path, file_text, &formatted_text, environment);
-        } else {
-          // update the incremental cache when the file is formatted correctly
-          // so that this runs faster next time, but don't update it with the
-          // correctly formatted file because it hasn't undergone a stable
-          // formatting check
-          if let Some(incremental_file) = &incremental_file {
-            incremental_file.update_file(&formatted_text);
-          }
+  run_parallelized(scope_and_paths, environment, incremental_file.clone(), EnsureStableFormat(false), {
+    let not_formatted_files_count = not_formatted_files_count.clone();
+    let incremental_file = incremental_file.clone();
+    move |file_path, file_text, formatted_text, _, _, environment| {
+      if formatted_text != file_text {
+        not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
+        output_difference(file_path, file_text, &formatted_text, environment);
+      } else {
+        // update the incremental cache when the file is formatted correctly
+        // so that this runs faster next time, but don't update it with the
+        // correctly formatted file because it hasn't undergone a stable
+        // formatting check
+        if let Some(incremental_file) = &incremental_file {
+          incremental_file.update_file(&formatted_text);
         }
-        Ok(())
       }
-    },
-  )
+      Ok(())
+    }
+  })
   .await?;
 
   if let Some(incremental_file) = &incremental_file {
@@ -186,23 +178,18 @@ pub async fn format<TEnvironment: Environment>(
   cmd: &FmtSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  let file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, &plugins, environment).await?;
-  let file_paths_by_plugins = get_file_paths_by_plugins_and_err_if_empty(&plugins, file_paths, &config.base_path)?;
-  plugin_pools.set_plugins(plugins, &config.base_path)?;
+  let config = resolve_config_from_args(args, environment).await?;
+  let scope_and_paths = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
 
-  let incremental_file = get_incremental_file(cmd.incremental, &config, &plugin_pools, environment);
+  let incremental_file = get_incremental_file(cmd.incremental, &config, &scope_and_paths.scope, environment);
   let formatted_files_count = Arc::new(AtomicUsize::new(0));
   let output_diff = cmd.diff;
 
   run_parallelized(
-    file_paths_by_plugins,
+    scope_and_paths,
     environment,
-    plugin_pools,
     incremental_file.clone(),
     EnsureStableFormat(cmd.enable_stable_format),
     {
@@ -1286,7 +1273,6 @@ mod test {
   fn should_format_using_config_in_ancestor_directory() {
     let config_file_names = vec!["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
     for config_file_name in config_file_names {
-      eprintln!("CONFIG FILE: {}", config_file_name);
       let file_path = "/test/other/file.txt";
       let environment = TestEnvironmentBuilder::new()
         .add_remote_wasm_plugin()

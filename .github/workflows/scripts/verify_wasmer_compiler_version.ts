@@ -4,7 +4,7 @@
 // the Cargo.lock file, but that doesn't work for publishing because the
 // lockfile is outside the crates/cli directory. So the workaround is to
 // verify this on the CI instead.
-import $ from "https://deno.land/x/dax@0.32.0/mod.ts";
+import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
 
 $.logStep("Verifying wasmer-compiler version...");
 

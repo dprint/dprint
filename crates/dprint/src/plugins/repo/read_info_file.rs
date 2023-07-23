@@ -64,8 +64,8 @@ impl InfoFilePluginInfo {
 const SCHEMA_VERSION: u8 = 4;
 pub const REMOTE_INFO_URL: &str = "https://plugins.dprint.dev/info.json";
 
-pub fn read_info_file(environment: &impl Environment) -> Result<InfoFile> {
-  let info_bytes = environment.download_file_err_404(REMOTE_INFO_URL)?;
+pub async fn read_info_file(environment: &impl Environment) -> Result<InfoFile> {
+  let info_bytes = environment.download_file_err_404(REMOTE_INFO_URL).await?;
   let info_text = String::from_utf8(info_bytes.to_vec())?;
   let json_value = parse_to_value(&info_text, &Default::default())?;
   let mut obj = match json_value {
@@ -198,37 +198,39 @@ mod test {
           });
       })
       .build();
-    let info_file = read_info_file(&environment).unwrap();
-    assert_eq!(
-      info_file,
-      InfoFile {
-        plugin_system_schema_version: 3,
-        latest_plugins: vec![
-          InfoFilePluginInfo {
-            name: "dprint-plugin-typescript".to_string(),
-            version: "0.17.2".to_string(),
-            selected: true,
-            url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
-            config_key: Some("typescript".to_string()),
-            file_extensions: vec!["ts".to_string(), "tsx".to_string()],
-            file_names: vec![],
-            config_excludes: vec!["**/node_modules".to_string()],
-            checksum: None,
-          },
-          InfoFilePluginInfo {
-            name: "dprint-plugin-jsonc".to_string(),
-            version: "0.2.3".to_string(),
-            selected: false,
-            url: "https://plugins.dprint.dev/json-0.2.3.wasm".to_string(),
-            config_key: None,
-            file_extensions: vec!["json".to_string()],
-            file_names: vec!["test-file".to_string()],
-            config_excludes: vec!["**/*-lock.json".to_string()],
-            checksum: Some("test-checksum".to_string()),
-          }
-        ],
-      }
-    )
+    environment.clone().run_in_runtime(async move {
+      let info_file = read_info_file(&environment).await.unwrap();
+      assert_eq!(
+        info_file,
+        InfoFile {
+          plugin_system_schema_version: 3,
+          latest_plugins: vec![
+            InfoFilePluginInfo {
+              name: "dprint-plugin-typescript".to_string(),
+              version: "0.17.2".to_string(),
+              selected: true,
+              url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
+              config_key: Some("typescript".to_string()),
+              file_extensions: vec!["ts".to_string(), "tsx".to_string()],
+              file_names: vec![],
+              config_excludes: vec!["**/node_modules".to_string()],
+              checksum: None,
+            },
+            InfoFilePluginInfo {
+              name: "dprint-plugin-jsonc".to_string(),
+              version: "0.2.3".to_string(),
+              selected: false,
+              url: "https://plugins.dprint.dev/json-0.2.3.wasm".to_string(),
+              config_key: None,
+              file_extensions: vec!["json".to_string()],
+              file_names: vec!["test-file".to_string()],
+              config_excludes: vec!["**/*-lock.json".to_string()],
+              checksum: Some("test-checksum".to_string()),
+            }
+          ],
+        }
+      )
+    });
   }
 
   #[test]
@@ -241,11 +243,13 @@ mod test {
 }"#
         .as_bytes(),
     );
-    let message = read_info_file(&environment).err().unwrap();
-    assert_eq!(
-      message.to_string(),
-      "Cannot handle schema version 1. Expected 4. This might mean your dprint CLI version is old and isn't able to get the latest information."
-    );
+    environment.clone().run_in_runtime(async move {
+      let message = read_info_file(&environment).await.err().unwrap();
+      assert_eq!(
+        message.to_string(),
+        "Cannot handle schema version 1. Expected 4. This might mean your dprint CLI version is old and isn't able to get the latest information."
+      );
+    });
   }
 
   #[test]
@@ -258,22 +262,28 @@ mod test {
 }"#
         .as_bytes(),
     );
-    let message = read_info_file(&environment).err().unwrap();
-    assert_eq!(message.to_string(), "Could not find plugin system schema version.");
+    environment.clone().run_in_runtime(async move {
+      let message = read_info_file(&environment).await.err().unwrap();
+      assert_eq!(message.to_string(), "Could not find plugin system schema version.");
+    });
   }
 
   #[test]
   fn should_error_when_info_file_not_exists() {
     let environment = TestEnvironment::new();
-    let message = read_info_file(&environment).err().unwrap();
-    assert_eq!(message.to_string(), "Error downloading https://plugins.dprint.dev/info.json - 404 Not Found");
+    environment.clone().run_in_runtime(async move {
+      let message = read_info_file(&environment).await.err().unwrap();
+      assert_eq!(message.to_string(), "Error downloading https://plugins.dprint.dev/info.json - 404 Not Found");
+    });
   }
 
   #[test]
   fn should_error_when_info_file_errors() {
     let environment = TestEnvironment::new();
     environment.add_remote_file_error("https://plugins.dprint.dev/info.json", "Some Error");
-    let message = read_info_file(&environment).err().unwrap();
-    assert_eq!(message.to_string(), "Some Error");
+    environment.clone().run_in_runtime(async move {
+      let message = read_info_file(&environment).await.err().unwrap();
+      assert_eq!(message.to_string(), "Some Error");
+    });
   }
 }

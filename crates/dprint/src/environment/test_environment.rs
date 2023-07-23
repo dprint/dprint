@@ -2,12 +2,12 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Error;
 use anyhow::Result;
-use futures::Future;
 use parking_lot::Condvar;
 use parking_lot::Mutex;
 use path_clean::PathClean;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::future::Future;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
@@ -16,7 +16,6 @@ use std::sync::Arc;
 
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
-use super::DirEntryKind;
 use super::Environment;
 use super::FilePermissions;
 use super::UrlDownloader;
@@ -110,7 +109,6 @@ pub struct TestEnvironment {
   dir_info_error: Arc<Mutex<Option<Error>>>,
   std_in_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
   std_out_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
-  runtime_handle: Arc<Mutex<Option<tokio::runtime::Handle>>>,
   #[cfg(windows)]
   path_dirs: Arc<Mutex<Vec<PathBuf>>>,
   cpu_arch: Arc<Mutex<String>>,
@@ -143,7 +141,6 @@ impl TestEnvironment {
         let pipe = create_test_pipe();
         (Some(pipe.0), pipe.1)
       })),
-      runtime_handle: Default::default(),
       #[cfg(windows)]
       path_dirs: Default::default(),
       cpu_arch: Arc::new(Mutex::new("x86_64".to_string())),
@@ -177,6 +174,15 @@ impl TestEnvironment {
   pub fn add_remote_file_error(&self, path: &str, err: &str) {
     let mut remote_files = self.remote_files.lock();
     remote_files.insert(String::from(path), Err(anyhow!("{}", err)));
+  }
+
+  pub fn get_remote_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
+    let remote_files = self.remote_files.lock();
+    match remote_files.get(&String::from(url)) {
+      Some(Ok(result)) => Ok(Some(result.clone())),
+      Some(Err(err)) => Err(anyhow!("{:#}", err)),
+      None => Ok(None),
+    }
   }
 
   pub fn is_dir_deleted(&self, path: impl AsRef<Path>) -> bool {
@@ -248,14 +254,9 @@ impl TestEnvironment {
     *self.max_threads_count.lock() = value;
   }
 
-  pub fn set_runtime_handle(&self, handle: tokio::runtime::Handle) {
-    *self.runtime_handle.lock() = Some(handle);
-  }
-
   /// Remember to drop the plugins collection manually if using this with one.
   pub fn run_in_runtime<T>(&self, future: impl Future<Output = T>) -> T {
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_time().build().unwrap();
-    self.set_runtime_handle(rt.handle().clone());
+    let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
     rt.block_on(future)
   }
 
@@ -291,14 +292,10 @@ impl Drop for TestEnvironment {
   }
 }
 
+#[async_trait::async_trait(?Send)]
 impl UrlDownloader for TestEnvironment {
-  fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
-    let remote_files = self.remote_files.lock();
-    match remote_files.get(&String::from(url)) {
-      Some(Ok(result)) => Ok(Some(result.clone())),
-      Some(Err(err)) => Err(anyhow!("{:#}", err)),
-      None => Ok(None),
-    }
+  async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
+    self.get_remote_file(url)
   }
 }
 
@@ -384,8 +381,8 @@ impl Environment for TestEnvironment {
     let files = self.files.lock();
     for key in files.keys() {
       if key.parent().unwrap() == dir_path {
-        entries.push(DirEntry {
-          kind: DirEntryKind::File,
+        entries.push(DirEntry::File {
+          name: key.file_name().unwrap().to_os_string(),
           path: key.clone(),
         });
       } else {
@@ -397,10 +394,7 @@ impl Environment for TestEnvironment {
           };
 
           if ancestor_parent_dir == dir_path && found_directories.insert(ancestor_dir) {
-            entries.push(DirEntry {
-              kind: DirEntryKind::Directory,
-              path: ancestor_dir.to_path_buf(),
-            });
+            entries.push(DirEntry::Directory(ancestor_dir.to_path_buf()));
             break;
           }
           current_dir = ancestor_dir.parent();
@@ -550,11 +544,6 @@ impl Environment for TestEnvironment {
 
   fn stdin(&self) -> Box<dyn Read + Send> {
     Box::new(self.std_in_pipe.lock().1.clone())
-  }
-
-  fn runtime_handle(&self) -> tokio::runtime::Handle {
-    // need to call set_runtime_handle to make this not panic
-    self.runtime_handle.lock().as_ref().unwrap().clone()
   }
 
   #[cfg(windows)]

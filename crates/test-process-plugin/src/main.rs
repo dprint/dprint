@@ -1,15 +1,9 @@
+use std::path::PathBuf;
+
 use anyhow::bail;
 use anyhow::Result;
-use dprint_core::plugins::BoxFuture;
-use dprint_core::plugins::FormatRequest;
-use dprint_core::plugins::FormatResult;
-use dprint_core::plugins::Host;
-use dprint_core::plugins::HostFormatRequest;
-use serde::Deserialize;
-use serde::Serialize;
-use std::path::PathBuf;
-use std::sync::Arc;
-
+use dprint_core::async_runtime::FutureExt;
+use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::get_unknown_property_diagnostics;
 use dprint_core::configuration::get_value;
 use dprint_core::configuration::ConfigKeyMap;
@@ -19,15 +13,22 @@ use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
 use dprint_core::plugins::process::handle_process_stdio_messages;
 use dprint_core::plugins::process::start_parent_process_checker_task;
 use dprint_core::plugins::AsyncPluginHandler;
+use dprint_core::plugins::FormatRequest;
+use dprint_core::plugins::FormatResult;
+use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::PluginInfo;
+use serde::Deserialize;
+use serde::Serialize;
 
-#[tokio::main]
-async fn main() -> Result<()> {
-  if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
-    start_parent_process_checker_task(parent_process_id);
-  }
+fn main() -> Result<()> {
+  let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+  rt.block_on(async move {
+    if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
+      start_parent_process_checker_task(parent_process_id);
+    }
 
-  handle_process_stdio_messages(TestProcessPluginHandler::new()).await
+    handle_process_stdio_messages(TestProcessPluginHandler::new()).await
+  })
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -79,8 +80,12 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
     }
   }
 
-  fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<FormatResult> {
-    Box::pin(async move {
+  fn format(
+    &self,
+    request: FormatRequest<Self::Configuration>,
+    mut format_with_host: impl FnMut(HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> + 'static,
+  ) -> LocalBoxFuture<'static, FormatResult> {
+    async move {
       let (had_suffix, file_text) = if let Some(text) = request.file_text.strip_suffix(&format!("_{}", request.config.ending)) {
         (true, text.to_string())
       } else {
@@ -94,28 +99,26 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
         request.token.wait_cancellation().await;
         return Ok(None);
       } else if let Some(new_text) = file_text.strip_prefix("plugin: ") {
-        let result = host
-          .format(HostFormatRequest {
-            file_path: PathBuf::from("./test.txt"),
-            file_text: new_text.to_string(),
-            range: None,
-            override_config: Default::default(),
-            token: request.token.clone(),
-          })
-          .await?;
+        let result = (format_with_host)(HostFormatRequest {
+          file_path: PathBuf::from("./test.txt"),
+          file_text: new_text.to_string(),
+          range: None,
+          override_config: Default::default(),
+          token: request.token.clone(),
+        })
+        .await?;
         format!("plugin: {}", result.unwrap_or_else(|| new_text.to_string()))
       } else if let Some(new_text) = file_text.strip_prefix("plugin-config: ") {
         let mut config_map = ConfigKeyMap::new();
         config_map.insert("ending".to_string(), "custom_config".into());
-        let result = host
-          .format(HostFormatRequest {
-            file_path: PathBuf::from("./test.txt"),
-            file_text: new_text.to_string(),
-            range: None,
-            override_config: config_map,
-            token: request.token.clone(),
-          })
-          .await?;
+        let result = (format_with_host)(HostFormatRequest {
+          file_path: PathBuf::from("./test.txt"),
+          file_text: new_text.to_string(),
+          range: None,
+          override_config: config_map,
+          token: request.token.clone(),
+        })
+        .await?;
         format!("plugin-config: {}", result.unwrap_or_else(|| new_text.to_string()))
       } else if file_text == "should_error" {
         bail!("Did error.")
@@ -128,6 +131,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
       } else {
         Ok(Some(format!("{}_{}", inner_format_text, request.config.ending)))
       }
-    })
+    }
+    .boxed_local()
   }
 }
