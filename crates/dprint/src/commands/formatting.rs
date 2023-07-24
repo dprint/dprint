@@ -6,8 +6,6 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -128,7 +126,7 @@ pub async fn check<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
-  let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
+  let not_formatted_files_count = Rc::new(RefCell::new(0));
 
   for scope_and_paths in scopes {
     let incremental_file = scope_and_paths
@@ -141,7 +139,7 @@ pub async fn check<TEnvironment: Environment>(
       let incremental_file = incremental_file.clone();
       move |file_path, file_text, formatted_text, _, _, environment| {
         if formatted_text != file_text {
-          not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
+          *not_formatted_files_count.borrow_mut() += 1;
           output_difference(file_path, file_text, &formatted_text, environment);
         } else {
           // update the incremental cache when the file is formatted correctly
@@ -162,7 +160,7 @@ pub async fn check<TEnvironment: Environment>(
     }
   }
 
-  let not_formatted_files_count = not_formatted_files_count.load(Ordering::SeqCst);
+  let not_formatted_files_count = *not_formatted_files_count.borrow();
   if not_formatted_files_count == 0 {
     Ok(())
   } else {
@@ -188,7 +186,7 @@ pub async fn format<TEnvironment: Environment>(
 ) -> Result<()> {
   let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
 
-  let formatted_files_count = Arc::new(AtomicUsize::new(0));
+  let formatted_files_count = Rc::new(RefCell::new(0));
   for scope_and_paths in scopes {
     let incremental_file = scope_and_paths
       .scope
@@ -222,7 +220,7 @@ pub async fn format<TEnvironment: Environment>(
               formatted_text
             };
 
-            formatted_files_count.fetch_add(1, Ordering::SeqCst);
+            *formatted_files_count.borrow_mut() += 1;
             environment.write_file(file_path, &new_text)?;
           }
 
@@ -237,7 +235,7 @@ pub async fn format<TEnvironment: Environment>(
     }
   }
 
-  let formatted_files_count = formatted_files_count.load(Ordering::SeqCst);
+  let formatted_files_count = *formatted_files_count.borrow();
   if formatted_files_count > 0 {
     let suffix = if formatted_files_count == 1 { "file" } else { "files" };
     environment.log(&format!("Formatted {} {}.", formatted_files_count.to_string().bold(), suffix));
