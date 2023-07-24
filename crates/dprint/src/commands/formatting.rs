@@ -36,10 +36,10 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment).await?;
+  let config = Rc::new(resolve_config_from_args(args, environment).await?);
   let plugins_scope = Rc::new(
     resolve_plugins_scope_and_err_if_empty(
-      &config,
+      config,
       environment,
       plugin_resolver,
       &ResolvePluginsOptions {
@@ -50,7 +50,7 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
   );
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
-    let file_matcher = FileMatcher::new(&config, &cmd.patterns, environment)?;
+    let file_matcher = FileMatcher::new(plugins_scope.config.as_ref().unwrap(), &cmd.patterns, environment)?;
     // canonicalize the file path, then check if it's in the list of file paths.
     let resolved_file_path = environment.canonicalize(&cmd.file_name_or_path)?;
     // log the file text as-is since it's not in the list of files to format
@@ -90,19 +90,21 @@ pub async fn output_format_times<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let scope_and_paths = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
+  let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
   let durations: Rc<RefCell<Vec<(PathBuf, u128)>>> = Rc::new(RefCell::new(Vec::new()));
 
-  run_parallelized(scope_and_paths, environment, None, EnsureStableFormat(false), {
-    let durations = durations.clone();
-    move |file_path, _, _, _, start_instant, _| {
-      let duration = start_instant.elapsed().as_millis();
-      let mut durations = durations.borrow_mut();
-      durations.push((file_path.to_owned(), duration));
-      Ok(())
-    }
-  })
-  .await?;
+  for scope_and_paths in scopes {
+    run_parallelized(scope_and_paths, environment, None, EnsureStableFormat(false), {
+      let durations = durations.clone();
+      move |file_path, _, _, _, start_instant, _| {
+        let duration = start_instant.elapsed().as_millis();
+        let mut durations = durations.borrow_mut();
+        durations.push((file_path.to_owned(), duration));
+        Ok(())
+      }
+    })
+    .await?;
+  }
 
   let mut durations = durations.borrow_mut();
   durations.sort_by_key(|k| k.1);
@@ -125,35 +127,39 @@ pub async fn check<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment).await?;
-  let scope_and_paths = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
-
-  let incremental_file = get_incremental_file(cmd.incremental, &config, &scope_and_paths.scope, environment);
+  let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
   let not_formatted_files_count = Arc::new(AtomicUsize::new(0));
 
-  run_parallelized(scope_and_paths, environment, incremental_file.clone(), EnsureStableFormat(false), {
-    let not_formatted_files_count = not_formatted_files_count.clone();
-    let incremental_file = incremental_file.clone();
-    move |file_path, file_text, formatted_text, _, _, environment| {
-      if formatted_text != file_text {
-        not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
-        output_difference(file_path, file_text, &formatted_text, environment);
-      } else {
-        // update the incremental cache when the file is formatted correctly
-        // so that this runs faster next time, but don't update it with the
-        // correctly formatted file because it hasn't undergone a stable
-        // formatting check
-        if let Some(incremental_file) = &incremental_file {
-          incremental_file.update_file(&formatted_text);
+  for scope_and_paths in scopes {
+    let incremental_file = scope_and_paths
+      .scope
+      .config
+      .as_ref()
+      .and_then(|config| get_incremental_file(cmd.incremental, &config, &scope_and_paths.scope, environment));
+    run_parallelized(scope_and_paths, environment, incremental_file.clone(), EnsureStableFormat(false), {
+      let not_formatted_files_count = not_formatted_files_count.clone();
+      let incremental_file = incremental_file.clone();
+      move |file_path, file_text, formatted_text, _, _, environment| {
+        if formatted_text != file_text {
+          not_formatted_files_count.fetch_add(1, Ordering::SeqCst);
+          output_difference(file_path, file_text, &formatted_text, environment);
+        } else {
+          // update the incremental cache when the file is formatted correctly
+          // so that this runs faster next time, but don't update it with the
+          // correctly formatted file because it hasn't undergone a stable
+          // formatting check
+          if let Some(incremental_file) = &incremental_file {
+            incremental_file.update_file(&formatted_text);
+          }
         }
+        Ok(())
       }
-      Ok(())
-    }
-  })
-  .await?;
+    })
+    .await?;
 
-  if let Some(incremental_file) = &incremental_file {
-    incremental_file.write();
+    if let Some(incremental_file) = &incremental_file {
+      incremental_file.write();
+    }
   }
 
   let not_formatted_files_count = not_formatted_files_count.load(Ordering::SeqCst);
@@ -180,56 +186,61 @@ pub async fn format<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment).await?;
-  let scope_and_paths = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
+  let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
 
-  let incremental_file = get_incremental_file(cmd.incremental, &config, &scope_and_paths.scope, environment);
   let formatted_files_count = Arc::new(AtomicUsize::new(0));
-  let output_diff = cmd.diff;
+  for scope_and_paths in scopes {
+    let incremental_file = scope_and_paths
+      .scope
+      .config
+      .as_ref()
+      .and_then(|config| get_incremental_file(cmd.incremental, &config, &scope_and_paths.scope, environment));
+    let output_diff = cmd.diff;
 
-  run_parallelized(
-    scope_and_paths,
-    environment,
-    incremental_file.clone(),
-    EnsureStableFormat(cmd.enable_stable_format),
-    {
-      let formatted_files_count = formatted_files_count.clone();
-      let incremental_file = incremental_file.clone();
-      move |file_path, file_text, formatted_text, had_bom, _, environment| {
-        if let Some(incremental_file) = &incremental_file {
-          incremental_file.update_file(&formatted_text);
-        }
-
-        if formatted_text != file_text {
-          if output_diff {
-            output_difference(file_path, file_text, &formatted_text, environment);
+    run_parallelized(
+      scope_and_paths,
+      environment,
+      incremental_file.clone(),
+      EnsureStableFormat(cmd.enable_stable_format),
+      {
+        let formatted_files_count = formatted_files_count.clone();
+        let incremental_file = incremental_file.clone();
+        move |file_path, file_text, formatted_text, had_bom, _, environment| {
+          if let Some(incremental_file) = &incremental_file {
+            incremental_file.update_file(&formatted_text);
           }
 
-          let new_text = if had_bom {
-            // add back the BOM
-            format!("{}{}", BOM_CHAR, formatted_text)
-          } else {
-            formatted_text
-          };
+          if formatted_text != file_text {
+            if output_diff {
+              output_difference(file_path, file_text, &formatted_text, environment);
+            }
 
-          formatted_files_count.fetch_add(1, Ordering::SeqCst);
-          environment.write_file(file_path, &new_text)?;
+            let new_text = if had_bom {
+              // add back the BOM
+              format!("{}{}", BOM_CHAR, formatted_text)
+            } else {
+              formatted_text
+            };
+
+            formatted_files_count.fetch_add(1, Ordering::SeqCst);
+            environment.write_file(file_path, &new_text)?;
+          }
+
+          Ok(())
         }
+      },
+    )
+    .await?;
 
-        Ok(())
-      }
-    },
-  )
-  .await?;
+    if let Some(incremental_file) = &incremental_file {
+      incremental_file.write();
+    }
+  }
 
   let formatted_files_count = formatted_files_count.load(Ordering::SeqCst);
   if formatted_files_count > 0 {
     let suffix = if formatted_files_count == 1 { "file" } else { "files" };
     environment.log(&format!("Formatted {} {}.", formatted_files_count.to_string().bold(), suffix));
-  }
-
-  if let Some(incremental_file) = &incremental_file {
-    incremental_file.write();
   }
 
   Ok(())
@@ -978,7 +989,7 @@ mod test {
     assert_eq!(
       error.to_string(),
       concat!(
-        "No files found to format with the specified plugins. ",
+        "No files found to format with the specified plugins at /. ",
         "You may want to try using `dprint output-file-paths` to see which files it's finding."
       )
     );
@@ -1907,5 +1918,61 @@ mod test {
         "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
       ]
     );
+  }
+
+  #[test]
+  fn should_format_with_nested_config_calling_other_plugin() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/sub_dir/file.txt";
+    let file_path3 = "/sub_dir/ignored/file.txt";
+    let file_path4 = "/sub_dir/more/file.txt";
+    let file_path5 = "/sub_dir/more/ignored.txt_ps";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_excludes("./ignored")
+          .add_config_section("test-plugin", r#"{ "ending": "custom-formatted1" }"#)
+          .add_config_section("testProcessPlugin", r#"{ "ending": "custom-formatted2" }"#);
+      })
+      .with_local_config("/sub_dir/more/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file(&file_path1, "plugin: plugin: format this text")
+      .write_file(&file_path2, "plugin: plugin: format this other text")
+      .write_file(&file_path3, "ignored")
+      .write_file(&file_path4, "text")
+      .write_file(&file_path5, "ignored")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    assert_eq!(
+      environment.read_file(&file_path1).unwrap(),
+      "plugin: plugin: format this text_formatted_formatted_process_formatted"
+    );
+    assert_eq!(
+      environment.read_file(&file_path2).unwrap(),
+      "plugin: plugin: format this other text_custom-formatted1_custom-formatted2_custom-formatted1"
+    );
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "ignored");
+    assert_eq!(environment.read_file(&file_path4).unwrap(), "text_formatted");
+  }
+
+  #[test]
+  fn should_error_no_files_sub_dir_config() {
+    let file_path1 = "/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.add_remote_wasm_plugin().add_remote_process_plugin();
+      })
+      .write_file(&file_path1, "format this text")
+      .build();
+    let err = run_test_cli(vec!["fmt"], &environment).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      "No files found to format with the specified plugins at /sub_dir. You may want to try using `dprint output-file-paths` to see which files it's finding."
+    );
+    err.assert_exit_code(14);
   }
 }

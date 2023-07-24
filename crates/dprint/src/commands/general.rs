@@ -91,13 +91,13 @@ pub async fn output_file_paths<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let file_paths_by_plugins = match resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await {
-    Ok(result) => result.file_paths_by_plugins,
+  let scopes = match resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await {
+    Ok(result) => result,
     Err(err) if err.downcast_ref::<NoFilesFoundError>().is_some() => Default::default(),
     Err(err) => return Err(err),
   };
 
-  let file_paths = file_paths_by_plugins.values().flat_map(|x| x.iter());
+  let file_paths = scopes.iter().flat_map(|x| x.file_paths_by_plugins.values().flatten());
   for file_path in file_paths {
     environment.log(&file_path.display().to_string())
   }

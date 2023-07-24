@@ -51,6 +51,10 @@ pub async fn run_parallelized<F, TEnvironment: Environment>(
 where
   F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<()> + 'static + Clone,
 {
+  if let Some(config) = &scope_and_paths.scope.config {
+    log_verbose!(environment, "Running for config: {}", config.resolved_path.file_path.display());
+  }
+
   let max_threads = environment.max_threads();
   let number_process_plugins = scope_and_paths.scope.process_plugin_count();
   let reduction_count = number_process_plugins + 1; // + 1 for each process plugin's possible runtime thread and this runtime's thread

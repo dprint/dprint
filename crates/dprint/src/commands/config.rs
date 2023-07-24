@@ -304,9 +304,9 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment).await?;
+  let config = Rc::new(resolve_config_from_args(args, environment).await?);
   let plugins_scope = resolve_plugins_scope(
-    &config,
+    config,
     environment,
     plugin_resolver,
     &ResolvePluginsOptions {
