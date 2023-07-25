@@ -21,7 +21,6 @@ mod test {
 
   use crate::arg_parser::CliArgs;
   use crate::configuration::resolve_config_from_args;
-  use crate::environment::Environment;
   use crate::environment::TestEnvironmentBuilder;
   use crate::plugins::FormatConfig;
   use crate::plugins::PluginCache;
@@ -38,8 +37,8 @@ mod test {
         let plugin_cache = PluginCache::new(environment.clone());
         let resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
         let cli_args = CliArgs::empty();
-        let config = resolve_config_from_args(&cli_args, &environment).await.unwrap();
-        let plugins = resolver.resolve_plugins(config.plugins).await.unwrap();
+        let config = Rc::new(resolve_config_from_args(&cli_args, &environment).await.unwrap());
+        let plugins = resolver.resolve_plugins(config.plugins.clone()).await.unwrap();
         assert_eq!(
           plugins.iter().map(|p| &p.info().name).collect::<Vec<_>>(),
           vec!["test-plugin", "test-process-plugin"]
@@ -58,7 +57,7 @@ mod test {
             ))
           })
           .collect();
-        let scope = Rc::new(PluginsScope::new(environment.clone(), plugins, &environment.cwd()).unwrap());
+        let scope = Rc::new(PluginsScope::new(environment.clone(), plugins, config).unwrap());
         let token = Arc::new(CancellationToken::new());
         dprint_core::async_runtime::spawn({
           let token = token.clone();
@@ -96,8 +95,8 @@ mod test {
         let plugin_cache = PluginCache::new(environment.clone());
         let resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
         let cli_args = CliArgs::empty();
-        let config = resolve_config_from_args(&cli_args, &environment).await.unwrap();
-        let plugins = resolver.resolve_plugins(config.plugins).await.unwrap();
+        let config = Rc::new(resolve_config_from_args(&cli_args, &environment).await.unwrap());
+        let plugins = resolver.resolve_plugins(config.plugins.clone()).await.unwrap();
         assert_eq!(
           plugins.iter().map(|p| &p.info().name).collect::<Vec<_>>(),
           vec!["test-plugin", "test-process-plugin"]
@@ -116,7 +115,7 @@ mod test {
             ))
           })
           .collect();
-        let scope = Rc::new(PluginsScope::new(environment.clone(), plugins, &environment.cwd()).unwrap());
+        let scope = Rc::new(PluginsScope::new(environment.clone(), plugins, config).unwrap());
         let token = Arc::new(CancellationToken::new());
 
         // start up a format that will hang forever

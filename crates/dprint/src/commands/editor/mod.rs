@@ -108,13 +108,13 @@ struct EditorContext {
 }
 
 struct EditorService<'a, TEnvironment: Environment> {
-  config: Option<ResolvedConfig>,
   args: &'a CliArgs,
   environment: &'a TEnvironment,
   plugin_resolver: &'a Rc<PluginResolver<TEnvironment>>,
   plugins_scope: Option<Rc<PluginsScope<TEnvironment>>>,
   context: Rc<EditorContext>,
   concurrency_limiter: Rc<Semaphore>,
+  config_semaphore: Rc<Semaphore>,
 }
 
 impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
@@ -125,7 +125,6 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
 
     Self {
-      config: None,
       args,
       environment,
       plugin_resolver,
@@ -136,6 +135,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
         writer,
       }),
       concurrency_limiter,
+      config_semaphore: Rc::new(Semaphore::new(1)),
     }
   }
 
@@ -186,7 +186,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           send_error_response(&self.context, message.id, anyhow!("CLI cannot handle a CanFormatResponse message."));
         }
         EditorMessageBody::Format(body) => {
-          if self.config.is_none() || self.plugins_scope.is_none() {
+          if self.plugins_scope.is_none() {
             self.ensure_latest_config().await?;
           }
           let token = Arc::new(CancellationToken::new());
@@ -253,21 +253,21 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   }
 
   async fn can_format(&mut self, file_path: &Path) -> Result<bool> {
-    self.ensure_latest_config().await?;
+    let config = self.ensure_latest_config().await?;
 
-    let file_matcher = FileMatcher::new(self.config.as_ref().unwrap(), &FilePatternArgs::default(), self.environment)?;
+    let file_matcher = FileMatcher::new(&config, &FilePatternArgs::default(), self.environment)?;
     // canonicalize the file path, then check if it's in the list of file paths.
     let resolved_file_path = self.environment.canonicalize(file_path)?;
     log_verbose!(self.environment, "Checking can format: {}", resolved_file_path.display());
     Ok(file_matcher.matches_and_dir_not_ignored(&resolved_file_path))
   }
 
-  async fn ensure_latest_config(&mut self) -> Result<()> {
-    // todo(THIS PR): use a semaphore around here to ensure single concurrency
-    let last_config = self.config.take();
-    let config = resolve_config_from_args(self.args, self.environment).await?;
+  async fn ensure_latest_config(&mut self) -> Result<Rc<ResolvedConfig>> {
+    let _update_permit = self.config_semaphore.acquire().await;
+    let config = Rc::new(resolve_config_from_args(self.args, self.environment).await?);
 
-    let has_config_changed = last_config.is_none() || last_config.unwrap() != config || self.plugins_scope.is_none();
+    let last_config = self.plugins_scope.as_ref().and_then(|scope| scope.config.as_ref());
+    let has_config_changed = last_config.is_none() || last_config.unwrap() != &config || self.plugins_scope.is_none();
     if has_config_changed {
       self.plugins_scope.take();
       let tokens = self.context.cancellation_tokens.take_all();
@@ -277,7 +277,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       self.plugin_resolver.clear_and_shutdown_initialized().await;
 
       let scope = resolve_plugins_scope(
-        &config,
+        config.clone(),
         self.environment,
         self.plugin_resolver,
         &ResolvePluginsOptions {
@@ -288,9 +288,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       self.plugins_scope = Some(Rc::new(scope));
     }
 
-    self.config = Some(config);
-
-    Ok(())
+    Ok(self.plugins_scope.as_ref().unwrap().config.clone().unwrap())
   }
 }
 

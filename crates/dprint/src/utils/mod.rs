@@ -17,6 +17,7 @@ mod stdin_reader;
 mod sync;
 mod table_text;
 mod terminal;
+mod unsync;
 mod update_checker;
 mod url;
 
@@ -40,4 +41,5 @@ pub use stdin_reader::*;
 pub use sync::*;
 pub use table_text::*;
 pub use terminal::*;
+pub use unsync::*;
 pub use update_checker::*;

@@ -7,6 +7,7 @@ use thiserror::Error;
 
 use crate::arg_parser::FilePatternArgs;
 use crate::configuration::ResolvedConfig;
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::patterns::get_all_file_patterns;
 use crate::patterns::process_config_patterns;
@@ -35,16 +36,21 @@ impl PluginNames {
 }
 
 #[derive(Debug, Error)]
-#[error("No files found to format with the specified plugins. You may want to try using `dprint output-file-paths` to see which files it's finding.")]
-pub struct NoFilesFoundError;
+#[error("No files found to format with the specified plugins at {}. You may want to try using `dprint output-file-paths` to see which files it's finding.", .base_path.display())]
+pub struct NoFilesFoundError {
+  pub base_path: CanonicalizedPathBuf,
+}
 
 pub fn get_file_paths_by_plugins_and_err_if_empty(
+  base_path: &CanonicalizedPathBuf,
   plugin_name_maps: &PluginNameResolutionMaps,
   file_paths: Vec<PathBuf>,
 ) -> Result<HashMap<PluginNames, Vec<PathBuf>>> {
   let result = get_file_paths_by_plugins(plugin_name_maps, file_paths)?;
   if result.is_empty() {
-    Err(NoFilesFoundError.into())
+    Err(NoFilesFoundError {
+      base_path: base_path.clone(),
+    }.into())
   } else {
     Ok(result)
   }

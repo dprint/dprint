@@ -96,35 +96,35 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
         match info_result {
           Ok(entries) => {
             if !entries.is_empty() {
-              // let maybe_config_file = if current_dir != self.start_dir {
-              //   entries
-              //     .iter()
-              //     .filter_map(|e| match e {
-              //       DirEntry::Directory(_) => None,
-              //       DirEntry::File { name, path } => {
-              //         if matches!(name.to_str(), Some(".dprint.json" | "dprint.json" | ".dprint.jsonc" | "dprint.jsonc")) {
-              //           Some(path)
-              //         } else {
-              //           None
-              //         }
-              //       }
-              //     })
-              //     .next()
-              // } else {
-              //   None
-              // };
-              // if let Some(config_file) = maybe_config_file {
-              //   all_entries.push(DirOrConfigEntry::Config(config_file.clone()));
-              // } else {
-              all_entries.extend(entries.into_iter().map(|e| match e {
-                DirEntry::Directory(path) => DirOrConfigEntry::Dir(path),
-                DirEntry::File { path, .. } => DirOrConfigEntry::File(path),
-              }));
-              // it is much faster to batch these than to hit the lock every time
-              if all_entries.len() > PUSH_DIR_ENTRIES_BATCH_COUNT {
-                self.push_entries(std::mem::take(&mut all_entries));
+              let maybe_config_file = if current_dir != self.start_dir {
+                entries
+                  .iter()
+                  .filter_map(|e| match e {
+                    DirEntry::Directory(_) => None,
+                    DirEntry::File { name, path } => {
+                      if matches!(name.to_str(), Some(".dprint.json" | "dprint.json" | ".dprint.jsonc" | "dprint.jsonc")) {
+                        Some(path)
+                      } else {
+                        None
+                      }
+                    }
+                  })
+                  .next()
+              } else {
+                None
+              };
+              if let Some(config_file) = maybe_config_file {
+                all_entries.push(DirOrConfigEntry::Config(config_file.clone()));
+              } else {
+                all_entries.extend(entries.into_iter().map(|e| match e {
+                  DirEntry::Directory(path) => DirOrConfigEntry::Dir(path),
+                  DirEntry::File { path, .. } => DirOrConfigEntry::File(path),
+                }));
+                // it is much faster to batch these than to hit the lock every time
+                if all_entries.len() > PUSH_DIR_ENTRIES_BATCH_COUNT {
+                  self.push_entries(std::mem::take(&mut all_entries));
+                }
               }
-              //}
             }
           }
           Err(err) => {

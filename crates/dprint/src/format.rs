@@ -6,7 +6,6 @@ use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::NullCancellationToken;
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -44,13 +43,17 @@ pub struct EnsureStableFormat(pub bool);
 pub async fn run_parallelized<F, TEnvironment: Environment>(
   scope_and_paths: PluginsScopeAndPaths<TEnvironment>,
   environment: &TEnvironment,
-  incremental_file: Option<Rc<IncrementalFile<TEnvironment>>>,
+  incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
   ensure_stable_format: EnsureStableFormat,
   f: F,
 ) -> Result<()>
 where
-  F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<()> + 'static + Clone,
+  F: Fn(PathBuf, FileText, String, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
 {
+  if let Some(config) = &scope_and_paths.scope.config {
+    log_verbose!(environment, "Running for config: {}", config.resolved_path.file_path.display());
+  }
+
   let max_threads = environment.max_threads();
   let number_process_plugins = scope_and_paths.scope.process_plugin_count();
   let reduction_count = number_process_plugins + 1; // + 1 for each process plugin's possible runtime thread and this runtime's thread
@@ -178,7 +181,7 @@ where
   #[inline]
   async fn run_for_file_path<F, TEnvironment: Environment>(
     environment: TEnvironment,
-    incremental_file: Option<Rc<IncrementalFile<TEnvironment>>>,
+    incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
     scope: Rc<PluginsScope<TEnvironment>>,
     plugins: Rc<Vec<InitializedPluginWithConfig>>,
     file_path: PathBuf,
@@ -186,16 +189,26 @@ where
     f: F,
   ) -> Result<()>
   where
-    F: Fn(&Path, &str, String, bool, Instant, &TEnvironment) -> Result<()> + 'static + Clone,
+    F: Fn(PathBuf, FileText, String, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
   {
-    let file_text = FileText::new(environment.read_file(&file_path)?);
+    // it's a big perf improvement to do this work on a blocking thread
+    let result = dprint_core::async_runtime::spawn_blocking(move || {
+      let file_text = FileText::new(environment.read_file(&file_path)?);
 
-    if let Some(incremental_file) = &incremental_file {
-      if incremental_file.is_file_known_formatted(file_text.as_str()) {
-        log_verbose!(environment, "No change: {}", file_path.display());
-        return Ok(());
+      if let Some(incremental_file) = &incremental_file {
+        if incremental_file.is_file_known_formatted(file_text.as_str()) {
+          log_verbose!(environment, "No change: {}", file_path.display());
+          return Ok::<_, anyhow::Error>(None);
+        }
       }
-    }
+      Ok(Some((file_path, file_text, environment)))
+    })
+    .await
+    .unwrap()?;
+
+    let Some((file_path, file_text, environment)) = result else {
+      return Ok(());
+    };
 
     let (start_instant, formatted_text) =
       run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), file_text.as_str()).await?;
@@ -206,7 +219,7 @@ where
       formatted_text
     };
 
-    f(&file_path, file_text.as_str(), formatted_text, file_text.has_bom(), start_instant, &environment)?;
+    dprint_core::async_runtime::spawn_blocking(move || f(file_path, file_text, formatted_text, start_instant, environment)).await??;
 
     Ok(())
   }
