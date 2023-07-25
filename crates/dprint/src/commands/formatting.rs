@@ -2,7 +2,7 @@ use anyhow::Result;
 use crossterm::style::Stylize;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
-use std::cell::RefCell;
+use parking_lot::Mutex;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -26,6 +26,7 @@ use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::resolution::PluginsScope;
 use crate::resolution::ResolvePluginsOptions;
 use crate::utils::get_difference;
+use crate::utils::AtomicCounter;
 use crate::utils::BOM_CHAR;
 
 pub async fn stdin_fmt<TEnvironment: Environment>(
@@ -89,22 +90,21 @@ pub async fn output_format_times<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
-  let durations: Rc<RefCell<Vec<(PathBuf, u128)>>> = Rc::new(RefCell::new(Vec::new()));
+  let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
   for scope_and_paths in scopes {
     run_parallelized(scope_and_paths, environment, None, EnsureStableFormat(false), {
       let durations = durations.clone();
       move |file_path, _, _, start_instant, _| {
         let duration = start_instant.elapsed().as_millis();
-        let mut durations = durations.borrow_mut();
-        durations.push((file_path, duration));
+        durations.lock().push((file_path, duration));
         Ok(())
       }
     })
     .await?;
   }
 
-  let mut durations = durations.borrow_mut();
+  let mut durations = durations.lock();
   durations.sort_by_key(|k| k.1);
   for (file_path, duration) in durations.iter() {
     environment.log(&format!("{}ms - {}", duration, file_path.display()));
@@ -126,7 +126,7 @@ pub async fn check<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
-  let not_formatted_files_count = Rc::new(RefCell::new(0));
+  let not_formatted_files_count = Arc::new(AtomicCounter::default());
 
   for scope_and_paths in scopes {
     let incremental_file = scope_and_paths
@@ -140,7 +140,7 @@ pub async fn check<TEnvironment: Environment>(
       let incremental_file = incremental_file.clone();
       move |file_path, file_text, formatted_text, _, environment| {
         if formatted_text != file_text.as_str() {
-          *not_formatted_files_count.borrow_mut() += 1;
+          not_formatted_files_count.inc();
           output_difference(&file_path, file_text.as_str(), &formatted_text, &environment);
         } else {
           // update the incremental cache when the file is formatted correctly
@@ -161,7 +161,7 @@ pub async fn check<TEnvironment: Environment>(
     }
   }
 
-  let not_formatted_files_count = *not_formatted_files_count.borrow();
+  let not_formatted_files_count = not_formatted_files_count.get();
   if not_formatted_files_count == 0 {
     Ok(())
   } else {
@@ -187,7 +187,7 @@ pub async fn format<TEnvironment: Environment>(
 ) -> Result<()> {
   let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
 
-  let formatted_files_count = Rc::new(RefCell::new(0));
+  let formatted_files_count = Arc::new(AtomicCounter::default());
   for scope_and_paths in scopes {
     let incremental_file = scope_and_paths
       .scope
@@ -222,7 +222,7 @@ pub async fn format<TEnvironment: Environment>(
               formatted_text
             };
 
-            *formatted_files_count.borrow_mut() += 1;
+            formatted_files_count.inc();
             environment.write_file(file_path, &new_text)?;
           }
 
@@ -237,7 +237,7 @@ pub async fn format<TEnvironment: Environment>(
     }
   }
 
-  let formatted_files_count = *formatted_files_count.borrow();
+  let formatted_files_count = formatted_files_count.get();
   if formatted_files_count > 0 {
     let suffix = if formatted_files_count == 1 { "file" } else { "files" };
     environment.log(&format!("Formatted {} {}.", formatted_files_count.to_string().bold(), suffix));

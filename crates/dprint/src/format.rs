@@ -48,7 +48,7 @@ pub async fn run_parallelized<F, TEnvironment: Environment>(
   f: F,
 ) -> Result<()>
 where
-  F: Fn(PathBuf, FileText, String, Instant, TEnvironment) -> Result<()> + 'static + Clone,
+  F: Fn(PathBuf, FileText, String, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
 {
   if let Some(config) = &scope_and_paths.scope.config {
     log_verbose!(environment, "Running for config: {}", config.resolved_path.file_path.display());
@@ -189,7 +189,7 @@ where
     f: F,
   ) -> Result<()>
   where
-    F: Fn(PathBuf, FileText, String, Instant, TEnvironment) -> Result<()> + 'static + Clone,
+    F: Fn(PathBuf, FileText, String, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
   {
     // it's a big perf improvement to do this work on a blocking thread
     let result = dprint_core::async_runtime::spawn_blocking(move || {
@@ -219,7 +219,7 @@ where
       formatted_text
     };
 
-    f(file_path, file_text, formatted_text, start_instant, environment)?;
+    dprint_core::async_runtime::spawn_blocking(move || f(file_path, file_text, formatted_text, start_instant, environment)).await??;
 
     Ok(())
   }
