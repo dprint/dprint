@@ -94,10 +94,10 @@ pub async fn output_format_times<TEnvironment: Environment>(
   for scope_and_paths in scopes {
     run_parallelized(scope_and_paths, environment, None, EnsureStableFormat(false), {
       let durations = durations.clone();
-      move |file_path, _, _, _, start_instant, _| {
+      move |file_path, _, _, start_instant, _| {
         let duration = start_instant.elapsed().as_millis();
         let mut durations = durations.borrow_mut();
-        durations.push((file_path.to_owned(), duration));
+        durations.push((file_path, duration));
         Ok(())
       }
     })
@@ -133,14 +133,15 @@ pub async fn check<TEnvironment: Environment>(
       .scope
       .config
       .as_ref()
-      .and_then(|config| get_incremental_file(cmd.incremental, &config, &scope_and_paths.scope, environment));
+      .and_then(|config| get_incremental_file(cmd.incremental, config, &scope_and_paths.scope, environment))
+      .map(Arc::new);
     run_parallelized(scope_and_paths, environment, incremental_file.clone(), EnsureStableFormat(false), {
       let not_formatted_files_count = not_formatted_files_count.clone();
       let incremental_file = incremental_file.clone();
-      move |file_path, file_text, formatted_text, _, _, environment| {
-        if formatted_text != file_text {
+      move |file_path, file_text, formatted_text, _, environment| {
+        if formatted_text != file_text.as_str() {
           *not_formatted_files_count.borrow_mut() += 1;
-          output_difference(file_path, file_text, &formatted_text, environment);
+          output_difference(&file_path, file_text.as_str(), &formatted_text, &environment);
         } else {
           // update the incremental cache when the file is formatted correctly
           // so that this runs faster next time, but don't update it with the
@@ -192,7 +193,8 @@ pub async fn format<TEnvironment: Environment>(
       .scope
       .config
       .as_ref()
-      .and_then(|config| get_incremental_file(cmd.incremental, &config, &scope_and_paths.scope, environment));
+      .and_then(|config| get_incremental_file(cmd.incremental, config, &scope_and_paths.scope, environment))
+      .map(Arc::new);
     let output_diff = cmd.diff;
 
     run_parallelized(
@@ -203,17 +205,17 @@ pub async fn format<TEnvironment: Environment>(
       {
         let formatted_files_count = formatted_files_count.clone();
         let incremental_file = incremental_file.clone();
-        move |file_path, file_text, formatted_text, had_bom, _, environment| {
+        move |file_path, file_text, formatted_text, _, environment| {
           if let Some(incremental_file) = &incremental_file {
             incremental_file.update_file(&formatted_text);
           }
 
-          if formatted_text != file_text {
+          if formatted_text != file_text.as_str() {
             if output_diff {
-              output_difference(file_path, file_text, &formatted_text, environment);
+              output_difference(&file_path, file_text.as_str(), &formatted_text, &environment);
             }
 
-            let new_text = if had_bom {
+            let new_text = if file_text.has_bom() {
               // add back the BOM
               format!("{}{}", BOM_CHAR, formatted_text)
             } else {
