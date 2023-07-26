@@ -9,6 +9,7 @@ use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::process::HostFormatCallback;
 use dprint_core::plugins::CancellationToken;
+use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
@@ -47,6 +48,8 @@ pub trait InitializedPlugin {
   async fn license_text(&self) -> Result<String>;
   /// Gets the configuration as a collection of key value pairs.
   async fn resolved_config(&self, config: Arc<FormatConfig>) -> Result<String>;
+  /// Gets the configuration's file matching info.
+  async fn file_matching_info(&self, config: Arc<FormatConfig>) -> Result<FileMatchingInfo>;
   /// Gets the configuration diagnostics.
   async fn config_diagnostics(&self, config: Arc<FormatConfig>) -> Result<Vec<ConfigurationDiagnostic>>;
   /// Formats the text in memory based on the file path and file text.
@@ -58,7 +61,7 @@ pub trait InitializedPlugin {
 #[cfg(test)]
 pub struct TestPlugin {
   info: PluginInfo,
-  initialized_test_plugin: Option<InitializedTestPlugin>,
+  initialized_test_plugin: InitializedTestPlugin,
 }
 
 #[cfg(test)]
@@ -69,13 +72,14 @@ impl TestPlugin {
         name: name.to_string(),
         version: "1.0.0".to_string(),
         config_key: config_key.to_string(),
-        file_extensions: file_extensions.into_iter().map(String::from).collect(),
-        file_names: file_names.into_iter().map(String::from).collect(),
         help_url: "https://dprint.dev/plugins/test".to_string(),
         config_schema_url: "https://plugins.dprint.dev/schemas/test.json".to_string(),
         update_url: None,
       },
-      initialized_test_plugin: Some(InitializedTestPlugin::new()),
+      initialized_test_plugin: InitializedTestPlugin(FileMatchingInfo {
+        file_extensions: file_extensions.into_iter().map(String::from).collect(),
+        file_names: file_names.into_iter().map(String::from).collect(),
+      }),
     }
   }
 }
@@ -92,21 +96,14 @@ impl Plugin for TestPlugin {
   }
 
   async fn initialize(&self) -> Result<Rc<dyn InitializedPlugin>> {
-    let test_plugin: Rc<dyn InitializedPlugin> = Rc::new(self.initialized_test_plugin.clone().unwrap());
+    let test_plugin: Rc<dyn InitializedPlugin> = Rc::new(self.initialized_test_plugin.clone());
     Ok(test_plugin)
   }
 }
 
 #[cfg(test)]
 #[derive(Clone)]
-pub struct InitializedTestPlugin {}
-
-#[cfg(test)]
-impl InitializedTestPlugin {
-  pub fn new() -> InitializedTestPlugin {
-    InitializedTestPlugin {}
-  }
-}
+pub struct InitializedTestPlugin(FileMatchingInfo);
 
 #[cfg(test)]
 #[async_trait(?Send)]
@@ -117,6 +114,10 @@ impl InitializedPlugin for InitializedTestPlugin {
 
   async fn resolved_config(&self, _config: Arc<FormatConfig>) -> Result<String> {
     Ok(String::from("{}"))
+  }
+
+  async fn file_matching_info(&self, _config: Arc<FormatConfig>) -> Result<FileMatchingInfo> {
+    Ok(self.0.clone())
   }
 
   async fn config_diagnostics(&self, _config: Arc<FormatConfig>) -> Result<Vec<ConfigurationDiagnostic>> {

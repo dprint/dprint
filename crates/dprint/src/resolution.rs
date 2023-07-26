@@ -13,6 +13,7 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::process::HostFormatCallback;
 use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CriticalFormatError;
+use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
@@ -53,16 +54,18 @@ pub struct PluginWithConfig {
   pub plugin: Rc<PluginWrapper>,
   pub associations: Option<Vec<String>>,
   pub format_config: Arc<FormatConfig>,
+  pub file_matching: FileMatchingInfo,
   config_diagnostic_count: tokio::sync::Mutex<Option<usize>>,
 }
 
 impl PluginWithConfig {
-  pub fn new(plugin: Rc<PluginWrapper>, associations: Option<Vec<String>>, format_config: Arc<FormatConfig>) -> Self {
+  pub fn new(plugin: Rc<PluginWrapper>, associations: Option<Vec<String>>, format_config: Arc<FormatConfig>, file_matching: FileMatchingInfo) -> Self {
     Self {
       plugin,
       associations,
       format_config,
       config_diagnostic_count: Default::default(),
+      file_matching,
     }
   }
 
@@ -153,6 +156,10 @@ impl InitializedPluginWithConfig {
 
   pub async fn resolved_config(&self) -> Result<String> {
     self.instance.resolved_config(self.plugin.format_config.clone()).await
+  }
+
+  pub async fn file_matching_info(&self) -> Result<FileMatchingInfo> {
+    self.instance.file_matching_info(self.plugin.format_config.clone()).await
   }
 
   pub async fn license_text(&self) -> Result<String> {
@@ -435,20 +442,31 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   )?;
 
   // create the scope
-  let plugins = plugins_with_config
-    .into_iter()
-    .map(|(plugin_config, plugin)| {
-      Rc::new(PluginWithConfig::new(
+  let plugins = plugins_with_config.into_iter().map(|(plugin_config, plugin)| {
+    let global_config = global_config.clone();
+    let next_config_id = plugin_resolver.next_config_id();
+    async move {
+      let instance = plugin.initialize().await?;
+      let format_config = Arc::new(FormatConfig {
+        id: next_config_id,
+        global: global_config,
+        raw: plugin_config.properties,
+      });
+      let file_matching_info = instance.file_matching_info(format_config.clone()).await?;
+      Ok::<_, anyhow::Error>(Rc::new(PluginWithConfig::new(
         plugin,
         plugin_config.associations,
-        Arc::new(FormatConfig {
-          id: plugin_resolver.next_config_id(),
-          global: global_config.clone(),
-          raw: plugin_config.properties,
-        }),
-      ))
-    })
-    .collect::<Vec<_>>();
+        format_config,
+        file_matching_info,
+      )))
+    }
+    .boxed_local()
+  });
+  let plugin_results = dprint_core::async_runtime::future::join_all(plugins).await;
+  let mut plugins = Vec::with_capacity(plugin_results.len());
+  for result in plugin_results {
+    plugins.push(result?);
+  }
 
   Ok(PluginsScope::new(environment.clone(), plugins, config)?)
 }

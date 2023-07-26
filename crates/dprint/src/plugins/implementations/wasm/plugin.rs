@@ -6,9 +6,11 @@ use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::plugins::process::HostFormatCallback;
 use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CriticalFormatError;
+use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
+use dprint_core::plugins::SyncPluginInfo;
 use std::cell::RefCell;
 use std::path::Path;
 use std::path::PathBuf;
@@ -93,6 +95,7 @@ type WasmResponseSender<T> = tokio::sync::oneshot::Sender<T>;
 enum WasmPluginMessage {
   LicenseText(WasmResponseSender<Result<String>>),
   ResolvedConfig(Arc<FormatConfig>, WasmResponseSender<Result<String>>),
+  FileMatchingInfo(Arc<FormatConfig>, WasmResponseSender<Result<FileMatchingInfo>>),
   ConfigDiagnostics(Arc<FormatConfig>, WasmResponseSender<Result<Vec<ConfigurationDiagnostic>>>),
   FormatRequest(Arc<WasmPluginFormatMessage>, WasmResponseSender<FormatResult>),
 }
@@ -141,6 +144,10 @@ impl InitializedWasmPluginInstance {
   }
 
   pub fn plugin_info(&mut self) -> Result<PluginInfo> {
+    self.sync_plugin_info().map(|i| i.info)
+  }
+
+  fn sync_plugin_info(&mut self) -> Result<SyncPluginInfo> {
     let len = self.wasm_functions.get_plugin_info()?;
     let json_text = self.receive_string(len)?;
     Ok(serde_json::from_str(&json_text)?)
@@ -162,6 +169,10 @@ impl InitializedWasmPluginInstance {
     let len = self.wasm_functions.get_config_diagnostics()?;
     let json_text = self.receive_string(len)?;
     Ok(serde_json::from_str(&json_text)?)
+  }
+
+  fn file_matching_info(&mut self, _config: &FormatConfig) -> Result<FileMatchingInfo> {
+    self.sync_plugin_info().map(|i| i.file_matching)
   }
 
   fn format_text(&mut self, file_path: &Path, file_text: &str, config: &FormatConfig, override_config: &ConfigKeyMap) -> FormatResult {
@@ -267,7 +278,7 @@ impl InitializedWasmPluginInstance {
 
 type LoadInstanceFn = dyn Fn(&mut wasmer::Store, &WasmModule, WasmHostFormatSender) -> Result<WasmInstance> + Send + Sync;
 
-struct InitializedWasmPluginInner<TEnvironment: Environment> {
+pub struct InitializedWasmPlugin<TEnvironment: Environment> {
   name: String,
   pending_instances: RefCell<Vec<WasmPluginSenderWithState>>,
   module: WasmModule,
@@ -275,7 +286,7 @@ struct InitializedWasmPluginInner<TEnvironment: Environment> {
   environment: TEnvironment,
 }
 
-impl<TEnvironment: Environment> Drop for InitializedWasmPluginInner<TEnvironment> {
+impl<TEnvironment: Environment> Drop for InitializedWasmPlugin<TEnvironment> {
   fn drop(&mut self) {
     let start = Instant::now();
     let len = {
@@ -296,17 +307,15 @@ impl<TEnvironment: Environment> Drop for InitializedWasmPluginInner<TEnvironment
   }
 }
 
-pub struct InitializedWasmPlugin<TEnvironment: Environment>(InitializedWasmPluginInner<TEnvironment>);
-
 impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
   pub fn new(name: String, module: WasmModule, load_instance: Arc<LoadInstanceFn>, environment: TEnvironment) -> Self {
-    Self(InitializedWasmPluginInner {
+    Self {
       name,
       pending_instances: Default::default(),
       module,
       load_instance,
       environment,
-    })
+    }
   }
 
   async fn with_instance<T>(
@@ -344,7 +353,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
                 "This may be a bug in the plugin, the dprint cli is out of date, or the ",
                 "plugin is out of date.\nOriginal error: {}\nReinitialize error: {}",
               ),
-              self.0.name,
+              self.name,
               original_err,
               reinitialize_err,
             ))
@@ -364,7 +373,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
   }
 
   async fn get_or_create_instance(&self, instance_state: Option<InstanceState>) -> Result<WasmPluginSenderWithState> {
-    let maybe_instance = self.0.pending_instances.borrow_mut().pop(); // needs to be on a separate line
+    let maybe_instance = self.pending_instances.borrow_mut().pop(); // needs to be on a separate line
     let plugin_sender = match maybe_instance {
       Some(instance) => instance,
       None => self.create_instance().await?,
@@ -375,12 +384,12 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
 
   fn release_instance(&self, plugin_sender: WasmPluginSenderWithState) {
     *plugin_sender.instance_state_cell.borrow_mut() = None;
-    self.0.pending_instances.borrow_mut().push(plugin_sender);
+    self.pending_instances.borrow_mut().push(plugin_sender);
   }
 
   async fn create_instance(&self) -> Result<WasmPluginSenderWithState> {
     let start_instant = Instant::now();
-    log_verbose!(self.0.environment, "Creating instance of {}", self.0.name);
+    log_verbose!(self.environment, "Creating instance of {}", self.name);
     let mut store = wasmer::Store::default();
 
     let (host_format_tx, mut host_format_rx) = tokio::sync::mpsc::unbounded_channel::<(HostFormatRequest, std::sync::mpsc::Sender<FormatResult>)>();
@@ -415,8 +424,8 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
 
     // spawn the wasm instance on a dedicated thread to reduce issues
     dprint_core::async_runtime::spawn_blocking({
-      let load_instance = self.0.load_instance.clone();
-      let module = self.0.module.clone();
+      let load_instance = self.load_instance.clone();
+      let module = self.module.clone();
       move || {
         let initialize = || {
           let instance = (load_instance)(&mut store, &module, host_format_tx)?;
@@ -450,6 +459,12 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
                 break; // disconnected
               }
             }
+            WasmPluginMessage::FileMatchingInfo(config, response) => {
+              let result = instance.file_matching_info(&config);
+              if response.send(result).is_err() {
+                break; // disconnected
+              }
+            }
             WasmPluginMessage::ResolvedConfig(config, response) => {
               let result = instance.resolved_config(&config);
               if response.send(result).is_err() {
@@ -471,9 +486,9 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     initialize_rx.await??;
 
     log_verbose!(
-      self.0.environment,
+      self.environment,
       "Created instance of {} in {}ms",
-      self.0.name,
+      self.name,
       start_instant.elapsed().as_millis() as u64
     );
     Ok(WasmPluginSenderWithState {
@@ -505,6 +520,20 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
         async move {
           let (tx, rx) = tokio::sync::oneshot::channel();
           plugin_sender.send(WasmPluginMessage::ResolvedConfig(config, tx))?;
+          rx.await?
+        }
+        .boxed_local()
+      })
+      .await
+  }
+
+  async fn file_matching_info(&self, config: Arc<FormatConfig>) -> Result<FileMatchingInfo> {
+    self
+      .with_instance(None, move |plugin_sender| {
+        let config = config.clone();
+        async move {
+          let (tx, rx) = tokio::sync::oneshot::channel();
+          plugin_sender.send(WasmPluginMessage::FileMatchingInfo(config, tx))?;
           rx.await?
         }
         .boxed_local()

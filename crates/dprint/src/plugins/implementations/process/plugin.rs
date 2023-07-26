@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use dprint_core::configuration::ConfigurationDiagnostic;
+use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
 use std::path::PathBuf;
@@ -108,6 +109,10 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
 
   async fn resolved_config(&self, config: Arc<FormatConfig>) -> Result<String> {
     self.communicator.get_resolved_config(&config).await
+  }
+
+  async fn file_matching_info(&self, config: Arc<FormatConfig>) -> Result<FileMatchingInfo> {
+    self.communicator.get_file_matching_info(&config).await
   }
 
   async fn config_diagnostics(&self, config: Arc<FormatConfig>) -> Result<Vec<ConfigurationDiagnostic>> {

@@ -143,7 +143,7 @@ pub async fn check<TEnvironment: Environment>(
           not_formatted_files_count.inc();
           output_difference(&file_path, file_text.as_str(), &formatted_text, &environment);
         } else {
-          // update the incremental cache when the file is formatted correctly
+          // update the incremental cache when the file is already formatted correctly
           // so that this runs faster next time, but don't update it with the
           // correctly formatted file because it hasn't undergone a stable
           // formatting check

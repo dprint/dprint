@@ -2,6 +2,8 @@
 
 Process plugins are created (as opposed to the recommended Wasm plugins), when the language does not have good support for compiling to a single _.wasm_ file.
 
+dprint version: 0.40+
+
 ## Rust - Using `dprint-core`
 
 Implementing a Process plugin is easy if you're using Rust as there are several helpers in `dprint-core`.
@@ -45,6 +47,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    use dprint_core::configuration::GlobalConfiguration;
    use dprint_core::configuration::ResolveConfigurationResult;
    use dprint_core::plugins::AsyncPluginHandler;
+   use dprint_core::plugins::FileMatchingInfo;
    use dprint_core::plugins::FormatRequest;
    use dprint_core::plugins::FormatResult;
    use dprint_core::plugins::Host;
@@ -62,8 +65,6 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
          name: env!("CARGO_PKG_NAME").to_string(),
          version: env!("CARGO_PKG_VERSION").to_string(),
          config_key: "keyGoesHere".to_string(),
-         file_extensions: vec!["txt_ps".to_string()],
-         file_names: vec![],
          help_url: "".to_string(),          // ex. https://dprint.dev/plugins/prettier
          config_schema_url: "".to_string(), // the schema url for your config file
          update_url: Some(None),            // ex. https://plugins.dprint.dev/dprint/dprint-plugin-prettier/latest.json
@@ -84,6 +85,10 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
        diagnostics.extend(get_unknown_property_diagnostics(config));
 
        ResolveConfigurationResult {
+         file_matching: FileMatchingInfo {
+           file_extensions: vec!["txt_ps".to_string()],
+           file_names: vec![],
+         },
          config: Configuration { ending, line_width },
          diagnostics,
        }
@@ -253,7 +258,22 @@ Message body:
 
 Response: Data message - JSON serialized diagnostics
 
-#### `10` - Get Resolved Configuration (CLI to Plugin)
+#### `10` - Get File Matching Information (CLI to Plugin)
+
+Message body:
+
+- u32 - Config id
+
+Response: Data message - JSON serialized file extensions and file names supported by the plugin and configuration.
+
+```json
+{
+  "fileNames": ["some_file_name"],
+  "fileExtensions": [".txt"]
+}
+```
+
+#### `11` - Get Resolved Configuration (CLI to Plugin)
 
 Message body:
 
@@ -261,7 +281,7 @@ Message body:
 
 Response: Data message - JSON serialized resolved config
 
-#### `11` - Format Text (CLI to Plugin)
+#### `12` - Format Text (CLI to Plugin)
 
 Message body:
 
@@ -277,7 +297,7 @@ Message body:
 
 Response: Format text response
 
-#### `12` - Format Text Response (Plugin to CLI, CLI to Plugin)
+#### `13` - Format Text Response (Plugin to CLI, CLI to Plugin)
 
 Message body:
 
@@ -290,7 +310,7 @@ Message body:
 
 Response: None
 
-#### `13` - Cancel Format (CLI to Plugin or Plugin to CLI)
+#### `14` - Cancel Format (CLI to Plugin or Plugin to CLI)
 
 Message body:
 
@@ -299,7 +319,7 @@ Message body:
 Response: No response should be given. Cancellation is not guaranteed to happen and
 the CLI or plugin may still respond with a given request.
 
-#### `14` - Host Format (Plugin to CLI)
+#### `15` - Host Format (Plugin to CLI)
 
 Message body:
 

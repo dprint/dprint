@@ -43,21 +43,18 @@ mod test {
           plugins.iter().map(|p| &p.info().name).collect::<Vec<_>>(),
           vec!["test-plugin", "test-process-plugin"]
         );
-        let plugins = plugins
-          .into_iter()
-          .map(|plugin_wrapper| {
-            Rc::new(PluginWithConfig::new(
-              plugin_wrapper,
-              None,
-              Arc::new(FormatConfig {
-                id: FormatConfigId::from_raw(1),
-                global: Default::default(),
-                raw: Default::default(),
-              }),
-            ))
-          })
-          .collect();
-        let scope = Rc::new(PluginsScope::new(environment.clone(), plugins, config).unwrap());
+        let mut plugins_with_config = Vec::with_capacity(plugins.len());
+        for plugin in plugins {
+          let format_config = Arc::new(FormatConfig {
+            id: FormatConfigId::from_raw(1),
+            global: Default::default(),
+            raw: Default::default(),
+          });
+          let instance = plugin.initialize().await.unwrap();
+          let file_matching_info = instance.file_matching_info(format_config.clone()).await.unwrap();
+          plugins_with_config.push(Rc::new(PluginWithConfig::new(plugin, None, format_config, file_matching_info)));
+        }
+        let scope = Rc::new(PluginsScope::new(environment.clone(), plugins_with_config, config).unwrap());
         let token = Arc::new(CancellationToken::new());
         dprint_core::async_runtime::spawn({
           let token = token.clone();
@@ -101,21 +98,18 @@ mod test {
           plugins.iter().map(|p| &p.info().name).collect::<Vec<_>>(),
           vec!["test-plugin", "test-process-plugin"]
         );
-        let plugins = plugins
-          .into_iter()
-          .map(|plugin_wrapper| {
-            Rc::new(PluginWithConfig::new(
-              plugin_wrapper,
-              None,
-              Arc::new(FormatConfig {
-                id: FormatConfigId::from_raw(1),
-                global: Default::default(),
-                raw: Default::default(),
-              }),
-            ))
-          })
-          .collect();
-        let scope = Rc::new(PluginsScope::new(environment.clone(), plugins, config).unwrap());
+        let mut plugins_with_config = Vec::with_capacity(plugins.len());
+        for plugin in plugins {
+          let format_config = Arc::new(FormatConfig {
+            id: FormatConfigId::from_raw(1),
+            global: Default::default(),
+            raw: Default::default(),
+          });
+          let instance = plugin.initialize().await.unwrap();
+          let file_matching_info = instance.file_matching_info(format_config.clone()).await.unwrap();
+          plugins_with_config.push(Rc::new(PluginWithConfig::new(plugin, None, format_config, file_matching_info)));
+        }
+        let scope = Rc::new(PluginsScope::new(environment.clone(), plugins_with_config, config).unwrap());
         let token = Arc::new(CancellationToken::new());
 
         // start up a format that will hang forever

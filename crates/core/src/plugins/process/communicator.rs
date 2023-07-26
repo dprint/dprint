@@ -39,6 +39,7 @@ use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
 use crate::plugins::CriticalFormatError;
+use crate::plugins::FileMatchingInfo;
 use crate::plugins::FormatConfigId;
 use crate::plugins::FormatRange;
 use crate::plugins::FormatResult;
@@ -248,6 +249,10 @@ impl ProcessPluginCommunicator {
 
   pub async fn resolved_config(&self, config_id: FormatConfigId) -> Result<String> {
     self.send_receiving_string(MessageBody::GetResolvedConfig(config_id)).await
+  }
+
+  pub async fn file_matching_info(&self, config_id: FormatConfigId) -> Result<FileMatchingInfo> {
+    self.send_receiving_data(MessageBody::GetFileMatchingInfo(config_id)).await
   }
 
   pub async fn config_diagnostics(&self, config_id: FormatConfigId) -> Result<Vec<ConfigurationDiagnostic>> {
@@ -508,6 +513,7 @@ fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -
     | MessageBody::RegisterConfig(_)
     | MessageBody::ReleaseConfig(_)
     | MessageBody::GetConfigDiagnostics(_)
+    | MessageBody::GetFileMatchingInfo(_)
     | MessageBody::GetResolvedConfig(_) => {
       let _ = context.stdin_writer.send(ProcessPluginMessage {
         id: context.id_generator.next(),
