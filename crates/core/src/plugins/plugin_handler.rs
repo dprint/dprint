@@ -1,4 +1,5 @@
 use anyhow::Result;
+use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -7,14 +8,13 @@ use crate::async_runtime::FutureExt;
 #[cfg(feature = "async_runtime")]
 use crate::async_runtime::LocalBoxFuture;
 
-#[cfg(any(feature = "wasm", feature = "process"))]
 use crate::configuration::ConfigKeyMap;
-#[cfg(any(feature = "wasm", feature = "process"))]
+use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
-#[cfg(any(feature = "wasm", feature = "process"))]
 use crate::configuration::ResolveConfigurationResult;
-#[cfg(any(feature = "wasm", feature = "process"))]
 use crate::plugins::PluginInfo;
+
+use super::FileMatchingInfo;
 
 pub trait CancellationToken: Send + Sync {
   fn is_cancelled(&self) -> bool;
@@ -119,13 +119,30 @@ pub struct FormatRequest<TConfiguration> {
   pub token: Arc<dyn CancellationToken>,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginResolveConfigurationResult<T>
+where
+  T: Clone + Serialize,
+{
+  /// Information about what files are matched for the provided configuration.
+  pub file_matching: FileMatchingInfo,
+
+  /// The configuration diagnostics.
+  pub diagnostics: Vec<ConfigurationDiagnostic>,
+
+  /// The configuration derived from the unresolved configuration
+  /// that can be used to format a file.
+  pub config: T,
+}
+
 /// Trait for implementing a process plugin.
 #[cfg(feature = "process")]
 pub trait AsyncPluginHandler: Send + Sync + 'static {
-  type Configuration: serde::Serialize + Clone + Send + Sync;
+  type Configuration: Serialize + Clone + Send + Sync;
 
   /// Resolves configuration based on the provided config map and global configuration.
-  fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> ResolveConfigurationResult<Self::Configuration>;
+  fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> PluginResolveConfigurationResult<Self::Configuration>;
   /// Gets the plugin's plugin info.
   fn plugin_info(&self) -> PluginInfo;
   /// Gets the plugin's license text.
@@ -138,13 +155,22 @@ pub trait AsyncPluginHandler: Send + Sync + 'static {
   ) -> LocalBoxFuture<'static, FormatResult>;
 }
 
+#[cfg(feature = "wasm")]
+#[derive(Clone, Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct SyncPluginInfo {
+  #[serde(flatten)]
+  pub info: PluginInfo,
+  #[serde(flatten)]
+  pub file_matching: FileMatchingInfo,
+}
+
 /// Trait for implementing a Wasm plugin.
 #[cfg(feature = "wasm")]
 pub trait SyncPluginHandler<TConfiguration: Clone + serde::Serialize> {
   /// Resolves configuration based on the provided config map and global configuration.
   fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<TConfiguration>;
   /// Gets the plugin's plugin info.
-  fn plugin_info(&mut self) -> PluginInfo;
+  fn plugin_info(&mut self) -> SyncPluginInfo;
   /// Gets the plugin's license text.
   fn license_text(&mut self) -> String;
   /// Formats the provided file text based on the provided file path and configuration.

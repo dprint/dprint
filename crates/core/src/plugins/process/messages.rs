@@ -51,8 +51,9 @@ impl ProcessPluginMessage {
       }
       8 => MessageBody::ReleaseConfig(FormatConfigId::from_raw(reader.read_u32()?)),
       9 => MessageBody::GetConfigDiagnostics(FormatConfigId::from_raw(reader.read_u32()?)),
-      10 => MessageBody::GetResolvedConfig(FormatConfigId::from_raw(reader.read_u32()?)),
-      11 => {
+      10 => MessageBody::GetFileMatchingInfo(FormatConfigId::from_raw(reader.read_u32()?)),
+      11 => MessageBody::GetResolvedConfig(FormatConfigId::from_raw(reader.read_u32()?)),
+      12 => {
         let file_path = reader.read_sized_bytes()?;
         let start_byte_index = reader.read_u32()?;
         let end_byte_index = reader.read_u32()?;
@@ -74,7 +75,7 @@ impl ProcessPluginMessage {
           override_config,
         })
       }
-      12 => {
+      13 => {
         let message_id = reader.read_u32()?;
         let response_kind = reader.read_u32()?;
         let data = match response_kind {
@@ -89,8 +90,8 @@ impl ProcessPluginMessage {
         };
         MessageBody::FormatResponse(ResponseBody { message_id, data })
       }
-      13 => MessageBody::CancelFormat(reader.read_u32()?),
-      14 => {
+      14 => MessageBody::CancelFormat(reader.read_u32()?),
+      15 => {
         let original_message_id = reader.read_u32()?;
         let file_path = reader.read_sized_bytes()?;
         let start_byte_index = reader.read_u32()?;
@@ -171,12 +172,16 @@ impl Message for ProcessPluginMessage {
         writer.send_u32(9)?;
         writer.send_u32(config_id.as_raw())?;
       }
-      MessageBody::GetResolvedConfig(config_id) => {
+      MessageBody::GetFileMatchingInfo(config_id) => {
         writer.send_u32(10)?;
         writer.send_u32(config_id.as_raw())?;
       }
-      MessageBody::Format(body) => {
+      MessageBody::GetResolvedConfig(config_id) => {
         writer.send_u32(11)?;
+        writer.send_u32(config_id.as_raw())?;
+      }
+      MessageBody::Format(body) => {
+        writer.send_u32(12)?;
         writer.send_sized_bytes(body.file_path.to_string_lossy().as_bytes())?;
         writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32)?;
         writer.send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_text.len()) as u32)?;
@@ -185,7 +190,7 @@ impl Message for ProcessPluginMessage {
         writer.send_sized_bytes(&body.file_text)?;
       }
       MessageBody::FormatResponse(response) => {
-        writer.send_u32(12)?;
+        writer.send_u32(13)?;
         writer.send_u32(response.message_id)?;
         match &response.data {
           None => {
@@ -198,11 +203,11 @@ impl Message for ProcessPluginMessage {
         }
       }
       MessageBody::CancelFormat(message_id) => {
-        writer.send_u32(13)?;
+        writer.send_u32(14)?;
         writer.send_u32(*message_id)?;
       }
       MessageBody::HostFormat(body) => {
-        writer.send_u32(14)?;
+        writer.send_u32(15)?;
         writer.send_u32(body.original_message_id)?;
         writer.send_sized_bytes(body.file_path.to_string_lossy().as_bytes())?;
         writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32)?;
@@ -229,6 +234,7 @@ pub enum MessageBody {
   RegisterConfig(RegisterConfigMessageBody),
   ReleaseConfig(FormatConfigId),
   GetConfigDiagnostics(FormatConfigId),
+  GetFileMatchingInfo(FormatConfigId),
   GetResolvedConfig(FormatConfigId),
   Format(FormatMessageBody),
   FormatResponse(ResponseBody<Option<Vec<u8>>>),

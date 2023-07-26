@@ -7,16 +7,19 @@ use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::get_unknown_property_diagnostics;
 use dprint_core::configuration::get_value;
 use dprint_core::configuration::ConfigKeyMap;
+use dprint_core::configuration::ConfigKeyValue;
+use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
-use dprint_core::configuration::ResolveConfigurationResult;
 use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
 use dprint_core::plugins::process::handle_process_stdio_messages;
 use dprint_core::plugins::process::start_parent_process_checker_task;
 use dprint_core::plugins::AsyncPluginHandler;
+use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatRequest;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::PluginResolveConfigurationResult;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -54,8 +57,6 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
       name: String::from(env!("CARGO_PKG_NAME")),
       version: String::from(env!("CARGO_PKG_VERSION")),
       config_key: "testProcessPlugin".to_string(),
-      file_extensions: vec!["txt_ps".to_string()],
-      file_names: vec!["test-process-plugin-exact-file".to_string()],
       help_url: "https://dprint.dev/plugins/test-process".to_string(),
       config_schema_url: "".to_string(),
       update_url: None,
@@ -66,15 +67,52 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
     "License text.".to_string()
   }
 
-  fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+  fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> PluginResolveConfigurationResult<Configuration> {
+    // todo: way to do something like get_value in dprint-core, but with vectors
+    fn get_string_vec(config: &mut ConfigKeyMap, key: &str, diagnostics: &mut Vec<ConfigurationDiagnostic>) -> Option<Vec<String>> {
+      match config.remove(key) {
+        Some(value) => match value {
+          ConfigKeyValue::Array(values) => {
+            let mut result = Vec::with_capacity(values.len());
+            for value in values {
+              match value {
+                ConfigKeyValue::String(value) => {
+                  result.push(value);
+                }
+                _ => {
+                  diagnostics.push(ConfigurationDiagnostic {
+                    property_name: key.to_string(),
+                    message: "Expected only string values.".to_string(),
+                  });
+                }
+              }
+            }
+            Some(result)
+          }
+          _ => {
+            diagnostics.push(ConfigurationDiagnostic {
+              property_name: key.to_string(),
+              message: "Expected an array.".to_string(),
+            });
+            None
+          }
+        },
+        None => None,
+      }
+    }
+
     let mut config = config;
     let mut diagnostics = Vec::new();
     let ending = get_value(&mut config, "ending", String::from("formatted_process"), &mut diagnostics);
     let line_width = get_value(&mut config, "line_width", global_config.line_width.unwrap_or(120), &mut diagnostics);
 
+    let file_extensions = get_string_vec(&mut config, "file_extensions", &mut diagnostics).unwrap_or_else(|| vec!["txt_ps".to_string()]);
+    let file_names = get_string_vec(&mut config, "file_names", &mut diagnostics).unwrap_or_else(|| vec!["test-process-plugin-exact-file".to_string()]);
+
     diagnostics.extend(get_unknown_property_diagnostics(config));
 
-    ResolveConfigurationResult {
+    PluginResolveConfigurationResult {
+      file_matching: FileMatchingInfo { file_extensions, file_names },
       config: Configuration { ending, line_width },
       diagnostics,
     }

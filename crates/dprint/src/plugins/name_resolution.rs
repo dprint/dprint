@@ -25,17 +25,16 @@ impl PluginNameResolutionMaps {
   pub fn from_plugins<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>, config_base_path: &CanonicalizedPathBuf) -> Result<Self> {
     let mut plugin_name_maps = PluginNameResolutionMaps::default();
     for plugin in plugins {
-      let info = &plugin.info();
-      let plugin_name = &info.name;
+      let plugin_name = plugin.name();
 
-      for extension in &info.file_extensions {
+      for extension in &plugin.file_matching.file_extensions {
         plugin_name_maps
           .extension_to_plugin_names_map
           .entry(extension.to_lowercase())
           .or_default()
           .push(plugin_name.to_string());
       }
-      for file_name in &info.file_names {
+      for file_name in &plugin.file_matching.file_names {
         plugin_name_maps
           .file_name_to_plugin_names_map
           .entry(file_name.to_lowercase())

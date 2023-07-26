@@ -10,6 +10,7 @@ use crate::communication::SingleThreadMessageWriter;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
+use crate::plugins::FileMatchingInfo;
 use crate::plugins::FormatResult;
 
 use super::messages::ProcessPluginMessage;
@@ -19,6 +20,7 @@ pub type FormatHostSender = tokio::sync::oneshot::Sender<FormatResult>;
 pub struct StoredConfig<TConfiguration: Serialize + Clone> {
   pub config: Arc<TConfiguration>,
   pub diagnostics: Rc<Vec<ConfigurationDiagnostic>>,
+  pub file_matching: FileMatchingInfo,
   pub config_map: ConfigKeyMap,
   pub global_config: GlobalConfiguration,
 }

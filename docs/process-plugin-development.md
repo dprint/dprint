@@ -2,6 +2,8 @@
 
 Process plugins are created (as opposed to the recommended Wasm plugins), when the language does not have good support for compiling to a single _.wasm_ file.
 
+dprint version: 0.40+
+
 ## Rust - Using `dprint-core`
 
 Implementing a Process plugin is easy if you're using Rust as there are several helpers in `dprint-core`.
@@ -253,7 +255,22 @@ Message body:
 
 Response: Data message - JSON serialized diagnostics
 
-#### `10` - Get Resolved Configuration (CLI to Plugin)
+#### `10` - Get File Matching Information (CLI to Plugin)
+
+Message body:
+
+- u32 - Config id
+
+Response: Data message - JSON serialized file extensions and file names supported by the plugin and configuration.
+
+```json
+{
+  "fileNames": ["some_file_name"],
+  "fileExtensions": [".txt"]
+}
+```
+
+#### `11` - Get Resolved Configuration (CLI to Plugin)
 
 Message body:
 
@@ -261,7 +278,7 @@ Message body:
 
 Response: Data message - JSON serialized resolved config
 
-#### `11` - Format Text (CLI to Plugin)
+#### `12` - Format Text (CLI to Plugin)
 
 Message body:
 
@@ -277,7 +294,7 @@ Message body:
 
 Response: Format text response
 
-#### `12` - Format Text Response (Plugin to CLI, CLI to Plugin)
+#### `13` - Format Text Response (Plugin to CLI, CLI to Plugin)
 
 Message body:
 
@@ -290,7 +307,7 @@ Message body:
 
 Response: None
 
-#### `13` - Cancel Format (CLI to Plugin or Plugin to CLI)
+#### `14` - Cancel Format (CLI to Plugin or Plugin to CLI)
 
 Message body:
 
@@ -299,7 +316,7 @@ Message body:
 Response: No response should be given. Cancellation is not guaranteed to happen and
 the CLI or plugin may still respond with a given request.
 
-#### `14` - Host Format (Plugin to CLI)
+#### `15` - Host Format (Plugin to CLI)
 
 Message body:
 

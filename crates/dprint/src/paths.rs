@@ -48,9 +48,7 @@ pub fn get_file_paths_by_plugins_and_err_if_empty(
 ) -> Result<HashMap<PluginNames, Vec<PathBuf>>> {
   let result = get_file_paths_by_plugins(plugin_name_maps, file_paths)?;
   if result.is_empty() {
-    Err(NoFilesFoundError {
-      base_path: base_path.clone(),
-    }.into())
+    Err(NoFilesFoundError { base_path: base_path.clone() }.into())
   } else {
     Ok(result)
   }
@@ -111,8 +109,8 @@ fn get_plugin_patterns<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>) 
       }
     }
     if !had_positive_association {
-      file_names.extend(&plugin.info().file_names);
-      file_exts.extend(&plugin.info().file_extensions);
+      file_names.extend(&plugin.file_matching.file_names);
+      file_exts.extend(&plugin.file_matching.file_extensions);
     }
   }
   let mut result = Vec::new();

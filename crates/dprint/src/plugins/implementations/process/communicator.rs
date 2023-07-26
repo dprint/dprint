@@ -6,6 +6,7 @@ use anyhow::Result;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::plugins::process::ProcessPluginCommunicatorFormatRequest;
+use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatResult;
 use std::cell::RefCell;
@@ -71,6 +72,10 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
 
   pub async fn get_resolved_config(&self, config: &FormatConfig) -> Result<String> {
     self.get_inner_ensure_config(config).await?.resolved_config(config.id).await
+  }
+
+  pub async fn get_file_matching_info(&self, config: &FormatConfig) -> Result<FileMatchingInfo> {
+    self.get_inner_ensure_config(config).await?.file_matching_info(config.id).await
   }
 
   pub async fn get_config_diagnostics(&self, config: &FormatConfig) -> Result<Vec<ConfigurationDiagnostic>> {

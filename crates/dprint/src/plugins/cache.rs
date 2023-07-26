@@ -253,7 +253,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":7,"wasmCacheVersion":"4.0.0","plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
+      r#"{"schemaVersion":8,"wasmCacheVersion":"4.0.0","plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
     );
 
     // should forget it afterwards
@@ -263,7 +263,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":7,"wasmCacheVersion":"4.0.0","plugins":{}}"#,
+      r#"{"schemaVersion":8,"wasmCacheVersion":"4.0.0","plugins":{}}"#,
     );
 
     Ok(())
@@ -294,9 +294,9 @@ mod test {
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
       concat!(
-        r#"{"schemaVersion":7,"wasmCacheVersion":"4.0.0","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":10632242795325663332,"info":{"#,
+        r#"{"schemaVersion":8,"wasmCacheVersion":"4.0.0","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":10632242795325663332,"info":{"#,
         r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
-        r#""fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
+        r#""helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
       )
     );
 
@@ -316,9 +316,9 @@ mod test {
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
       concat!(
-        r#"{"schemaVersion":7,"wasmCacheVersion":"4.0.0","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":6989588595861227504,"info":{"#,
+        r#"{"schemaVersion":8,"wasmCacheVersion":"4.0.0","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":6989588595861227504,"info":{"#,
         r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
-        r#""fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
+        r#""helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
       )
     );
 
@@ -331,7 +331,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":7,"wasmCacheVersion":"4.0.0","plugins":{}}"#,
+      r#"{"schemaVersion":8,"wasmCacheVersion":"4.0.0","plugins":{}}"#,
     );
 
     Ok(())
@@ -349,8 +349,6 @@ mod test {
       name: String::from("test-plugin"),
       version: String::from("0.1.0"),
       config_key: String::from("test-plugin"),
-      file_extensions: vec![String::from("txt"), String::from("dat")],
-      file_names: vec![],
       help_url: String::from("test-url"),
       config_schema_url: String::from("schema-url"),
       update_url: Some(String::from("update-url")),

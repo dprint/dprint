@@ -63,12 +63,14 @@ pub async fn output_editor_info<TEnvironment: Environment>(
   let mut plugins = Vec::new();
 
   for plugin in get_plugins_scope_from_args(args, environment, plugin_resolver).await?.plugins.values() {
+    let initialized_plugin = plugin.initialize().await?;
+    let file_matching = initialized_plugin.file_matching_info().await?;
     plugins.push(EditorPluginInfo {
       name: plugin.info().name.to_string(),
       version: plugin.info().version.to_string(),
       config_key: plugin.info().config_key.to_string(),
-      file_extensions: plugin.info().file_extensions.iter().map(|ext| ext.to_string()).collect(),
-      file_names: plugin.info().file_names.iter().map(|ext| ext.to_string()).collect(),
+      file_extensions: file_matching.file_extensions,
+      file_names: file_matching.file_names,
       config_schema_url: if plugin.info().config_schema_url.trim().is_empty() {
         None
       } else {
