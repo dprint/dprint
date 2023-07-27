@@ -12,7 +12,6 @@ description = "Binary for dprint code formatter—a pluggable and configurable c
 
 [dependencies]
 anyhow = "1.0.69"
-async-trait = "0.1.72"
 clap = "4.3.8"
 clap_complete = "4.3.1"
 console_static_text = "0.7.1"

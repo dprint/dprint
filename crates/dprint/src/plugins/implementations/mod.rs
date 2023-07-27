@@ -54,7 +54,7 @@ mod test {
           let file_matching_info = instance.file_matching_info(format_config.clone()).await.unwrap();
           plugins_with_config.push(Rc::new(PluginWithConfig::new(plugin, None, format_config, file_matching_info)));
         }
-        let scope = Rc::new(PluginsScope::new(environment.clone(), plugins_with_config, config).unwrap());
+        let scope = Rc::new(PluginsScope::new(environment.clone(), plugins_with_config, config, Vec::new()).unwrap());
         let token = Arc::new(CancellationToken::new());
         dprint_core::async_runtime::spawn({
           let token = token.clone();
@@ -109,7 +109,7 @@ mod test {
           let file_matching_info = instance.file_matching_info(format_config.clone()).await.unwrap();
           plugins_with_config.push(Rc::new(PluginWithConfig::new(plugin, None, format_config, file_matching_info)));
         }
-        let scope = Rc::new(PluginsScope::new(environment.clone(), plugins_with_config, config).unwrap());
+        let scope = Rc::new(PluginsScope::new(environment.clone(), plugins_with_config, config, Vec::new()).unwrap());
         let token = Arc::new(CancellationToken::new());
 
         // start up a format that will hang forever

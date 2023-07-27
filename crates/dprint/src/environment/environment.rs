@@ -1,10 +1,11 @@
 use anyhow::bail;
 use anyhow::Result;
-use async_trait::async_trait;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+
+use dprint_core::async_runtime::async_trait;
 
 use crate::plugins::CompilationResult;
 use crate::utils::ProgressBars;

@@ -14,6 +14,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use dprint_core::async_runtime::async_trait;
+
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
 use super::Environment;
@@ -292,7 +294,7 @@ impl Drop for TestEnvironment {
   }
 }
 
-#[async_trait::async_trait(?Send)]
+#[async_trait(?Send)]
 impl UrlDownloader for TestEnvironment {
   async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
     self.get_remote_file(url)

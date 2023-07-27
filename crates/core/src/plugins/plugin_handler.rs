@@ -138,21 +138,27 @@ where
 
 /// Trait for implementing a process plugin.
 #[cfg(feature = "process")]
+#[crate::async_runtime::async_trait(?Send)]
 pub trait AsyncPluginHandler: Send + Sync + 'static {
   type Configuration: Serialize + Clone + Send + Sync;
 
-  /// Resolves configuration based on the provided config map and global configuration.
-  fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> PluginResolveConfigurationResult<Self::Configuration>;
   /// Gets the plugin's plugin info.
   fn plugin_info(&self) -> PluginInfo;
   /// Gets the plugin's license text.
   fn license_text(&self) -> String;
+  /// Resolves configuration based on the provided config map and global configuration.
+  async fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> PluginResolveConfigurationResult<Self::Configuration>;
+  /// Updates the config key map. This will be called after the CLI has upgraded the
+  /// plugin in `dprint config update`.
+  async fn check_config_updates(&self, config: ConfigKeyMap) -> Result<ConfigKeyMap> {
+    Ok(config)
+  }
   /// Formats the provided file text based on the provided file path and configuration.
-  fn format(
+  async fn format(
     &self,
     request: FormatRequest<Self::Configuration>,
     format_with_host: impl FnMut(HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> + 'static,
-  ) -> LocalBoxFuture<'static, FormatResult>;
+  ) -> FormatResult;
 }
 
 #[cfg(feature = "wasm")]

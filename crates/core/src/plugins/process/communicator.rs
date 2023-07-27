@@ -514,7 +514,8 @@ fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -
     | MessageBody::ReleaseConfig(_)
     | MessageBody::GetConfigDiagnostics(_)
     | MessageBody::GetFileMatchingInfo(_)
-    | MessageBody::GetResolvedConfig(_) => {
+    | MessageBody::GetResolvedConfig(_)
+    | MessageBody::CheckConfigUpdates(_) => {
       let _ = context.stdin_writer.send(ProcessPluginMessage {
         id: context.id_generator.next(),
         body: MessageBody::Error(ResponseBody {

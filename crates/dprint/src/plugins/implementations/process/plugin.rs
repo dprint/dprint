@@ -1,5 +1,5 @@
 use anyhow::Result;
-use async_trait::async_trait;
+use dprint_core::async_runtime::async_trait;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatResult;

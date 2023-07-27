@@ -63,7 +63,7 @@ where
   let error_logger = ErrorCountLogger::from_environment(environment);
 
   let scope = Rc::new(scope_and_paths.scope);
-  let mut file_paths_by_plugins = scope_and_paths.file_paths_by_plugins.into_iter().collect::<Vec<_>>();
+  let mut file_paths_by_plugins = scope_and_paths.file_paths_by_plugins.into_vec();
   // favour giving semaphore permits to ones with more items at the start
   file_paths_by_plugins.sort_by_key(|(_, file_paths)| 0i32 - file_paths.len() as i32);
   let collection_count = file_paths_by_plugins.len();

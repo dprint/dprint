@@ -21,7 +21,6 @@ use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginWrapper;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::GetPluginResult;
-use crate::resolution::ResolvePluginsOptions;
 use crate::utils::pretty_print_json_text;
 use crate::utils::CachedDownloader;
 use crate::utils::PathSource;
@@ -172,6 +171,10 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   no_prompt: bool,
 ) -> Result<()> {
+  if !args.plugins.is_empty() {
+    bail!("Cannot specify plugins for this sub command. Sorry, too much work for me.");
+  }
+
   let config = resolve_config_from_args(args, environment).await?;
   let config_path = match config.resolved_path.source {
     PathSource::Local(source) => source.path,
@@ -305,18 +308,8 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config = Rc::new(resolve_config_from_args(args, environment).await?);
-  let plugins_scope = resolve_plugins_scope(
-    config,
-    environment,
-    plugin_resolver,
-    &ResolvePluginsOptions {
-      // Skip checking these diagnostics when the user provides
-      // plugins from the CLI args. They may be doing this to filter
-      // to only specific plugins.
-      check_top_level_unknown_property_diagnostics: args.plugins.is_empty(),
-    },
-  )
-  .await?;
+  let plugins_scope = resolve_plugins_scope(config, environment, plugin_resolver).await?;
+  plugins_scope.ensure_no_global_config_diagnostics()?;
 
   let mut plugin_jsons = Vec::new();
   for plugin in plugins_scope.plugins.values() {

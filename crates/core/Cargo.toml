@@ -12,7 +12,7 @@ description = "Core library for dprint."
 [features]
 default = ["formatting"]
 
-async_runtime = ["futures", "parking_lot", "tokio", "tokio-util"]
+async_runtime = ["async-trait", "futures", "parking_lot", "tokio", "tokio-util"]
 formatting = ["bumpalo", "rustc-hash", "unicode-width"]
 communication = ["crossbeam-channel", "async_runtime"]
 process = ["communication", "serde_json", "libc", "winapi"]
@@ -21,6 +21,7 @@ tracing = ["formatting"]
 
 [dependencies]
 anyhow = "1.0.69"
+async-trait = { version = "0.1.72", optional = true }
 bumpalo = { version = "3.13.0", optional = true }
 crossbeam-channel = { version = "0.5.7", optional = true }
 futures = { version = "0.3.26", optional = true }
