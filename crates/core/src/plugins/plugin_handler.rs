@@ -1,4 +1,5 @@
 use anyhow::Result;
+use serde::Deserialize;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -9,6 +10,7 @@ use crate::async_runtime::FutureExt;
 use crate::async_runtime::LocalBoxFuture;
 
 use crate::configuration::ConfigKeyMap;
+use crate::configuration::ConfigKeyValue;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
 use crate::configuration::ResolveConfigurationResult;
@@ -119,6 +121,47 @@ pub struct FormatRequest<TConfiguration> {
   pub token: Arc<dyn CancellationToken>,
 }
 
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ConfigChangePathItem {
+  /// String property name.
+  String(String),
+  /// Number if an index in an array.
+  Number(usize),
+}
+
+impl From<String> for ConfigChangePathItem {
+  fn from(value: String) -> Self {
+    Self::String(value)
+  }
+}
+
+impl From<usize> for ConfigChangePathItem {
+  fn from(value: usize) -> Self {
+    Self::Number(value)
+  }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigChange {
+  /// The path to make modifications at.
+  pub path: Vec<ConfigChangePathItem>,
+  #[serde(flatten)]
+  pub kind: ConfigChangeKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum ConfigChangeKind {
+  /// Adds an object property or array element.
+  Add(ConfigKeyValue),
+  /// Overwrites an existing value at the provided path.
+  Set(ConfigKeyValue),
+  /// Removes the value at the path.
+  Remove,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginResolveConfigurationResult<T>
@@ -150,8 +193,8 @@ pub trait AsyncPluginHandler: Send + Sync + 'static {
   async fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> PluginResolveConfigurationResult<Self::Configuration>;
   /// Updates the config key map. This will be called after the CLI has upgraded the
   /// plugin in `dprint config update`.
-  async fn check_config_updates(&self, config: ConfigKeyMap) -> Result<ConfigKeyMap> {
-    Ok(config)
+  async fn check_config_updates(&self, _plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
+    Ok(Vec::new())
   }
   /// Formats the provided file text based on the provided file path and configuration.
   async fn format(

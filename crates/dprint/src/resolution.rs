@@ -11,6 +11,7 @@ use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::process::HostFormatCallback;
 use dprint_core::plugins::CancellationToken;
+use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatRange;
@@ -171,6 +172,10 @@ impl InitializedPluginWithConfig {
     environment: &TEnvironment,
   ) -> Result<Result<(), OutputPluginConfigDiagnosticsError>> {
     output_plugin_config_diagnostics(&self.info().name, &*self.instance, self.plugin.format_config.clone(), environment).await
+  }
+
+  pub async fn check_config_updates(&self, plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
+    self.instance.check_config_updates(plugin_config).await
   }
 
   pub async fn format_text(&self, request: InitializedPluginWithConfigFormatRequest) -> FormatResult {
@@ -392,7 +397,7 @@ pub async fn resolve_plugins_scope_and_paths<TEnvironment: Environment>(
     plugin_resolver,
   };
 
-  resolver.resolve_config().await
+  resolver.resolve_for_config().await
 }
 
 struct PluginsAndPathsResolver<'a, TEnvironment: Environment> {
@@ -403,7 +408,7 @@ struct PluginsAndPathsResolver<'a, TEnvironment: Environment> {
 }
 
 impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
-  pub async fn resolve_config(&self) -> Result<PluginsScopeAndPathsCollection<TEnvironment>> {
+  pub async fn resolve_for_config(&self) -> Result<PluginsScopeAndPathsCollection<TEnvironment>> {
     let config = Rc::new(resolve_config_from_args(self.args, self.environment).await?);
     let scope = resolve_plugins_scope(config.clone(), self.environment, self.plugin_resolver).await?;
     let glob_output = get_and_resolve_file_paths(&config, self.patterns, scope.plugins.values().map(|p| p.as_ref()), self.environment).await?;
@@ -412,13 +417,13 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
     // todo: parallelize?
     for config_file_path in glob_output.config_files {
-      result.extend(self.resolve_sub_config(config_file_path, &config).await?);
+      result.extend(self.resolve_for_sub_config(config_file_path, &config).await?);
     }
 
     Ok(PluginsScopeAndPathsCollection(result))
   }
 
-  fn resolve_sub_config(
+  fn resolve_for_sub_config(
     &'a self,
     config_file_path: PathBuf,
     parent_config: &'a ResolvedConfig,
@@ -443,7 +448,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
       // todo: parallelize?
       for config_file_path in glob_output.config_files {
-        result.extend(self.resolve_sub_config(config_file_path, &config).await?);
+        result.extend(self.resolve_for_sub_config(config_file_path, &config).await?);
       }
 
       Ok(result)

@@ -249,9 +249,12 @@ impl TestEnvironmentBuilder {
   }
 
   pub fn add_remote_wasm_plugin(&mut self) -> &mut Self {
+    self.add_remote_wasm_plugin_at_url("https://plugins.dprint.dev/test-plugin.wasm");
     self
-      .environment
-      .add_remote_file("https://plugins.dprint.dev/test-plugin.wasm", test_helpers::WASM_PLUGIN_BYTES);
+  }
+
+  pub fn add_remote_wasm_plugin_at_url(&mut self, url: &str) -> &mut Self {
+    self.environment.add_remote_file(url, test_helpers::WASM_PLUGIN_BYTES);
     self
   }
 
@@ -314,21 +317,27 @@ impl TestEnvironmentBuilder {
   }
 
   pub fn add_remote_process_plugin(&mut self) -> &mut Self {
+    self.add_remote_process_plugin_at_url("https://plugins.dprint.dev/test-process.json")
+  }
+
+  pub fn add_remote_process_plugin_at_url(&mut self, url: &str) -> &mut Self {
     let zip_bytes = &test_helpers::PROCESS_PLUGIN_ZIP_BYTES;
     let zip_file_checksum = crate::utils::get_sha256_checksum(zip_bytes);
     self.environment.add_remote_file_bytes(
       "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
       zip_bytes.to_vec(),
     );
-    self.write_process_plugin_file(&zip_file_checksum);
-    self
+    self.write_process_plugin_file_at_url(&zip_file_checksum, url)
   }
 
   pub fn write_process_plugin_file(&mut self, zip_checksum: &str) -> &mut Self {
-    self.environment.add_remote_file_bytes(
-      "https://plugins.dprint.dev/test-process.json",
-      test_helpers::get_test_process_plugin_file_text(zip_checksum).into_bytes(),
-    );
+    self.write_process_plugin_file_at_url(zip_checksum, "https://plugins.dprint.dev/test-process.json")
+  }
+
+  pub fn write_process_plugin_file_at_url(&mut self, zip_checksum: &str, url: &str) -> &mut Self {
+    self
+      .environment
+      .add_remote_file_bytes(url, test_helpers::get_test_process_plugin_file_text(zip_checksum).into_bytes());
     self
   }
 }

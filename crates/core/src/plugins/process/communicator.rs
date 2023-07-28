@@ -20,6 +20,8 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
+use super::messages::CheckConfigUpdatesMessageBody;
+use super::messages::CheckConfigUpdatesResponseBody;
 use super::messages::FormatMessageBody;
 use super::messages::HostFormatMessageBody;
 use super::messages::MessageBody;
@@ -38,6 +40,7 @@ use crate::communication::SingleThreadMessageWriter;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
+use crate::plugins::ConfigChange;
 use crate::plugins::CriticalFormatError;
 use crate::plugins::FileMatchingInfo;
 use crate::plugins::FormatConfigId;
@@ -257,6 +260,13 @@ impl ProcessPluginCommunicator {
 
   pub async fn config_diagnostics(&self, config_id: FormatConfigId) -> Result<Vec<ConfigurationDiagnostic>> {
     self.send_receiving_data(MessageBody::GetConfigDiagnostics(config_id)).await
+  }
+
+  pub async fn check_config_updates(&self, plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
+    let message = CheckConfigUpdatesMessageBody { config: plugin_config };
+    let bytes = serde_json::to_vec(&message)?;
+    let response: CheckConfigUpdatesResponseBody = self.send_receiving_data(MessageBody::CheckConfigUpdates(bytes)).await?;
+    Ok(response.changes)
   }
 
   pub async fn format_text(&self, request: ProcessPluginCommunicatorFormatRequest) -> FormatResult {

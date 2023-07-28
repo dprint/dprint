@@ -4,11 +4,8 @@ use jsonc_parser::parse_to_value;
 use jsonc_parser::JsonArray;
 use jsonc_parser::JsonObject;
 use jsonc_parser::JsonValue;
-use url::Url;
 
 use crate::environment::Environment;
-use crate::plugins::PluginSourceReference;
-use crate::utils::PathSource;
 
 #[derive(PartialEq, Eq, Debug)]
 pub struct InfoFile {
@@ -51,13 +48,6 @@ impl InfoFilePluginInfo {
     } else {
       self.full_url()
     }
-  }
-
-  pub fn as_source_reference(&self) -> Result<PluginSourceReference> {
-    Ok(PluginSourceReference {
-      path_source: PathSource::new_remote(Url::parse(&self.url)?),
-      checksum: self.checksum.clone(),
-    })
   }
 }
 

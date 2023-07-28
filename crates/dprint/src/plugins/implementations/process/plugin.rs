@@ -1,6 +1,8 @@
 use anyhow::Result;
 use dprint_core::async_runtime::async_trait;
+use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
+use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
@@ -117,6 +119,10 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
 
   async fn config_diagnostics(&self, config: Arc<FormatConfig>) -> Result<Vec<ConfigurationDiagnostic>> {
     self.communicator.get_config_diagnostics(&config).await
+  }
+
+  async fn check_config_updates(&self, plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
+    self.communicator.check_config_updates(plugin_config).await
   }
 
   async fn format_text(&self, request: InitializedPluginFormatRequest) -> FormatResult {

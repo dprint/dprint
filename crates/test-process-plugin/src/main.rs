@@ -14,6 +14,8 @@ use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
 use dprint_core::plugins::process::handle_process_stdio_messages;
 use dprint_core::plugins::process::start_parent_process_checker_task;
 use dprint_core::plugins::AsyncPluginHandler;
+use dprint_core::plugins::ConfigChange;
+use dprint_core::plugins::ConfigChangeKind;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatRequest;
 use dprint_core::plugins::FormatResult;
@@ -60,7 +62,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
       config_key: "testProcessPlugin".to_string(),
       help_url: "https://dprint.dev/plugins/test-process".to_string(),
       config_schema_url: "".to_string(),
-      update_url: None,
+      update_url: Some("https://plugins.dprint.dev/dprint/test-process-plugin/latest.json".to_string()),
     }
   }
 
@@ -119,11 +121,15 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
     }
   }
 
-  async fn check_config_updates(&self, mut config: ConfigKeyMap) -> Result<ConfigKeyMap> {
+  async fn check_config_updates(&self, config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
+    let mut changes = Vec::new();
     if config.contains_key("should_update") {
-      config.insert("updated".to_string(), "new_value".into());
+      changes.push(ConfigChange {
+        path: vec!["updated".to_string().into()],
+        kind: ConfigChangeKind::Set(ConfigKeyValue::String("new_value".to_string())),
+      });
     }
-    Ok(config)
+    Ok(changes)
   }
 
   async fn format(

@@ -283,11 +283,41 @@ Response: Data message - JSON serialized resolved config
 
 Message body:
 
-- u32 - Config id
+- u32 - Content length
+- JSON serialized plugin configuration
 
-Response: Data message - JSON serialized plugin configuration
+Response: Data message - JSON serialized object with a `changes` property that contains an array of changes.
 
-The CLI will automatically update the appropriate dprint.json file with the new configuration.
+Example:
+
+```json
+{
+  "changes": [{
+    "path": ["oldSetting"],
+    "kind": "remove"
+  }, {
+    "path": ["lineWidth"],
+    "kind": "set",
+    "value": 120
+  }, {
+    "path": ["values"],
+    "kind": "add",
+    "value": "new value"
+  }, {
+    "path": ["values"],
+    "kind": "add",
+    "value": [
+      "some",
+      "array",
+      {
+        "with a": "nested object"
+      }
+    ]
+  }]
+}
+```
+
+The CLI will automatically update the appropriate dprint.json file with the new configuration based on these changes.
 
 #### `13` - Format Text (CLI to Plugin)
 

@@ -1,26 +1,30 @@
 use anyhow::anyhow;
 use anyhow::bail;
+use anyhow::Context;
 use anyhow::Error;
 use anyhow::Result;
 use dprint_core::async_runtime::future;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
 use url::Url;
 
 use crate::arg_parser::CliArgs;
+use crate::arg_parser::FilePatternArgs;
 use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
 use crate::environment::Environment;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
-use crate::plugins::InfoFile;
 use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginWrapper;
 use crate::resolution::resolve_plugins_scope;
+use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::resolution::GetPluginResult;
+use crate::utils::apply_text_changes;
 use crate::utils::pretty_print_json_text;
 use crate::utils::CachedDownloader;
 use crate::utils::PathSource;
@@ -144,14 +148,14 @@ async fn get_possible_plugins_to_add<TEnvironment: Environment>(
 ) -> Result<Vec<InfoFilePluginInfo>> {
   let info_file = read_info_file(environment)
     .await
-    .map_err(|err| anyhow!("Error downloading info file. {:#}", err))?;
+    .map_err(|err| anyhow!("Failed downloading info file. {:#}", err))?;
   let current_plugin_names = get_config_file_plugins(plugin_resolver, current_plugins)
     .await
     .into_iter()
     .filter_map(|(plugin_reference, plugin_result)| match plugin_result {
       Ok(plugin) => Some(plugin.info().name.to_string()),
       Err(err) => {
-        environment.log_stderr(&format!("Error resolving plugin: {}\n\n{:#}", plugin_reference.path_source.display(), err));
+        environment.log_stderr(&format!("Failed resolving plugin: {}\n\n{:#}", plugin_reference.path_source.display(), err));
         None
       }
     })
@@ -175,43 +179,143 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     bail!("Cannot specify plugins for this sub command. Sorry, too much work for me.");
   }
 
-  let config = resolve_config_from_args(args, environment).await?;
-  let config_path = match config.resolved_path.source {
-    PathSource::Local(source) => source.path,
-    PathSource::Remote(_) => bail!("Cannot update plugins in a remote configuration."),
+  let file_pattern_args = FilePatternArgs {
+    file_patterns: Vec::new(),
+    exclude_file_patterns: Vec::new(),
+    allow_node_modules: false,
   };
-  let mut file_text = environment.read_file(&config_path)?;
-  let plugins_to_update = get_plugins_to_update(environment, plugin_resolver, config.plugins).await?;
+  let scopes = resolve_plugins_scope_and_paths(args, &file_pattern_args, environment, plugin_resolver).await?;
+  let mut plugin_responses = HashMap::new();
+  for scope in scopes.into_iter() {
+    let Some(config) = &scope.scope.config else {
+      continue;
+    };
+    let config_path = match &config.resolved_path.source {
+      PathSource::Local(source) => &source.path,
+      PathSource::Remote(source) => {
+        environment.log(&format!("Skipping remote configuration file: {}", source.url));
+        continue;
+      }
+    };
 
-  for result in plugins_to_update {
-    match result {
-      Ok(info) => {
-        let should_update = if info.is_wasm() || no_prompt {
-          true
-        } else {
-          // prompt for security reasons
-          environment.log_stderr(&format!(
-            "The process plugin {} {} has a new url: {}",
-            info.name,
-            info.old_version,
-            info.get_full_new_config_url(),
-          ));
-          environment.confirm("Do you want to update it?", false)?
-        };
+    let mut file_text = environment.read_file(config_path)?;
+    // todo: can't use config.plugins here because it could include extended plugins
+    let plugins_to_update = get_plugins_to_update(environment, plugin_resolver, config.plugins.clone()).await?;
 
-        if should_update {
-          environment.log_stderr(&format!("Updating {} {} to {}...", info.name, info.old_version, info.new_version));
-          file_text = update_plugin_in_config(&file_text, info);
+    for result in plugins_to_update {
+      match result {
+        Ok(info) => {
+          let should_update = if info.is_wasm() || no_prompt {
+            true
+          } else if let Some(previous_response) = plugin_responses.get(&info.new_reference) {
+            *previous_response
+          } else {
+            // prompt for security reasons
+            environment.log_stderr(&format!(
+              "The process plugin {} {} has a new url: {}",
+              info.name,
+              info.old_version,
+              info.get_full_new_config_url(),
+            ));
+            let response = environment.confirm("Do you want to update it?", false)?;
+            plugin_responses.insert(info.new_reference.clone(), response);
+            response
+          };
+
+          if should_update {
+            environment.log_stderr(&format!("Updating {} {} to {}...", info.name, info.old_version, info.new_version));
+            file_text = update_plugin_in_config(&file_text, info);
+          }
+        }
+        Err(err_info) => {
+          environment.log_stderr(&format!("Failed updating plugin {}: {:#}", err_info.name, err_info.error));
         }
       }
-      Err(err_info) => {
-        environment.log_stderr(&format!("Error updating plugin {}: {:#}", err_info.name, err_info.error));
+    }
+
+    environment.write_file(config_path, &file_text)?;
+  }
+
+  // now resolve the plugins again in every scope and run their config updates
+
+  run_plugin_config_updates(environment, args, &file_pattern_args, plugin_resolver)
+    .await
+    .with_context(|| "Failed running plugin config updates.".to_string())?;
+
+  Ok(())
+}
+
+async fn run_plugin_config_updates<TEnvironment: Environment>(
+  environment: &TEnvironment,
+  args: &CliArgs,
+  file_pattern_args: &FilePatternArgs,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+) -> Result<()> {
+  let scopes = resolve_plugins_scope_and_paths(args, file_pattern_args, environment, plugin_resolver).await?;
+  for scope in scopes.into_iter() {
+    let Some(config) = &scope.scope.config else {
+      continue;
+    };
+    let config_path = match &config.resolved_path.source {
+      PathSource::Local(source) => &source.path,
+      PathSource::Remote(_) => {
+        continue;
+      }
+    };
+    let file_text = environment.read_file(config_path)?;
+    let config_map = match deserialize_config_raw(&file_text) {
+      Ok(map) => map,
+      Err(err) => {
+        environment.log_stderr(&format!("Failed deserializing config file '{}': {:#}", config_path.display(), err));
+        continue;
+      }
+    };
+    let root_obj = JsonRootObject::parse(&file_text).unwrap(); // if we got this far, it will deserialize
+    let mut all_changes = ApplyConfigChangesResult::default();
+    for plugin in scope.scope.plugins.values() {
+      log_verbose!(environment, "Updating for {}", plugin.name());
+      let config_key = &plugin.info().config_key;
+      let Some(plugin_config) = config_map.get(config_key).and_then(|c| c.as_object()).cloned() else {
+        continue;
+      };
+      let initialized_plugin = match plugin.initialize().await {
+        Ok(plugin) => plugin,
+        Err(err) => {
+          environment.log_stderr(&format!("Failed initializing {}. {:#}", plugin.name(), err));
+          continue;
+        }
+      };
+
+      let changes = match initialized_plugin.check_config_updates(plugin_config).await {
+        Ok(changes) => changes,
+        Err(err) => {
+          environment.log_stderr(&format!("Failed updating {}. {:#}", plugin.name(), err));
+          continue;
+        }
+      };
+
+      log_verbose!(environment, "Had {} changes.", changes.len());
+      if changes.is_empty() {
+        continue;
+      }
+
+      all_changes.extend(apply_config_changes(&root_obj, config_key, &changes));
+    }
+
+    // apply the changes to the config
+    if !all_changes.diagnostics.is_empty() {
+      environment.log_stderr(&format!("Had diagnostics applying update config changes for {}:", config_path.display()));
+      for diagnostic in &all_changes.diagnostics {
+        environment.log_stderr(&format!("* {}", diagnostic));
+      }
+    }
+    match apply_text_changes(&file_text, all_changes.text_changes) {
+      Ok(new_text) => environment.write_file(config_path, &new_text)?,
+      Err(err) => {
+        environment.log_stderr(&format!("Error applying config changes for {}: {:#}", config_path.display(), err));
       }
     }
   }
-
-  environment.write_file(&config_path, &file_text)?;
-
   Ok(())
 }
 
@@ -227,7 +331,6 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
 ) -> Result<Vec<Result<PluginUpdateInfo, PluginUpdateError>>> {
   async fn resolve_plugin_update_info<TEnvironment: Environment>(
     environment: &TEnvironment,
-    info_file: Option<&InfoFile>,
     plugin_reference: PluginSourceReference,
     plugin_result: Result<Rc<PluginWrapper>>,
   ) -> Option<Result<PluginUpdateInfo, PluginUpdateError>> {
@@ -248,51 +351,34 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
           Ok(source_reference) => Ok((info, source_reference)),
           Err(err) => Err(err),
         },
-        None => Err(anyhow!("Error downloading {} - 404 Not Found", plugin_update_url)),
+        None => Err(anyhow!("Failed downloading {} - 404 Not Found", plugin_update_url)),
       }) {
-        Ok((info, new_reference)) => {
-          return Some(Ok(PluginUpdateInfo {
-            name: plugin.info().name.to_string(),
-            old_reference: plugin_reference,
-            old_version: plugin.info().version.to_string(),
-            new_version: info.version,
-            new_reference,
-          }));
-        }
+        Ok((info, new_reference)) => Some(Ok(PluginUpdateInfo {
+          name: plugin.info().name.to_string(),
+          old_reference: plugin_reference,
+          old_version: plugin.info().version.to_string(),
+          new_version: info.version,
+          new_reference,
+        })),
         Err(err) => {
           // output and fallback to using the info file
-          environment.log_stderr(&format!("Error reading plugin latest info. {:#}", err));
+          environment.log_stderr(&format!("Failed reading plugin latest info. {:#}", err));
+          None
         }
       }
-    }
-
-    // todo: in the future this should be removed -- let's say June 2022
-    // When this occurs, it should probably warn above when the plugin doesn't
-    // have a url.
-
-    let info_file = info_file.as_ref()?;
-    let latest_plugin_info = info_file.latest_plugins.iter().find(|p| p.name == plugin.info().name);
-    let latest_plugin_info = latest_plugin_info?;
-    Some(Ok(PluginUpdateInfo {
-      name: plugin.info().name.to_string(),
-      old_reference: plugin_reference,
-      old_version: plugin.info().version.to_string(),
-      new_version: latest_plugin_info.version.clone(),
-      new_reference: latest_plugin_info.as_source_reference().ok()?,
-    }))
-  }
-
-  let info_file = match read_info_file(environment).await {
-    Ok(info_file) => Some(info_file),
-    Err(err) => {
-      environment.log_stderr(&format!("Error downloading info file. {:#}", err));
+    } else {
+      environment.log_stderr(&format!(
+        "Skipping {} as it did not specify an update url. Please update manually.",
+        plugin.info().name
+      ));
       None
     }
-  };
+  }
+
   let config_file_plugins = get_config_file_plugins(plugin_resolver, plugins).await;
   let mut final_infos = Vec::with_capacity(config_file_plugins.len());
   for (plugin_reference, plugin_result) in config_file_plugins {
-    let maybe_info = resolve_plugin_update_info(environment, info_file.as_ref(), plugin_reference, plugin_result).await;
+    let maybe_info = resolve_plugin_update_info(environment, plugin_reference, plugin_result).await;
     if let Some(info) = maybe_info {
       if info.as_ref().ok().map(|info| info.old_version != info.new_version).unwrap_or(true) {
         final_infos.push(info);
@@ -371,6 +457,7 @@ mod test {
   use crate::environment::TestInfoFilePlugin;
   use crate::test_helpers;
   use crate::test_helpers::run_test_cli;
+  use crate::test_helpers::PROCESS_PLUGIN_ZIP_CHECKSUM;
 
   #[test]
   fn should_initialize() {
@@ -844,6 +931,7 @@ mod test {
     always_update: bool,
   }
 
+  #[track_caller]
   fn test_update(options: TestUpdateOptions) {
     let expected_logs = options.expected_logs.clone();
     let expected_urls = options.expected_urls.clone();
@@ -891,9 +979,11 @@ mod test {
 
     if opts.config_has_wasm {
       builder.add_remote_wasm_plugin();
+      builder.add_remote_wasm_plugin_at_url("https://plugins.dprint.dev/test-plugin-2.wasm");
     }
     if opts.config_has_process {
       builder.add_remote_process_plugin();
+      builder.add_remote_process_plugin_at_url("https://plugins.dprint.dev/test-plugin-3.json");
     }
 
     builder
@@ -902,7 +992,7 @@ mod test {
           name: "test-plugin".to_string(),
           version: "0.2.0".to_string(),
           url: "https://plugins.dprint.dev/test-plugin-2.wasm".to_string(),
-          config_key: Some("typescript".to_string()),
+          config_key: Some("test-plugin".to_string()),
           checksum: if opts.info_has_checksum { Some("info-checksum".to_string()) } else { None },
           ..Default::default()
         });
@@ -911,7 +1001,7 @@ mod test {
           name: "test-process-plugin".to_string(),
           version: "0.3.0".to_string(),
           url: "https://plugins.dprint.dev/test-plugin-3.json".to_string(),
-          config_key: Some("typescript".to_string()),
+          config_key: Some("test-process-plugin".to_string()),
           checksum: if opts.info_has_checksum { Some("info-checksum".to_string()) } else { None },
           ..Default::default()
         });
@@ -937,6 +1027,16 @@ mod test {
           "schemaVersion": 1,
           "url": "https://plugins.dprint.dev/test-plugin-2.wasm",
           "version": "0.2.0",
+          "checksum": if opts.info_has_checksum { Some("info-checksum".to_string()) } else { None },
+        })
+        .to_string(),
+      )
+      .add_remote_file(
+        "https://plugins.dprint.dev/dprint/test-process-plugin/latest.json",
+        &json!({
+          "schemaVersion": 1,
+          "url": "https://plugins.dprint.dev/test-plugin-3.json",
+          "version": "0.3.0",
           "checksum": if opts.info_has_checksum { Some("info-checksum".to_string()) } else { None },
         })
         .to_string(),

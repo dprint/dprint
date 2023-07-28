@@ -107,6 +107,80 @@ pub enum ConfigKeyValue {
 }
 
 impl ConfigKeyValue {
+  pub fn as_string(&self) -> Option<&String> {
+    match self {
+      ConfigKeyValue::String(value) => Some(value),
+      _ => None,
+    }
+  }
+
+  pub fn as_number(&self) -> Option<i32> {
+    match self {
+      ConfigKeyValue::Number(value) => Some(*value),
+      _ => None,
+    }
+  }
+
+  pub fn as_bool(&self) -> Option<bool> {
+    match self {
+      ConfigKeyValue::Bool(value) => Some(*value),
+      _ => None,
+    }
+  }
+
+  pub fn as_array(&self) -> Option<&Vec<ConfigKeyValue>> {
+    match self {
+      ConfigKeyValue::Array(values) => Some(values),
+      _ => None,
+    }
+  }
+
+  pub fn as_object(&self) -> Option<&ConfigKeyMap> {
+    match self {
+      ConfigKeyValue::Object(values) => Some(values),
+      _ => None,
+    }
+  }
+
+  pub fn into_string(self) -> Option<String> {
+    match self {
+      ConfigKeyValue::String(value) => Some(value),
+      _ => None,
+    }
+  }
+
+  pub fn into_number(self) -> Option<i32> {
+    match self {
+      ConfigKeyValue::Number(value) => Some(value),
+      _ => None,
+    }
+  }
+
+  pub fn into_bool(self) -> Option<bool> {
+    match self {
+      ConfigKeyValue::Bool(value) => Some(value),
+      _ => None,
+    }
+  }
+
+  pub fn into_array(self) -> Option<Vec<ConfigKeyValue>> {
+    match self {
+      ConfigKeyValue::Array(values) => Some(values),
+      _ => None,
+    }
+  }
+
+  pub fn into_object(self) -> Option<ConfigKeyMap> {
+    match self {
+      ConfigKeyValue::Object(values) => Some(values),
+      _ => None,
+    }
+  }
+
+  pub fn is_null(&self) -> bool {
+    matches!(self, ConfigKeyValue::Null)
+  }
+
   /// Gets a hash of the configuration value. This is used for incremental formatting
   /// and the Hash trait is not implemented to discourage using this in other places.
   #[allow(clippy::should_implement_trait)]
