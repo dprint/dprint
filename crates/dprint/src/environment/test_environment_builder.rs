@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use super::Environment;
 use super::TestEnvironment;
 use crate::test_helpers;
+use crate::test_helpers::TestProcessPluginFile;
 use crate::utils::get_sha256_checksum;
 
 pub struct TestConfigFileBuilder {
@@ -317,27 +318,16 @@ impl TestEnvironmentBuilder {
   }
 
   pub fn add_remote_process_plugin(&mut self) -> &mut Self {
-    self.add_remote_process_plugin_at_url("https://plugins.dprint.dev/test-process.json")
+    self.add_remote_process_plugin_at_url("https://plugins.dprint.dev/test-process.json", &TestProcessPluginFile::default())
   }
 
-  pub fn add_remote_process_plugin_at_url(&mut self, url: &str) -> &mut Self {
+  pub fn add_remote_process_plugin_at_url(&mut self, url: &str, file_text: &TestProcessPluginFile) -> &mut Self {
     let zip_bytes = &test_helpers::PROCESS_PLUGIN_ZIP_BYTES;
-    let zip_file_checksum = crate::utils::get_sha256_checksum(zip_bytes);
     self.environment.add_remote_file_bytes(
       "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
       zip_bytes.to_vec(),
     );
-    self.write_process_plugin_file_at_url(&zip_file_checksum, url)
-  }
-
-  pub fn write_process_plugin_file(&mut self, zip_checksum: &str) -> &mut Self {
-    self.write_process_plugin_file_at_url(zip_checksum, "https://plugins.dprint.dev/test-process.json")
-  }
-
-  pub fn write_process_plugin_file_at_url(&mut self, zip_checksum: &str, url: &str) -> &mut Self {
-    self
-      .environment
-      .add_remote_file_bytes(url, test_helpers::get_test_process_plugin_file_text(zip_checksum).into_bytes());
+    self.environment.add_remote_file_bytes(url, file_text.text().to_string().into_bytes());
     self
   }
 }

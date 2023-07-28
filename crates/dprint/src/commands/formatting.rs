@@ -257,6 +257,9 @@ mod test {
   use crate::test_helpers::run_test_cli;
   use crate::test_helpers::run_test_cli_with_stdin;
   use crate::test_helpers::TestAppError;
+  use crate::test_helpers::TestProcessPluginFile;
+  use crate::test_helpers::TestProcessPluginFileBuilder;
+  use crate::test_helpers::PROCESS_PLUGIN_ZIP_CHECKSUM;
   use crate::utils::get_difference;
   use crate::utils::TestStdInReader;
 
@@ -1738,7 +1741,7 @@ mod test {
       .build();
     let err = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
     err.assert_exit_code(12);
-    let actual_plugin_file_checksum = test_helpers::get_test_process_plugin_checksum();
+    let actual_plugin_file_checksum = TestProcessPluginFile::default().checksum();
 
     assert_eq!(
       err.to_string(),
@@ -1761,7 +1764,7 @@ mod test {
       })
       .write_file("/test.txt_ps", "")
       .build();
-    let actual_plugin_file_checksum = test_helpers::get_test_process_plugin_checksum();
+    let actual_plugin_file_checksum = TestProcessPluginFile::default().checksum();
     let err = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
     err.assert_exit_code(12);
 
@@ -1829,13 +1832,16 @@ mod test {
   #[test]
   fn should_error_if_process_plugin_has_wrong_checksum_in_file_for_zip() {
     let environment = TestEnvironmentBuilder::with_remote_process_plugin()
-      .write_process_plugin_file("asdf")
+      .add_remote_process_plugin_at_url(
+        "https://plugins.dprint.dev/test-process.json",
+        &TestProcessPluginFileBuilder::default().zip_checksum("asdf").build(),
+      )
       .with_default_config(|c| {
         c.add_remote_process_plugin();
       })
       .write_file("/test.txt_ps", "")
       .build();
-    let actual_plugin_zip_file_checksum = test_helpers::get_test_process_plugin_zip_checksum();
+    let actual_plugin_zip_file_checksum = &*PROCESS_PLUGIN_ZIP_CHECKSUM;
     let err = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
     err.assert_exit_code(12);
 

@@ -17,6 +17,17 @@ use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
 use crate::AppError;
 
+// macro lifted from Deno's codebase
+#[macro_export]
+macro_rules! assert_contains {
+  ($string:expr, $($test:expr),+ $(,)?) => {
+    let string = &$string;
+    if !($(string.contains($test))||+) {
+      panic!("{:?} does not contain any of {:?}", string, [$($test),+]);
+    }
+  }
+}
+
 // this file should automatically be built when building the workspace
 pub static TEST_PROCESS_PLUGIN_PATH: Lazy<PathBuf> = Lazy::new(|| {
   let exe_name = if cfg!(windows) { "test-process-plugin.exe" } else { "test-process-plugin" };
@@ -125,49 +136,92 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
   })
 }
 
-pub fn get_test_process_plugin_zip_checksum() -> String {
-  crate::utils::get_sha256_checksum(&PROCESS_PLUGIN_ZIP_BYTES)
-}
-
 pub fn get_test_wasm_plugin_checksum() -> String {
   crate::utils::get_sha256_checksum(WASM_PLUGIN_BYTES)
 }
 
-pub fn get_test_process_plugin_checksum() -> String {
-  let zip_checksum = get_test_process_plugin_zip_checksum();
-  let ps_file_bytes = get_test_process_plugin_file_text(&zip_checksum).into_bytes();
-  crate::utils::get_sha256_checksum(&ps_file_bytes)
+pub struct TestProcessPluginFile(String);
+
+impl Default for TestProcessPluginFile {
+  fn default() -> Self {
+    TestProcessPluginFileBuilder::default().build()
+  }
 }
 
-pub fn get_test_process_plugin_file_text(zip_checksum: &str) -> String {
-  format!(
-    r#"{{
-"schemaVersion": 2,
-"name": "test-process-plugin",
-"version": "0.1.0",
-"windows-x86_64": {{
-    "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
-    "checksum": "{0}"
-}},
-"linux-aarch64": {{
-    "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
-    "checksum": "{0}"
-}},
-"linux-x86_64": {{
-    "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
-    "checksum": "{0}"
-}},
-"darwin-x86_64": {{
-    "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
-    "checksum": "{0}"
-}},
-"darwin-aarch64": {{
-    "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
-    "checksum": "{0}"
-}}
-}}"#,
-    zip_checksum
-  )
+impl TestProcessPluginFile {
+  pub fn checksum(&self) -> String {
+    crate::utils::get_sha256_checksum(self.0.as_bytes())
+  }
+
+  pub fn text(&self) -> &str {
+    self.0.as_ref()
+  }
+}
+
+#[derive(Default)]
+pub struct TestProcessPluginFileBuilder {
+  schema_version: Option<u32>,
+  name: Option<String>,
+  version: Option<String>,
+  zip_checksum: Option<String>,
+}
+
+impl TestProcessPluginFileBuilder {
+  #[allow(unused)]
+  pub fn schema_version(mut self, schema_version: u32) -> Self {
+    self.schema_version = Some(schema_version);
+    self
+  }
+
+  #[allow(unused)]
+  pub fn name(mut self, name: &str) -> Self {
+    self.name = Some(name.to_string());
+    self
+  }
+
+  pub fn version(mut self, version: &str) -> Self {
+    self.version = Some(version.to_string());
+    self
+  }
+
+  pub fn zip_checksum(mut self, zip_checksum: &str) -> Self {
+    self.zip_checksum = Some(zip_checksum.to_string());
+    self
+  }
+
+  pub fn build(self) -> TestProcessPluginFile {
+    TestProcessPluginFile(format!(
+      r#"{{
+  "schemaVersion": {0},
+  "name": "{1}",
+  "version": "{2}",
+  "windows-x86_64": {{
+      "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
+      "checksum": "{3}"
+  }},
+  "linux-aarch64": {{
+      "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
+      "checksum": "{3}"
+  }},
+  "linux-x86_64": {{
+      "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
+      "checksum": "{3}"
+  }},
+  "darwin-x86_64": {{
+      "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
+      "checksum": "{3}"
+  }},
+  "darwin-aarch64": {{
+      "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
+      "checksum": "{3}"
+  }}
+  }}"#,
+      self.schema_version.unwrap_or(2),
+      self.name.unwrap_or("test-process-plugin".to_string()),
+      self.version.unwrap_or("0.1.0".to_string()),
+      self.zip_checksum.unwrap_or(PROCESS_PLUGIN_ZIP_CHECKSUM.to_string())
+    ))
+  }
 }
 
 pub fn get_singular_formatted_text() -> String {
