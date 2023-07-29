@@ -910,6 +910,7 @@ mod test {
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url_with_checksum),
         "Do you want to update it? Y".to_string(),
         "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
+        "Extracting zip for test-process-plugin".to_string(),
       ],
       expected_urls: vec![new_ps_url_with_checksum.clone()],
       always_update: false,
@@ -921,7 +922,7 @@ mod test {
       config_has_wasm_checksum: false,
       config_has_process: true,
       remote_has_wasm_checksum: false,
-      remote_has_process_checksum: true,
+      remote_has_process_checksum: false,
       confirm_results: vec![Ok(Some(true))],
       expected_logs: vec![
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url),
@@ -930,15 +931,17 @@ mod test {
       ],
       expected_urls: vec![new_ps_url.clone()],
       always_update: false,
-      on_error: None,
-      exit_code: 0,
+      on_error: Some(Box::new(|text| {
+        assert_contains!(text, "Error resolving plugin https://plugins.dprint.dev/test-plugin-3.json: The plugin must have a checksum specified for security reasons since it is not a Wasm plugin.");
+      })),
+      exit_code: 12,
     });
     test_update(TestUpdateOptions {
       config_has_wasm: false,
       config_has_wasm_checksum: false,
       config_has_process: true,
       remote_has_wasm_checksum: false,
-      remote_has_process_checksum: true,
+      remote_has_process_checksum: false,
       confirm_results: vec![Ok(None)],
       expected_logs: vec![
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url),
@@ -960,8 +963,9 @@ mod test {
       confirm_results: vec![Ok(Some(false))],
       expected_logs: vec![
         "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
-        format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url),
+        format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url_with_checksum),
         "Do you want to update it? N".to_string(),
+        "Compiling https://plugins.dprint.dev/test-plugin-2.wasm".to_string(),
       ],
       expected_urls: vec![new_wasm_url.clone(), old_ps_url.clone()],
       always_update: false,
