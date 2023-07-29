@@ -298,7 +298,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
         continue;
       }
 
-      all_changes.extend(apply_config_changes(&root_obj, config_key, &changes));
+      all_changes.extend(apply_config_changes(&file_text, &root_obj, config_key, &changes));
     }
 
     // apply the changes to the config
