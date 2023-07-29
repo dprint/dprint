@@ -24,7 +24,6 @@ use crate::plugins::PluginWrapper;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::resolution::GetPluginResult;
-use crate::utils::apply_text_changes;
 use crate::utils::pretty_print_json_text;
 use crate::utils::CachedDownloader;
 use crate::utils::PathSource;
@@ -261,7 +260,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
         continue;
       }
     };
-    let file_text = environment.read_file(config_path)?;
+    let mut file_text = environment.read_file(config_path)?;
     let config_map = match deserialize_config_raw(&file_text) {
       Ok(map) => map,
       Err(err) => {
@@ -269,8 +268,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
         continue;
       }
     };
-    let root_obj = JsonRootObject::parse(&file_text).unwrap(); // if we got this far, it will deserialize
-    let mut all_changes = ApplyConfigChangesResult::default();
+    let mut all_diagnostics = Vec::new();
     for plugin in scope.scope.plugins.values() {
       log_verbose!(environment, "Updating for {}", plugin.name());
       let config_key = &plugin.info().config_key;
@@ -298,22 +296,19 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
         continue;
       }
 
-      all_changes.extend(apply_config_changes(&file_text, &root_obj, config_key, &changes));
+      let result = apply_config_changes(file_text, config_key, &changes);
+      all_diagnostics.extend(result.diagnostics);
+      file_text = result.new_text;
     }
 
     // apply the changes to the config
-    if !all_changes.diagnostics.is_empty() {
+    if !all_diagnostics.is_empty() {
       environment.log_stderr(&format!("Had diagnostics applying update config changes for {}:", config_path.display()));
-      for diagnostic in &all_changes.diagnostics {
+      for diagnostic in &all_diagnostics {
         environment.log_stderr(&format!("* {}", diagnostic));
       }
     }
-    match apply_text_changes(&file_text, all_changes.text_changes) {
-      Ok(new_text) => environment.write_file(config_path, &new_text)?,
-      Err(err) => {
-        environment.log_stderr(&format!("Error applying config changes for {}: {:#}", config_path.display(), err));
-      }
-    }
+    environment.write_file(config_path, &file_text)?;
   }
   Ok(())
 }
@@ -974,6 +969,61 @@ mod test {
     });
   }
 
+  #[test]
+  fn config_update_updating_plugin_config() {
+    let mut builder = get_setup_builder(SetupEnvOptions {
+      config_has_wasm: true,
+      config_has_wasm_checksum: false,
+      config_has_process: true,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: true,
+    });
+    builder.with_default_config(|config| {
+      config.add_config_section(
+        "testProcessPlugin",
+        r#"{
+  "should_add": {
+  },
+  "should_set": "other",
+  "should_remove": {},
+}"#,
+      );
+    });
+    let environment = builder.initialize().build();
+    run_test_cli(vec!["config", "update", "--yes"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
+        "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
+        "Compiling https://plugins.dprint.dev/test-plugin-2.wasm".to_string(),
+        "Extracting zip for test-process-plugin".to_string()
+      ]
+    );
+    assert_eq!(
+      environment.read_file("./dprint.json").unwrap(),
+      format!(
+        r#"{{
+  "testProcessPlugin": {{
+    "should_add": "new_value",
+    "should_set": "new_value",
+    "new_prop1": [
+      "new_value"
+    ],
+    "new_prop2": {{
+      "new_prop": "new_value"
+    }},
+  }},
+  "plugins": [
+    "https://plugins.dprint.dev/test-plugin-2.wasm",
+    "https://plugins.dprint.dev/test-plugin-3.json@{}"
+  ]
+}}"#,
+        NEW_PROCESS_PLUGIN_FILE.checksum()
+      )
+    );
+  }
+
   struct TestUpdateOptions {
     config_has_wasm: bool,
     config_has_wasm_checksum: bool,
@@ -1046,6 +1096,10 @@ mod test {
   }
 
   fn get_setup_env(opts: SetupEnvOptions) -> TestEnvironment {
+    get_setup_builder(opts).initialize().build()
+  }
+
+  fn get_setup_builder(opts: SetupEnvOptions) -> TestEnvironmentBuilder {
     let actual_wasm_plugin_checksum = test_helpers::get_test_wasm_plugin_checksum();
     let mut builder = TestEnvironmentBuilder::new();
 
@@ -1121,8 +1175,7 @@ mod test {
         })
         .to_string(),
       );
-
-    builder.initialize().build()
+    builder
   }
 
   #[test]

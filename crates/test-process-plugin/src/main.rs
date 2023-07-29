@@ -123,10 +123,35 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
 
   async fn check_config_updates(&self, config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
     let mut changes = Vec::new();
-    if config.contains_key("should_update") {
+    if config.contains_key("should_add") {
+      changes.extend([
+        ConfigChange {
+          path: vec!["should_add".to_string().into()],
+          kind: ConfigChangeKind::Set(ConfigKeyValue::String("new_value".to_string())),
+        },
+        ConfigChange {
+          path: vec!["new_prop1".to_string().into()],
+          kind: ConfigChangeKind::Add(ConfigKeyValue::Array(vec![ConfigKeyValue::String("new_value".to_string())])),
+        },
+        ConfigChange {
+          path: vec!["new_prop2".to_string().into()],
+          kind: ConfigChangeKind::Add(ConfigKeyValue::Object(ConfigKeyMap::from([(
+            "new_prop".to_string(),
+            ConfigKeyValue::String("new_value".to_string()),
+          )]))),
+        },
+      ]);
+    }
+    if config.contains_key("should_set") {
       changes.push(ConfigChange {
-        path: vec!["updated".to_string().into()],
+        path: vec!["should_set".to_string().into()],
         kind: ConfigChangeKind::Set(ConfigKeyValue::String("new_value".to_string())),
+      });
+    }
+    if config.contains_key("should_remove") {
+      changes.push(ConfigChange {
+        path: vec!["should_remove".to_string().into()],
+        kind: ConfigChangeKind::Remove,
       });
     }
     Ok(changes)

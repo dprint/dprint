@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::ops::Range;
 
 use anyhow::anyhow;
@@ -16,7 +15,6 @@ use jsonc_parser::common::Ranged;
 
 use crate::plugins::PluginSourceReference;
 use crate::utils::PluginKind;
-use crate::utils::TextChange;
 
 // This entire module is pretty bad. It would be better to add some manipulation
 // capabilities to jsonc-parser.
@@ -94,15 +92,8 @@ impl<'a> JsonRootObject<'a> {
 
 #[derive(Default)]
 pub struct ApplyConfigChangesResult {
-  pub text_changes: Vec<TextChange>,
+  pub new_text: String,
   pub diagnostics: Vec<String>,
-}
-
-impl ApplyConfigChangesResult {
-  pub fn extend(&mut self, other: ApplyConfigChangesResult) {
-    self.text_changes.extend(other.text_changes);
-    self.diagnostics.extend(other.diagnostics);
-  }
 }
 
 #[derive(Clone)]
@@ -124,49 +115,72 @@ impl<'a> IndentText<'a> {
   }
 }
 
-pub fn apply_config_changes(file_text: &str, root_obj: &JsonRootObject, plugin_key: &str, changes: &[ConfigChange]) -> ApplyConfigChangesResult {
-  let mut diagnostics = Vec::new();
-  let Some(plugin_obj) = root_obj.root.get_object(plugin_key) else {
-    return Default::default();
-  };
-  let mut text_changes = Vec::new();
-  let indent_text = get_indentation_text(file_text, &root_obj.root);
-  let indent_text = IndentText { text: &indent_text, level: 1 };
-  let mut add_comma_paths = HashSet::new();
+#[derive(Clone, Debug)]
+struct TextChange {
+  pub range: Range<usize>,
+  pub new_text: String,
+}
 
+pub fn apply_config_changes(mut file_text: String, plugin_key: &str, changes: &[ConfigChange]) -> ApplyConfigChangesResult {
+  let mut diagnostics = Vec::new();
+
+  // it's much more reliable to reparse between each change
   for change in changes {
-    match &change.kind {
-      ConfigChangeKind::Add(value) => match apply_add(indent_text.clone(), plugin_obj, &change.path, value, &mut add_comma_paths) {
-        Ok(text_change) => {
-          text_changes.push(text_change);
-        }
+    let root_obj = match JsonRootObject::parse(&file_text) {
+      Ok(root_obj) => root_obj,
+      Err(err) => {
+        diagnostics.push(format!("Failed applying change since config file failed to parse: {:#}", err));
+        return ApplyConfigChangesResult {
+          new_text: file_text.to_string(),
+          diagnostics,
+        };
+      }
+    };
+    let Some(plugin_obj) = root_obj.root.get_object(plugin_key) else {
+      return Default::default();
+    };
+    let indent_text = get_indentation_text(&file_text, &root_obj.root);
+    let indent_text = IndentText { text: &indent_text, level: 1 };
+    let text_change = match &change.kind {
+      ConfigChangeKind::Add(value) => match apply_add(indent_text.clone(), plugin_obj, &change.path, value) {
+        Ok(text_change) => Some(text_change),
         Err(err) => {
           diagnostics.push(format!("Failed adding item at path '{}': {}", display_path(plugin_key, &change.path), err));
+          None
         }
       },
       ConfigChangeKind::Set(value) => match apply_set(plugin_obj, &change.path, value, indent_text.clone()) {
-        Ok(text_change) => {
-          text_changes.push(text_change);
-        }
+        Ok(text_change) => Some(text_change),
         Err(err) => {
           diagnostics.push(format!("Failed setting item at path '{}': {}", display_path(plugin_key, &change.path), err));
+          None
         }
       },
-      ConfigChangeKind::Remove => match apply_remove(file_text, plugin_obj, &change.path) {
-        Ok(range) => {
-          text_changes.push(TextChange {
-            range,
-            new_text: String::new(),
-          });
-        }
+      ConfigChangeKind::Remove => match apply_remove(&file_text, plugin_obj, &change.path) {
+        Ok(range) => Some(TextChange {
+          range,
+          new_text: String::new(),
+        }),
         Err(err) => {
           diagnostics.push(format!("Failed removing item at path '{}': {}", display_path(plugin_key, &change.path), err));
+          None
         }
       },
+    };
+    if let Some(text_change) = text_change {
+      file_text = format!(
+        "{}{}{}",
+        &file_text[0..text_change.range.start],
+        text_change.new_text,
+        &file_text[text_change.range.end..]
+      );
     }
   }
 
-  ApplyConfigChangesResult { text_changes, diagnostics }
+  ApplyConfigChangesResult {
+    new_text: file_text,
+    diagnostics,
+  }
 }
 
 fn display_path(plugin_key: &str, path: &[ConfigChangePathItem]) -> String {
@@ -187,13 +201,7 @@ fn display_path(plugin_key: &str, path: &[ConfigChangePathItem]) -> String {
   text
 }
 
-fn apply_add(
-  mut indent_text: IndentText,
-  plugin_obj: &Object,
-  path: &[ConfigChangePathItem],
-  value: &ConfigKeyValue,
-  comma_paths: &mut HashSet<String>,
-) -> Result<TextChange> {
+fn apply_add(mut indent_text: IndentText, plugin_obj: &Object, path: &[ConfigChangePathItem], value: &ConfigKeyValue) -> Result<TextChange> {
   let mut current_node = Node::Object(plugin_obj);
   for (path_index, path_item) in path.iter().enumerate() {
     indent_text = indent_text.inc();
@@ -213,16 +221,10 @@ fn apply_add(
                   });
                 }
                 None => {
-                  let leading_comma = !comma_paths.insert(display_path("", path));
                   let after_bracket_pos = array.start() + 1;
                   return Ok(TextChange {
                     range: after_bracket_pos..after_bracket_pos,
-                    new_text: format!(
-                      "{}\n{}{}",
-                      if leading_comma { "," } else { "" },
-                      indent_text.render(),
-                      config_value_to_json_text(value, &indent_text)
-                    ),
+                    new_text: format!("\n{}{}", indent_text.render(), config_value_to_json_text(value, &indent_text)),
                   });
                 }
               }
@@ -237,17 +239,10 @@ fn apply_add(
                   });
                 }
                 None => {
-                  let leading_comma = !comma_paths.insert(display_path("", &path[0..path.len() - 1]));
                   let after_brace_pos = obj.start() + 1;
                   return Ok(TextChange {
                     range: after_brace_pos..after_brace_pos,
-                    new_text: format!(
-                      "{}\n{}\"{}\": {}",
-                      if leading_comma { "," } else { "" },
-                      indent_text.render(),
-                      key,
-                      config_value_to_json_text(value, &indent_text)
-                    ),
+                    new_text: format!("\n{}\"{}\": {}", indent_text.render(), key, config_value_to_json_text(value, &indent_text)),
                   });
                 }
               },
@@ -270,10 +265,7 @@ fn apply_add(
         }
         let element = array.elements.get(array_index).unwrap();
         if path_index == path.len() - 1 {
-          return Ok(TextChange {
-            range: element.end()..element.end(),
-            new_text: format!(",\n  {}", config_value_to_json_text(value, &indent_text)),
-          });
+          bail!("Adding into an array at an index is not currently supported.")
         } else {
           current_node = element.into();
         }
@@ -326,26 +318,40 @@ fn apply_set(plugin_obj: &Object<'_>, path: &[ConfigChangePathItem], value: &Con
 }
 
 fn apply_remove(file_text: &str, plugin_obj: &jsonc_parser::ast::Object, path: &[ConfigChangePathItem]) -> Result<Range<usize>> {
+  fn get_start_pos(file_text: &str, node: Node) -> usize {
+    let start_pos = node.start();
+    let start_text = &file_text[..start_pos];
+    let trimmed_text = start_text.trim_end_matches(|c| c == ' ' || c == '\t');
+    let trimmed_text = if let Some(text) = trimmed_text.strip_suffix("\r\n") {
+      text
+    } else if let Some(text) = trimmed_text.strip_suffix('\n') {
+      text
+    } else {
+      trimmed_text
+    };
+    let whitespace_width = start_text.len() - trimmed_text.len();
+    start_pos - whitespace_width
+  }
+
   fn get_end_pos(file_text: &str, node: Node) -> usize {
     let end_pos = node.end();
-    // very simple, but probably good enough
-    let end_pos = if file_text[end_pos..].starts_with(',') { end_pos + 1 } else { end_pos };
-    let end_text = &file_text[end_pos..];
-    let trimmed_start_end_text = end_text.trim_start();
-    let whitespace_width = end_text.len() - trimmed_start_end_text.len();
-    end_pos + whitespace_width
+    if file_text[end_pos..].starts_with(',') {
+      end_pos + 1
+    } else {
+      end_pos
+    }
   }
 
   let mut current_node = Node::Object(plugin_obj);
   for (path_index, path_item) in path.iter().enumerate() {
     match path_item {
       ConfigChangePathItem::String(key) => {
-        let property = current_node
+        let obj = current_node
           .as_object()
-          .and_then(|obj| obj.get(key))
-          .ok_or_else(|| anyhow!("Expected property '{}' in path.", key))?;
+          .ok_or_else(|| anyhow!("Expected object for property '{}' in path.", key))?;
+        let property = obj.get(key).ok_or_else(|| anyhow!("Expected property '{}' in path.", key))?;
         if path_index == path.len() - 1 {
-          return Ok(property.start()..get_end_pos(file_text, property.into()));
+          return Ok(get_start_pos(file_text, property.into())..get_end_pos(file_text, property.into()));
         } else {
           current_node = (&property.value).into();
         }
@@ -358,7 +364,7 @@ fn apply_remove(file_text: &str, plugin_obj: &jsonc_parser::ast::Object, path: &
         }
         let element = array.elements.get(array_index).unwrap();
         if path_index == path.len() - 1 {
-          return Ok(element.start()..get_end_pos(file_text, element.into()));
+          return Ok(get_start_pos(file_text, element.into())..get_end_pos(file_text, element.into()));
         } else {
           current_node = element.into();
         }
@@ -442,8 +448,6 @@ fn get_indentation_text(file_text: &str, root_obj: &Object) -> String {
 mod test {
   use dprint_core::configuration::ConfigKeyMap;
   use pretty_assertions::assert_eq;
-
-  use crate::utils::apply_text_changes;
 
   use super::*;
 
@@ -831,14 +835,53 @@ mod test {
 }"#,
       &[],
     );
+
+    // remove and add
+    run_config_change_test(
+      r#"{
+  "plugin": {
+    "other": 5,
+    "prop": [
+      1,
+      2
+    ]
+  }
+}"#,
+      &[
+        ConfigChange {
+          path: vec!["other".to_string().into()],
+          kind: ConfigChangeKind::Remove,
+        },
+        ConfigChange {
+          path: vec!["add".to_string().into()],
+          kind: ConfigChangeKind::Add(ConfigKeyValue::Bool(true)),
+        },
+        ConfigChange {
+          path: vec!["prop".to_string().into(), 0.into()],
+          kind: ConfigChangeKind::Remove,
+        },
+        ConfigChange {
+          path: vec!["prop".to_string().into()],
+          kind: ConfigChangeKind::Add(ConfigKeyValue::Bool(false)),
+        },
+      ],
+      r#"{
+  "plugin": {
+    "prop": [
+      2,
+      false
+    ],
+    "add": true
+  }
+}"#,
+      &[],
+    );
   }
 
   #[track_caller]
   fn run_config_change_test(file_text: &str, changes: &[ConfigChange], expected_text: &str, diagnostics: &[&str]) {
-    let root_obj = JsonRootObject::parse(file_text).unwrap();
-    let result = apply_config_changes(file_text, &root_obj, "plugin", changes);
+    let result = apply_config_changes(file_text.to_string(), "plugin", changes);
     assert_eq!(result.diagnostics, diagnostics);
-    let actual_text = apply_text_changes(file_text, result.text_changes).unwrap();
-    assert_eq!(actual_text, expected_text);
+    assert_eq!(result.new_text, expected_text);
   }
 }
