@@ -21,10 +21,9 @@ use crate::format::EnsureStableFormat;
 use crate::incremental::get_incremental_file;
 use crate::patterns::FileMatcher;
 use crate::plugins::PluginResolver;
-use crate::resolution::resolve_plugins_scope_and_err_if_empty;
+use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::resolution::PluginsScope;
-use crate::resolution::ResolvePluginsOptions;
 use crate::utils::get_difference;
 use crate::utils::AtomicCounter;
 use crate::utils::BOM_CHAR;
@@ -36,17 +35,10 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config = Rc::new(resolve_config_from_args(args, environment).await?);
-  let plugins_scope = Rc::new(
-    resolve_plugins_scope_and_err_if_empty(
-      config,
-      environment,
-      plugin_resolver,
-      &ResolvePluginsOptions {
-        check_top_level_unknown_property_diagnostics: false,
-      },
-    )
-    .await?,
-  );
+  let plugins_scope = Rc::new(resolve_plugins_scope(config, environment, plugin_resolver).await?);
+  plugins_scope.ensure_plugins_found()?;
+  plugins_scope.ensure_no_global_config_diagnostics()?;
+
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
     let file_matcher = FileMatcher::new(plugins_scope.config.as_ref().unwrap(), &cmd.patterns, environment)?;
@@ -90,9 +82,10 @@ pub async fn output_format_times<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
+  scopes.ensure_valid_for_cli_args(args)?;
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
-  for scope_and_paths in scopes {
+  for scope_and_paths in scopes.into_iter() {
     run_parallelized(scope_and_paths, environment, None, EnsureStableFormat(false), {
       let durations = durations.clone();
       move |file_path, _, _, start_instant, _| {
@@ -126,9 +119,10 @@ pub async fn check<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
+  scopes.ensure_valid_for_cli_args(args)?;
   let not_formatted_files_count = Arc::new(AtomicCounter::default());
 
-  for scope_and_paths in scopes {
+  for scope_and_paths in scopes.into_iter() {
     let incremental_file = scope_and_paths
       .scope
       .config
@@ -186,9 +180,10 @@ pub async fn format<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
+  scopes.ensure_valid_for_cli_args(args)?;
 
   let formatted_files_count = Arc::new(AtomicCounter::default());
-  for scope_and_paths in scopes {
+  for scope_and_paths in scopes.into_iter() {
     let incremental_file = scope_and_paths
       .scope
       .config
@@ -262,6 +257,9 @@ mod test {
   use crate::test_helpers::run_test_cli;
   use crate::test_helpers::run_test_cli_with_stdin;
   use crate::test_helpers::TestAppError;
+  use crate::test_helpers::TestProcessPluginFile;
+  use crate::test_helpers::TestProcessPluginFileBuilder;
+  use crate::test_helpers::PROCESS_PLUGIN_ZIP_CHECKSUM;
   use crate::utils::get_difference;
   use crate::utils::TestStdInReader;
 
@@ -787,7 +785,7 @@ mod test {
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
-        "[test-plugin]: Unknown property in configuration. (non-existent)",
+        "[test-plugin]: Unknown property in configuration (non-existent)",
         "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
       ]
     );
@@ -818,7 +816,7 @@ mod test {
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
-        "[test-process-plugin]: Unknown property in configuration. (non-existent)",
+        "[test-process-plugin]: Unknown property in configuration (non-existent)",
         "[test-process-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
       ]
     );
@@ -859,7 +857,7 @@ mod test {
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
-        "[test-process-plugin]: Unknown property in configuration. (non-existent)",
+        "[test-process-plugin]: Unknown property in configuration (non-existent)",
         "[test-process-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
       ]
     );
@@ -939,10 +937,10 @@ mod test {
 
     // now it errors because no --plugins specified
     let err = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
-    err.assert_exit_code(12);
+    err.assert_exit_code(11);
     assert_eq!(
       err.to_string(),
-      "Error resolving global config from configuration file. Unexpected non-string, boolean, or int property 'excess-object'."
+      "* Unexpected non-string, boolean, or int property (excess-object)\n\nHad 1 config diagnostic(s) in /dprint.json"
     );
   }
 
@@ -965,14 +963,10 @@ mod test {
 
     // now it errors because no --plugins specified
     let err = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
-    err.assert_exit_code(12);
+    err.assert_exit_code(11);
     assert_eq!(
       err.to_string(),
-      "Error resolving global config from configuration file. Had 1 config diagnostic(s)."
-    );
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Unknown property in configuration. (excess-primitive)"]
+      "* Unknown property in configuration (excess-primitive)\n\nHad 1 config diagnostic(s) in /dprint.json"
     );
   }
 
@@ -1747,7 +1741,7 @@ mod test {
       .build();
     let err = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
     err.assert_exit_code(12);
-    let actual_plugin_file_checksum = test_helpers::get_test_process_plugin_checksum();
+    let actual_plugin_file_checksum = TestProcessPluginFile::default().checksum();
 
     assert_eq!(
       err.to_string(),
@@ -1770,7 +1764,7 @@ mod test {
       })
       .write_file("/test.txt_ps", "")
       .build();
-    let actual_plugin_file_checksum = test_helpers::get_test_process_plugin_checksum();
+    let actual_plugin_file_checksum = TestProcessPluginFile::default().checksum();
     let err = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
     err.assert_exit_code(12);
 
@@ -1838,13 +1832,16 @@ mod test {
   #[test]
   fn should_error_if_process_plugin_has_wrong_checksum_in_file_for_zip() {
     let environment = TestEnvironmentBuilder::with_remote_process_plugin()
-      .write_process_plugin_file("asdf")
+      .add_remote_process_plugin_at_url(
+        "https://plugins.dprint.dev/test-process.json",
+        &TestProcessPluginFileBuilder::default().zip_checksum("asdf").build(),
+      )
       .with_default_config(|c| {
         c.add_remote_process_plugin();
       })
       .write_file("/test.txt_ps", "")
       .build();
-    let actual_plugin_zip_file_checksum = test_helpers::get_test_process_plugin_zip_checksum();
+    let actual_plugin_zip_file_checksum = &*PROCESS_PLUGIN_ZIP_CHECKSUM;
     let err = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
     err.assert_exit_code(12);
 
@@ -1914,7 +1911,7 @@ mod test {
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
-        "[test-plugin]: Unknown property in configuration. (non-existent)",
+        "[test-plugin]: Unknown property in configuration (non-existent)",
         "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
       ]
     );

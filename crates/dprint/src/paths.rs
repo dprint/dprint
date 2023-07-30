@@ -17,6 +17,7 @@ use crate::utils::glob;
 use crate::utils::is_negated_glob;
 use crate::utils::GlobOutput;
 use crate::utils::GlobPattern;
+use crate::utils::GlobPatterns;
 
 /// Struct that allows using plugin names as a key
 /// in a hash map.
@@ -41,20 +42,27 @@ pub struct NoFilesFoundError {
   pub base_path: CanonicalizedPathBuf,
 }
 
-pub fn get_file_paths_by_plugins_and_err_if_empty(
-  base_path: &CanonicalizedPathBuf,
-  plugin_name_maps: &PluginNameResolutionMaps,
-  file_paths: Vec<PathBuf>,
-) -> Result<HashMap<PluginNames, Vec<PathBuf>>> {
-  let result = get_file_paths_by_plugins(plugin_name_maps, file_paths)?;
-  if result.is_empty() {
-    Err(NoFilesFoundError { base_path: base_path.clone() }.into())
-  } else {
-    Ok(result)
+pub struct FilesPathsByPlugins(HashMap<PluginNames, Vec<PathBuf>>);
+
+impl FilesPathsByPlugins {
+  pub fn ensure_not_empty(&self, base_path: &CanonicalizedPathBuf) -> Result<(), NoFilesFoundError> {
+    if self.0.is_empty() {
+      Err(NoFilesFoundError { base_path: base_path.clone() })
+    } else {
+      Ok(())
+    }
+  }
+
+  pub fn into_vec(self) -> Vec<(PluginNames, Vec<PathBuf>)> {
+    self.0.into_iter().collect()
+  }
+
+  pub fn all_file_paths(&self) -> impl Iterator<Item = &PathBuf> {
+    self.0.values().flatten()
   }
 }
 
-pub fn get_file_paths_by_plugins(plugin_name_maps: &PluginNameResolutionMaps, file_paths: Vec<PathBuf>) -> Result<HashMap<PluginNames, Vec<PathBuf>>> {
+pub fn get_file_paths_by_plugins(plugin_name_maps: &PluginNameResolutionMaps, file_paths: Vec<PathBuf>) -> Result<FilesPathsByPlugins> {
   let mut file_paths_by_plugin: HashMap<PluginNames, Vec<PathBuf>> = HashMap::new();
 
   for file_path in file_paths.into_iter() {
@@ -67,7 +75,7 @@ pub fn get_file_paths_by_plugins(plugin_name_maps: &PluginNameResolutionMaps, fi
     }
   }
 
-  Ok(file_paths_by_plugin)
+  Ok(FilesPathsByPlugins(file_paths_by_plugin))
 }
 
 pub async fn get_and_resolve_file_paths<'a>(
@@ -84,6 +92,11 @@ pub async fn get_and_resolve_file_paths<'a>(
     // paths to examine and match to plugins later.
     file_patterns.includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), cwd.clone()));
   }
+  get_and_resolve_file_patterns(config, file_patterns, environment).await
+}
+
+async fn get_and_resolve_file_patterns<'a>(config: &ResolvedConfig, file_patterns: GlobPatterns, environment: &impl Environment) -> Result<GlobOutput> {
+  let cwd = environment.cwd();
   let is_in_sub_dir = cwd != config.base_path && cwd.starts_with(&config.base_path);
   let base_dir = if is_in_sub_dir { cwd } else { config.base_path.clone() };
   let environment = environment.clone();

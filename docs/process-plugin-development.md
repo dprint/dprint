@@ -39,7 +39,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    use std::path::PathBuf;
 
    use anyhow::Result;
-   use dprint_core::async_runtime::FutureExt;
+   use dprint_core::async_runtime::async_trait;
    use dprint_core::async_runtime::LocalBoxFuture;
    use dprint_core::configuration::get_unknown_property_diagnostics;
    use dprint_core::configuration::get_value;
@@ -57,6 +57,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
 
    pub struct MyPluginHandler;
 
+   #[async_trait(?Send)]
    impl AsyncPluginHandler for MyPluginHandler {
      type Configuration = Configuration;
 
@@ -76,7 +77,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
        include_str!("../LICENSE").to_string()
      }
 
-     fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+     async fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
        // implement this... for example
        let mut config = config;
        let mut diagnostics = Vec::new();
@@ -94,25 +95,22 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
        }
      }
 
-     fn format(
+     async fn format(
        &self,
        request: FormatRequest<Self::Configuration>,
        mut format_with_host: impl FnMut(HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> + 'static,
-     ) -> LocalBoxFuture<FormatResult> {
-       async move {
-         // format here
-         //
-         // - make sure to check the range of the request!! If you can't handle
-         //   range formatting, then return `Ok(None)` to signify no change.
-         // - use `host.format` to format with another plugin
-         // - if you are doing a lot of synchronous work, you should format with
-         //   a blocking task like so or else you will block the main thread:
-         //
-         //   dprint_core::async_runtime::spawn_blocking(move || {
-         //     // format in here
-         //   }).await.unwrap()
-       }
-       .boxed_local()
+     ) -> FormatResult {
+       // format here
+       //
+       // - make sure to check the range of the request!! If you can't handle
+       //   range formatting, then return `Ok(None)` to signify no change.
+       // - use `host.format` to format with another plugin
+       // - if you are doing a lot of synchronous work, you should format with
+       //   a blocking task like so or else you will block the main thread:
+       //
+       //   dprint_core::async_runtime::spawn_blocking(move || {
+       //     // format in here
+       //   }).await.unwrap()
      }
    }
    ```
@@ -281,7 +279,47 @@ Message body:
 
 Response: Data message - JSON serialized resolved config
 
-#### `12` - Format Text (CLI to Plugin)
+#### `12` - Check Configuration Updates (CLI to Plugin)
+
+Message body:
+
+- u32 - Content length
+- JSON serialized plugin configuration
+
+Response: Data message - JSON serialized object with a `changes` property that contains an array of changes.
+
+Example:
+
+```json
+{
+  "changes": [{
+    "path": ["oldSetting"],
+    "kind": "remove"
+  }, {
+    "path": ["lineWidth"],
+    "kind": "set",
+    "value": 120
+  }, {
+    "path": ["values"],
+    "kind": "add",
+    "value": "new value"
+  }, {
+    "path": ["values"],
+    "kind": "add",
+    "value": [
+      "some",
+      "array",
+      {
+        "with a": "nested object"
+      }
+    ]
+  }]
+}
+```
+
+The CLI will automatically update the appropriate dprint.json file with the new configuration based on these changes.
+
+#### `13` - Format Text (CLI to Plugin)
 
 Message body:
 
@@ -297,7 +335,7 @@ Message body:
 
 Response: Format text response
 
-#### `13` - Format Text Response (Plugin to CLI, CLI to Plugin)
+#### `14` - Format Text Response (Plugin to CLI, CLI to Plugin)
 
 Message body:
 
@@ -310,7 +348,7 @@ Message body:
 
 Response: None
 
-#### `14` - Cancel Format (CLI to Plugin or Plugin to CLI)
+#### `15` - Cancel Format (CLI to Plugin or Plugin to CLI)
 
 Message body:
 
@@ -319,7 +357,7 @@ Message body:
 Response: No response should be given. Cancellation is not guaranteed to happen and
 the CLI or plugin may still respond with a given request.
 
-#### `15` - Host Format (Plugin to CLI)
+#### `16` - Host Format (Plugin to CLI)
 
 Message body:
 

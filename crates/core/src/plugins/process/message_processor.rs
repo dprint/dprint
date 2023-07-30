@@ -11,6 +11,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::context::ProcessContext;
 use super::context::StoredConfig;
+use super::messages::CheckConfigUpdatesMessageBody;
+use super::messages::CheckConfigUpdatesResponseBody;
 use super::messages::HostFormatMessageBody;
 use super::messages::MessageBody;
 use super::messages::ProcessPluginMessage;
@@ -59,7 +61,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
   });
 
   crate::async_runtime::spawn(async move {
-    let handler = Arc::new(handler);
+    let handler = Rc::new(handler);
     let stdout_message_writer = SingleThreadMessageWriter::for_stdout(stdout_writer);
     let context: Rc<ProcessContext<THandler::Configuration>> = Rc::new(ProcessContext::new(stdout_message_writer));
 
@@ -92,22 +94,28 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           });
         }
         MessageBody::RegisterConfig(body) => {
-          handle_message(&context, message.id, || {
-            let global_config: GlobalConfiguration = serde_json::from_slice(&body.global_config)?;
-            let config_map: ConfigKeyMap = serde_json::from_slice(&body.plugin_config)?;
-            let result = handler.resolve_config(config_map.clone(), global_config.clone());
-            context.configs.store(
-              body.config_id.as_raw(),
-              Rc::new(StoredConfig {
-                config: Arc::new(result.config),
-                file_matching: result.file_matching,
-                diagnostics: Rc::new(result.diagnostics),
-                config_map,
-                global_config,
-              }),
-            );
-            Ok(MessageBody::Success(message.id))
-          });
+          handle_async_message(
+            &context,
+            message.id,
+            async {
+              let global_config: GlobalConfiguration = serde_json::from_slice(&body.global_config)?;
+              let config_map: ConfigKeyMap = serde_json::from_slice(&body.plugin_config)?;
+              let result = handler.resolve_config(config_map.clone(), global_config.clone()).await;
+              context.configs.store(
+                body.config_id.as_raw(),
+                Rc::new(StoredConfig {
+                  config: Arc::new(result.config),
+                  file_matching: result.file_matching,
+                  diagnostics: Rc::new(result.diagnostics),
+                  config_map,
+                  global_config,
+                }),
+              );
+              Ok(MessageBody::Success(message.id))
+            }
+            .boxed_local(),
+          )
+          .await;
         }
         MessageBody::ReleaseConfig(config_id) => {
           handle_message(&context, message.id, || {
@@ -144,6 +152,22 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
             Ok(MessageBody::DataResponse(ResponseBody { message_id: message.id, data }))
           });
         }
+        MessageBody::CheckConfigUpdates(body_bytes) => {
+          handle_async_message(
+            &context,
+            message.id,
+            async {
+              let message_body = serde_json::from_slice::<CheckConfigUpdatesMessageBody>(&body_bytes)
+                .with_context(|| "Could not deserialize the check config updates message body.".to_string())?;
+              let changes = handler.check_config_updates(message_body.config).await?;
+              let response = CheckConfigUpdatesResponseBody { changes };
+              let data = serde_json::to_vec(&response)?;
+              Ok(MessageBody::DataResponse(ResponseBody { message_id: message.id, data }))
+            }
+            .boxed_local(),
+          )
+          .await;
+        }
         MessageBody::Format(body) => {
           // now parse
           let token = Arc::new(CancellationToken::new());
@@ -161,7 +185,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
                   for (key, value) in override_config_map {
                     config_map.insert(key, value);
                   }
-                  let result = handler.resolve_config(config_map, config.global_config.clone());
+                  let result = handler.resolve_config(config_map, config.global_config.clone()).await;
                   Arc::new(result.config)
                 }
               }
@@ -307,6 +331,17 @@ fn handle_message<TConfiguration: Serialize + Clone + Send + Sync>(
   action: impl FnOnce() -> Result<MessageBody>,
 ) {
   match action() {
+    Ok(body) => send_response_body(context, body),
+    Err(err) => send_error_response(context, original_message_id, err),
+  };
+}
+
+async fn handle_async_message<'a, TConfiguration: Serialize + Clone + Send + Sync>(
+  context: &ProcessContext<TConfiguration>,
+  original_message_id: u32,
+  action: LocalBoxFuture<'a, Result<MessageBody>>,
+) {
+  match action.await {
     Ok(body) => send_response_body(context, body),
     Err(err) => send_error_response(context, original_message_id, err),
   };

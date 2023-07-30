@@ -11,6 +11,7 @@ pub use futures::FutureExt;
 
 pub type LocalBoxFuture<'a, T> = futures::future::LocalBoxFuture<'a, T>;
 
+pub use async_trait::async_trait;
 pub use futures::future;
 
 // The below is lifted from https://github.com/denoland/deno_core/blob/80c7f5551a907def8253af8c6d4e9ded49ee638d/core/task.rs#L48

@@ -7,7 +7,6 @@ use crate::arg_parser::CliArgParserKind;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::OutputFilePathsSubCommand;
 use crate::environment::Environment;
-use crate::paths::NoFilesFoundError;
 use crate::plugins::PluginResolver;
 use crate::resolution::get_plugins_scope_from_args;
 use crate::resolution::resolve_plugins_scope_and_paths;
@@ -91,13 +90,8 @@ pub async fn output_file_paths<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let scopes = match resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await {
-    Ok(result) => result,
-    Err(err) if err.downcast_ref::<NoFilesFoundError>().is_some() => Default::default(),
-    Err(err) => return Err(err),
-  };
-
-  let file_paths = scopes.iter().flat_map(|x| x.file_paths_by_plugins.values().flatten());
+  let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
+  let file_paths = scopes.iter().flat_map(|x| x.file_paths_by_plugins.all_file_paths());
   for file_path in file_paths {
     environment.log(&file_path.display().to_string())
   }

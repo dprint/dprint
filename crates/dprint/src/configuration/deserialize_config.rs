@@ -46,6 +46,16 @@ pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap> {
   Ok(properties)
 }
 
+pub fn deserialize_config_raw(config_file_text: &str) -> Result<ConfigKeyMap> {
+  let value = jsonc_parser::parse_to_value(config_file_text, &Default::default())?;
+  let root_object_node = match value {
+    Some(JsonValue::Object(obj)) => obj,
+    _ => bail!("Expected a root object in the json"),
+  };
+
+  object_to_config_key_map(root_object_node)
+}
+
 fn json_obj_to_raw_plugin_config(parent_prop_name: &str, obj: JsonObject) -> Result<RawPluginConfig> {
   let mut properties = ConfigKeyMap::new();
   let mut locked = false;
@@ -131,19 +141,21 @@ fn value_to_plugin_config_key_value(value: JsonValue) -> Result<ConfigKeyValue> 
         .collect::<Result<Vec<ConfigKeyValue>, _>>()?;
       ConfigKeyValue::Array(values)
     }
-    JsonValue::Object(obj) => {
-      let mut properties = ConfigKeyMap::new();
-      for (key, value) in obj.into_iter() {
-        let value = match value_to_plugin_config_key_value(value) {
-          Ok(result) => result,
-          Err(err) => bail!("{} in object property '{}'", err, key),
-        };
-        properties.insert(key, value);
-      }
-      ConfigKeyValue::Object(properties)
-    }
+    JsonValue::Object(obj) => ConfigKeyValue::Object(object_to_config_key_map(obj)?),
     JsonValue::Null => ConfigKeyValue::Null,
   })
+}
+
+fn object_to_config_key_map(obj: JsonObject) -> Result<ConfigKeyMap> {
+  let mut properties = ConfigKeyMap::new();
+  for (key, value) in obj.into_iter() {
+    let value = match value_to_plugin_config_key_value(value) {
+      Ok(result) => result,
+      Err(err) => bail!("{} in object property '{}'", err, key),
+    };
+    properties.insert(key, value);
+  }
+  Ok(properties)
 }
 
 #[cfg(test)]

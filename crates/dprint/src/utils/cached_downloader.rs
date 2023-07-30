@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use anyhow::Result;
-use async_trait::async_trait;
+use dprint_core::async_runtime::async_trait;
 use std::cell::RefCell;
 use std::collections::HashMap;
 

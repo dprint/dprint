@@ -1,14 +1,16 @@
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
-use async_trait::async_trait;
 use once_cell::sync::Lazy;
+use once_cell::sync::OnceCell;
 use std::fs;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
+
+use dprint_core::async_runtime::async_trait;
 
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
@@ -24,6 +26,9 @@ use crate::utils::Logger;
 use crate::utils::LoggerOptions;
 use crate::utils::ProgressBars;
 use crate::utils::RealUrlDownloader;
+
+// cache the cwd because it's much faster than looking it up each time
+static CACHED_CWD: OnceCell<CanonicalizedPathBuf> = OnceCell::new();
 
 pub struct RealEnvironmentOptions {
   pub is_verbose: bool,
@@ -216,10 +221,14 @@ impl Environment for RealEnvironment {
   }
 
   fn cwd(&self) -> CanonicalizedPathBuf {
-    #[allow(clippy::disallowed_methods)]
-    self
-      .canonicalize(std::env::current_dir().expect("Expected to get the current working directory."))
-      .expect("expected to canonicalize the cwd")
+    CACHED_CWD
+      .get_or_init(|| {
+        #[allow(clippy::disallowed_methods)]
+        self
+          .canonicalize(std::env::current_dir().expect("Expected to get the current working directory."))
+          .expect("expected to canonicalize the cwd")
+      })
+      .clone()
   }
 
   fn current_exe(&self) -> Result<PathBuf> {

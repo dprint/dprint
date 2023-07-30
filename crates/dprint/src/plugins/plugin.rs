@@ -3,12 +3,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::Result;
-use async_trait::async_trait;
+use dprint_core::async_runtime::async_trait;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::process::HostFormatCallback;
 use dprint_core::plugins::CancellationToken;
+use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatRange;
@@ -52,6 +53,8 @@ pub trait InitializedPlugin {
   async fn file_matching_info(&self, config: Arc<FormatConfig>) -> Result<FileMatchingInfo>;
   /// Gets the configuration diagnostics.
   async fn config_diagnostics(&self, config: Arc<FormatConfig>) -> Result<Vec<ConfigurationDiagnostic>>;
+  /// Checks for any configuration changes based on the provided plugin config.
+  async fn check_config_updates(&self, plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>>;
   /// Formats the text in memory based on the file path and file text.
   async fn format_text(&self, format_request: InitializedPluginFormatRequest) -> FormatResult;
   /// Shuts down the plugin. This is used for process plugins.
@@ -122,6 +125,10 @@ impl InitializedPlugin for InitializedTestPlugin {
 
   async fn config_diagnostics(&self, _config: Arc<FormatConfig>) -> Result<Vec<ConfigurationDiagnostic>> {
     Ok(vec![])
+  }
+
+  async fn check_config_updates(&self, _plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
+    Ok(Vec::new())
   }
 
   async fn format_text(&self, format_request: InitializedPluginFormatRequest) -> FormatResult {

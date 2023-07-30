@@ -675,7 +675,6 @@ name = "dprint"
 version = "0.39.1"
 dependencies = [
  "anyhow",
- "async-trait",
  "clap",
  "clap_complete",
  "console_static_text",
@@ -715,6 +714,7 @@ name = "dprint-core"
 version = "0.63.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bumpalo",
  "crossbeam-channel",
  "futures",
@@ -1192,9 +1192,9 @@ dependencies = [
 
 [[package]]
 name = "jsonc-parser"
-version = "0.21.1"
+version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b56a20e76235284255a09fcd1f45cf55d3c524ea657ebd3854735925c57743d"
+checksum = "538702ed54bac04d391352d4c9ad0ec2a9225e3c477ffa23fc44d0f04fa83c54"
 
 [[package]]
 name = "lazy_static"

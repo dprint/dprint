@@ -107,6 +107,80 @@ pub enum ConfigKeyValue {
 }
 
 impl ConfigKeyValue {
+  pub fn as_string(&self) -> Option<&String> {
+    match self {
+      ConfigKeyValue::String(value) => Some(value),
+      _ => None,
+    }
+  }
+
+  pub fn as_number(&self) -> Option<i32> {
+    match self {
+      ConfigKeyValue::Number(value) => Some(*value),
+      _ => None,
+    }
+  }
+
+  pub fn as_bool(&self) -> Option<bool> {
+    match self {
+      ConfigKeyValue::Bool(value) => Some(*value),
+      _ => None,
+    }
+  }
+
+  pub fn as_array(&self) -> Option<&Vec<ConfigKeyValue>> {
+    match self {
+      ConfigKeyValue::Array(values) => Some(values),
+      _ => None,
+    }
+  }
+
+  pub fn as_object(&self) -> Option<&ConfigKeyMap> {
+    match self {
+      ConfigKeyValue::Object(values) => Some(values),
+      _ => None,
+    }
+  }
+
+  pub fn into_string(self) -> Option<String> {
+    match self {
+      ConfigKeyValue::String(value) => Some(value),
+      _ => None,
+    }
+  }
+
+  pub fn into_number(self) -> Option<i32> {
+    match self {
+      ConfigKeyValue::Number(value) => Some(value),
+      _ => None,
+    }
+  }
+
+  pub fn into_bool(self) -> Option<bool> {
+    match self {
+      ConfigKeyValue::Bool(value) => Some(value),
+      _ => None,
+    }
+  }
+
+  pub fn into_array(self) -> Option<Vec<ConfigKeyValue>> {
+    match self {
+      ConfigKeyValue::Array(values) => Some(values),
+      _ => None,
+    }
+  }
+
+  pub fn into_object(self) -> Option<ConfigKeyMap> {
+    match self {
+      ConfigKeyValue::Object(values) => Some(values),
+      _ => None,
+    }
+  }
+
+  pub fn is_null(&self) -> bool {
+    matches!(self, ConfigKeyValue::Null)
+  }
+
   /// Gets a hash of the configuration value. This is used for incremental formatting
   /// and the Hash trait is not implemented to discourage using this in other places.
   #[allow(clippy::should_implement_trait)]
@@ -229,33 +303,16 @@ where
   pub config: T,
 }
 
-pub struct ResolveGlobalConfigOptions {
-  pub check_unknown_property_diagnostics: bool,
-}
-
-impl Default for ResolveGlobalConfigOptions {
-  fn default() -> Self {
-    Self {
-      check_unknown_property_diagnostics: true,
-    }
-  }
-}
-
 /// Resolves a collection of key value pairs to a GlobalConfiguration.
-pub fn resolve_global_config(config: ConfigKeyMap, options: &ResolveGlobalConfigOptions) -> ResolveConfigurationResult<GlobalConfiguration> {
-  let mut config = config;
+pub fn resolve_global_config(config: &mut ConfigKeyMap) -> ResolveConfigurationResult<GlobalConfiguration> {
   let mut diagnostics = Vec::new();
 
   let resolved_config = GlobalConfiguration {
-    line_width: get_nullable_value(&mut config, "lineWidth", &mut diagnostics),
-    use_tabs: get_nullable_value(&mut config, "useTabs", &mut diagnostics),
-    indent_width: get_nullable_value(&mut config, "indentWidth", &mut diagnostics),
-    new_line_kind: get_nullable_value(&mut config, "newLineKind", &mut diagnostics),
+    line_width: get_nullable_value(config, "lineWidth", &mut diagnostics),
+    use_tabs: get_nullable_value(config, "useTabs", &mut diagnostics),
+    indent_width: get_nullable_value(config, "indentWidth", &mut diagnostics),
+    new_line_kind: get_nullable_value(config, "newLineKind", &mut diagnostics),
   };
-
-  if options.check_unknown_property_diagnostics {
-    diagnostics.extend(get_unknown_property_diagnostics(config));
-  }
 
   ResolveConfigurationResult {
     config: resolved_config,
@@ -288,7 +345,7 @@ where
       ConfigKeyValue::Bool(value) => value.to_string().parse::<T>().map_err(|e| e.to_string()),
       ConfigKeyValue::Number(value) => value.to_string().parse::<T>().map_err(|e| e.to_string()),
       ConfigKeyValue::String(value) => value.parse::<T>().map_err(|e| e.to_string()),
-      ConfigKeyValue::Object(_) | ConfigKeyValue::Array(_) => Err("Arrays and objects are not supported for this value.".to_string()),
+      ConfigKeyValue::Object(_) | ConfigKeyValue::Array(_) => Err("Arrays and objects are not supported for this value".to_string()),
       ConfigKeyValue::Null => return None,
     };
     match parsed_value {
@@ -315,7 +372,7 @@ pub fn handle_renamed_config_property(config: &mut ConfigKeyMap, old_key: &str, 
     }
     diagnostics.push(ConfigurationDiagnostic {
       property_name: old_key.to_string(),
-      message: format!("The configuration key was renamed to '{}'.", new_key),
+      message: format!("The configuration key was renamed to '{}'", new_key),
     });
   }
 }
@@ -358,10 +415,10 @@ pub fn resolve_new_line_kind(file_text: &str, new_line_kind: NewLineKind) -> &'s
 /// This should be done last, so it swallows the hashmap.
 pub fn get_unknown_property_diagnostics(config: ConfigKeyMap) -> Vec<ConfigurationDiagnostic> {
   let mut diagnostics = Vec::new();
-  for (key, _) in config.iter() {
+  for (key, _) in config {
     diagnostics.push(ConfigurationDiagnostic {
       property_name: key.to_string(),
-      message: "Unknown property in configuration.".to_string(),
+      message: "Unknown property in configuration".to_string(),
     });
   }
   diagnostics
@@ -373,7 +430,7 @@ mod test {
 
   #[test]
   fn get_default_config_when_empty() {
-    let config_result = resolve_global_config(ConfigKeyMap::new(), &Default::default());
+    let config_result = resolve_global_config(&mut ConfigKeyMap::new());
     let config = config_result.config;
     assert_eq!(config_result.diagnostics.len(), 0);
     assert_eq!(config.line_width, None);
@@ -384,13 +441,13 @@ mod test {
 
   #[test]
   fn get_values_when_filled() {
-    let global_config = ConfigKeyMap::from([
+    let mut global_config = ConfigKeyMap::from([
       (String::from("lineWidth"), ConfigKeyValue::from_i32(80)),
       (String::from("indentWidth"), ConfigKeyValue::from_i32(8)),
       (String::from("newLineKind"), ConfigKeyValue::from_str("crlf")),
       (String::from("useTabs"), ConfigKeyValue::from_bool(true)),
     ]);
-    let config_result = resolve_global_config(global_config, &Default::default());
+    let config_result = resolve_global_config(&mut global_config);
     let config = config_result.config;
     assert_eq!(config_result.diagnostics.len(), 0);
     assert_eq!(config.line_width, Some(80));
@@ -401,8 +458,8 @@ mod test {
 
   #[test]
   fn get_diagnostic_for_invalid_enum_config() {
-    let global_config = ConfigKeyMap::from([(String::from("newLineKind"), ConfigKeyValue::from_str("something"))]);
-    let diagnostics = resolve_global_config(global_config, &Default::default()).diagnostics;
+    let mut global_config = ConfigKeyMap::from([(String::from("newLineKind"), ConfigKeyValue::from_str("something"))]);
+    let diagnostics = resolve_global_config(&mut global_config).diagnostics;
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].message, "Found invalid value 'something'.");
     assert_eq!(diagnostics[0].property_name, "newLineKind");
@@ -410,8 +467,8 @@ mod test {
 
   #[test]
   fn get_diagnostic_for_invalid_primitive() {
-    let global_config = ConfigKeyMap::from([(String::from("useTabs"), ConfigKeyValue::from_str("something"))]);
-    let diagnostics = resolve_global_config(global_config, &Default::default()).diagnostics;
+    let mut global_config = ConfigKeyMap::from([(String::from("useTabs"), ConfigKeyValue::from_str("something"))]);
+    let diagnostics = resolve_global_config(&mut global_config).diagnostics;
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].message, "provided string was not `true` or `false`");
     assert_eq!(diagnostics[0].property_name, "useTabs");
@@ -420,23 +477,10 @@ mod test {
   #[test]
   fn get_diagnostic_for_excess_property() {
     let global_config = ConfigKeyMap::from([(String::from("something"), ConfigKeyValue::from_str("value"))]);
-    let diagnostics = resolve_global_config(global_config, &Default::default()).diagnostics;
+    let diagnostics = get_unknown_property_diagnostics(global_config);
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].message, "Unknown property in configuration.");
+    assert_eq!(diagnostics[0].message, "Unknown property in configuration");
     assert_eq!(diagnostics[0].property_name, "something");
-  }
-
-  #[test]
-  fn no_diagnostic_for_excess_property_when_check_false() {
-    let global_config = ConfigKeyMap::from([(String::from("something"), ConfigKeyValue::from_str("value"))]);
-    let diagnostics = resolve_global_config(
-      global_config,
-      &ResolveGlobalConfigOptions {
-        check_unknown_property_diagnostics: false,
-      },
-    )
-    .diagnostics;
-    assert_eq!(diagnostics.len(), 0);
   }
 
   #[test]
@@ -448,7 +492,7 @@ mod test {
     assert_eq!(config.len(), 1);
     assert_eq!(config.remove("newProp").unwrap(), ConfigKeyValue::from_str("value"));
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].message, "The configuration key was renamed to 'newProp'.");
+    assert_eq!(diagnostics[0].message, "The configuration key was renamed to 'newProp'");
     assert_eq!(diagnostics[0].property_name, "oldProp");
   }
 
@@ -462,7 +506,7 @@ mod test {
     assert_eq!(config.len(), 1);
     assert_eq!(config.remove("newProp").unwrap(), ConfigKeyValue::from_str("value"));
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].message, "The configuration key was renamed to 'newProp'.");
+    assert_eq!(diagnostics[0].message, "The configuration key was renamed to 'newProp'");
     assert_eq!(diagnostics[0].property_name, "oldProp");
   }
 }
