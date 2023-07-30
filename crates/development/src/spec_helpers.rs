@@ -1,6 +1,5 @@
 use anyhow::Result;
 use console::Style;
-use indexmap::IndexMap;
 use similar::ChangeTag;
 use similar::TextDiff;
 use std::fmt::Display;
@@ -53,8 +52,8 @@ pub fn run_specs(
   directory_path: &Path,
   parse_spec_options: &ParseSpecOptions,
   run_spec_options: &RunSpecsOptions,
-  format_text: impl Fn(&Path, &str, &IndexMap<String, String>) -> Result<Option<String>>,
-  get_trace_json: impl Fn(&Path, &str, &IndexMap<String, String>) -> String,
+  format_text: impl Fn(&Path, &str, &SpecConfigMap) -> Result<Option<String>>,
+  get_trace_json: impl Fn(&Path, &str, &SpecConfigMap) -> String,
 ) {
   #[cfg(not(debug_assertions))]
   assert_not_fix_failures(run_spec_options);

@@ -1,5 +1,3 @@
-use indexmap::IndexMap;
-
 #[derive(PartialEq, Eq, Debug)]
 pub struct Spec {
   pub file_name: String,
@@ -10,8 +8,10 @@ pub struct Spec {
   pub is_trace: bool,
   pub skip: bool,
   pub skip_format_twice: bool,
-  pub config: IndexMap<String, String>,
+  pub config: SpecConfigMap,
 }
+
+pub type SpecConfigMap = serde_json::Map<String, serde_json::Value>;
 
 pub struct ParseSpecOptions {
   /// The default file name for a parsed spec.
@@ -47,21 +47,32 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
     (file_text["--".len()..last_index].trim().into(), file_text[(last_index + "--\n".len())..].into())
   }
 
-  fn parse_config(file_text: String) -> (IndexMap<String, String>, String) {
+  fn parse_config(file_text: String) -> (SpecConfigMap, String) {
     if !file_text.starts_with("~~") {
-      return (IndexMap::new(), file_text);
+      return (Default::default(), file_text);
     }
     let last_index = file_text.find("~~\n").expect("Could not find final ~~\\n");
 
     let config_text = file_text["~~".len()..last_index].replace('\n', "");
-    let mut config: IndexMap<String, String> = IndexMap::new();
+    let config_text = config_text.trim();
+    let mut config: SpecConfigMap = Default::default();
 
-    for item in config_text.split(',') {
-      let first_colon = item.find(':').expect("Could not find colon in config option.");
-      let key = item[0..first_colon].trim();
-      let value = item[first_colon + ":".len()..].trim();
+    if config_text.starts_with("{") {
+      config = serde_json::from_str(config_text).expect("Error parsing config json.");
+    } else {
+      for item in config_text.split(',') {
+        let first_colon = item.find(':').expect("Could not find colon in config option.");
+        let key = item[0..first_colon].trim();
+        let value = item[first_colon + ":".len()..].trim();
 
-      config.insert(key.into(), value.into());
+        config.insert(key.into(), match value.parse::<bool>() {
+          Ok(value) => value.into(),
+          Err(_) => match value.parse::<i32>() {
+            Ok(value) => value.into(),
+            Err(_) => value.clone().into(),
+          },
+        });
+      }
     }
 
     (config, file_text[(last_index + "~~\n".len())..].into())
@@ -84,7 +95,7 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
     result
   }
 
-  fn parse_single_spec(file_name: &str, message_line: &str, lines: &[&str], config: &IndexMap<String, String>) -> Spec {
+  fn parse_single_spec(file_name: &str, message_line: &str, lines: &[&str], config: &SpecConfigMap) -> Spec {
     let file_text = lines.join("\n");
     let parts = file_text.split("[expect]").collect::<Vec<&str>>();
     let start_text = parts[0][0..parts[0].len() - "\n".len()].into(); // remove last newline

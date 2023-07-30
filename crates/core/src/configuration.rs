@@ -79,22 +79,6 @@ impl std::fmt::Display for ConfigurationDiagnostic {
 
 pub type ConfigKeyMap = IndexMap<String, ConfigKeyValue>;
 
-/// Creates a ConfigKeyMap from a series of string key value pairs.
-pub fn parse_config_key_map(spec_config: &IndexMap<String, String>) -> ConfigKeyMap {
-  let mut key_map = IndexMap::new();
-  for (key, value) in spec_config {
-    let new_value = match value.parse::<bool>() {
-      Ok(value) => value.into(),
-      Err(_) => match value.parse::<i32>() {
-        Ok(value) => value.into(),
-        Err(_) => value.clone().into(),
-      },
-    };
-    key_map.insert(key.clone(), new_value);
-  }
-  key_map
-}
-
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ConfigKeyValue {

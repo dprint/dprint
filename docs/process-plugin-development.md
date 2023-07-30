@@ -77,7 +77,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
        include_str!("../LICENSE").to_string()
      }
 
-     async fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+     async fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> PluginResolveConfigurationResult<Configuration> {
        // implement this... for example
        let mut config = config;
        let mut diagnostics = Vec::new();
@@ -85,7 +85,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
 
        diagnostics.extend(get_unknown_property_diagnostics(config));
 
-       ResolveConfigurationResult {
+       PluginResolveConfigurationResult {
          file_matching: FileMatchingInfo {
            file_extensions: vec!["txt_ps".to_string()],
            file_names: vec![],
@@ -131,11 +131,11 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
          start_parent_process_checker_task(parent_process_id);
        }
 
-       handle_process_stdio_messages(TestProcessPluginHandler::new()).await
+       handle_process_stdio_messages(MyPluginHandler).await
      })
    }
    ````
-5. Finally, use your created plugin handler to start reading and writing to stdin and stdout:
+5. Finally, use your created plugin handler to start reading and writing to stdin and stdout (as also shown above):
 
    <!-- dprint-ignore -->
    ```rust
