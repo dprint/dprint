@@ -57,7 +57,7 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
     let config_text = config_text.trim();
     let mut config: SpecConfigMap = Default::default();
 
-    if config_text.starts_with("{") {
+    if config_text.starts_with('{') {
       config = serde_json::from_str(config_text).expect("Error parsing config json.");
     } else {
       for item in config_text.split(',') {
@@ -69,7 +69,7 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
           Ok(value) => value.into(),
           Err(_) => match value.parse::<i32>() {
             Ok(value) => value.into(),
-            Err(_) => value.clone().into(),
+            Err(_) => value.into(),
           },
         });
       }
@@ -257,7 +257,7 @@ mod tests {
         is_trace: false,
         skip: false,
         skip_format_twice: false,
-        config: [("test.test".into(), "other".into()), ("lineWidth".into(), "40".into())]
+        config: [("test.test".into(), "other".into()), ("lineWidth".into(), 40.into())]
           .iter()
           .cloned()
           .collect(),
