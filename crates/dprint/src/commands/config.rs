@@ -185,7 +185,8 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   };
   let scopes = resolve_plugins_scope_and_paths(args, &file_pattern_args, environment, plugin_resolver).await?;
   let mut plugin_responses = HashMap::new();
-  for scope in scopes.into_iter() {
+  for (i, scope) in scopes.into_iter().enumerate() {
+    let is_main_config = i == 0;
     let Some(config) = &scope.scope.config else {
       continue;
     };
@@ -221,7 +222,17 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
           };
 
           if should_update {
-            environment.log_stderr(&format!("Updating {} {} to {}...", info.name, info.old_version, info.new_version));
+            environment.log_stderr(&format!(
+              "Updating {} {}{} to {}...",
+              info.name,
+              info.old_version,
+              if is_main_config {
+                String::new()
+              } else {
+                format!(" in {}", config_path.display())
+              },
+              info.new_version
+            ));
             file_text = update_plugin_in_config(&file_text, info);
           }
         }
@@ -970,7 +981,7 @@ mod test {
   }
 
   #[test]
-  fn config_update_updating_plugin_config() {
+  fn config_update_plugin_config() {
     let mut builder = get_setup_builder(SetupEnvOptions {
       config_has_wasm: true,
       config_has_wasm_checksum: false,
@@ -989,6 +1000,14 @@ mod test {
 }"#,
       );
     });
+    builder.with_local_config("/sub_folder/dprint.json", |config| {
+      config.add_remote_process_plugin().add_config_section(
+        "testProcessPlugin",
+        r#"{
+  "should_set": "asdf"
+}"#,
+      );
+    });
     let environment = builder.initialize().build();
     run_test_cli(vec!["config", "update", "--yes"], &environment).unwrap();
     assert_eq!(
@@ -996,6 +1015,7 @@ mod test {
       vec![
         "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
         "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
+        "Updating test-process-plugin 0.1.0 in /sub_folder/dprint.json to 0.3.0...".to_string(),
         "Compiling https://plugins.dprint.dev/test-plugin-2.wasm".to_string(),
         "Extracting zip for test-process-plugin".to_string()
       ]
@@ -1016,6 +1036,20 @@ mod test {
   }},
   "plugins": [
     "https://plugins.dprint.dev/test-plugin-2.wasm",
+    "https://plugins.dprint.dev/test-plugin-3.json@{}"
+  ]
+}}"#,
+        NEW_PROCESS_PLUGIN_FILE.checksum()
+      )
+    );
+    assert_eq!(
+      environment.read_file("./sub_folder/dprint.json").unwrap(),
+      format!(
+        r#"{{
+  "testProcessPlugin": {{
+    "should_set": "new_value"
+  }},
+  "plugins": [
     "https://plugins.dprint.dev/test-plugin-3.json@{}"
   ]
 }}"#,

@@ -443,7 +443,6 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       let scope = resolve_plugins_scope(config.clone(), self.environment, self.plugin_resolver).await?;
       let glob_output = get_and_resolve_file_paths(&config, self.patterns, scope.plugins.values().map(|p| p.as_ref()), self.environment).await?;
       let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths)?;
-      file_paths_by_plugins.ensure_not_empty(&config.base_path)?;
 
       let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
       // todo: parallelize?
