@@ -18,5 +18,8 @@ jobs:
       - uses: denoland/setup-deno@v1
       - uses: dsherret/rust-toolchain-file@v1
 
+      - name: Cargo login
+        run: cargo login ${{ secrets.CRATES_TOKEN }}
+
       - name: Cargo publish
         run: cd crates/core && cargo publish
