@@ -570,6 +570,51 @@ mod test {
   }
 
   #[test]
+  fn should_format_files_with_config_sub_dir_auto_discoverable_name() {
+    let file_path1 = "/file1.txt";
+    let file_path2 = "/file2.txt_ps";
+    let file_path3 = "/other_dir/file1.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/sub_dir/dprint.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+                        "ending": "custom-formatted"
+                    }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+                        "ending": "custom-formatted2"
+                    }"#,
+          )
+          .add_excludes("./excludes");
+      })
+      .with_local_config("/other_dir/dprint.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+              "ending": "other-ending"
+            }"#,
+        );
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text2")
+      .write_file(&file_path3, "text3")
+      .write_file("./excludes/file1.txt", "text4")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/sub_dir/dprint.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_custom-formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_custom-formatted2");
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text3_other-ending");
+  }
+
+  #[test]
   fn should_format_files_with_config_using_c() {
     let file_path1 = "/file1.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
