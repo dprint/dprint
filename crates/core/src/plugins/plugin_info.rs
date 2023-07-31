@@ -30,6 +30,7 @@ pub struct PluginInfo {
 #[serde(rename_all = "camelCase")]
 pub struct FileMatchingInfo {
   /// The file extensions this plugin should format.
+  #[serde(default = "Vec::new")]
   pub file_extensions: Vec<String>,
   /// The file names this plugin should format.
   #[serde(default = "Vec::new")]

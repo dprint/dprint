@@ -2,8 +2,10 @@
   "indentWidth": 2,
   "lineWidth": 160,
   "exec": {
-    "associations": "**/*.rs",
-    "rustfmt": "rustfmt --edition 2021 --config imports_granularity=item"
+    "commands": [{
+      "command": "rustfmt --edition 2021 --config imports_granularity=item",
+      "exts": ["rs"]
+    }]
   },
   "excludes": [
     "website/playground/build",
@@ -18,7 +20,7 @@
     "https://plugins.dprint.dev/json-0.17.4.wasm",
     "https://plugins.dprint.dev/markdown-0.15.3.wasm",
     "https://plugins.dprint.dev/toml-0.5.4.wasm",
-    "https://plugins.dprint.dev/prettier-0.26.1.json@fdbe31f6aecd24f9d6b924214710a6766050d03146163b4e241e6056b2462f2e",
-    "https://plugins.dprint.dev/exec-0.3.5.json@d687dda57be0fe9a0088ccdaefa5147649ff24127d8b3ea227536c68ee7abeab"
+    "https://plugins.dprint.dev/prettier-0.27.0.json@3557a62b4507c55a47d8cde0683195b14d13c41dda66d0f0b0e111aed107e2fe",
+    "https://plugins.dprint.dev/exec-0.4.1.json@a892b9d01709275cf30254a9455635714ae6313b6b8212fb1b3f28f7cb06989d"
   ]
 }

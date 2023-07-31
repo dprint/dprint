@@ -65,13 +65,16 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
         let key = item[0..first_colon].trim();
         let value = item[first_colon + ":".len()..].trim();
 
-        config.insert(key.into(), match value.parse::<bool>() {
-          Ok(value) => value.into(),
-          Err(_) => match value.parse::<i32>() {
+        config.insert(
+          key.into(),
+          match value.parse::<bool>() {
             Ok(value) => value.into(),
-            Err(_) => value.into(),
+            Err(_) => match value.parse::<i32>() {
+              Ok(value) => value.into(),
+              Err(_) => value.into(),
+            },
           },
-        });
+        );
       }
     }
 
