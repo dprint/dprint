@@ -31,6 +31,7 @@ use crate::configuration::GlobalConfigDiagnostic;
 use crate::configuration::ResolveConfigError;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPath;
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins;
@@ -415,9 +416,10 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths)?;
 
     let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
+    let root_config_path = config.resolved_path.source.maybe_local_path();
     // todo: parallelize?
     for config_file_path in glob_output.config_files {
-      result.extend(self.resolve_for_sub_config(config_file_path, &config).await?);
+      result.extend(self.resolve_for_sub_config(config_file_path, &config, root_config_path).await?);
     }
 
     Ok(PluginsScopeAndPathsCollection(result))
@@ -427,10 +429,15 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     &'a self,
     config_file_path: PathBuf,
     parent_config: &'a ResolvedConfig,
+    root_config_path: Option<&'a CanonicalizedPathBuf>,
   ) -> LocalBoxFuture<'a, Result<Vec<PluginsScopeAndPaths<TEnvironment>>>> {
     async move {
       log_verbose!(self.environment, "Analyzing config file {}", config_file_path.display());
       let config_file_path = self.environment.canonicalize(&config_file_path)?;
+      if Some(&config_file_path) == root_config_path {
+        // config file specified via `--config` so ignore it
+        return Ok(Vec::new());
+      }
       let config_path = ResolvedConfigPath {
         base_path: config_file_path.parent().unwrap(),
         resolved_path: ResolvedPath::local(config_file_path),
@@ -447,7 +454,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
       // todo: parallelize?
       for config_file_path in glob_output.config_files {
-        result.extend(self.resolve_for_sub_config(config_file_path, &config).await?);
+        result.extend(self.resolve_for_sub_config(config_file_path, &config, root_config_path).await?);
       }
 
       Ok(result)

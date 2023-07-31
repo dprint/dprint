@@ -49,6 +49,13 @@ impl PathSource {
     }
   }
 
+  pub fn maybe_local_path(&self) -> Option<&CanonicalizedPathBuf> {
+    match self {
+      PathSource::Local(local) => Some(&local.path),
+      PathSource::Remote(_) => None,
+    }
+  }
+
   pub fn unwrap_local(&self) -> LocalPathSource {
     if let PathSource::Local(local_path_source) = self {
       local_path_source.clone()
