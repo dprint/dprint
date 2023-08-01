@@ -148,7 +148,7 @@ impl ProcessPluginCommunicator {
         );
       } else {
         bail!(
-          "Your dprint CLI is too old to run this plugin (version was {}, but expected {}). Try running: dprint config update",
+          "Your dprint CLI is too old to run this plugin (version was {}, but expected {}). Try running: dprint upgrade",
           schema_version,
           PLUGIN_SCHEMA_VERSION
         );
