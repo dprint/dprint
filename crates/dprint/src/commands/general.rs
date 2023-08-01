@@ -333,6 +333,7 @@ mod test {
     assert_eq!(environment.take_stderr_messages(), vec!["Deleted /cache"]);
     assert_eq!(environment.is_dir_deleted("/cache"), true);
   }
+
   #[test]
   fn should_output_license_for_sub_command_with_no_plugins() {
     let environment = TestEnvironment::new();
