@@ -70,36 +70,6 @@ pub async fn get_init_config_file_text(environment: &impl Environment) -> Result
       }
     }
 
-    let extension_includes = get_unique_items(
-      selected_plugins
-        .iter()
-        .flat_map(|p| p.file_extensions.iter())
-        .map(|x| x.as_str())
-        .collect::<Vec<_>>(),
-    );
-    let file_name_includes = get_unique_items(
-      selected_plugins
-        .iter()
-        .flat_map(|p| p.file_names.iter())
-        .map(|x| x.as_str())
-        .collect::<Vec<_>>(),
-    );
-
-    let mut json_includes = vec![];
-    if !extension_includes.is_empty() {
-      json_includes.push(format!("\"**/*.{{{}}}\"", extension_includes.join(",")));
-    }
-    if !file_name_includes.is_empty() {
-      json_includes.push(format!("\"**/{{{}}}\"", file_name_includes.join(",")));
-    }
-
-    json_text.push_str("  \"includes\": [");
-    if json_includes.is_empty() {
-      json_text.push_str("\"**/*.*\"");
-    } else {
-      json_text.push_str(&json_includes.join(","));
-    }
-    json_text.push_str("],\n");
     json_text.push_str("  \"excludes\": [");
     let excludes = get_unique_items(
       selected_plugins
@@ -133,7 +103,6 @@ pub async fn get_init_config_file_text(environment: &impl Environment) -> Result
     }
     json_text.push_str("  ]\n}\n");
   } else {
-    json_text.push_str("  \"includes\": [\"**/*.*\"],\n");
     json_text.push_str("  \"excludes\": [\n    \"**/node_modules\",\n    \"**/*-lock.json\"\n  ],\n");
     json_text.push_str("  \"plugins\": [\n");
     json_text.push_str("    // specify plugin urls here\n");
@@ -185,7 +154,6 @@ mod test {
   },
   "json": {
   },
-  "includes": ["**/*.{ts,tsx,json}"],
   "excludes": [
     "**/something",
     "**/*-asdf.json"
@@ -221,7 +189,6 @@ mod test {
   },
   "json": {
   },
-  "includes": ["**/*.{ts,tsx,json,rs}","**/{Cargo.toml}"],
   "excludes": [
     "**/something",
     "**/*-asdf.json",
@@ -257,7 +224,6 @@ mod test {
         r#"{
   "json": {
   },
-  "includes": ["**/*.{json}"],
   "excludes": [
     "**/*-asdf.json"
   ],
@@ -287,7 +253,6 @@ mod test {
       assert_eq!(
         text,
         r#"{
-  "includes": ["**/*.*"],
   "excludes": [],
   "plugins": [
     // specify plugin urls here
@@ -315,7 +280,6 @@ mod test {
       assert_eq!(
         text,
         r#"{
-  "includes": ["**/*.{ps}"],
   "excludes": [],
   "plugins": [
     "https://plugins.dprint.dev/process-0.1.0.json@test-checksum"
@@ -336,7 +300,6 @@ mod test {
       assert_eq!(
         text,
         r#"{
-  "includes": ["**/*.*"],
   "excludes": [
     "**/node_modules",
     "**/*-lock.json"
@@ -381,7 +344,6 @@ mod test {
         r#"{
   "typescript": {
   },
-  "includes": ["**/*.{ts}"],
   "excludes": [
     "test"
   ],
@@ -417,7 +379,6 @@ mod test {
       assert_eq!(
         text,
         r#"{
-  "includes": ["**/*.*"],
   "excludes": [
     "**/node_modules",
     "**/*-lock.json"
