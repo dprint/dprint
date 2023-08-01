@@ -142,7 +142,7 @@ impl ProcessPluginCommunicator {
       let _ = child.kill();
       if schema_version < PLUGIN_SCHEMA_VERSION {
         bail!(
-          "This plugin is too old to run in the dprint CLI (version was {}, but expected {}).\n\nUpgrade instructions: https://github.com/dprint/dprint/issues/731",
+          "This plugin is too old to run in the dprint CLI and you will need to manually upgrade it (version was {}, but expected {}).\n\nUpgrade instructions: https://github.com/dprint/dprint/issues/731",
           schema_version,
           PLUGIN_SCHEMA_VERSION
         );
