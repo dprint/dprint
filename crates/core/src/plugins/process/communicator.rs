@@ -130,12 +130,30 @@ impl ProcessPluginCommunicator {
     let mut stdout_reader = MessageReader::new(child.stdout.take().unwrap());
     let mut stdin_writer = MessageWriter::new(child.stdin.take().unwrap());
 
-    let (mut stdout_reader, stdin_writer) = tokio::task::spawn_blocking(move || {
-      verify_plugin_schema_version(&mut stdout_reader, &mut stdin_writer)
-        .context("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade.")?;
-      Ok::<_, anyhow::Error>((stdout_reader, stdin_writer))
+    let (mut stdout_reader, stdin_writer, schema_version) = tokio::task::spawn_blocking(move || {
+      let schema_version = get_plugin_schema_version(&mut stdout_reader, &mut stdin_writer)
+        .context("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade")?;
+      Ok::<_, anyhow::Error>((stdout_reader, stdin_writer, schema_version))
     })
     .await??;
+
+    if schema_version != PLUGIN_SCHEMA_VERSION {
+      // kill the child to prevent it from ouputting to stderr
+      let _ = child.kill();
+      if schema_version < PLUGIN_SCHEMA_VERSION {
+        bail!(
+          "The plugin schema version was {}, but expected {}.\n\nUpgrade instructions: https://dprint.dev/plugins/upgrade-instructions",
+          schema_version,
+          PLUGIN_SCHEMA_VERSION
+        );
+      } else {
+        bail!(
+          "The plugin schema version was {}, but expected {}. Try running: dprint config update",
+          schema_version,
+          PLUGIN_SCHEMA_VERSION
+        );
+      }
+    }
 
     let stdin_writer = SingleThreadMessageWriter::for_stdin(stdin_writer);
     let context = Rc::new(Context {
@@ -386,10 +404,7 @@ impl ProcessPluginCommunicator {
   }
 }
 
-fn verify_plugin_schema_version<TRead: Read + Unpin, TWrite: Write + Unpin>(
-  reader: &mut MessageReader<TRead>,
-  writer: &mut MessageWriter<TWrite>,
-) -> Result<()> {
+fn get_plugin_schema_version<TRead: Read + Unpin, TWrite: Write + Unpin>(reader: &mut MessageReader<TRead>, writer: &mut MessageWriter<TWrite>) -> Result<u32> {
   // since this is the setup, use a lot of contexts to find exactly where it failed
   writer.send_u32(0).context("Failed asking for schema version.")?; // ask for schema version
   writer.flush().context("Failed flushing schema version request.")?;
@@ -397,16 +412,7 @@ fn verify_plugin_schema_version<TRead: Read + Unpin, TWrite: Write + Unpin>(
   if acknowledgement_response != 0 {
     bail!("Plugin response was unexpected ({acknowledgement_response}).");
   }
-  let plugin_schema_version = reader.read_u32().context("Could not read schema version.")?;
-  if plugin_schema_version != PLUGIN_SCHEMA_VERSION {
-    bail!(
-      "The plugin schema version was {}, but expected {}.",
-      plugin_schema_version,
-      PLUGIN_SCHEMA_VERSION
-    );
-  }
-
-  Ok(())
+  reader.read_u32().context("Could not read schema version.")
 }
 
 fn std_err_redirect(shutdown_flag: Arc<AtomicFlag>, stderr: ChildStderr, on_std_err: impl Fn(String) + Send + Sync + 'static) {

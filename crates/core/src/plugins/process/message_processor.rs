@@ -376,8 +376,9 @@ fn schema_establishment_phase<TRead: Read + Unpin, TWrite: Write + Unpin>(stdin:
     bail!("Expected a schema version request of `0`.");
   }
 
-  // 2. The client responds with `0` (4 bytes) for success, then `4` (4 bytes) for the schema version.
+  // 2. The client responds with `0` (4 bytes) for success
   stdout.send_u32(0)?;
+  // 3. Then 4 bytes for the schema version
   stdout.send_u32(PLUGIN_SCHEMA_VERSION)?;
   stdout.flush()?;
 
