@@ -174,11 +174,11 @@ const ci = {
           if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
           run: "cargo test --locked --target ${{matrix.config.target}} --all-features --release",
         },
-        // {
-        //   name: "Test integration",
-        //   if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && !startsWith(github.ref, 'refs/tags/')",
-        //   run: "cargo run -p dprint --locked --target ${{matrix.config.target}} -- check",
-        // },
+        {
+          name: "Test integration",
+          if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && !startsWith(github.ref, 'refs/tags/')",
+          run: "cargo run -p dprint --locked --target ${{matrix.config.target}} -- check",
+        },
         {
           name: "Create installer (Windows x86_64)",
           uses: "joncloud/makensis-action@v2.0",
