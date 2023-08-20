@@ -45,6 +45,7 @@ zip = "0.6.4"
 rkyv = "=0.7.42"
 wasmer = "=4.0.0"
 wasmer-compiler = "=4.0.0"
+tower-lsp = "0.20.0"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.10.1"
