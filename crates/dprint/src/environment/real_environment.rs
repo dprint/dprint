@@ -4,6 +4,7 @@ use anyhow::Result;
 use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
 use std::fs;
+use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
@@ -22,6 +23,7 @@ use crate::utils::log_action_with_progress;
 use crate::utils::show_confirm;
 use crate::utils::show_multi_select;
 use crate::utils::show_select;
+use crate::utils::FastInsecureHasher;
 use crate::utils::Logger;
 use crate::utils::LoggerOptions;
 use crate::utils::ProgressBars;
@@ -311,6 +313,19 @@ impl Environment for RealEnvironment {
 
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult> {
     crate::plugins::compile_wasm(wasm_bytes)
+  }
+
+  fn wasm_cache_key(&self) -> String {
+    let cpu = self.cpu_arch();
+    // need to also hash on the CPU features
+    // https://github.com/dprint/dprint/issues/735
+    let mut hash = FastInsecureHasher::default();
+    let mut features = wasmer::CpuFeature::for_host().into_iter().map(|c| c.to_string()).collect::<Vec<_>>();
+    features.sort(); // ensure this is stable
+    for feature in features {
+      feature.hash(&mut hash);
+    }
+    format!("{}-{}", cpu, hash.finish())
   }
 
   fn stdout(&self) -> Box<dyn std::io::Write + Send> {
