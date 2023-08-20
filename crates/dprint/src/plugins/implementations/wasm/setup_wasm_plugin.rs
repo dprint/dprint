@@ -13,8 +13,8 @@ pub const WASMER_COMPILER_VERSION: &str = "4.0.0";
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> PathBuf {
   let cache_dir_path = environment.get_cache_dir();
   let plugin_cache_dir_path = cache_dir_path.join("plugins").join(&plugin_info.name);
-  // this is keyed on both the wasmer compiler version and cpu architecture
-  plugin_cache_dir_path.join(format!("{}-{}-{}", plugin_info.version, WASMER_COMPILER_VERSION, environment.cpu_arch()))
+  // this is keyed on both the wasmer compiler version and system cache key
+  plugin_cache_dir_path.join(format!("{}-{}-{}", plugin_info.version, WASMER_COMPILER_VERSION, environment.wasm_cache_key()))
 }
 
 pub async fn setup_wasm_plugin<TEnvironment: Environment>(

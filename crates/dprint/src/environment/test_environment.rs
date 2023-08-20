@@ -540,6 +540,10 @@ impl Environment for TestEnvironment {
     Ok(wasm_compile_result.clone().expect("Expected compilation result to be set."))
   }
 
+  fn wasm_cache_key(&self) -> String {
+    self.cpu_arch()
+  }
+
   fn stdout(&self) -> Box<dyn Write + Send> {
     Box::new(self.std_out_pipe.lock().0.take().unwrap())
   }
