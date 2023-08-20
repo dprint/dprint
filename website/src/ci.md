@@ -8,9 +8,23 @@ layout: layouts/documentation.njk
 
 You may desire to run `dprint check` as a step on your CI to ensure the code is formatted.
 
-## GitHub Action
+## GitHub Actions
 
 See `dprint/check`: https://github.com/marketplace/actions/dprint-check-action
+
+### Caching dprint's incremental cache
+
+You can get really fast formatting times on the CI by caching the `~/.cache/dprint` folder between runs on a Linux runner.
+
+```yml
+- uses: actions/cache@v3
+  with:
+    path: |
+      ~/.cache/dprint
+    key: ${{ runner.os }}-dprint-${{ hashFiles('**/dprint.json') }}
+```
+
+This will cache dprint's plugins and incremental cache.
 
 ## GitLab
 
