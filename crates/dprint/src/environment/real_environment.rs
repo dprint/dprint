@@ -325,7 +325,7 @@ impl Environment for RealEnvironment {
     for feature in features {
       feature.hash(&mut hash);
     }
-    format!("{}.{}", cpu, hash.finish())
+    format!("{}-{}", cpu, hash.finish())
   }
 
   fn stdout(&self) -> Box<dyn std::io::Write + Send> {
