@@ -55,6 +55,7 @@ pub enum SubCommand {
   Help(String),
   EditorInfo,
   EditorService(EditorServiceSubCommand),
+  Lsp,
   StdInFmt(StdInFmtSubCommand),
   Completions(clap_complete::Shell),
   Upgrade,
@@ -196,6 +197,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("editor-service", matches) => SubCommand::EditorService(EditorServiceSubCommand {
       parent_pid: matches.get_one::<String>("parent-pid").and_then(|v| v.parse::<u32>().ok()).unwrap(),
     }),
+    ("lsp", _) => SubCommand::Lsp,
     ("completions", matches) => SubCommand::Completions(matches.get_one::<clap_complete::Shell>("shell").unwrap().to_owned()),
     ("upgrade", _) => SubCommand::Upgrade,
     #[cfg(target_os = "windows")]
@@ -456,6 +458,10 @@ EXAMPLES:
             .required(true)
             .num_args(1)
         )
+    )
+    .subcommand(
+      Command::new("lsp")
+      .about("Starts up a language server for formatting files. This can be used with any editor that supports the LSP.")
     )
     .arg(
       Arg::new("config")
