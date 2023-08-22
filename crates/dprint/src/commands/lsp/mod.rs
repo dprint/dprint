@@ -1,6 +1,8 @@
 use std::rc::Rc;
 
 use dprint_core::plugins::process::start_parent_process_checker_task;
+use tokio::sync::oneshot;
+use tokio::try_join;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::DidChangeTextDocumentParams;
 use tower_lsp::lsp_types::DidCloseTextDocumentParams;
@@ -26,8 +28,14 @@ use crate::arg_parser::CliArgs;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
 
+#[derive(Debug)]
+enum ChannelMessage {
+  Format(DocumentFormattingParams, oneshot::Sender<Result<Option<Vec<TextEdit>>>>),
+}
+
 struct Backend {
   client: Client,
+  sender: tokio::sync::mpsc::UnboundedSender<ChannelMessage>,
 }
 
 pub async fn run_language_server<TEnvironment: Environment>(
@@ -37,9 +45,32 @@ pub async fn run_language_server<TEnvironment: Environment>(
 ) -> anyhow::Result<()> {
   let stdin = tokio::io::stdin();
   let stdout = tokio::io::stdout();
+  let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
-  let (service, socket) = LspService::new(|client| Backend { client });
-  Server::new(stdin, stdout, socket).serve(service).await;
+  // tower_lsp requires Backend to implement Send and Sync, but
+  // we use a single threaded runtime. So spawn some tasks and
+  // communicate over a channel.
+  let recv_task = dprint_core::async_runtime::spawn(async move {
+    while let Some(message) = rx.recv().await {
+      match message {
+        ChannelMessage::Format(params, sender) => {
+          dprint_core::async_runtime::spawn(async move {
+            // todo: handle the params and format
+
+            // todo: return back an actual response
+            let _ = sender.send(Ok(None));
+          });
+        }
+      }
+    }
+  });
+
+  let lsp_task = dprint_core::async_runtime::spawn(async move {
+    let (service, socket) = LspService::new(|client| Backend { client, sender: tx });
+    Server::new(stdin, stdout, socket).serve(service).await;
+  });
+
+  try_join!(recv_task, lsp_task)?;
 
   Ok(())
 }
@@ -85,8 +116,10 @@ impl LanguageServer for Backend {
     todo!()
   }
 
-  async fn formatting(&self, _: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
-    todo!()
+  async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+    let (sender, receiver) = oneshot::channel();
+    self.sender.send(ChannelMessage::Format(params, sender)).unwrap();
+    receiver.await.unwrap()
   }
 
   async fn range_formatting(&self, _: DocumentRangeFormattingParams) -> Result<Option<Vec<TextEdit>>> {
