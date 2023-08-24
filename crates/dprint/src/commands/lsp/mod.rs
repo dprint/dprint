@@ -1,8 +1,14 @@
+use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use dprint_core::plugins::process::start_parent_process_checker_task;
+use dprint_core::plugins::FormatRange;
+use dprint_core::plugins::HostFormatRequest;
+use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::try_join;
+use tokio_util::sync::CancellationToken;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::DidChangeTextDocumentParams;
 use tower_lsp::lsp_types::DidCloseTextDocumentParams;
@@ -30,22 +36,22 @@ use crate::plugins::PluginResolver;
 
 #[derive(Debug)]
 enum ChannelMessage {
-  Format(DocumentFormattingParams, oneshot::Sender<Result<Option<Vec<TextEdit>>>>),
+  Format(PathBuf, FormatRange, String, oneshot::Sender<Result<Option<Vec<TextEdit>>>>),
 }
 
 struct Backend {
   client: Client,
-  sender: tokio::sync::mpsc::UnboundedSender<ChannelMessage>,
+  sender: mpsc::UnboundedSender<ChannelMessage>,
 }
 
 pub async fn run_language_server<TEnvironment: Environment>(
-  args: &CliArgs,
-  environment: &TEnvironment,
-  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  _args: &CliArgs,
+  _environment: &TEnvironment,
+  _plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> anyhow::Result<()> {
   let stdin = tokio::io::stdin();
   let stdout = tokio::io::stdout();
-  let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+  let (tx, mut rx) = mpsc::unbounded_channel();
 
   // tower_lsp requires Backend to implement Send and Sync, but
   // we use a single threaded runtime. So spawn some tasks and
@@ -53,11 +59,19 @@ pub async fn run_language_server<TEnvironment: Environment>(
   let recv_task = dprint_core::async_runtime::spawn(async move {
     while let Some(message) = rx.recv().await {
       match message {
-        ChannelMessage::Format(params, sender) => {
+        ChannelMessage::Format(file_path, range, file_text, sender) => {
           dprint_core::async_runtime::spawn(async move {
-            // todo: handle the params and format
-
-            // todo: return back an actual response
+            // TODO: Send the actual format request.
+            let token = Arc::new(CancellationToken::new());
+            let _request = HostFormatRequest {
+              file_path,
+              file_text,
+              range,
+              override_config: Default::default(), // TODO: Set from params?
+              token,
+            };
+            // TODO: How to get the plugin scope?
+            // TODO: Return back an actual response
             let _ = sender.send(Ok(None));
           });
         }
@@ -118,12 +132,20 @@ impl LanguageServer for Backend {
 
   async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
     let (sender, receiver) = oneshot::channel();
-    self.sender.send(ChannelMessage::Format(params, sender)).unwrap();
+    let file_path = params.text_document.uri.to_file_path().expect("Expected a valid path");
+    let range = Default::default(); // TODO: Set it based on the file length
+    let file_text = "".into(); // TODO: Fetch from the latest document sync message
+    self.sender.send(ChannelMessage::Format(file_path, range, file_text, sender)).unwrap();
     receiver.await.unwrap()
   }
 
-  async fn range_formatting(&self, _: DocumentRangeFormattingParams) -> Result<Option<Vec<TextEdit>>> {
-    todo!()
+  async fn range_formatting(&self, params: DocumentRangeFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+    let (sender, receiver) = oneshot::channel();
+    let file_path = params.text_document.uri.to_file_path().expect("Expected a valid path");
+    let range = Default::default(); // TODO: Map LSP range to FormatRange
+    let file_text = "".into(); // TODO: Fetch from the latest document sync message
+    self.sender.send(ChannelMessage::Format(file_path, range, file_text, sender)).unwrap();
+    receiver.await.unwrap()
   }
 
   async fn shutdown(&self) -> Result<()> {
