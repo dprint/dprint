@@ -102,12 +102,16 @@ where
           _ = tokio::time::sleep(Duration::from_secs(2)) => {
             let cpu_usage = environment.cpu_usage();
             log_verbose!(environment, "Current CPU usage: {}%", cpu_usage);
+            let increase_target_cpu = {
+              let target_cpu = target_cpu - 5;
+              target_cpu - std::cmp::min(target_cpu, (100f64 / max_threads as f64) as u8)
+            };
             if cpu_usage > target_cpu {
-              if cpu_throttle(&semaphores).await {
+              if throttle_cpu(&semaphores).await {
                 log_verbose!(environment, "Reducing parallelism because CPU usage was high.");
                 throttled_times += 1;
               }
-            } else if throttled_times > 0 && cpu_usage < target_cpu - std::cmp::min(target_cpu, (100f64 / max_threads as f64 * 2f64) as u8) {
+            } else if throttled_times > 0 && cpu_usage < increase_target_cpu {
               // Whatever was running in the background might
               // not be using as much CPU at this point, so increase
               // the permits
@@ -343,11 +347,11 @@ where
   }
 }
 
-async fn cpu_throttle(semaphores: &[Rc<Semaphore>]) -> bool {
+async fn throttle_cpu(semaphores: &[Rc<Semaphore>]) -> bool {
   let mut best_match: Option<&Rc<Semaphore>> = None;
   let mut total_max_permits = 0;
   for semaphore in semaphores.iter() {
-    if !semaphore.closed() || semaphore.max_permits() == 0 {
+    if semaphore.closed() || semaphore.max_permits() == 0 {
       continue;
     }
     if semaphore.acquired_permits() > semaphore.max_permits() {
@@ -377,7 +381,7 @@ async fn cpu_throttle(semaphores: &[Rc<Semaphore>]) -> bool {
 
   match best_match {
     Some(best_match) => {
-    best_match.remove_permits(1);
+      best_match.remove_permits(1);
       true
     }
     None => false,
@@ -412,5 +416,35 @@ fn add_permits(semaphores: &[Rc<Semaphore>], amount: usize) {
     if new_permits > 0 {
       semaphore.add_permits(new_permits);
     }
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use std::rc::Rc;
+
+  use super::*;
+  use crate::utils::Semaphore;
+
+  #[tokio::test]
+  async fn test_throttle_cpu() {
+    let semaphore1 = Rc::new(Semaphore::new(1));
+    let semaphore2 = Rc::new(Semaphore::new(2));
+    let permit1 = semaphore1.acquire().await;
+    let permit2 = semaphore2.acquire().await;
+    let permit3 = semaphore2.acquire().await;
+    let semaphores = vec![semaphore1, semaphore2];
+    assert!(throttle_cpu(&semaphores).await);
+    // still a pending removal
+    assert!(!throttle_cpu(&semaphores).await);
+    drop(permit2);
+    assert!(throttle_cpu(&semaphores).await);
+    // still a pending removal
+    assert!(!throttle_cpu(&semaphores).await);
+    drop(permit3);
+    // only one permit remaining
+    assert!(!throttle_cpu(&semaphores).await);
+    drop(permit1);
+    assert!(!throttle_cpu(&semaphores).await);
   }
 }
