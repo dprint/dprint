@@ -52,7 +52,13 @@ where
   let reduction_count = number_process_plugins + 1; // + 1 for each process plugin's possible runtime thread and this runtime's thread
   let number_threads = if max_threads > reduction_count { max_threads - reduction_count } else { 1 };
   let target_cpu = std::cmp::max((100f64 - (number_threads as f64) / 100f64) as u8, 50);
-  log_verbose!(environment, "Max threads: {}\nThread count: {}\nTarget CPU usage: {}%", max_threads, number_threads, target_cpu);
+  log_verbose!(
+    environment,
+    "Max threads: {}\nThread count: {}\nTarget CPU usage: {}%",
+    max_threads,
+    number_threads,
+    target_cpu
+  );
 
   let error_logger = ErrorCountLogger::from_environment(environment);
 
@@ -84,6 +90,7 @@ where
     let environment = environment.clone();
     let cpu_task_token = cpu_task_token.clone();
     async move {
+      let mut throttled_times = 0;
       loop {
         tokio::select! {
           _ = cpu_task_token.cancelled() => {
@@ -92,43 +99,20 @@ where
           }
           // check the CPU usage every few seconds and throttle the amount
           // of work being done
-          _ = tokio::time::sleep(Duration::from_secs(3)) => {
+          _ = tokio::time::sleep(Duration::from_secs(2)) => {
             let cpu_usage = environment.cpu_usage();
             log_verbose!(environment, "Current CPU usage: {}%", cpu_usage);
-            if cpu_usage > 95 {
-              let mut best_match: Option<&Rc<Semaphore>> = None;
-              let mut total_max_permits = 0;
-              for semaphore in semaphores.iter() {
-                if !semaphore.closed() || semaphore.max_permits() == 0 {
-                  continue;
-                }
-                if semaphore.acquired_permits() > semaphore.max_permits() {
-                  // The previous adjustment hasn't yet been applied. Wait for that
-                  // to complete so we don't over scale down.
-                  best_match = None;
-                  break;
-                }
-                total_max_permits += semaphore.max_permits();
-
-                match &best_match {
-                  Some(current_best_match) => {
-                    if current_best_match.max_permits() < semaphore.max_permits() {
-                      best_match = Some(semaphore);
-                    }
-                  }
-                  None => {
-                    best_match = Some(semaphore);
-                  }
-                }
+            if cpu_usage > target_cpu {
+              if cpu_throttle(&semaphores).await {
+                log_verbose!(environment, "Reducing parallelism because CPU usage was high.");
+                throttled_times += 1;
               }
-
-              // always ensure there will be at least 1 permit running
-              if total_max_permits > 1 {
-                if let Some(best_match) = best_match {
-                  best_match.remove_permits(1);
-                  log_verbose!(environment, "Reducing parallelism because CPU usage was high.");
-                }
-              }
+            } else if throttled_times > 0 && cpu_usage < target_cpu - std::cmp::min(target_cpu, (100f64 / max_threads as f64 * 2f64) as u8) {
+              // Whatever was running in the background might
+              // not be using as much CPU at this point, so increase
+              // the permits
+              add_permits(&semaphores, 1);
+              throttled_times -= 1;
             }
           }
         }
@@ -359,6 +343,47 @@ where
   }
 }
 
+async fn cpu_throttle(semaphores: &[Rc<Semaphore>]) -> bool {
+  let mut best_match: Option<&Rc<Semaphore>> = None;
+  let mut total_max_permits = 0;
+  for semaphore in semaphores.iter() {
+    if !semaphore.closed() || semaphore.max_permits() == 0 {
+      continue;
+    }
+    if semaphore.acquired_permits() > semaphore.max_permits() {
+      // The previous adjustment hasn't yet been applied. Wait for that
+      // to complete so we don't over scale down.
+      best_match = None;
+      break;
+    }
+    total_max_permits += semaphore.max_permits();
+
+    match &best_match {
+      Some(current_best_match) => {
+        if current_best_match.max_permits() < semaphore.max_permits() {
+          best_match = Some(semaphore);
+        }
+      }
+      None => {
+        best_match = Some(semaphore);
+      }
+    }
+  }
+
+  // always ensure there will be at least 1 permit running
+  if total_max_permits <= 1 {
+    return false;
+  }
+
+  match best_match {
+    Some(best_match) => {
+    best_match.remove_permits(1);
+      true
+    }
+    None => false,
+  }
+}
+
 /// Ensures all semaphores are released on drop
 /// so that other threads can do more work.
 struct SemaphorePermitReleaser {
@@ -370,18 +395,22 @@ impl Drop for SemaphorePermitReleaser {
   fn drop(&mut self) {
     // release the permits to other semaphores so other tasks start doing more work
     self.semaphores[self.index].close();
-    let permits = self.semaphores[self.index].max_permits();
-    let mut remaining_semaphores = self.semaphores.iter().filter(|s| !s.closed()).collect::<Vec<_>>();
-    // favour giving permits to tasks with less permits... this should more ideally
-    // give permits to batches that look like they will take the longest to complete
-    remaining_semaphores.sort_by_key(|s| s.max_permits());
-    let remaining_len = remaining_semaphores.len();
-    for (i, semaphore) in remaining_semaphores.iter_mut().enumerate() {
-      let additional_permit = i < permits % remaining_len;
-      let new_permits = permits / remaining_len + if additional_permit { 1 } else { 0 };
-      if new_permits > 0 {
-        semaphore.add_permits(new_permits);
-      }
+    let amount = self.semaphores[self.index].max_permits();
+    add_permits(&self.semaphores, amount)
+  }
+}
+
+fn add_permits(semaphores: &[Rc<Semaphore>], amount: usize) {
+  let mut remaining_semaphores = semaphores.iter().filter(|s| !s.closed()).collect::<Vec<_>>();
+  // favour giving permits to tasks with less permits... this should more ideally
+  // give permits to batches that look like they will take the longest to complete
+  remaining_semaphores.sort_by_key(|s| s.max_permits());
+  let remaining_len = remaining_semaphores.len();
+  for (i, semaphore) in remaining_semaphores.iter_mut().enumerate() {
+    let additional_permit = i < amount % remaining_len;
+    let new_permits = amount / remaining_len + if additional_permit { 1 } else { 0 };
+    if new_permits > 0 {
+      semaphore.add_permits(new_permits);
     }
   }
 }
