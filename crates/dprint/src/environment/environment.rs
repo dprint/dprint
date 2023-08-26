@@ -110,6 +110,8 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn is_verbose(&self) -> bool;
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult>;
   fn wasm_cache_key(&self) -> String;
+  /// Returns the current CPU usage as a value from 0-100.
+  fn cpu_usage(&self) -> u8;
   fn stdout(&self) -> Box<dyn Write + Send>;
   fn stdin(&self) -> Box<dyn Read + Send>;
   fn progress_bars(&self) -> Option<ProgressBars> {

@@ -328,6 +328,11 @@ impl Environment for RealEnvironment {
     format!("{}-{}", cpu, hash.finish())
   }
 
+  fn cpu_usage(&self) -> u8 {
+    // todo...
+    50
+  }
+
   fn stdout(&self) -> Box<dyn std::io::Write + Send> {
     Box::new(std::io::stdout())
   }

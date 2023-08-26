@@ -5,7 +5,6 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::NullCancellationToken;
 use std::borrow::Cow;
-use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -31,12 +30,6 @@ struct TaskWork {
   file_paths: Vec<PathBuf>,
 }
 
-struct StoredSemaphore {
-  finished: bool,
-  permits: usize,
-  semaphore: Rc<Semaphore>,
-}
-
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct EnsureStableFormat(pub bool);
 
@@ -58,7 +51,8 @@ where
   let number_process_plugins = scope_and_paths.scope.process_plugin_count();
   let reduction_count = number_process_plugins + 1; // + 1 for each process plugin's possible runtime thread and this runtime's thread
   let number_threads = if max_threads > reduction_count { max_threads - reduction_count } else { 1 };
-  log_verbose!(environment, "Max threads: {}\nThread count: {}", max_threads, number_threads);
+  let target_cpu = std::cmp::max((100f64 - (number_threads as f64) / 100f64) as u8, 50);
+  log_verbose!(environment, "Max threads: {}\nThread count: {}\nTarget CPU usage: {}%", max_threads, number_threads, target_cpu);
 
   let error_logger = ErrorCountLogger::from_environment(environment);
 
@@ -74,11 +68,7 @@ where
     let additional_thread = i < number_threads % collection_count;
     let permits = number_threads / collection_count + if additional_thread { 1 } else { 0 };
     let semaphore = Rc::new(Semaphore::new(permits));
-    semaphores.push(StoredSemaphore {
-      finished: false,
-      permits,
-      semaphore: semaphore.clone(),
-    });
+    semaphores.push(semaphore.clone());
     task_works.push(TaskWork {
       semaphore,
       plugins,
@@ -86,7 +76,66 @@ where
     });
   }
 
-  let semaphores = Rc::new(RefCell::new(semaphores));
+  let semaphores = Rc::new(semaphores);
+  let cpu_task_token = CancellationToken::new();
+
+  dprint_core::async_runtime::spawn({
+    let semaphores = semaphores.clone();
+    let environment = environment.clone();
+    let cpu_task_token = cpu_task_token.clone();
+    async move {
+      loop {
+        tokio::select! {
+          _ = cpu_task_token.cancelled() => {
+            // exit
+            return;
+          }
+          // check the CPU usage every few seconds and throttle the amount
+          // of work being done
+          _ = tokio::time::sleep(Duration::from_secs(3)) => {
+            let cpu_usage = environment.cpu_usage();
+            log_verbose!(environment, "Current CPU usage: {}%", cpu_usage);
+            if cpu_usage > 95 {
+              let mut best_match: Option<&Rc<Semaphore>> = None;
+              let mut total_max_permits = 0;
+              for semaphore in semaphores.iter() {
+                if !semaphore.closed() || semaphore.max_permits() == 0 {
+                  continue;
+                }
+                if semaphore.acquired_permits() > semaphore.max_permits() {
+                  // The previous adjustment hasn't yet been applied. Wait for that
+                  // to complete so we don't over scale down.
+                  best_match = None;
+                  break;
+                }
+                total_max_permits += semaphore.max_permits();
+
+                match &best_match {
+                  Some(current_best_match) => {
+                    if current_best_match.max_permits() < semaphore.max_permits() {
+                      best_match = Some(semaphore);
+                    }
+                  }
+                  None => {
+                    best_match = Some(semaphore);
+                  }
+                }
+              }
+
+              // always ensure there will be at least 1 permit running
+              if total_max_permits > 1 {
+                if let Some(best_match) = best_match {
+                  best_match.remove_permits(1);
+                  log_verbose!(environment, "Reducing parallelism because CPU usage was high.");
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
   let handles = task_works.into_iter().enumerate().map(|(index, task_work)| {
     dprint_core::async_runtime::spawn({
       let error_logger = error_logger.clone();
@@ -170,6 +219,8 @@ where
     })
   });
   future::join_all(handles).await;
+
+  cpu_task_token.cancel();
 
   let error_count = error_logger.get_error_count();
   return if error_count == 0 {
@@ -312,26 +363,24 @@ where
 /// so that other threads can do more work.
 struct SemaphorePermitReleaser {
   index: usize,
-  semaphores: Rc<RefCell<Vec<StoredSemaphore>>>,
+  semaphores: Rc<Vec<Rc<Semaphore>>>,
 }
 
 impl Drop for SemaphorePermitReleaser {
   fn drop(&mut self) {
     // release the permits to other semaphores so other tasks start doing more work
-    let mut semaphores = self.semaphores.borrow_mut();
-    semaphores[self.index].finished = true;
-    let permits = semaphores[self.index].permits;
-    let mut remaining_semaphores = semaphores.iter_mut().filter(|s| !s.finished).collect::<Vec<_>>();
+    self.semaphores[self.index].close();
+    let permits = self.semaphores[self.index].max_permits();
+    let mut remaining_semaphores = self.semaphores.iter().filter(|s| !s.closed()).collect::<Vec<_>>();
     // favour giving permits to tasks with less permits... this should more ideally
     // give permits to batches that look like they will take the longest to complete
-    remaining_semaphores.sort_by_key(|s| s.permits);
+    remaining_semaphores.sort_by_key(|s| s.max_permits());
     let remaining_len = remaining_semaphores.len();
     for (i, semaphore) in remaining_semaphores.iter_mut().enumerate() {
       let additional_permit = i < permits % remaining_len;
       let new_permits = permits / remaining_len + if additional_permit { 1 } else { 0 };
       if new_permits > 0 {
-        semaphore.permits += new_permits;
-        semaphore.semaphore.add_permits(new_permits);
+        semaphore.add_permits(new_permits);
       }
     }
   }

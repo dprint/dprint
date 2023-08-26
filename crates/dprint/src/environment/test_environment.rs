@@ -544,6 +544,11 @@ impl Environment for TestEnvironment {
     self.cpu_arch()
   }
 
+  fn cpu_usage(&self) -> u8 {
+    // todo...
+    50
+  }
+
   fn stdout(&self) -> Box<dyn Write + Send> {
     Box::new(self.std_out_pipe.lock().0.take().unwrap())
   }
