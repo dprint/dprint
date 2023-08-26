@@ -89,39 +89,7 @@ where
     let semaphores = semaphores.clone();
     let environment = environment.clone();
     let cpu_task_token = cpu_task_token.clone();
-    async move {
-      let mut throttled_times = 0;
-      loop {
-        tokio::select! {
-          _ = cpu_task_token.cancelled() => {
-            // exit
-            return;
-          }
-          // check the CPU usage every few seconds and throttle the amount
-          // of work being done
-          _ = tokio::time::sleep(Duration::from_secs(2)) => {
-            let cpu_usage = environment.cpu_usage();
-            log_verbose!(environment, "Current CPU usage: {}%", cpu_usage);
-            let increase_target_cpu = {
-              let target_cpu = target_cpu - 5;
-              target_cpu - std::cmp::min(target_cpu, (100f64 / max_threads as f64) as u8)
-            };
-            if cpu_usage > target_cpu {
-              if throttle_cpu(&semaphores).await {
-                log_verbose!(environment, "Reducing parallelism because CPU usage was high.");
-                throttled_times += 1;
-              }
-            } else if throttled_times > 0 && cpu_usage < increase_target_cpu {
-              // Whatever was running in the background might
-              // not be using as much CPU at this point, so increase
-              // the permits
-              add_permits(&semaphores, 1);
-              throttled_times -= 1;
-            }
-          }
-        }
-      }
-    }
+    async move { run_cpu_throttling_task(&environment, number_threads, &semaphores, cpu_task_token).await }
   });
 
   let handles = task_works.into_iter().enumerate().map(|(index, task_work)| {
@@ -347,6 +315,63 @@ where
   }
 }
 
+fn target_cpu_decrease_bound(number_threads: usize) -> u8 {
+  if number_threads < 3 {
+    100 // never decrease
+  } else {
+    if number_threads >= 50 {
+      97
+    } else {
+      std::cmp::max((100f64 - 100f64 / (number_threads as f64)) as u8, 50)
+    }
+  }
+}
+
+fn target_cpu_increase_bound(number_threads: usize) -> u8 {
+  if number_threads < 3 {
+    0 // never increase
+  } else if number_threads >= 50 {
+    95
+  } else {
+    let target_cpu = target_cpu_decrease_bound(number_threads);
+    let ratio = number_threads as f64 / 60f64;
+    let target_cpu = target_cpu - std::cmp::min((5f64 * (1f64 - ratio)) as u8, target_cpu);
+    target_cpu - std::cmp::min(target_cpu, (100f64 / number_threads as f64) as u8)
+  }
+}
+
+async fn run_cpu_throttling_task(environment: &impl Environment, number_threads: usize, semaphores: &[Rc<Semaphore>], cpu_task_token: CancellationToken) {
+  let mut throttled_times = 0;
+  let decrease_bound = target_cpu_decrease_bound(number_threads);
+  let increase_bound = target_cpu_increase_bound(number_threads);
+  loop {
+    tokio::select! {
+      _ = cpu_task_token.cancelled() => {
+        // exit
+        return;
+      }
+      // check the CPU usage every few seconds and throttle the amount
+      // of work being done
+      _ = tokio::time::sleep(Duration::from_secs(2)) => {
+        let cpu_usage = environment.cpu_usage();
+        log_verbose!(environment, "Current CPU usage: {}%", cpu_usage);
+        if cpu_usage > decrease_bound {
+          if throttle_cpu(&semaphores).await {
+            log_verbose!(environment, "Reducing parallelism because CPU usage was high.");
+            throttled_times += 1;
+          }
+        } else if throttled_times > 0 && cpu_usage < increase_bound {
+          // Whatever was running in the background might
+          // not be using as much CPU at this point, so increase
+          // the permits
+          add_permits(&semaphores, 1);
+          throttled_times -= 1;
+        }
+      }
+    }
+  }
+}
+
 async fn throttle_cpu(semaphores: &[Rc<Semaphore>]) -> bool {
   let mut best_match: Option<&Rc<Semaphore>> = None;
   let mut total_max_permits = 0;
@@ -425,6 +450,32 @@ mod test {
 
   use super::*;
   use crate::utils::Semaphore;
+
+  #[test]
+  fn target_cpu_calc() {
+    run_test(0, 0..100);
+    run_test(1, 0..100);
+    run_test(2, 0..100);
+    run_test(3, 29..66);
+    run_test(4, 46..75);
+    run_test(5, 56..80);
+    run_test(8, 71..87);
+    run_test(10, 76..90);
+    run_test(20, 87..95);
+    run_test(30, 91..96);
+    run_test(40, 94..97);
+    run_test(49, 95..97);
+    run_test(50, 95..97);
+    run_test(100, 95..97);
+    run_test(200, 95..97);
+
+    #[track_caller]
+    fn run_test(input: usize, bound: std::ops::Range<u8>) {
+      let increase_bound = target_cpu_increase_bound(input);
+      let decrease_bound = target_cpu_decrease_bound(input);
+      assert_eq!(increase_bound..decrease_bound, bound);
+    }
+  }
 
   #[tokio::test]
   async fn test_throttle_cpu() {

@@ -545,8 +545,7 @@ impl Environment for TestEnvironment {
   }
 
   fn cpu_usage(&self) -> u8 {
-    // todo...
-    50
+    20
   }
 
   fn stdout(&self) -> Box<dyn Write + Send> {
