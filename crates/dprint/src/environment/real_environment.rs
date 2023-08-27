@@ -313,6 +313,16 @@ impl Environment for RealEnvironment {
     show_confirm(&self.logger, "dprint", prompt_message, default_value)
   }
 
+  fn is_ci(&self) -> bool {
+    match std::env::var_os("CI") {
+      Some(value) => {
+        let value = value.to_string_lossy();
+        matches!(value.as_ref(), "true" | "1")
+      }
+      None => false,
+    }
+  }
+
   #[inline]
   fn is_verbose(&self) -> bool {
     self.logger.is_verbose()

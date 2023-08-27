@@ -532,6 +532,10 @@ impl Environment for TestEnvironment {
     result
   }
 
+  fn is_ci(&self) -> bool {
+    false
+  }
+
   fn is_verbose(&self) -> bool {
     *self.is_verbose.lock()
   }

@@ -108,6 +108,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize>;
   fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>>;
   fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool>;
+  fn is_ci(&self) -> bool;
   fn is_verbose(&self) -> bool;
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult>;
   fn wasm_cache_key(&self) -> String;

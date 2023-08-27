@@ -332,35 +332,54 @@ fn target_cpu_increase_bound(number_threads: usize) -> u8 {
 }
 
 async fn run_cpu_throttling_task(environment: &impl Environment, number_threads: usize, semaphores: &[Rc<Semaphore>], cpu_task_token: CancellationToken) {
+  if environment.is_ci() {
+    // don't bother doing this on the CI as we should be the only thing running
+    return;
+  }
+
+  // It's ok to go full out for a few seconds on the person's machine
+  // when they initially start formatting, but as they take a few seconds
+  // to switch to do something else, we should then start throttling the CPU
+  tokio::select! {
+    _ = cpu_task_token.cancelled() => {
+      return; // exit
+    }
+    _ = tokio::time::sleep(Duration::from_secs(5)) => {
+    }
+  }
+
   let mut throttled_times = 0;
   let decrease_bound = target_cpu_decrease_bound(number_threads);
   let increase_bound = target_cpu_increase_bound(number_threads);
   let mut last_cpu_usage = 0;
+
+  // now check the CPU usage every few seconds and throttle
+  // the amount of work being done so that we don't completely
+  // takeover someone's computer
   loop {
+    let cpu_usage = environment.cpu_usage().await;
+    log_verbose!(environment, "CPU usage: {}%", cpu_usage);
+    if cpu_usage > decrease_bound {
+      if throttle_cpu(semaphores).await {
+        log_verbose!(environment, "High CPU. Reducing parallelism.");
+        throttled_times += 1;
+      }
+    } else if throttled_times > 0 && last_cpu_usage < increase_bound && cpu_usage < increase_bound {
+      // Whatever was running in the background might
+      // not be using as much CPU at this point, so increase
+      // the permits
+      add_permits(semaphores, 1);
+      throttled_times -= 1;
+      log_verbose!(environment, "Low CPU. Increasing parallelism.");
+    }
+    last_cpu_usage = cpu_usage;
+
+    // wait a couple seconds before re-checking cpu usage
     tokio::select! {
       _ = cpu_task_token.cancelled() => {
-        // exit
-        return;
+        return; // exit
       }
-      // check the CPU usage every few seconds and throttle the amount
-      // of work being done
       _ = tokio::time::sleep(Duration::from_secs(2)) => {
-        let cpu_usage = environment.cpu_usage().await;
-        log_verbose!(environment, "Current CPU usage: {}%", cpu_usage);
-        if cpu_usage > decrease_bound {
-          if throttle_cpu(semaphores).await {
-            log_verbose!(environment, "Reducing parallelism because CPU usage was high.");
-            throttled_times += 1;
-          }
-        } else if throttled_times > 0 && last_cpu_usage < increase_bound && cpu_usage < increase_bound {
-          // Whatever was running in the background might
-          // not be using as much CPU at this point, so increase
-          // the permits
-          add_permits(semaphores, 1);
-          throttled_times -= 1;
-          log_verbose!(environment, "Increasing parallelism because CPU usage was low.");
-        }
-        last_cpu_usage = cpu_usage;
       }
     }
   }
