@@ -3,6 +3,7 @@ use anyhow::Context;
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
+use parking_lot::Mutex;
 use std::fs;
 use std::hash::Hash;
 use std::num::NonZeroUsize;
@@ -10,6 +11,9 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
+use sysinfo::CpuExt;
+use sysinfo::System;
+use sysinfo::SystemExt;
 
 use dprint_core::async_runtime::async_trait;
 
@@ -42,6 +46,7 @@ pub struct RealEnvironment {
   progress_bars: Option<ProgressBars>,
   url_downloader: Arc<RealUrlDownloader>,
   logger: Logger,
+  system: Arc<Mutex<System>>,
 }
 
 impl RealEnvironment {
@@ -59,6 +64,7 @@ impl RealEnvironment {
       url_downloader,
       logger,
       progress_bars,
+      system: Default::default(),
     };
 
     // ensure the cache directory is created
@@ -96,6 +102,7 @@ impl UrlDownloader for RealEnvironment {
   }
 }
 
+#[async_trait]
 impl Environment for RealEnvironment {
   fn is_real(&self) -> bool {
     true
@@ -328,9 +335,35 @@ impl Environment for RealEnvironment {
     format!("{}-{}", cpu, hash.finish())
   }
 
-  fn cpu_usage(&self) -> u8 {
-    // todo...
-    50
+  async fn cpu_usage(&self) -> u8 {
+    // the documentation recommends calling this twice in order
+    // to get a more accurate cpu reading
+    let system = self.system.clone();
+    let Ok(system) = dprint_core::async_runtime::spawn_blocking(move || {
+      {
+        let mut system = system.lock();
+        system.refresh_cpu();
+      }
+      system
+    }).await else {
+      return 0;
+    };
+
+    // wait a duration that allows getting a more accurate cpu usage
+    tokio::time::sleep(System::MINIMUM_CPU_UPDATE_INTERVAL).await;
+
+    dprint_core::async_runtime::spawn_blocking(move || {
+      let mut system = system.lock();
+      system.refresh_cpu();
+      let utilization = system.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / system.cpus().len() as f32;
+      if utilization > 101f32 {
+        0 // something wrong, so just return 0 for "cannot figure out cpu usage"
+      } else {
+        utilization as u8
+      }
+    })
+    .await
+    .unwrap_or(0)
   }
 
   fn stdout(&self) -> Box<dyn std::io::Write + Send> {

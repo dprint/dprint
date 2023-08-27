@@ -51,14 +51,7 @@ where
   let number_process_plugins = scope_and_paths.scope.process_plugin_count();
   let reduction_count = number_process_plugins + 1; // + 1 for each process plugin's possible runtime thread and this runtime's thread
   let number_threads = if max_threads > reduction_count { max_threads - reduction_count } else { 1 };
-  let target_cpu = std::cmp::max((100f64 - (number_threads as f64) / 100f64) as u8, 50);
-  log_verbose!(
-    environment,
-    "Max threads: {}\nThread count: {}\nTarget CPU usage: {}%",
-    max_threads,
-    number_threads,
-    target_cpu
-  );
+  log_verbose!(environment, "Max threads: {}\nThread count: {}", max_threads, number_threads,);
 
   let error_logger = ErrorCountLogger::from_environment(environment);
 
@@ -318,12 +311,10 @@ where
 fn target_cpu_decrease_bound(number_threads: usize) -> u8 {
   if number_threads < 3 {
     100 // never decrease
+  } else if number_threads >= 50 {
+    97
   } else {
-    if number_threads >= 50 {
-      97
-    } else {
-      std::cmp::max((100f64 - 100f64 / (number_threads as f64)) as u8, 50)
-    }
+    std::cmp::max((100f64 - 100f64 / (number_threads as f64)) as u8, 50)
   }
 }
 
@@ -344,6 +335,7 @@ async fn run_cpu_throttling_task(environment: &impl Environment, number_threads:
   let mut throttled_times = 0;
   let decrease_bound = target_cpu_decrease_bound(number_threads);
   let increase_bound = target_cpu_increase_bound(number_threads);
+  let mut last_cpu_usage = 0;
   loop {
     tokio::select! {
       _ = cpu_task_token.cancelled() => {
@@ -353,20 +345,22 @@ async fn run_cpu_throttling_task(environment: &impl Environment, number_threads:
       // check the CPU usage every few seconds and throttle the amount
       // of work being done
       _ = tokio::time::sleep(Duration::from_secs(2)) => {
-        let cpu_usage = environment.cpu_usage();
+        let cpu_usage = environment.cpu_usage().await;
         log_verbose!(environment, "Current CPU usage: {}%", cpu_usage);
         if cpu_usage > decrease_bound {
-          if throttle_cpu(&semaphores).await {
+          if throttle_cpu(semaphores).await {
             log_verbose!(environment, "Reducing parallelism because CPU usage was high.");
             throttled_times += 1;
           }
-        } else if throttled_times > 0 && cpu_usage < increase_bound {
+        } else if throttled_times > 0 && last_cpu_usage < increase_bound && cpu_usage < increase_bound {
           // Whatever was running in the background might
           // not be using as much CPU at this point, so increase
           // the permits
-          add_permits(&semaphores, 1);
+          add_permits(semaphores, 1);
           throttled_times -= 1;
+          log_verbose!(environment, "Increasing parallelism because CPU usage was low.");
         }
+        last_cpu_usage = cpu_usage;
       }
     }
   }
@@ -486,10 +480,13 @@ mod test {
     let permit3 = semaphore2.acquire().await;
     let semaphores = vec![semaphore1, semaphore2];
     assert!(throttle_cpu(&semaphores).await);
+    assert_eq!(semaphores[1].max_permits(), 1);
     // still a pending removal
     assert!(!throttle_cpu(&semaphores).await);
     drop(permit2);
     assert!(throttle_cpu(&semaphores).await);
+    assert_eq!(semaphores[0].max_permits(), 0);
+    assert_eq!(semaphores[1].max_permits(), 1);
     // still a pending removal
     assert!(!throttle_cpu(&semaphores).await);
     drop(permit3);

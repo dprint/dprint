@@ -301,6 +301,7 @@ impl UrlDownloader for TestEnvironment {
   }
 }
 
+#[async_trait]
 impl Environment for TestEnvironment {
   fn is_real(&self) -> bool {
     false
@@ -544,7 +545,7 @@ impl Environment for TestEnvironment {
     self.cpu_arch()
   }
 
-  fn cpu_usage(&self) -> u8 {
+  async fn cpu_usage(&self) -> u8 {
     20
   }
 
