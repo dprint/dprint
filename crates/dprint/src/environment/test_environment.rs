@@ -301,6 +301,7 @@ impl UrlDownloader for TestEnvironment {
   }
 }
 
+#[async_trait]
 impl Environment for TestEnvironment {
   fn is_real(&self) -> bool {
     false
@@ -531,6 +532,10 @@ impl Environment for TestEnvironment {
     result
   }
 
+  fn is_ci(&self) -> bool {
+    false
+  }
+
   fn is_verbose(&self) -> bool {
     *self.is_verbose.lock()
   }
@@ -542,6 +547,10 @@ impl Environment for TestEnvironment {
 
   fn wasm_cache_key(&self) -> String {
     self.cpu_arch()
+  }
+
+  async fn cpu_usage(&self) -> u8 {
+    20
   }
 
   fn stdout(&self) -> Box<dyn Write + Send> {

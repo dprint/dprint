@@ -5,7 +5,6 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::NullCancellationToken;
 use std::borrow::Cow;
-use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -31,12 +30,6 @@ struct TaskWork {
   file_paths: Vec<PathBuf>,
 }
 
-struct StoredSemaphore {
-  finished: bool,
-  permits: usize,
-  semaphore: Rc<Semaphore>,
-}
-
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct EnsureStableFormat(pub bool);
 
@@ -58,7 +51,7 @@ where
   let number_process_plugins = scope_and_paths.scope.process_plugin_count();
   let reduction_count = number_process_plugins + 1; // + 1 for each process plugin's possible runtime thread and this runtime's thread
   let number_threads = if max_threads > reduction_count { max_threads - reduction_count } else { 1 };
-  log_verbose!(environment, "Max threads: {}\nThread count: {}", max_threads, number_threads);
+  log_verbose!(environment, "Max threads: {}\nThread count: {}", max_threads, number_threads,);
 
   let error_logger = ErrorCountLogger::from_environment(environment);
 
@@ -74,11 +67,7 @@ where
     let additional_thread = i < number_threads % collection_count;
     let permits = number_threads / collection_count + if additional_thread { 1 } else { 0 };
     let semaphore = Rc::new(Semaphore::new(permits));
-    semaphores.push(StoredSemaphore {
-      finished: false,
-      permits,
-      semaphore: semaphore.clone(),
-    });
+    semaphores.push(semaphore.clone());
     task_works.push(TaskWork {
       semaphore,
       plugins,
@@ -86,7 +75,16 @@ where
     });
   }
 
-  let semaphores = Rc::new(RefCell::new(semaphores));
+  let semaphores = Rc::new(semaphores);
+  let cpu_task_token = CancellationToken::new();
+
+  dprint_core::async_runtime::spawn({
+    let semaphores = semaphores.clone();
+    let environment = environment.clone();
+    let cpu_task_token = cpu_task_token.clone();
+    async move { run_cpu_throttling_task(&environment, number_threads, &semaphores, cpu_task_token).await }
+  });
+
   let handles = task_works.into_iter().enumerate().map(|(index, task_work)| {
     dprint_core::async_runtime::spawn({
       let error_logger = error_logger.clone();
@@ -170,6 +168,8 @@ where
     })
   });
   future::join_all(handles).await;
+
+  cpu_task_token.cancel();
 
   let error_count = error_logger.get_error_count();
   return if error_count == 0 {
@@ -308,31 +308,210 @@ where
   }
 }
 
+fn target_cpu_decrease_bound(number_threads: usize) -> u8 {
+  if number_threads < 3 {
+    100 // never decrease
+  } else if number_threads >= 50 {
+    97
+  } else {
+    std::cmp::max((100f64 - 100f64 / (number_threads as f64)) as u8, 50)
+  }
+}
+
+fn target_cpu_increase_bound(number_threads: usize) -> u8 {
+  if number_threads < 3 {
+    0 // never increase
+  } else if number_threads >= 50 {
+    95
+  } else {
+    let target_cpu = target_cpu_decrease_bound(number_threads);
+    let ratio = number_threads as f64 / 60f64;
+    let target_cpu = target_cpu - std::cmp::min((5f64 * (1f64 - ratio)) as u8, target_cpu);
+    target_cpu - std::cmp::min(target_cpu, (100f64 / number_threads as f64) as u8)
+  }
+}
+
+async fn run_cpu_throttling_task(environment: &impl Environment, number_threads: usize, semaphores: &[Rc<Semaphore>], cpu_task_token: CancellationToken) {
+  if environment.is_ci() {
+    // don't bother doing this on the CI as we should be the only thing running
+    return;
+  }
+
+  // It's ok to go full out for a few seconds on the person's machine
+  // when they initially start formatting, but as they take a few seconds
+  // to switch to do something else, we should then start throttling the CPU
+  tokio::select! {
+    _ = cpu_task_token.cancelled() => {
+      return; // exit
+    }
+    _ = tokio::time::sleep(Duration::from_secs(5)) => {
+    }
+  }
+
+  let mut throttled_times = 0;
+  let decrease_bound = target_cpu_decrease_bound(number_threads);
+  let increase_bound = target_cpu_increase_bound(number_threads);
+  let mut last_cpu_usage = 0;
+
+  // now check the CPU usage every few seconds and throttle
+  // the amount of work being done so that we don't completely
+  // takeover someone's computer
+  loop {
+    let cpu_usage = environment.cpu_usage().await;
+    log_verbose!(environment, "CPU usage: {}%", cpu_usage);
+    if cpu_usage > decrease_bound {
+      if throttle_cpu(semaphores).await {
+        log_verbose!(environment, "High CPU. Reducing parallelism.");
+        throttled_times += 1;
+      }
+    } else if throttled_times > 0 && last_cpu_usage < increase_bound && cpu_usage < increase_bound {
+      // Whatever was running in the background might
+      // not be using as much CPU at this point, so increase
+      // the permits
+      add_permits(semaphores, 1);
+      throttled_times -= 1;
+      log_verbose!(environment, "Low CPU. Increasing parallelism.");
+    }
+    last_cpu_usage = cpu_usage;
+
+    // wait a couple seconds before re-checking cpu usage
+    tokio::select! {
+      _ = cpu_task_token.cancelled() => {
+        return; // exit
+      }
+      _ = tokio::time::sleep(Duration::from_secs(2)) => {
+      }
+    }
+  }
+}
+
+async fn throttle_cpu(semaphores: &[Rc<Semaphore>]) -> bool {
+  let mut best_match: Option<&Rc<Semaphore>> = None;
+  let mut total_max_permits = 0;
+  for semaphore in semaphores.iter() {
+    if semaphore.closed() || semaphore.max_permits() == 0 {
+      continue;
+    }
+    if semaphore.acquired_permits() > semaphore.max_permits() {
+      // The previous adjustment hasn't yet been applied. Wait for that
+      // to complete so we don't over scale down.
+      best_match = None;
+      break;
+    }
+    total_max_permits += semaphore.max_permits();
+
+    match &best_match {
+      Some(current_best_match) => {
+        if current_best_match.max_permits() < semaphore.max_permits() {
+          best_match = Some(semaphore);
+        }
+      }
+      None => {
+        best_match = Some(semaphore);
+      }
+    }
+  }
+
+  // always ensure there will be at least 1 permit running
+  if total_max_permits <= 1 {
+    return false;
+  }
+
+  match best_match {
+    Some(best_match) => {
+      best_match.remove_permits(1);
+      true
+    }
+    None => false,
+  }
+}
+
 /// Ensures all semaphores are released on drop
 /// so that other threads can do more work.
 struct SemaphorePermitReleaser {
   index: usize,
-  semaphores: Rc<RefCell<Vec<StoredSemaphore>>>,
+  semaphores: Rc<Vec<Rc<Semaphore>>>,
 }
 
 impl Drop for SemaphorePermitReleaser {
   fn drop(&mut self) {
     // release the permits to other semaphores so other tasks start doing more work
-    let mut semaphores = self.semaphores.borrow_mut();
-    semaphores[self.index].finished = true;
-    let permits = semaphores[self.index].permits;
-    let mut remaining_semaphores = semaphores.iter_mut().filter(|s| !s.finished).collect::<Vec<_>>();
-    // favour giving permits to tasks with less permits... this should more ideally
-    // give permits to batches that look like they will take the longest to complete
-    remaining_semaphores.sort_by_key(|s| s.permits);
-    let remaining_len = remaining_semaphores.len();
-    for (i, semaphore) in remaining_semaphores.iter_mut().enumerate() {
-      let additional_permit = i < permits % remaining_len;
-      let new_permits = permits / remaining_len + if additional_permit { 1 } else { 0 };
-      if new_permits > 0 {
-        semaphore.permits += new_permits;
-        semaphore.semaphore.add_permits(new_permits);
-      }
+    self.semaphores[self.index].close();
+    let amount = self.semaphores[self.index].max_permits();
+    add_permits(&self.semaphores, amount)
+  }
+}
+
+fn add_permits(semaphores: &[Rc<Semaphore>], amount: usize) {
+  let mut remaining_semaphores = semaphores.iter().filter(|s| !s.closed()).collect::<Vec<_>>();
+  // favour giving permits to tasks with less permits... this should more ideally
+  // give permits to batches that look like they will take the longest to complete
+  remaining_semaphores.sort_by_key(|s| s.max_permits());
+  let remaining_len = remaining_semaphores.len();
+  for (i, semaphore) in remaining_semaphores.iter_mut().enumerate() {
+    let additional_permit = i < amount % remaining_len;
+    let new_permits = amount / remaining_len + if additional_permit { 1 } else { 0 };
+    if new_permits > 0 {
+      semaphore.add_permits(new_permits);
     }
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use std::rc::Rc;
+
+  use super::*;
+  use crate::utils::Semaphore;
+
+  #[test]
+  fn target_cpu_calc() {
+    run_test(0, 0..100);
+    run_test(1, 0..100);
+    run_test(2, 0..100);
+    run_test(3, 29..66);
+    run_test(4, 46..75);
+    run_test(5, 56..80);
+    run_test(8, 71..87);
+    run_test(10, 76..90);
+    run_test(20, 87..95);
+    run_test(30, 91..96);
+    run_test(40, 94..97);
+    run_test(49, 95..97);
+    run_test(50, 95..97);
+    run_test(100, 95..97);
+    run_test(200, 95..97);
+
+    #[track_caller]
+    fn run_test(input: usize, bound: std::ops::Range<u8>) {
+      let increase_bound = target_cpu_increase_bound(input);
+      let decrease_bound = target_cpu_decrease_bound(input);
+      assert_eq!(increase_bound..decrease_bound, bound);
+    }
+  }
+
+  #[tokio::test]
+  async fn test_throttle_cpu() {
+    let semaphore1 = Rc::new(Semaphore::new(1));
+    let semaphore2 = Rc::new(Semaphore::new(2));
+    let permit1 = semaphore1.acquire().await;
+    let permit2 = semaphore2.acquire().await;
+    let permit3 = semaphore2.acquire().await;
+    let semaphores = vec![semaphore1, semaphore2];
+    assert!(throttle_cpu(&semaphores).await);
+    assert_eq!(semaphores[1].max_permits(), 1);
+    // still a pending removal
+    assert!(!throttle_cpu(&semaphores).await);
+    drop(permit2);
+    assert!(throttle_cpu(&semaphores).await);
+    assert_eq!(semaphores[0].max_permits(), 0);
+    assert_eq!(semaphores[1].max_permits(), 1);
+    // still a pending removal
+    assert!(!throttle_cpu(&semaphores).await);
+    drop(permit3);
+    // only one permit remaining
+    assert!(!throttle_cpu(&semaphores).await);
+    drop(permit1);
+    assert!(!throttle_cpu(&semaphores).await);
   }
 }

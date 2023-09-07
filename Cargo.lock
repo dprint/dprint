@@ -696,6 +696,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "similar",
+ "sysinfo",
  "tempfile",
  "thiserror",
  "tokio",
@@ -1313,6 +1314,15 @@ name = "more-asserts"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7843ec2de400bcbc6a6328c958dc38e5359da6e93e72e37bc5246bf1ae776389"
+
+[[package]]
+name = "ntapi"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8a3895c6391c39d7fe7ebc444a87eb2991b2a0bc718fdabd071eec617fc68e4"
+dependencies = [
+ "winapi",
+]
 
 [[package]]
 name = "num_cpus"
@@ -2042,6 +2052,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "sysinfo"
+version = "0.29.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d10ed79c22663a35a255d289a7fdcb43559fc77ff15df5ce6c341809e7867528"
+dependencies = [
+ "cfg-if",
+ "core-foundation-sys",
+ "libc",
+ "ntapi",
+ "once_cell",
+ "winapi",
 ]
 
 [[package]]
