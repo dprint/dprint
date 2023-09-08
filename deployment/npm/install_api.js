@@ -149,5 +149,16 @@ function atomicCopyFileSync(sourcePath, destinationPath) {
   const rand = crypto.randomBytes(4).toString("hex");
   const tempFilePath = destinationPath + "." + rand;
   fs.copyFileSync(sourcePath, tempFilePath);
-  fs.renameSync(tempFilePath, destinationPath);
+  try {
+    fs.renameSync(tempFilePath, destinationPath);
+  } catch (err) {
+    // will maybe throw when another process had already done this
+    // so just ignore and delete the created temporary file
+    try {
+      fs.unlikSync(tempFilePath);
+    } catch (_err2) {
+      // ignore
+    }
+    throw err;
+  }
 }

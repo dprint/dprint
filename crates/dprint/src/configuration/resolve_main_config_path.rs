@@ -19,10 +19,10 @@ pub struct ResolvedConfigPath {
   pub base_path: CanonicalizedPathBuf,
 }
 
-pub fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<ResolvedConfigPath> {
+pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<ResolvedConfigPath> {
   return Ok(if let Some(config) = &args.config {
     let base_path = environment.cwd();
-    let resolved_path = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), environment)?;
+    let resolved_path = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), environment).await?;
     ResolvedConfigPath { resolved_path, base_path }
   } else {
     get_default_paths(args, environment)?

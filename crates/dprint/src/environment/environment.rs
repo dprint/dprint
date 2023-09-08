@@ -5,21 +5,17 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
+use dprint_core::async_runtime::async_trait;
+
 use crate::plugins::CompilationResult;
 use crate::utils::ProgressBars;
 
 use super::CanonicalizedPathBuf;
 
 #[derive(Debug)]
-pub struct DirEntry {
-  pub kind: DirEntryKind,
-  pub path: PathBuf,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum DirEntryKind {
-  Directory,
-  File,
+pub enum DirEntry {
+  Directory(PathBuf),
+  File { name: std::ffi::OsString, path: PathBuf },
 }
 
 #[derive(Debug, Clone)]
@@ -43,16 +39,18 @@ pub struct TestFilePermissions {
   pub readonly: bool,
 }
 
+#[async_trait(?Send)]
 pub trait UrlDownloader {
-  fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>>;
-  fn download_file_err_404(&self, url: &str) -> Result<Vec<u8>> {
-    match self.download_file(url)? {
+  async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>>;
+  async fn download_file_err_404(&self, url: &str) -> Result<Vec<u8>> {
+    match self.download_file(url).await? {
       Some(result) => Ok(result),
       None => bail!("Error downloading {} - 404 Not Found", url),
     }
   }
 }
 
+#[async_trait]
 pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn is_real(&self) -> bool;
   fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String>;
@@ -110,11 +108,14 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize>;
   fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>>;
   fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool>;
+  fn is_ci(&self) -> bool;
   fn is_verbose(&self) -> bool;
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult>;
+  fn wasm_cache_key(&self) -> String;
+  /// Returns the current CPU usage as a value from 0-100.
+  async fn cpu_usage(&self) -> u8;
   fn stdout(&self) -> Box<dyn Write + Send>;
   fn stdin(&self) -> Box<dyn Read + Send>;
-  fn runtime_handle(&self) -> tokio::runtime::Handle;
   fn progress_bars(&self) -> Option<ProgressBars> {
     None
   }
@@ -126,11 +127,11 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
 
 // use a macro here so the expression provided is only evaluated when in verbose mode
 macro_rules! log_verbose {
-    ($logger:expr, $($arg:tt)*) => {
-        if $logger.is_verbose() {
-            let mut text = String::from("[VERBOSE] ");
-            text.push_str(&format!($($arg)*));
-            $logger.log_stderr(&text);
-        }
+  ($logger:expr, $($arg:tt)*) => {
+    if $logger.is_verbose() {
+      let mut text = String::from("[VERBOSE] ");
+      text.push_str(&format!($($arg)*));
+      $logger.log_stderr(&text);
     }
+  }
 }

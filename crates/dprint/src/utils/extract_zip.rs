@@ -41,6 +41,7 @@ pub fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &Path, environment
             use std::os::unix::fs::PermissionsExt;
 
             if let Some(mode) = file.unix_mode() {
+              #[allow(clippy::disallowed_methods)]
               fs::set_permissions(&file_path, fs::Permissions::from_mode(mode))
                 .map_err(|err| anyhow::anyhow!("Error setting permissions to {} for file {}: {:#}", mode, file_path.display(), err))?
             }

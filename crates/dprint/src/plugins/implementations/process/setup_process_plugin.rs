@@ -1,7 +1,6 @@
 use anyhow::bail;
 use anyhow::Result;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
-use dprint_core::plugins::NoopHost;
 use dprint_core::plugins::PluginInfo;
 use serde::Deserialize;
 use serde::Serialize;
@@ -9,7 +8,6 @@ use serde_json::Value;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str;
-use std::sync::Arc;
 
 use crate::environment::Environment;
 use crate::plugins::implementations::SetupPluginResult;
@@ -48,7 +46,7 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
   plugin_file_bytes: &[u8],
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
-  let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment)?;
+  let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment).await?;
   let plugin_cache_dir_path = get_plugin_dir_path(&plugin_zip_bytes.name, &plugin_zip_bytes.version, environment);
 
   let result = setup_inner(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment).await;
@@ -83,18 +81,12 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
     }
 
     let executable_path = super::get_test_safe_executable_path(plugin_executable_file_path.clone(), environment);
-    let communicator = ProcessPluginCommunicator::new_with_init(
-      &executable_path,
-      {
-        let environment = environment.clone();
-        move |error_message| {
-          environment.log_stderr_with_context(&error_message, &plugin_name);
-        }
-      },
-      // it's ok to use a no-op host here because
-      // we're only getting the plugin information
-      Arc::new(NoopHost),
-    )
+    let communicator = ProcessPluginCommunicator::new_with_init(&executable_path, {
+      let environment = environment.clone();
+      move |error_message| {
+        environment.log_stderr_with_context(&error_message, &plugin_name);
+      }
+    })
     .await?;
     let plugin_info = communicator.plugin_info().await?;
     communicator.shutdown().await;
@@ -145,7 +137,7 @@ struct ProcessPluginZipBytes {
   zip_bytes: Vec<u8>,
 }
 
-fn get_plugin_zip_bytes<TEnvironment: Environment>(
+async fn get_plugin_zip_bytes<TEnvironment: Environment>(
   url_or_file_path: &PathSource,
   plugin_file_bytes: &[u8],
   environment: &TEnvironment,
@@ -153,7 +145,7 @@ fn get_plugin_zip_bytes<TEnvironment: Environment>(
   let plugin_file = deserialize_file(plugin_file_bytes)?;
   let plugin_path = get_os_path(&plugin_file, environment)?;
   let plugin_zip_path = resolve_url_or_file_path_to_path_source(&plugin_path.reference, &url_or_file_path.parent(), environment)?;
-  let plugin_zip_bytes = fetch_file_or_url_bytes(&plugin_zip_path, environment)?;
+  let plugin_zip_bytes = fetch_file_or_url_bytes(&plugin_zip_path, environment).await?;
   if let Err(err) = verify_sha256_checksum(&plugin_zip_bytes, &plugin_path.checksum) {
     bail!(
       concat!(
@@ -197,8 +189,10 @@ fn verify_plugin_file(plugin_file: &Value) -> Result<()> {
 
   let kind = plugin_file.as_object().and_then(|o| o.get("kind")).and_then(|v| v.as_str());
 
-  if kind.is_some() && kind != Some("process") {
-    bail!("Only process plugins are supported by this version of dprint. Please upgrade your CLI.");
+  if let Some(kind) = kind {
+    if kind != "process" {
+      bail!("Unsupported plugin kind: {kind}\nOnly process plugins are supported by this version of dprint. Please upgrade your CLI.");
+    }
   }
 
   Ok(())
@@ -251,7 +245,7 @@ mod test {
         .err()
         .unwrap()
         .to_string(),
-      "Only process plugins are supported by this version of dprint. Please upgrade your CLI.",
+      "Unsupported plugin kind: other\nOnly process plugins are supported by this version of dprint. Please upgrade your CLI.",
     );
   }
 }

@@ -1,5 +1,7 @@
 use anyhow::bail;
 use anyhow::Result;
+use dprint_core::async_runtime::FutureExt;
+use dprint_core::async_runtime::LocalBoxFuture;
 use parking_lot::RwLock;
 use std::path::PathBuf;
 
@@ -68,7 +70,7 @@ where
       PathSource::Remote(_) => self.get_plugin(source_reference, false, download_url).await,
       PathSource::Local(_) => {
         if let Some(manifest_item) = self.manifest.get(&source_reference.path_source)? {
-          let file_bytes = get_file_bytes(source_reference.path_source.clone(), self.environment.clone())?;
+          let file_bytes = get_file_bytes(source_reference.path_source.clone(), self.environment.clone()).await?;
           let file_hash = get_bytes_hash(&file_bytes);
           let cache_file_hash = match &manifest_item.file_hash {
             Some(file_hash) => *file_hash,
@@ -94,7 +96,7 @@ where
     &self,
     source_reference: &PluginSourceReference,
     include_file_hash: bool,
-    read_bytes: impl Fn(PathSource, TEnvironment) -> Result<Vec<u8>>,
+    read_bytes: impl Fn(PathSource, TEnvironment) -> LocalBoxFuture<'static, Result<Vec<u8>>>,
   ) -> Result<PluginCacheItem> {
     if let Some(item) = self.get_plugin_cache_item_from_cache(&source_reference.path_source)? {
       return Ok(item);
@@ -110,7 +112,7 @@ where
     }
 
     // get bytes
-    let file_bytes = read_bytes(source_reference.path_source.clone(), self.environment.clone())?;
+    let file_bytes = read_bytes(source_reference.path_source.clone(), self.environment.clone()).await?;
 
     // check checksum only if provided (not required for Wasm plugins)
     if let Some(checksum) = &source_reference.checksum {
@@ -125,17 +127,18 @@ where
         concat!(
           "The plugin must have a checksum specified for security reasons ",
           "since it is not a Wasm plugin. Check the plugin's release notes for what ",
-          "the checksum is or if you trust the source, you may specify \"{}@{}\"."
+          "the checksum is or if you trust the source, you may specify: {}@{}"
         ),
         source_reference.path_source.display(),
         get_sha256_checksum(&file_bytes),
       );
     }
 
-    let setup_result = setup_plugin(&source_reference.path_source, &file_bytes, &self.environment).await?;
+    let file_hash = if include_file_hash { Some(get_bytes_hash(&file_bytes)) } else { None };
+    let setup_result = setup_plugin(&source_reference.path_source, file_bytes, &self.environment).await?;
     let cache_item = PluginCacheManifestItem {
       info: setup_result.plugin_info.clone(),
-      file_hash: if include_file_hash { Some(get_bytes_hash(&file_bytes)) } else { None },
+      file_hash,
       created_time: self.environment.get_time_secs(),
     };
 
@@ -191,7 +194,11 @@ impl<TEnvironment: Environment> ConcurrentPluginCacheManifest<TEnvironment> {
   }
 
   pub fn reload_from_disk(&self) {
-    *self.manifest.write() = read_manifest(&self.environment);
+    // ensure the lock is held while reading from the file system
+    // in order to prevent another thread writing to the file system
+    // at the same time
+    let mut manifest = self.manifest.write();
+    *manifest = read_manifest(&self.environment);
   }
 
   fn get_cache_key(&self, path_source: &PathSource) -> Result<String> {
@@ -205,12 +212,12 @@ impl<TEnvironment: Environment> ConcurrentPluginCacheManifest<TEnvironment> {
   }
 }
 
-fn download_url<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>> {
-  environment.download_file_err_404(path_source.unwrap_remote().url.as_str())
+fn download_url<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> LocalBoxFuture<'static, Result<Vec<u8>>> {
+  async move { environment.download_file_err_404(path_source.unwrap_remote().url.as_str()).await }.boxed_local()
 }
 
-fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> Result<Vec<u8>> {
-  environment.read_file_bytes(path_source.unwrap_local().path)
+fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> LocalBoxFuture<'static, Result<Vec<u8>>> {
+  async move { environment.read_file_bytes(path_source.unwrap_local().path) }.boxed_local()
 }
 
 #[cfg(test)]
@@ -246,7 +253,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":7,"wasmCacheVersion":"4.0.0","plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
+      r#"{"schemaVersion":8,"wasmCacheVersion":"4.0.0","plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
     );
 
     // should forget it afterwards
@@ -256,7 +263,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":7,"wasmCacheVersion":"4.0.0","plugins":{}}"#,
+      r#"{"schemaVersion":8,"wasmCacheVersion":"4.0.0","plugins":{}}"#,
     );
 
     Ok(())
@@ -287,9 +294,9 @@ mod test {
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
       concat!(
-        r#"{"schemaVersion":7,"wasmCacheVersion":"4.0.0","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":10632242795325663332,"info":{"#,
+        r#"{"schemaVersion":8,"wasmCacheVersion":"4.0.0","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":10632242795325663332,"info":{"#,
         r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
-        r#""fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
+        r#""helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
       )
     );
 
@@ -309,9 +316,9 @@ mod test {
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
       concat!(
-        r#"{"schemaVersion":7,"wasmCacheVersion":"4.0.0","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":6989588595861227504,"info":{"#,
+        r#"{"schemaVersion":8,"wasmCacheVersion":"4.0.0","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":6989588595861227504,"info":{"#,
         r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
-        r#""fileExtensions":["txt","dat"],"fileNames":[],"helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
+        r#""helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
       )
     );
 
@@ -324,7 +331,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":7,"wasmCacheVersion":"4.0.0","plugins":{}}"#,
+      r#"{"schemaVersion":8,"wasmCacheVersion":"4.0.0","plugins":{}}"#,
     );
 
     Ok(())
@@ -342,8 +349,6 @@ mod test {
       name: String::from("test-plugin"),
       version: String::from("0.1.0"),
       config_key: String::from("test-plugin"),
-      file_extensions: vec![String::from("txt"), String::from("dat")],
-      file_names: vec![],
       help_url: String::from("test-url"),
       config_schema_url: String::from("schema-url"),
       update_url: Some(String::from("update-url")),

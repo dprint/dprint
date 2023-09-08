@@ -18,7 +18,7 @@ use crate::utils::latest_cli_version;
 // released one, then run `./target/debug/dprint upgrade --verbose`.
 
 pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> Result<()> {
-  let latest_version = latest_cli_version(environment).context("Error fetching latest CLI version.")?;
+  let latest_version = latest_cli_version(environment).await.context("Error fetching latest CLI version.")?;
   let current_version = environment.cli_version();
   if current_version == latest_version {
     environment.log(&format!("Already on latest version {}", latest_version));
@@ -60,7 +60,7 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
   let zip_filename = format!("dprint-{}-{}.zip", arch, zip_suffix);
   let zip_url = format!("https://github.com/dprint/dprint/releases/download/{}/{}", latest_version, zip_filename);
 
-  let zip_bytes = environment.download_file_err_404(&zip_url)?;
+  let zip_bytes = environment.download_file_err_404(&zip_url).await?;
   let old_executable = exe_path.with_extension("old.exe");
 
   if !environment.is_real() {

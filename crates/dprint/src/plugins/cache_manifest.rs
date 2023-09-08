@@ -9,7 +9,7 @@ use dprint_core::plugins::PluginInfo;
 use super::implementations::WASMER_COMPILER_VERSION;
 use crate::environment::Environment;
 
-const PLUGIN_CACHE_SCHEMA_VERSION: usize = 7;
+const PLUGIN_CACHE_SCHEMA_VERSION: usize = 8;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -135,7 +135,7 @@ mod test {
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
         r#"{
-    "schemaVersion": 7,
+    "schemaVersion": 8,
     "wasmCacheVersion": "99.9.9",
     "plugins": {
         "a": {
@@ -144,7 +144,6 @@ mod test {
                 "name": "dprint-plugin-typescript",
                 "version": "0.1.0",
                 "configKey": "typescript",
-                "fileExtensions": [".ts"],
                 "helpUrl": "help url",
                 "configSchemaUrl": "schema url"
             }
@@ -156,7 +155,6 @@ mod test {
                 "name": "dprint-plugin-json",
                 "version": "0.2.0",
                 "configKey": "json",
-                "fileExtensions": [".json"],
                 "helpUrl": "help url 2",
                 "configSchemaUrl": "schema url 2"
             }
@@ -168,8 +166,6 @@ mod test {
                 "name": "dprint-plugin-cargo",
                 "version": "0.2.1",
                 "configKey": "cargo",
-                "fileExtensions": [],
-                "fileNames": ["Cargo.toml"],
                 "helpUrl": "cargo help url",
                 "configSchemaUrl": "cargo schema url",
                 "updateUrl": "cargo update url"
@@ -192,8 +188,6 @@ mod test {
           name: "dprint-plugin-typescript".to_string(),
           version: "0.1.0".to_string(),
           config_key: "typescript".to_string(),
-          file_extensions: vec![".ts".to_string()],
-          file_names: vec![],
           help_url: "help url".to_string(),
           config_schema_url: "schema url".to_string(),
           update_url: None,
@@ -209,8 +203,6 @@ mod test {
           name: "dprint-plugin-json".to_string(),
           version: "0.2.0".to_string(),
           config_key: "json".to_string(),
-          file_extensions: vec![".json".to_string()],
-          file_names: vec![],
           help_url: "help url 2".to_string(),
           config_schema_url: "schema url 2".to_string(),
           update_url: None,
@@ -226,8 +218,6 @@ mod test {
           name: "dprint-plugin-cargo".to_string(),
           version: "0.2.1".to_string(),
           config_key: "cargo".to_string(),
-          file_extensions: vec![],
-          file_names: vec!["Cargo.toml".to_string()],
           help_url: "cargo help url".to_string(),
           config_schema_url: "cargo schema url".to_string(),
           update_url: Some("cargo update url".to_string()),
@@ -245,7 +235,7 @@ mod test {
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
         r#"{
-    "schemaVersion": 7,
+    "schemaVersion": 8,
     "wasmCacheVersion": "0.1.0",
     "plugins": {
         "a": {
@@ -254,7 +244,6 @@ mod test {
                 "name": "dprint-plugin-typescript",
                 "version": "0.1.0",
                 "configKey": "typescript",
-                "fileExtensions": [".ts"],
                 "helpUrl": "help url",
                 "configSchemaUrl": "schema url"
             }
@@ -283,7 +272,6 @@ mod test {
             "info": {
                 "name": "dprint-plugin-typescript",
                 "version": "0.1.0",
-                "configKey": "typescript",
                 "fileExtensions": [".ts"],
                 "helpUrl": "help url",
                 "configSchemaUrl": "schema url"
@@ -332,8 +320,6 @@ mod test {
           name: "dprint-plugin-typescript".to_string(),
           version: "0.1.0".to_string(),
           config_key: "typescript".to_string(),
-          file_extensions: vec![".ts".to_string()],
-          file_names: vec![],
           help_url: "help url".to_string(),
           config_schema_url: "schema url".to_string(),
           update_url: Some("update url".to_string()),
@@ -349,8 +335,6 @@ mod test {
           name: "dprint-plugin-json".to_string(),
           version: "0.2.0".to_string(),
           config_key: "json".to_string(),
-          file_extensions: vec![".json".to_string()],
-          file_names: vec!["file.test".to_string()],
           help_url: "help url 2".to_string(),
           config_schema_url: "schema url 2".to_string(),
           update_url: None,

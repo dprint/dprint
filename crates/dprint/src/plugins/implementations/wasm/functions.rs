@@ -1,5 +1,6 @@
 use anyhow::bail;
 use anyhow::Result;
+use wasmer::Engine;
 use wasmer::Instance;
 use wasmer::Memory;
 use wasmer::MemoryView;
@@ -10,6 +11,8 @@ use wasmer::WasmPtr;
 use wasmer::WasmTypeList;
 
 use dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION;
+
+use super::load_instance::WasmInstance;
 
 pub enum WasmFormatResult {
   NoChange = 0,
@@ -32,11 +35,14 @@ pub struct WasmFunctions {
   store: Store,
   instance: Instance,
   memory: Memory,
+  // keep this alive for the duration of the engine otherwise it
+  // could be cleaned up before the instance is dropped
+  _engine: Engine,
 }
 
 impl WasmFunctions {
-  pub fn new(mut store: Store, instance: Instance) -> Result<Self> {
-    match get_plugin_schema_version(&mut store, &instance) {
+  pub fn new(mut store: Store, instance: WasmInstance) -> Result<Self> {
+    match get_plugin_schema_version(&mut store, &instance.inner) {
       Ok(plugin_schema_version) => {
         if plugin_schema_version != PLUGIN_SYSTEM_SCHEMA_VERSION {
           bail!(
@@ -53,9 +59,14 @@ impl WasmFunctions {
         );
       }
     }
-    let memory = instance.exports.get_memory("memory")?.clone();
+    let memory = instance.inner.exports.get_memory("memory")?.clone();
 
-    Ok(WasmFunctions { instance, memory, store })
+    Ok(WasmFunctions {
+      instance: instance.inner,
+      memory,
+      store,
+      _engine: instance.engine,
+    })
   }
 
   #[inline]

@@ -1,17 +1,16 @@
 use anyhow::bail;
 use anyhow::Result;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use dprint_core::plugins::PluginInfo;
 
 use super::process;
 use super::wasm;
+use super::WasmModuleCreator;
 use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginSourceReference;
-use crate::plugins::PluginsCollection;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 
@@ -22,12 +21,12 @@ pub struct SetupPluginResult {
 
 pub async fn setup_plugin<TEnvironment: Environment>(
   url_or_file_path: &PathSource,
-  file_bytes: &[u8],
+  file_bytes: Vec<u8>,
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
   match url_or_file_path.plugin_kind() {
-    Some(PluginKind::Wasm) => wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment),
-    Some(PluginKind::Process) => process::setup_process_plugin(url_or_file_path, file_bytes, environment).await,
+    Some(PluginKind::Wasm) => wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment).await,
+    Some(PluginKind::Process) => process::setup_process_plugin(url_or_file_path, &file_bytes, environment).await,
     None => {
       bail!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
     }
@@ -60,10 +59,10 @@ pub fn cleanup_plugin<TEnvironment: Environment>(url_or_file_path: &PathSource, 
 }
 
 pub async fn create_plugin<TEnvironment: Environment>(
-  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
   plugin_cache: &PluginCache<TEnvironment>,
   environment: TEnvironment,
   plugin_reference: &PluginSourceReference,
+  wasm_module_creator: &WasmModuleCreator,
 ) -> Result<Box<dyn Plugin>> {
   let cache_item = match plugin_cache.get_plugin_cache_item(plugin_reference).await {
     Ok(cache_item) => cache_item,
@@ -96,7 +95,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
         }
       };
 
-      Ok(Box::new(wasm::WasmPlugin::new(&file_bytes, cache_item.info, environment, plugins_collection)?))
+      Ok(Box::new(wasm::WasmPlugin::new(&file_bytes, cache_item.info, wasm_module_creator, environment)?))
     }
     Some(PluginKind::Process) => {
       let cache_item = if !environment.path_exists(&cache_item.file_path) {
@@ -113,12 +112,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
       };
 
       let executable_path = super::process::get_test_safe_executable_path(cache_item.file_path, &environment);
-      Ok(Box::new(process::ProcessPlugin::new(
-        environment,
-        executable_path,
-        cache_item.info,
-        plugins_collection,
-      )))
+      Ok(Box::new(process::ProcessPlugin::new(environment, executable_path, cache_item.info)))
     }
     None => {
       bail!("Could not resolve plugin type from url or file path: {}", plugin_reference.display());

@@ -1,4 +1,4 @@
-import $ from "https://deno.land/x/dax@0.32.0/mod.ts";
+import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
 import { decompress } from "https://deno.land/x/zip@v1.2.5/decompress.ts";
 
 interface Package {
@@ -88,9 +88,9 @@ if (version == null) {
       .map(pkg => `@dprint/${getPackageNameNoScope(pkg)}`)
       .reduce((obj, pkgName) => ({ ...obj, [pkgName]: version }), {}),
   };
-  currentDir.join("bin.js").copyFileSync(dprintDir.join("bin.js"));
-  currentDir.join("install_api.js").copyFileSync(dprintDir.join("install_api.js"));
-  currentDir.join("install.js").copyFileSync(dprintDir.join("install.js"));
+  currentDir.join("bin.js").copyFileToDirSync(dprintDir);
+  currentDir.join("install_api.js").copyFileToDirSync(dprintDir);
+  currentDir.join("install.js").copyFileToDirSync(dprintDir);
   dprintDir.join("package.json").writeJsonPrettySync(pkgJson);
   rootDir.join("LICENSE").copyFileSync(dprintDir.join("LICENSE"));
   dprintDir.join("README.md").writeTextSync(markdownText);
@@ -118,7 +118,6 @@ if (version == null) {
       "name": `@dprint/${pkgName}`,
       "version": version,
       "description": `${pkgName} distribution of the dprint code formatter`,
-      "bin": "bin.js",
       "repository": {
         "type": "git",
         "url": "git+https://github.com/dprint/dprint.git",

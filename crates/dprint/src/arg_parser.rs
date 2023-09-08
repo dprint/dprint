@@ -27,7 +27,7 @@ impl CliArgs {
     // these output json or other text that's read by stdout
     matches!(
       self.sub_command,
-      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig
+      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig | SubCommand::Completions(..)
     )
   }
 
@@ -56,6 +56,7 @@ pub enum SubCommand {
   EditorInfo,
   EditorService(EditorServiceSubCommand),
   StdInFmt(StdInFmtSubCommand),
+  Completions(clap_complete::Shell),
   Upgrade,
   #[cfg(target_os = "windows")]
   Hidden(HiddenSubCommand),
@@ -131,7 +132,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
 fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: TStdInReader) -> Result<CliArgs> {
   // this is all done because clap doesn't output exactly how I like
   if args.len() == 1 || (args.len() == 2 && (args[1] == "help" || args[1] == "--help")) {
-    let mut cli_parser = create_cli_parser(/* is outputting help */ true);
+    let mut cli_parser = create_cli_parser(CliArgParserKind::ForOutputtingMainHelp);
     cli_parser.try_get_matches_from_mut(vec![""])?;
     let help_text = format!("{}", cli_parser.render_help());
     return Ok(CliArgs::new_with_sub_command(SubCommand::Help(help_text)));
@@ -139,7 +140,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     return Ok(CliArgs::new_with_sub_command(SubCommand::Version));
   }
 
-  let cli_parser = create_cli_parser(false);
+  let cli_parser = create_cli_parser(CliArgParserKind::Default);
   let matches = match cli_parser.try_get_matches_from(&args) {
     Ok(result) => result,
     Err(err) => return Err(err.into()),
@@ -195,6 +196,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("editor-service", matches) => SubCommand::EditorService(EditorServiceSubCommand {
       parent_pid: matches.get_one::<String>("parent-pid").and_then(|v| v.parse::<u32>().ok()).unwrap(),
     }),
+    ("completions", matches) => SubCommand::Completions(matches.get_one::<clap_complete::Shell>("shell").unwrap().to_owned()),
     ("upgrade", _) => SubCommand::Upgrade,
     #[cfg(target_os = "windows")]
     ("hidden", matches) => SubCommand::Hidden(match matches.subcommand().unwrap() {
@@ -270,19 +272,28 @@ fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
   Ok(())
 }
 
-fn create_cli_parser(is_outputting_main_help: bool) -> clap::Command {
+#[derive(Default, PartialEq, Eq)]
+pub enum CliArgParserKind {
+  ForOutputtingMainHelp,
+  ForCompletions,
+  #[default]
+  Default,
+}
+
+pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
   use clap::Arg;
   use clap::Command;
-  let app = Command::new("dprint");
+
+  let mut app = Command::new("dprint");
 
   // hack to get this to display the way I want
-  let app = if is_outputting_main_help {
+  app = if kind == CliArgParserKind::ForOutputtingMainHelp {
     app.disable_help_subcommand(true).disable_version_flag(true).disable_help_flag(true)
   } else {
     app.subcommand_required(true)
   };
 
-  app
+  app = app
     .bin_name("dprint")
     .version(env!("CARGO_PKG_VERSION"))
     .author("Copyright 2020-2023 by David Sherret")
@@ -421,6 +432,14 @@ EXAMPLES:
         .about("Upgrades the dprint executable.")
     )
     .subcommand(
+      Command::new("completions").about("Generate shell completions script for dprint").arg(
+        Arg::new("shell")
+          .action(clap::ArgAction::Set)
+          .value_parser(clap::value_parser!(clap_complete::Shell))
+          .required(true)
+      )
+    )
+    .subcommand(
       Command::new("license")
         .about("Outputs the software license.")
     )
@@ -460,27 +479,19 @@ EXAMPLES:
         .help("Prints additional diagnostic information.")
         .global(true)
         .num_args(0)
-    )
-    .subcommand(
+    );
+
+  #[cfg(target_os = "windows")]
+  if kind == CliArgParserKind::Default {
+    app = app.subcommand(
       Command::new("hidden")
         .hide(true)
-        .subcommand(
-          Command::new("windows-install")
-            .arg(
-              Arg::new("install-path")
-                .num_args(1)
-                .required(true)
-            )
-        )
-        .subcommand(
-          Command::new("windows-uninstall")
-            .arg(
-              Arg::new("install-path")
-                .num_args(1)
-                .required(true)
-            )
-        )
-    )
+        .subcommand(Command::new("windows-install").arg(Arg::new("install-path").num_args(1).required(true)))
+        .subcommand(Command::new("windows-uninstall").arg(Arg::new("install-path").num_args(1).required(true))),
+    );
+  }
+
+  app
 }
 
 trait ClapExtensions {

@@ -1,4 +1,5 @@
 import * as yaml from "https://deno.land/std@0.170.0/encoding/yaml.ts";
+import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
@@ -363,3 +364,5 @@ finalText += yaml.stringify(ci, {
 });
 
 Deno.writeTextFileSync(new URL("./ci.yml", import.meta.url), finalText);
+
+await $`dprint fmt "**/*.yml"`;

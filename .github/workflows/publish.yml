@@ -8,33 +8,33 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == 'dprint/dprint'
     steps:
-    - name: Get tag version
-      id: get_tag_version
-      run: echo ::set-output name=TAG_VERSION::${GITHUB_REF/refs\/tags\//}
+      - name: Get tag version
+        id: get_tag_version
+        run: echo ::set-output name=TAG_VERSION::${GITHUB_REF/refs\/tags\//}
 
-    - name: Checkout
-      uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v2
 
-      # CARGO PUBLISH
-    - uses: dsherret/rust-toolchain-file@v1
-    - name: Cargo login
-      run: cargo login ${{ secrets.CRATES_TOKEN }}
+        # CARGO PUBLISH
+      - uses: dsherret/rust-toolchain-file@v1
+      - name: Cargo login
+        run: cargo login ${{ secrets.CRATES_TOKEN }}
 
-    - name: Cargo publish
-      run: |
-        cd crates/dprint
-        cargo publish
+      - name: Cargo publish
+        run: |
+          cd crates/dprint
+          cargo publish
 
-      # NPM PUBLISH
-    - uses: actions/setup-node@v2
-      with:
-        node-version: '18.x'
-        registry-url: 'https://registry.npmjs.org'
-    - uses: denoland/setup-deno@v1
+        # NPM PUBLISH
+      - uses: actions/setup-node@v2
+        with:
+          node-version: "18.x"
+          registry-url: "https://registry.npmjs.org"
+      - uses: denoland/setup-deno@v1
 
-    - name: npm publish
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      run: |
-        cd deployment/npm
-        deno run -A build.ts ${{steps.get_tag_version.outputs.TAG_VERSION}} --publish
+      - name: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd deployment/npm
+          deno run -A build.ts ${{steps.get_tag_version.outputs.TAG_VERSION}} --publish

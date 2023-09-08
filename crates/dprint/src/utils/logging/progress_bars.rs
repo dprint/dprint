@@ -134,7 +134,7 @@ impl ProgressBars {
     let drawer_id = internal_state.drawer_id;
     let internal_state = self.state.clone();
     let logger = self.logger.clone();
-    tokio::task::spawn_blocking(move || {
+    dprint_core::async_runtime::spawn_blocking(move || {
       loop {
         {
           let internal_state = internal_state.lock();

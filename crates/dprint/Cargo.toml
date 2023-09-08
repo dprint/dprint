@@ -1,6 +1,6 @@
 [package]
 name = "dprint"
-version = "0.38.3"
+version = "0.40.2"
 authors = ["dprint code formatting <david@dprint.dev>"]
 categories = ["development-tools"]
 default-run = "dprint"
@@ -12,18 +12,18 @@ description = "Binary for dprint code formatter—a pluggable and configurable c
 
 [dependencies]
 anyhow = "1.0.69"
-clap = "4.1.4"
+clap = "4.3.8"
+clap_complete = "4.3.1"
 console_static_text = "0.7.1"
 # don't upgrade to 0.26 https://github.com/crossterm-rs/crossterm/issues/752
 crossterm = "0.25.0" # manually retest everything when bumping this crate
 dirs = "4.0.0"
-dprint-core = { path = "../core", version = "0.62.1", features = ["process", "wasm"] }
+dprint-core = { path = "../core", version = "0.63.2", features = ["process", "wasm"] }
 dunce = "1.0.3"
 fs3 = "0.5.0"
-futures = "0.3.26"
 ignore = "0.4.20"
 indexmap = { version = "1.9.2", features = ["serde-1"] }
-jsonc-parser = { version = "0.21.0" }
+jsonc-parser = { version = "0.22.1" }
 once_cell = "1.17.1"
 parking_lot = "0.12.1"
 rand = "0.8.5"
@@ -31,6 +31,8 @@ serde = { version = "1.0.147", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 sha2 = "0.10.6"
 similar = { version = "2.2.1", features = ["inline"] }
+# disable the multi-threading feature of this crate
+sysinfo = { version = "0.29.8", default-features = false }
 thiserror = "1"
 tokio = { version = "1", features = ["rt", "time", "macros", "rt-multi-thread"] }
 tokio-util = { version = "0.7.7" }
