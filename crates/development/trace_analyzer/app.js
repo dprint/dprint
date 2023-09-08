@@ -107,7 +107,7 @@ function getNodeHoverText(node) {
     case "string":
       return `String: ${printItem.content} (${node.printNodeId})`;
     case "anchor":
-      return `Anchor: ${printItem.content} (${node.printNodeId})`;
+      return `Anchor: ${printItem.content.name} (${node.printNodeId})`;
     case "conditionReevaluation":
       return `Condition reevaluation: ${printItem.content.name} (${printItem.content.conditionId}) (${node.printNodeId})`;
   }
