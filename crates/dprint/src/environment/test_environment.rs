@@ -1,6 +1,5 @@
 use anyhow::anyhow;
 use anyhow::bail;
-use anyhow::Error;
 use anyhow::Result;
 use parking_lot::Condvar;
 use parking_lot::Mutex;
@@ -108,7 +107,7 @@ pub struct TestEnvironment {
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>>>>>,
   is_stdout_machine_readable: Arc<Mutex<bool>>,
   wasm_compile_result: Arc<Mutex<Option<CompilationResult>>>,
-  dir_info_error: Arc<Mutex<Option<Error>>>,
+  dir_info_error: Arc<Mutex<Option<std::io::Error>>>,
   std_in_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
   std_out_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
   #[cfg(windows)]
@@ -239,7 +238,7 @@ impl TestEnvironment {
     self.path_dirs.lock().clone()
   }
 
-  pub fn set_dir_info_error(&self, err: Error) {
+  pub fn set_dir_info_error(&self, err: std::io::Error) {
     let mut dir_info_error = self.dir_info_error.lock();
     *dir_info_error = Some(err);
   }
@@ -372,7 +371,7 @@ impl Environment for TestEnvironment {
     Ok(())
   }
 
-  fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>> {
+  fn dir_info(&self, dir_path: impl AsRef<Path>) -> std::io::Result<Vec<DirEntry>> {
     if let Some(err) = self.dir_info_error.lock().take() {
       return Err(err);
     }
