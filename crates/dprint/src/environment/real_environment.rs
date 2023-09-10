@@ -156,20 +156,11 @@ impl Environment for RealEnvironment {
     }
   }
 
-  fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>> {
+  fn dir_info(&self, dir_path: impl AsRef<Path>) -> std::io::Result<Vec<DirEntry>> {
     let mut entries = Vec::new();
 
     #[allow(clippy::disallowed_methods)]
-    let dir_info = match std::fs::read_dir(&dir_path) {
-      Ok(result) => result,
-      Err(err) => {
-        if is_system_volume_error(dir_path.as_ref(), &err) {
-          return Ok(Vec::with_capacity(0));
-        } else {
-          return Err(err.into());
-        }
-      }
-    };
+    let dir_info = std::fs::read_dir(&dir_path)?;
 
     for entry in dir_info {
       let entry = entry?;
@@ -485,13 +476,6 @@ fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> Resul
     Some(dir) => Ok(dir.join("dprint").join("cache")),
     None => bail!("Expected to find cache directory"),
   }
-}
-
-fn is_system_volume_error(dir_path: &Path, err: &std::io::Error) -> bool {
-  // ignore any access denied errors for the system volume information
-  cfg!(target_os = "windows")
-    && matches!(err.raw_os_error(), Some(5))
-    && matches!(dir_path.file_name().and_then(|f| f.to_str()), Some("System Volume Information"))
 }
 
 #[cfg(test)]

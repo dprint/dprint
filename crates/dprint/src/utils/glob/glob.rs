@@ -89,10 +89,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     while let Some(pending_dirs) = self.get_next_pending_dirs() {
       let mut all_entries = Vec::new();
       for current_dir in pending_dirs.into_iter().flatten() {
-        let info_result = self
-          .environment
-          .dir_info(&current_dir)
-          .map_err(|err| anyhow!("Error reading dir '{}': {:#}", current_dir.display(), err));
+        let info_result = self.environment.dir_info(&current_dir);
         match info_result {
           Ok(entries) => {
             if !entries.is_empty() {
@@ -128,8 +125,17 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
             }
           }
           Err(err) => {
-            self.set_glob_error(err);
-            return;
+            let ignore_error = is_system_volume_error(&current_dir, &err);
+            if !ignore_error {
+              if err.kind() == std::io::ErrorKind::PermissionDenied {
+                self
+                  .environment
+                  .log_stderr(&format!("WARNING: Ignoring directory. Permission denied: {}", current_dir.display()));
+              } else {
+                self.set_glob_error(anyhow!("Error reading dir '{}': {:#}", current_dir.display(), err));
+                return;
+              }
+            }
           }
         }
       }
@@ -172,6 +178,13 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     state.pending_entries.push(entries);
     cvar.notify_one();
   }
+}
+
+fn is_system_volume_error(dir_path: &Path, err: &std::io::Error) -> bool {
+  // ignore any access denied errors for the system volume information
+  cfg!(target_os = "windows")
+    && matches!(err.raw_os_error(), Some(5))
+    && matches!(dir_path.file_name().and_then(|f| f.to_str()), Some("System Volume Information"))
 }
 
 struct GlobMatchingProcessor {
@@ -350,7 +363,7 @@ mod test {
   #[tokio::test]
   async fn should_handle_dir_info_erroring() {
     let environment = TestEnvironmentBuilder::new().build();
-    environment.set_dir_info_error(anyhow!("FAILURE"));
+    environment.set_dir_info_error(std::io::Error::new(std::io::ErrorKind::Other, "FAILURE"));
     let root_dir = environment.canonicalize("/").unwrap();
     let err_message = glob(
       &environment,
@@ -363,6 +376,26 @@ mod test {
     .err()
     .unwrap();
     assert_eq!(err_message.to_string(), "Error reading dir '/': FAILURE");
+  }
+
+  #[tokio::test]
+  async fn should_ignore_permission_denied_error() {
+    let environment = TestEnvironmentBuilder::new().build();
+    environment.set_dir_info_error(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Permission denied"));
+    let root_dir = environment.canonicalize("/").unwrap();
+    let result = glob(
+      &environment,
+      "/",
+      GlobPatterns {
+        includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
+        excludes: Vec::new(),
+      },
+    );
+    assert!(result.is_ok());
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["WARNING: Ignoring directory. Permission denied: /".to_string()]
+    );
   }
 
   #[tokio::test]
