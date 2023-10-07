@@ -43,20 +43,20 @@ pub struct RealEnvironmentOptions {
 
 #[derive(Clone)]
 pub struct RealEnvironment {
-  progress_bars: Option<ProgressBars>,
+  progress_bars: Option<Arc<ProgressBars>>,
   url_downloader: Arc<RealUrlDownloader>,
-  logger: Logger,
+  logger: Arc<Logger>,
   system: Arc<Mutex<System>>,
 }
 
 impl RealEnvironment {
   pub fn new(options: RealEnvironmentOptions) -> Result<RealEnvironment> {
-    let logger = Logger::new(&LoggerOptions {
+    let logger = Arc::new(Logger::new(&LoggerOptions {
       initial_context_name: "dprint".to_string(),
       is_stdout_machine_readable: options.is_stdout_machine_readable,
       is_verbose: options.is_verbose,
-    });
-    let progress_bars = ProgressBars::new(&logger);
+    }));
+    let progress_bars = ProgressBars::new(&logger).map(Arc::new);
     let url_downloader = Arc::new(RealUrlDownloader::new(progress_bars.clone(), logger.clone(), |env_var_name| {
       std::env::var(env_var_name).ok()
     })?);
@@ -253,7 +253,7 @@ impl Environment for RealEnvironment {
     action: TCreate,
     total_size: usize,
   ) -> TResult {
-    log_action_with_progress(&self.progress_bars, message, action, total_size)
+    log_action_with_progress(self.progress_bars.as_deref(), message, action, total_size)
   }
 
   fn get_cache_dir(&self) -> CanonicalizedPathBuf {
@@ -375,8 +375,8 @@ impl Environment for RealEnvironment {
     Box::new(std::io::stdin())
   }
 
-  fn progress_bars(&self) -> Option<ProgressBars> {
-    self.progress_bars.clone()
+  fn progress_bars(&self) -> Option<&Arc<ProgressBars>> {
+    self.progress_bars.as_ref()
   }
 
   #[cfg(windows)]

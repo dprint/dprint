@@ -4,7 +4,7 @@ use super::ProgressBarStyle;
 use super::ProgressBars;
 
 pub fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
-  progress_bars: &Option<ProgressBars>,
+  progress_bars: Option<&ProgressBars>,
   message: &str,
   action: TCreate,
   total_size: usize,

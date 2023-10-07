@@ -24,7 +24,8 @@ pub enum ProgressBarStyle {
 
 pub struct ProgressBar {
   id: usize,
-  progress_bars: ProgressBars,
+  logger: Arc<Logger>,
+  state: Arc<Mutex<InternalState>>,
   pos: Arc<RwLock<usize>>,
 }
 
@@ -41,13 +42,21 @@ impl ProgressBar {
   }
 
   pub fn finish(&self) {
-    self.progress_bars.finish_progress(self.id);
+    let mut internal_state = self.state.lock();
+
+    if let Some(index) = internal_state.progress_bars.iter().position(|p| p.id == self.id) {
+      internal_state.progress_bars.remove(index);
+
+      if internal_state.progress_bars.is_empty() {
+        self.logger.remove_refresh_item(LoggerRefreshItemKind::ProgressBars);
+        internal_state.drawer_id += 1;
+      }
+    }
   }
 }
 
-#[derive(Clone)]
 pub struct ProgressBars {
-  logger: Logger,
+  logger: Arc<Logger>,
   state: Arc<Mutex<InternalState>>,
 }
 
@@ -74,7 +83,7 @@ impl ProgressBars {
   }
 
   /// Creates a new ProgressBars or returns None when not supported.
-  pub fn new(logger: &Logger) -> Option<Self> {
+  pub fn new(logger: &Arc<Logger>) -> Option<Self> {
     if ProgressBars::are_supported() {
       Some(ProgressBars {
         logger: logger.clone(),
@@ -103,7 +112,8 @@ impl ProgressBars {
     };
     let pb = ProgressBar {
       id,
-      progress_bars: self.clone(),
+      logger: self.logger.clone(),
+      state: self.state.clone(),
       pos,
     };
     internal_state.progress_bars.push(pb_state);
@@ -114,19 +124,6 @@ impl ProgressBars {
     }
 
     pb
-  }
-
-  fn finish_progress(&self, progress_bar_id: usize) {
-    let mut internal_state = self.state.lock();
-
-    if let Some(index) = internal_state.progress_bars.iter().position(|p| p.id == progress_bar_id) {
-      internal_state.progress_bars.remove(index);
-
-      if internal_state.progress_bars.is_empty() {
-        self.logger.remove_refresh_item(LoggerRefreshItemKind::ProgressBars);
-        internal_state.drawer_id += 1;
-      }
-    }
   }
 
   fn start_draw_thread(&self, internal_state: &mut InternalState) {

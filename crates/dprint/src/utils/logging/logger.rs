@@ -10,7 +10,6 @@ use std::io::stdout;
 use std::io::Stderr;
 use std::io::Stdout;
 use std::io::Write;
-use std::sync::Arc;
 
 use crate::utils::terminal::get_terminal_size;
 
@@ -51,9 +50,8 @@ pub struct LoggerOptions {
   pub is_verbose: bool,
 }
 
-#[derive(Clone)]
 pub struct Logger {
-  output_lock: Arc<Mutex<LoggerState>>,
+  output_lock: Mutex<LoggerState>,
   is_stdout_machine_readable: bool,
   is_verbose: bool,
 }
@@ -69,7 +67,7 @@ struct LoggerState {
 impl Logger {
   pub fn new(options: &LoggerOptions) -> Self {
     Logger {
-      output_lock: Arc::new(Mutex::new(LoggerState {
+      output_lock: Mutex::new(LoggerState {
         last_context_name: options.initial_context_name.clone(),
         std_out: stdout(),
         std_err: stderr(),
@@ -81,7 +79,7 @@ impl Logger {
             rows: size.map(|s| s.rows),
           }
         }),
-      })),
+      }),
       is_stdout_machine_readable: options.is_stdout_machine_readable,
       is_verbose: options.is_verbose,
     }

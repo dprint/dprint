@@ -89,7 +89,7 @@ fn gen_from_raw_string_lines(text: &str, gen_line: impl Fn(&str) -> PrintItems) 
   let mut items = PrintItems::new();
   if has_newline {
     items.push_signal(Signal::StartIgnoringIndent);
-    items.extend(gen_string_lines(&text, gen_line));
+    items.extend(gen_string_lines(text, gen_line));
     items.push_signal(Signal::FinishIgnoringIndent);
   } else {
     items.extend(gen_line(text));

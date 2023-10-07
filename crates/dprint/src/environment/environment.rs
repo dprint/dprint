@@ -4,6 +4,7 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use dprint_core::async_runtime::async_trait;
 
@@ -116,7 +117,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   async fn cpu_usage(&self) -> u8;
   fn stdout(&self) -> Box<dyn Write + Send>;
   fn stdin(&self) -> Box<dyn Read + Send>;
-  fn progress_bars(&self) -> Option<ProgressBars> {
+  fn progress_bars(&self) -> Option<&Arc<ProgressBars>> {
     None
   }
   #[cfg(windows)]
