@@ -121,6 +121,7 @@ pub async fn check<TEnvironment: Environment>(
   let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
   scopes.ensure_valid_for_cli_args(args)?;
   let not_formatted_files_count = Arc::new(AtomicCounter::default());
+  let list_different = cmd.list_different;
 
   for scope_and_paths in scopes.into_iter() {
     let incremental_file = scope_and_paths
@@ -135,7 +136,11 @@ pub async fn check<TEnvironment: Environment>(
       move |file_path, file_text, formatted_text, _, environment| {
         if formatted_text != file_text.as_str() {
           not_formatted_files_count.inc();
-          output_difference(&file_path, file_text.as_str(), &formatted_text, &environment);
+          if list_different {
+            environment.log(&format!("{}", file_path.display()));
+          } else {
+            output_difference(&file_path, file_text.as_str(), &formatted_text, &environment);
+          }
         } else {
           // update the incremental cache when the file is already formatted correctly
           // so that this runs faster next time, but don't update it with the
@@ -1610,7 +1615,7 @@ mod test {
     err.assert_exit_code(20);
     assert_eq!(err.to_string(), get_plural_check_text(2));
     let mut logged_messages = environment.take_stdout_messages();
-    logged_messages.sort(); // seems like the order is not deterministic
+    logged_messages.sort(); // the order is not deterministic
     assert_eq!(
       logged_messages,
       vec![
@@ -1626,6 +1631,21 @@ mod test {
         ),
       ]
     );
+  }
+
+  #[test]
+  fn should_output_list_different_when_files_need_formatting_for_check() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file("/file1.txt", "const t=4;")
+      .write_file("/file2.txt", "const t=5;")
+      .build();
+
+    let err = run_test_cli(vec!["check", "--list-different", "/file1.txt", "/file2.txt"], &environment).unwrap_err();
+    err.assert_exit_code(20);
+    assert_eq!(err.to_string(), get_plural_check_text(2));
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort(); // the order is not deterministic
+    assert_eq!(logged_messages, vec!["/file1.txt", "/file2.txt",]);
   }
 
   #[test]
