@@ -54,6 +54,8 @@ Example output:
 
 ![Example of dprint check output.](/images/check-example.png "Example of dprint check output.")
 
+If you wish to only output the file paths and not any diffs, dprint 0.42 and above supports the `--list-different` flag.
+
 ## Incremental Formatting
 
 By default, dprint will only format files that have changed since the last time you formatted the code in order to drastically improve performance.

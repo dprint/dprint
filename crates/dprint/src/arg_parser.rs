@@ -66,6 +66,7 @@ pub enum SubCommand {
 pub struct CheckSubCommand {
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
+  pub list_different: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -172,6 +173,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("check", matches) => SubCommand::Check(CheckSubCommand {
       patterns: parse_file_patterns(matches)?,
       incremental: parse_incremental(matches),
+      list_different: matches.get_flag("list-different"),
     }),
     ("init", _) => SubCommand::Config(ConfigSubCommand::Init),
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
@@ -385,6 +387,12 @@ EXAMPLES:
         .about("Checks for any files that haven't been formatted.")
         .add_resolve_file_path_args()
         .add_incremental_arg()
+        .arg(
+          Arg::new("list-different")
+            .long("list-different")
+            .help("Only outputs file paths that aren't formatted and doesn't output diffs.")
+            .num_args(0)
+        )
     )
     .subcommand(
       Command::new("config")
