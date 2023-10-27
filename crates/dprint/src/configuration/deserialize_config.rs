@@ -261,6 +261,35 @@ mod tests {
     );
   }
 
+  #[test]
+  fn should_have_stable_deserialization_of_config_properties() {
+    for _ in 0..10 {
+      let config = deserialize_config(
+        r#"{
+        "exec": {
+          "commands": [{
+            "command": "rustfmt --edition 2021 --config imports_granularity=item",
+            "exts": ["rs"]
+          }]
+        }
+      }"#,
+      )
+      .unwrap();
+      match config.get("exec").unwrap() {
+        ConfigMapValue::PluginConfig(plugin) => {
+          let commands = plugin.properties.get("commands").unwrap().as_array().unwrap();
+          assert_eq!(commands.len(), 1);
+          let obj = commands[0].as_object().unwrap();
+          let mut values = obj.into_iter();
+          assert_eq!(values.next().unwrap().0, "command");
+          assert_eq!(values.next().unwrap().0, "exts");
+          assert!(values.next().is_none());
+        }
+        _ => unreachable!(),
+      }
+    }
+  }
+
   fn assert_deserializes(text: &str, expected_map: ConfigMap) {
     match deserialize_config(text) {
       Ok(result) => assert_eq!(result, expected_map),
