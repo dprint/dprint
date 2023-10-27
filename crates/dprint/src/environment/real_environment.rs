@@ -334,6 +334,9 @@ impl Environment for RealEnvironment {
     for feature in features {
       feature.hash(&mut hash);
     }
+    // include the rustc version in the hash because wasmer's deserialization
+    // of wasm plugins sometimes breaks with a rust upgrade
+    env!("RUSTC_VERSION_TEXT").hash(&mut hash);
     format!("{}-{}", cpu, hash.finish())
   }
 

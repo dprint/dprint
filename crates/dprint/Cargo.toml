@@ -45,8 +45,8 @@ zip = "0.6.4"
 # patch version increases of rkyv may cause panics when deserializing
 # data serialized with older versions
 rkyv = "=0.7.42"
-wasmer = "=4.0.0"
-wasmer-compiler = "=4.0.0"
+wasmer = "=4.2.2"
+wasmer-compiler = "=4.2.2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.10.1"
