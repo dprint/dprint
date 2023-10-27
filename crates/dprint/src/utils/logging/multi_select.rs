@@ -42,7 +42,7 @@ pub fn show_multi_select(logger: &Logger, context_name: &str, prompt: &str, item
         }
         KeyCode::Char(' ') => {
           // select an item
-          let mut current_item = data.items.get_mut(data.active_index).unwrap();
+          let current_item = data.items.get_mut(data.active_index).unwrap();
           current_item.0 = !current_item.0;
         }
         KeyCode::Enter => {

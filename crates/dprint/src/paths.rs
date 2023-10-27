@@ -70,7 +70,7 @@ pub fn get_file_paths_by_plugins(plugin_name_maps: &PluginNameResolutionMaps, fi
 
     if !plugin_names.is_empty() {
       let plugin_names_key = PluginNames::from_plugin_names(&plugin_names);
-      let file_paths = file_paths_by_plugin.entry(plugin_names_key).or_insert_with(Vec::new);
+      let file_paths = file_paths_by_plugin.entry(plugin_names_key).or_default();
       file_paths.push(file_path);
     }
   }

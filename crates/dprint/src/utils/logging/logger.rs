@@ -213,7 +213,7 @@ impl Logger {
   pub(crate) fn set_refresh_item(&self, kind: LoggerRefreshItemKind, text_items: Vec<LoggerTextItem>) {
     self.with_update_refresh_items(move |refresh_items| match refresh_items.binary_search_by(|i| i.kind.cmp(&kind)) {
       Ok(pos) => {
-        let mut refresh_item = refresh_items.get_mut(pos).unwrap();
+        let refresh_item = refresh_items.get_mut(pos).unwrap();
         refresh_item.text_items = text_items;
       }
       Err(pos) => {
