@@ -218,10 +218,10 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       LogLevel::Debug
     } else if let Some(log_level) = matches.get_one::<String>("log-level") {
       match log_level.as_str() {
-        "error" => LogLevel::Error,
-        "warn" => LogLevel::Warn,
         "debug" => LogLevel::Debug,
         "info" => LogLevel::Info,
+        "warn" => LogLevel::Warn,
+        "error" => LogLevel::Error,
         "silent" => LogLevel::Silent,
         _ => unreachable!(),
       }
