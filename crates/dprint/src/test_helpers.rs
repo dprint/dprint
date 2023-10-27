@@ -124,7 +124,7 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
   let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
   let args = parse_args(args, stdin_reader).map_err(|err| Into::<AppError>::into(err))?;
   environment.set_stdout_machine_readable(args.is_stdout_machine_readable());
-  environment.set_verbose(args.verbose);
+  environment.set_log_level(args.log_level);
 
   environment.run_in_runtime({
     let environment = environment.clone();
@@ -270,7 +270,7 @@ More details at `dprint help <SUBCOMMAND>`
 OPTIONS:
   -c, --config <config>          Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.
       --plugins <urls/files>...  List of urls or file paths of plugins to use. This overrides what is specified in the config file.
-      --verbose                  Prints additional diagnostic information.
+  -L, --log-level <log-level>    Set log level [default: info] [possible values: debug, info, warn, error, silent]
 
 ENVIRONMENT VARIABLES:
   DPRINT_CACHE_DIR    Directory to store the dprint cache. Note that this

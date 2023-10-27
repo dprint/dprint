@@ -3,11 +3,12 @@ use anyhow::Result;
 use clap::ArgMatches;
 use thiserror::Error;
 
+use crate::utils::LogLevel;
 use crate::utils::StdInReader;
 
 pub struct CliArgs {
   pub sub_command: SubCommand,
-  pub verbose: bool,
+  pub log_level: LogLevel,
   pub plugins: Vec<String>,
   pub config: Option<String>,
 }
@@ -17,7 +18,7 @@ impl CliArgs {
   pub fn empty() -> Self {
     Self {
       sub_command: SubCommand::Help("".to_string()),
-      verbose: false,
+      log_level: LogLevel::Info,
       plugins: vec![],
       config: None,
     }
@@ -34,7 +35,7 @@ impl CliArgs {
   fn new_with_sub_command(sub_command: SubCommand) -> CliArgs {
     CliArgs {
       sub_command,
-      verbose: false,
+      log_level: LogLevel::Info,
       config: None,
       plugins: Vec::new(),
     }
@@ -213,7 +214,20 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
 
   Ok(CliArgs {
     sub_command,
-    verbose: matches.get_flag("verbose"),
+    log_level: if matches.get_flag("verbose") {
+      LogLevel::Debug
+    } else if let Some(log_level) = matches.get_one::<String>("log-level") {
+      match log_level.as_str() {
+        "error" => LogLevel::Error,
+        "warn" => LogLevel::Warn,
+        "debug" => LogLevel::Debug,
+        "info" => LogLevel::Info,
+        "silent" => LogLevel::Silent,
+        _ => unreachable!(),
+      }
+    } else {
+      LogLevel::Info
+    },
     config: matches.get_one::<String>("config").map(String::from),
     plugins: values_to_vec(matches.get_many("plugins")),
   })
@@ -482,11 +496,22 @@ EXAMPLES:
         .num_args(1..)
     )
     .arg(
+      Arg::new("log-level")
+        .short('L')
+        .long("log-level")
+        .help("Set log level")
+        .value_parser(["debug", "info", "warn", "error", "silent"])
+        .default_value("info")
+        .global(true),
+    )
+    .arg(
       Arg::new("verbose")
         .long("verbose")
-        .help("Prints additional diagnostic information.")
+        .help("Alias for --log-level=debug")
+        .hide(true)
         .global(true)
         .num_args(0)
+        .conflicts_with("log-level")
     );
 
   #[cfg(target_os = "windows")]

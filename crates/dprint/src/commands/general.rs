@@ -14,7 +14,7 @@ use crate::utils::get_table_text;
 use crate::utils::is_out_of_date;
 
 pub fn output_version<TEnvironment: Environment>(environment: &TEnvironment) -> Result<()> {
-  environment.log(&format!("{} {}", env!("CARGO_PKG_NAME"), environment.cli_version()));
+  log_stdout_info!(environment, "{} {}", env!("CARGO_PKG_NAME"), environment.cli_version());
 
   Ok(())
 }
@@ -26,7 +26,7 @@ pub async fn output_help<TEnvironment: Environment>(
   help_text: &str,
 ) -> Result<()> {
   // log the cli's help first
-  environment.log(help_text);
+  log_stdout_info!(environment, help_text);
 
   // now check for the plugins
   let scope_result = get_plugins_scope_from_args(args, environment, plugin_resolver).await;
@@ -34,26 +34,30 @@ pub async fn output_help<TEnvironment: Environment>(
     Ok(scope) => {
       if !scope.plugins.is_empty() {
         let table_text = get_table_text(scope.plugins.values().map(|plugin| (plugin.name(), plugin.info().help_url.as_str())).collect());
-        environment.log("\nPLUGINS HELP:");
-        environment.log(&console_static_text::strip_ansi_codes(&table_text.render(
-          4, // indent
-          // don't render taking terminal width into account
-          // as these are urls and we want them to be clickable
-          None,
-        )));
+        log_stdout_info!(environment, "\nPLUGINS HELP:");
+        log_stdout_info!(
+          environment,
+          &console_static_text::strip_ansi_codes(&table_text.render(
+            4, // indent
+            // don't render taking terminal width into account
+            // as these are urls and we want them to be clickable
+            None,
+          ))
+        );
       }
     }
     Err(err) => {
-      log_verbose!(environment, "Error getting plugins for help. {:#}", err.to_string());
+      log_debug!(environment, "Error getting plugins for help. {:#}", err.to_string());
     }
   }
 
   if let Some(latest_version) = is_out_of_date(environment).await {
-    environment.log(&format!(
+    log_stdout_info!(
+      environment,
       "\nLatest version: {} (Current is {})\nDownload the latest version by running: dprint upgrade",
       latest_version,
       environment.cli_version(),
-    ));
+    );
   }
 
   Ok(())
@@ -64,14 +68,14 @@ pub async fn output_license<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  environment.log("==== DPRINT CLI LICENSE ====");
-  environment.log(std::str::from_utf8(include_bytes!("../../LICENSE"))?);
+  log_stdout_info!(environment, "==== DPRINT CLI LICENSE ====");
+  log_stdout_info!(environment, std::str::from_utf8(include_bytes!("../../LICENSE"))?);
 
   // now check for the plugins
   for plugin in get_plugins_scope_from_args(args, environment, plugin_resolver).await?.plugins.values() {
-    environment.log(&format!("\n==== {} LICENSE ====", plugin.name().to_uppercase()));
+    log_stdout_info!(environment, "\n==== {} LICENSE ====", plugin.name().to_uppercase());
     let initialized_plugin = plugin.initialize().await?;
-    environment.log(&initialized_plugin.license_text().await?);
+    log_stdout_info!(environment, &initialized_plugin.license_text().await?);
   }
 
   Ok(())
@@ -80,7 +84,7 @@ pub async fn output_license<TEnvironment: Environment>(
 pub fn clear_cache(environment: &impl Environment) -> Result<()> {
   let cache_dir = environment.get_cache_dir();
   environment.remove_dir_all(&cache_dir)?;
-  environment.log_stderr(&format!("Deleted {}", cache_dir.display()));
+  log_stdout_info!(environment, "Deleted {}", cache_dir.display());
   Ok(())
 }
 
@@ -93,7 +97,7 @@ pub async fn output_file_paths<TEnvironment: Environment>(
   let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
   let file_paths = scopes.iter().flat_map(|x| x.file_paths_by_plugins.all_file_paths());
   for file_path in file_paths {
-    environment.log(&file_path.display().to_string())
+    log_stdout_info!(environment, "{}", file_path.display())
   }
   Ok(())
 }
@@ -330,7 +334,7 @@ mod test {
   fn should_clear_cache_directory() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["clear-cache"], &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages(), vec!["Deleted /cache"]);
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
     assert_eq!(environment.is_dir_deleted("/cache"), true);
   }
 

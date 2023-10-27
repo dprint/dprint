@@ -7,6 +7,7 @@ use environment::RealEnvironment;
 use environment::RealEnvironmentOptions;
 use run_cli::AppError;
 use std::rc::Rc;
+use utils::LogLevel;
 use utils::RealStdInReader;
 
 mod arg_parser;
@@ -30,25 +31,28 @@ fn main() {
   rt.block_on(async move {
     match run().await {
       Ok(_) => {}
-      Err(err) => {
-        eprintln!("{:#}", err.inner);
+      Err((err, log_level)) => {
+        if log_level != LogLevel::Silent {
+          eprintln!("{:#}", err.inner);
+        }
         std::process::exit(err.exit_code);
       }
     }
   });
 }
 
-async fn run() -> Result<(), AppError> {
-  let args = arg_parser::parse_args(std::env::args().collect(), RealStdInReader)?;
+async fn run() -> Result<(), (AppError, LogLevel)> {
+  let args = arg_parser::parse_args(std::env::args().collect(), RealStdInReader).map_err(|err| (err.into(), LogLevel::Info))?;
 
   let environment = RealEnvironment::new(RealEnvironmentOptions {
-    is_verbose: args.verbose,
+    log_level: args.log_level,
     is_stdout_machine_readable: args.is_stdout_machine_readable(),
-  })?;
+  })
+  .map_err(|err| (err.into(), args.log_level))?;
   let plugin_cache = plugins::PluginCache::new(environment.clone());
   let plugin_resolver = Rc::new(plugins::PluginResolver::new(environment.clone(), plugin_cache));
 
   let result = run_cli::run_cli(&args, &environment, &plugin_resolver).await;
   plugin_resolver.clear_and_shutdown_initialized().await;
-  Ok(result?)
+  result.map_err(|err| (err.into(), args.log_level))
 }

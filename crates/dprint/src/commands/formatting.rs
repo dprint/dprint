@@ -100,7 +100,7 @@ pub async fn output_format_times<TEnvironment: Environment>(
   let mut durations = durations.lock();
   durations.sort_by_key(|k| k.1);
   for (file_path, duration) in durations.iter() {
-    environment.log(&format!("{}ms - {}", duration, file_path.display()));
+    log_stdout_info!(environment, "{}ms - {}", duration, file_path.display());
   }
 
   Ok(())
@@ -137,7 +137,7 @@ pub async fn check<TEnvironment: Environment>(
         if formatted_text != file_text.as_str() {
           not_formatted_files_count.inc();
           if list_different {
-            environment.log(&format!("{}", file_path.display()));
+            log_stdout_info!(environment, "{}", file_path.display());
           } else {
             output_difference(&file_path, file_text.as_str(), &formatted_text, &environment);
           }
@@ -175,7 +175,7 @@ pub async fn check<TEnvironment: Environment>(
 
 fn output_difference(file_path: &Path, file_text: &str, formatted_text: &str, environment: &impl Environment) {
   let difference_text = get_difference(file_text, formatted_text);
-  environment.log(&format!("{} {}:\n{}\n--", "from".bold().red(), file_path.display(), difference_text,));
+  log_stdout_info!(environment, "{} {}:\n{}\n--", "from".bold().red(), file_path.display(), difference_text);
 }
 
 pub async fn format<TEnvironment: Environment>(
@@ -240,7 +240,7 @@ pub async fn format<TEnvironment: Environment>(
   let formatted_files_count = formatted_files_count.get();
   if formatted_files_count > 0 {
     let suffix = if formatted_files_count == 1 { "file" } else { "files" };
-    environment.log(&format!("Formatted {} {}.", formatted_files_count.to_string().bold(), suffix));
+    log_stdout_info!(environment, "Formatted {} {}.", formatted_files_count.to_string().bold(), suffix);
   }
 
   Ok(())
@@ -1364,7 +1364,7 @@ mod test {
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
 
     environment.clear_logs();
-    run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
     assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)), true);
 
     // update the file and ensure it's formatted
@@ -1385,7 +1385,7 @@ mod test {
       )
       .unwrap();
     environment.clear_logs();
-    run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
     assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)), false);
 
     // update the plugin config and ensure it's formatted
@@ -1411,14 +1411,14 @@ mod test {
     // random order and the hash to be new each time.
     for _ in 1..4 {
       environment.clear_logs();
-      run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
+      run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
       assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)), true);
     }
 
     // change the cwd and ensure it's not formatted again
     environment.clear_logs();
     environment.set_cwd("/subdir");
-    run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
     assert_eq!(
       environment
         .take_stderr_messages()
@@ -1445,7 +1445,7 @@ mod test {
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
 
     environment.clear_logs();
-    run_test_cli(vec!["fmt", "--verbose"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--log-level=debug"], &environment).unwrap();
     assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains("No change: /file1.txt")), true);
   }
 
@@ -1533,7 +1533,7 @@ mod test {
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
 
     environment.clear_logs();
-    run_test_cli(vec!["fmt", "--incremental=false", "--verbose"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--incremental=false", "--log-level=debug"], &environment).unwrap();
     assert!(!environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)));
   }
 

@@ -26,7 +26,7 @@ pub async fn setup_wasm_plugin<TEnvironment: Environment>(
     .progress_bars()
     .map(|pb| pb.add_progress(format!("Compiling {}", url_or_file_path.display()), crate::utils::ProgressBarStyle::Action, 1));
   if guard.is_none() {
-    environment.log_stderr(&format!("Compiling {}", url_or_file_path.display()));
+    log_stderr_info!(environment, "Compiling {}", url_or_file_path.display());
   }
   let compile_result = dprint_core::async_runtime::spawn_blocking({
     let environment = environment.clone();

@@ -156,7 +156,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
             return;
           }
           Err(err) => {
-            environment.log_stderr(&format!("Editor service failed reading from stdin: {:#}", err));
+            log_error!(environment, "Editor service failed reading from stdin: {:#}", err);
             return;
           }
         };
@@ -262,7 +262,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     let file_matcher = FileMatcher::new(&config, &FilePatternArgs::default(), self.environment)?;
     // canonicalize the file path, then check if it's in the list of file paths.
     let resolved_file_path = self.environment.canonicalize(file_path)?;
-    log_verbose!(self.environment, "Checking can format: {}", resolved_file_path.display());
+    log_debug!(self.environment, "Checking can format: {}", resolved_file_path.display());
     Ok(file_matcher.matches_and_dir_not_ignored(&resolved_file_path))
   }
 

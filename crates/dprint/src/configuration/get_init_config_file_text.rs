@@ -9,7 +9,8 @@ pub async fn get_init_config_file_text(environment: &impl Environment) -> Result
     Ok(info) => {
       // ok to only check wasm here because the configuration file is only ever initialized with wasm plugins
       if info.plugin_system_schema_version != wasm::PLUGIN_SYSTEM_SCHEMA_VERSION {
-        environment.log_stderr(&format!(
+        log_error!(
+          environment,
           concat!(
             "You are using an old version of dprint so the created config file may not be as helpful of a starting point. ",
             "Consider upgrading to support new plugins. ",
@@ -17,21 +18,22 @@ pub async fn get_init_config_file_text(environment: &impl Environment) -> Result
           ),
           wasm::PLUGIN_SYSTEM_SCHEMA_VERSION,
           info.plugin_system_schema_version,
-        ));
+        );
         None
       } else {
         Some(info)
       }
     }
     Err(err) => {
-      environment.log_stderr(&format!(
+      log_error!(
+        environment,
         concat!(
           "There was a problem getting the latest plugin info. ",
           "The created config file may not be as helpful of a starting point. ",
           "Error: {}"
         ),
         err,
-      ));
+      );
       None
     }
   };
