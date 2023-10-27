@@ -107,9 +107,16 @@ pub async fn output_format_times<TEnvironment: Environment>(
 }
 
 #[derive(Error, Debug)]
-#[error("Found {} not formatted {}.", files_count.to_string().bold().to_string(), if *files_count == 1 { "file" } else { "files" })]
+#[error("{}", match files_count {
+  Some(files_count) => format!(
+    "Found {} not formatted {}.",
+    files_count.to_string().bold(),
+    if *files_count == 1 { "file" } else { "files" },
+  ),
+  None => "".to_string(), // no output for list-different
+})]
 pub struct CheckError {
-  pub files_count: usize,
+  pub files_count: Option<usize>,
 }
 
 pub async fn check<TEnvironment: Environment>(
@@ -166,7 +173,7 @@ pub async fn check<TEnvironment: Environment>(
   } else {
     Err(
       CheckError {
-        files_count: not_formatted_files_count,
+        files_count: if list_different { None } else { Some(not_formatted_files_count) },
       }
       .into(),
     )
@@ -1642,7 +1649,7 @@ mod test {
 
     let err = run_test_cli(vec!["check", "--list-different", "/file1.txt", "/file2.txt"], &environment).unwrap_err();
     err.assert_exit_code(20);
-    assert_eq!(err.to_string(), get_plural_check_text(2));
+    assert_eq!(err.to_string(), ""); // no output because we outputted the files
     let mut logged_messages = environment.take_stdout_messages();
     logged_messages.sort(); // the order is not deterministic
     assert_eq!(logged_messages, vec!["/file1.txt", "/file2.txt",]);
