@@ -11,7 +11,7 @@ pub fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &Path, environment
   let mut zip = zip::ZipArchive::new(reader)?;
   let length = zip.len();
 
-  log_verbose!(environment, "Extracting zip file to directory: {}", dir_path.display());
+  log_debug!(environment, "Extracting zip file to directory: {}", dir_path.display());
 
   environment.log_action_with_progress(
     message,
@@ -47,7 +47,7 @@ pub fn extract_zip(message: &str, zip_bytes: &[u8], dir_path: &Path, environment
             }
           }
         } else {
-          environment.log_stderr(&format!("Ignoring path in zip because it was not enclosed: {}", file.name()));
+          log_warn!(environment, "Ignoring path in zip because it was not enclosed: {}", file.name());
         }
       }
 

@@ -119,7 +119,7 @@ pub async fn resolve_config_from_path<TEnvironment: Environment>(
     // Careful! Don't be fancy and ensure this is removed.
     let removed_includes = config_map.remove("includes"); // NEVER REMOVE THIS STATEMENT
     if removed_includes.is_some() && resolved_config_path.resolved_path.is_first_download {
-      environment.log_stderr(&get_warn_includes_message());
+      log_warn!(environment, &get_warn_includes_message());
     }
   }
   // =========
@@ -185,7 +185,7 @@ async fn handle_config_file<TEnvironment: Environment>(
     // control over what files get formatted.
     let removed_includes = new_config_map.remove("includes"); // NEVER REMOVE THIS STATEMENT
     if removed_includes.is_some() && resolved_path.is_first_download {
-      environment.log_stderr(&get_warn_includes_message());
+      log_warn!(environment, &get_warn_includes_message());
     }
   }
 
@@ -312,7 +312,7 @@ fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str) ->
 
 fn filter_non_wasm_plugins(plugins: Vec<PluginSourceReference>, environment: &impl Environment) -> Vec<PluginSourceReference> {
   if plugins.iter().any(|plugin| plugin.plugin_kind() != Some(PluginKind::Wasm)) {
-    environment.log_stderr(&get_warn_non_wasm_plugins_message());
+    log_warn!(environment, &get_warn_non_wasm_plugins_message());
     plugins.into_iter().filter(|plugin| plugin.plugin_kind() == Some(PluginKind::Wasm)).collect()
   } else {
     plugins

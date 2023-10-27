@@ -44,14 +44,14 @@ where
   F: Fn(PathBuf, FileText, String, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
 {
   if let Some(config) = &scope_and_paths.scope.config {
-    log_verbose!(environment, "Running for config: {}", config.resolved_path.file_path.display());
+    log_debug!(environment, "Running for config: {}", config.resolved_path.file_path.display());
   }
 
   let max_threads = environment.max_threads();
   let number_process_plugins = scope_and_paths.scope.process_plugin_count();
   let reduction_count = number_process_plugins + 1; // + 1 for each process plugin's possible runtime thread and this runtime's thread
   let number_threads = if max_threads > reduction_count { max_threads - reduction_count } else { 1 };
-  log_verbose!(environment, "Max threads: {}\nThread count: {}", max_threads, number_threads,);
+  log_debug!(environment, "Max threads: {}\nThread count: {}", max_threads, number_threads,);
 
   let error_logger = ErrorCountLogger::from_environment(environment);
 
@@ -140,7 +140,7 @@ where
                     // exit
                   }
                   _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                    environment.log_stderr(&format!("WARNING: Formatting is slow for {}", file_path.display()));
+                    log_warn!(environment, "WARNING: Formatting is slow for {}", file_path.display());
                   }
                 }
               }
@@ -197,7 +197,7 @@ where
 
       if let Some(incremental_file) = &incremental_file {
         if incremental_file.is_file_known_formatted(file_text.as_str()) {
-          log_verbose!(environment, "No change: {}", file_path.display());
+          log_debug!(environment, "No change: {}", file_path.display());
           return Ok::<_, anyhow::Error>(None);
         }
       }
@@ -231,7 +231,7 @@ where
     file_path: PathBuf,
     mut formatted_text: String,
   ) -> Result<String> {
-    log_verbose!(environment, "Ensuring stable format: {}", file_path.display());
+    log_debug!(environment, "Ensuring stable format: {}", file_path.display());
     let mut count = 0;
     loop {
       match run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), &formatted_text).await {
@@ -240,7 +240,7 @@ where
             return Ok(formatted_text);
           } else {
             formatted_text = next_pass_text;
-            log_verbose!(environment, "Ensuring stable format failed on try {}: {}", count + 1, file_path.display());
+            log_debug!(environment, "Ensuring stable format failed on try {}: {}", count + 1, file_path.display());
           }
         }
         Err(err) => {
@@ -289,7 +289,7 @@ where
           token: Arc::new(NullCancellationToken),
         })
         .await;
-      log_verbose!(
+      log_debug!(
         environment,
         "Formatted file: {} in {}ms{}",
         file_path.display(),
@@ -358,10 +358,10 @@ async fn run_cpu_throttling_task(environment: &impl Environment, number_threads:
   // takeover someone's computer
   loop {
     let cpu_usage = environment.cpu_usage().await;
-    log_verbose!(environment, "CPU usage: {}%", cpu_usage);
+    log_debug!(environment, "CPU usage: {}%", cpu_usage);
     if cpu_usage > decrease_bound {
       if throttle_cpu(semaphores).await {
-        log_verbose!(environment, "High CPU. Reducing parallelism.");
+        log_debug!(environment, "High CPU. Reducing parallelism.");
         throttled_times += 1;
       }
     } else if throttled_times > 0 && last_cpu_usage < increase_bound && cpu_usage < increase_bound {
@@ -370,7 +370,7 @@ async fn run_cpu_throttling_task(environment: &impl Environment, number_threads:
       // the permits
       add_permits(semaphores, 1);
       throttled_times -= 1;
-      log_verbose!(environment, "Low CPU. Increasing parallelism.");
+      log_debug!(environment, "Low CPU. Increasing parallelism.");
     }
     last_cpu_usage = cpu_usage;
 

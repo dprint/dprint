@@ -28,6 +28,7 @@ use crate::utils::show_confirm;
 use crate::utils::show_multi_select;
 use crate::utils::show_select;
 use crate::utils::FastInsecureHasher;
+use crate::utils::LogLevel;
 use crate::utils::Logger;
 use crate::utils::LoggerOptions;
 use crate::utils::ProgressBars;
@@ -37,7 +38,7 @@ use crate::utils::RealUrlDownloader;
 static CACHED_CWD: OnceCell<CanonicalizedPathBuf> = OnceCell::new();
 
 pub struct RealEnvironmentOptions {
-  pub is_verbose: bool,
+  pub log_level: LogLevel,
   pub is_stdout_machine_readable: bool,
 }
 
@@ -54,7 +55,7 @@ impl RealEnvironment {
     let logger = Arc::new(Logger::new(&LoggerOptions {
       initial_context_name: "dprint".to_string(),
       is_stdout_machine_readable: options.is_stdout_machine_readable,
-      is_verbose: options.is_verbose,
+      log_level: options.log_level,
     }));
     let progress_bars = ProgressBars::new(&logger).map(Arc::new);
     let url_downloader = Arc::new(RealUrlDownloader::new(progress_bars.clone(), logger.clone(), |env_var_name| {
@@ -82,7 +83,7 @@ impl RealEnvironment {
   pub fn run_test_with_real_env(run_with_env: impl Fn(RealEnvironment) -> dprint_core::async_runtime::LocalBoxFuture<'static, ()>) {
     let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
     let env = RealEnvironment::new(RealEnvironmentOptions {
-      is_verbose: false,
+      log_level: LogLevel::Info,
       is_stdout_machine_readable: false,
     })
     .unwrap();
@@ -94,7 +95,7 @@ impl RealEnvironment {
 #[async_trait(?Send)]
 impl UrlDownloader for RealEnvironment {
   async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
-    log_verbose!(self, "Downloading url: {}", url);
+    log_debug!(self, "Downloading url: {}", url);
 
     let downloader = self.url_downloader.clone();
     let url = url.to_string();
@@ -113,7 +114,7 @@ impl Environment for RealEnvironment {
   }
 
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>> {
-    log_verbose!(self, "Reading file: {}", file_path.as_ref().display());
+    log_debug!(self, "Reading file: {}", file_path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     match fs::read(&file_path) {
       Ok(bytes) => Ok(bytes),
@@ -122,7 +123,7 @@ impl Environment for RealEnvironment {
   }
 
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()> {
-    log_verbose!(self, "Writing file: {}", file_path.as_ref().display());
+    log_debug!(self, "Writing file: {}", file_path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     match fs::write(&file_path, bytes) {
       Ok(_) => Ok(()),
@@ -131,13 +132,13 @@ impl Environment for RealEnvironment {
   }
 
   fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> Result<()> {
-    log_verbose!(self, "Renaming {} -> {}", path_from.as_ref().display(), path_to.as_ref().display());
+    log_debug!(self, "Renaming {} -> {}", path_from.as_ref().display(), path_to.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     fs::rename(&path_from, &path_to).with_context(|| format!("Error renaming {} to {}", path_from.as_ref().display(), path_to.as_ref().display()))
   }
 
   fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<()> {
-    log_verbose!(self, "Deleting file: {}", file_path.as_ref().display());
+    log_debug!(self, "Deleting file: {}", file_path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     match fs::remove_file(&file_path) {
       Ok(_) => Ok(()),
@@ -147,7 +148,7 @@ impl Environment for RealEnvironment {
   }
 
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<()> {
-    log_verbose!(self, "Deleting directory: {}", dir_path.as_ref().display());
+    log_debug!(self, "Deleting directory: {}", dir_path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     match fs::remove_dir_all(&dir_path) {
       Ok(_) => Ok(()),
@@ -179,7 +180,7 @@ impl Environment for RealEnvironment {
   }
 
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
-    log_verbose!(self, "Checking path exists: {}", file_path.as_ref().display());
+    log_debug!(self, "Checking path exists: {}", file_path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     file_path.as_ref().exists()
   }
@@ -212,7 +213,7 @@ impl Environment for RealEnvironment {
   }
 
   fn mk_dir_all(&self, path: impl AsRef<Path>) -> Result<()> {
-    log_verbose!(self, "Creating directory: {}", path.as_ref().display());
+    log_debug!(self, "Creating directory: {}", path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     match fs::create_dir_all(&path) {
       Ok(_) => Ok(()),
@@ -235,7 +236,7 @@ impl Environment for RealEnvironment {
     std::env::current_exe().context("Error getting current executable.")
   }
 
-  fn log(&self, text: &str) {
+  fn __log__(&self, text: &str) {
     self.logger.log(text, "dprint");
   }
 
@@ -315,8 +316,8 @@ impl Environment for RealEnvironment {
   }
 
   #[inline]
-  fn is_verbose(&self) -> bool {
-    self.logger.is_verbose()
+  fn log_level(&self) -> LogLevel {
+    self.logger.log_level()
   }
 
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult> {
@@ -383,7 +384,7 @@ impl Environment for RealEnvironment {
   fn ensure_system_path(&self, directory_path: &str) -> Result<()> {
     use winreg::enums::*;
     use winreg::RegKey;
-    log_verbose!(self, "Ensuring '{}' is on the path.", directory_path);
+    log_debug!(self, "Ensuring '{}' is on the path.", directory_path);
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (env, _) = hkcu.create_subkey("Environment")?;
@@ -404,7 +405,7 @@ impl Environment for RealEnvironment {
   fn remove_system_path(&self, directory_path: &str) -> Result<()> {
     use winreg::enums::*;
     use winreg::RegKey;
-    log_verbose!(self, "Ensuring '{}' is on the path.", directory_path);
+    log_debug!(self, "Ensuring '{}' is on the path.", directory_path);
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (env, _) = hkcu.create_subkey("Environment")?;

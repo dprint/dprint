@@ -26,7 +26,7 @@ impl<TEnvironment: Environment> LaxSingleProcessFsFlag<TEnvironment> {
       return Self(None);
     }
 
-    log_verbose!(environment, "Acquiring file lock at {}", file_path.display());
+    log_debug!(environment, "Acquiring file lock at {}", file_path.display());
     use fs3::FileExt;
     let last_updated_path = file_path.with_extension("lock.poll");
     let start_instant = std::time::Instant::now();
@@ -41,7 +41,7 @@ impl<TEnvironment: Environment> LaxSingleProcessFsFlag<TEnvironment> {
           let poll_file_update_ms = 100;
           match lock_result {
             Ok(_) => {
-              log_verbose!(environment, "Acquired file lock at {}", file_path.display());
+              log_debug!(environment, "Acquired file lock at {}", file_path.display());
               #[allow(clippy::disallowed_methods)]
               let _ignore = std::fs::write(&last_updated_path, "");
               let token = Arc::new(tokio_util::sync::CancellationToken::new());
@@ -122,7 +122,7 @@ impl<TEnvironment: Environment> LaxSingleProcessFsFlag<TEnvironment> {
         Self(None)
       }
       Err(err) => {
-        log_verbose!(environment, "Failed to open file lock at {}. {:#}", file_path.display(), err);
+        log_debug!(environment, "Failed to open file lock at {}. {:#}", file_path.display(), err);
         Self(None) // let the process through
       }
     }
@@ -143,7 +143,7 @@ impl<TEnvironment: Environment> Drop for LaxSingleProcessFsFlagInner<TEnvironmen
     self.finished_token.cancel();
     // release the file lock
     if let Err(err) = self.fs_file.unlock() {
-      log_verbose!(self.environment, "Failed releasing lock for {}. {:#}", self.file_path.display(), err);
+      log_debug!(self.environment, "Failed releasing lock for {}. {:#}", self.file_path.display(), err);
     }
   }
 }

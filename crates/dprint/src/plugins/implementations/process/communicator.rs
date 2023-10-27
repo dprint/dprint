@@ -140,7 +140,10 @@ async fn create_new_communicator<TEnvironment: Environment>(restart_info: &Proce
   let plugin_name = restart_info.plugin_name.to_string();
   let environment = restart_info.environment.clone();
   let communicator = ProcessPluginCommunicator::new(&restart_info.executable_file_path, move |error_message| {
-    environment.log_stderr_with_context(&error_message, &plugin_name);
+    // consider messages from process plugins as warnings
+    if environment.log_level().is_warn() {
+      environment.log_stderr_with_context(&error_message, &plugin_name);
+    }
   })
   .await?;
   Ok(communicator)

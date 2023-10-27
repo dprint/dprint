@@ -298,7 +298,7 @@ impl<TEnvironment: Environment> Drop for InitializedWasmPlugin<TEnvironment> {
 
       instances.len()
     };
-    log_verbose!(
+    log_debug!(
       self.environment,
       "Dropped {} ({} instances) in {}ms",
       self.name,
@@ -390,7 +390,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
 
   async fn create_instance(&self) -> Result<WasmPluginSenderWithState> {
     let start_instant = Instant::now();
-    log_verbose!(self.environment, "Creating instance of {}", self.name);
+    log_debug!(self.environment, "Creating instance of {}", self.name);
     let mut store = wasmer::Store::default();
 
     let (host_format_tx, mut host_format_rx) = tokio::sync::mpsc::unbounded_channel::<(HostFormatRequest, std::sync::mpsc::Sender<FormatResult>)>();
@@ -486,7 +486,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     // wait for initialization
     initialize_rx.await??;
 
-    log_verbose!(
+    log_debug!(
       self.environment,
       "Created instance of {} in {}ms",
       self.name,

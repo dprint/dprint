@@ -67,7 +67,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
   let cache_item = match plugin_cache.get_plugin_cache_item(plugin_reference).await {
     Ok(cache_item) => cache_item,
     Err(err) => {
-      log_verbose!(
+      log_debug!(
         environment,
         "Error getting plugin from cache. Forgetting from cache and retrying. Message: {}",
         err.to_string()
@@ -83,7 +83,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
       let file_bytes = match environment.read_file_bytes(cache_item.file_path) {
         Ok(file_bytes) => file_bytes,
         Err(err) => {
-          log_verbose!(
+          log_debug!(
             environment,
             "Error reading plugin file bytes. Forgetting from cache and retrying. Message: {}",
             err.to_string()
@@ -99,7 +99,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
     }
     Some(PluginKind::Process) => {
       let cache_item = if !environment.path_exists(&cache_item.file_path) {
-        log_verbose!(
+        log_debug!(
           environment,
           "Could not find process plugin at {}. Forgetting from cache and retrying.",
           cache_item.file_path.display()

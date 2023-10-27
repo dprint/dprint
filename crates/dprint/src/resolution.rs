@@ -124,7 +124,7 @@ impl PluginWithConfig {
       None => {
         let result = instance.output_config_diagnostics(environment).await?;
         if let Err(err) = result {
-          environment.log_stderr(&err.to_string());
+          log_error!(environment, &err.to_string());
           *config_diagnostic_count = Some(err.diagnostic_count);
           Ok(GetPluginResult::HadDiagnostics(err.diagnostic_count))
         } else {
@@ -316,7 +316,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
 
   pub fn format(self: &Rc<Self>, request: HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> {
     let plugin_names = self.plugin_name_maps.get_plugin_names_from_file_path(&request.file_path);
-    log_verbose!(
+    log_debug!(
       self.environment,
       "Host formatting {} - File length: {} - Plugins: [{}] - Range: {:?}",
       request.file_path.display(),
@@ -432,7 +432,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     root_config_path: Option<&'a CanonicalizedPathBuf>,
   ) -> LocalBoxFuture<'a, Result<Vec<PluginsScopeAndPaths<TEnvironment>>>> {
     async move {
-      log_verbose!(self.environment, "Analyzing config file {}", config_file_path.display());
+      log_debug!(self.environment, "Analyzing config file {}", config_file_path.display());
       let config_file_path = self.environment.canonicalize(&config_file_path)?;
       if Some(&config_file_path) == root_config_path {
         // config file specified via `--config` so ignore it

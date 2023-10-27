@@ -9,6 +9,7 @@ use std::sync::Arc;
 use dprint_core::async_runtime::async_trait;
 
 use crate::plugins::CompilationResult;
+use crate::utils::LogLevel;
 use crate::utils::ProgressBars;
 
 use super::CanonicalizedPathBuf;
@@ -81,8 +82,10 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn mk_dir_all(&self, path: impl AsRef<Path>) -> Result<()>;
   fn cwd(&self) -> CanonicalizedPathBuf;
   fn current_exe(&self) -> Result<PathBuf>;
-  fn log(&self, text: &str);
-  fn log_stderr(&self, text: &str) {
+  /// Don't ever call this directly in the code. That's why this has this weird name.
+  fn __log__(&self, text: &str);
+  /// Don't ever call this directly in the code. That's why this has this weird name.
+  fn __log_stderr__(&self, text: &str) {
     self.log_stderr_with_context(text, "dprint");
   }
   /// Logs an error to the console providing the context name.
@@ -110,7 +113,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>>;
   fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool>;
   fn is_ci(&self) -> bool;
-  fn is_verbose(&self) -> bool;
+  fn log_level(&self) -> LogLevel;
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult>;
   fn wasm_cache_key(&self) -> String;
   /// Returns the current CPU usage as a value from 0-100.
@@ -126,13 +129,74 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn remove_system_path(&self, directory_path: &str) -> Result<()>;
 }
 
-// use a macro here so the expression provided is only evaluated when in verbose mode
-macro_rules! log_verbose {
+// use a macro here so the expression provided is only evaluated when in debug mode
+macro_rules! log_debug {
   ($logger:expr, $($arg:tt)*) => {
-    if $logger.is_verbose() {
-      let mut text = String::from("[VERBOSE] ");
+    if $logger.log_level().is_debug() {
+      let mut text = String::from("[DEBUG] ");
       text.push_str(&format!($($arg)*));
-      $logger.log_stderr(&text);
+      $logger.__log_stderr__(&text);
     }
+  }
+}
+
+macro_rules! log_stderr_info {
+  ($logger:expr, $single_arg:expr $(,)? ) => {
+    if $logger.log_level().is_info() {
+      $logger.__log_stderr__($single_arg);
+    }
+  };
+  ($logger:expr, $($arg:tt)*) => {
+    if $logger.log_level().is_info() {
+      $logger.__log_stderr__(&format!($($arg)*));
+    }
+  }
+}
+
+macro_rules! log_stdout_info {
+  ($logger:expr, $single_arg:expr $(,)? ) => {
+    if $logger.log_level().is_info() {
+      $logger.__log__($single_arg);
+    }
+  };
+  ($logger:expr, $($arg:tt)*) => {
+    if $logger.log_level().is_info() {
+      $logger.__log__(&format!($($arg)*));
+    }
+  }
+}
+
+macro_rules! log_warn {
+  ($logger:expr, $single_arg:expr $(,)? ) => {
+    if $logger.log_level().is_warn() {
+      $logger.__log_stderr__($single_arg);
+    }
+  };
+  ($logger:expr, $($arg:tt)*) => {
+    if $logger.log_level().is_warn() {
+      $logger.__log_stderr__(&format!($($arg)*));
+    }
+  }
+}
+
+macro_rules! log_error {
+  ($logger:expr, $single_arg:expr $(,)? ) => {
+    if $logger.log_level().is_error() {
+      $logger.__log_stderr__($single_arg);
+    }
+  };
+  ($logger:expr, $($arg:tt)*) => {
+    if $logger.log_level().is_error() {
+      $logger.__log_stderr__(&format!($($arg)*));
+    }
+  }
+}
+
+macro_rules! log_all {
+  ($logger:expr, $single_arg:expr $(,)? ) => {
+    $logger.__log_stderr__($single_arg);
+  };
+  ($logger:expr, $($arg:tt)*) => {
+    $logger.__log_stderr__(&format!($($arg)*));
   }
 }

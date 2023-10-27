@@ -23,12 +23,12 @@ pub struct GlobOutput {
 pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: GlobPatterns) -> Result<GlobOutput> {
   if file_patterns.includes.is_some() && file_patterns.includes.as_ref().unwrap().iter().all(|p| p.is_negated()) {
     // performance improvement (see issue #379)
-    log_verbose!(environment, "Skipping negated globs: {:?}", file_patterns.includes);
+    log_debug!(environment, "Skipping negated globs: {:?}", file_patterns.includes);
     return Ok(Default::default());
   }
 
   let start_instant = std::time::Instant::now();
-  log_verbose!(environment, "Globbing: {:?}", file_patterns);
+  log_debug!(environment, "Globbing: {:?}", file_patterns);
 
   let glob_matcher = GlobMatcher::new(
     file_patterns,
@@ -52,8 +52,8 @@ pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_pattern
   let glob_matching_processor = GlobMatchingProcessor::new(shared_state, glob_matcher);
   let results = glob_matching_processor.run()?;
 
-  log_verbose!(environment, "File(s) matched: {:?}", results);
-  log_verbose!(environment, "Finished globbing in {}ms", start_instant.elapsed().as_millis());
+  log_debug!(environment, "File(s) matched: {:?}", results);
+  log_debug!(environment, "Finished globbing in {}ms", start_instant.elapsed().as_millis());
 
   Ok(results)
 }
@@ -128,9 +128,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
             let ignore_error = is_system_volume_error(&current_dir, &err);
             if !ignore_error {
               if err.kind() == std::io::ErrorKind::PermissionDenied {
-                self
-                  .environment
-                  .log_stderr(&format!("WARNING: Ignoring directory. Permission denied: {}", current_dir.display()));
+                log_warn!(self.environment, "WARNING: Ignoring directory. Permission denied: {}", current_dir.display());
               } else {
                 self.set_glob_error(anyhow!("Error reading dir '{}': {:#}", current_dir.display(), err));
                 return;

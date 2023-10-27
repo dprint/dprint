@@ -13,6 +13,41 @@ use std::io::Write;
 
 use crate::utils::terminal::get_terminal_size;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LogLevel {
+  Error,
+  Warn,
+  Info,
+  Debug,
+  Silent,
+}
+
+impl LogLevel {
+  #[inline]
+  pub fn is_debug(&self) -> bool {
+    use LogLevel::*;
+    matches!(self, Debug)
+  }
+
+  #[inline]
+  pub fn is_info(&self) -> bool {
+    use LogLevel::*;
+    matches!(self, Debug | Info)
+  }
+
+  #[inline]
+  pub fn is_warn(&self) -> bool {
+    use LogLevel::*;
+    matches!(self, Debug | Info | Warn)
+  }
+
+  #[inline]
+  pub fn is_error(&self) -> bool {
+    use LogLevel::*;
+    matches!(self, Debug | Info | Warn | Error)
+  }
+}
+
 pub enum LoggerTextItem {
   Text(String),
   HangingText { text: String, indent: u16 },
@@ -47,13 +82,13 @@ pub struct LoggerOptions {
   pub initial_context_name: String,
   /// Whether stdout will be read by a program.
   pub is_stdout_machine_readable: bool,
-  pub is_verbose: bool,
+  pub log_level: LogLevel,
 }
 
 pub struct Logger {
   output_lock: Mutex<LoggerState>,
   is_stdout_machine_readable: bool,
-  is_verbose: bool,
+  log_level: LogLevel,
 }
 
 struct LoggerState {
@@ -81,13 +116,13 @@ impl Logger {
         }),
       }),
       is_stdout_machine_readable: options.is_stdout_machine_readable,
-      is_verbose: options.is_verbose,
+      log_level: options.log_level,
     }
   }
 
   #[inline]
-  pub fn is_verbose(&self) -> bool {
-    self.is_verbose
+  pub fn log_level(&self) -> LogLevel {
+    self.log_level
   }
 
   pub fn log(&self, text: &str, context_name: &str) {
@@ -104,7 +139,9 @@ impl Logger {
     self.inner_log(&mut state, true, text, &last_context_name);
   }
 
-  pub fn log_stderr(&self, text: &str) {
+  /// Don't ever call this directly. It's only used by the macro, which
+  /// is why it has this name to discourage its accidental use.
+  pub fn __log_stderr__(&self, text: &str) {
     self.log_stderr_with_context(text, "dprint");
   }
 
