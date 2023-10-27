@@ -1,5 +1,6 @@
 use anyhow::bail;
 use anyhow::Result;
+use std::fmt::Write as FmtWrite;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
@@ -64,7 +65,10 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   /// An atomic write, which will write to a temporary file and then rename it to the destination.
   fn atomic_write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()> {
     // lifted from https://github.com/denoland/deno/blob/0f4051a37ad23377091043206e64126003caa480/cli/util/fs.rs#L29
-    let rand: String = (0..4).map(|_| format!("{:02x}", rand::random::<u8>())).collect();
+    let rand: String = (0..4).fold(String::new(), |mut output, _| {
+      let _ = write!(output, "{:02x}", rand::random::<u8>());
+      output
+    });
     let extension = format!("{rand}.tmp");
     let tmp_file = file_path.as_ref().with_extension(extension);
     self.write_file_bytes(&tmp_file, bytes)?;
