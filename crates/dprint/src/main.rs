@@ -33,7 +33,10 @@ fn main() {
       Ok(_) => {}
       Err((err, log_level)) => {
         if log_level != LogLevel::Silent {
-          eprintln!("{:#}", err.inner);
+          let result = format!("{:#}", err.inner);
+          if !result.is_empty() {
+            eprintln!("{}", result);
+          }
         }
         std::process::exit(err.exit_code);
       }
