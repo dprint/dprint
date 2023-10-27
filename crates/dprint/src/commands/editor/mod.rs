@@ -166,9 +166,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       }
     });
     loop {
-      let Some(message) = rx.recv().await else {
-        return Ok(())
-      };
+      let Some(message) = rx.recv().await else { return Ok(()) };
       match message.body {
         EditorMessageBody::Success(_message_id) => {}
         EditorMessageBody::Error(_message_id, _data) => {}

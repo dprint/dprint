@@ -347,7 +347,9 @@ impl Environment for RealEnvironment {
         system.refresh_cpu();
       }
       system
-    }).await else {
+    })
+    .await
+    else {
       return 0;
     };
 
