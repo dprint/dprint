@@ -119,6 +119,8 @@ struct ProcessPluginFile {
   linux_x86_64_musl: Option<ProcessPluginPath>,
   #[serde(rename = "linux-aarch64")]
   linux_aarch64: Option<ProcessPluginPath>,
+  #[serde(rename = "linux-aarch64-musl")]
+  linux_aarch64_musl: Option<ProcessPluginPath>,
   #[serde(rename = "darwin-x86_64")]
   darwin_x86_64: Option<ProcessPluginPath>,
   #[serde(rename = "darwin-aarch64")]
@@ -212,6 +214,7 @@ fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Enviro
     },
     "linux-musl" => match arch.as_str() {
       "x86_64" => plugin_file.linux_x86_64_musl.as_ref(),
+      "aarch64" => plugin_file.linux_aarch64_musl.as_ref().or(plugin_file.linux_x86_64_musl.as_ref()),
       _ => None,
     },
     "macos" => match arch.as_str() {

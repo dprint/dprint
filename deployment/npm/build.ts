@@ -35,6 +35,11 @@ const packages: Package[] = [{
   os: "linux",
   cpu: "arm64",
   libc: "glibc",
+}, {
+  zipFileName: "dprint-aarch64-unknown-linux-musl.zip",
+  os: "linux",
+  cpu: "arm64",
+  libc: "musl",
 }];
 
 const markdownText = `# dprint
