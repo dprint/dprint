@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::sync::Arc;
 
 use anyhow::bail;
 use anyhow::Result;
@@ -9,16 +10,15 @@ use super::Logger;
 
 const MAX_RETRIES: u8 = 2;
 
-#[derive(Clone)]
 pub struct RealUrlDownloader {
   https_agent: ureq::Agent,
   http_agent: ureq::Agent,
-  progress_bars: Option<ProgressBars>,
-  logger: Logger,
+  progress_bars: Option<Arc<ProgressBars>>,
+  logger: Arc<Logger>,
 }
 
 impl RealUrlDownloader {
-  pub fn new(progress_bars: Option<ProgressBars>, logger: Logger, read_env_var: impl Fn(&str) -> Option<String>) -> Result<Self> {
+  pub fn new(progress_bars: Option<Arc<ProgressBars>>, logger: Arc<Logger>, read_env_var: impl Fn(&str) -> Option<String>) -> Result<Self> {
     Ok(Self {
       https_agent: build_agent(AgentKind::Https, &read_env_var)?,
       http_agent: build_agent(AgentKind::Http, &read_env_var)?,
@@ -42,11 +42,11 @@ impl RealUrlDownloader {
   fn download_with_retries(&self, url: &str, agent: &ureq::Agent) -> Result<Option<Vec<u8>>> {
     let mut last_error = None;
     for retry_count in 0..(MAX_RETRIES + 1) {
-      match inner_download(url, retry_count, agent, &self.progress_bars) {
+      match inner_download(url, retry_count, agent, self.progress_bars.as_deref()) {
         Ok(result) => return Ok(result),
         Err(err) => {
           if retry_count < MAX_RETRIES {
-            log_verbose!(self.logger, "Error downloading {} ({}/{}): {:#}", url, retry_count, MAX_RETRIES, err);
+            log_debug!(self.logger, "Error downloading {} ({}/{}): {:#}", url, retry_count, MAX_RETRIES, err);
           }
           last_error = Some(err);
         }
@@ -56,7 +56,7 @@ impl RealUrlDownloader {
   }
 }
 
-fn inner_download(url: &str, retry_count: u8, agent: &ureq::Agent, progress_bars: &Option<ProgressBars>) -> Result<Option<Vec<u8>>> {
+fn inner_download(url: &str, retry_count: u8, agent: &ureq::Agent, progress_bars: Option<&ProgressBars>) -> Result<Option<Vec<u8>>> {
   let resp = match agent.get(url).call() {
     Ok(resp) => resp,
     Err(ureq::Error::Status(404, _)) => {
@@ -75,7 +75,7 @@ fn inner_download(url: &str, retry_count: u8, agent: &ureq::Agent, progress_bars
   }
 }
 
-fn read_response(url: &str, retry_count: u8, reader: &mut impl Read, total_size: usize, progress_bars: &Option<ProgressBars>) -> Result<Vec<u8>> {
+fn read_response(url: &str, retry_count: u8, reader: &mut impl Read, total_size: usize, progress_bars: Option<&ProgressBars>) -> Result<Vec<u8>> {
   let mut final_bytes = Vec::with_capacity(total_size);
   if let Some(progress_bars) = &progress_bars {
     let mut buf: [u8; 512] = [0; 512]; // ensure progress bars update often

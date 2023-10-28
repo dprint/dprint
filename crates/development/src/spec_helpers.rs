@@ -1,6 +1,5 @@
 use anyhow::Result;
 use console::Style;
-use indexmap::IndexMap;
 use similar::ChangeTag;
 use similar::TextDiff;
 use std::fmt::Display;
@@ -53,8 +52,8 @@ pub fn run_specs(
   directory_path: &Path,
   parse_spec_options: &ParseSpecOptions,
   run_spec_options: &RunSpecsOptions,
-  format_text: impl Fn(&Path, &str, &IndexMap<String, String>) -> Result<Option<String>>,
-  get_trace_json: impl Fn(&Path, &str, &IndexMap<String, String>) -> String,
+  format_text: impl Fn(&Path, &str, &SpecConfigMap) -> Result<Option<String>>,
+  get_trace_json: impl Fn(&Path, &str, &SpecConfigMap) -> String,
 ) {
   #[cfg(not(debug_assertions))]
   assert_not_fix_failures(run_spec_options);
@@ -70,8 +69,11 @@ pub fn run_specs(
     let file_path_buf = PathBuf::from(&spec.file_name);
     let format = |file_text: &str| {
       let result = catch_unwind(AssertUnwindSafe(|| format_text(&file_path_buf, file_text, &spec.config)));
-      let result = result.unwrap_or_else(|err| panic!("Panic in spec '{}' in {}.\n\n{:?}", spec.message, file_path.display(), err));
-      result.unwrap_or_else(|err| panic!("Could not parse spec '{}' in {}. Message: {:#}", spec.message, file_path.display(), err,))
+      if result.is_err() {
+        eprintln!("Panic in spec '{}' in {}\n", spec.message, file_path.display());
+      }
+      let result = result.unwrap();
+      result.unwrap_or_else(|err| panic!("Could not parse spec '{}' in {}\nMessage: {:#}", spec.message, file_path.display(), err,))
     };
 
     if spec.is_trace {

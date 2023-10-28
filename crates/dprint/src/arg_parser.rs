@@ -3,11 +3,12 @@ use anyhow::Result;
 use clap::ArgMatches;
 use thiserror::Error;
 
+use crate::utils::LogLevel;
 use crate::utils::StdInReader;
 
 pub struct CliArgs {
   pub sub_command: SubCommand,
-  pub verbose: bool,
+  pub log_level: LogLevel,
   pub plugins: Vec<String>,
   pub config: Option<String>,
 }
@@ -17,7 +18,7 @@ impl CliArgs {
   pub fn empty() -> Self {
     Self {
       sub_command: SubCommand::Help("".to_string()),
-      verbose: false,
+      log_level: LogLevel::Info,
       plugins: vec![],
       config: None,
     }
@@ -27,14 +28,14 @@ impl CliArgs {
     // these output json or other text that's read by stdout
     matches!(
       self.sub_command,
-      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig
+      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig | SubCommand::Completions(..)
     )
   }
 
   fn new_with_sub_command(sub_command: SubCommand) -> CliArgs {
     CliArgs {
       sub_command,
-      verbose: false,
+      log_level: LogLevel::Info,
       config: None,
       plugins: Vec::new(),
     }
@@ -56,6 +57,7 @@ pub enum SubCommand {
   EditorInfo,
   EditorService(EditorServiceSubCommand),
   StdInFmt(StdInFmtSubCommand),
+  Completions(clap_complete::Shell),
   Upgrade,
   #[cfg(target_os = "windows")]
   Hidden(HiddenSubCommand),
@@ -65,6 +67,7 @@ pub enum SubCommand {
 pub struct CheckSubCommand {
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
+  pub list_different: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -131,7 +134,7 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
 fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: TStdInReader) -> Result<CliArgs> {
   // this is all done because clap doesn't output exactly how I like
   if args.len() == 1 || (args.len() == 2 && (args[1] == "help" || args[1] == "--help")) {
-    let mut cli_parser = create_cli_parser(/* is outputting help */ true);
+    let mut cli_parser = create_cli_parser(CliArgParserKind::ForOutputtingMainHelp);
     cli_parser.try_get_matches_from_mut(vec![""])?;
     let help_text = format!("{}", cli_parser.render_help());
     return Ok(CliArgs::new_with_sub_command(SubCommand::Help(help_text)));
@@ -139,7 +142,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     return Ok(CliArgs::new_with_sub_command(SubCommand::Version));
   }
 
-  let cli_parser = create_cli_parser(false);
+  let cli_parser = create_cli_parser(CliArgParserKind::Default);
   let matches = match cli_parser.try_get_matches_from(&args) {
     Ok(result) => result,
     Err(err) => return Err(err.into()),
@@ -171,6 +174,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("check", matches) => SubCommand::Check(CheckSubCommand {
       patterns: parse_file_patterns(matches)?,
       incremental: parse_incremental(matches),
+      list_different: matches.get_flag("list-different"),
     }),
     ("init", _) => SubCommand::Config(ConfigSubCommand::Init),
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
@@ -195,6 +199,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("editor-service", matches) => SubCommand::EditorService(EditorServiceSubCommand {
       parent_pid: matches.get_one::<String>("parent-pid").and_then(|v| v.parse::<u32>().ok()).unwrap(),
     }),
+    ("completions", matches) => SubCommand::Completions(matches.get_one::<clap_complete::Shell>("shell").unwrap().to_owned()),
     ("upgrade", _) => SubCommand::Upgrade,
     #[cfg(target_os = "windows")]
     ("hidden", matches) => SubCommand::Hidden(match matches.subcommand().unwrap() {
@@ -209,7 +214,20 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
 
   Ok(CliArgs {
     sub_command,
-    verbose: matches.get_flag("verbose"),
+    log_level: if matches.get_flag("verbose") {
+      LogLevel::Debug
+    } else if let Some(log_level) = matches.get_one::<String>("log-level") {
+      match log_level.as_str() {
+        "debug" => LogLevel::Debug,
+        "info" => LogLevel::Info,
+        "warn" => LogLevel::Warn,
+        "error" => LogLevel::Error,
+        "silent" => LogLevel::Silent,
+        _ => unreachable!(),
+      }
+    } else {
+      LogLevel::Info
+    },
     config: matches.get_one::<String>("config").map(String::from),
     plugins: values_to_vec(matches.get_many("plugins")),
   })
@@ -270,19 +288,28 @@ fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
   Ok(())
 }
 
-fn create_cli_parser(is_outputting_main_help: bool) -> clap::Command {
+#[derive(Default, PartialEq, Eq)]
+pub enum CliArgParserKind {
+  ForOutputtingMainHelp,
+  ForCompletions,
+  #[default]
+  Default,
+}
+
+pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
   use clap::Arg;
   use clap::Command;
-  let app = Command::new("dprint");
+
+  let mut app = Command::new("dprint");
 
   // hack to get this to display the way I want
-  let app = if is_outputting_main_help {
+  app = if kind == CliArgParserKind::ForOutputtingMainHelp {
     app.disable_help_subcommand(true).disable_version_flag(true).disable_help_flag(true)
   } else {
     app.subcommand_required(true)
   };
 
-  app
+  app = app
     .bin_name("dprint")
     .version(env!("CARGO_PKG_VERSION"))
     .author("Copyright 2020-2023 by David Sherret")
@@ -374,6 +401,12 @@ EXAMPLES:
         .about("Checks for any files that haven't been formatted.")
         .add_resolve_file_path_args()
         .add_incremental_arg()
+        .arg(
+          Arg::new("list-different")
+            .long("list-different")
+            .help("Only outputs file paths that aren't formatted and doesn't output diffs.")
+            .num_args(0)
+        )
     )
     .subcommand(
       Command::new("config")
@@ -421,6 +454,14 @@ EXAMPLES:
         .about("Upgrades the dprint executable.")
     )
     .subcommand(
+      Command::new("completions").about("Generate shell completions script for dprint").arg(
+        Arg::new("shell")
+          .action(clap::ArgAction::Set)
+          .value_parser(clap::value_parser!(clap_complete::Shell))
+          .required(true)
+      )
+    )
+    .subcommand(
       Command::new("license")
         .about("Outputs the software license.")
     )
@@ -455,32 +496,35 @@ EXAMPLES:
         .num_args(1..)
     )
     .arg(
+      Arg::new("log-level")
+        .short('L')
+        .long("log-level")
+        .help("Set log level")
+        .value_parser(["debug", "info", "warn", "error", "silent"])
+        .default_value("info")
+        .global(true),
+    )
+    .arg(
       Arg::new("verbose")
         .long("verbose")
-        .help("Prints additional diagnostic information.")
+        .help("Alias for --log-level=debug")
+        .hide(true)
         .global(true)
         .num_args(0)
-    )
-    .subcommand(
+        .conflicts_with("log-level")
+    );
+
+  #[cfg(target_os = "windows")]
+  if kind == CliArgParserKind::Default {
+    app = app.subcommand(
       Command::new("hidden")
         .hide(true)
-        .subcommand(
-          Command::new("windows-install")
-            .arg(
-              Arg::new("install-path")
-                .num_args(1)
-                .required(true)
-            )
-        )
-        .subcommand(
-          Command::new("windows-uninstall")
-            .arg(
-              Arg::new("install-path")
-                .num_args(1)
-                .required(true)
-            )
-        )
-    )
+        .subcommand(Command::new("windows-install").arg(Arg::new("install-path").num_args(1).required(true)))
+        .subcommand(Command::new("windows-uninstall").arg(Arg::new("install-path").num_args(1).required(true))),
+    );
+  }
+
+  app
 }
 
 trait ClapExtensions {

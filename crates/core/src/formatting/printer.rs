@@ -404,7 +404,7 @@ impl<'a> Printer<'a> {
       Signal::SpaceOrNewLine => {
         if self.allow_new_lines() {
           if self.is_above_max_width(1) {
-            let optional_save_state = std::mem::replace(&mut self.possible_new_line_save_point, None);
+            let optional_save_state = self.possible_new_line_save_point.take();
             if optional_save_state.is_none() {
               self.write_new_line();
             } else if let Some(save_state) = optional_save_state {
@@ -598,7 +598,7 @@ impl<'a> Printer<'a> {
     self.validate_string(&text.text);
 
     if self.possible_new_line_save_point.is_some() && self.is_above_max_width(text.char_count) && self.allow_new_lines() {
-      let save_point = std::mem::replace(&mut self.possible_new_line_save_point, Option::None);
+      let save_point = self.possible_new_line_save_point.take();
       self.update_state_to_save_point(save_point.unwrap(), true);
     } else {
       self.writer.write(text);

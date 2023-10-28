@@ -8,82 +8,132 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::environment::DirEntry;
-use crate::environment::DirEntryKind;
 use crate::environment::Environment;
 
 use super::GlobMatcher;
 use super::GlobMatcherOptions;
 use super::GlobPatterns;
 
-pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: GlobPatterns) -> Result<Vec<PathBuf>> {
-  if file_patterns.includes.iter().all(|p| p.is_negated()) {
+#[derive(Debug, Default, Clone)]
+pub struct GlobOutput {
+  pub file_paths: Vec<PathBuf>,
+  pub config_files: Vec<PathBuf>,
+}
+
+pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: GlobPatterns) -> Result<GlobOutput> {
+  if file_patterns.includes.is_some() && file_patterns.includes.as_ref().unwrap().iter().all(|p| p.is_negated()) {
     // performance improvement (see issue #379)
-    log_verbose!(environment, "Skipping negated globs: {:?}", file_patterns.includes);
-    return Ok(Vec::with_capacity(0));
+    log_debug!(environment, "Skipping negated globs: {:?}", file_patterns.includes);
+    return Ok(Default::default());
   }
 
   let start_instant = std::time::Instant::now();
-  log_verbose!(environment, "Globbing: {:?}", file_patterns);
+  log_debug!(environment, "Globbing: {:?}", file_patterns);
 
   let glob_matcher = GlobMatcher::new(
     file_patterns,
     &GlobMatcherOptions {
-      case_sensitive: !cfg!(windows),
+      // make it work the same way on every operating system
+      case_sensitive: false,
+      base_dir: environment.cwd(),
     },
   )?;
 
   let start_dir = base.as_ref().to_path_buf();
-  let shared_state = Arc::new(SharedState::new(start_dir));
+  let shared_state = Arc::new(SharedState::new(start_dir.clone()));
 
   // This is a performance improvement to attempt to reduce the time of globbing down
   // to the speed of `fs::read_dir` calls. Essentially, run all the `fs::read_dir` calls
   // on a new thread and do the glob matching on the other thread.
-  let read_dir_runner = ReadDirRunner::new(environment.clone(), shared_state.clone());
-  tokio::task::spawn_blocking(move || read_dir_runner.run());
+  let read_dir_runner = ReadDirRunner::new(start_dir, environment.clone(), shared_state.clone());
+  dprint_core::async_runtime::spawn_blocking(move || read_dir_runner.run());
 
   // run the glob matching on the current thread (the two threads will communicate with each other)
   let glob_matching_processor = GlobMatchingProcessor::new(shared_state, glob_matcher);
   let results = glob_matching_processor.run()?;
 
-  log_verbose!(environment, "File(s) matched: {:?}", results);
-  log_verbose!(environment, "Finished globbing in {}ms", start_instant.elapsed().as_millis());
+  log_debug!(environment, "File(s) matched: {:?}", results);
+  log_debug!(environment, "Finished globbing in {}ms", start_instant.elapsed().as_millis());
 
   Ok(results)
+}
+
+enum DirOrConfigEntry {
+  Dir(PathBuf),
+  File(PathBuf),
+  // todo: finish implementing this later
+  #[allow(dead_code)]
+  Config(PathBuf),
 }
 
 const PUSH_DIR_ENTRIES_BATCH_COUNT: usize = 500;
 
 struct ReadDirRunner<TEnvironment: Environment> {
   environment: TEnvironment,
+  // todo: finish implementing this later
+  #[allow(dead_code)]
+  start_dir: PathBuf,
   shared_state: Arc<SharedState>,
 }
 
 impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
-  pub fn new(environment: TEnvironment, shared_state: Arc<SharedState>) -> Self {
-    Self { environment, shared_state }
+  pub fn new(start_dir: PathBuf, environment: TEnvironment, shared_state: Arc<SharedState>) -> Self {
+    Self {
+      environment,
+      shared_state,
+      start_dir,
+    }
   }
 
   pub fn run(&self) {
     while let Some(pending_dirs) = self.get_next_pending_dirs() {
       let mut all_entries = Vec::new();
       for current_dir in pending_dirs.into_iter().flatten() {
-        let info_result = self
-          .environment
-          .dir_info(&current_dir)
-          .map_err(|err| anyhow!("Error reading dir '{}': {:#}", current_dir.display(), err));
+        let info_result = self.environment.dir_info(&current_dir);
         match info_result {
           Ok(entries) => {
             if !entries.is_empty() {
-              all_entries.extend(entries);
-              // it is much faster to batch these than to hit the lock every time
-              if all_entries.len() > PUSH_DIR_ENTRIES_BATCH_COUNT {
-                self.push_entries(std::mem::take(&mut all_entries));
+              let maybe_config_file = if current_dir != self.start_dir {
+                entries
+                  .iter()
+                  .filter_map(|e| match e {
+                    DirEntry::Directory(_) => None,
+                    DirEntry::File { name, path } => {
+                      if matches!(name.to_str(), Some(".dprint.json" | "dprint.json" | ".dprint.jsonc" | "dprint.jsonc")) {
+                        Some(path)
+                      } else {
+                        None
+                      }
+                    }
+                  })
+                  .next()
+              } else {
+                None
+              };
+              if let Some(config_file) = maybe_config_file {
+                all_entries.push(DirOrConfigEntry::Config(config_file.clone()));
+              } else {
+                all_entries.extend(entries.into_iter().map(|e| match e {
+                  DirEntry::Directory(path) => DirOrConfigEntry::Dir(path),
+                  DirEntry::File { path, .. } => DirOrConfigEntry::File(path),
+                }));
+                // it is much faster to batch these than to hit the lock every time
+                if all_entries.len() > PUSH_DIR_ENTRIES_BATCH_COUNT {
+                  self.push_entries(std::mem::take(&mut all_entries));
+                }
               }
             }
           }
           Err(err) => {
-            self.set_glob_error(err);
-            return;
+            let ignore_error = is_system_volume_error(&current_dir, &err);
+            if !ignore_error {
+              if err.kind() == std::io::ErrorKind::PermissionDenied {
+                log_warn!(self.environment, "WARNING: Ignoring directory. Permission denied: {}", current_dir.display());
+              } else {
+                self.set_glob_error(anyhow!("Error reading dir '{}': {:#}", current_dir.display(), err));
+                return;
+              }
+            }
           }
         }
       }
@@ -120,12 +170,19 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     cvar.notify_one();
   }
 
-  fn push_entries(&self, entries: Vec<DirEntry>) {
+  fn push_entries(&self, entries: Vec<DirOrConfigEntry>) {
     let (ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     state.pending_entries.push(entries);
     cvar.notify_one();
   }
+}
+
+fn is_system_volume_error(dir_path: &Path, err: &std::io::Error) -> bool {
+  // ignore any access denied errors for the system volume information
+  cfg!(target_os = "windows")
+    && matches!(err.raw_os_error(), Some(5))
+    && matches!(dir_path.file_name().and_then(|f| f.to_str()), Some("System Volume Information"))
 }
 
 struct GlobMatchingProcessor {
@@ -137,27 +194,31 @@ impl GlobMatchingProcessor {
   pub fn new(shared_state: Arc<SharedState>, glob_matcher: GlobMatcher) -> Self {
     Self { shared_state, glob_matcher }
   }
-  pub fn run(&self) -> Result<Vec<PathBuf>> {
-    let mut results = Vec::new();
+
+  pub fn run(&self) -> Result<GlobOutput> {
+    let mut output = GlobOutput::default();
 
     loop {
       let mut pending_dirs = Vec::new();
 
       match self.get_next_entries() {
-        Ok(None) => return Ok(results),
+        Ok(None) => return Ok(output),
         Err(err) => return Err(err), // error
         Ok(Some(entries)) => {
           for entry in entries.into_iter().flatten() {
-            match entry.kind {
-              DirEntryKind::Directory => {
-                if !self.glob_matcher.is_dir_ignored(&entry.path) {
-                  pending_dirs.push(entry.path);
+            match entry {
+              DirOrConfigEntry::Dir(path) => {
+                if !self.glob_matcher.is_dir_ignored(&path) {
+                  pending_dirs.push(path);
                 }
               }
-              DirEntryKind::File => {
-                if self.glob_matcher.matches(&entry.path) {
-                  results.push(entry.path);
+              DirOrConfigEntry::File(path) => {
+                if self.glob_matcher.matches(&path) {
+                  output.file_paths.push(path);
                 }
+              }
+              DirOrConfigEntry::Config(path) => {
+                output.config_files.push(path);
               }
             }
           }
@@ -175,7 +236,7 @@ impl GlobMatchingProcessor {
     cvar.notify_one();
   }
 
-  fn get_next_entries(&self) -> Result<Option<Vec<Vec<DirEntry>>>> {
+  fn get_next_entries(&self) -> Result<Option<Vec<Vec<DirOrConfigEntry>>>> {
     let (ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     loop {
@@ -221,7 +282,7 @@ enum ProcessingThreadState {
 
 struct SharedStateInternal {
   pending_dirs: Vec<Vec<PathBuf>>,
-  pending_entries: Vec<Vec<DirEntry>>,
+  pending_entries: Vec<Vec<DirOrConfigEntry>>,
   read_dir_thread_state: ReadDirThreadState,
   processing_thread_state: ProcessingThreadState,
 }
@@ -248,6 +309,8 @@ impl SharedState {
 
 #[cfg(test)]
 mod test {
+  use pretty_assertions::assert_eq;
+
   use super::*;
   use crate::environment::TestEnvironmentBuilder;
   use crate::utils::GlobPattern;
@@ -284,12 +347,12 @@ mod test {
       &environment,
       "/",
       GlobPatterns {
-        includes: vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())],
+        includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
         excludes: vec![GlobPattern::new("**/ignore".to_string(), root_dir)],
       },
     )
     .unwrap();
-    let mut result = result.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    let mut result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
     result.sort();
     expected_matches.sort();
     assert_eq!(result, expected_matches);
@@ -298,19 +361,39 @@ mod test {
   #[tokio::test]
   async fn should_handle_dir_info_erroring() {
     let environment = TestEnvironmentBuilder::new().build();
-    environment.set_dir_info_error(anyhow!("FAILURE"));
+    environment.set_dir_info_error(std::io::Error::new(std::io::ErrorKind::Other, "FAILURE"));
     let root_dir = environment.canonicalize("/").unwrap();
     let err_message = glob(
       &environment,
       "/",
       GlobPatterns {
-        includes: vec![GlobPattern::new("**/*.txt".to_string(), root_dir)],
+        includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
         excludes: Vec::new(),
       },
     )
     .err()
     .unwrap();
     assert_eq!(err_message.to_string(), "Error reading dir '/': FAILURE");
+  }
+
+  #[tokio::test]
+  async fn should_ignore_permission_denied_error() {
+    let environment = TestEnvironmentBuilder::new().build();
+    environment.set_dir_info_error(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Permission denied"));
+    let root_dir = environment.canonicalize("/").unwrap();
+    let result = glob(
+      &environment,
+      "/",
+      GlobPatterns {
+        includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
+        excludes: Vec::new(),
+      },
+    );
+    assert!(result.is_ok());
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["WARNING: Ignoring directory. Permission denied: /".to_string()]
+    );
   }
 
   #[tokio::test]
@@ -322,16 +405,16 @@ mod test {
       &environment,
       "/",
       GlobPatterns {
-        includes: vec![
+        includes: Some(vec![
           GlobPattern::new("!**/*.*".to_string(), root_dir.clone()),
           GlobPattern::new("**/a.txt".to_string(), root_dir),
-        ],
+        ]),
         excludes: Vec::new(),
       },
     )
     .unwrap();
 
-    let mut result = result.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    let mut result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
     result.sort();
     assert_eq!(result, vec!["/dir/a.txt"]);
   }
@@ -347,17 +430,17 @@ mod test {
       &environment,
       "/",
       GlobPatterns {
-        includes: vec![
+        includes: Some(vec![
           GlobPattern::new("**/*.json".to_string(), root_dir.clone()),
           GlobPattern::new("!**/*.json".to_string(), root_dir.clone()),
           GlobPattern::new("**/a.json".to_string(), root_dir),
-        ],
+        ]),
         excludes: Vec::new(),
       },
     )
     .unwrap();
 
-    let mut result = result.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    let mut result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
     result.sort();
     assert_eq!(result, vec!["/dir/a.json"]);
   }
@@ -374,17 +457,17 @@ mod test {
       &environment,
       "/test/",
       GlobPatterns {
-        includes: vec![
+        includes: Some(vec![
           GlobPattern::new("**/*.json".to_string(), test_dir.clone()),
           GlobPattern::new("!a/**/*.json".to_string(), test_dir.clone()),
           GlobPattern::new("a/b/**/*.json".to_string(), test_dir),
-        ],
+        ]),
         excludes: Vec::new(),
       },
     )
     .unwrap();
 
-    let mut result = result.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    let mut result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
     result.sort();
     assert_eq!(result, vec!["/test/a/b/b.json", "/test/test.json"]);
   }
@@ -400,17 +483,17 @@ mod test {
       &environment,
       "/",
       GlobPatterns {
-        includes: vec![
+        includes: Some(vec![
           GlobPattern::new("**/*.*".to_string(), root_dir.clone()),
           GlobPattern::new("!dir/a/**/*".to_string(), root_dir.clone()),
           GlobPattern::new("dir/b/b/**/*".to_string(), root_dir),
-        ],
+        ]),
         excludes: Vec::new(),
       },
     )
     .unwrap();
 
-    let mut result = result.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    let mut result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
     result.sort();
     assert_eq!(result, vec!["/dir/b/b.txt"]);
   }

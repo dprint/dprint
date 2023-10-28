@@ -2,16 +2,23 @@ use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
 use once_cell::sync::Lazy;
+use once_cell::sync::OnceCell;
+use parking_lot::Mutex;
 use std::fs;
+use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
+use sysinfo::CpuExt;
+use sysinfo::System;
+use sysinfo::SystemExt;
+
+use dprint_core::async_runtime::async_trait;
 
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
-use super::DirEntryKind;
 use super::Environment;
 use super::FilePermissions;
 use super::UrlDownloader;
@@ -20,39 +27,45 @@ use crate::utils::log_action_with_progress;
 use crate::utils::show_confirm;
 use crate::utils::show_multi_select;
 use crate::utils::show_select;
+use crate::utils::FastInsecureHasher;
+use crate::utils::LogLevel;
 use crate::utils::Logger;
 use crate::utils::LoggerOptions;
 use crate::utils::ProgressBars;
 use crate::utils::RealUrlDownloader;
 
+// cache the cwd because it's much faster than looking it up each time
+static CACHED_CWD: OnceCell<CanonicalizedPathBuf> = OnceCell::new();
+
 pub struct RealEnvironmentOptions {
-  pub is_verbose: bool,
+  pub log_level: LogLevel,
   pub is_stdout_machine_readable: bool,
-  pub runtime_handle: Arc<tokio::runtime::Handle>,
 }
 
 #[derive(Clone)]
 pub struct RealEnvironment {
-  progress_bars: Option<ProgressBars>,
-  runtime_handle: Arc<tokio::runtime::Handle>,
-  url_downloader: RealUrlDownloader,
-  logger: Logger,
+  progress_bars: Option<Arc<ProgressBars>>,
+  url_downloader: Arc<RealUrlDownloader>,
+  logger: Arc<Logger>,
+  system: Arc<Mutex<System>>,
 }
 
 impl RealEnvironment {
   pub fn new(options: RealEnvironmentOptions) -> Result<RealEnvironment> {
-    let logger = Logger::new(&LoggerOptions {
+    let logger = Arc::new(Logger::new(&LoggerOptions {
       initial_context_name: "dprint".to_string(),
       is_stdout_machine_readable: options.is_stdout_machine_readable,
-      is_verbose: options.is_verbose,
-    });
-    let progress_bars = ProgressBars::new(&logger);
-    let url_downloader = RealUrlDownloader::new(progress_bars.clone(), logger.clone(), |env_var_name| std::env::var(env_var_name).ok())?;
+      log_level: options.log_level,
+    }));
+    let progress_bars = ProgressBars::new(&logger).map(Arc::new);
+    let url_downloader = Arc::new(RealUrlDownloader::new(progress_bars.clone(), logger.clone(), |env_var_name| {
+      std::env::var(env_var_name).ok()
+    })?);
     let environment = RealEnvironment {
       url_downloader,
       logger,
       progress_bars,
-      runtime_handle: options.runtime_handle,
+      system: Default::default(),
     };
 
     // ensure the cache directory is created
@@ -65,16 +78,32 @@ impl RealEnvironment {
 
     Ok(environment)
   }
-}
 
-impl UrlDownloader for RealEnvironment {
-  fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
-    log_verbose!(self, "Downloading url: {}", url);
+  #[cfg(test)]
+  pub fn run_test_with_real_env(run_with_env: impl Fn(RealEnvironment) -> dprint_core::async_runtime::LocalBoxFuture<'static, ()>) {
+    let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+    let env = RealEnvironment::new(RealEnvironmentOptions {
+      log_level: LogLevel::Info,
+      is_stdout_machine_readable: false,
+    })
+    .unwrap();
 
-    self.url_downloader.download(url)
+    rt.block_on(async move { run_with_env(env).await });
   }
 }
 
+#[async_trait(?Send)]
+impl UrlDownloader for RealEnvironment {
+  async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
+    log_debug!(self, "Downloading url: {}", url);
+
+    let downloader = self.url_downloader.clone();
+    let url = url.to_string();
+    dprint_core::async_runtime::spawn_blocking(move || downloader.download(&url)).await?
+  }
+}
+
+#[async_trait]
 impl Environment for RealEnvironment {
   fn is_real(&self) -> bool {
     true
@@ -85,19 +114,17 @@ impl Environment for RealEnvironment {
   }
 
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>> {
-    log_verbose!(self, "Reading file: {}", file_path.as_ref().display());
+    log_debug!(self, "Reading file: {}", file_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
     match fs::read(&file_path) {
       Ok(bytes) => Ok(bytes),
       Err(err) => bail!("Error reading file {}: {:#}", file_path.as_ref().display(), err),
     }
   }
 
-  fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> Result<()> {
-    self.write_file_bytes(file_path, file_text.as_bytes())
-  }
-
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()> {
-    log_verbose!(self, "Writing file: {}", file_path.as_ref().display());
+    log_debug!(self, "Writing file: {}", file_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
     match fs::write(&file_path, bytes) {
       Ok(_) => Ok(()),
       Err(err) => bail!("Error writing file {}: {:#}", file_path.as_ref().display(), err),
@@ -105,11 +132,14 @@ impl Environment for RealEnvironment {
   }
 
   fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> Result<()> {
+    log_debug!(self, "Renaming {} -> {}", path_from.as_ref().display(), path_to.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
     fs::rename(&path_from, &path_to).with_context(|| format!("Error renaming {} to {}", path_from.as_ref().display(), path_to.as_ref().display()))
   }
 
   fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<()> {
-    log_verbose!(self, "Deleting file: {}", file_path.as_ref().display());
+    log_debug!(self, "Deleting file: {}", file_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
     match fs::remove_file(&file_path) {
       Ok(_) => Ok(()),
       Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -118,7 +148,8 @@ impl Environment for RealEnvironment {
   }
 
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<()> {
-    log_verbose!(self, "Deleting directory: {}", dir_path.as_ref().display());
+    log_debug!(self, "Deleting directory: {}", dir_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
     match fs::remove_dir_all(&dir_path) {
       Ok(_) => Ok(()),
       Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -126,32 +157,21 @@ impl Environment for RealEnvironment {
     }
   }
 
-  fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>> {
+  fn dir_info(&self, dir_path: impl AsRef<Path>) -> std::io::Result<Vec<DirEntry>> {
     let mut entries = Vec::new();
 
-    let dir_info = match std::fs::read_dir(&dir_path) {
-      Ok(result) => result,
-      Err(err) => {
-        if is_system_volume_error(dir_path.as_ref(), &err) {
-          return Ok(Vec::with_capacity(0));
-        } else {
-          return Err(err.into());
-        }
-      }
-    };
+    #[allow(clippy::disallowed_methods)]
+    let dir_info = std::fs::read_dir(&dir_path)?;
 
     for entry in dir_info {
       let entry = entry?;
       let file_type = entry.file_type()?;
       if file_type.is_dir() {
-        entries.push(DirEntry {
-          kind: DirEntryKind::Directory,
-          path: entry.path().to_path_buf(),
-        });
+        entries.push(DirEntry::Directory(entry.path()));
       } else if file_type.is_file() {
-        entries.push(DirEntry {
-          kind: DirEntryKind::File,
-          path: entry.path().to_path_buf(),
+        entries.push(DirEntry::File {
+          name: entry.file_name(),
+          path: entry.path(),
         });
       }
     }
@@ -160,7 +180,8 @@ impl Environment for RealEnvironment {
   }
 
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
-    log_verbose!(self, "Checking path exists: {}", file_path.as_ref().display());
+    log_debug!(self, "Checking path exists: {}", file_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
     file_path.as_ref().exists()
   }
 
@@ -174,6 +195,7 @@ impl Environment for RealEnvironment {
 
   fn file_permissions(&self, path: impl AsRef<Path>) -> Result<FilePermissions> {
     Ok(FilePermissions::Std(
+      #[allow(clippy::disallowed_methods)]
       fs::metadata(&path)
         .with_context(|| format!("Error getting file permissions for: {}", path.as_ref().display()))?
         .permissions(),
@@ -185,12 +207,14 @@ impl Environment for RealEnvironment {
       FilePermissions::Std(p) => p,
       _ => panic!("Programming error. Permissions did not contain an std permission."),
     };
+    #[allow(clippy::disallowed_methods)]
     fs::set_permissions(&path, permissions).with_context(|| format!("Error setting file permissions for: {}", path.as_ref().display()))?;
     Ok(())
   }
 
   fn mk_dir_all(&self, path: impl AsRef<Path>) -> Result<()> {
-    log_verbose!(self, "Creating directory: {}", path.as_ref().display());
+    log_debug!(self, "Creating directory: {}", path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
     match fs::create_dir_all(&path) {
       Ok(_) => Ok(()),
       Err(err) => bail!("Error creating directory {}: {:#}", path.as_ref().display(), err),
@@ -198,16 +222,21 @@ impl Environment for RealEnvironment {
   }
 
   fn cwd(&self) -> CanonicalizedPathBuf {
-    self
-      .canonicalize(std::env::current_dir().expect("Expected to get the current working directory."))
-      .expect("expected to canonicalize the cwd")
+    CACHED_CWD
+      .get_or_init(|| {
+        #[allow(clippy::disallowed_methods)]
+        self
+          .canonicalize(std::env::current_dir().expect("Expected to get the current working directory."))
+          .expect("expected to canonicalize the cwd")
+      })
+      .clone()
   }
 
   fn current_exe(&self) -> Result<PathBuf> {
     std::env::current_exe().context("Error getting current executable.")
   }
 
-  fn log(&self, text: &str) {
+  fn __log__(&self, text: &str) {
     self.logger.log(text, "dprint");
   }
 
@@ -225,7 +254,7 @@ impl Environment for RealEnvironment {
     action: TCreate,
     total_size: usize,
   ) -> TResult {
-    log_action_with_progress(&self.progress_bars, message, action, total_size)
+    log_action_with_progress(self.progress_bars.as_deref(), message, action, total_size)
   }
 
   fn get_cache_dir(&self) -> CanonicalizedPathBuf {
@@ -276,13 +305,72 @@ impl Environment for RealEnvironment {
     show_confirm(&self.logger, "dprint", prompt_message, default_value)
   }
 
+  fn is_ci(&self) -> bool {
+    match std::env::var_os("CI") {
+      Some(value) => {
+        let value = value.to_string_lossy();
+        matches!(value.as_ref(), "true" | "1")
+      }
+      None => false,
+    }
+  }
+
   #[inline]
-  fn is_verbose(&self) -> bool {
-    self.logger.is_verbose()
+  fn log_level(&self) -> LogLevel {
+    self.logger.log_level()
   }
 
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult> {
-    crate::plugins::compile_wasm(wasm_bytes, self.clone())
+    crate::plugins::compile_wasm(wasm_bytes)
+  }
+
+  fn wasm_cache_key(&self) -> String {
+    let cpu = self.cpu_arch();
+    // need to also hash on the CPU features
+    // https://github.com/dprint/dprint/issues/735
+    let mut hash = FastInsecureHasher::default();
+    let mut features = wasmer::CpuFeature::for_host().into_iter().map(|c| c.to_string()).collect::<Vec<_>>();
+    features.sort(); // ensure this is stable
+    for feature in features {
+      feature.hash(&mut hash);
+    }
+    // include the rustc version in the hash because wasmer's deserialization
+    // of wasm plugins sometimes breaks with a rust upgrade
+    env!("RUSTC_VERSION_TEXT").hash(&mut hash);
+    format!("{}-{}", cpu, hash.finish())
+  }
+
+  async fn cpu_usage(&self) -> u8 {
+    // the documentation recommends calling this twice in order
+    // to get a more accurate cpu reading
+    let system = self.system.clone();
+    let Ok(system) = dprint_core::async_runtime::spawn_blocking(move || {
+      {
+        let mut system = system.lock();
+        system.refresh_cpu();
+      }
+      system
+    })
+    .await
+    else {
+      return 0;
+    };
+
+    // wait a duration that allows getting a more accurate cpu usage
+    tokio::time::sleep(System::MINIMUM_CPU_UPDATE_INTERVAL).await;
+
+    dprint_core::async_runtime::spawn_blocking(move || {
+      let mut system = system.lock();
+      system.refresh_cpu();
+      let utilization = system.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / system.cpus().len() as f32;
+      if utilization > 101f32 {
+        0 // something wrong, so just return 0 for "cannot figure out cpu usage"
+      } else {
+        utilization as u8
+      }
+    })
+    .await
+    .unwrap_or(0)
   }
 
   fn stdout(&self) -> Box<dyn std::io::Write + Send> {
@@ -293,15 +381,15 @@ impl Environment for RealEnvironment {
     Box::new(std::io::stdin())
   }
 
-  fn runtime_handle(&self) -> tokio::runtime::Handle {
-    (*self.runtime_handle).clone()
+  fn progress_bars(&self) -> Option<&Arc<ProgressBars>> {
+    self.progress_bars.as_ref()
   }
 
   #[cfg(windows)]
   fn ensure_system_path(&self, directory_path: &str) -> Result<()> {
     use winreg::enums::*;
     use winreg::RegKey;
-    log_verbose!(self, "Ensuring '{}' is on the path.", directory_path);
+    log_debug!(self, "Ensuring '{}' is on the path.", directory_path);
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (env, _) = hkcu.create_subkey("Environment")?;
@@ -322,7 +410,7 @@ impl Environment for RealEnvironment {
   fn remove_system_path(&self, directory_path: &str) -> Result<()> {
     use winreg::enums::*;
     use winreg::RegKey;
-    log_verbose!(self, "Ensuring '{}' is on the path.", directory_path);
+    log_debug!(self, "Ensuring '{}' is on the path.", directory_path);
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (env, _) = hkcu.create_subkey("Environment")?;
@@ -372,6 +460,7 @@ const CACHE_DIR_ENV_VAR_NAME: &str = "DPRINT_CACHE_DIR";
 
 static CACHE_DIR: Lazy<Result<CanonicalizedPathBuf>> = Lazy::new(|| {
   let cache_dir = get_cache_dir_internal(|var_name| std::env::var(var_name).ok())?;
+  #[allow(clippy::disallowed_methods)]
   std::fs::create_dir_all(&cache_dir)?;
   canonicalize_path(cache_dir)
 });
@@ -393,13 +482,6 @@ fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> Resul
     Some(dir) => Ok(dir.join("dprint").join("cache")),
     None => bail!("Expected to find cache directory"),
   }
-}
-
-fn is_system_volume_error(dir_path: &Path, err: &std::io::Error) -> bool {
-  // ignore any access denied errors for the system volume information
-  cfg!(target_os = "windows")
-    && matches!(err.raw_os_error(), Some(5))
-    && matches!(dir_path.file_name().and_then(|f| f.to_str()), Some("System Volume Information"))
 }
 
 #[cfg(test)]

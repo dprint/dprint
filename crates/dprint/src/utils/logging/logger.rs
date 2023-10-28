@@ -10,9 +10,43 @@ use std::io::stdout;
 use std::io::Stderr;
 use std::io::Stdout;
 use std::io::Write;
-use std::sync::Arc;
 
 use crate::utils::terminal::get_terminal_size;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LogLevel {
+  Error,
+  Warn,
+  Info,
+  Debug,
+  Silent,
+}
+
+impl LogLevel {
+  #[inline]
+  pub fn is_debug(&self) -> bool {
+    use LogLevel::*;
+    matches!(self, Debug)
+  }
+
+  #[inline]
+  pub fn is_info(&self) -> bool {
+    use LogLevel::*;
+    matches!(self, Debug | Info)
+  }
+
+  #[inline]
+  pub fn is_warn(&self) -> bool {
+    use LogLevel::*;
+    matches!(self, Debug | Info | Warn)
+  }
+
+  #[inline]
+  pub fn is_error(&self) -> bool {
+    use LogLevel::*;
+    matches!(self, Debug | Info | Warn | Error)
+  }
+}
 
 pub enum LoggerTextItem {
   Text(String),
@@ -48,14 +82,13 @@ pub struct LoggerOptions {
   pub initial_context_name: String,
   /// Whether stdout will be read by a program.
   pub is_stdout_machine_readable: bool,
-  pub is_verbose: bool,
+  pub log_level: LogLevel,
 }
 
-#[derive(Clone)]
 pub struct Logger {
-  output_lock: Arc<Mutex<LoggerState>>,
+  output_lock: Mutex<LoggerState>,
   is_stdout_machine_readable: bool,
-  is_verbose: bool,
+  log_level: LogLevel,
 }
 
 struct LoggerState {
@@ -69,7 +102,7 @@ struct LoggerState {
 impl Logger {
   pub fn new(options: &LoggerOptions) -> Self {
     Logger {
-      output_lock: Arc::new(Mutex::new(LoggerState {
+      output_lock: Mutex::new(LoggerState {
         last_context_name: options.initial_context_name.clone(),
         std_out: stdout(),
         std_err: stderr(),
@@ -81,15 +114,15 @@ impl Logger {
             rows: size.map(|s| s.rows),
           }
         }),
-      })),
+      }),
       is_stdout_machine_readable: options.is_stdout_machine_readable,
-      is_verbose: options.is_verbose,
+      log_level: options.log_level,
     }
   }
 
   #[inline]
-  pub fn is_verbose(&self) -> bool {
-    self.is_verbose
+  pub fn log_level(&self) -> LogLevel {
+    self.log_level
   }
 
   pub fn log(&self, text: &str, context_name: &str) {
@@ -106,7 +139,9 @@ impl Logger {
     self.inner_log(&mut state, true, text, &last_context_name);
   }
 
-  pub fn log_stderr(&self, text: &str) {
+  /// Don't ever call this directly. It's only used by the macro, which
+  /// is why it has this name to discourage its accidental use.
+  pub fn __log_stderr__(&self, text: &str) {
     self.log_stderr_with_context(text, "dprint");
   }
 
@@ -178,7 +213,7 @@ impl Logger {
   pub(crate) fn set_refresh_item(&self, kind: LoggerRefreshItemKind, text_items: Vec<LoggerTextItem>) {
     self.with_update_refresh_items(move |refresh_items| match refresh_items.binary_search_by(|i| i.kind.cmp(&kind)) {
       Ok(pos) => {
-        let mut refresh_item = refresh_items.get_mut(pos).unwrap();
+        let refresh_item = refresh_items.get_mut(pos).unwrap();
         refresh_item.text_items = text_items;
       }
       Err(pos) => {

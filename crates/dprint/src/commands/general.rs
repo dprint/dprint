@@ -1,19 +1,20 @@
+use std::rc::Rc;
+
 use anyhow::Result;
 
+use crate::arg_parser::create_cli_parser;
+use crate::arg_parser::CliArgParserKind;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::OutputFilePathsSubCommand;
-use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
-use crate::paths::get_and_resolve_file_paths;
-use crate::paths::get_file_paths_by_plugins;
-use crate::plugins::get_plugins_from_args;
-use crate::plugins::resolve_plugins_and_err_if_empty;
 use crate::plugins::PluginResolver;
+use crate::resolution::get_plugins_scope_from_args;
+use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::utils::get_table_text;
 use crate::utils::is_out_of_date;
 
 pub fn output_version<TEnvironment: Environment>(environment: &TEnvironment) -> Result<()> {
-  environment.log(&format!("{} {}", env!("CARGO_PKG_NAME"), environment.cli_version()));
+  log_stdout_info!(environment, "{} {}", env!("CARGO_PKG_NAME"), environment.cli_version());
 
   Ok(())
 }
@@ -21,38 +22,42 @@ pub fn output_version<TEnvironment: Environment>(environment: &TEnvironment) -> 
 pub async fn output_help<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   help_text: &str,
 ) -> Result<()> {
   // log the cli's help first
-  environment.log(help_text);
+  log_stdout_info!(environment, help_text);
 
   // now check for the plugins
-  let plugins_result = get_plugins_from_args(args, environment, plugin_resolver).await;
-  match plugins_result {
-    Ok(plugins) => {
-      if !plugins.is_empty() {
-        let table_text = get_table_text(plugins.iter().map(|plugin| (plugin.name(), plugin.help_url())).collect());
-        environment.log("\nPLUGINS HELP:");
-        environment.log(&console_static_text::strip_ansi_codes(&table_text.render(
-          4, // indent
-          // don't render taking terminal width into account
-          // as these are urls and we want them to be clickable
-          None,
-        )));
+  let scope_result = get_plugins_scope_from_args(args, environment, plugin_resolver).await;
+  match scope_result {
+    Ok(scope) => {
+      if !scope.plugins.is_empty() {
+        let table_text = get_table_text(scope.plugins.values().map(|plugin| (plugin.name(), plugin.info().help_url.as_str())).collect());
+        log_stdout_info!(environment, "\nPLUGINS HELP:");
+        log_stdout_info!(
+          environment,
+          &console_static_text::strip_ansi_codes(&table_text.render(
+            4, // indent
+            // don't render taking terminal width into account
+            // as these are urls and we want them to be clickable
+            None,
+          ))
+        );
       }
     }
     Err(err) => {
-      log_verbose!(environment, "Error getting plugins for help. {:#}", err.to_string());
+      log_debug!(environment, "Error getting plugins for help. {:#}", err.to_string());
     }
   }
 
-  if let Some(latest_version) = is_out_of_date(environment) {
-    environment.log(&format!(
+  if let Some(latest_version) = is_out_of_date(environment).await {
+    log_stdout_info!(
+      environment,
       "\nLatest version: {} (Current is {})\nDownload the latest version by running: dprint upgrade",
       latest_version,
       environment.cli_version(),
-    ));
+    );
   }
 
   Ok(())
@@ -61,16 +66,16 @@ pub async fn output_help<TEnvironment: Environment>(
 pub async fn output_license<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  environment.log("==== DPRINT CLI LICENSE ====");
-  environment.log(std::str::from_utf8(include_bytes!("../../LICENSE"))?);
+  log_stdout_info!(environment, "==== DPRINT CLI LICENSE ====");
+  log_stdout_info!(environment, std::str::from_utf8(include_bytes!("../../LICENSE"))?);
 
   // now check for the plugins
-  for plugin in get_plugins_from_args(args, environment, plugin_resolver).await? {
-    environment.log(&format!("\n==== {} LICENSE ====", plugin.name().to_uppercase()));
+  for plugin in get_plugins_scope_from_args(args, environment, plugin_resolver).await?.plugins.values() {
+    log_stdout_info!(environment, "\n==== {} LICENSE ====", plugin.name().to_uppercase());
     let initialized_plugin = plugin.initialize().await?;
-    environment.log(&initialized_plugin.license_text().await?);
+    log_stdout_info!(environment, &initialized_plugin.license_text().await?);
   }
 
   Ok(())
@@ -79,7 +84,7 @@ pub async fn output_license<TEnvironment: Environment>(
 pub fn clear_cache(environment: &impl Environment) -> Result<()> {
   let cache_dir = environment.get_cache_dir();
   environment.remove_dir_all(&cache_dir)?;
-  environment.log_stderr(&format!("Deleted {}", cache_dir.display()));
+  log_stdout_info!(environment, "Deleted {}", cache_dir.display());
   Ok(())
 }
 
@@ -87,17 +92,23 @@ pub async fn output_file_paths<TEnvironment: Environment>(
   cmd: &OutputFilePathsSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = resolve_config_from_args(args, environment)?;
-  let plugins = resolve_plugins_and_err_if_empty(args, &config, environment, plugin_resolver).await?;
-  let resolved_file_paths = get_and_resolve_file_paths(&config, &cmd.patterns, environment).await?;
-  let file_paths_by_plugin = get_file_paths_by_plugins(&plugins, resolved_file_paths, &config.base_path)?;
-
-  let file_paths = file_paths_by_plugin.values().flat_map(|x| x.iter());
+  let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
+  let file_paths = scopes.iter().flat_map(|x| x.file_paths_by_plugins.all_file_paths());
   for file_path in file_paths {
-    environment.log(&file_path.display().to_string())
+    log_stdout_info!(environment, "{}", file_path.display())
   }
+  Ok(())
+}
+
+pub fn completions<TEnvironment: Environment>(shell: clap_complete::Shell, environment: &TEnvironment) -> Result<()> {
+  let mut cmd = create_cli_parser(CliArgParserKind::ForCompletions);
+
+  let mut buffer = Vec::new();
+  clap_complete::generate(shell, &mut cmd, "dprint", &mut buffer);
+  environment.log_machine_readable(&String::from_utf8_lossy(&buffer));
+
   Ok(())
 }
 
@@ -323,9 +334,10 @@ mod test {
   fn should_clear_cache_directory() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["clear-cache"], &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages(), vec!["Deleted /cache"]);
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
     assert_eq!(environment.is_dir_deleted("/cache"), true);
   }
+
   #[test]
   fn should_output_license_for_sub_command_with_no_plugins() {
     let environment = TestEnvironment::new();
@@ -372,5 +384,16 @@ SOFTWARE.
         "License text."
       ]
     );
+  }
+
+  #[test]
+  fn should_output_shell_completions() {
+    let environment = TestEnvironment::new();
+    for kind in ["bash", "elvish", "fish", "powershell", "zsh"] {
+      run_test_cli(vec!["completions", kind], &environment).unwrap();
+      let logged_messages = environment.take_stdout_messages();
+      assert_eq!(logged_messages.len(), 1);
+      assert!(!logged_messages[0].contains("hidden"));
+    }
   }
 }

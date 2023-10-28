@@ -20,8 +20,7 @@ Formats [Dockerfiles](https://docs.docker.com/engine/reference/builder).
 In a dprint configuration file:
 
 1. Specify the plugin url in the `"plugins"` array.
-2. Ensure `.dockerfile` file extensions are matched in an `"includes"` pattern.
-3. Add a `"dockerfile"` configuration property if desired.
+2. Add a `"dockerfile"` configuration property if desired.
 
 ```json
 {
@@ -29,9 +28,6 @@ In a dprint configuration file:
   "dockerfile": {
     // dockerfile config goes here
   },
-  "includes": [
-    "**/*.{dockerfile}"
-  ],
   "plugins": [
     "https://plugins.dprint.dev/dockerfile-x.x.x.wasm"
   ]

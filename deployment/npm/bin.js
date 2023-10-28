@@ -9,21 +9,23 @@ const fs = require("fs");
 const exePath = path.join(__dirname, os.platform() === "win32" ? "dprint.exe" : "dprint");
 
 if (!fs.existsSync(exePath)) {
-  require("./install_api").runInstall().then(() => {
-    // I'm not sure why (I think due zip extraction), but the executable
-    // doesn't seem fully ready unless waiting for the next tick
-    setTimeout(() => {
-      runDprintExe();
-    }, 0);
-  }).catch(err => {
-    console.error(err);
+  try {
+    const resolvedExePath = require("./install_api").runInstall();
+    runDprintExe(resolvedExePath);
+  } catch (err) {
+    if (err !== undefined && typeof err.message === "string") {
+      console.error(err.message);
+    } else {
+      console.error(err);
+    }
     process.exit(1);
-  });
+  }
 } else {
-  runDprintExe();
+  runDprintExe(exePath);
 }
 
-function runDprintExe() {
+/** @param exePath {string} */
+function runDprintExe(exePath) {
   const result = child_process.spawnSync(
     exePath,
     process.argv.slice(2),
@@ -36,10 +38,10 @@ function runDprintExe() {
   throwIfNoExePath();
 
   process.exitCode = result.status;
-}
 
-function throwIfNoExePath() {
-  if (!fs.existsSync(exePath)) {
-    throw new Error("Could not find exe at path '" + exePath + "'. Maybe try running dprint again.");
+  function throwIfNoExePath() {
+    if (!fs.existsSync(exePath)) {
+      throw new Error("Could not find exe at path '" + exePath + "'. Maybe try running dprint again.");
+    }
   }
 }

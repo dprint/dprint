@@ -1,6 +1,6 @@
 [package]
 name = "dprint-development"
-version = "0.9.2"
+version = "0.9.5"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2021"
 license = "MIT"
@@ -9,5 +9,5 @@ description = "Helper functions for testing dprint plugins."
 [dependencies]
 anyhow = "1.0.66"
 console = "0.15.2"
-indexmap = "1.9.2"
+serde_json = { version = "1.0.104", features = ["preserve_order"] }
 similar = "2.2.1"

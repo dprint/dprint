@@ -7,5 +7,8 @@ pub mod communication;
 pub mod formatting;
 
 pub mod configuration;
-
+#[cfg(any(feature = "process", feature = "wasm"))]
 pub mod plugins;
+
+#[cfg(feature = "async_runtime")]
+pub mod async_runtime;

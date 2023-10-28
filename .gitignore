@@ -4,10 +4,9 @@ scripts/node_modules
 *.js.map
 target
 .vscode
+.vs
 /crates/development/target
 /crates/test-plugin/target
 /website/playground/wasm/target
 /crates/test-plugin/Cargo.lock
-/deployment/npm/info.json
-/deployment/npm/node_modules
-/deployment/npm/package-lock.json
+/deployment/npm/dist

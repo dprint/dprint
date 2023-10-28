@@ -1,0 +1,3 @@
+# statically link the c runtime https://github.com/rust-lang/rust/issues/100874
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

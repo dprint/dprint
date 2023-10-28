@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use super::Environment;
 use super::TestEnvironment;
-use super::UrlDownloader;
 use crate::test_helpers;
+use crate::test_helpers::TestProcessPluginFile;
 use crate::utils::get_sha256_checksum;
 
 pub struct TestConfigFileBuilder {
@@ -81,7 +81,11 @@ impl TestConfigFileBuilder {
 
   pub fn add_remote_process_plugin(&mut self) -> &mut Self {
     // get the process plugin file and check its checksum
-    let remote_file_text = self.environment.download_file_err_404("https://plugins.dprint.dev/test-process.json").unwrap();
+    let remote_file_text = self
+      .environment
+      .get_remote_file("https://plugins.dprint.dev/test-process.json")
+      .unwrap()
+      .unwrap();
     let checksum = get_sha256_checksum(&remote_file_text);
     self.add_remote_process_plugin_with_checksum(&checksum)
   }
@@ -246,9 +250,12 @@ impl TestEnvironmentBuilder {
   }
 
   pub fn add_remote_wasm_plugin(&mut self) -> &mut Self {
+    self.add_remote_wasm_plugin_at_url("https://plugins.dprint.dev/test-plugin.wasm");
     self
-      .environment
-      .add_remote_file("https://plugins.dprint.dev/test-plugin.wasm", test_helpers::WASM_PLUGIN_BYTES);
+  }
+
+  pub fn add_remote_wasm_plugin_at_url(&mut self, url: &str) -> &mut Self {
+    self.environment.add_remote_file(url, test_helpers::WASM_PLUGIN_BYTES);
     self
   }
 
@@ -311,21 +318,16 @@ impl TestEnvironmentBuilder {
   }
 
   pub fn add_remote_process_plugin(&mut self) -> &mut Self {
+    self.add_remote_process_plugin_at_url("https://plugins.dprint.dev/test-process.json", &TestProcessPluginFile::default())
+  }
+
+  pub fn add_remote_process_plugin_at_url(&mut self, url: &str, file_text: &TestProcessPluginFile) -> &mut Self {
     let zip_bytes = &test_helpers::PROCESS_PLUGIN_ZIP_BYTES;
-    let zip_file_checksum = crate::utils::get_sha256_checksum(zip_bytes);
     self.environment.add_remote_file_bytes(
       "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
       zip_bytes.to_vec(),
     );
-    self.write_process_plugin_file(&zip_file_checksum);
-    self
-  }
-
-  pub fn write_process_plugin_file(&mut self, zip_checksum: &str) -> &mut Self {
-    self.environment.add_remote_file_bytes(
-      "https://plugins.dprint.dev/test-process.json",
-      test_helpers::get_test_process_plugin_file_text(zip_checksum).into_bytes(),
-    );
+    self.environment.add_remote_file_bytes(url, file_text.text().to_string().into_bytes());
     self
   }
 }

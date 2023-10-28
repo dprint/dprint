@@ -15,7 +15,7 @@ pub struct CompilationResult {
   pub plugin_info: PluginInfo,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PluginSourceReference {
   pub path_source: PathSource,
   pub checksum: Option<String>,

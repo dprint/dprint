@@ -1,6 +1,8 @@
-# Creating a Process Plugin (Schema Version 4)
+# Creating a Process Plugin (Schema Version 5)
 
 Process plugins are created (as opposed to the recommended Wasm plugins), when the language does not have good support for compiling to a single _.wasm_ file.
+
+dprint version: 0.40+
 
 ## Rust - Using `dprint-core`
 
@@ -37,13 +39,15 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    use std::path::PathBuf;
 
    use anyhow::Result;
+   use dprint_core::async_runtime::async_trait;
+   use dprint_core::async_runtime::LocalBoxFuture;
    use dprint_core::configuration::get_unknown_property_diagnostics;
    use dprint_core::configuration::get_value;
    use dprint_core::configuration::ConfigKeyMap;
    use dprint_core::configuration::GlobalConfiguration;
    use dprint_core::configuration::ResolveConfigurationResult;
    use dprint_core::plugins::AsyncPluginHandler;
-   use dprint_core::plugins::BoxFuture;
+   use dprint_core::plugins::FileMatchingInfo;
    use dprint_core::plugins::FormatRequest;
    use dprint_core::plugins::FormatResult;
    use dprint_core::plugins::Host;
@@ -53,6 +57,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
 
    pub struct MyPluginHandler;
 
+   #[async_trait(?Send)]
    impl AsyncPluginHandler for MyPluginHandler {
      type Configuration = Configuration;
 
@@ -61,8 +66,6 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
          name: env!("CARGO_PKG_NAME").to_string(),
          version: env!("CARGO_PKG_VERSION").to_string(),
          config_key: "keyGoesHere".to_string(),
-         file_extensions: vec!["txt_ps".to_string()],
-         file_names: vec![],
          help_url: "".to_string(),          // ex. https://dprint.dev/plugins/prettier
          config_schema_url: "".to_string(), // the schema url for your config file
          update_url: Some(None),            // ex. https://plugins.dprint.dev/dprint/dprint-plugin-prettier/latest.json
@@ -74,7 +77,7 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
        include_str!("../LICENSE").to_string()
      }
 
-     fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+     async fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> PluginResolveConfigurationResult<Configuration> {
        // implement this... for example
        let mut config = config;
        let mut diagnostics = Vec::new();
@@ -82,27 +85,32 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
 
        diagnostics.extend(get_unknown_property_diagnostics(config));
 
-       ResolveConfigurationResult {
+       PluginResolveConfigurationResult {
+         file_matching: FileMatchingInfo {
+           file_extensions: vec!["txt_ps".to_string()],
+           file_names: vec![],
+         },
          config: Configuration { ending, line_width },
          diagnostics,
        }
      }
 
-     fn format(&self, request: FormatRequest<Self::Configuration>, host: Arc<dyn Host>) -> BoxFuture<FormatResult> {
-       Box::pin(async move {
-         // format here
-         //
-         // - make sure to check the range of the request!! If you can't handle
-         //   range formatting, then return `Ok(None)` to signify no change.
-         // - use `host.format` to format with another plugin
-         // - if you are doing a lot of synchronous work, it's probably better
-         //   to format with a blocking task like so (especially if you're using
-         //   a tokio single threaded runtime):
-         //
-         //   tokio:task::spawn_blocking(move || {
-         //     // format in here
-         //   }).await.unwrap()
-       })
+     async fn format(
+       &self,
+       request: FormatRequest<Self::Configuration>,
+       mut format_with_host: impl FnMut(HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> + 'static,
+     ) -> FormatResult {
+       // format here
+       //
+       // - make sure to check the range of the request!! If you can't handle
+       //   range formatting, then return `Ok(None)` to signify no change.
+       // - use `host.format` to format with another plugin
+       // - if you are doing a lot of synchronous work, you should format with
+       //   a blocking task like so or else you will block the main thread:
+       //
+       //   dprint_core::async_runtime::spawn_blocking(move || {
+       //     // format in here
+       //   }).await.unwrap()
      }
    }
    ```
@@ -115,24 +123,26 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    use dprint_core::plugins::process::handle_process_stdio_messages;
    use dprint_core::plugins::process::start_parent_process_checker_task;
 
-   #[tokio::main]
-   async fn main() -> Result<()> {
-     if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
-       start_parent_process_checker_task(parent_process_id);
-     }
+   fn main() -> Result<()> {
+     // NOTE: You MUST use a current thread runtime or else this will not work
+     let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+     rt.block_on(async move {
+       if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
+         start_parent_process_checker_task(parent_process_id);
+       }
 
-     handle_process_stdio_messages(MyPluginHandler).await
+       handle_process_stdio_messages(MyPluginHandler).await
+     })
    }
-   ```
-
-5. Finally, use your created plugin handler to start reading and writing to stdin and stdout:
+   ````
+5. Finally, use your created plugin handler to start reading and writing to stdin and stdout (as also shown above):
 
    <!-- dprint-ignore -->
    ```rust
    handle_process_stdio_messages(MyPluginHandler).await
-   ```
+   ````
 
-## Schema Version 4 Overview
+## Schema Version 5 Overview
 
 Process plugins are expected to read and respond to messages on a single thread, then spawn formatting threads/tasks for doing concurrent formatting.
 
@@ -141,7 +151,7 @@ Process plugins are expected to read and respond to messages on a single thread,
 To maintain compatibility with past dprint clients, an initial schema version establishment phase occurs that is the same as past schema versions.
 
 1. An initial `0` (4 bytes) is sent asking for the schema version.
-2. At this point, the client responds with `0` (4 bytes) for success, then `4` (4 bytes) for the schema version.
+2. At this point, the client responds with `0` (4 bytes) for success, then `5` (4 bytes) for the schema version.
 
 ### Messages
 
@@ -246,7 +256,22 @@ Message body:
 
 Response: Data message - JSON serialized diagnostics
 
-#### `10` - Get Resolved Configuration (CLI to Plugin)
+#### `10` - Get File Matching Information (CLI to Plugin)
+
+Message body:
+
+- u32 - Config id
+
+Response: Data message - JSON serialized file extensions and file names supported by the plugin and configuration.
+
+```json
+{
+  "fileNames": ["some_file_name"],
+  "fileExtensions": [".txt"]
+}
+```
+
+#### `11` - Get Resolved Configuration (CLI to Plugin)
 
 Message body:
 
@@ -254,7 +279,47 @@ Message body:
 
 Response: Data message - JSON serialized resolved config
 
-#### `11` - Format Text (CLI to Plugin)
+#### `12` - Check Configuration Updates (CLI to Plugin)
+
+Message body:
+
+- u32 - Content length
+- JSON serialized plugin configuration
+
+Response: Data message - JSON serialized object with a `changes` property that contains an array of changes.
+
+Example:
+
+```json
+{
+  "changes": [{
+    "path": ["oldSetting"],
+    "kind": "remove"
+  }, {
+    "path": ["lineWidth"],
+    "kind": "set",
+    "value": 120
+  }, {
+    "path": ["values"],
+    "kind": "add",
+    "value": "new value"
+  }, {
+    "path": ["values"],
+    "kind": "add",
+    "value": [
+      "some",
+      "array",
+      {
+        "with a": "nested object"
+      }
+    ]
+  }]
+}
+```
+
+The CLI will automatically update the appropriate dprint.json file with the new configuration based on these changes.
+
+#### `13` - Format Text (CLI to Plugin)
 
 Message body:
 
@@ -263,14 +328,14 @@ Message body:
 - u32 - Start byte index to format
 - u32 - End byte index to format
 - u32 - Configuration identifier
-- u32 - Override configuration length -- TODO: Is this necessary anymore?
+- u32 - Override configuration length
 - JSON override configuration
 - u32 - File text content length
 - File text
 
 Response: Format text response
 
-#### `12` - Format Text Response (Plugin to CLI, CLI to Plugin)
+#### `14` - Format Text Response (Plugin to CLI, CLI to Plugin)
 
 Message body:
 
@@ -283,7 +348,7 @@ Message body:
 
 Response: None
 
-#### `13` - Cancel Format (CLI to Plugin or Plugin to CLI)
+#### `15` - Cancel Format (CLI to Plugin or Plugin to CLI)
 
 Message body:
 
@@ -292,10 +357,11 @@ Message body:
 Response: No response should be given. Cancellation is not guaranteed to happen and
 the CLI or plugin may still respond with a given request.
 
-#### `14` - Host Format (Plugin to CLI)
+#### `16` - Host Format (Plugin to CLI)
 
 Message body:
 
+- u32 - Message id of the original format request
 - u32 - Size of the file path
 - File path
 - u32 - Start byte index to format

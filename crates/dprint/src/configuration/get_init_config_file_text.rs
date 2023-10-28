@@ -4,12 +4,13 @@ use dprint_core::plugins::wasm::{self};
 use crate::environment::Environment;
 use crate::plugins::read_info_file;
 
-pub fn get_init_config_file_text(environment: &impl Environment) -> Result<String> {
-  let info = match read_info_file(environment) {
+pub async fn get_init_config_file_text(environment: &impl Environment) -> Result<String> {
+  let info = match read_info_file(environment).await {
     Ok(info) => {
       // ok to only check wasm here because the configuration file is only ever initialized with wasm plugins
       if info.plugin_system_schema_version != wasm::PLUGIN_SYSTEM_SCHEMA_VERSION {
-        environment.log_stderr(&format!(
+        log_error!(
+          environment,
           concat!(
             "You are using an old version of dprint so the created config file may not be as helpful of a starting point. ",
             "Consider upgrading to support new plugins. ",
@@ -17,21 +18,22 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
           ),
           wasm::PLUGIN_SYSTEM_SCHEMA_VERSION,
           info.plugin_system_schema_version,
-        ));
+        );
         None
       } else {
         Some(info)
       }
     }
     Err(err) => {
-      environment.log_stderr(&format!(
+      log_error!(
+        environment,
         concat!(
           "There was a problem getting the latest plugin info. ",
           "The created config file may not be as helpful of a starting point. ",
           "Error: {}"
         ),
         err,
-      ));
+      );
       None
     }
   };
@@ -70,36 +72,6 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
       }
     }
 
-    let extension_includes = get_unique_items(
-      selected_plugins
-        .iter()
-        .flat_map(|p| p.file_extensions.iter())
-        .map(|x| x.as_str())
-        .collect::<Vec<_>>(),
-    );
-    let file_name_includes = get_unique_items(
-      selected_plugins
-        .iter()
-        .flat_map(|p| p.file_names.iter())
-        .map(|x| x.as_str())
-        .collect::<Vec<_>>(),
-    );
-
-    let mut json_includes = vec![];
-    if !extension_includes.is_empty() {
-      json_includes.push(format!("\"**/*.{{{}}}\"", extension_includes.join(",")));
-    }
-    if !file_name_includes.is_empty() {
-      json_includes.push(format!("\"**/{{{}}}\"", file_name_includes.join(",")));
-    }
-
-    json_text.push_str("  \"includes\": [");
-    if json_includes.is_empty() {
-      json_text.push_str("\"**/*.*\"");
-    } else {
-      json_text.push_str(&json_includes.join(","));
-    }
-    json_text.push_str("],\n");
     json_text.push_str("  \"excludes\": [");
     let excludes = get_unique_items(
       selected_plugins
@@ -133,7 +105,6 @@ pub fn get_init_config_file_text(environment: &impl Environment) -> Result<Strin
     }
     json_text.push_str("  ]\n}\n");
   } else {
-    json_text.push_str("  \"includes\": [\"**/*.*\"],\n");
     json_text.push_str("  \"excludes\": [\n    \"**/node_modules\",\n    \"**/*-lock.json\"\n  ],\n");
     json_text.push_str("  \"plugins\": [\n");
     json_text.push_str("    // specify plugin urls here\n");
@@ -176,15 +147,15 @@ mod test {
         }
       })
       .build();
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "typescript": {
   },
   "json": {
   },
-  "includes": ["**/*.{ts,tsx,json}"],
   "excludes": [
     "**/something",
     "**/*-asdf.json"
@@ -195,9 +166,10 @@ mod test {
   ]
 }
 "#
-    );
+      );
 
-    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
   }
 
   #[test]
@@ -210,15 +182,15 @@ mod test {
       })
       .build();
     environment.set_multi_selection_result(vec![0, 1, 2]);
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "typescript": {
   },
   "json": {
   },
-  "includes": ["**/*.{ts,tsx,json,rs}","**/{Cargo.toml}"],
   "excludes": [
     "**/something",
     "**/*-asdf.json",
@@ -231,9 +203,10 @@ mod test {
   ]
 }
 "#
-    );
+      );
 
-    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
   }
 
   #[test]
@@ -246,13 +219,13 @@ mod test {
       })
       .build();
     environment.set_multi_selection_result(vec![1]);
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "json": {
   },
-  "includes": ["**/*.{json}"],
   "excludes": [
     "**/*-asdf.json"
   ],
@@ -261,9 +234,10 @@ mod test {
   ]
 }
 "#
-    );
+      );
 
-    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
   }
 
   #[test]
@@ -276,20 +250,21 @@ mod test {
       })
       .build();
     environment.set_multi_selection_result(vec![]);
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
-  "includes": ["**/*.*"],
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "excludes": [],
   "plugins": [
     // specify plugin urls here
   ]
 }
 "#
-    );
+      );
 
-    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
   }
 
   #[test]
@@ -302,30 +277,31 @@ mod test {
       })
       .build();
     environment.set_multi_selection_result(vec![3]);
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
-  "includes": ["**/*.{ps}"],
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "excludes": [],
   "plugins": [
     "https://plugins.dprint.dev/process-0.1.0.json@test-checksum"
   ]
 }
 "#
-    );
+      );
 
-    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
   }
 
   #[test]
   fn should_get_initialization_text_when_cannot_access_url() {
     let environment = TestEnvironment::new();
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
-  "includes": ["**/*.*"],
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "excludes": [
     "**/node_modules",
     "**/*-lock.json"
@@ -335,14 +311,15 @@ mod test {
   ]
 }
 "#
-    );
-    let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
-    expected_messages.push(concat!(
-      "There was a problem getting the latest plugin info. ",
-      "The created config file may not be as helpful of a starting point. ",
-      "Error: Error downloading https://plugins.dprint.dev/info.json - 404 Not Found"
-    ));
-    assert_eq!(environment.take_stderr_messages(), expected_messages);
+      );
+      let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
+      expected_messages.push(concat!(
+        "There was a problem getting the latest plugin info. ",
+        "The created config file may not be as helpful of a starting point. ",
+        "Error: Error downloading https://plugins.dprint.dev/info.json - 404 Not Found"
+      ));
+      assert_eq!(environment.take_stderr_messages(), expected_messages);
+    });
   }
 
   #[test]
@@ -362,13 +339,13 @@ mod test {
       .build();
     environment.set_selection_result(1);
     environment.set_multi_selection_result(vec![0]);
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "typescript": {
   },
-  "includes": ["**/*.{ts}"],
   "excludes": [
     "test"
   ],
@@ -377,9 +354,10 @@ mod test {
   ]
 }
 "#
-    );
+      );
 
-    assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
   }
 
   #[test]
@@ -398,11 +376,11 @@ mod test {
       })
       .build();
     environment.set_multi_selection_result(vec![0]);
-    let text = get_init_config_file_text(&environment).unwrap();
-    assert_eq!(
-      text,
-      r#"{
-  "includes": ["**/*.*"],
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
   "excludes": [
     "**/node_modules",
     "**/*-lock.json"
@@ -412,14 +390,15 @@ mod test {
   ]
 }
 "#
-    );
-    let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
-    expected_messages.push(concat!(
-      "You are using an old version of dprint so the created config file may not be as helpful of a starting point. ",
-      "Consider upgrading to support new plugins. ",
-      "Plugin system schema version is 3, latest is 9."
-    ));
-    assert_eq!(environment.take_stderr_messages(), expected_messages);
+      );
+      let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
+      expected_messages.push(concat!(
+        "You are using an old version of dprint so the created config file may not be as helpful of a starting point. ",
+        "Consider upgrading to support new plugins. ",
+        "Plugin system schema version is 3, latest is 9."
+      ));
+      assert_eq!(environment.take_stderr_messages(), expected_messages);
+    });
   }
 
   fn get_standard_logged_messages_no_plugin_selection() -> Vec<&'static str> {

@@ -46,8 +46,8 @@ impl PluginUpdateUrlInfo {
   }
 }
 
-pub fn read_update_url(downloader: &impl UrlDownloader, url: &str) -> Result<Option<PluginUpdateUrlInfo>> {
-  let info_bytes = match downloader.download_file(url)? {
+pub async fn read_update_url(downloader: &impl UrlDownloader, url: &str) -> Result<Option<PluginUpdateUrlInfo>> {
+  let info_bytes = match downloader.download_file(url).await? {
     Some(info_bytes) => info_bytes,
     None => return Ok(None),
   };
@@ -106,22 +106,26 @@ mod test {
         r#"{ "schemaVersion": 1, "url": "url2", "version": "version2", "checksum": "checksum" }"#,
       );
     let environment = builder.build();
-    assert_eq!(
-      read_update_url(&environment, "https://plugins.dprint.dev/plugin/latest.json").unwrap(),
-      Some(PluginUpdateUrlInfo {
-        version: "version".to_string(),
-        url: "url".to_string(),
-        checksum: None,
-      })
-    );
-    assert_eq!(
-      read_update_url(&environment, "https://plugins.dprint.dev/plugin/latest-checksum.json").unwrap(),
-      Some(PluginUpdateUrlInfo {
-        version: "version2".to_string(),
-        url: "url2".to_string(),
-        checksum: Some("checksum".to_string()),
-      })
-    );
+    environment.clone().run_in_runtime(async move {
+      assert_eq!(
+        read_update_url(&environment, "https://plugins.dprint.dev/plugin/latest.json").await.unwrap(),
+        Some(PluginUpdateUrlInfo {
+          version: "version".to_string(),
+          url: "url".to_string(),
+          checksum: None,
+        })
+      );
+      assert_eq!(
+        read_update_url(&environment, "https://plugins.dprint.dev/plugin/latest-checksum.json")
+          .await
+          .unwrap(),
+        Some(PluginUpdateUrlInfo {
+          version: "version2".to_string(),
+          url: "url2".to_string(),
+          checksum: Some("checksum".to_string()),
+        })
+      );
+    })
   }
 
   #[test]
@@ -132,19 +136,24 @@ mod test {
       r#"{ "schemaVersion": 205, "url": "url", "version": "version" }"#,
     );
     let environment = builder.build();
-    assert_eq!(
-      read_update_url(&environment, "https://plugins.dprint.dev/plugin/latest.json")
-        .err()
-        .unwrap()
-        .to_string(),
-      concat!(
-        "Cannot handle schema version 205. Expected 1. This might mean your dprint CLI version ",
-        "is old and isn't able to get the latest information or the registry needs to update its schema version.",
-      )
-    );
-    assert_eq!(
-      read_update_url(&environment, "https://plugins.dprint.dev/plugin/not-exists.json").unwrap(),
-      None,
-    );
+    environment.clone().run_in_runtime(async move {
+      assert_eq!(
+        read_update_url(&environment, "https://plugins.dprint.dev/plugin/latest.json")
+          .await
+          .err()
+          .unwrap()
+          .to_string(),
+        concat!(
+          "Cannot handle schema version 205. Expected 1. This might mean your dprint CLI version ",
+          "is old and isn't able to get the latest information or the registry needs to update its schema version.",
+        )
+      );
+      assert_eq!(
+        read_update_url(&environment, "https://plugins.dprint.dev/plugin/not-exists.json")
+          .await
+          .unwrap(),
+        None,
+      );
+    });
   }
 }

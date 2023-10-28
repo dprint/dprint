@@ -25,9 +25,6 @@ See [Setup](/setup).
   "json": {
     "indentWidth": 2
   },
-  "includes": [
-    "**/*.{ts,tsx,js,jsx,mjs,json,md}"
-  ],
   "excludes": [
     "**/node_modules",
     "**/*-lock.json"
@@ -97,21 +94,31 @@ Plugins can be updated to the latest version in the configuration file by runnin
 dprint config update
 ```
 
-## Includes and Excludes
+## Excludes
 
-The `includes` and `excludes` properties specify the file paths to include and exclude from formatting.
+The `excludes` property specifies the file paths exclude from formatting.
 
 These should be file globs according to [`gitignore`'s extended glob syntax](https://git-scm.com/docs/gitignore#_pattern_format):
 
 ```json
 {
   // ...omitted...
-  "includes": [
-    "**/*.{ts,tsx,js,jsx,json}"
-  ],
   "excludes": [
     "**/node_modules",
     "**/*-lock.json"
+  ]
+}
+```
+
+## Includes
+
+The `includes` property can be used to limit dprint to only formatting certain files. Generally, you shouldn't bother to provide this.
+
+```json
+{
+  // ...omitted...
+  "includes": [
+    "src/**/*.{ts,tsx,js,jsx,json}"
   ]
 }
 ```
@@ -136,9 +143,6 @@ For example:
       "**/*.myconfig"
     ]
   },
-  "includes": [
-    "**/*.*"
-  ],
   "plugins": [
     "https://plugins.dprint.dev/json-x.x.x.wasm"
   ]
@@ -160,9 +164,6 @@ In the following example, both the TypeScript plugin and Prettier plugin support
       "!**/*.js" // don't format javascript files
     ]
   },
-  "includes": [
-    "**/*.*"
-  ],
   "plugins": [
     "https://plugins.dprint.dev/typescript-x.x.x.wasm",
     // side note: check the docs for the latest version of this plugin
@@ -195,7 +196,7 @@ Referencing multiple configuration files is also supported. These should be orde
 }
 ```
 
-Note: The `includes` and `excludes` of extended configuration is ignored for security reasons so you will need to specify them in the main configuration file or via the CLI.
+Note: The `includes` property of extended _remote_ configuration is ignored for security reasons out of an abundance of caution (to disallow the dprint cli pulling in sensitive files) and additionally non-Wasm plugins are ignored in remote configuration because they don't run sandboxed.
 
 ## Incremental
 

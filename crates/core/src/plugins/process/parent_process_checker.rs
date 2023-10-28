@@ -5,7 +5,7 @@ use std::time::Duration;
 ///
 /// Note: This must be called from a tokio runtime.
 pub fn start_parent_process_checker_task(parent_process_id: u32) {
-  tokio::task::spawn(async move {
+  crate::async_runtime::spawn(async move {
     loop {
       tokio::time::sleep(Duration::from_secs(10)).await;
 

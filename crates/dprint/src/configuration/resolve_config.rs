@@ -1,6 +1,8 @@
 use anyhow::bail;
 use anyhow::Result;
 use crossterm::style::Stylize;
+use dprint_core::async_runtime::FutureExt;
+use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigKeyValue;
 use std::path::Path;
 use thiserror::Error;
@@ -19,14 +21,15 @@ use crate::utils::PluginKind;
 use crate::utils::ResolvedPath;
 
 use super::resolve_main_config_path::resolve_main_config_path;
+use super::resolve_main_config_path::ResolvedConfigPath;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ResolvedConfig {
   pub resolved_path: ResolvedPath,
   /// The folder that should be considered the "root".
   pub base_path: CanonicalizedPathBuf,
-  pub includes: Vec<String>,
-  pub excludes: Vec<String>,
+  pub includes: Option<Vec<String>>,
+  pub excludes: Option<Vec<String>>,
   pub plugins: Vec<PluginSourceReference>,
   pub incremental: Option<bool>,
   pub config_map: ConfigMap,
@@ -34,74 +37,102 @@ pub struct ResolvedConfig {
 
 #[derive(Debug, Error)]
 #[error(transparent)]
-pub struct ResolveConfigFromArgsError(#[from] anyhow::Error);
+pub enum ResolveConfigError {
+  #[error("No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?\n  Error: {inner:#}", .config_path.display())]
+  NotFound {
+    config_path: CanonicalizedPathBuf,
+    inner: anyhow::Error,
+  },
+  Other(#[from] anyhow::Error),
+}
 
-pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<ResolvedConfig, ResolveConfigFromArgsError> {
-  let resolved_config_path = resolve_main_config_path(args, environment)?;
-  let base_source = resolved_config_path.resolved_path.source.parent();
-  let config_file_path = &resolved_config_path.resolved_path.file_path;
-  let main_config_map = get_config_map_from_path(config_file_path, environment)?;
-
-  let mut main_config_map = match main_config_map {
-    Ok(main_config_map) => main_config_map,
+pub async fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<ResolvedConfig, ResolveConfigError> {
+  let resolved_config_path = resolve_main_config_path(args, environment).await?;
+  let mut resolved_config = match resolve_config_from_path(&resolved_config_path, environment).await {
+    Ok(resolved_config) => resolved_config,
     Err(err) => {
-      // allow no config file when plugins are specified
-      if !args.plugins.is_empty() && !environment.path_exists(config_file_path) {
-        ConfigMap::new()
+      if !args.plugins.is_empty() && matches!(err, ResolveConfigError::NotFound { .. }) {
+        // allow no config file when plugins are specified
+        ResolvedConfig {
+          config_map: ConfigMap::new(),
+          base_path: resolved_config_path.base_path.clone(),
+          resolved_path: resolved_config_path.resolved_path.clone(),
+          excludes: None,
+          includes: None,
+          incremental: None,
+          plugins: Vec::new(),
+        }
       } else {
-        return Err(ResolveConfigFromArgsError(anyhow::anyhow!(
-          "No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?\n  Error: {}",
-          config_file_path.display(),
-          err.to_string(),
-        )));
+        return Err(err);
       }
     }
   };
 
-  let plugins_vec = take_plugins_array_from_config_map(&mut main_config_map, &base_source, environment)?; // always take this out of the config map
-  let plugins = filter_duplicate_plugin_sources(if args.plugins.is_empty() {
+  if !args.plugins.is_empty() {
+    let base_path = PathSource::new_local(resolved_config_path.base_path);
+    let mut plugins = Vec::with_capacity(args.plugins.len());
+    for url_or_file_path in args.plugins.iter() {
+      plugins.push(parse_plugin_source_reference(url_or_file_path, &base_path, environment)?);
+    }
+
+    resolved_config.plugins = plugins;
+  }
+
+  Ok(resolved_config)
+}
+
+pub async fn resolve_config_from_path<TEnvironment: Environment>(
+  resolved_config_path: &ResolvedConfigPath,
+  environment: &TEnvironment,
+) -> Result<ResolvedConfig, ResolveConfigError> {
+  let base_source = resolved_config_path.resolved_path.source.parent();
+  let config_file_path = &resolved_config_path.resolved_path.file_path;
+  let config_map = get_config_map_from_path(config_file_path, environment)?;
+
+  let mut config_map = match config_map {
+    Ok(main_config_map) => main_config_map,
+    Err(err) => {
+      return Err(ResolveConfigError::NotFound {
+        config_path: config_file_path.to_owned(),
+        inner: err,
+      });
+    }
+  };
+
+  let plugins_vec = take_plugins_array_from_config_map(&mut config_map, &base_source, environment)?; // always take this out of the config map
+  let plugins = filter_duplicate_plugin_sources({
     // filter out any non-wasm plugins from remote config
     if !resolved_config_path.resolved_path.is_local() {
       filter_non_wasm_plugins(plugins_vec, environment) // NEVER REMOVE THIS STATEMENT
     } else {
       plugins_vec
     }
-  } else {
-    let base_path = PathSource::new_local(resolved_config_path.base_path.clone());
-    let mut plugins = Vec::with_capacity(args.plugins.len());
-    for url_or_file_path in args.plugins.iter() {
-      plugins.push(parse_plugin_source_reference(url_or_file_path, &base_path, environment)?);
-    }
-
-    plugins
   });
 
   // IMPORTANT
   // =========
-  // Remove the includes and excludes from remote configuration since
-  // we don't want it specifying something like system or some configuration
+  // Remove the includes from remote configuration since we don't want it
+  // specifying something like system or some configuration
   // files that it could change. Basically, the end user should have 100%
   // control over what files get formatted.
   if !resolved_config_path.resolved_path.is_local() {
-    // Careful! Don't be fancy and ensure both of these are removed.
-    let removed_includes = main_config_map.remove("includes").is_some(); // NEVER REMOVE THIS STATEMENT
-    let removed_excludes = main_config_map.remove("excludes").is_some(); // NEVER REMOVE THIS STATEMENT
-    let was_removed = removed_includes || removed_excludes;
-    if was_removed && resolved_config_path.resolved_path.is_first_download {
-      environment.log_stderr(&get_warn_includes_excludes_message());
+    // Careful! Don't be fancy and ensure this is removed.
+    let removed_includes = config_map.remove("includes"); // NEVER REMOVE THIS STATEMENT
+    if removed_includes.is_some() && resolved_config_path.resolved_path.is_first_download {
+      log_warn!(environment, &get_warn_includes_message());
     }
   }
   // =========
 
-  let includes = take_array_from_config_map(&mut main_config_map, "includes")?;
-  let excludes = take_array_from_config_map(&mut main_config_map, "excludes")?;
-  let incremental = take_bool_from_config_map(&mut main_config_map, "incremental")?;
-  main_config_map.remove("projectType"); // this was an old config property that's no longer used
-  let extends = take_extends(&mut main_config_map)?;
-  let mut resolved_config = ResolvedConfig {
-    resolved_path: resolved_config_path.resolved_path,
-    base_path: resolved_config_path.base_path,
-    config_map: main_config_map,
+  let includes = take_array_from_config_map(&mut config_map, "includes")?;
+  let excludes = take_array_from_config_map(&mut config_map, "excludes")?;
+  let incremental = take_bool_from_config_map(&mut config_map, "incremental")?;
+  config_map.remove("projectType"); // this was an old config property that's no longer used
+  let extends = take_extends(&mut config_map)?;
+  let resolved_config = ResolvedConfig {
+    resolved_path: resolved_config_path.resolved_path.clone(),
+    base_path: resolved_config_path.base_path.clone(),
+    config_map,
     includes,
     excludes,
     plugins,
@@ -109,28 +140,34 @@ pub fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, envir
   };
 
   // resolve extends
-  resolve_extends(&mut resolved_config, extends, &base_source, environment)?;
-
-  Ok(resolved_config)
+  Ok(resolve_extends(resolved_config, extends, base_source, environment.clone()).await?)
 }
 
 fn resolve_extends<TEnvironment: Environment>(
-  resolved_config: &mut ResolvedConfig,
+  mut resolved_config: ResolvedConfig,
   extends: Vec<String>,
-  base_path: &PathSource,
-  environment: &TEnvironment,
-) -> Result<()> {
-  for url_or_file_path in extends {
-    let resolved_path = resolve_url_or_file_path(&url_or_file_path, base_path, environment)?;
-    match handle_config_file(&resolved_path, resolved_config, environment) {
-      Ok(extends) => extends,
-      Err(err) => bail!("Error with '{}'. {:#}", resolved_path.source.display(), err),
+  base_path: PathSource,
+  environment: TEnvironment,
+) -> LocalBoxFuture<'static, Result<ResolvedConfig>> {
+  // boxed because of recursion
+  async move {
+    for url_or_file_path in extends {
+      let resolved_path = resolve_url_or_file_path(&url_or_file_path, &base_path, &environment).await?;
+      resolved_config = match handle_config_file(&resolved_path, resolved_config, &environment).await {
+        Ok(resolved_config) => resolved_config,
+        Err(err) => bail!("Error with '{}'. {:#}", resolved_path.source.display(), err),
+      }
     }
+    Ok(resolved_config)
   }
-  Ok(())
+  .boxed_local()
 }
 
-fn handle_config_file<TEnvironment: Environment>(resolved_path: &ResolvedPath, resolved_config: &mut ResolvedConfig, environment: &TEnvironment) -> Result<()> {
+async fn handle_config_file<TEnvironment: Environment>(
+  resolved_path: &ResolvedPath,
+  mut resolved_config: ResolvedConfig,
+  environment: &TEnvironment,
+) -> Result<ResolvedConfig> {
   let config_file_path = &resolved_path.file_path;
   let mut new_config_map = match get_config_map_from_path(config_file_path, environment)? {
     Ok(config_map) => config_map,
@@ -139,17 +176,30 @@ fn handle_config_file<TEnvironment: Environment>(resolved_path: &ResolvedPath, r
   let extends = take_extends(&mut new_config_map)?;
 
   // Discard any properties that shouldn't be inherited
-  new_config_map.remove("projectType");
-  // IMPORTANT
-  // =========
-  // Remove the includes and excludes from all referenced configuration since
-  // we don't want it specifying something like system or some configuration
-  // files that it could change. Basically, the end user should have 100%
-  // control over what files get formatted.
-  new_config_map.remove("includes"); // NEVER REMOVE THIS STATEMENT
-  new_config_map.remove("excludes"); // NEVER REMOVE THIS STATEMENT
-                                     // Also remove any non-wasm plugins, but only for remote configurations.
-                                     // The assumption here is that the user won't be malicious to themselves.
+  if !resolved_path.is_local() {
+    // IMPORTANT
+    // =========
+    // Remove the includes from all referenced remote configuration since
+    // we don't want it specifying something like system or some configuration
+    // files that it could change. Basically, the end user should have 100%
+    // control over what files get formatted.
+    let removed_includes = new_config_map.remove("includes"); // NEVER REMOVE THIS STATEMENT
+    if removed_includes.is_some() && resolved_path.is_first_download {
+      log_warn!(environment, &get_warn_includes_message());
+    }
+  }
+
+  // combine excludes
+  let excludes = take_array_from_config_map(&mut new_config_map, "excludes")?;
+  if let Some(excludes) = excludes {
+    match &mut resolved_config.excludes {
+      Some(resolved_excludes) => resolved_excludes.extend(excludes),
+      None => resolved_config.excludes = Some(excludes),
+    }
+  }
+
+  // Also remove any non-wasm plugins, but only for remote configurations.
+  // The assumption here is that the user won't be malicious to themselves.
   let plugins = take_plugins_array_from_config_map(&mut new_config_map, &resolved_path.source.parent(), environment)?;
   let plugins = if !resolved_path.is_local() {
     filter_non_wasm_plugins(plugins, environment)
@@ -202,9 +252,7 @@ fn handle_config_file<TEnvironment: Environment>(resolved_path: &ResolvedPath, r
     }
   }
 
-  resolve_extends(resolved_config, extends, &resolved_path.source.parent(), environment)?;
-
-  Ok(())
+  resolve_extends(resolved_config, extends, resolved_path.source.parent(), environment.clone()).await
 }
 
 fn take_extends(config_map: &mut ConfigMap) -> Result<Vec<String>> {
@@ -235,7 +283,7 @@ fn take_plugins_array_from_config_map(
   base_path: &PathSource,
   environment: &impl Environment,
 ) -> Result<Vec<PluginSourceReference>> {
-  let plugin_url_or_file_paths = take_array_from_config_map(config_map, "plugins")?;
+  let plugin_url_or_file_paths = take_array_from_config_map(config_map, "plugins")?.unwrap_or_default();
   let mut plugins = Vec::with_capacity(plugin_url_or_file_paths.len());
   for url_or_file_path in plugin_url_or_file_paths {
     plugins.push(parse_plugin_source_reference(&url_or_file_path, base_path, environment)?);
@@ -243,17 +291,12 @@ fn take_plugins_array_from_config_map(
   Ok(plugins)
 }
 
-fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Vec<String>> {
-  let mut result = Vec::new();
-  if let Some(value) = config_map.remove(property_name) {
-    match value {
-      ConfigMapValue::Vec(elements) => {
-        result.extend(elements);
-      }
-      _ => bail!("Expected array in '{}' property.", property_name),
-    }
+fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Option<Vec<String>>> {
+  match config_map.remove(property_name) {
+    Some(ConfigMapValue::Vec(elements)) => Ok(Some(elements)),
+    Some(_) => bail!("Expected array in '{}' property.", property_name),
+    None => Ok(None),
   }
-  Ok(result)
 }
 
 fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Option<bool>> {
@@ -269,16 +312,16 @@ fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str) ->
 
 fn filter_non_wasm_plugins(plugins: Vec<PluginSourceReference>, environment: &impl Environment) -> Vec<PluginSourceReference> {
   if plugins.iter().any(|plugin| plugin.plugin_kind() != Some(PluginKind::Wasm)) {
-    environment.log_stderr(&get_warn_non_wasm_plugins_message());
+    log_warn!(environment, &get_warn_non_wasm_plugins_message());
     plugins.into_iter().filter(|plugin| plugin.plugin_kind() == Some(PluginKind::Wasm)).collect()
   } else {
     plugins
   }
 }
 
-fn get_warn_includes_excludes_message() -> String {
+fn get_warn_includes_message() -> String {
   format!(
-    "{} The 'includes' and 'excludes' properties are ignored for security reasons on remote configuration.",
+    "{} The 'includes' property is ignored for security reasons on remote configuration.",
     "Note: ".bold(),
   )
 }
@@ -311,13 +354,13 @@ mod tests {
 
   use super::*;
 
-  fn get_result(url: &str, environment: &impl Environment) -> Result<ResolvedConfig, ResolveConfigFromArgsError> {
+  async fn get_result(url: &str, environment: &impl Environment) -> Result<ResolvedConfig, ResolveConfigError> {
     let args = parse_args(
       vec![String::from(""), String::from("check"), String::from("-c"), String::from(url)],
       TestStdInReader::default(),
     )
     .unwrap();
-    resolve_config_from_args(&args, environment)
+    resolve_config_from_args(&args, environment).await
   }
 
   #[test]
@@ -329,19 +372,21 @@ mod tests {
         r#"{
             "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
             "includes": ["test"],
-            "excludes": ["test"]
+            "excludes": ["test-excludes"]
         }"#,
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.base_path, CanonicalizedPathBuf::new_for_testing("/"));
-    assert_eq!(result.resolved_path.is_local(), true);
-    assert_eq!(result.config_map.contains_key("includes"), false);
-    assert_eq!(result.config_map.contains_key("excludes"), false);
-    assert_eq!(result.includes, vec!["test"]);
-    assert_eq!(result.excludes, vec!["test"]);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(result.base_path, CanonicalizedPathBuf::new_for_testing("/"));
+      assert_eq!(result.resolved_path.is_local(), true);
+      assert_eq!(result.config_map.contains_key("includes"), false);
+      assert_eq!(result.config_map.contains_key("excludes"), false);
+      assert_eq!(result.includes, Some(vec!["test".to_string()]));
+      assert_eq!(result.excludes, Some(vec!["test-excludes".to_string()]));
+    });
   }
 
   #[test]
@@ -355,10 +400,12 @@ mod tests {
         .as_bytes(),
     );
 
-    let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.base_path, CanonicalizedPathBuf::new_for_testing("/"));
-    assert_eq!(result.resolved_path.is_remote(), true);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(result.base_path, CanonicalizedPathBuf::new_for_testing("/"));
+      assert_eq!(result.resolved_path.is_remote(), true);
+    });
   }
 
   #[test]
@@ -373,37 +420,17 @@ mod tests {
         .as_bytes(),
     );
 
-    let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(environment.take_stderr_messages(), vec![get_warn_includes_excludes_message()]);
-    assert_eq!(result.includes.len(), 0);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(environment.take_stderr_messages(), vec![get_warn_includes_message()]);
+      assert_eq!(result.includes, None);
 
-    environment.clear_logs();
-    let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages().len(), 0); // no warning this time
-    assert_eq!(result.includes.len(), 0);
-  }
-
-  #[test]
-  fn should_warn_on_first_download_for_remote_config_with_excludes() {
-    let environment = TestEnvironment::new();
-    environment.add_remote_file(
-      "https://dprint.dev/test.json",
-      r#"{
-            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
-            "excludes": ["test"]
-        }"#
-        .as_bytes(),
-    );
-
-    let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages(), vec![get_warn_includes_excludes_message()]);
-    assert_eq!(result.excludes.len(), 0);
-
-    environment.clear_logs();
-    let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages().len(), 0); // no warning this time
-    assert_eq!(result.excludes.len(), 0);
+      environment.clear_logs();
+      let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stderr_messages().len(), 0); // no warning this time
+      assert_eq!(result.includes, None);
+    });
   }
 
   #[test]
@@ -419,16 +446,18 @@ mod tests {
         .as_bytes(),
     );
 
-    let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages(), vec![get_warn_includes_excludes_message()]);
-    assert_eq!(result.includes.len(), 0);
-    assert_eq!(result.excludes.len(), 0);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stderr_messages(), vec![get_warn_includes_message()]);
+      assert_eq!(result.includes, None);
+      assert_eq!(result.excludes, Some(vec![]));
 
-    environment.clear_logs();
-    let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages().len(), 0); // no warning this time
-    assert_eq!(result.includes.len(), 0);
-    assert_eq!(result.excludes.len(), 0);
+      environment.clear_logs();
+      let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stderr_messages().len(), 0); // no warning this time
+      assert_eq!(result.includes, None);
+      assert_eq!(result.excludes, Some(vec![]));
+    });
   }
 
   #[test]
@@ -442,8 +471,10 @@ mod tests {
         .as_bytes(),
     );
 
-    get_result("https://dprint.dev/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
+    environment.clone().run_in_runtime(async move {
+      get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+    });
   }
 
   #[test]
@@ -464,7 +495,7 @@ mod tests {
                 "prop": 2
             },
             "includes": ["test"],
-            "excludes": ["test"]
+            "excludes": ["test-excludes"]
         }"#
         .as_bytes(),
     );
@@ -483,46 +514,50 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.base_path, CanonicalizedPathBuf::new_for_testing("/"));
-    assert_eq!(result.resolved_path.is_local(), true);
-    assert_eq!(result.includes.len(), 0);
-    assert_eq!(result.excludes.len(), 0);
-    assert_eq!(
-      result.plugins,
-      vec![
-        PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
-        PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
-      ]
-    );
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(result.base_path, CanonicalizedPathBuf::new_for_testing("/"));
+      assert_eq!(result.resolved_path.is_local(), true);
+      assert_eq!(result.includes, None);
+      assert_eq!(result.excludes, Some(vec!["test-excludes".to_string()]));
+      assert_eq!(
+        result.plugins,
+        vec![
+          PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+          PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
+        ]
+      );
 
-    let expected_config_map = ConfigMap::from([
-      (String::from("lineWidth"), ConfigMapValue::from_i32(1)),
-      (String::from("otherProp"), ConfigMapValue::from_i32(6)),
-      (String::from("otherProp2"), ConfigMapValue::from_str("a")),
-      (
-        String::from("test"),
-        ConfigMapValue::PluginConfig(RawPluginConfig {
-          locked: false,
-          associations: None,
-          properties: ConfigKeyMap::from([
-            (String::from("prop"), ConfigKeyValue::from_i32(5)),
-            (String::from("other"), ConfigKeyValue::from_str("test")),
-          ]),
-        }),
-      ),
-      (
-        String::from("test2"),
-        ConfigMapValue::PluginConfig(RawPluginConfig {
-          locked: false,
-          associations: None,
-          properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
-        }),
-      ),
-    ]);
+      let expected_config_map = ConfigMap::from([
+        (String::from("lineWidth"), ConfigMapValue::from_i32(1)),
+        (String::from("otherProp"), ConfigMapValue::from_i32(6)),
+        (String::from("otherProp2"), ConfigMapValue::from_str("a")),
+        (
+          String::from("test"),
+          ConfigMapValue::PluginConfig(RawPluginConfig {
+            locked: false,
+            associations: None,
+            properties: ConfigKeyMap::from([
+              (String::from("prop"), ConfigKeyValue::from_i32(5)),
+              (String::from("other"), ConfigKeyValue::from_str("test")),
+            ]),
+          }),
+        ),
+        (
+          String::from("test2"),
+          ConfigMapValue::PluginConfig(RawPluginConfig {
+            locked: false,
+            associations: None,
+            properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
+          }),
+        ),
+      ]);
 
-    assert_eq!(result.config_map, expected_config_map);
+      assert_eq!(result.config_map, expected_config_map);
+      let logged_warnings = environment.take_stderr_messages();
+      assert_eq!(logged_warnings, vec![get_warn_includes_message()]);
+    });
   }
 
   #[test]
@@ -573,45 +608,47 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.includes.len(), 0);
-    assert_eq!(result.excludes.len(), 0);
-    assert_eq!(
-      result.plugins,
-      vec![
-        PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
-        PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
-        PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin3.wasm"),
-      ]
-    );
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(result.includes, None);
+      assert_eq!(result.excludes, None);
+      assert_eq!(
+        result.plugins,
+        vec![
+          PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+          PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
+          PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin3.wasm"),
+        ]
+      );
 
-    let expected_config_map = ConfigMap::from([
-      (String::from("lineWidth"), ConfigMapValue::from_i32(1)),
-      (String::from("otherProp"), ConfigMapValue::from_i32(6)),
-      (String::from("asdf"), ConfigMapValue::from_i32(4)),
-      (
-        String::from("test"),
-        ConfigMapValue::PluginConfig(RawPluginConfig {
-          locked: false,
-          associations: None,
-          properties: ConfigKeyMap::from([
-            (String::from("prop"), ConfigKeyValue::from_i32(5)),
-            (String::from("other"), ConfigKeyValue::from_str("test")),
-          ]),
-        }),
-      ),
-      (
-        String::from("test2"),
-        ConfigMapValue::PluginConfig(RawPluginConfig {
-          locked: false,
-          associations: None,
-          properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
-        }),
-      ),
-    ]);
+      let expected_config_map = ConfigMap::from([
+        (String::from("lineWidth"), ConfigMapValue::from_i32(1)),
+        (String::from("otherProp"), ConfigMapValue::from_i32(6)),
+        (String::from("asdf"), ConfigMapValue::from_i32(4)),
+        (
+          String::from("test"),
+          ConfigMapValue::PluginConfig(RawPluginConfig {
+            locked: false,
+            associations: None,
+            properties: ConfigKeyMap::from([
+              (String::from("prop"), ConfigKeyValue::from_i32(5)),
+              (String::from("other"), ConfigKeyValue::from_str("test")),
+            ]),
+          }),
+        ),
+        (
+          String::from("test2"),
+          ConfigMapValue::PluginConfig(RawPluginConfig {
+            locked: false,
+            associations: None,
+            properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
+          }),
+        ),
+      ]);
 
-    assert_eq!(result.config_map, expected_config_map);
+      assert_eq!(result.config_map, expected_config_map);
+    });
   }
 
   #[test]
@@ -671,46 +708,48 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.includes.len(), 0);
-    assert_eq!(result.excludes.len(), 0);
-    assert_eq!(
-      result.plugins,
-      vec![
-        PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
-        PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
-        PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin3.wasm"),
-      ]
-    );
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(result.includes, None);
+      assert_eq!(result.excludes, None);
+      assert_eq!(
+        result.plugins,
+        vec![
+          PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+          PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin2.wasm"),
+          PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin3.wasm"),
+        ]
+      );
 
-    let expected_config_map = ConfigMap::from([
-      (String::from("lineWidth"), ConfigMapValue::from_i32(1)),
-      (String::from("otherProp"), ConfigMapValue::from_i32(6)),
-      (String::from("asdf"), ConfigMapValue::from_i32(4)),
-      (String::from("newProp"), ConfigMapValue::from_str("test")),
-      (
-        String::from("test"),
-        ConfigMapValue::PluginConfig(RawPluginConfig {
-          locked: false,
-          associations: None,
-          properties: ConfigKeyMap::from([
-            (String::from("prop"), ConfigKeyValue::from_i32(5)),
-            (String::from("other"), ConfigKeyValue::from_str("test")),
-          ]),
-        }),
-      ),
-      (
-        String::from("test2"),
-        ConfigMapValue::PluginConfig(RawPluginConfig {
-          locked: false,
-          associations: None,
-          properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
-        }),
-      ),
-    ]);
+      let expected_config_map = ConfigMap::from([
+        (String::from("lineWidth"), ConfigMapValue::from_i32(1)),
+        (String::from("otherProp"), ConfigMapValue::from_i32(6)),
+        (String::from("asdf"), ConfigMapValue::from_i32(4)),
+        (String::from("newProp"), ConfigMapValue::from_str("test")),
+        (
+          String::from("test"),
+          ConfigMapValue::PluginConfig(RawPluginConfig {
+            locked: false,
+            associations: None,
+            properties: ConfigKeyMap::from([
+              (String::from("prop"), ConfigKeyValue::from_i32(5)),
+              (String::from("other"), ConfigKeyValue::from_str("test")),
+            ]),
+          }),
+        ),
+        (
+          String::from("test2"),
+          ConfigMapValue::PluginConfig(RawPluginConfig {
+            locked: false,
+            associations: None,
+            properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
+          }),
+        ),
+      ]);
 
-    assert_eq!(result.config_map, expected_config_map);
+      assert_eq!(result.config_map, expected_config_map);
+    });
   }
 
   #[test]
@@ -766,18 +805,20 @@ mod tests {
         .as_bytes(),
     );
 
-    let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
 
-    let expected_config_map = ConfigMap::from([
-      (String::from("prop1"), ConfigMapValue::from_i32(1)),
-      (String::from("prop2"), ConfigMapValue::from_i32(2)),
-      (String::from("prop3"), ConfigMapValue::from_i32(3)),
-      (String::from("prop4"), ConfigMapValue::from_i32(4)),
-      (String::from("prop5"), ConfigMapValue::from_i32(5)),
-      (String::from("prop6"), ConfigMapValue::from_i32(6)),
-    ]);
-    assert_eq!(result.config_map, expected_config_map);
+      let expected_config_map = ConfigMap::from([
+        (String::from("prop1"), ConfigMapValue::from_i32(1)),
+        (String::from("prop2"), ConfigMapValue::from_i32(2)),
+        (String::from("prop3"), ConfigMapValue::from_i32(3)),
+        (String::from("prop4"), ConfigMapValue::from_i32(4)),
+        (String::from("prop5"), ConfigMapValue::from_i32(5)),
+        (String::from("prop6"), ConfigMapValue::from_i32(6)),
+      ]);
+      assert_eq!(result.config_map, expected_config_map);
+    });
   }
 
   #[test]
@@ -808,15 +849,17 @@ mod tests {
         .as_bytes(),
     );
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
 
-    let expected_config_map = ConfigMap::from([
-      (String::from("prop1"), ConfigMapValue::from_i32(1)),
-      (String::from("prop2"), ConfigMapValue::from_i32(2)),
-      (String::from("prop3"), ConfigMapValue::from_i32(3)),
-    ]);
-    assert_eq!(result.config_map, expected_config_map);
+      let expected_config_map = ConfigMap::from([
+        (String::from("prop1"), ConfigMapValue::from_i32(1)),
+        (String::from("prop2"), ConfigMapValue::from_i32(2)),
+        (String::from("prop3"), ConfigMapValue::from_i32(3)),
+      ]);
+      assert_eq!(result.config_map, expected_config_map);
+    });
   }
 
   #[test]
@@ -849,15 +892,17 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
 
-    let expected_config_map = ConfigMap::from([
-      (String::from("prop1"), ConfigMapValue::from_i32(1)),
-      (String::from("prop2"), ConfigMapValue::from_i32(2)),
-      (String::from("prop3"), ConfigMapValue::from_i32(3)),
-    ]);
-    assert_eq!(result.config_map, expected_config_map);
+      let expected_config_map = ConfigMap::from([
+        (String::from("prop1"), ConfigMapValue::from_i32(1)),
+        (String::from("prop2"), ConfigMapValue::from_i32(2)),
+        (String::from("prop3"), ConfigMapValue::from_i32(3)),
+      ]);
+      assert_eq!(result.config_map, expected_config_map);
+    });
   }
 
   #[test]
@@ -879,14 +924,16 @@ mod tests {
         .as_bytes(),
     );
 
-    let result = get_result("https://dprint.dev/test.json", &environment).err().unwrap();
-    assert_eq!(
-      result.to_string(),
-      concat!(
-        "Error with 'https://dprint.dev/dir/test.json'. Error deserializing. ",
-        "Expected a colon after the string or word in an object property on line 2 column 21."
-      )
-    );
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("https://dprint.dev/test.json", &environment).await.err().unwrap();
+      assert_eq!(
+        result.to_string(),
+        concat!(
+          "Error with 'https://dprint.dev/dir/test.json'. Error deserializing. ",
+          "Expected a colon after the string or word in an object property on line 2 column 21."
+        )
+      );
+    });
   }
 
   #[test]
@@ -915,15 +962,17 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).err().unwrap();
-    assert_eq!(
-      result.to_string(),
-      concat!(
-        "Error with 'https://dprint.dev/test.json'. ",
-        "The configuration for \"test\" was locked, but a parent configuration specified it. ",
-        "Locked configurations cannot have their properties overridden."
-      )
-    );
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.err().unwrap();
+      assert_eq!(
+        result.to_string(),
+        concat!(
+          "Error with 'https://dprint.dev/test.json'. ",
+          "The configuration for \"test\" was locked, but a parent configuration specified it. ",
+          "Locked configurations cannot have their properties overridden."
+        )
+      );
+    });
   }
 
   #[test]
@@ -949,21 +998,23 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    let expected_config_map = ConfigMap::from([(
-      String::from("test"),
-      ConfigMapValue::PluginConfig(RawPluginConfig {
-        locked: true,
-        associations: None,
-        properties: ConfigKeyMap::from([
-          (String::from("prop"), ConfigKeyValue::from_i32(6)),
-          (String::from("other"), ConfigKeyValue::from_str("test")),
-        ]),
-      }),
-    )]);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      let expected_config_map = ConfigMap::from([(
+        String::from("test"),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: true,
+          associations: None,
+          properties: ConfigKeyMap::from([
+            (String::from("prop"), ConfigKeyValue::from_i32(6)),
+            (String::from("other"), ConfigKeyValue::from_str("test")),
+          ]),
+        }),
+      )]);
 
-    assert_eq!(result.config_map, expected_config_map);
+      assert_eq!(result.config_map, expected_config_map);
+    });
   }
 
   #[test]
@@ -992,21 +1043,23 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    let expected_config_map = ConfigMap::from([(
-      String::from("test"),
-      ConfigMapValue::PluginConfig(RawPluginConfig {
-        locked: true,
-        associations: None,
-        properties: ConfigKeyMap::from([
-          (String::from("prop"), ConfigKeyValue::from_i32(7)),
-          (String::from("other"), ConfigKeyValue::from_str("test")),
-        ]),
-      }),
-    )]);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      let expected_config_map = ConfigMap::from([(
+        String::from("test"),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: true,
+          associations: None,
+          properties: ConfigKeyMap::from([
+            (String::from("prop"), ConfigKeyValue::from_i32(7)),
+            (String::from("other"), ConfigKeyValue::from_str("test")),
+          ]),
+        }),
+      )]);
 
-    assert_eq!(result.config_map, expected_config_map);
+      assert_eq!(result.config_map, expected_config_map);
+    });
   }
 
   #[test]
@@ -1033,21 +1086,23 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    let expected_config_map = ConfigMap::from([(
-      String::from("test"),
-      ConfigMapValue::PluginConfig(RawPluginConfig {
-        locked: false,
-        associations: None,
-        properties: ConfigKeyMap::from([
-          (String::from("prop"), ConfigKeyValue::from_i32(6)),
-          (String::from("other"), ConfigKeyValue::from_str("test")),
-        ]),
-      }),
-    )]);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      let expected_config_map = ConfigMap::from([(
+        String::from("test"),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: false,
+          associations: None,
+          properties: ConfigKeyMap::from([
+            (String::from("prop"), ConfigKeyValue::from_i32(6)),
+            (String::from("other"), ConfigKeyValue::from_str("test")),
+          ]),
+        }),
+      )]);
 
-    assert_eq!(result.config_map, expected_config_map);
+      assert_eq!(result.config_map, expected_config_map);
+    });
   }
 
   #[test]
@@ -1072,18 +1127,20 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    let expected_config_map = ConfigMap::from([(
-      String::from("test"),
-      ConfigMapValue::PluginConfig(RawPluginConfig {
-        locked: false,
-        associations: Some(vec!["test".to_string()]),
-        properties: ConfigKeyMap::new(),
-      }),
-    )]);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      let expected_config_map = ConfigMap::from([(
+        String::from("test"),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: false,
+          associations: Some(vec!["test".to_string()]),
+          properties: ConfigKeyMap::new(),
+        }),
+      )]);
 
-    assert_eq!(result.config_map, expected_config_map);
+      assert_eq!(result.config_map, expected_config_map);
+    });
   }
 
   #[test]
@@ -1110,18 +1167,20 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    let expected_config_map = ConfigMap::from([(
-      String::from("test"),
-      ConfigMapValue::PluginConfig(RawPluginConfig {
-        locked: false,
-        associations: Some(vec!["test1".to_string(), "test2".to_string()]),
-        properties: ConfigKeyMap::new(),
-      }),
-    )]);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      let expected_config_map = ConfigMap::from([(
+        String::from("test"),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: false,
+          associations: Some(vec!["test1".to_string(), "test2".to_string()]),
+          properties: ConfigKeyMap::new(),
+        }),
+      )]);
 
-    assert_eq!(result.config_map, expected_config_map);
+      assert_eq!(result.config_map, expected_config_map);
+    });
   }
 
   #[test]
@@ -1135,12 +1194,14 @@ mod tests {
         .as_bytes(),
     );
 
-    let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(
-      result.plugins,
-      vec![PluginSourceReference::new_remote_from_str("https://dprint.dev/test-plugin.wasm")]
-    );
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(
+        result.plugins,
+        vec![PluginSourceReference::new_remote_from_str("https://dprint.dev/test-plugin.wasm")]
+      );
+    });
   }
 
   #[test]
@@ -1170,12 +1231,14 @@ mod tests {
         .as_bytes(),
     );
 
-    let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(
-      result.plugins,
-      vec![PluginSourceReference::new_remote_from_str("https://dprint.dev/test/plugin.wasm")]
-    );
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(
+        result.plugins,
+        vec![PluginSourceReference::new_remote_from_str("https://dprint.dev/test/plugin.wasm")]
+      );
+    });
   }
 
   #[test]
@@ -1190,9 +1253,11 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.plugins, vec![PluginSourceReference::new_local("/testing/asdf.wasm")]);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(result.plugins, vec![PluginSourceReference::new_local("/testing/asdf.wasm")]);
+    });
   }
 
   #[test]
@@ -1216,9 +1281,11 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.plugins, vec![PluginSourceReference::new_local("/other/testing/asdf.wasm")]);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(result.plugins, vec![PluginSourceReference::new_local("/other/testing/asdf.wasm")]);
+    });
   }
 
   #[test]
@@ -1233,9 +1300,11 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.incremental, None);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(result.incremental, None);
+    });
   }
 
   #[test]
@@ -1251,9 +1320,11 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.incremental, Some(true));
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(result.incremental, Some(true));
+    });
   }
 
   #[test]
@@ -1269,9 +1340,11 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.incremental, Some(false));
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(result.incremental, Some(false));
+    });
   }
 
   #[test]
@@ -1285,9 +1358,11 @@ mod tests {
         .as_bytes(),
     );
 
-    let result = get_result("https://dprint.dev/test.json", &environment).unwrap();
-    assert_eq!(result.plugins, vec![]);
-    assert_eq!(environment.take_stderr_messages(), vec![get_warn_non_wasm_plugins_message()]);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
+      assert_eq!(result.plugins, vec![]);
+      assert_eq!(environment.take_stderr_messages(), vec![get_warn_non_wasm_plugins_message()]);
+    });
   }
 
   #[test]
@@ -1310,9 +1385,11 @@ mod tests {
         .as_bytes(),
     );
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages(), vec![get_warn_non_wasm_plugins_message()]);
-    assert_eq!(result.plugins, vec![]);
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stderr_messages(), vec![get_warn_non_wasm_plugins_message()]);
+      assert_eq!(result.plugins, vec![]);
+    });
   }
 
   #[test]
@@ -1336,15 +1413,17 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(
-      result.plugins,
-      vec![PluginSourceReference {
-        path_source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/dir/test-plugin.json")),
-        checksum: Some(String::from("checksum")),
-      }]
-    );
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(
+        result.plugins,
+        vec![PluginSourceReference {
+          path_source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/dir/test-plugin.json")),
+          checksum: Some(String::from("checksum")),
+        }]
+      );
+    });
   }
 
   #[test]
@@ -1363,8 +1442,10 @@ mod tests {
       )
       .unwrap();
 
-    let result = get_result("/test.json", &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages().len(), 0);
-    assert_eq!(result.config_map.is_empty(), true); // should not include projectType
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(result.config_map.is_empty(), true); // should not include projectType
+    });
   }
 }

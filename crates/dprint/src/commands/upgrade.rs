@@ -15,17 +15,17 @@ use crate::utils::latest_cli_version;
 
 // Note: To test `dprint upgrade`, you must do so manually at the moment.
 // Update ./crates/dprint/Cargo.toml to have a version below the current
-// released one, then run `./target/debug/dprint upgrade --verbose`.
+// released one, then run `./target/debug/dprint upgrade --log-level=debug`.
 
 pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> Result<()> {
-  let latest_version = latest_cli_version(environment).context("Error fetching latest CLI version.")?;
+  let latest_version = latest_cli_version(environment).await.context("Error fetching latest CLI version.")?;
   let current_version = environment.cli_version();
   if current_version == latest_version {
-    environment.log(&format!("Already on latest version {}", latest_version));
+    log_stdout_info!(environment, "Already on latest version {}", latest_version);
     return Ok(());
   }
 
-  environment.log(&format!("Upgrading from {} to {}...", current_version, latest_version));
+  log_stdout_info!(environment, "Upgrading from {} to {}...", current_version, latest_version);
 
   let exe_path = environment.current_exe()?;
   let mut components = exe_path.components().map(|c| c.as_os_str().to_string_lossy().to_lowercase()).peekable();
@@ -60,7 +60,7 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
   let zip_filename = format!("dprint-{}-{}.zip", arch, zip_suffix);
   let zip_url = format!("https://github.com/dprint/dprint/releases/download/{}/{}", latest_version, zip_filename);
 
-  let zip_bytes = environment.download_file_err_404(&zip_url)?;
+  let zip_bytes = environment.download_file_err_404(&zip_url).await?;
   let old_executable = exe_path.with_extension("old.exe");
 
   if !environment.is_real() {
@@ -95,7 +95,7 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
 
   // it would be nice if we could delete the old executable here on Windows,
   // but we need it in order to keep running the current executable
-  environment.log(&format!("Upgraded to dprint {}", latest_version));
+  log_stdout_info!(environment, "Upgraded to dprint {}", latest_version);
 
   Ok(())
 }
@@ -120,7 +120,7 @@ fn try_kill_other_dprint_processes(environment: &impl Environment) {
   let pids = match get_running_pids_by_name("dprint") {
     Ok(pids) => pids,
     Err(err) => {
-      log_verbose!(environment, "Error getting dprint processes. {:#}", err);
+      log_debug!(environment, "Error getting dprint processes. {:#}", err);
       return;
     }
   };
@@ -128,9 +128,9 @@ fn try_kill_other_dprint_processes(environment: &impl Environment) {
   for pid in pids {
     // it's important to not kill the current process obviously
     if pid != current_pid {
-      log_verbose!(environment, "Killing process with pid {}...", pid);
+      log_debug!(environment, "Killing process with pid {}...", pid);
       if let Err(err) = kill_process_by_id(pid) {
-        log_verbose!(environment, "Error killing process with pid {}: {:#}", pid, err);
+        log_debug!(environment, "Error killing process with pid {}: {:#}", pid, err);
       }
     }
   }
