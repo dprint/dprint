@@ -271,15 +271,15 @@ const ci = {
           shell: "pwsh",
           run: ["cd website/src/assets", "./install.ps1"].join("\n"),
         },
-        {
-          name: "Test npm",
-          // todo: temporarily ignore for aarch64-musl because a release hasn't been done with this
-          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/') && matrix.config.target != 'aarch64-unknown-linux-musl'",
-          run: [
-            "cd deployment/npm",
-            "deno run -A build.ts 0.37.1",
-          ].join("\n"),
-        },
+        // todo: temporarily ignore for aarch64-musl because a release hasn't been done with this
+        // {
+        //   name: "Test npm",
+        //   if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
+        //   run: [
+        //     "cd deployment/npm",
+        //     "deno run -A build.ts 0.37.1",
+        //   ].join("\n"),
+        // },
       ],
     },
     draft_release: {
