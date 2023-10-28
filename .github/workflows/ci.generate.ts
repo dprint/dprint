@@ -148,7 +148,7 @@ const ci = {
           run: [
             "sudo apt update",
             "sudo apt install gcc-aarch64-linux-gnu",
-            "sudo apt install musl musl-dev musl-tools clang llvm",
+            "sudo apt install musl musl-dev musl-tools",
             "rustup target add aarch64-unknown-linux-musl",
           ].join("\n"),
         },
