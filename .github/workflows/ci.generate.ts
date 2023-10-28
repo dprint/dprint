@@ -129,7 +129,6 @@ const ci = {
           if: "matrix.config.target == 'x86_64-unknown-linux-musl'",
           run: [
             "sudo apt update",
-            "sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu",
             "sudo apt install musl musl-dev musl-tools",
             "rustup target add x86_64-unknown-linux-musl",
           ].join("\n"),
@@ -139,7 +138,7 @@ const ci = {
           if: "matrix.config.target == 'aarch64-unknown-linux-gnu'",
           run: [
             "sudo apt update",
-            "sudo apt install -y gcc-aarch64-linux-gnu",
+            "sudo apt install gcc-aarch64-linux-gnu",
             "rustup target add aarch64-unknown-linux-gnu",
           ].join("\n"),
         },
@@ -148,7 +147,7 @@ const ci = {
           if: "matrix.config.target == 'aarch64-unknown-linux-musl'",
           run: [
             "sudo apt update",
-            "sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu",
+            "sudo apt install gcc-aarch64-linux-gnu",
             "sudo apt install musl musl-dev musl-tools clang llvm",
             "rustup target add aarch64-unknown-linux-musl",
           ].join("\n"),
@@ -163,7 +162,7 @@ const ci = {
           if: "!startsWith(github.ref, 'refs/tags/')",
           env: {
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
-            "CC_aarch64_unknown_linux_musl": "aarch64-linux-musl-gcc",
+            "CC_aarch64_unknown_linux_musl": "aarch64-linux-gnu-gcc",
           },
           run: [
             "cargo build -p dprint --locked --target ${{matrix.config.target}}",
@@ -174,7 +173,7 @@ const ci = {
           if: "startsWith(github.ref, 'refs/tags/')",
           env: {
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
-            "CC_aarch64_unknown_linux_musl": "aarch64-linux-musl-gcc",
+            "CC_aarch64_unknown_linux_musl": "aarch64-linux-gnu-gcc",
           },
           run: [
             "cargo build -p dprint --locked --target ${{matrix.config.target}} --release",

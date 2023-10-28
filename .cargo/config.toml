@@ -2,6 +2,7 @@
 [target.'cfg(all(windows, target_env = "msvc"))']
 rustflags = ["-C", "target-feature=+crt-static"]
 
+# https://github.com/rust-lang/rust/issues/46651#issuecomment-433611633
 [target.aarch64-unknown-linux-musl]
 linker = "aarch64-linux-gnu-gcc"
 rustflags = ["-C", "target-feature=+crt-static", "-C", "link-arg=-lgcc"]
