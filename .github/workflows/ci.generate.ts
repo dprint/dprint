@@ -383,4 +383,4 @@ finalText += yaml.stringify(ci, {
 
 Deno.writeTextFileSync(new URL("./ci.yml", import.meta.url), finalText);
 
-await $`dprint fmt "**/*.yml"`;
+await $`dprint fmt --log-level=warn "**/*.yml"`;
