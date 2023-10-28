@@ -129,7 +129,7 @@ const ci = {
           if: "matrix.config.target == 'x86_64-unknown-linux-musl'",
           run: [
             "sudo apt update",
-            "sudo apt-get install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu",
+            "sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu",
             "sudo apt install musl musl-dev musl-tools",
             "rustup target add x86_64-unknown-linux-musl",
           ].join("\n"),
@@ -148,7 +148,8 @@ const ci = {
           if: "matrix.config.target == 'aarch64-unknown-linux-musl'",
           run: [
             "sudo apt update",
-            "sudo apt install musl musl-dev musl-tools clang llvm gcc-aarch64-linux-gnu",
+            "sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu",
+            "sudo apt install musl musl-dev musl-tools clang llvm",
             "rustup target add aarch64-unknown-linux-musl",
           ].join("\n"),
         },
