@@ -11,6 +11,8 @@ interface ProfileData {
   os: OperatingSystem;
   target: string;
   runTests?: boolean;
+  /** Build using cross. */
+  cross?: boolean;
 }
 
 const profileDataItems: ProfileData[] = [{
@@ -37,6 +39,7 @@ const profileDataItems: ProfileData[] = [{
 }, {
   os: OperatingSystem.Linux,
   target: "aarch64-unknown-linux-musl",
+  cross: true,
 }];
 const profiles = profileDataItems.map(profile => {
   return {
@@ -80,6 +83,7 @@ const ci = {
             os: profile.os,
             run_tests: (profile.runTests ?? false).toString(),
             target: profile.target,
+            cross: (profile.cross ?? false).toString(),
           })),
         },
       },
@@ -90,7 +94,7 @@ const ci = {
       },
       outputs: Object.fromEntries(
         profiles.map(profile => {
-          const entries = [];
+          const entries: string[][] = [];
           entries.push([
             profile.zipChecksumEnvVarName,
             "${{steps.pre_release_" + profile.target.replaceAll("-", "_") + ".outputs.ZIP_CHECKSUM}}",
@@ -143,12 +147,16 @@ const ci = {
           ].join("\n"),
         },
         {
-          name: "Setup (Linux aarch64-musl)",
-          if: "matrix.config.target == 'aarch64-unknown-linux-musl'",
+          name: "Setup cross",
+          if: "matrix.config.cross == 'true'",
           run: [
+<<<<<<< Updated upstream
             "sudo apt update",
             "sudo apt install musl musl-dev musl-tools",
             "rustup target add aarch64-unknown-linux-musl",
+=======
+            "cargo install cross --git https://github.com/cross-rs/cross",
+>>>>>>> Stashed changes
           ].join("\n"),
         },
         {
@@ -158,7 +166,7 @@ const ci = {
         },
         {
           name: "Build (Debug)",
-          if: "!startsWith(github.ref, 'refs/tags/')",
+          if: "matrix.config.cross != 'true' && !startsWith(github.ref, 'refs/tags/')",
           env: {
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
           },
@@ -168,12 +176,26 @@ const ci = {
         },
         {
           name: "Build (Release)",
-          if: "startsWith(github.ref, 'refs/tags/')",
+          if: "matrix.config.cross != 'true' && startsWith(github.ref, 'refs/tags/')",
           env: {
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
           },
           run: [
             "cargo build -p dprint --locked --target ${{matrix.config.target}} --release",
+          ].join("\n"),
+        },
+        {
+          name: "Build cross (Debug)",
+          if: "matrix.config.cross == 'true' && !startsWith(github.ref, 'refs/tags/')",
+          run: [
+            "cross build -p dprint --locked --target ${{matrix.config.target}}",
+          ].join("\n"),
+        },
+        {
+          name: "Build cross (Release)",
+          if: "matrix.config.cross == 'true' && startsWith(github.ref, 'refs/tags/')",
+          run: [
+            "cross build -p dprint --locked --target ${{matrix.config.target}} --release",
           ].join("\n"),
         },
         {
