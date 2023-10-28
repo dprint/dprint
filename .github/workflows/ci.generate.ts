@@ -147,7 +147,6 @@ const ci = {
           if: "matrix.config.target == 'aarch64-unknown-linux-musl'",
           run: [
             "sudo apt update",
-            "sudo apt install gcc-aarch64-linux-gnu",
             "sudo apt install musl musl-dev musl-tools",
             "rustup target add aarch64-unknown-linux-musl",
           ].join("\n"),
