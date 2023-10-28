@@ -87,18 +87,9 @@ jobs:
           sudo apt update
           sudo apt install gcc-aarch64-linux-gnu
           rustup target add aarch64-unknown-linux-gnu
-<<<<<<< Updated upstream
-      - name: Setup (Linux aarch64-musl)
-        if: matrix.config.target == 'aarch64-unknown-linux-musl'
-        run: |-
-          sudo apt update
-          sudo apt install musl musl-dev musl-tools
-          rustup target add aarch64-unknown-linux-musl
-=======
       - name: Setup cross
         if: matrix.config.cross == 'true'
         run: "cargo install cross --git https://github.com/cross-rs/cross"
->>>>>>> Stashed changes
       - name: Setup (Mac aarch64)
         if: matrix.config.target == 'aarch64-apple-darwin'
         run: rustup target add aarch64-apple-darwin

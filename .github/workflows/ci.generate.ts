@@ -150,13 +150,7 @@ const ci = {
           name: "Setup cross",
           if: "matrix.config.cross == 'true'",
           run: [
-<<<<<<< Updated upstream
-            "sudo apt update",
-            "sudo apt install musl musl-dev musl-tools",
-            "rustup target add aarch64-unknown-linux-musl",
-=======
             "cargo install cross --git https://github.com/cross-rs/cross",
->>>>>>> Stashed changes
           ].join("\n"),
         },
         {
