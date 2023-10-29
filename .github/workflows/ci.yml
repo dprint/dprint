@@ -229,6 +229,11 @@ jobs:
         run: |-
           cd website/src/assets
           ./install.ps1
+      - name: Test npm
+        if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')"
+        run: |-
+          cd deployment/npm
+          deno run -A build.ts 0.42.5
   draft_release:
     name: draft_release
     if: "startsWith(github.ref, 'refs/tags/')"
