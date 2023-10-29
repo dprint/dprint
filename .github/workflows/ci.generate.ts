@@ -150,7 +150,7 @@ const ci = {
           name: "Setup cross",
           if: "matrix.config.cross == 'true'",
           run: [
-            "cargo install cross --git https://github.com/cross-rs/cross",
+            "cargo install cross --git https://github.com/cross-rs/cross --rev 44011c8854cb2eaac83b173cc323220ccdff18ea",
           ].join("\n"),
         },
         {
@@ -165,7 +165,7 @@ const ci = {
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
           },
           run: [
-            "cargo build -p dprint --locked --target ${{matrix.config.target}} --release", // temp
+            "cargo build -p dprint --locked --target ${{matrix.config.target}}",
           ].join("\n"),
         },
         {
@@ -182,7 +182,7 @@ const ci = {
           name: "Build cross (Debug)",
           if: "matrix.config.cross == 'true' && !startsWith(github.ref, 'refs/tags/')",
           run: [
-            "cross build -p dprint --locked --target ${{matrix.config.target}}",
+            "cross build -p dprint --locked --target ${{matrix.config.target}} --release", // temp for testing
           ].join("\n"),
         },
         {
