@@ -274,7 +274,7 @@ const ci = {
           if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
           run: [
             "cd deployment/npm",
-            "deno run -A build.ts 0.37.1",
+            "deno run -A build.ts 0.42.5",
           ].join("\n"),
         },
       ],
