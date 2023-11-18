@@ -85,6 +85,9 @@ export function replaceConfigTable() {
           if (typeof value === "string") {
             return "\"" + value + "\"";
           }
+          if (value == null) {
+            return "<not specified>";
+          }
           return value.toString();
         }
       });

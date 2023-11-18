@@ -17,10 +17,13 @@ Formats [TOML](https://toml.io) files.
 
 ## Install and Setup
 
-In a dprint configuration file:
+In your project's directory with a dprint.json file, run:
 
-1. Specify the plugin url in the `"plugins"` array.
-2. Add a `"toml"` configuration property if desired.
+```shellsession
+dprint config add toml
+```
+
+This will update your config file to have an entry for the plugin. Then optionally specify a `"toml"` property to add configuration:
 
 ```json
 {

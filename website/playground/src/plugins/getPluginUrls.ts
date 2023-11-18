@@ -12,8 +12,9 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
   const markdownPlugin = json.latest.find((p: any) => p.configKey === "markdown")!;
   const tomlPlugin = json.latest.find((p: any) => p.configKey === "toml")!;
   const dockerfilePlugin = json.latest.find((p: any) => p.configKey === "dockerfile")!;
+  const biomePlugin = json.latest.find((p: any) => p.configKey === "biome")!;
 
-  return [typescriptPlugin.url, jsonPlugin.url, markdownPlugin.url, tomlPlugin.url, dockerfilePlugin.url];
+  return [typescriptPlugin.url, jsonPlugin.url, markdownPlugin.url, tomlPlugin.url, dockerfilePlugin.url, biomePlugin.url];
 }
 
 export function getLanguageFromPluginUrl(url: string) {
@@ -26,6 +27,8 @@ export function getLanguageFromPluginUrl(url: string) {
     case "toml":
     case "dockerfile":
       return language;
+    case "biome":
+      return "typescript";
     default:
       return undefined;
   }
