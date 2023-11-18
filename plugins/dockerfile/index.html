@@ -57,6 +57,7 @@
         <li><a href="/plugins/rustfmt">Rustfmt</a></li>
         <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
         <li><a href="/plugins/prettier">Prettier</a></li>
+        <li><a href="/plugins/biome">Biome</a></li>
         <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
         <li><a href="/plugin-dev">Creating a Plugin</a></li>
       </ul>
@@ -71,11 +72,10 @@
 <h1>Dockerfile Code Formatter</h1>
 <p>Formats <a href="https://docs.docker.com/engine/reference/builder">Dockerfiles</a>.</p>
 <h2 id="install-and-setup" tabindex="-1"><a class="header-anchor" href="#install-and-setup">Install and Setup</a></h2>
-<p>In a dprint configuration file:</p>
-<ol>
-<li>Specify the plugin url in the <code>"plugins"</code> array.</li>
-<li>Add a <code>"dockerfile"</code> configuration property if desired.</li>
-</ol>
+<p>In your project's directory with a dprint.json file, run:</p>
+<pre><code class="language-shellsession hljs language-shell">dprint config add dockerfile
+</code></pre>
+<p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"dockerfile"</code> property to add configuration:</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
   <span class="hljs-comment">// omitted...</span>
   <span class="hljs-attr">"dockerfile"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>

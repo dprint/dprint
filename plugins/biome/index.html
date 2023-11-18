@@ -2,15 +2,15 @@
 <html lang="en"><head>
     <script async="" src="/scripts.js"></script>
     <meta charset="utf-8">
-    <title>Configuration - Toml - dprint - Code Formatter</title>
+    <title>Biome Plugin - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#000000">
-    <meta name="description" content="Documentation on the configuration file for the TOML code formatting plugin for dprint.">
+    <meta name="description" content="Documentation on the Biome code formatting plugin for dprint.">
     <meta name="author" content="Dprint Code Formatting">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:site" content="@dprintfmt">
-    <meta name="twitter:title" content="Configuration - Toml">
-    <meta name="twitter:description" content="Documentation on the configuration file for the TOML code formatting plugin for dprint.">
+    <meta name="twitter:title" content="Biome Plugin">
+    <meta name="twitter:description" content="Documentation on the Biome code formatting plugin for dprint.">
     
     <link rel="stylesheet" href="/style.css">
   </head>
@@ -66,14 +66,30 @@
       <nav class="breadcrumb" aria-label="breadcrumbs">
   <ul>
     <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/toml">TOML</a></li>
-    <li><a href="/plugins/toml/config">Configuration</a></li>
+    <li><a href="/plugins/biome">Biome</a></li>
   </ul>
 </nav>
-<h1>TOML - Configuration</h1>
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-toml/latest/schema.json">
-  Loading...
-</div>
+<h1>Biome Plugin</h1>
+<p>Adapter plugin that formats JavaScript, TypeScript, and JSON files via <a href="https://biomejs.dev">Biome</a>.</p>
+<h2 id="install-and-setup" tabindex="-1"><a class="header-anchor" href="#install-and-setup">Install and Setup</a></h2>
+<p>In your project's directory with a dprint.json file, run:</p>
+<pre><code class="language-shellsession hljs language-shell">dprint config add biome
+</code></pre>
+<p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"biome"</code> property to add configuration:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-comment">// omitted...</span>
+  <span class="hljs-attr">"biome"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-comment">// biome's config goes here</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/biome-x.x.x.wasm"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<h2 id="configuration" tabindex="-1"><a class="header-anchor" href="#configuration">Configuration</a></h2>
+<p>See <a href="/plugins/biome/config">Configuration</a></p>
+<h2 id="playground" tabindex="-1"><a class="header-anchor" href="#playground">Playground</a></h2>
+<p>See <a href="https://dprint.dev/playground#language/biome">Playground</a></p>
 
     </div>
   </div>
