@@ -95,7 +95,7 @@ This flag is more useful for one-off commands. It is recommended to use the defa
 - `11` - Configuration resolution error
 - `12` - Plugin resolution error
 - `13` - No plugins found error
-- `14` - No files found error (useful for pre-commit hooks)
+- `14` - No files found error (or suppress to `0` with `--allow-no-files` in dprint >= 0.43)
 - `20` - `dprint check` found non-formatted files
 
 ## Shell completions
