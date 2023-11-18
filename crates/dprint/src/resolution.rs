@@ -365,7 +365,9 @@ impl<TEnvironment: Environment> PluginsScopeAndPathsCollection<TEnvironment> {
     for scope in &self.0 {
       scope.scope.ensure_valid_for_cli_args(cli_args)?;
       if let Some(config) = scope.scope.config.as_ref() {
-        scope.file_paths_by_plugins.ensure_not_empty(&config.base_path)?;
+        if !cli_args.sub_command.allow_no_files() {
+          scope.file_paths_by_plugins.ensure_not_empty(&config.base_path)?;
+        }
       }
     }
     Ok(())

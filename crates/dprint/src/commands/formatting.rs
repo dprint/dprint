@@ -1035,6 +1035,27 @@ mod test {
     assert_no_files_found(&error, &environment);
   }
 
+  #[test]
+  fn should_not_error_when_no_files_match_allow_no_files_output() {
+    run_allow_no_files_test("fmt");
+    run_allow_no_files_test("check");
+    run_allow_no_files_test("output-format-times");
+
+    fn run_allow_no_files_test(sub_command: &str) {
+      // with
+      {
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin().build();
+        assert!(run_test_cli(vec![sub_command, "--allow-no-files", "**/*.txt"], &environment).is_ok());
+      }
+      // without
+      {
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin().build();
+        let error = run_test_cli(vec![sub_command, "**/*.txt"], &environment).err().unwrap();
+        assert_no_files_found(&error, &environment);
+      }
+    }
+  }
+
   #[track_caller]
   fn assert_no_files_found(error: &TestAppError, _environment: &TestEnvironment) {
     assert_eq!(

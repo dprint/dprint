@@ -62,12 +62,23 @@ pub enum SubCommand {
   #[cfg(target_os = "windows")]
   Hidden(HiddenSubCommand),
 }
+impl SubCommand {
+  pub fn allow_no_files(&self) -> bool {
+    match self {
+      SubCommand::Check(a) => a.allow_no_files,
+      SubCommand::Fmt(a) => a.allow_no_files,
+      SubCommand::OutputFormatTimes(a) => a.allow_no_files,
+      _ => false,
+    }
+  }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct CheckSubCommand {
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
   pub list_different: bool,
+  pub allow_no_files: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -76,6 +87,7 @@ pub struct FmtSubCommand {
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
   pub enable_stable_format: bool,
+  pub allow_no_files: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -93,6 +105,7 @@ pub struct OutputFilePathsSubCommand {
 #[derive(Debug, PartialEq, Eq)]
 pub struct OutputFormatTimesSubCommand {
   pub patterns: FilePatternArgs,
+  pub allow_no_files: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -168,6 +181,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
           patterns: parse_file_patterns(matches)?,
           incremental: parse_incremental(matches),
           enable_stable_format: !matches.get_flag("skip-stable-format"),
+          allow_no_files: matches.get_flag("allow-no-files"),
         })
       }
     }
@@ -175,6 +189,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       patterns: parse_file_patterns(matches)?,
       incremental: parse_incremental(matches),
       list_different: matches.get_flag("list-different"),
+      allow_no_files: matches.get_flag("allow-no-files"),
     }),
     ("init", _) => SubCommand::Config(ConfigSubCommand::Init),
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
@@ -192,6 +207,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("output-resolved-config", _) => SubCommand::OutputResolvedConfig,
     ("output-format-times", matches) => SubCommand::OutputFormatTimes(OutputFormatTimesSubCommand {
       patterns: parse_file_patterns(matches)?,
+      allow_no_files: matches.get_flag("allow-no-files"),
     }),
     ("version", _) => SubCommand::Version,
     ("license", _) => SubCommand::License,
@@ -386,6 +402,7 @@ EXAMPLES:
             .num_args(0)
             .required(false)
         )
+        .add_allow_no_files_arg()
         .arg(
           Arg::new("skip-stable-format")
             .long("skip-stable-format")
@@ -401,6 +418,7 @@ EXAMPLES:
         .about("Checks for any files that haven't been formatted.")
         .add_resolve_file_path_args()
         .add_incremental_arg()
+        .add_allow_no_files_arg()
         .arg(
           Arg::new("list-different")
             .long("list-different")
@@ -444,6 +462,7 @@ EXAMPLES:
       Command::new("output-format-times")
         .about("Prints the amount of time it takes to format each file. Use this for debugging.")
         .add_resolve_file_path_args()
+        .add_allow_no_files_arg()
     )
     .subcommand(
       Command::new("clear-cache")
@@ -530,6 +549,7 @@ EXAMPLES:
 trait ClapExtensions {
   fn add_resolve_file_path_args(self) -> Self;
   fn add_incremental_arg(self) -> Self;
+  fn add_allow_no_files_arg(self) -> Self;
 }
 
 impl ClapExtensions for clap::Command {
@@ -565,6 +585,17 @@ impl ClapExtensions for clap::Command {
         .num_args(0..=1)
         .value_parser(["true", "false"])
         .require_equals(true),
+    )
+  }
+
+  fn add_allow_no_files_arg(self) -> Self {
+    use clap::Arg;
+    self.arg(
+      Arg::new("allow-no-files")
+        .long("allow-no-files")
+        .help("Causes dprint to exit with exit code 0 when no files are found instead of exit code 14.")
+        .num_args(0)
+        .required(false),
     )
   }
 }
