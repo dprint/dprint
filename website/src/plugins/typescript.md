@@ -21,10 +21,13 @@ Supports:
 
 ## Install and Setup
 
-In a dprint configuration file:
+In your project's directory with a dprint.json file, run:
 
-1. Specify the plugin url in the `"plugins"` array.
-2. Add a `"typescript"` configuration property if desired.
+```shellsession
+dprint config add typescript
+```
+
+This will update your config file to have an entry for the plugin. Then optionally specify a `"typescript"` property to add configuration:
 
 ```json
 {
