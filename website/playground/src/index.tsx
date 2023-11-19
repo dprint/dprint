@@ -5,7 +5,7 @@ import { Spinner } from "./components";
 import * as formatterWorker from "./FormatterWorker";
 import "./index.css";
 import { Playground } from "./Playground";
-import { getLanguageFromPluginUrl, getPluginDefaultConfig, getPluginUrls } from "./plugins";
+import { getPluginDefaultConfig, getPluginShortNameFromPluginUrl, getPluginUrls } from "./plugins";
 import { UrlSaver } from "./utils";
 
 const urlSaver = new UrlSaver();
@@ -14,7 +14,7 @@ let isFirstLoad = true;
 
 function Loader() {
   const [pluginUrls, setPluginUrls] = useState<string[]>([]);
-  const [pluginUrl, setPluginUrl] = useState(initialUrl.plugin);
+  const [pluginUrl, setPluginUrl] = useState(initialUrl.pluginUrl);
   const [pluginInfo, setPluginInfo] = useState<PluginInfo | undefined>();
   const [text, setText] = useState(initialUrl.text);
   const [configText, setConfigText] = useState(initialUrl.configText ?? "");
@@ -26,9 +26,9 @@ function Loader() {
   useEffect(() => {
     const abortController = new AbortController();
     getPluginUrls(abortController.signal).then(pluginUrls => {
-      setPluginUrls(pluginUrls.concat(initialUrl.plugin ?? []));
-      if (initialUrl.plugin == null) {
-        setPluginUrl(pluginUrls.find(url => getLanguageFromPluginUrl(url) === (initialUrl.language ?? "typescript"))!);
+      setPluginUrls(pluginUrls.concat(initialUrl.pluginUrl ?? []));
+      if (initialUrl.pluginUrl == null) {
+        setPluginUrl(pluginUrls.find(url => getPluginShortNameFromPluginUrl(url) === (initialUrl.pluginName ?? "typescript"))!);
       }
     }).catch(err => {
       if (!abortController.signal.aborted) {
@@ -71,14 +71,13 @@ function Loader() {
       return;
     }
 
-    const language = getLanguageFromPluginUrl(pluginUrl);
-    const isBuiltInLanguage = !!language;
+    const shortName = getPluginShortNameFromPluginUrl(pluginUrl);
+    const isBuiltInLanguage = !!shortName;
 
     urlSaver.updateUrl({
       text,
       configText: configText === defaultConfigText ? undefined : configText,
-      plugin: isBuiltInLanguage ? undefined : pluginUrl,
-      language: isBuiltInLanguage ? language : undefined,
+      plugin: isBuiltInLanguage ? shortName : pluginUrl,
     });
   }, [text, configText, pluginUrl, defaultConfigText]);
 
