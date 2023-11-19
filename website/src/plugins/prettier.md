@@ -13,7 +13,7 @@ layout: layouts/documentation.njk
 
 # Prettier Plugin
 
-Wrapper plugin that formats [many languages](https://prettier.io/docs/en/index.html) via [Prettier](https://prettier.io).
+Adapter plugin that formats [many languages](https://prettier.io/docs/en/index.html) via [Prettier](https://prettier.io).
 
 <div class="message is-warning">
   <div class="message-body">

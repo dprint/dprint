@@ -13,7 +13,7 @@ layout: layouts/documentation.njk
 
 # Roslyn Plugin
 
-Wrapper plugin that formats C# and Visual Basic code via [Roslyn](https://github.com/dotnet/roslyn).
+Adapter plugin that formats C# and Visual Basic code via [Roslyn](https://github.com/dotnet/roslyn).
 
 <div class="message is-warning">
   <div class="message-body">
