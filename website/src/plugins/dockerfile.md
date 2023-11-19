@@ -43,4 +43,4 @@ See [Configuration](/plugins/dockerfile/config)
 
 ## Playground
 
-See [Playground](https://dprint.dev/playground#language/dockerfile)
+See [Playground](https://dprint.dev/playground#plugin/dockerfile)

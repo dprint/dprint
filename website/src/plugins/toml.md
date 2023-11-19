@@ -43,4 +43,4 @@ See [Configuration](/plugins/toml/config)
 
 ## Playground
 
-See [Playground](https://dprint.dev/playground#language/toml)
+See [Playground](https://dprint.dev/playground#plugin/toml)

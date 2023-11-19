@@ -56,7 +56,7 @@ See [Configuration](/plugins/markdown/config)
 
 ## Playground
 
-See [Playground](https://dprint.dev/playground#language/markdown)
+See [Playground](https://dprint.dev/playground#plugin/markdown)
 
 ## Ignore Comments
 

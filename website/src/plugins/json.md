@@ -46,4 +46,4 @@ See [Configuration](/plugins/json/config)
 
 ## Playground
 
-See [Playground](https://dprint.dev/playground#language/json)
+See [Playground](https://dprint.dev/playground#plugin/json)

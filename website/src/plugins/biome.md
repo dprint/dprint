@@ -43,4 +43,4 @@ See [Configuration](/plugins/biome/config)
 
 ## Playground
 
-See [Playground](https://dprint.dev/playground#language/biome)
+See [Playground](https://dprint.dev/playground#plugin/biome)
