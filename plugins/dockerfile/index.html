@@ -57,7 +57,8 @@
         <li><a href="/plugins/rustfmt">Rustfmt</a></li>
         <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
         <li><a href="/plugins/prettier">Prettier</a></li>
-        <li><a href="/plugins/biome">Biome</a></li>
+        <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
+        <li><a href="/plugins/ruff">Ruff (Python)</a></li>
         <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
         <li><a href="/plugin-dev">Creating a Plugin</a></li>
       </ul>
@@ -77,7 +78,6 @@
 </code></pre>
 <p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"dockerfile"</code> property to add configuration:</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
-  <span class="hljs-comment">// omitted...</span>
   <span class="hljs-attr">"dockerfile"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
     <span class="hljs-comment">// dockerfile config goes here</span>
   <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>

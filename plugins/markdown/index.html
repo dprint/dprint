@@ -57,7 +57,8 @@
         <li><a href="/plugins/rustfmt">Rustfmt</a></li>
         <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
         <li><a href="/plugins/prettier">Prettier</a></li>
-        <li><a href="/plugins/biome">Biome</a></li>
+        <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
+        <li><a href="/plugins/ruff">Ruff (Python)</a></li>
         <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
         <li><a href="/plugin-dev">Creating a Plugin</a></li>
       </ul>
@@ -76,7 +77,6 @@
 </code></pre>
 <p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"markdown"</code> property to add configuration:</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
-  <span class="hljs-comment">// omitted...</span>
   <span class="hljs-attr">"markdown"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
     <span class="hljs-comment">// markdown config goes here</span>
   <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
@@ -88,7 +88,6 @@
 <h2 id="code-block-formatters" tabindex="-1"><a class="header-anchor" href="#code-block-formatters">Code block formatters</a></h2>
 <p>Code blocks are formatted based on the other provided plugins. For example, if you wish to format JSON, TypeScript, and JavaScript code blocks, then ensure those plugins are also specified in the list of plugins to use.</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
-  <span class="hljs-comment">// omitted...</span>
   <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
     <span class="hljs-string">"https://plugins.dprint.dev/typescript-x.x.x.wasm"</span><span class="hljs-punctuation">,</span>
     <span class="hljs-string">"https://plugins.dprint.dev/json-x.x.x.wasm"</span><span class="hljs-punctuation">,</span>
