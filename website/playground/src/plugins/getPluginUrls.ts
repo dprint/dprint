@@ -13,8 +13,9 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
   const tomlPlugin = json.latest.find((p: any) => p.configKey === "toml")!;
   const dockerfilePlugin = json.latest.find((p: any) => p.configKey === "dockerfile")!;
   const biomePlugin = json.latest.find((p: any) => p.configKey === "biome")!;
+  const ruffPlugin = json.latest.find((p: any) => p.configKey === "ruff")!;
 
-  return [typescriptPlugin.url, jsonPlugin.url, markdownPlugin.url, tomlPlugin.url, dockerfilePlugin.url, biomePlugin.url];
+  return [typescriptPlugin.url, jsonPlugin.url, markdownPlugin.url, tomlPlugin.url, dockerfilePlugin.url, biomePlugin.url, ruffPlugin.url];
 }
 
 export function getPluginShortNameFromPluginUrl(url: string) {
@@ -27,6 +28,7 @@ export function getPluginShortNameFromPluginUrl(url: string) {
     case "toml":
     case "dockerfile":
     case "biome":
+    case "ruff":
       return name;
     default:
       return undefined;
@@ -45,6 +47,9 @@ export function getLanguageFromPluginUrl(url: string) {
       return language;
     case "biome":
       return "typescript";
+    case "ruff":
+      // todo: specify python here eventually (probably need to upgrade the code editor)
+      return "plaintext";
     default:
       return undefined;
   }
