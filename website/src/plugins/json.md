@@ -30,7 +30,6 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ```json
 {
-  // omitted...
   "json": {
     // json config goes here
   },

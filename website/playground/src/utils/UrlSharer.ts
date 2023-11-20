@@ -7,6 +7,7 @@ export const knownPlugins = new Set([
   "toml",
   "dockerfile",
   "biome",
+  "ruff",
 ]);
 
 export class UrlSaver {

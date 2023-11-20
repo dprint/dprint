@@ -25,7 +25,6 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ```json
 {
-  // omitted...
   "markdown": {
     // markdown config goes here
   },
@@ -41,7 +40,6 @@ Code blocks are formatted based on the other provided plugins. For example, if y
 
 ```json
 {
-  // omitted...
   "plugins": [
     "https://plugins.dprint.dev/typescript-x.x.x.wasm",
     "https://plugins.dprint.dev/json-x.x.x.wasm",

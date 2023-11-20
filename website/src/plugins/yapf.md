@@ -13,4 +13,6 @@ layout: layouts/documentation.njk
 
 # YAPF Plugin
 
-Deprecated. Use [dprint-plugin-exec](/plugins/exec) instead, which will allow you to format with YAPF's CLI.
+Deprecated. You may want to consider using [dprint-plugin-ruff](/plugins/ruff) instead.
+
+Alternatively, use [dprint-plugin-exec](/plugins/exec) instead, which will allow you to format with YAPF's CLI.
