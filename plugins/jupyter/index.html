@@ -2,15 +2,15 @@
 <html lang="en"><head>
     <script async="" src="/scripts.js"></script>
     <meta charset="utf-8">
-    <title>Ruff Plugin - dprint - Code Formatter</title>
+    <title>Jupyter Plugin - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#000000">
-    <meta name="description" content="Documentation on the Ruff code formatting plugin for dprint.">
+    <meta name="description" content="Documentation on the Jupyter Notebook code block formatting plugin for dprint.">
     <meta name="author" content="Dprint Code Formatting">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:site" content="@dprintfmt">
-    <meta name="twitter:title" content="Ruff Plugin">
-    <meta name="twitter:description" content="Documentation on the Ruff code formatting plugin for dprint.">
+    <meta name="twitter:title" content="Jupyter Plugin">
+    <meta name="twitter:description" content="Documentation on the Jupyter Notebook code block formatting plugin for dprint.">
     
     <link rel="stylesheet" href="/style.css">
   </head>
@@ -68,31 +68,30 @@
       <nav class="breadcrumb" aria-label="breadcrumbs">
   <ul>
     <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/ruff">Ruff</a></li>
+    <li><a href="/plugins/jupyter">Jupyter</a></li>
   </ul>
 </nav>
-<h1>Ruff Plugin</h1>
-<p>Adapter plugin that formats Python code via <a href="https://docs.astral.sh/ruff/">Ruff</a>.</p>
-<p>Formats .py and .pyi files.</p>
-<p>Note: For formatting .ipynb files, use the <a href="/plugins/jupyter">Jupyter plugin</a> along with this plugin.</p>
+<h1>Jupyter Plugin</h1>
+<p>Formats code blocks in Jupyter Notebooks.</p>
 <h2 id="install-and-setup" tabindex="-1"><a class="header-anchor" href="#install-and-setup">Install and Setup</a></h2>
 <p>In your project's directory with a dprint.json file, run:</p>
-<pre><code class="language-shellsession hljs language-shell">dprint config add ruff
+<pre><code class="language-shellsession hljs language-shell">dprint config add jupyter
 </code></pre>
-<p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"ruff"</code> property to add configuration:</p>
+<p>This will update your config file to have an entry for the plugin.</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
-  <span class="hljs-attr">"ruff"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
-    <span class="hljs-comment">// ruff's config goes here</span>
-  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
   <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
-    <span class="hljs-string">"https://plugins.dprint.dev/ruff-x.x.x.wasm"</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/jupyter-x.x.x.wasm"</span>
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
+<p>Then add some additional formatting plugins to format the code blocks with. For example:</p>
+<pre><code class="language-shellsession hljs language-shell">dprint config add typescript
+dprint config add markdown
+dprint config add ruff
+</code></pre>
+<p>If you find a code block isn't being formatted with a plugin, please verify it's not a syntax error. After, open an <a href="https://github.com/dprint/dprint-plugin-jupyter/issues">issue</a> about adding support for that plugin (if you're interested in opening a PR, it's potentially an easy contribution).</p>
 <h2 id="configuration" tabindex="-1"><a class="header-anchor" href="#configuration">Configuration</a></h2>
-<p>See <a href="/plugins/ruff/config">Configuration</a></p>
-<h2 id="playground" tabindex="-1"><a class="header-anchor" href="#playground">Playground</a></h2>
-<p>See <a href="https://dprint.dev/playground#plugin/ruff">Playground</a></p>
+<p>Set the configuration for code blocks in other plugins.</p>
 
     </div>
   </div>
