@@ -15,6 +15,10 @@ layout: layouts/documentation.njk
 
 Adapter plugin that formats Python code via [Ruff](https://docs.astral.sh/ruff/).
 
+Formats .py and .pyi files.
+
+Note: For formatting .ipynb files, use the [Jupyter plugin](/plugins/jupyter) along with this plugin.
+
 ## Install and Setup
 
 In your project's directory with a dprint.json file, run:

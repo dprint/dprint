@@ -24,6 +24,7 @@ The setup for both is the same except process plugins require a checksum to be s
 - [Dockerfile](/plugins/dockerfile)
 - [Biome](/plugins/biome) (JS/TS/JSON)
 - [Ruff](/plugins/ruff) (Python)
+- [Jupyter](/plugins/juypter)
 
 ## Process Plugins
 
