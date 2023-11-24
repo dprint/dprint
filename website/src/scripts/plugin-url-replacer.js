@@ -6,6 +6,7 @@ const tomlUrl = "https://plugins.dprint.dev/toml-x.x.x.wasm";
 const dockerfileUrl = "https://plugins.dprint.dev/dockerfile-x.x.x.wasm";
 const biomeUrl = "https://plugins.dprint.dev/biome-x.x.x.wasm";
 const ruffUrl = "https://plugins.dprint.dev/ruff-x.x.x.wasm";
+const jupyterUrl = "https://plugins.dprint.dev/jupyter-x.x.x.wasm";
 const pluginInfoUrl = "https://plugins.dprint.dev/info.json";
 const schemaVersion = 4;
 
@@ -37,6 +38,9 @@ export function replacePluginUrls() {
           case getWithQuotes(ruffUrl):
             element.textContent = getWithQuotes(urls["ruff"]);
             break;
+          case getWithQuotes(jupyterUrl):
+            element.textContent = getWithQuotes(urls["jupyter"]);
+            break;
         }
       }
     });
@@ -56,6 +60,7 @@ function getPluginUrlElements() {
       case getWithQuotes(dockerfileUrl):
       case getWithQuotes(biomeUrl):
       case getWithQuotes(ruffUrl):
+      case getWithQuotes(jupyterUrl):
         result.push(stringElement);
         break;
     }
@@ -85,6 +90,7 @@ function getPluginInfo() {
         dockerfile: getUrlForPlugin(data, "dprint-plugin-dockerfile"),
         biome: getUrlForPlugin(data, "dprint-plugin-biome"),
         ruff: getUrlForPlugin(data, "dprint-plugin-ruff"),
+        jupyter: getUrlForPlugin(data, "dprint-plugin-jupyter"),
       };
     });
 
