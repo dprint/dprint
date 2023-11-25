@@ -71,6 +71,28 @@ impl SubCommand {
       _ => false,
     }
   }
+
+  pub fn file_patterns(&self) -> Option<&FilePatternArgs> {
+    match self {
+      SubCommand::Check(a) => Some(&a.patterns),
+      SubCommand::Fmt(a) => Some(&a.patterns),
+      SubCommand::StdInFmt(a) => Some(&a.patterns),
+      SubCommand::OutputFilePaths(a) => Some(&a.patterns),
+      SubCommand::OutputFormatTimes(a) => Some(&a.patterns),
+      SubCommand::Config(_)
+      | SubCommand::ClearCache
+      | SubCommand::OutputResolvedConfig
+      | SubCommand::Version
+      | SubCommand::License
+      | SubCommand::Help(_)
+      | SubCommand::EditorInfo
+      | SubCommand::EditorService(_)
+      | SubCommand::Completions(_)
+      | SubCommand::Upgrade => None,
+      #[cfg(target_os = "windows")]
+      SubCommand::Hidden(_) => None,
+    }
+  }
 }
 
 #[derive(Debug, PartialEq, Eq)]

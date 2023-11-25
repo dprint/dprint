@@ -2050,6 +2050,34 @@ mod test {
   }
 
   #[test]
+  fn should_not_error_nested_config_no_matching_files_in_scope_cli_args() {
+    let file_path1 = "/sub_dir/file.txt";
+    let file_path2 = "/sub_dir/sub_dir/file.txt";
+    let file_path3 = "/sub_dir/more/ignored.txt_ps";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/sub_dir/more/dprint.json", |config| {
+        config.add_remote_process_plugin();
+      })
+      .write_file(&file_path1, "here1")
+      .write_file(&file_path2, "here2")
+      .write_file(&file_path3, "here3")
+      .build();
+    // previously this was erroring in the sub directory
+    run_test_cli(vec!["fmt", "**/*.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "here1_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "here2_formatted");
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "here3");
+
+    // now try with a pattern that doesn't match any file in any scope and it should error
+    let err = run_test_cli(vec!["fmt", "**/*.no_matching"], &environment).unwrap_err();
+    assert_no_files_found(&err, &environment);
+  }
+
+  #[test]
   fn should_error_no_files_sub_dir_config() {
     let file_path1 = "/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
