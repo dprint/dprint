@@ -88,8 +88,9 @@ impl SubCommand {
       | SubCommand::EditorInfo
       | SubCommand::EditorService(_)
       | SubCommand::Completions(_)
-      | SubCommand::Upgrade
-      | SubCommand::Hidden(_) => None,
+      | SubCommand::Upgrade => None,
+      #[cfg(target_os = "windows")]
+      SubCommand::Hidden(_) => None,
     }
   }
 }
