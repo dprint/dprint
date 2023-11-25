@@ -36,6 +36,7 @@ use crate::environment::Environment;
 use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins;
 use crate::paths::FilesPathsByPlugins;
+use crate::paths::NoFilesFoundError;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
@@ -358,27 +359,50 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 }
 
-pub struct PluginsScopeAndPathsCollection<TEnvironment: Environment>(Vec<PluginsScopeAndPaths<TEnvironment>>);
+pub struct PluginsScopeAndPathsCollection<TEnvironment: Environment> {
+  environment: TEnvironment,
+  inner: Vec<PluginsScopeAndPaths<TEnvironment>>,
+}
 
 impl<TEnvironment: Environment> PluginsScopeAndPathsCollection<TEnvironment> {
   pub fn ensure_valid_for_cli_args(&self, cli_args: &CliArgs) -> Result<()> {
-    for scope in &self.0 {
+    for scope in &self.inner {
       scope.scope.ensure_valid_for_cli_args(cli_args)?;
-      if let Some(config) = scope.scope.config.as_ref() {
-        if !cli_args.sub_command.allow_no_files() {
-          scope.file_paths_by_plugins.ensure_not_empty(&config.base_path)?;
+    }
+
+    // ensure we found some files
+    if !cli_args.sub_command.allow_no_files() {
+      let has_cli_file_patterns = cli_args.sub_command.file_patterns().map(|p| !p.file_patterns.is_empty()).unwrap_or(false);
+      // when the user specifies a pattern on the command line, just ensure that one scope matched
+      if has_cli_file_patterns {
+        let all_empty = self.iter().all(|s| s.file_paths_by_plugins.is_empty());
+        if all_empty {
+          return Err(
+            NoFilesFoundError {
+              base_path: self.environment.cwd(),
+            }
+            .into(),
+          );
+        }
+      } else {
+        // if no args specified then ensure all scopes have files
+        for scope in &self.inner {
+          if let Some(config) = scope.scope.config.as_ref() {
+            scope.file_paths_by_plugins.ensure_not_empty(&config.base_path)?;
+          }
         }
       }
     }
+
     Ok(())
   }
 
   pub fn iter(&self) -> impl Iterator<Item = &PluginsScopeAndPaths<TEnvironment>> {
-    self.0.iter()
+    self.inner.iter()
   }
 
   pub fn into_iter(self) -> impl Iterator<Item = PluginsScopeAndPaths<TEnvironment>> {
-    self.0.into_iter()
+    self.inner.into_iter()
   }
 }
 
@@ -424,7 +448,10 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       result.extend(self.resolve_for_sub_config(config_file_path, &config, root_config_path).await?);
     }
 
-    Ok(PluginsScopeAndPathsCollection(result))
+    Ok(PluginsScopeAndPathsCollection {
+      environment: self.environment.clone(),
+      inner: result,
+    })
   }
 
   fn resolve_for_sub_config(

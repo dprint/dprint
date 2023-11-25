@@ -47,11 +47,15 @@ pub struct FilesPathsByPlugins(HashMap<PluginNames, Vec<PathBuf>>);
 
 impl FilesPathsByPlugins {
   pub fn ensure_not_empty(&self, base_path: &CanonicalizedPathBuf) -> Result<(), NoFilesFoundError> {
-    if self.0.is_empty() {
+    if self.is_empty() {
       Err(NoFilesFoundError { base_path: base_path.clone() })
     } else {
       Ok(())
     }
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.0.is_empty()
   }
 
   pub fn into_vec(self) -> Vec<(PluginNames, Vec<PathBuf>)> {
