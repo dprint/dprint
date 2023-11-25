@@ -1062,7 +1062,7 @@ mod test {
       error.to_string(),
       concat!(
         "No files found to format with the specified plugins at /. ",
-        "You may want to try using `dprint output-file-paths` to see which files it's finding."
+        "You may want to try using `dprint output-file-paths` to see which files it's finding or run with `--allow-no-files`."
       )
     );
     error.assert_exit_code(14);
@@ -2061,7 +2061,7 @@ mod test {
     let err = run_test_cli(vec!["fmt"], &environment).err().unwrap();
     assert_eq!(
       err.to_string(),
-      "No files found to format with the specified plugins at /sub_dir. You may want to try using `dprint output-file-paths` to see which files it's finding."
+      "No files found to format with the specified plugins at /sub_dir. You may want to try using `dprint output-file-paths` to see which files it's finding or run with `--allow-no-files`."
     );
     err.assert_exit_code(14);
   }

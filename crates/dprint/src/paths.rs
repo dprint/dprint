@@ -38,7 +38,7 @@ impl PluginNames {
 }
 
 #[derive(Debug, Error)]
-#[error("No files found to format with the specified plugins at {}. You may want to try using `dprint output-file-paths` to see which files it's finding.", .base_path.display())]
+#[error("No files found to format with the specified plugins at {}. You may want to try using `dprint output-file-paths` to see which files it's finding or run with `--allow-no-files`.", .base_path.display())]
 pub struct NoFilesFoundError {
   pub base_path: CanonicalizedPathBuf,
 }
