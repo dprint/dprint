@@ -106,7 +106,17 @@ impl GlobPattern {
       let is_negated = is_negated_glob(&self.relative_pattern);
       let mut pattern = non_negated_glob(&self.relative_pattern);
       let prefix = prefix.to_string_lossy();
-      let mut prefix = prefix.split('/').collect::<VecDeque<_>>();
+      let mut prefix = prefix
+        .split(if cfg!(windows) {
+          if prefix.contains('\\') {
+            '\\'
+          } else {
+            '/'
+          }
+        } else {
+          '/'
+        })
+        .collect::<VecDeque<_>>();
 
       loop {
         let mut found_sub_match = false;
@@ -316,6 +326,14 @@ mod test {
     {
       let pattern = GlobPattern::new("!sub/*/dir/*.ts".to_string(), base_dir.clone());
       let descendant_dir = CanonicalizedPathBuf::new_for_testing("/base/sub/something");
+      let new_pattern = pattern.clone().into_new_base(descendant_dir.clone()).unwrap();
+      assert_eq!(new_pattern.base_dir, descendant_dir);
+      assert_eq!(new_pattern.relative_pattern, "!dir/*.ts");
+    }
+    if cfg!(windows) {
+      let base_dir = CanonicalizedPathBuf::new_for_testing("C:\\base");
+      let pattern = GlobPattern::new("!sub/*/dir/*.ts".to_string(), base_dir.clone());
+      let descendant_dir = CanonicalizedPathBuf::new_for_testing("C:\\base\\sub\\something");
       let new_pattern = pattern.clone().into_new_base(descendant_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, descendant_dir);
       assert_eq!(new_pattern.relative_pattern, "!dir/*.ts");

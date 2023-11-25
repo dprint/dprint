@@ -316,12 +316,13 @@ mod test {
   fn should_filter_by_cwd_in_sub_dir() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
-        c.add_includes("**/*.txt");
+        c.add_includes("**/*.txt").add_excludes("sub/file4.txt");
       })
       .write_file("/file.txt", "const t=4;")
       .write_file("/file2.txt", "const t=4;")
       .write_file("/sub/file3.txt", "const t=4;")
-      .write_file("/sub2/file4.txt", "const t=4;")
+      .write_file("/sub/file4.txt", "const t=4;")
+      .write_file("/sub2/file5.txt", "const t=4;")
       .set_cwd("/sub")
       .build();
     run_test_cli(vec!["output-file-paths"], &environment).unwrap();

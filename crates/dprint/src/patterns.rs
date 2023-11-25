@@ -25,7 +25,7 @@ impl FileMatcher {
       patterns,
       &GlobMatcherOptions {
         case_sensitive: !cfg!(windows),
-        base_dir: cwd,
+        base_dir: config.base_path.clone(),
       },
     )?;
 
