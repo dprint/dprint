@@ -38,7 +38,7 @@ macro_rules! generate_str_to_from {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Copy, Serialize, Deserialize, Hash)]
-pub enum NewLineKind {
+pub enum RawNewLineKind {
   /// Decide which newline kind to use based on the last newline in the file.
   #[serde(rename = "auto")]
   Auto,
@@ -54,12 +54,27 @@ pub enum NewLineKind {
 }
 
 generate_str_to_from![
-  NewLineKind,
+  RawNewLineKind,
   [Auto, "auto"],
   [LineFeed, "lf"],
   [CarriageReturnLineFeed, "crlf"],
   [System, "system"]
 ];
+
+#[derive(Clone, PartialEq, Eq, Debug, Copy, Serialize, Deserialize, Hash)]
+pub enum NewLineKind {
+  /// Decide which newline kind to use based on the last newline in the file.
+  #[serde(rename = "auto")]
+  Auto,
+  /// Use slash n new lines.
+  #[serde(rename = "lf")]
+  LineFeed,
+  /// Use slash r slash n new lines.
+  #[serde(rename = "crlf")]
+  CarriageReturnLineFeed,
+}
+
+generate_str_to_from![NewLineKind, [Auto, "auto"], [LineFeed, "lf"], [CarriageReturnLineFeed, "crlf"]];
 
 /// Represents a problem within the configuration.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -291,11 +306,24 @@ where
 pub fn resolve_global_config(config: &mut ConfigKeyMap) -> ResolveConfigurationResult<GlobalConfiguration> {
   let mut diagnostics = Vec::new();
 
+  let raw_new_line_kind = get_nullable_value::<RawNewLineKind>(config, "newLineKind", &mut diagnostics);
+
   let resolved_config = GlobalConfiguration {
     line_width: get_nullable_value(config, "lineWidth", &mut diagnostics),
     use_tabs: get_nullable_value(config, "useTabs", &mut diagnostics),
     indent_width: get_nullable_value(config, "indentWidth", &mut diagnostics),
-    new_line_kind: get_nullable_value(config, "newLineKind", &mut diagnostics),
+    new_line_kind: raw_new_line_kind.map(|kind| match kind {
+      RawNewLineKind::Auto => NewLineKind::Auto,
+      RawNewLineKind::LineFeed => NewLineKind::LineFeed,
+      RawNewLineKind::CarriageReturnLineFeed => NewLineKind::CarriageReturnLineFeed,
+      RawNewLineKind::System => {
+        if cfg!(windows) {
+          NewLineKind::CarriageReturnLineFeed
+        } else {
+          NewLineKind::LineFeed
+        }
+      }
+    }),
   };
 
   ResolveConfigurationResult {
@@ -383,13 +411,6 @@ pub fn resolve_new_line_kind(file_text: &str, new_line_kind: NewLineKind) -> &'s
       }
 
       "\n"
-    }
-    NewLineKind::System => {
-      if cfg!(windows) {
-        "\r\n"
-      } else {
-        "\n"
-      }
     }
   }
 }
