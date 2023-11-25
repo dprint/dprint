@@ -7,6 +7,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DirEntry;
 use crate::environment::Environment;
 
@@ -20,32 +21,41 @@ pub struct GlobOutput {
   pub config_files: Vec<PathBuf>,
 }
 
-pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: GlobPatterns) -> Result<GlobOutput> {
-  if file_patterns.includes.is_some() && file_patterns.includes.as_ref().unwrap().iter().all(|p| p.is_negated()) {
+pub struct GlobOptions {
+  /// The directory to start searching from.
+  pub start_dir: PathBuf,
+  /// The file patterns to use for globbing.
+  pub file_patterns: GlobPatterns,
+  /// The directory to use as the base for the patterns.
+  /// Generally you want this to be the directory of the config file.
+  pub pattern_base: CanonicalizedPathBuf,
+}
+
+pub fn glob(environment: &impl Environment, opts: GlobOptions) -> Result<GlobOutput> {
+  if opts.file_patterns.includes.is_some() && opts.file_patterns.includes.as_ref().unwrap().iter().all(|p| p.is_negated()) {
     // performance improvement (see issue #379)
-    log_debug!(environment, "Skipping negated globs: {:?}", file_patterns.includes);
+    log_debug!(environment, "Skipping negated globs: {:?}", opts.file_patterns.includes);
     return Ok(Default::default());
   }
 
   let start_instant = std::time::Instant::now();
-  log_debug!(environment, "Globbing: {:?}", file_patterns);
+  log_debug!(environment, "Globbing: {:?}", opts.file_patterns);
 
   let glob_matcher = GlobMatcher::new(
-    file_patterns,
+    opts.file_patterns,
     &GlobMatcherOptions {
       // make it work the same way on every operating system
       case_sensitive: false,
-      base_dir: environment.cwd(),
+      base_dir: opts.pattern_base,
     },
   )?;
 
-  let start_dir = base.as_ref().to_path_buf();
-  let shared_state = Arc::new(SharedState::new(start_dir.clone()));
+  let shared_state = Arc::new(SharedState::new(opts.start_dir.clone()));
 
   // This is a performance improvement to attempt to reduce the time of globbing down
   // to the speed of `fs::read_dir` calls. Essentially, run all the `fs::read_dir` calls
   // on a new thread and do the glob matching on the other thread.
-  let read_dir_runner = ReadDirRunner::new(start_dir, environment.clone(), shared_state.clone());
+  let read_dir_runner = ReadDirRunner::new(opts.start_dir, environment.clone(), shared_state.clone());
   dprint_core::async_runtime::spawn_blocking(move || read_dir_runner.run());
 
   // run the glob matching on the current thread (the two threads will communicate with each other)
@@ -345,10 +355,13 @@ mod test {
     let root_dir = environment.canonicalize("/").unwrap();
     let result = glob(
       &environment,
-      "/",
-      GlobPatterns {
-        includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
-        excludes: vec![GlobPattern::new("**/ignore".to_string(), root_dir)],
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        file_patterns: GlobPatterns {
+          includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
+          excludes: vec![GlobPattern::new("**/ignore".to_string(), root_dir)],
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
     )
     .unwrap();
@@ -365,10 +378,13 @@ mod test {
     let root_dir = environment.canonicalize("/").unwrap();
     let err_message = glob(
       &environment,
-      "/",
-      GlobPatterns {
-        includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
-        excludes: Vec::new(),
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        file_patterns: GlobPatterns {
+          includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
+          excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
     )
     .err()
@@ -383,10 +399,13 @@ mod test {
     let root_dir = environment.canonicalize("/").unwrap();
     let result = glob(
       &environment,
-      "/",
-      GlobPatterns {
-        includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
-        excludes: Vec::new(),
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        file_patterns: GlobPatterns {
+          includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
+          excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
     );
     assert!(result.is_ok());
@@ -403,13 +422,16 @@ mod test {
     let root_dir = environment.canonicalize("/").unwrap();
     let result = glob(
       &environment,
-      "/",
-      GlobPatterns {
-        includes: Some(vec![
-          GlobPattern::new("!**/*.*".to_string(), root_dir.clone()),
-          GlobPattern::new("**/a.txt".to_string(), root_dir),
-        ]),
-        excludes: Vec::new(),
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        file_patterns: GlobPatterns {
+          includes: Some(vec![
+            GlobPattern::new("!**/*.*".to_string(), root_dir.clone()),
+            GlobPattern::new("**/a.txt".to_string(), root_dir),
+          ]),
+          excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
     )
     .unwrap();
@@ -428,14 +450,17 @@ mod test {
     let root_dir = environment.canonicalize("/").unwrap();
     let result = glob(
       &environment,
-      "/",
-      GlobPatterns {
-        includes: Some(vec![
-          GlobPattern::new("**/*.json".to_string(), root_dir.clone()),
-          GlobPattern::new("!**/*.json".to_string(), root_dir.clone()),
-          GlobPattern::new("**/a.json".to_string(), root_dir),
-        ]),
-        excludes: Vec::new(),
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        file_patterns: GlobPatterns {
+          includes: Some(vec![
+            GlobPattern::new("**/*.json".to_string(), root_dir.clone()),
+            GlobPattern::new("!**/*.json".to_string(), root_dir.clone()),
+            GlobPattern::new("**/a.json".to_string(), root_dir),
+          ]),
+          excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
     )
     .unwrap();
@@ -455,14 +480,17 @@ mod test {
     let test_dir = environment.canonicalize("/test/").unwrap();
     let result = glob(
       &environment,
-      "/test/",
-      GlobPatterns {
-        includes: Some(vec![
-          GlobPattern::new("**/*.json".to_string(), test_dir.clone()),
-          GlobPattern::new("!a/**/*.json".to_string(), test_dir.clone()),
-          GlobPattern::new("a/b/**/*.json".to_string(), test_dir),
-        ]),
-        excludes: Vec::new(),
+      GlobOptions {
+        start_dir: PathBuf::from("/test/"),
+        file_patterns: GlobPatterns {
+          includes: Some(vec![
+            GlobPattern::new("**/*.json".to_string(), test_dir.clone()),
+            GlobPattern::new("!a/**/*.json".to_string(), test_dir.clone()),
+            GlobPattern::new("a/b/**/*.json".to_string(), test_dir),
+          ]),
+          excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/test/"),
       },
     )
     .unwrap();
@@ -481,14 +509,17 @@ mod test {
     let root_dir = environment.canonicalize("/").unwrap();
     let result = glob(
       &environment,
-      "/",
-      GlobPatterns {
-        includes: Some(vec![
-          GlobPattern::new("**/*.*".to_string(), root_dir.clone()),
-          GlobPattern::new("!dir/a/**/*".to_string(), root_dir.clone()),
-          GlobPattern::new("dir/b/b/**/*".to_string(), root_dir),
-        ]),
-        excludes: Vec::new(),
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        file_patterns: GlobPatterns {
+          includes: Some(vec![
+            GlobPattern::new("**/*.*".to_string(), root_dir.clone()),
+            GlobPattern::new("!dir/a/**/*".to_string(), root_dir.clone()),
+            GlobPattern::new("dir/b/b/**/*".to_string(), root_dir),
+          ]),
+          excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
     )
     .unwrap();

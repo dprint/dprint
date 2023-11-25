@@ -15,6 +15,7 @@ use crate::plugins::PluginNameResolutionMaps;
 use crate::resolution::PluginWithConfig;
 use crate::utils::glob;
 use crate::utils::is_negated_glob;
+use crate::utils::GlobOptions;
 use crate::utils::GlobOutput;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
@@ -97,14 +98,25 @@ pub async fn get_and_resolve_file_paths<'a>(
 
 async fn get_and_resolve_file_patterns<'a>(config: &ResolvedConfig, file_patterns: GlobPatterns, environment: &impl Environment) -> Result<GlobOutput> {
   let cwd = environment.cwd();
-  let is_in_sub_dir = cwd != config.base_path && cwd.starts_with(&config.base_path);
-  let base_dir = if is_in_sub_dir { cwd } else { config.base_path.clone() };
+  let is_cwd_in_base = cwd.starts_with(&config.base_path);
+  let is_in_sub_dir = cwd != config.base_path && is_cwd_in_base;
+  let start_dir = if is_in_sub_dir { cwd } else { config.base_path.clone() };
   let environment = environment.clone();
+  let pattern_base = config.base_path.clone();
 
   // This is intensive so do it in a blocking task
-  dprint_core::async_runtime::spawn_blocking(move || glob(&environment, &base_dir, file_patterns))
-    .await
-    .unwrap()
+  dprint_core::async_runtime::spawn_blocking(move || {
+    glob(
+      &environment,
+      GlobOptions {
+        start_dir: start_dir.into_path_buf(),
+        file_patterns,
+        pattern_base,
+      },
+    )
+  })
+  .await
+  .unwrap()
 }
 
 fn get_plugin_patterns<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>) -> Vec<String> {
