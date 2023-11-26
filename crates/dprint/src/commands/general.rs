@@ -107,7 +107,7 @@ pub fn completions<TEnvironment: Environment>(shell: clap_complete::Shell, envir
 
   let mut buffer = Vec::new();
   clap_complete::generate(shell, &mut cmd, "dprint", &mut buffer);
-  environment.log_machine_readable(&String::from_utf8_lossy(&buffer));
+  environment.log_machine_readable(&buffer);
 
   Ok(())
 }

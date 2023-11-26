@@ -97,7 +97,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   /// Ex. Will log the dprint process plugin name.
   fn log_stderr_with_context(&self, text: &str, context_name: &str);
   /// Information to force output when the environment is in "machine readable mode".
-  fn log_machine_readable(&self, text: &str);
+  fn log_machine_readable(&self, bytes: &[u8]);
   fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
     &self,
     message: &str,

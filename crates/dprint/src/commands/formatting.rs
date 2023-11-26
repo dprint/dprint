@@ -26,7 +26,7 @@ use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::resolution::PluginsScope;
 use crate::utils::get_difference;
 use crate::utils::AtomicCounter;
-use crate::utils::BOM_CHAR;
+use crate::utils::BOM_BYTES;
 
 pub async fn stdin_fmt<TEnvironment: Environment>(
   cmd: &StdInFmtSubCommand,
@@ -46,23 +46,23 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
     let resolved_file_path = environment.canonicalize(&cmd.file_name_or_path)?;
     // log the file text as-is since it's not in the list of files to format
     if !file_matcher.matches(resolved_file_path) {
-      environment.log_machine_readable(&cmd.file_text);
+      environment.log_machine_readable(&cmd.file_bytes);
       return Ok(());
     }
   }
-  output_stdin_format(PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, plugins_scope, environment).await
+  output_stdin_format(PathBuf::from(&cmd.file_name_or_path), &cmd.file_bytes, plugins_scope, environment).await
 }
 
 async fn output_stdin_format<TEnvironment: Environment>(
-  file_name: PathBuf,
-  file_text: &str,
+  file_path: PathBuf,
+  file_bytes: &[u8],
   plugins_scope: Rc<PluginsScope<TEnvironment>>,
   environment: &TEnvironment,
 ) -> Result<()> {
   let result = plugins_scope
     .format(HostFormatRequest {
-      file_path: file_name,
-      file_text: file_text.to_string(),
+      file_path,
+      file_bytes: file_bytes.to_vec(),
       range: None,
       override_config: Default::default(),
       token: Arc::new(NullCancellationToken),
@@ -70,7 +70,7 @@ async fn output_stdin_format<TEnvironment: Environment>(
     .await?;
   match result {
     Some(text) => environment.log_machine_readable(&text),
-    None => environment.log_machine_readable(file_text),
+    None => environment.log_machine_readable(file_bytes),
   }
   Ok(())
 }
@@ -140,13 +140,13 @@ pub async fn check<TEnvironment: Environment>(
     run_parallelized(scope_and_paths, environment, incremental_file.clone(), EnsureStableFormat(false), {
       let not_formatted_files_count = not_formatted_files_count.clone();
       let incremental_file = incremental_file.clone();
-      move |file_path, file_text, formatted_text, _, environment| {
-        if formatted_text != file_text.as_str() {
+      move |file_path, file_bytes, formatted_bytes, _, environment| {
+        if formatted_bytes != file_bytes.as_ref() {
           not_formatted_files_count.inc();
           if list_different {
             log_stdout_info!(environment, "{}", file_path.display());
           } else {
-            output_difference(&file_path, file_text.as_str(), &formatted_text, &environment);
+            output_difference(&file_path, file_bytes.as_ref(), &formatted_bytes, &environment);
           }
         } else {
           // update the incremental cache when the file is already formatted correctly
@@ -154,7 +154,7 @@ pub async fn check<TEnvironment: Environment>(
           // correctly formatted file because it hasn't undergone a stable
           // formatting check
           if let Some(incremental_file) = &incremental_file {
-            incremental_file.update_file(&formatted_text);
+            incremental_file.update_file(&formatted_bytes);
           }
         }
         Ok(())
@@ -180,8 +180,32 @@ pub async fn check<TEnvironment: Environment>(
   }
 }
 
-fn output_difference(file_path: &Path, file_text: &str, formatted_text: &str, environment: &impl Environment) {
-  let difference_text = get_difference(file_text, formatted_text);
+fn output_difference(file_path: &Path, file_bytes: &[u8], formatted_bytes: &[u8], environment: &impl Environment) {
+  let file_text = match String::from_utf8(file_bytes.to_vec()) {
+    Ok(text) => text,
+    Err(err) => {
+      log_warn!(
+        environment,
+        "Failed outputting difference for {}. Could not get original text as utf-8. {:#}",
+        file_path.display(),
+        err
+      );
+      return;
+    }
+  };
+  let formatted_text = match String::from_utf8(formatted_bytes.to_vec()) {
+    Ok(text) => text,
+    Err(err) => {
+      log_warn!(
+        environment,
+        "Failed outputting difference for {}. Coult not get formatted text as utf-8. {:#}",
+        file_path.display(),
+        err
+      );
+      return;
+    }
+  };
+  let difference_text = get_difference(&file_text, &formatted_text);
   log_stdout_info!(environment, "{} {}:\n{}\n--", "from".bold().red(), file_path.display(), difference_text);
 }
 
@@ -212,25 +236,28 @@ pub async fn format<TEnvironment: Environment>(
       {
         let formatted_files_count = formatted_files_count.clone();
         let incremental_file = incremental_file.clone();
-        move |file_path, file_text, formatted_text, _, environment| {
+        move |file_path, file_bytes, formatted_bytes, _, environment| {
           if let Some(incremental_file) = &incremental_file {
-            incremental_file.update_file(&formatted_text);
+            incremental_file.update_file(&formatted_bytes);
           }
 
-          if formatted_text != file_text.as_str() {
+          if formatted_bytes != file_bytes.as_ref() {
             if output_diff {
-              output_difference(&file_path, file_text.as_str(), &formatted_text, &environment);
+              output_difference(&file_path, file_bytes.as_ref(), &formatted_bytes, &environment);
             }
 
-            let new_text = if file_text.has_bom() {
+            let new_text = if file_bytes.has_bom() {
               // add back the BOM
-              format!("{}{}", BOM_CHAR, formatted_text)
+              let mut new_bytes = Vec::with_capacity(file_bytes.as_ref().len() + BOM_BYTES.len());
+              new_bytes.extend_from_slice(BOM_BYTES);
+              new_bytes.extend(formatted_bytes);
+              new_bytes
             } else {
-              formatted_text
+              formatted_bytes
             };
 
             formatted_files_count.inc();
-            environment.write_file(file_path, &new_text)?;
+            environment.write_file_bytes(file_path, &new_text)?;
           }
 
           Ok(())

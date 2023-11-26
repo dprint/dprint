@@ -56,7 +56,7 @@ pub type HostFormatCallback = Rc<dyn Fn(HostFormatRequest) -> LocalBoxFuture<'st
 
 pub struct ProcessPluginCommunicatorFormatRequest {
   pub file_path: PathBuf,
-  pub file_text: String,
+  pub file_bytes: Vec<u8>,
   pub range: FormatRange,
   pub config_id: FormatConfigId,
   pub override_config: ConfigKeyMap,
@@ -297,7 +297,7 @@ impl ProcessPluginCommunicator {
         message_id,
         MessageBody::Format(FormatMessageBody {
           file_path: request.file_path,
-          file_text: request.file_text.into_bytes(),
+          file_bytes: request.file_bytes,
           range: request.range,
           config_id: request.config_id,
           override_config: serde_json::to_vec(&request.override_config).unwrap(),
@@ -314,9 +314,7 @@ impl ProcessPluginCommunicator {
       Ok(None)
     } else {
       match maybe_result {
-        Ok(Ok(Some(bytes))) => Ok(Some(String::from_utf8(bytes)?)),
-        Ok(Ok(None)) => Ok(None),
-        Ok(Err(err)) => Err(err),
+        Ok(result) => result,
         Err(err) => Err(CriticalFormatError(err).into()),
       }
     }
@@ -505,7 +503,7 @@ fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -
           body: match result {
             Ok(result) => MessageBody::FormatResponse(ResponseBody {
               message_id: message.id,
-              data: result.map(|r| r.into_bytes()),
+              data: result,
             }),
             Err(err) => MessageBody::Error(ResponseBody {
               message_id: message.id,
@@ -551,8 +549,6 @@ fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -
 }
 
 async fn host_format(context: Rc<Context>, message_id: u32, body: HostFormatMessageBody) -> FormatResult {
-  let file_text = String::from_utf8(body.file_text)?; // surface error before storing token
-
   let Some(callback) = context.host_format_callbacks.get_cloned(body.original_message_id) else {
     return FormatResult::Err(anyhow!("Could not find host format callback for message id: {}", body.original_message_id));
   };
@@ -561,7 +557,7 @@ async fn host_format(context: Rc<Context>, message_id: u32, body: HostFormatMess
   let store_guard = context.format_request_tokens.store_with_guard(message_id, token.clone());
   let result = callback(HostFormatRequest {
     file_path: body.file_path,
-    file_text,
+    file_bytes: body.file_text,
     range: body.range,
     override_config: serde_json::from_slice(&body.override_config).unwrap(),
     token,

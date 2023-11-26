@@ -240,8 +240,8 @@ impl Environment for RealEnvironment {
     self.logger.log(text, "dprint");
   }
 
-  fn log_machine_readable(&self, text: &str) {
-    self.logger.log_machine_readable(text);
+  fn log_machine_readable(&self, bytes: &[u8]) {
+    self.logger.log_machine_readable(bytes);
   }
 
   fn log_stderr_with_context(&self, text: &str, context_name: &str) {

@@ -83,7 +83,7 @@ pub struct ImportObjectEnvironment {
   memory: Option<Memory>,
   override_config: Option<ConfigKeyMap>,
   file_path: Option<PathBuf>,
-  formatted_text_store: String,
+  formatted_text_store: Vec<u8>,
   shared_bytes: Mutex<SharedBytes>,
   error_text_store: String,
   host_format_sender: WasmHostFormatSender,
@@ -96,8 +96,8 @@ impl ImportObjectEnvironment {
       override_config: None,
       file_path: None,
       shared_bytes: Mutex::new(SharedBytes::default()),
-      formatted_text_store: String::new(),
-      error_text_store: String::new(),
+      formatted_text_store: Default::default(),
+      error_text_store: Default::default(),
       host_format_sender,
     }
   }
@@ -171,11 +171,10 @@ fn host_format(mut env: FunctionEnvMut<ImportObjectEnvironment>) -> u32 {
   let env = env.data_mut();
   let override_config = env.override_config.take().unwrap_or_default();
   let file_path = env.file_path.take().expect("Expected to have file path.");
-  let bytes = env.take_shared_bytes();
-  let file_text = String::from_utf8(bytes).unwrap();
+  let file_bytes = env.take_shared_bytes();
   let request = HostFormatRequest {
     file_path,
-    file_text,
+    file_bytes,
     range: None,
     override_config,
     // Wasm plugins currently don't support cancellation
@@ -213,9 +212,9 @@ fn host_format(mut env: FunctionEnvMut<ImportObjectEnvironment>) -> u32 {
 
 fn host_get_formatted_text(mut env: FunctionEnvMut<ImportObjectEnvironment>) -> u32 {
   let env = env.data_mut();
-  let formatted_text = std::mem::take(&mut env.formatted_text_store);
-  let len = formatted_text.len();
-  *env.shared_bytes.lock() = SharedBytes::from_bytes(formatted_text.into_bytes());
+  let formatted_bytes = std::mem::take(&mut env.formatted_text_store);
+  let len = formatted_bytes.len();
+  *env.shared_bytes.lock() = SharedBytes::from_bytes(formatted_bytes);
   len as u32
 }
 

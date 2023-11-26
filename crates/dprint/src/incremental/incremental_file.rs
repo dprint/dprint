@@ -53,8 +53,8 @@ impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
   }
 
   /// If the file text is known to be formatted.
-  pub fn is_file_known_formatted(&self, file_text: &str) -> bool {
-    let hash = get_bytes_hash(file_text.as_bytes());
+  pub fn is_file_known_formatted(&self, file_text: &[u8]) -> bool {
+    let hash = get_bytes_hash(file_text);
     if self.read_data.file_hashes.contains(&hash) {
       // the file is the same, so save it in the write data
       self.add_to_write_data(hash);
@@ -64,8 +64,8 @@ impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
     }
   }
 
-  pub fn update_file(&self, file_text: &str) {
-    let hash = get_bytes_hash(file_text.as_bytes());
+  pub fn update_file(&self, file_text: &[u8]) {
+    let hash = get_bytes_hash(file_text);
     self.add_to_write_data(hash)
   }
 
