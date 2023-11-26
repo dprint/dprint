@@ -34,9 +34,9 @@ pub mod macros {
 
       fn format_with_host(
         file_path: &std::path::Path,
-        file_text: String,
+        file_bytes: Vec<u8>,
         override_config: &dprint_core::configuration::ConfigKeyMap,
-      ) -> anyhow::Result<Option<String>> {
+      ) -> anyhow::Result<Option<Vec<u8>>> {
         #[link(wasm_import_module = "dprint")]
         extern "C" {
           fn host_clear_bytes(length: u32);
@@ -60,7 +60,7 @@ pub mod macros {
         unsafe {
           host_take_file_path();
         }
-        send_string_to_host(file_text);
+        send_bytes_to_host(file_bytes);
 
         return match unsafe { host_format() } {
           0 => {
@@ -70,7 +70,7 @@ pub mod macros {
           1 => {
             // change
             let length = unsafe { host_get_formatted_text() };
-            let formatted_text = get_string_from_host(length);
+            let formatted_text = get_bytes_from_host(length);
             Ok(Some(formatted_text))
           }
           2 => {
@@ -83,8 +83,12 @@ pub mod macros {
         };
 
         fn send_string_to_host(text: String) {
+          send_bytes_to_host(text.into_bytes())
+        }
+
+        fn send_bytes_to_host(bytes: Vec<u8>) {
           let mut index = 0;
-          let length = set_shared_bytes_str(text);
+          let length = set_shared_bytes(bytes);
           unsafe {
             host_clear_bytes(length as u32);
           }
@@ -99,6 +103,10 @@ pub mod macros {
         }
 
         fn get_string_from_host(length: u32) -> String {
+          String::from_utf8(get_bytes_from_host(length)).unwrap()
+        }
+
+        fn get_bytes_from_host(length: u32) -> Vec<u8> {
           let mut index: u32 = 0;
           clear_shared_bytes(length as usize);
           while index < length {
@@ -109,7 +117,7 @@ pub mod macros {
             add_to_shared_bytes_from_buffer(read_count as usize);
             index += read_count;
           }
-          take_string_from_shared_bytes()
+          take_from_shared_bytes()
         }
       }
 
@@ -117,7 +125,7 @@ pub mod macros {
 
       static OVERRIDE_CONFIG: StaticCell<Option<dprint_core::configuration::ConfigKeyMap>> = StaticCell::new(None);
       static FILE_PATH: StaticCell<Option<std::path::PathBuf>> = StaticCell::new(None);
-      static FORMATTED_TEXT: StaticCell<Option<String>> = StaticCell::new(None);
+      static FORMATTED_TEXT: StaticCell<Option<Vec<u8>>> = StaticCell::new(None);
       static ERROR_TEXT: StaticCell<Option<String>> = StaticCell::new(None);
 
       #[no_mangle]
@@ -145,9 +153,9 @@ pub mod macros {
           }
         };
         let file_path = unsafe { FILE_PATH.get().take().expect("Expected the file path to be set.") };
-        let file_text = take_string_from_shared_bytes();
+        let file_bytes = take_from_shared_bytes();
 
-        let formatted_text = unsafe { WASM_PLUGIN.get().format(&file_path, &file_text, &config, format_with_host) };
+        let formatted_text = unsafe { WASM_PLUGIN.get().format(&file_path, file_bytes, &config, format_with_host) };
         match formatted_text {
           Ok(None) => {
             0 // no change
@@ -166,7 +174,7 @@ pub mod macros {
       #[no_mangle]
       pub fn get_formatted_text() -> usize {
         let formatted_text = unsafe { FORMATTED_TEXT.get().take().expect("Expected to have formatted text.") };
-        set_shared_bytes_str(formatted_text)
+        set_shared_bytes(formatted_text)
       }
 
       #[no_mangle]

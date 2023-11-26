@@ -133,10 +133,12 @@ impl Logger {
     self.inner_log(&mut state, true, text, context_name);
   }
 
-  pub fn log_machine_readable(&self, text: &str) {
+  pub fn log_machine_readable(&self, text_bytes: &[u8]) {
     let mut state = self.output_lock.lock();
-    let last_context_name = state.last_context_name.clone(); // not really used here
-    self.inner_log(&mut state, true, text, &last_context_name);
+    // This should clear stderr before outputting stdout,
+    // but it's never used in a situation where it matters
+    // so for simplicitly that hasn't been implemented here
+    state.std_out.write_all(text_bytes).unwrap();
   }
 
   /// Don't ever call this directly. It's only used by the macro, which
@@ -158,7 +160,6 @@ impl Logger {
 
   fn inner_log(&self, state: &mut LoggerState, is_std_out: bool, text: &str, context_name: &str) {
     let mut stderr_text = String::new();
-    let mut stdout_text = String::new();
 
     // only get the terminal size if there are refresh items
     let terminal_size = if state.refresh_items.is_empty() {
@@ -189,21 +190,28 @@ impl Logger {
     }
 
     if is_std_out {
-      stdout_text.push_str(&output_text);
+      if !output_text.is_empty() {
+        // render the stderr clear first
+        if !stderr_text.is_empty() {
+          write!(state.std_err, "{}", stderr_text).unwrap();
+          state.std_err.flush().unwrap();
+          stderr_text.clear();
+        }
+        // now output stdout
+        write!(state.std_out, "{}", output_text).unwrap();
+        state.std_out.flush().unwrap();
+      }
     } else {
       stderr_text.push_str(&output_text);
     }
 
+    // finally render stderr
     if let Some(terminal_size) = terminal_size {
       if let Some(text) = self.render_draw_items(state, terminal_size) {
         stderr_text.push_str(&text);
       }
     }
 
-    if !stdout_text.is_empty() {
-      write!(state.std_out, "{}", stdout_text).unwrap();
-      state.std_out.flush().unwrap();
-    }
     if !stderr_text.is_empty() {
       write!(state.std_err, "{}", stderr_text).unwrap();
       state.std_err.flush().unwrap();

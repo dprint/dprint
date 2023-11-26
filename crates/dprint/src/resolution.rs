@@ -139,7 +139,7 @@ impl PluginWithConfig {
 
 pub struct InitializedPluginWithConfigFormatRequest {
   pub file_path: PathBuf,
-  pub file_text: String,
+  pub file_bytes: Vec<u8>,
   pub range: FormatRange,
   pub override_config: ConfigKeyMap,
   pub on_host_format: HostFormatCallback,
@@ -185,7 +185,7 @@ impl InitializedPluginWithConfig {
       .instance
       .format_text(InitializedPluginFormatRequest {
         file_path: request.file_path,
-        file_text: request.file_text,
+        file_text: request.file_bytes,
         range: request.range,
         config: self.plugin.format_config.clone(),
         override_config: request.override_config,
@@ -321,13 +321,13 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       self.environment,
       "Host formatting {} - File length: {} - Plugins: [{}] - Range: {:?}",
       request.file_path.display(),
-      request.file_text.len(),
+      request.file_bytes.len(),
       plugin_names.join(", "),
       request.range,
     );
     let scope = self.clone();
     async move {
-      let mut file_text = request.file_text;
+      let mut file_text = request.file_bytes;
       let mut had_change = false;
       for plugin_name in plugin_names {
         let plugin = scope.get_plugin(&plugin_name);
@@ -336,7 +336,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
             let result = initialized_plugin
               .format_text(InitializedPluginWithConfigFormatRequest {
                 file_path: request.file_path.clone(),
-                file_text: file_text.clone(),
+                file_bytes: file_text.clone(),
                 range: request.range.clone(),
                 override_config: request.override_config.clone(),
                 on_host_format: scope.create_host_format_callback(),

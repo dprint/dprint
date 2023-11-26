@@ -75,7 +75,7 @@ impl std::error::Error for CriticalFormatError {
 #[cfg(feature = "process")]
 pub struct HostFormatRequest {
   pub file_path: PathBuf,
-  pub file_text: String,
+  pub file_bytes: Vec<u8>,
   /// Range to format.
   pub range: FormatRange,
   pub override_config: ConfigKeyMap,
@@ -85,7 +85,7 @@ pub struct HostFormatRequest {
 /// `Ok(Some(text))` - Changes due to the format.
 /// `Ok(None)` - No changes.
 /// `Err(err)` - Error formatting. Use a `CriticalError` to signal that the plugin can't recover.
-pub type FormatResult = Result<Option<String>>;
+pub type FormatResult = Result<Option<Vec<u8>>>;
 
 /// A unique configuration id used for formatting.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -113,7 +113,7 @@ impl FormatConfigId {
 
 pub struct FormatRequest<TConfiguration> {
   pub file_path: PathBuf,
-  pub file_text: String,
+  pub file_bytes: Vec<u8>,
   pub config_id: FormatConfigId,
   pub config: Arc<TConfiguration>,
   /// Range to format.
@@ -226,8 +226,8 @@ pub trait SyncPluginHandler<TConfiguration: Clone + serde::Serialize> {
   fn format(
     &mut self,
     file_path: &std::path::Path,
-    file_text: &str,
+    file_bytes: Vec<u8>,
     config: &TConfiguration,
-    format_with_host: impl FnMut(&std::path::Path, String, &ConfigKeyMap) -> FormatResult,
+    format_with_host: impl FnMut(&std::path::Path, Vec<u8>, &ConfigKeyMap) -> FormatResult,
   ) -> FormatResult;
 }

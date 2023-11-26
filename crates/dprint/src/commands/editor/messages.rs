@@ -54,7 +54,7 @@ impl EditorMessage {
               end: end_byte_index as usize,
             })
           },
-          file_text,
+          file_bytes: file_text,
           override_config,
         })
       }
@@ -109,9 +109,9 @@ impl Message for EditorMessage {
         let path = body.file_path.to_string_lossy().to_string();
         builder.add_owned_bytes(path.into_bytes());
         builder.add_number(body.range.as_ref().map(|r| r.start as u32).unwrap_or(0));
-        builder.add_number(body.range.as_ref().map(|r| r.end as u32).unwrap_or_else(|| body.file_text.len() as u32));
+        builder.add_number(body.range.as_ref().map(|r| r.end as u32).unwrap_or_else(|| body.file_bytes.len() as u32));
         builder.add_bytes(&body.override_config);
-        builder.add_bytes(&body.file_text);
+        builder.add_bytes(&body.file_bytes);
       }
       EditorMessageBody::FormatResponse(message_id, data) => {
         builder.add_number(*message_id);
@@ -232,5 +232,5 @@ pub struct FormatEditorMessageBody {
   pub file_path: PathBuf,
   pub range: FormatRange,
   pub override_config: Vec<u8>,
-  pub file_text: Vec<u8>,
+  pub file_bytes: Vec<u8>,
 }

@@ -41,7 +41,7 @@ pub async fn run_parallelized<F, TEnvironment: Environment>(
   f: F,
 ) -> Result<()>
 where
-  F: Fn(PathBuf, FileText, String, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
+  F: Fn(PathBuf, FileText, Vec<u8>, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
 {
   if let Some(config) = &scope_and_paths.scope.config {
     log_debug!(environment, "Running for config: {}", config.resolved_path.file_path.display());
@@ -189,14 +189,14 @@ where
     f: F,
   ) -> Result<()>
   where
-    F: Fn(PathBuf, FileText, String, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
+    F: Fn(PathBuf, FileText, Vec<u8>, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
   {
     // it's a big perf improvement to do this work on a blocking thread
     let result = dprint_core::async_runtime::spawn_blocking(move || {
-      let file_text = FileText::new(environment.read_file(&file_path)?);
+      let file_text = FileText::new(environment.read_file_bytes(&file_path)?);
 
       if let Some(incremental_file) = &incremental_file {
-        if incremental_file.is_file_known_formatted(file_text.as_str()) {
+        if incremental_file.is_file_known_formatted(file_text.as_ref()) {
           log_debug!(environment, "No change: {}", file_path.display());
           return Ok::<_, anyhow::Error>(None);
         }
@@ -211,9 +211,9 @@ where
     };
 
     let (start_instant, formatted_text) =
-      run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), file_text.as_str()).await?;
+      run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), file_text.as_ref()).await?;
 
-    let formatted_text = if ensure_stable_format.0 && formatted_text != file_text.as_str() {
+    let formatted_text = if ensure_stable_format.0 && formatted_text != file_text.as_ref() {
       get_stabilized_format_text(environment.clone(), scope, plugins, file_path.clone(), formatted_text).await?
     } else {
       formatted_text
@@ -229,8 +229,8 @@ where
     scope: Rc<PluginsScope<TEnvironment>>,
     plugins: Rc<Vec<InitializedPluginWithConfig>>,
     file_path: PathBuf,
-    mut formatted_text: String,
-  ) -> Result<String> {
+    mut formatted_text: Vec<u8>,
+  ) -> Result<Vec<u8>> {
     log_debug!(environment, "Ensuring stable format: {}", file_path.display());
     let mut count = 0;
     loop {
@@ -272,8 +272,8 @@ where
     scope: Rc<PluginsScope<TEnvironment>>,
     plugins: Rc<Vec<InitializedPluginWithConfig>>,
     file_path: PathBuf,
-    file_text: &str,
-  ) -> Result<(Instant, String)> {
+    file_text: &[u8],
+  ) -> Result<(Instant, Vec<u8>)> {
     let start_instant = Instant::now();
     let mut file_text = Cow::Borrowed(file_text);
     let plugins_len = plugins.len();
@@ -282,7 +282,7 @@ where
       let format_text_result = plugin
         .format_text(InitializedPluginWithConfigFormatRequest {
           file_path: file_path.to_path_buf(),
-          file_text: file_text.to_string(),
+          file_bytes: file_text.to_vec(),
           range: None,
           override_config: ConfigKeyMap::new(),
           on_host_format: scope.create_host_format_callback(),

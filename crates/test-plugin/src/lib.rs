@@ -72,22 +72,23 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
   fn format(
     &mut self,
     _: &Path,
-    file_text: &str,
+    file_bytes: Vec<u8>,
     config: &Configuration,
-    mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> FormatResult,
+    mut format_with_host: impl FnMut(&Path, Vec<u8>, &ConfigKeyMap) -> FormatResult,
   ) -> FormatResult {
     fn handle_host_response(result: FormatResult, original_text: &str) -> Result<String> {
       match result {
-        Ok(Some(text)) => Ok(text),
+        Ok(Some(text)) => Ok(String::from_utf8(text).unwrap()),
         Ok(None) => Ok(original_text.to_string()),
         Err(err) => Err(err),
       }
     }
 
+    let file_text = String::from_utf8(file_bytes).unwrap();
     let (had_suffix, file_text) = if let Some(text) = file_text.strip_suffix(&format!("_{}", config.ending)) {
       (true, text.to_string())
     } else {
-      (false, file_text.to_string())
+      (false, file_text)
     };
 
     let inner_format_text = if self.has_panicked {
@@ -96,7 +97,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
       format!(
         "plugin: {}",
         handle_host_response(
-          format_with_host(&PathBuf::from("./test.txt_ps"), new_text.to_string(), &ConfigKeyMap::new()),
+          format_with_host(&PathBuf::from("./test.txt_ps"), new_text.to_string().into_bytes(), &ConfigKeyMap::new()),
           new_text,
         )?,
       )
@@ -105,7 +106,10 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
       config_map.insert("ending".to_string(), "custom_config".into());
       format!(
         "plugin-config: {}",
-        handle_host_response(format_with_host(&PathBuf::from("./test.txt_ps"), new_text.to_string(), &config_map), new_text)?
+        handle_host_response(
+          format_with_host(&PathBuf::from("./test.txt_ps"), new_text.to_string().into_bytes(), &config_map),
+          new_text
+        )?
       )
     } else if file_text == "should_error" {
       bail!("Did error.")
@@ -125,7 +129,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
     if had_suffix && inner_format_text == file_text {
       Ok(None)
     } else {
-      Ok(Some(format!("{}_{}", inner_format_text, config.ending)))
+      Ok(Some(format!("{}_{}", inner_format_text, config.ending).into_bytes()))
     }
   }
 }

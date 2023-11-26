@@ -162,10 +162,11 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
     request: FormatRequest<Self::Configuration>,
     mut format_with_host: impl FnMut(HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> + 'static,
   ) -> FormatResult {
-    let (had_suffix, file_text) = if let Some(text) = request.file_text.strip_suffix(&format!("_{}", request.config.ending)) {
+    let file_text = String::from_utf8(request.file_bytes)?;
+    let (had_suffix, file_text) = if let Some(text) = file_text.strip_suffix(&format!("_{}", request.config.ending)) {
       (true, text.to_string())
     } else {
-      (false, request.file_text.to_string())
+      (false, file_text.to_string())
     };
 
     let inner_format_text = if let Some(range) = &request.range {
@@ -177,25 +178,31 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
     } else if let Some(new_text) = file_text.strip_prefix("plugin: ") {
       let result = (format_with_host)(HostFormatRequest {
         file_path: PathBuf::from("./test.txt"),
-        file_text: new_text.to_string(),
+        file_bytes: new_text.to_string().into_bytes(),
         range: None,
         override_config: Default::default(),
         token: request.token.clone(),
       })
       .await?;
-      format!("plugin: {}", result.unwrap_or_else(|| new_text.to_string()))
+      format!(
+        "plugin: {}",
+        result.map(|r| String::from_utf8(r).unwrap()).unwrap_or_else(|| new_text.to_string())
+      )
     } else if let Some(new_text) = file_text.strip_prefix("plugin-config: ") {
       let mut config_map = ConfigKeyMap::new();
       config_map.insert("ending".to_string(), "custom_config".into());
       let result = (format_with_host)(HostFormatRequest {
         file_path: PathBuf::from("./test.txt"),
-        file_text: new_text.to_string(),
+        file_bytes: new_text.to_string().into_bytes(),
         range: None,
         override_config: config_map,
         token: request.token.clone(),
       })
       .await?;
-      format!("plugin-config: {}", result.unwrap_or_else(|| new_text.to_string()))
+      format!(
+        "plugin-config: {}",
+        result.map(|r| String::from_utf8(r).unwrap()).unwrap_or_else(|| new_text.to_string())
+      )
     } else if file_text == "should_error" {
       bail!("Did error.")
     } else {
@@ -205,7 +212,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
     if had_suffix && inner_format_text == file_text {
       Ok(None)
     } else {
-      Ok(Some(format!("{}_{}", inner_format_text, request.config.ending)))
+      Ok(Some(format!("{}_{}", inner_format_text, request.config.ending).into_bytes()))
     }
   }
 }

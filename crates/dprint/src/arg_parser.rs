@@ -138,7 +138,7 @@ pub struct EditorServiceSubCommand {
 #[derive(Debug, PartialEq, Eq)]
 pub struct StdInFmtSubCommand {
   pub file_name_or_path: String,
-  pub file_text: String,
+  pub file_bytes: Vec<u8>,
   pub patterns: FilePatternArgs,
 }
 
@@ -194,7 +194,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         };
         SubCommand::StdInFmt(StdInFmtSubCommand {
           file_name_or_path,
-          file_text: std_in_reader.read()?,
+          file_bytes: std_in_reader.read()?,
           patterns: parse_file_patterns(matches)?,
         })
       } else {

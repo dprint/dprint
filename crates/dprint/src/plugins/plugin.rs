@@ -35,7 +35,7 @@ pub struct FormatConfig {
 
 pub struct InitializedPluginFormatRequest {
   pub file_path: PathBuf,
-  pub file_text: String,
+  pub file_text: Vec<u8>,
   pub range: FormatRange,
   pub config: Arc<FormatConfig>,
   pub override_config: ConfigKeyMap,
@@ -132,7 +132,7 @@ impl InitializedPlugin for InitializedTestPlugin {
   }
 
   async fn format_text(&self, format_request: InitializedPluginFormatRequest) -> FormatResult {
-    Ok(Some(format!("{}_formatted", format_request.file_text)))
+    Ok(Some(format!("{}_formatted", String::from_utf8(format_request.file_text)?).into_bytes()))
   }
 
   async fn shutdown(&self) -> () {

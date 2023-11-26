@@ -423,12 +423,15 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
     plugin_jsons.push(format!("\"{}\": {}", config_key, pretty_text));
   }
 
-  environment.log_machine_readable(&if plugin_jsons.is_empty() {
-    "{}".to_string()
-  } else {
-    let text = plugin_jsons.join(",\n").lines().map(|l| format!("  {}", l)).collect::<Vec<_>>().join("\n");
-    format!("{{\n{}\n}}", text)
-  });
+  environment.log_machine_readable(
+    &if plugin_jsons.is_empty() {
+      "{}".to_string()
+    } else {
+      let text = plugin_jsons.join(",\n").lines().map(|l| format!("  {}", l)).collect::<Vec<_>>().join("\n");
+      format!("{{\n{}\n}}", text)
+    }
+    .into_bytes(),
+  );
 
   Ok(())
 }

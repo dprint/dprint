@@ -454,9 +454,9 @@ impl Environment for TestEnvironment {
     self.stderr_messages.lock().push(String::from(text));
   }
 
-  fn log_machine_readable(&self, text: &str) {
+  fn log_machine_readable(&self, text: &[u8]) {
     assert!(*self.is_stdout_machine_readable.lock());
-    self.stdout_messages.lock().push(String::from(text));
+    self.stdout_messages.lock().push(String::from_utf8(text.to_vec()).unwrap());
   }
 
   fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
