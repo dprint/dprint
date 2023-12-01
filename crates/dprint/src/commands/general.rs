@@ -332,6 +332,42 @@ mod test {
   }
 
   #[test]
+  fn providing_includes_to_cli_should_not_override_negated_includes() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt").add_includes("!sub/file4.txt");
+      })
+      .write_file("/file.txt", "const t=4;")
+      .write_file("/file2.txt", "const t=4;")
+      .write_file("/sub/file3.txt", "const t=4;")
+      .write_file("/sub/file4.txt", "const t=4;")
+      .write_file("/sub2/file5.txt", "const t=4;")
+      .build();
+    // make sure it works as expected with no args
+    {
+      run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+      let mut logged_messages = environment.take_stdout_messages();
+      logged_messages.sort();
+      assert_eq!(logged_messages, vec![
+        "/file.txt",
+        "/file2.txt",
+        "/sub/file3.txt",
+        "/sub2/file5.txt",
+      ]);
+    }
+    // now provide an includes
+    {
+      run_test_cli(vec!["output-file-paths", "./sub/*.*"], &environment).unwrap();
+      let mut logged_messages = environment.take_stdout_messages();
+      logged_messages.sort();
+      assert_eq!(logged_messages, vec![
+        // should not have sub/file4.txt here
+        "/sub/file3.txt",
+      ]);
+    }
+  }
+
+  #[test]
   fn should_clear_cache_directory() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["clear-cache"], &environment).unwrap();
