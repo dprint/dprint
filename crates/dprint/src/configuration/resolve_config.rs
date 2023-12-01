@@ -15,6 +15,7 @@ use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::parse_plugin_source_reference;
 use crate::plugins::PluginSourceReference;
+use crate::utils::is_negated_glob;
 use crate::utils::resolve_url_or_file_path;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
@@ -124,8 +125,13 @@ pub async fn resolve_config_from_path<TEnvironment: Environment>(
   }
   // =========
 
-  let includes = take_array_from_config_map(&mut config_map, "includes")?;
-  let excludes = take_array_from_config_map(&mut config_map, "excludes")?;
+  let mut includes = take_array_from_config_map(&mut config_map, "includes")?;
+  let mut excludes = take_array_from_config_map(&mut config_map, "excludes")?;
+
+  // Move the negated includes to the excludes so that when someone provides
+  // includes on the command line, then it will still ignore these
+  move_negated_includes_to_excludes(&mut includes, &mut excludes);
+
   let incremental = take_bool_from_config_map(&mut config_map, "incremental")?;
   config_map.remove("projectType"); // this was an old config property that's no longer used
   let extends = take_extends(&mut config_map)?;
@@ -141,6 +147,24 @@ pub async fn resolve_config_from_path<TEnvironment: Environment>(
 
   // resolve extends
   Ok(resolve_extends(resolved_config, extends, base_source, environment.clone()).await?)
+}
+
+fn move_negated_includes_to_excludes(includes: &mut Option<Vec<String>>, excludes: &mut Option<Vec<String>>) {
+  let Some(includes) = includes else {
+    return;
+  };
+  for i in (0..includes.len()).rev() {
+    if is_negated_glob(&includes[i]) {
+      let value = includes.remove(i);
+      if excludes.is_none() {
+        *excludes = Some(Vec::new());
+      }
+      // Make negated includes to have a higher priority than excludes.
+      // This means when checking if something is not matched, it will
+      // look at these first.
+      excludes.as_mut().unwrap().insert(0, value);
+    }
+  }
 }
 
 fn resolve_extends<TEnvironment: Environment>(
