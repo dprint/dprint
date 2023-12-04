@@ -182,7 +182,7 @@ where
 /// Trait for implementing a process plugin.
 #[cfg(feature = "process")]
 #[crate::async_runtime::async_trait(?Send)]
-pub trait AsyncPluginHandler: Send + Sync + 'static {
+pub trait AsyncPluginHandler: 'static {
   type Configuration: Serialize + Clone + Send + Sync;
 
   /// Gets the plugin's plugin info.
