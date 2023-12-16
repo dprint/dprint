@@ -32,8 +32,11 @@ pub async fn init_config_file(environment: &impl Environment, config_arg: &Optio
   let config_file_path = get_config_path(config_arg)?;
   return if !environment.path_exists(&config_file_path) {
     environment.write_file(&config_file_path, &get_init_config_file_text(environment).await?)?;
-    environment.log_stderr(&format!("\nCreated {}", config_file_path.display()));
-    environment.log_stderr("\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor");
+    log_stdout_info!(environment, "\nCreated {}", config_file_path.display());
+    log_stdout_info!(
+      environment,
+      "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
+    );
     Ok(())
   } else {
     bail!("Configuration file '{}' already exists.", config_file_path.display())
@@ -154,7 +157,7 @@ async fn get_possible_plugins_to_add<TEnvironment: Environment>(
     .filter_map(|(plugin_reference, plugin_result)| match plugin_result {
       Ok(plugin) => Some(plugin.info().name.to_string()),
       Err(err) => {
-        environment.log_stderr(&format!("Failed resolving plugin: {}\n\n{:#}", plugin_reference.path_source.display(), err));
+        log_warn!(environment, "Failed resolving plugin: {}\n\n{:#}", plugin_reference.path_source.display(), err);
         None
       }
     })
@@ -172,7 +175,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
-  no_prompt: bool,
+  yes_to_prompts: bool,
 ) -> Result<()> {
   if !args.plugins.is_empty() {
     bail!("Cannot specify plugins for this sub command. Sorry, too much work for me.");
@@ -193,7 +196,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     let config_path = match &config.resolved_path.source {
       PathSource::Local(source) => &source.path,
       PathSource::Remote(source) => {
-        environment.log(&format!("Skipping remote configuration file: {}", source.url));
+        log_warn!(environment, "Skipping remote configuration file: {}", source.url);
         continue;
       }
     };
@@ -204,25 +207,27 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     for result in plugins_to_update {
       match result {
         Ok(info) => {
-          let should_update = if info.is_wasm() || no_prompt {
+          let should_update = if info.is_wasm() || yes_to_prompts {
             true
           } else if let Some(previous_response) = plugin_responses.get(&info.new_reference) {
             *previous_response
           } else {
             // prompt for security reasons
-            environment.log_stderr(&format!(
+            log_all!(
+              environment,
               "The process plugin {} {} has a new url: {}",
               info.name,
               info.old_version,
               info.get_full_new_config_url(),
-            ));
+            );
             let response = environment.confirm("Do you want to update it?", false)?;
             plugin_responses.insert(info.new_reference.clone(), response);
             response
           };
 
           if should_update {
-            environment.log_stderr(&format!(
+            log_stderr_info!(
+              environment,
               "Updating {} {}{} to {}...",
               info.name,
               info.old_version,
@@ -232,12 +237,12 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
                 format!(" in {}", config_path.display())
               },
               info.new_version
-            ));
+            );
             file_text = update_plugin_in_config(&file_text, info);
           }
         }
         Err(err_info) => {
-          environment.log_stderr(&format!("Failed updating plugin {}: {:#}", err_info.name, err_info.error));
+          log_warn!(environment, "Failed updating plugin {}: {:#}", err_info.name, err_info.error);
         }
       }
     }
@@ -275,13 +280,13 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
     let config_map = match deserialize_config_raw(&file_text) {
       Ok(map) => map,
       Err(err) => {
-        environment.log_stderr(&format!("Failed deserializing config file '{}': {:#}", config_path.display(), err));
+        log_warn!(environment, "Failed deserializing config file '{}': {:#}", config_path.display(), err);
         continue;
       }
     };
     let mut all_diagnostics = Vec::new();
     for plugin in scope.scope.plugins.values() {
-      log_verbose!(environment, "Updating for {}", plugin.name());
+      log_debug!(environment, "Updating for {}", plugin.name());
       let config_key = &plugin.info().config_key;
       let Some(plugin_config) = config_map.get(config_key).and_then(|c| c.as_object()).cloned() else {
         continue;
@@ -289,7 +294,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
       let initialized_plugin = match plugin.initialize().await {
         Ok(plugin) => plugin,
         Err(err) => {
-          environment.log_stderr(&format!("Failed initializing {}. {:#}", plugin.name(), err));
+          log_warn!(environment, "Failed initializing {}. {:#}", plugin.name(), err);
           continue;
         }
       };
@@ -297,12 +302,12 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
       let changes = match initialized_plugin.check_config_updates(plugin_config).await {
         Ok(changes) => changes,
         Err(err) => {
-          environment.log_stderr(&format!("Failed updating {}. {:#}", plugin.name(), err));
+          log_warn!(environment, "Failed updating {}. {:#}", plugin.name(), err);
           continue;
         }
       };
 
-      log_verbose!(environment, "Had {} changes.", changes.len());
+      log_debug!(environment, "Had {} changes.", changes.len());
       if changes.is_empty() {
         continue;
       }
@@ -314,9 +319,9 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
 
     // apply the changes to the config
     if !all_diagnostics.is_empty() {
-      environment.log_stderr(&format!("Had diagnostics applying update config changes for {}:", config_path.display()));
+      log_warn!(environment, "Had diagnostics applying update config changes for {}:", config_path.display());
       for diagnostic in &all_diagnostics {
-        environment.log_stderr(&format!("* {}", diagnostic));
+        log_warn!(environment, "* {}", diagnostic);
       }
     }
     environment.write_file(config_path, &file_text)?;
@@ -367,15 +372,16 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
         })),
         Err(err) => {
           // output and fallback to using the info file
-          environment.log_stderr(&format!("Failed reading plugin latest info. {:#}", err));
+          log_warn!(environment, "Failed reading plugin latest info. {:#}", err);
           None
         }
       }
     } else {
-      environment.log_stderr(&format!(
+      log_warn!(
+        environment,
         "Skipping {} as it did not specify an update url. Please update manually.",
         plugin.info().name
-      ));
+      );
       None
     }
   }
@@ -417,12 +423,15 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
     plugin_jsons.push(format!("\"{}\": {}", config_key, pretty_text));
   }
 
-  environment.log_machine_readable(&if plugin_jsons.is_empty() {
-    "{}".to_string()
-  } else {
-    let text = plugin_jsons.join(",\n").lines().map(|l| format!("  {}", l)).collect::<Vec<_>>().join("\n");
-    format!("{{\n{}\n}}", text)
-  });
+  environment.log_machine_readable(
+    &if plugin_jsons.is_empty() {
+      "{}".to_string()
+    } else {
+      let text = plugin_jsons.join(",\n").lines().map(|l| format!("  {}", l)).collect::<Vec<_>>().join("\n");
+      format!("{{\n{}\n}}", text)
+    }
+    .into_bytes(),
+  );
 
   Ok(())
 }
@@ -504,8 +513,11 @@ mod test {
     run_test_cli(vec!["init"], &environment).unwrap();
     assert_eq!(
       environment.take_stderr_messages(),
+      vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
+    );
+    assert_eq!(
+      environment.take_stdout_messages(),
       vec![
-        "Select plugins (use the spacebar to select/deselect and then press enter when finished):",
         "\nCreated ./dprint.json",
         "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
       ]
@@ -557,8 +569,11 @@ mod test {
     run_test_cli(vec!["init", "--config", "./test.config.json"], &environment).unwrap();
     assert_eq!(
       environment.take_stderr_messages(),
+      vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
+    );
+    assert_eq!(
+      environment.take_stdout_messages(),
       vec![
-        "Select plugins (use the spacebar to select/deselect and then press enter when finished):",
         "\nCreated ./test.config.json",
         "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
       ]

@@ -1,5 +1,15 @@
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from "lz-string";
 
+export const knownPlugins = new Set([
+  "typescript",
+  "json",
+  "markdown",
+  "toml",
+  "dockerfile",
+  "biome",
+  "ruff",
+]);
+
 export class UrlSaver {
   getUrlInfo() {
     const locationHash = document.location.hash || "";
@@ -7,8 +17,7 @@ export class UrlSaver {
     return {
       text: getText(),
       configText: getConfigText(),
-      plugin: getPluginUrl(),
-      language: getLanguage(),
+      ...getPlugin(),
     };
 
     function getText() {
@@ -39,39 +48,44 @@ export class UrlSaver {
       }
     }
 
-    function getPluginUrl(): string | undefined {
+    function getPlugin(): { pluginName?: string; pluginUrl?: string } {
       const matches = /plugin\/([^/]+)/.exec(locationHash);
       if (matches == null || matches.length !== 2) {
-        return undefined;
+        return {
+          pluginName: getLegacyLanguage(),
+          pluginUrl: undefined,
+        };
+      }
+
+      if (knownPlugins.has(matches[1])) {
+        return {
+          pluginName: matches[1] as string,
+          pluginUrl: undefined,
+        };
       }
 
       try {
-        return decompress(matches[1]);
+        return {
+          pluginName: undefined,
+          pluginUrl: decompress(matches[1]),
+        };
       } catch (err) {
         console.error(err);
-        return undefined;
+        return {};
       }
     }
 
-    function getLanguage(): "typescript" | "json" | "markdown" | "toml" | "dockerfile" {
+    function getLegacyLanguage(): string {
       const matches = /language\/([^/]+)/.exec(locationHash);
       if (matches == null || matches.length !== 2) {
         return "typescript";
       }
 
       try {
-        switch (matches[1]) {
-          case "json":
-            return "json";
-          case "markdown":
-            return "markdown";
-          case "toml":
-            return "toml";
-          case "dockerfile":
-            return "dockerfile";
-          case "typescript":
-          default:
-            return "typescript";
+        if (knownPlugins.has(matches[1])) {
+          return matches[1] as string;
+        } else {
+          return "typescript";
         }
       } catch (err) {
         console.error(err);
@@ -80,21 +94,17 @@ export class UrlSaver {
     }
   }
 
-  updateUrl({ text, configText, plugin, language }: {
+  updateUrl({ text, configText, plugin }: {
     text: string;
     configText?: string;
     plugin?: string;
-    language?: "typescript" | "json" | "markdown" | "toml" | "dockerfile";
   }) {
     let url = `#code/${compressToEncodedURIComponent(text)}`;
     if (configText != null) {
       url += `/config/${compressToEncodedURIComponent(configText)}`;
     }
     if (plugin != null) {
-      url += `/plugin/${compressToEncodedURIComponent(plugin)}`;
-    }
-    if (language != null) {
-      url += `/language/${language}`;
+      url += `/plugin/${knownPlugins.has(plugin) ? plugin : compressToEncodedURIComponent(plugin)}`;
     }
     window.history.replaceState(
       undefined,

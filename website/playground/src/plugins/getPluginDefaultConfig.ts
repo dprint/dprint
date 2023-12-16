@@ -38,7 +38,7 @@ export async function getPluginDefaultConfig(configSchemaUrl: string, signal: Ab
           if (propertyName === "lineWidth") {
             text += "80";
           } else {
-            text += `${defaultValue.toString()}`;
+            text += `${defaultValue?.toString() ?? "null"}`;
           }
         }
 

@@ -15,8 +15,8 @@ pub struct PluginInfo {
   pub help_url: String,
   /// Schema url for the plugin configuration.
   ///
-  /// Generally in the format: https://plugins.dprint.dev/<org-or-user>/<repo>-<tag-name>/schema.json
-  /// For example: https://plugins.dprint.dev/dprint/dprint-plugin-typescript-0.60.0/schema.json
+  /// Generally in the format: https://plugins.dprint.dev/<org-or-user>/<repo>/<tag-name>/schema.json
+  /// For example: https://plugins.dprint.dev/dprint/dprint-plugin-typescript/0.60.0/schema.json
   pub config_schema_url: String,
   /// Plugin update url.
   ///

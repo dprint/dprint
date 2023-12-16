@@ -54,7 +54,7 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
   return match result {
     Ok(result) => Ok(result),
     Err(err) => {
-      log_verbose!(environment, "Failed setting up process plugin. {:#}", err);
+      log_debug!(environment, "Failed setting up process plugin. {:#}", err);
       // failed, so delete the dir if it exists
       let _ignore = environment.remove_dir_all(&plugin_cache_dir_path);
       Err(err)
@@ -84,7 +84,10 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
     let communicator = ProcessPluginCommunicator::new_with_init(&executable_path, {
       let environment = environment.clone();
       move |error_message| {
-        environment.log_stderr_with_context(&error_message, &plugin_name);
+        // consider messages from process plugins as warnings
+        if environment.log_level().is_warn() {
+          environment.log_stderr_with_context(&error_message, &plugin_name);
+        }
       }
     })
     .await?;
@@ -116,6 +119,8 @@ struct ProcessPluginFile {
   linux_x86_64_musl: Option<ProcessPluginPath>,
   #[serde(rename = "linux-aarch64")]
   linux_aarch64: Option<ProcessPluginPath>,
+  #[serde(rename = "linux-aarch64-musl")]
+  linux_aarch64_musl: Option<ProcessPluginPath>,
   #[serde(rename = "darwin-x86_64")]
   darwin_x86_64: Option<ProcessPluginPath>,
   #[serde(rename = "darwin-aarch64")]
@@ -209,6 +214,7 @@ fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Enviro
     },
     "linux-musl" => match arch.as_str() {
       "x86_64" => plugin_file.linux_x86_64_musl.as_ref(),
+      "aarch64" => plugin_file.linux_aarch64_musl.as_ref().or(plugin_file.linux_x86_64_musl.as_ref()),
       _ => None,
     },
     "macos" => match arch.as_str() {
@@ -226,7 +232,7 @@ fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Enviro
   match path {
     Some(path) => Ok(path),
     None => {
-      log_verbose!(environment, "Plugin File -- {:#?}", plugin_file);
+      log_debug!(environment, "Plugin File -- {:#?}", plugin_file);
       bail!("Unsupported CPU architecture: {} ({})", arch, os)
     }
   }

@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 members = [
   "crates/core",
   "crates/development",
@@ -9,3 +10,8 @@ members = [
 exclude = [
   "crates/test-plugin",
 ]
+
+# Build release with debug symbols: cargo build --profile=release-with-debug
+[profile.release-with-debug]
+inherits = "release"
+debug = true

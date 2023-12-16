@@ -1,6 +1,6 @@
 [package]
 name = "dprint"
-version = "0.40.2"
+version = "0.43.2"
 authors = ["dprint code formatting <david@dprint.dev>"]
 categories = ["development-tools"]
 default-run = "dprint"
@@ -18,12 +18,12 @@ console_static_text = "0.7.1"
 # don't upgrade to 0.26 https://github.com/crossterm-rs/crossterm/issues/752
 crossterm = "0.25.0" # manually retest everything when bumping this crate
 dirs = "4.0.0"
-dprint-core = { path = "../core", version = "0.63.2", features = ["process", "wasm"] }
+dprint-core = { path = "../core", version = "0.65.0", features = ["process", "wasm"] }
 dunce = "1.0.3"
 fs3 = "0.5.0"
 ignore = "0.4.20"
-indexmap = { version = "1.9.2", features = ["serde-1"] }
-jsonc-parser = { version = "0.22.1" }
+indexmap = { version = "2.0.2", features = ["serde"] }
+jsonc-parser = { version = "0.23.0", features = ["preserve_order"] }
 once_cell = "1.17.1"
 parking_lot = "0.12.1"
 rand = "0.8.5"
@@ -31,11 +31,13 @@ serde = { version = "1.0.147", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 sha2 = "0.10.6"
 similar = { version = "2.2.1", features = ["inline"] }
+# disable the multi-threading feature of this crate
+sysinfo = { version = "0.29.8", default-features = false }
 thiserror = "1"
 tokio = { version = "1", features = ["rt", "time", "macros", "rt-multi-thread", "io-std"] }
 tokio-util = { version = "0.7.7" }
 twox-hash = "1.6.3"
-ureq = { version = "2.6.2", features = ["socks-proxy", "tls", "native-certs"] }
+ureq = { version = "2.8.0", features = ["socks-proxy", "tls", "native-certs"] }
 url = "2.3.1"
 zip = "0.6.4"
 
@@ -43,9 +45,9 @@ zip = "0.6.4"
 # patch version increases of rkyv may cause panics when deserializing
 # data serialized with older versions
 rkyv = "=0.7.42"
-wasmer = "=4.0.0"
-wasmer-compiler = "=4.0.0"
 tower-lsp = "0.20.0"
+wasmer = "=4.2.2"
+wasmer-compiler = "=4.2.2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.10.1"

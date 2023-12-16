@@ -1,6 +1,6 @@
 [package]
 name = "dprint-development"
-version = "0.9.4"
+version = "0.9.5"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2021"
 license = "MIT"

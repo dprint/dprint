@@ -76,7 +76,7 @@ pub fn new_line_group(item: PrintItems) -> PrintItems {
 
 /// Generates IR from a string as is and ignores its indent.
 pub fn gen_from_raw_string(text: &str) -> PrintItems {
-  gen_from_raw_string_lines(text, gen_from_string)
+  gen_from_raw_string_lines(text, gen_from_string_line)
 }
 
 /// Generates IR from a string trimming the end of each line and ignores its indent.
@@ -85,14 +85,14 @@ pub fn gen_from_raw_string_trim_line_ends(text: &str) -> PrintItems {
 }
 
 fn gen_from_raw_string_lines(text: &str, gen_line: impl Fn(&str) -> PrintItems) -> PrintItems {
-  let add_ignore_indent = text.contains('\n');
+  let has_newline = text.contains('\n');
   let mut items = PrintItems::new();
-  if add_ignore_indent {
+  if has_newline {
     items.push_signal(Signal::StartIgnoringIndent);
-  }
-  items.extend(gen_string_lines(text, gen_line));
-  if add_ignore_indent {
+    items.extend(gen_string_lines(text, gen_line));
     items.push_signal(Signal::FinishIgnoringIndent);
+  } else {
+    items.extend(gen_line(text));
   }
   items
 }
@@ -128,12 +128,12 @@ fn gen_string_lines(text: &str, gen_line: impl Fn(&str) -> PrintItems) -> PrintI
 
 fn gen_from_string_line(line: &str) -> PrintItems {
   let mut items = PrintItems::new();
-  for (i, line) in line.split('\t').enumerate() {
+  for (i, part) in line.split('\t').enumerate() {
     if i > 0 {
       items.push_signal(Signal::Tab);
     }
-    if !line.is_empty() {
-      items.push_string(line.to_string());
+    if !part.is_empty() {
+      items.push_string(part.to_string());
     }
   }
   items

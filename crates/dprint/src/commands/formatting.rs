@@ -26,7 +26,7 @@ use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::resolution::PluginsScope;
 use crate::utils::get_difference;
 use crate::utils::AtomicCounter;
-use crate::utils::BOM_CHAR;
+use crate::utils::BOM_BYTES;
 
 pub async fn stdin_fmt<TEnvironment: Environment>(
   cmd: &StdInFmtSubCommand,
@@ -46,23 +46,23 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
     let resolved_file_path = environment.canonicalize(&cmd.file_name_or_path)?;
     // log the file text as-is since it's not in the list of files to format
     if !file_matcher.matches(resolved_file_path) {
-      environment.log_machine_readable(&cmd.file_text);
+      environment.log_machine_readable(&cmd.file_bytes);
       return Ok(());
     }
   }
-  output_stdin_format(PathBuf::from(&cmd.file_name_or_path), &cmd.file_text, plugins_scope, environment).await
+  output_stdin_format(PathBuf::from(&cmd.file_name_or_path), &cmd.file_bytes, plugins_scope, environment).await
 }
 
 async fn output_stdin_format<TEnvironment: Environment>(
-  file_name: PathBuf,
-  file_text: &str,
+  file_path: PathBuf,
+  file_bytes: &[u8],
   plugins_scope: Rc<PluginsScope<TEnvironment>>,
   environment: &TEnvironment,
 ) -> Result<()> {
   let result = plugins_scope
     .format(HostFormatRequest {
-      file_path: file_name,
-      file_text: file_text.to_string(),
+      file_path,
+      file_bytes: file_bytes.to_vec(),
       range: None,
       override_config: Default::default(),
       token: Arc::new(NullCancellationToken),
@@ -70,7 +70,7 @@ async fn output_stdin_format<TEnvironment: Environment>(
     .await?;
   match result {
     Some(text) => environment.log_machine_readable(&text),
-    None => environment.log_machine_readable(file_text),
+    None => environment.log_machine_readable(file_bytes),
   }
   Ok(())
 }
@@ -100,16 +100,23 @@ pub async fn output_format_times<TEnvironment: Environment>(
   let mut durations = durations.lock();
   durations.sort_by_key(|k| k.1);
   for (file_path, duration) in durations.iter() {
-    environment.log(&format!("{}ms - {}", duration, file_path.display()));
+    log_stdout_info!(environment, "{}ms - {}", duration, file_path.display());
   }
 
   Ok(())
 }
 
 #[derive(Error, Debug)]
-#[error("Found {} not formatted {}.", files_count.to_string().bold().to_string(), if *files_count == 1 { "file" } else { "files" })]
+#[error("{}", match files_count {
+  Some(files_count) => format!(
+    "Found {} not formatted {}.",
+    files_count.to_string().bold(),
+    if *files_count == 1 { "file" } else { "files" },
+  ),
+  None => "".to_string(), // no output for list-different
+})]
 pub struct CheckError {
-  pub files_count: usize,
+  pub files_count: Option<usize>,
 }
 
 pub async fn check<TEnvironment: Environment>(
@@ -121,6 +128,7 @@ pub async fn check<TEnvironment: Environment>(
   let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
   scopes.ensure_valid_for_cli_args(args)?;
   let not_formatted_files_count = Arc::new(AtomicCounter::default());
+  let list_different = cmd.list_different;
 
   for scope_and_paths in scopes.into_iter() {
     let incremental_file = scope_and_paths
@@ -132,17 +140,21 @@ pub async fn check<TEnvironment: Environment>(
     run_parallelized(scope_and_paths, environment, incremental_file.clone(), EnsureStableFormat(false), {
       let not_formatted_files_count = not_formatted_files_count.clone();
       let incremental_file = incremental_file.clone();
-      move |file_path, file_text, formatted_text, _, environment| {
-        if formatted_text != file_text.as_str() {
+      move |file_path, file_bytes, formatted_bytes, _, environment| {
+        if formatted_bytes != file_bytes.as_ref() {
           not_formatted_files_count.inc();
-          output_difference(&file_path, file_text.as_str(), &formatted_text, &environment);
+          if list_different {
+            log_stdout_info!(environment, "{}", file_path.display());
+          } else {
+            output_difference(&file_path, file_bytes.as_ref(), &formatted_bytes, &environment);
+          }
         } else {
           // update the incremental cache when the file is already formatted correctly
           // so that this runs faster next time, but don't update it with the
           // correctly formatted file because it hasn't undergone a stable
           // formatting check
           if let Some(incremental_file) = &incremental_file {
-            incremental_file.update_file(&formatted_text);
+            incremental_file.update_file(&formatted_bytes);
           }
         }
         Ok(())
@@ -161,16 +173,40 @@ pub async fn check<TEnvironment: Environment>(
   } else {
     Err(
       CheckError {
-        files_count: not_formatted_files_count,
+        files_count: if list_different { None } else { Some(not_formatted_files_count) },
       }
       .into(),
     )
   }
 }
 
-fn output_difference(file_path: &Path, file_text: &str, formatted_text: &str, environment: &impl Environment) {
-  let difference_text = get_difference(file_text, formatted_text);
-  environment.log(&format!("{} {}:\n{}\n--", "from".bold().red(), file_path.display(), difference_text,));
+fn output_difference(file_path: &Path, file_bytes: &[u8], formatted_bytes: &[u8], environment: &impl Environment) {
+  let file_text = match String::from_utf8(file_bytes.to_vec()) {
+    Ok(text) => text,
+    Err(err) => {
+      log_warn!(
+        environment,
+        "Failed outputting difference for {}. Could not get original text as utf-8. {:#}",
+        file_path.display(),
+        err
+      );
+      return;
+    }
+  };
+  let formatted_text = match String::from_utf8(formatted_bytes.to_vec()) {
+    Ok(text) => text,
+    Err(err) => {
+      log_warn!(
+        environment,
+        "Failed outputting difference for {}. Coult not get formatted text as utf-8. {:#}",
+        file_path.display(),
+        err
+      );
+      return;
+    }
+  };
+  let difference_text = get_difference(&file_text, &formatted_text);
+  log_stdout_info!(environment, "{} {}:\n{}\n--", "from".bold().red(), file_path.display(), difference_text);
 }
 
 pub async fn format<TEnvironment: Environment>(
@@ -200,25 +236,28 @@ pub async fn format<TEnvironment: Environment>(
       {
         let formatted_files_count = formatted_files_count.clone();
         let incremental_file = incremental_file.clone();
-        move |file_path, file_text, formatted_text, _, environment| {
+        move |file_path, file_bytes, formatted_bytes, _, environment| {
           if let Some(incremental_file) = &incremental_file {
-            incremental_file.update_file(&formatted_text);
+            incremental_file.update_file(&formatted_bytes);
           }
 
-          if formatted_text != file_text.as_str() {
+          if formatted_bytes != file_bytes.as_ref() {
             if output_diff {
-              output_difference(&file_path, file_text.as_str(), &formatted_text, &environment);
+              output_difference(&file_path, file_bytes.as_ref(), &formatted_bytes, &environment);
             }
 
-            let new_text = if file_text.has_bom() {
+            let new_text = if file_bytes.has_bom() {
               // add back the BOM
-              format!("{}{}", BOM_CHAR, formatted_text)
+              let mut new_bytes = Vec::with_capacity(file_bytes.as_ref().len() + BOM_BYTES.len());
+              new_bytes.extend_from_slice(BOM_BYTES);
+              new_bytes.extend(formatted_bytes);
+              new_bytes
             } else {
-              formatted_text
+              formatted_bytes
             };
 
             formatted_files_count.inc();
-            environment.write_file(file_path, &new_text)?;
+            environment.write_file_bytes(file_path, &new_text)?;
           }
 
           Ok(())
@@ -235,7 +274,7 @@ pub async fn format<TEnvironment: Environment>(
   let formatted_files_count = formatted_files_count.get();
   if formatted_files_count > 0 {
     let suffix = if formatted_files_count == 1 { "file" } else { "files" };
-    environment.log(&format!("Formatted {} {}.", formatted_files_count.to_string().bold(), suffix));
+    log_stdout_info!(environment, "Formatted {} {}.", formatted_files_count.to_string().bold(), suffix);
   }
 
   Ok(())
@@ -1023,13 +1062,34 @@ mod test {
     assert_no_files_found(&error, &environment);
   }
 
+  #[test]
+  fn should_not_error_when_no_files_match_allow_no_files_output() {
+    run_allow_no_files_test("fmt");
+    run_allow_no_files_test("check");
+    run_allow_no_files_test("output-format-times");
+
+    fn run_allow_no_files_test(sub_command: &str) {
+      // with
+      {
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin().build();
+        assert!(run_test_cli(vec![sub_command, "--allow-no-files", "**/*.txt"], &environment).is_ok());
+      }
+      // without
+      {
+        let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin().build();
+        let error = run_test_cli(vec![sub_command, "**/*.txt"], &environment).err().unwrap();
+        assert_no_files_found(&error, &environment);
+      }
+    }
+  }
+
   #[track_caller]
   fn assert_no_files_found(error: &TestAppError, _environment: &TestEnvironment) {
     assert_eq!(
       error.to_string(),
       concat!(
         "No files found to format with the specified plugins at /. ",
-        "You may want to try using `dprint output-file-paths` to see which files it's finding."
+        "You may want to try using `dprint output-file-paths` to see which files it's finding or run with `--allow-no-files`."
       )
     );
     error.assert_exit_code(14);
@@ -1359,7 +1419,7 @@ mod test {
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
 
     environment.clear_logs();
-    run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
     assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)), true);
 
     // update the file and ensure it's formatted
@@ -1380,7 +1440,7 @@ mod test {
       )
       .unwrap();
     environment.clear_logs();
-    run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
     assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)), false);
 
     // update the plugin config and ensure it's formatted
@@ -1406,14 +1466,14 @@ mod test {
     // random order and the hash to be new each time.
     for _ in 1..4 {
       environment.clear_logs();
-      run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
+      run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
       assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)), true);
     }
 
     // change the cwd and ensure it's not formatted again
     environment.clear_logs();
     environment.set_cwd("/subdir");
-    run_test_cli(vec!["fmt", "--incremental", "--verbose"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
     assert_eq!(
       environment
         .take_stderr_messages()
@@ -1440,7 +1500,7 @@ mod test {
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
 
     environment.clear_logs();
-    run_test_cli(vec!["fmt", "--verbose"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--log-level=debug"], &environment).unwrap();
     assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains("No change: /file1.txt")), true);
   }
 
@@ -1528,7 +1588,7 @@ mod test {
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
 
     environment.clear_logs();
-    run_test_cli(vec!["fmt", "--incremental=false", "--verbose"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--incremental=false", "--log-level=debug"], &environment).unwrap();
     assert!(!environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)));
   }
 
@@ -1610,7 +1670,7 @@ mod test {
     err.assert_exit_code(20);
     assert_eq!(err.to_string(), get_plural_check_text(2));
     let mut logged_messages = environment.take_stdout_messages();
-    logged_messages.sort(); // seems like the order is not deterministic
+    logged_messages.sort(); // the order is not deterministic
     assert_eq!(
       logged_messages,
       vec![
@@ -1626,6 +1686,21 @@ mod test {
         ),
       ]
     );
+  }
+
+  #[test]
+  fn should_output_list_different_when_files_need_formatting_for_check() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file("/file1.txt", "const t=4;")
+      .write_file("/file2.txt", "const t=5;")
+      .build();
+
+    let err = run_test_cli(vec!["check", "--list-different", "/file1.txt", "/file2.txt"], &environment).unwrap_err();
+    err.assert_exit_code(20);
+    assert_eq!(err.to_string(), ""); // no output because we outputted the files
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort(); // the order is not deterministic
+    assert_eq!(logged_messages, vec!["/file1.txt", "/file2.txt",]);
   }
 
   #[test]
@@ -2002,6 +2077,34 @@ mod test {
   }
 
   #[test]
+  fn should_not_error_nested_config_no_matching_files_in_scope_cli_args() {
+    let file_path1 = "/sub_dir/file.txt";
+    let file_path2 = "/sub_dir/sub_dir/file.txt";
+    let file_path3 = "/sub_dir/more/ignored.txt_ps";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/sub_dir/more/dprint.json", |config| {
+        config.add_remote_process_plugin();
+      })
+      .write_file(&file_path1, "here1")
+      .write_file(&file_path2, "here2")
+      .write_file(&file_path3, "here3")
+      .build();
+    // previously this was erroring in the sub directory
+    run_test_cli(vec!["fmt", "**/*.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "here1_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "here2_formatted");
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "here3");
+
+    // now try with a pattern that doesn't match any file in any scope and it should error
+    let err = run_test_cli(vec!["fmt", "**/*.no_matching"], &environment).unwrap_err();
+    assert_no_files_found(&err, &environment);
+  }
+
+  #[test]
   fn should_error_no_files_sub_dir_config() {
     let file_path1 = "/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
@@ -2013,7 +2116,7 @@ mod test {
     let err = run_test_cli(vec!["fmt"], &environment).err().unwrap();
     assert_eq!(
       err.to_string(),
-      "No files found to format with the specified plugins at /sub_dir. You may want to try using `dprint output-file-paths` to see which files it's finding."
+      "No files found to format with the specified plugins at /sub_dir. You may want to try using `dprint output-file-paths` to see which files it's finding or run with `--allow-no-files`."
     );
     err.assert_exit_code(14);
   }

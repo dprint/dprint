@@ -38,7 +38,7 @@ impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
       if read_data.plugins_hash == plugins_hash {
         read_data
       } else {
-        log_verbose!(environment, "Plugins changed. Creating new incremental file.");
+        log_debug!(environment, "Plugins changed. Creating new incremental file.");
         IncrementalFileData::new(plugins_hash)
       }
     } else {
@@ -53,8 +53,8 @@ impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
   }
 
   /// If the file text is known to be formatted.
-  pub fn is_file_known_formatted(&self, file_text: &str) -> bool {
-    let hash = get_bytes_hash(file_text.as_bytes());
+  pub fn is_file_known_formatted(&self, file_text: &[u8]) -> bool {
+    let hash = get_bytes_hash(file_text);
     if self.read_data.file_hashes.contains(&hash) {
       // the file is the same, so save it in the write data
       self.add_to_write_data(hash);
@@ -64,8 +64,8 @@ impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
     }
   }
 
-  pub fn update_file(&self, file_text: &str) {
-    let hash = get_bytes_hash(file_text.as_bytes());
+  pub fn update_file(&self, file_text: &[u8]) {
+    let hash = get_bytes_hash(file_text);
     self.add_to_write_data(hash)
   }
 
@@ -85,7 +85,7 @@ fn read_incremental(file_path: impl AsRef<Path>, environment: &impl Environment)
     Ok(file_text) => file_text,
     Err(err) => {
       if environment.path_exists(&file_path) {
-        environment.log_stderr(&format!("Error reading incremental file {}: {}", file_path.as_ref().display(), err));
+        log_warn!(environment, "Error reading incremental file {}: {}", file_path.as_ref().display(), err);
       }
       return None;
     }
@@ -94,7 +94,7 @@ fn read_incremental(file_path: impl AsRef<Path>, environment: &impl Environment)
   match serde_json::from_str(&file_text) {
     Ok(file_data) => Some(file_data),
     Err(err) => {
-      environment.log_stderr(&format!("Error deserializing incremental file {}: {}", file_path.as_ref().display(), err,));
+      log_warn!(environment, "Error deserializing incremental file {}: {}", file_path.as_ref().display(), err);
       None
     }
   }
@@ -104,11 +104,11 @@ fn write_incremental(file_path: impl AsRef<Path>, file_data: &IncrementalFileDat
   let json_text = match serde_json::to_string(&file_data) {
     Ok(json_text) => json_text,
     Err(err) => {
-      environment.log_stderr(&format!("Error serializing incremental file {}: {}", file_path.as_ref().display(), err));
+      log_warn!(environment, "Error serializing incremental file {}: {}", file_path.as_ref().display(), err);
       return;
     }
   };
   if let Err(err) = environment.atomic_write_file_bytes(&file_path, json_text.as_bytes()) {
-    environment.log_stderr(&format!("Error saving incremental file {}: {}", file_path.as_ref().display(), err));
+    log_warn!(environment, "Error saving incremental file {}: {}", file_path.as_ref().display(), err);
   }
 }

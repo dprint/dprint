@@ -3,11 +3,12 @@ use anyhow::Result;
 use clap::ArgMatches;
 use thiserror::Error;
 
+use crate::utils::LogLevel;
 use crate::utils::StdInReader;
 
 pub struct CliArgs {
   pub sub_command: SubCommand,
-  pub verbose: bool,
+  pub log_level: LogLevel,
   pub plugins: Vec<String>,
   pub config: Option<String>,
 }
@@ -17,7 +18,7 @@ impl CliArgs {
   pub fn empty() -> Self {
     Self {
       sub_command: SubCommand::Help("".to_string()),
-      verbose: false,
+      log_level: LogLevel::Info,
       plugins: vec![],
       config: None,
     }
@@ -34,7 +35,7 @@ impl CliArgs {
   fn new_with_sub_command(sub_command: SubCommand) -> CliArgs {
     CliArgs {
       sub_command,
-      verbose: false,
+      log_level: LogLevel::Info,
       config: None,
       plugins: Vec::new(),
     }
@@ -62,11 +63,45 @@ pub enum SubCommand {
   #[cfg(target_os = "windows")]
   Hidden(HiddenSubCommand),
 }
+impl SubCommand {
+  pub fn allow_no_files(&self) -> bool {
+    match self {
+      SubCommand::Check(a) => a.allow_no_files,
+      SubCommand::Fmt(a) => a.allow_no_files,
+      SubCommand::OutputFormatTimes(a) => a.allow_no_files,
+      _ => false,
+    }
+  }
+
+  pub fn file_patterns(&self) -> Option<&FilePatternArgs> {
+    match self {
+      SubCommand::Check(a) => Some(&a.patterns),
+      SubCommand::Fmt(a) => Some(&a.patterns),
+      SubCommand::StdInFmt(a) => Some(&a.patterns),
+      SubCommand::OutputFilePaths(a) => Some(&a.patterns),
+      SubCommand::OutputFormatTimes(a) => Some(&a.patterns),
+      SubCommand::Config(_)
+      | SubCommand::ClearCache
+      | SubCommand::OutputResolvedConfig
+      | SubCommand::Version
+      | SubCommand::License
+      | SubCommand::Help(_)
+      | SubCommand::EditorInfo
+      | SubCommand::EditorService(_)
+      | SubCommand::Completions(_)
+      | SubCommand::Upgrade => None,
+      #[cfg(target_os = "windows")]
+      SubCommand::Hidden(_) => None,
+    }
+  }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct CheckSubCommand {
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
+  pub list_different: bool,
+  pub allow_no_files: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -75,6 +110,7 @@ pub struct FmtSubCommand {
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
   pub enable_stable_format: bool,
+  pub allow_no_files: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -92,6 +128,7 @@ pub struct OutputFilePathsSubCommand {
 #[derive(Debug, PartialEq, Eq)]
 pub struct OutputFormatTimesSubCommand {
   pub patterns: FilePatternArgs,
+  pub allow_no_files: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -102,7 +139,7 @@ pub struct EditorServiceSubCommand {
 #[derive(Debug, PartialEq, Eq)]
 pub struct StdInFmtSubCommand {
   pub file_name_or_path: String,
-  pub file_text: String,
+  pub file_bytes: Vec<u8>,
   pub patterns: FilePatternArgs,
 }
 
@@ -158,7 +195,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         };
         SubCommand::StdInFmt(StdInFmtSubCommand {
           file_name_or_path,
-          file_text: std_in_reader.read()?,
+          file_bytes: std_in_reader.read()?,
           patterns: parse_file_patterns(matches)?,
         })
       } else {
@@ -167,12 +204,15 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
           patterns: parse_file_patterns(matches)?,
           incremental: parse_incremental(matches),
           enable_stable_format: !matches.get_flag("skip-stable-format"),
+          allow_no_files: matches.get_flag("allow-no-files"),
         })
       }
     }
     ("check", matches) => SubCommand::Check(CheckSubCommand {
       patterns: parse_file_patterns(matches)?,
       incremental: parse_incremental(matches),
+      list_different: matches.get_flag("list-different"),
+      allow_no_files: matches.get_flag("allow-no-files"),
     }),
     ("init", _) => SubCommand::Config(ConfigSubCommand::Init),
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
@@ -190,6 +230,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("output-resolved-config", _) => SubCommand::OutputResolvedConfig,
     ("output-format-times", matches) => SubCommand::OutputFormatTimes(OutputFormatTimesSubCommand {
       patterns: parse_file_patterns(matches)?,
+      allow_no_files: matches.get_flag("allow-no-files"),
     }),
     ("version", _) => SubCommand::Version,
     ("license", _) => SubCommand::License,
@@ -213,7 +254,20 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
 
   Ok(CliArgs {
     sub_command,
-    verbose: matches.get_flag("verbose"),
+    log_level: if matches.get_flag("verbose") {
+      LogLevel::Debug
+    } else if let Some(log_level) = matches.get_one::<String>("log-level") {
+      match log_level.as_str() {
+        "debug" => LogLevel::Debug,
+        "info" => LogLevel::Info,
+        "warn" => LogLevel::Warn,
+        "error" => LogLevel::Error,
+        "silent" => LogLevel::Silent,
+        _ => unreachable!(),
+      }
+    } else {
+      LogLevel::Info
+    },
     config: matches.get_one::<String>("config").map(String::from),
     plugins: values_to_vec(matches.get_many("plugins")),
   })
@@ -372,6 +426,7 @@ EXAMPLES:
             .num_args(0)
             .required(false)
         )
+        .add_allow_no_files_arg()
         .arg(
           Arg::new("skip-stable-format")
             .long("skip-stable-format")
@@ -387,6 +442,13 @@ EXAMPLES:
         .about("Checks for any files that haven't been formatted.")
         .add_resolve_file_path_args()
         .add_incremental_arg()
+        .add_allow_no_files_arg()
+        .arg(
+          Arg::new("list-different")
+            .long("list-different")
+            .help("Only outputs file paths that aren't formatted and doesn't output diffs.")
+            .num_args(0)
+        )
     )
     .subcommand(
       Command::new("config")
@@ -424,6 +486,7 @@ EXAMPLES:
       Command::new("output-format-times")
         .about("Prints the amount of time it takes to format each file. Use this for debugging.")
         .add_resolve_file_path_args()
+        .add_allow_no_files_arg()
     )
     .subcommand(
       Command::new("clear-cache")
@@ -480,11 +543,22 @@ EXAMPLES:
         .num_args(1..)
     )
     .arg(
+      Arg::new("log-level")
+        .short('L')
+        .long("log-level")
+        .help("Set log level")
+        .value_parser(["debug", "info", "warn", "error", "silent"])
+        .default_value("info")
+        .global(true),
+    )
+    .arg(
       Arg::new("verbose")
         .long("verbose")
-        .help("Prints additional diagnostic information.")
+        .help("Alias for --log-level=debug")
+        .hide(true)
         .global(true)
         .num_args(0)
+        .conflicts_with("log-level")
     );
 
   #[cfg(target_os = "windows")]
@@ -503,6 +577,7 @@ EXAMPLES:
 trait ClapExtensions {
   fn add_resolve_file_path_args(self) -> Self;
   fn add_incremental_arg(self) -> Self;
+  fn add_allow_no_files_arg(self) -> Self;
 }
 
 impl ClapExtensions for clap::Command {
@@ -538,6 +613,17 @@ impl ClapExtensions for clap::Command {
         .num_args(0..=1)
         .value_parser(["true", "false"])
         .require_equals(true),
+    )
+  }
+
+  fn add_allow_no_files_arg(self) -> Self {
+    use clap::Arg;
+    self.arg(
+      Arg::new("allow-no-files")
+        .long("allow-no-files")
+        .help("Causes dprint to exit with exit code 0 when no files are found instead of exit code 14.")
+        .num_args(0)
+        .required(false),
     )
   }
 }

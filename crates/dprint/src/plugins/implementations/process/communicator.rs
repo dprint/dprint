@@ -94,7 +94,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
       .await?
       .format_text(ProcessPluginCommunicatorFormatRequest {
         file_path: request.file_path,
-        file_text: request.file_text,
+        file_bytes: request.file_text,
         range: request.range,
         config_id: request.config.id,
         override_config: request.override_config,
@@ -140,7 +140,10 @@ async fn create_new_communicator<TEnvironment: Environment>(restart_info: &Proce
   let plugin_name = restart_info.plugin_name.to_string();
   let environment = restart_info.environment.clone();
   let communicator = ProcessPluginCommunicator::new(&restart_info.executable_file_path, move |error_message| {
-    environment.log_stderr_with_context(&error_message, &plugin_name);
+    // consider messages from process plugins as warnings
+    if environment.log_level().is_warn() {
+      environment.log_stderr_with_context(&error_message, &plugin_name);
+    }
   })
   .await?;
   Ok(communicator)
@@ -185,7 +188,7 @@ mod test {
           let formatted_text = communicator
             .format_text(InitializedPluginFormatRequest {
               file_path: PathBuf::from("test.txt"),
-              file_text: "testing".to_string(),
+              file_text: "testing".to_string().into_bytes(),
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),
@@ -194,7 +197,7 @@ mod test {
             })
             .await
             .unwrap();
-          assert_eq!(formatted_text, Some("testing_custom".to_string()));
+          assert_eq!(formatted_text.map(|t| String::from_utf8(t).unwrap()), Some("testing_custom".to_string()));
         }
 
         // now start up a few formats that will never finish
@@ -207,7 +210,7 @@ mod test {
               .format_text(InitializedPluginFormatRequest {
                 file_path: PathBuf::from("test.txt"),
                 // special text that makes it wait for cancellation
-                file_text: "wait_cancellation".to_string(),
+                file_text: "wait_cancellation".to_string().into_bytes(),
                 range: None,
                 config: format_config,
                 override_config: Default::default(),
@@ -239,7 +242,7 @@ mod test {
           let formatted_text = communicator
             .format_text(InitializedPluginFormatRequest {
               file_path: PathBuf::from("test.txt"),
-              file_text: "testing".to_string(),
+              file_text: "testing".to_string().into_bytes(),
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),
@@ -248,7 +251,7 @@ mod test {
             })
             .await
             .unwrap();
-          assert_eq!(formatted_text, Some("testing_custom".to_string()));
+          assert_eq!(formatted_text.map(|t| String::from_utf8(t).unwrap()), Some("testing_custom".to_string()));
         }
 
         assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
@@ -276,7 +279,7 @@ mod test {
         let future = communicator.format_text(InitializedPluginFormatRequest {
           file_path: PathBuf::from("test.txt"),
           // special text that makes it wait for cancellation
-          file_text: "wait_cancellation".to_string(),
+          file_text: "wait_cancellation".to_string().into_bytes(),
           config: format_config.clone(),
           range: None,
           override_config: Default::default(),

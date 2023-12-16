@@ -7,6 +7,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DirEntry;
 use crate::environment::Environment;
 
@@ -20,40 +21,49 @@ pub struct GlobOutput {
   pub config_files: Vec<PathBuf>,
 }
 
-pub fn glob(environment: &impl Environment, base: impl AsRef<Path>, file_patterns: GlobPatterns) -> Result<GlobOutput> {
-  if file_patterns.includes.is_some() && file_patterns.includes.as_ref().unwrap().iter().all(|p| p.is_negated()) {
+pub struct GlobOptions {
+  /// The directory to start searching from.
+  pub start_dir: PathBuf,
+  /// The file patterns to use for globbing.
+  pub file_patterns: GlobPatterns,
+  /// The directory to use as the base for the patterns.
+  /// Generally you want this to be the directory of the config file.
+  pub pattern_base: CanonicalizedPathBuf,
+}
+
+pub fn glob(environment: &impl Environment, opts: GlobOptions) -> Result<GlobOutput> {
+  if opts.file_patterns.includes.is_some() && opts.file_patterns.includes.as_ref().unwrap().iter().all(|p| p.is_negated()) {
     // performance improvement (see issue #379)
-    log_verbose!(environment, "Skipping negated globs: {:?}", file_patterns.includes);
+    log_debug!(environment, "Skipping negated globs: {:?}", opts.file_patterns.includes);
     return Ok(Default::default());
   }
 
   let start_instant = std::time::Instant::now();
-  log_verbose!(environment, "Globbing: {:?}", file_patterns);
+  log_debug!(environment, "Globbing: {:?}", opts.file_patterns);
 
   let glob_matcher = GlobMatcher::new(
-    file_patterns,
+    opts.file_patterns,
     &GlobMatcherOptions {
       // make it work the same way on every operating system
       case_sensitive: false,
-      base_dir: environment.cwd(),
+      base_dir: opts.pattern_base,
     },
   )?;
 
-  let start_dir = base.as_ref().to_path_buf();
-  let shared_state = Arc::new(SharedState::new(start_dir.clone()));
+  let shared_state = Arc::new(SharedState::new(opts.start_dir.clone()));
 
   // This is a performance improvement to attempt to reduce the time of globbing down
   // to the speed of `fs::read_dir` calls. Essentially, run all the `fs::read_dir` calls
   // on a new thread and do the glob matching on the other thread.
-  let read_dir_runner = ReadDirRunner::new(start_dir, environment.clone(), shared_state.clone());
+  let read_dir_runner = ReadDirRunner::new(opts.start_dir, environment.clone(), shared_state.clone());
   dprint_core::async_runtime::spawn_blocking(move || read_dir_runner.run());
 
   // run the glob matching on the current thread (the two threads will communicate with each other)
   let glob_matching_processor = GlobMatchingProcessor::new(shared_state, glob_matcher);
   let results = glob_matching_processor.run()?;
 
-  log_verbose!(environment, "File(s) matched: {:?}", results);
-  log_verbose!(environment, "Finished globbing in {}ms", start_instant.elapsed().as_millis());
+  log_debug!(environment, "File(s) matched: {:?}", results);
+  log_debug!(environment, "Finished globbing in {}ms", start_instant.elapsed().as_millis());
 
   Ok(results)
 }
@@ -89,10 +99,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     while let Some(pending_dirs) = self.get_next_pending_dirs() {
       let mut all_entries = Vec::new();
       for current_dir in pending_dirs.into_iter().flatten() {
-        let info_result = self
-          .environment
-          .dir_info(&current_dir)
-          .map_err(|err| anyhow!("Error reading dir '{}': {:#}", current_dir.display(), err));
+        let info_result = self.environment.dir_info(&current_dir);
         match info_result {
           Ok(entries) => {
             if !entries.is_empty() {
@@ -128,8 +135,15 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
             }
           }
           Err(err) => {
-            self.set_glob_error(err);
-            return;
+            let ignore_error = is_system_volume_error(&current_dir, &err);
+            if !ignore_error {
+              if err.kind() == std::io::ErrorKind::PermissionDenied {
+                log_warn!(self.environment, "WARNING: Ignoring directory. Permission denied: {}", current_dir.display());
+              } else {
+                self.set_glob_error(anyhow!("Error reading dir '{}': {:#}", current_dir.display(), err));
+                return;
+              }
+            }
           }
         }
       }
@@ -172,6 +186,13 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     state.pending_entries.push(entries);
     cvar.notify_one();
   }
+}
+
+fn is_system_volume_error(dir_path: &Path, err: &std::io::Error) -> bool {
+  // ignore any access denied errors for the system volume information
+  cfg!(target_os = "windows")
+    && matches!(err.raw_os_error(), Some(5))
+    && matches!(dir_path.file_name().and_then(|f| f.to_str()), Some("System Volume Information"))
 }
 
 struct GlobMatchingProcessor {
@@ -334,10 +355,13 @@ mod test {
     let root_dir = environment.canonicalize("/").unwrap();
     let result = glob(
       &environment,
-      "/",
-      GlobPatterns {
-        includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
-        excludes: vec![GlobPattern::new("**/ignore".to_string(), root_dir)],
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        file_patterns: GlobPatterns {
+          includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
+          excludes: vec![GlobPattern::new("**/ignore".to_string(), root_dir)],
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
     )
     .unwrap();
@@ -350,19 +374,45 @@ mod test {
   #[tokio::test]
   async fn should_handle_dir_info_erroring() {
     let environment = TestEnvironmentBuilder::new().build();
-    environment.set_dir_info_error(anyhow!("FAILURE"));
+    environment.set_dir_info_error(std::io::Error::new(std::io::ErrorKind::Other, "FAILURE"));
     let root_dir = environment.canonicalize("/").unwrap();
     let err_message = glob(
       &environment,
-      "/",
-      GlobPatterns {
-        includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
-        excludes: Vec::new(),
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        file_patterns: GlobPatterns {
+          includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
+          excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
     )
     .err()
     .unwrap();
     assert_eq!(err_message.to_string(), "Error reading dir '/': FAILURE");
+  }
+
+  #[tokio::test]
+  async fn should_ignore_permission_denied_error() {
+    let environment = TestEnvironmentBuilder::new().build();
+    environment.set_dir_info_error(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Permission denied"));
+    let root_dir = environment.canonicalize("/").unwrap();
+    let result = glob(
+      &environment,
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        file_patterns: GlobPatterns {
+          includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
+          excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+      },
+    );
+    assert!(result.is_ok());
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["WARNING: Ignoring directory. Permission denied: /".to_string()]
+    );
   }
 
   #[tokio::test]
@@ -372,13 +422,16 @@ mod test {
     let root_dir = environment.canonicalize("/").unwrap();
     let result = glob(
       &environment,
-      "/",
-      GlobPatterns {
-        includes: Some(vec![
-          GlobPattern::new("!**/*.*".to_string(), root_dir.clone()),
-          GlobPattern::new("**/a.txt".to_string(), root_dir),
-        ]),
-        excludes: Vec::new(),
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        file_patterns: GlobPatterns {
+          includes: Some(vec![
+            GlobPattern::new("!**/*.*".to_string(), root_dir.clone()),
+            GlobPattern::new("**/a.txt".to_string(), root_dir),
+          ]),
+          excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
     )
     .unwrap();
@@ -397,14 +450,17 @@ mod test {
     let root_dir = environment.canonicalize("/").unwrap();
     let result = glob(
       &environment,
-      "/",
-      GlobPatterns {
-        includes: Some(vec![
-          GlobPattern::new("**/*.json".to_string(), root_dir.clone()),
-          GlobPattern::new("!**/*.json".to_string(), root_dir.clone()),
-          GlobPattern::new("**/a.json".to_string(), root_dir),
-        ]),
-        excludes: Vec::new(),
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        file_patterns: GlobPatterns {
+          includes: Some(vec![
+            GlobPattern::new("**/*.json".to_string(), root_dir.clone()),
+            GlobPattern::new("!**/*.json".to_string(), root_dir.clone()),
+            GlobPattern::new("**/a.json".to_string(), root_dir),
+          ]),
+          excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
     )
     .unwrap();
@@ -424,14 +480,17 @@ mod test {
     let test_dir = environment.canonicalize("/test/").unwrap();
     let result = glob(
       &environment,
-      "/test/",
-      GlobPatterns {
-        includes: Some(vec![
-          GlobPattern::new("**/*.json".to_string(), test_dir.clone()),
-          GlobPattern::new("!a/**/*.json".to_string(), test_dir.clone()),
-          GlobPattern::new("a/b/**/*.json".to_string(), test_dir),
-        ]),
-        excludes: Vec::new(),
+      GlobOptions {
+        start_dir: PathBuf::from("/test/"),
+        file_patterns: GlobPatterns {
+          includes: Some(vec![
+            GlobPattern::new("**/*.json".to_string(), test_dir.clone()),
+            GlobPattern::new("!a/**/*.json".to_string(), test_dir.clone()),
+            GlobPattern::new("a/b/**/*.json".to_string(), test_dir),
+          ]),
+          excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/test/"),
       },
     )
     .unwrap();
@@ -450,14 +509,17 @@ mod test {
     let root_dir = environment.canonicalize("/").unwrap();
     let result = glob(
       &environment,
-      "/",
-      GlobPatterns {
-        includes: Some(vec![
-          GlobPattern::new("**/*.*".to_string(), root_dir.clone()),
-          GlobPattern::new("!dir/a/**/*".to_string(), root_dir.clone()),
-          GlobPattern::new("dir/b/b/**/*".to_string(), root_dir),
-        ]),
-        excludes: Vec::new(),
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        file_patterns: GlobPatterns {
+          includes: Some(vec![
+            GlobPattern::new("**/*.*".to_string(), root_dir.clone()),
+            GlobPattern::new("!dir/a/**/*".to_string(), root_dir.clone()),
+            GlobPattern::new("dir/b/b/**/*".to_string(), root_dir),
+          ]),
+          excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
     )
     .unwrap();

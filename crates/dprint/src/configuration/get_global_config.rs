@@ -89,6 +89,26 @@ mod tests {
   }
 
   #[test]
+  fn should_get_global_for_system_new_line_kind() {
+    let mut config_map = ConfigMap::new();
+    config_map.insert(String::from("newLineKind"), ConfigMapValue::from_str("system"));
+    assert_result(
+      config_map,
+      GlobalConfiguration {
+        line_width: None,
+        use_tabs: None,
+        indent_width: None,
+        new_line_kind: Some(if cfg!(windows) {
+          NewLineKind::CarriageReturnLineFeed
+        } else {
+          NewLineKind::LineFeed
+        }),
+      },
+      &[],
+    );
+  }
+
+  #[test]
   fn should_diagnostic_on_unexpected_object_properties() {
     let mut config_map = ConfigMap::new();
     config_map.insert(String::from("test"), ConfigMapValue::PluginConfig(Default::default()));

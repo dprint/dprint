@@ -6,6 +6,14 @@ pub fn is_negated_glob(pattern: &str) -> bool {
   first_char == Some('!') && second_char != Some('(')
 }
 
+pub fn non_negated_glob(pattern: &str) -> &str {
+  if is_negated_glob(pattern) {
+    &pattern[1..]
+  } else {
+    pattern
+  }
+}
+
 pub fn is_absolute_pattern(pattern: &str) -> bool {
   let pattern = if is_negated_glob(pattern) { &pattern[1..] } else { pattern };
   pattern.starts_with('/') || is_windows_absolute_pattern(pattern)

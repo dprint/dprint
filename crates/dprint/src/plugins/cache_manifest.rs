@@ -84,10 +84,10 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
     Ok(manifest) => {
       if manifest.is_different_schema() || manifest.is_new_wasm_cache() {
         if manifest.is_different_schema() {
-          log_verbose!(environment, "Busting plugins cache due to different schema.");
+          log_debug!(environment, "Busting plugins cache due to different schema.");
         }
         if manifest.is_new_wasm_cache() {
-          log_verbose!(environment, "Busting plugins cache due to new wasm cache version.");
+          log_debug!(environment, "Busting plugins cache due to new wasm cache version.");
         }
         let _ = environment.remove_dir_all(environment.get_cache_dir().join("plugins"));
         PluginCacheManifest::new()
@@ -96,7 +96,7 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
       }
     }
     Err(err) => {
-      log_verbose!(environment, "Busting plugins cache due to deserialization error: {:#}", err);
+      log_debug!(environment, "Busting plugins cache due to deserialization error: {:#}", err);
       let _ = environment.remove_dir_all(environment.get_cache_dir().join("plugins"));
       PluginCacheManifest::new()
     }

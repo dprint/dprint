@@ -86,7 +86,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
 
 struct WasmPluginFormatMessage {
   file_path: PathBuf,
-  file_text: String,
+  file_bytes: Vec<u8>,
   config: Arc<FormatConfig>,
   override_config: ConfigKeyMap,
 }
@@ -176,15 +176,15 @@ impl InitializedWasmPluginInstance {
     self.sync_plugin_info().map(|i| i.file_matching)
   }
 
-  fn format_text(&mut self, file_path: &Path, file_text: &str, config: &FormatConfig, override_config: &ConfigKeyMap) -> FormatResult {
+  fn format_text(&mut self, file_path: &Path, file_bytes: &[u8], config: &FormatConfig, override_config: &ConfigKeyMap) -> FormatResult {
     self.ensure_config(config)?;
-    match self.inner_format_text(file_path, file_text, override_config) {
+    match self.inner_format_text(file_path, file_bytes, override_config) {
       Ok(inner) => inner,
       Err(err) => Err(CriticalFormatError(err).into()),
     }
   }
 
-  fn inner_format_text(&mut self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<FormatResult> {
+  fn inner_format_text(&mut self, file_path: &Path, file_bytes: &[u8], override_config: &ConfigKeyMap) -> Result<FormatResult> {
     // send override config if necessary
     if !override_config.is_empty() {
       self.send_string(&match serde_json::to_string(override_config) {
@@ -199,7 +199,7 @@ impl InitializedWasmPluginInstance {
     self.wasm_functions.set_file_path()?;
 
     // send file text and format
-    self.send_string(file_text)?;
+    self.send_bytes(file_bytes)?;
     let response_code = self.wasm_functions.format()?;
 
     // handle the response
@@ -207,8 +207,8 @@ impl InitializedWasmPluginInstance {
       WasmFormatResult::NoChange => Ok(Ok(None)),
       WasmFormatResult::Change => {
         let len = self.wasm_functions.get_formatted_text()?;
-        let text = self.receive_string(len)?;
-        Ok(Ok(Some(text)))
+        let text_bytes = self.receive_bytes(len)?;
+        Ok(Ok(Some(text_bytes)))
       }
       WasmFormatResult::Error => {
         let len = self.wasm_functions.get_error_text()?;
@@ -237,13 +237,16 @@ impl InitializedWasmPluginInstance {
   // a major problem where the CLI is out of sync with the plugin.
 
   fn send_string(&mut self, text: &str) -> Result<()> {
+    self.send_bytes(text.as_bytes())
+  }
+
+  fn send_bytes(&mut self, bytes: &[u8]) -> Result<()> {
     let mut index = 0;
-    let len = text.len();
-    let text_bytes = text.as_bytes();
+    let len = bytes.len();
     self.wasm_functions.clear_shared_bytes(len)?;
     while index < len {
       let write_count = std::cmp::min(len - index, self.buffer_size);
-      self.write_bytes_to_memory_buffer(&text_bytes[index..(index + write_count)])?;
+      self.write_bytes_to_memory_buffer(&bytes[index..(index + write_count)])?;
       self.wasm_functions.add_to_shared_bytes_from_buffer(write_count)?;
       index += write_count;
     }
@@ -258,6 +261,11 @@ impl InitializedWasmPluginInstance {
   }
 
   fn receive_string(&mut self, len: usize) -> Result<String> {
+    let bytes = self.receive_bytes(len)?;
+    Ok(String::from_utf8(bytes)?)
+  }
+
+  fn receive_bytes(&mut self, len: usize) -> Result<Vec<u8>> {
     let mut index = 0;
     let mut bytes: Vec<u8> = vec![0; len];
     while index < len {
@@ -266,7 +274,7 @@ impl InitializedWasmPluginInstance {
       self.read_bytes_from_memory_buffer(&mut bytes[index..(index + read_count)])?;
       index += read_count;
     }
-    Ok(String::from_utf8(bytes)?)
+    Ok(bytes)
   }
 
   fn read_bytes_from_memory_buffer(&mut self, bytes: &mut [u8]) -> Result<()> {
@@ -298,7 +306,7 @@ impl<TEnvironment: Environment> Drop for InitializedWasmPlugin<TEnvironment> {
 
       instances.len()
     };
-    log_verbose!(
+    log_debug!(
       self.environment,
       "Dropped {} ({} instances) in {}ms",
       self.name,
@@ -390,7 +398,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
 
   async fn create_instance(&self) -> Result<WasmPluginSenderWithState> {
     let start_instant = Instant::now();
-    log_verbose!(self.environment, "Creating instance of {}", self.name);
+    log_debug!(self.environment, "Creating instance of {}", self.name);
     let mut store = wasmer::Store::default();
 
     let (host_format_tx, mut host_format_rx) = tokio::sync::mpsc::unbounded_channel::<(HostFormatRequest, std::sync::mpsc::Sender<FormatResult>)>();
@@ -473,7 +481,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
               }
             }
             WasmPluginMessage::FormatRequest(request, response) => {
-              let result = instance.format_text(&request.file_path, &request.file_text, &request.config, &request.override_config);
+              let result = instance.format_text(&request.file_path, &request.file_bytes, &request.config, &request.override_config);
               if response.send(result).is_err() {
                 break; // disconnected
               }
@@ -486,7 +494,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     // wait for initialization
     initialize_rx.await??;
 
-    log_verbose!(
+    log_debug!(
       self.environment,
       "Created instance of {} in {}ms",
       self.name,
@@ -571,7 +579,7 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
     }
     let message = Arc::new(WasmPluginFormatMessage {
       file_path: request.file_path,
-      file_text: request.file_text,
+      file_bytes: request.file_text,
       config: request.config,
       override_config: request.override_config,
     });

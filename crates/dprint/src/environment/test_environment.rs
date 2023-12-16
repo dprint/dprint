@@ -1,6 +1,5 @@
 use anyhow::anyhow;
 use anyhow::bail;
-use anyhow::Error;
 use anyhow::Result;
 use parking_lot::Condvar;
 use parking_lot::Mutex;
@@ -22,6 +21,7 @@ use super::Environment;
 use super::FilePermissions;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
+use crate::utils::LogLevel;
 
 #[derive(Default)]
 struct BufferData {
@@ -95,7 +95,7 @@ impl Write for TestPipeWriter {
 
 #[derive(Clone)]
 pub struct TestEnvironment {
-  is_verbose: Arc<Mutex<bool>>,
+  log_level: Arc<Mutex<LogLevel>>,
   cwd: Arc<Mutex<String>>,
   files: Arc<Mutex<HashMap<PathBuf, Vec<u8>>>>,
   file_permissions: Arc<Mutex<HashMap<PathBuf, FilePermissions>>>,
@@ -108,7 +108,7 @@ pub struct TestEnvironment {
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>>>>>,
   is_stdout_machine_readable: Arc<Mutex<bool>>,
   wasm_compile_result: Arc<Mutex<Option<CompilationResult>>>,
-  dir_info_error: Arc<Mutex<Option<Error>>>,
+  dir_info_error: Arc<Mutex<Option<std::io::Error>>>,
   std_in_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
   std_out_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
   #[cfg(windows)]
@@ -121,7 +121,7 @@ pub struct TestEnvironment {
 impl TestEnvironment {
   pub fn new() -> TestEnvironment {
     TestEnvironment {
-      is_verbose: Arc::new(Mutex::new(false)),
+      log_level: Arc::new(Mutex::new(LogLevel::Info)),
       cwd: Arc::new(Mutex::new(String::from("/"))),
       files: Default::default(),
       file_permissions: Default::default(),
@@ -169,13 +169,11 @@ impl TestEnvironment {
   }
 
   pub fn add_remote_file_bytes(&self, path: &str, bytes: Vec<u8>) {
-    let mut remote_files = self.remote_files.lock();
-    remote_files.insert(String::from(path), Ok(bytes));
+    self.remote_files.lock().insert(String::from(path), Ok(bytes));
   }
 
   pub fn add_remote_file_error(&self, path: &str, err: &str) {
-    let mut remote_files = self.remote_files.lock();
-    remote_files.insert(String::from(path), Err(anyhow!("{}", err)));
+    self.remote_files.lock().insert(String::from(path), Err(anyhow!("{}", err)));
   }
 
   pub fn get_remote_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
@@ -188,23 +186,19 @@ impl TestEnvironment {
   }
 
   pub fn is_dir_deleted(&self, path: impl AsRef<Path>) -> bool {
-    let deleted_directories = self.deleted_directories.lock();
-    deleted_directories.contains(&path.as_ref().to_path_buf())
+    self.deleted_directories.lock().contains(&path.as_ref().to_path_buf())
   }
 
   pub fn set_selection_result(&self, index: usize) {
-    let mut selection_result = self.selection_result.lock();
-    *selection_result = index;
+    *self.selection_result.lock() = index;
   }
 
   pub fn set_multi_selection_result(&self, indexes: Vec<usize>) {
-    let mut multi_selection_result = self.multi_selection_result.lock();
-    *multi_selection_result = Some(indexes);
+    *self.multi_selection_result.lock() = Some(indexes);
   }
 
   pub fn set_confirm_results(&self, values: Vec<Result<Option<bool>>>) {
-    let mut confirm_results = self.confirm_results.lock();
-    *confirm_results = values;
+    *self.confirm_results.lock() = values;
   }
 
   pub fn set_cwd(&self, new_path: &str) {
@@ -216,14 +210,12 @@ impl TestEnvironment {
     *self.is_stdout_machine_readable.lock() = value;
   }
 
-  pub fn set_verbose(&self, value: bool) {
-    let mut is_verbose = self.is_verbose.lock();
-    *is_verbose = value;
+  pub fn set_log_level(&self, value: LogLevel) {
+    *self.log_level.lock() = value;
   }
 
   pub fn set_wasm_compile_result(&self, value: CompilationResult) {
-    let mut wasm_compile_result = self.wasm_compile_result.lock();
-    *wasm_compile_result = Some(value);
+    *self.wasm_compile_result.lock() = Some(value);
   }
 
   pub fn stdout_reader(&self) -> Box<dyn Read + Send> {
@@ -239,9 +231,8 @@ impl TestEnvironment {
     self.path_dirs.lock().clone()
   }
 
-  pub fn set_dir_info_error(&self, err: Error) {
-    let mut dir_info_error = self.dir_info_error.lock();
-    *dir_info_error = Some(err);
+  pub fn set_dir_info_error(&self, err: std::io::Error) {
+    *self.dir_info_error.lock() = Some(err);
   }
 
   pub fn set_current_exe_path(&self, path: impl AsRef<Path>) {
@@ -301,6 +292,7 @@ impl UrlDownloader for TestEnvironment {
   }
 }
 
+#[async_trait]
 impl Environment for TestEnvironment {
   fn is_real(&self) -> bool {
     false
@@ -371,7 +363,7 @@ impl Environment for TestEnvironment {
     Ok(())
   }
 
-  fn dir_info(&self, dir_path: impl AsRef<Path>) -> Result<Vec<DirEntry>> {
+  fn dir_info(&self, dir_path: impl AsRef<Path>) -> std::io::Result<Vec<DirEntry>> {
     if let Some(err) = self.dir_info_error.lock().take() {
       return Err(err);
     }
@@ -451,7 +443,7 @@ impl Environment for TestEnvironment {
     Ok(self.current_exe_path.lock().clone())
   }
 
-  fn log(&self, text: &str) {
+  fn __log__(&self, text: &str) {
     if *self.is_stdout_machine_readable.lock() {
       return;
     }
@@ -462,9 +454,9 @@ impl Environment for TestEnvironment {
     self.stderr_messages.lock().push(String::from(text));
   }
 
-  fn log_machine_readable(&self, text: &str) {
+  fn log_machine_readable(&self, text: &[u8]) {
     assert!(*self.is_stdout_machine_readable.lock());
-    self.stdout_messages.lock().push(String::from(text));
+    self.stdout_messages.lock().push(String::from_utf8(text.to_vec()).unwrap());
   }
 
   fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
@@ -473,7 +465,7 @@ impl Environment for TestEnvironment {
     action: TCreate,
     _: usize,
   ) -> TResult {
-    self.log_stderr(message);
+    self.__log_stderr__(message);
     action(Box::new(|_| {}))
   }
 
@@ -502,12 +494,12 @@ impl Environment for TestEnvironment {
   }
 
   fn get_selection(&self, prompt_message: &str, _: u16, _: &[String]) -> Result<usize> {
-    self.log_stderr(prompt_message);
+    self.__log_stderr__(prompt_message);
     Ok(*self.selection_result.lock())
   }
 
   fn get_multi_selection(&self, prompt_message: &str, _: u16, items: &[(bool, String)]) -> Result<Vec<usize>> {
-    self.log_stderr(prompt_message);
+    self.__log_stderr__(prompt_message);
     let default_values = items
       .iter()
       .enumerate()
@@ -519,7 +511,7 @@ impl Environment for TestEnvironment {
   fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool> {
     let mut confirm_results = self.confirm_results.lock();
     let result = confirm_results.remove(0).map(|v| v.unwrap_or(default_value));
-    self.log_stderr(&format!(
+    self.__log_stderr__(&format!(
       "{} {}",
       prompt_message,
       match &result {
@@ -531,13 +523,25 @@ impl Environment for TestEnvironment {
     result
   }
 
-  fn is_verbose(&self) -> bool {
-    *self.is_verbose.lock()
+  fn is_ci(&self) -> bool {
+    false
+  }
+
+  fn log_level(&self) -> LogLevel {
+    *self.log_level.lock()
   }
 
   fn compile_wasm(&self, _: &[u8]) -> Result<CompilationResult> {
     let wasm_compile_result = self.wasm_compile_result.lock();
     Ok(wasm_compile_result.clone().expect("Expected compilation result to be set."))
+  }
+
+  fn wasm_cache_key(&self) -> String {
+    self.cpu_arch()
+  }
+
+  async fn cpu_usage(&self) -> u8 {
+    20
   }
 
   fn stdout(&self) -> Box<dyn Write + Send> {

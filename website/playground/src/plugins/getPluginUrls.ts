@@ -12,8 +12,27 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
   const markdownPlugin = json.latest.find((p: any) => p.configKey === "markdown")!;
   const tomlPlugin = json.latest.find((p: any) => p.configKey === "toml")!;
   const dockerfilePlugin = json.latest.find((p: any) => p.configKey === "dockerfile")!;
+  const biomePlugin = json.latest.find((p: any) => p.configKey === "biome")!;
+  const ruffPlugin = json.latest.find((p: any) => p.configKey === "ruff")!;
 
-  return [typescriptPlugin.url, jsonPlugin.url, markdownPlugin.url, tomlPlugin.url, dockerfilePlugin.url];
+  return [typescriptPlugin.url, jsonPlugin.url, markdownPlugin.url, tomlPlugin.url, dockerfilePlugin.url, biomePlugin.url, ruffPlugin.url];
+}
+
+export function getPluginShortNameFromPluginUrl(url: string) {
+  const result = /https:\/\/plugins\.dprint\.dev\/([a-z]+)-[0-9]+\.[0-9]+\.[0-9]+\.wasm$/.exec(url);
+  const name = result?.[1];
+  switch (name) {
+    case "typescript":
+    case "markdown":
+    case "json":
+    case "toml":
+    case "dockerfile":
+    case "biome":
+    case "ruff":
+      return name;
+    default:
+      return undefined;
+  }
 }
 
 export function getLanguageFromPluginUrl(url: string) {
@@ -26,6 +45,11 @@ export function getLanguageFromPluginUrl(url: string) {
     case "toml":
     case "dockerfile":
       return language;
+    case "biome":
+      return "typescript";
+    case "ruff":
+      // todo: specify python here eventually (probably need to upgrade the code editor)
+      return "plaintext";
     default:
       return undefined;
   }

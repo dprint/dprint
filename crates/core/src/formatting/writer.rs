@@ -242,7 +242,7 @@ impl<'a> Writer<'a> {
   }
 
   fn push_item(&mut self, item: WriteItem<'a>) {
-    let previous = std::mem::replace(&mut self.state.items, None);
+    let previous = self.state.items.take();
     let graph_node = self.bump.alloc(GraphNode::new(item, previous));
     self.state.items = Some(graph_node);
 

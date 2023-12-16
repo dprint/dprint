@@ -18,7 +18,7 @@ impl<TEnvironment: Environment> ErrorCountLogger<TEnvironment> {
   }
 
   pub fn log_error(&self, message: &str) {
-    self.environment.log_stderr(message);
+    log_error!(self.environment, message);
     self.add_error_count(1);
   }
 

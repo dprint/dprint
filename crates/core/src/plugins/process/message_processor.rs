@@ -194,13 +194,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
                 continue;
               }
             },
-            file_text: match String::from_utf8(body.file_text) {
-              Ok(text) => text,
-              Err(err) => {
-                send_error_response(&context, message.id, anyhow!("Error decoding text to utf8: {:#}", err));
-                continue;
-              }
-            },
+            file_bytes: body.file_bytes,
             token: token.clone(),
           };
 
@@ -221,7 +215,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
               let body = match result {
                 Ok(text) => MessageBody::FormatResponse(ResponseBody {
                   message_id: message.id,
-                  data: text.map(|t| t.into_bytes()),
+                  data: text,
                 }),
                 Err(err) => MessageBody::Error(ResponseBody {
                   message_id: message.id,
@@ -246,15 +240,8 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           }
         }
         MessageBody::FormatResponse(body) => {
-          let data = match body.data {
-            None => Ok(None),
-            Some(data) => match String::from_utf8(data) {
-              Ok(data) => Ok(Some(data)),
-              Err(err) => Err(anyhow!("Error deserializing success: {:#}", err)),
-            },
-          };
           if let Some(sender) = context.format_host_senders.take(body.message_id) {
-            sender.send(data).unwrap();
+            sender.send(Ok(body.data)).unwrap();
           }
         }
         MessageBody::Success(_) | MessageBody::DataResponse(_) => {
@@ -287,7 +274,7 @@ fn host_format<TConfiguration: Serialize + Clone + Send + Sync>(
       body: MessageBody::HostFormat(HostFormatMessageBody {
         original_message_id,
         file_path: request.file_path,
-        file_text: request.file_text.into_bytes(),
+        file_text: request.file_bytes,
         range: request.range,
         override_config: serde_json::to_vec(&request.override_config).unwrap(),
       }),

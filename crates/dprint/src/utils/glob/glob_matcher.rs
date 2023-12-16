@@ -253,4 +253,26 @@ mod test {
     assert!(!glob_matcher.matches_and_dir_not_ignored("/testing/sub-dir/no-match.ts"));
     assert!(!glob_matcher.matches_and_dir_not_ignored("/testing/sub-dir/nested/no-match.ts"));
   }
+
+  #[test]
+  fn handles_ignored_dir_while_include_is_sub_dir() {
+    let base_dir = CanonicalizedPathBuf::new_for_testing("/");
+    let cwd = CanonicalizedPathBuf::new_for_testing("/sub-dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        // notice cwd and base_dir are different. This will happen when the config
+        // file is in an ancestor dir and the user has stepped into a folder
+        includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
+        excludes: vec![GlobPattern::new("**/dist".to_string(), base_dir.clone())],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    assert!(glob_matcher.matches_and_dir_not_ignored("/sub-dir/dir/match.ts"));
+    assert!(glob_matcher.matches_and_dir_not_ignored("/sub-dir/dir/other/match.ts"));
+    assert!(!glob_matcher.matches_and_dir_not_ignored("/sub-dir/dist/no-match.ts"));
+  }
 }

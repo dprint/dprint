@@ -4,20 +4,20 @@ use anyhow::Result;
 use serde_json::Value;
 
 pub async fn is_out_of_date(environment: &impl Environment) -> Option<String> {
-  log_verbose!(environment, "Checking if CLI out of date...");
+  log_debug!(environment, "Checking if CLI out of date...");
   match latest_cli_version(environment).await {
     Ok(latest_version) => {
       let current_version = environment.cli_version();
       if current_version == latest_version {
-        log_verbose!(environment, "CLI version matched.");
+        log_debug!(environment, "CLI version matched.");
         None
       } else {
-        log_verbose!(environment, "Current version: {}\nLatest version: {}", current_version, latest_version);
+        log_debug!(environment, "Current version: {}\nLatest version: {}", current_version, latest_version);
         Some(latest_version)
       }
     }
     Err(err) => {
-      log_verbose!(environment, "Error fetching CLI version: {:#}", err);
+      log_debug!(environment, "Error fetching CLI version: {:#}", err);
       None
     }
   }

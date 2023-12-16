@@ -15,6 +15,7 @@ use crate::plugins::PluginNameResolutionMaps;
 use crate::resolution::PluginWithConfig;
 use crate::utils::glob;
 use crate::utils::is_negated_glob;
+use crate::utils::GlobOptions;
 use crate::utils::GlobOutput;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
@@ -37,7 +38,7 @@ impl PluginNames {
 }
 
 #[derive(Debug, Error)]
-#[error("No files found to format with the specified plugins at {}. You may want to try using `dprint output-file-paths` to see which files it's finding.", .base_path.display())]
+#[error("No files found to format with the specified plugins at {}. You may want to try using `dprint output-file-paths` to see which files it's finding or run with `--allow-no-files`.", .base_path.display())]
 pub struct NoFilesFoundError {
   pub base_path: CanonicalizedPathBuf,
 }
@@ -46,11 +47,15 @@ pub struct FilesPathsByPlugins(HashMap<PluginNames, Vec<PathBuf>>);
 
 impl FilesPathsByPlugins {
   pub fn ensure_not_empty(&self, base_path: &CanonicalizedPathBuf) -> Result<(), NoFilesFoundError> {
-    if self.0.is_empty() {
+    if self.is_empty() {
       Err(NoFilesFoundError { base_path: base_path.clone() })
     } else {
       Ok(())
     }
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.0.is_empty()
   }
 
   pub fn into_vec(self) -> Vec<(PluginNames, Vec<PathBuf>)> {
@@ -70,7 +75,7 @@ pub fn get_file_paths_by_plugins(plugin_name_maps: &PluginNameResolutionMaps, fi
 
     if !plugin_names.is_empty() {
       let plugin_names_key = PluginNames::from_plugin_names(&plugin_names);
-      let file_paths = file_paths_by_plugin.entry(plugin_names_key).or_insert_with(Vec::new);
+      let file_paths = file_paths_by_plugin.entry(plugin_names_key).or_default();
       file_paths.push(file_path);
     }
   }
@@ -97,14 +102,25 @@ pub async fn get_and_resolve_file_paths<'a>(
 
 async fn get_and_resolve_file_patterns<'a>(config: &ResolvedConfig, file_patterns: GlobPatterns, environment: &impl Environment) -> Result<GlobOutput> {
   let cwd = environment.cwd();
-  let is_in_sub_dir = cwd != config.base_path && cwd.starts_with(&config.base_path);
-  let base_dir = if is_in_sub_dir { cwd } else { config.base_path.clone() };
+  let is_cwd_in_base = cwd.starts_with(&config.base_path);
+  let is_in_sub_dir = cwd != config.base_path && is_cwd_in_base;
+  let start_dir = if is_in_sub_dir { cwd } else { config.base_path.clone() };
   let environment = environment.clone();
+  let pattern_base = config.base_path.clone();
 
   // This is intensive so do it in a blocking task
-  dprint_core::async_runtime::spawn_blocking(move || glob(&environment, &base_dir, file_patterns))
-    .await
-    .unwrap()
+  dprint_core::async_runtime::spawn_blocking(move || {
+    glob(
+      &environment,
+      GlobOptions {
+        start_dir: start_dir.into_path_buf(),
+        file_patterns,
+        pattern_base,
+      },
+    )
+  })
+  .await
+  .unwrap()
 }
 
 fn get_plugin_patterns<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>) -> Vec<String> {

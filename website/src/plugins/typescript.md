@@ -21,10 +21,13 @@ Supports:
 
 ## Install and Setup
 
-In a dprint configuration file:
+In your project's directory with a dprint.json file, run:
 
-1. Specify the plugin url in the `"plugins"` array.
-2. Add a `"typescript"` configuration property if desired.
+```shellsession
+dprint config add typescript
+```
+
+This will update your config file to have an entry for the plugin. Then optionally specify a `"typescript"` property to add configuration:
 
 ```json
 {
@@ -48,7 +51,7 @@ See [Configuration](/plugins/typescript/config)
 
 ## Playground
 
-See [Playground](https://dprint.dev/playground#language/typescript)
+See [Playground](https://dprint.dev/playground#plugin/typescript)
 
 ## Ignoring Files
 
@@ -119,7 +122,7 @@ if (
 }
 ```
 
-[Playground](https://dprint.dev/playground/#code/MYewdgzgLgBAtgQygCwEoFMIFcA2sC8MAjDANQwBMMAVDAGwCwAUDK2fCAE7oCySyNePwDczZugAeAB3TAoACggg46AGJYwcgJbgAwghw55RADSUAlOeZsYAOighb6AI5YD8gKznRTZqEiwiCgY2HhUhPLWbCTkFN5iTFoAZjCRLGxKKrrgACZaUDpgMABkxTAgKOic2WB5BeDmMADezAC+QA/config/N4KAviQ/language/typescript)
+[Playground](https://dprint.dev/playground/#code/MYewdgzgLgBAtgQygCwEoFMIFcA2sC8MAjDANQwBMMAVDAGwCwAUDK2fCAE7oCySyNePwDczZugAeAB3TAoACggg46AGJYwcgJbgAwghw55RADSUAlOeZsYAOighb6AI5YD8gKznRTZqEiwiCgY2HhUhPLWbCTkFN5iTFoAZjCRLGxKKrrgACZaUDpgMABkxTAgKOic2WB5BeDmMADezAC+QA/config/N4KAviQ/plugin/typescript)
 
 ### Forcing a Line Per Expression
 
@@ -170,4 +173,4 @@ myObject
 
 Line breaks are maintained, but not when they are consecutive or if they are at the beginning or end of a block.
 
-[Playground](https://dprint.dev/playground/#code/GYVwdgxgLglg9mABAWwJ4DFzXmAFASkQG8BYAKHMSuqoHpbEAZGMAU0QCMAnVgQwGsAzogDuMADbjO7ZLxZQ5bACYAaTiCiIwcTSIAWrJFAOpEvHuUtkaNeoggJBrCBpgA3dnC6IYwRMdZTc3ZeTQDpAHMWMBYIxC9EQyV4v15OcTgIfgA6KxtqHigQLiQAVgBuKwBfK3lWLmBeCHYAWVQASTAoesbm4jzqAAcuOEGALkRBKC5Yyop5mh0DLgAFEfGtEGQOernKamRWYzglAgmwLZ2uOcWArhajvROzxDc4GCU9siqgA/config/N4KAviQ/language/typescript)
+[Playground](https://dprint.dev/playground/#code/GYVwdgxgLglg9mABAWwJ4DFzXmAFASkQG8BYAKHMSuqoHpbEAZGMAU0QCMAnVgQwGsAzogDuMADbjO7ZLxZQ5bACYAaTiCiIwcTSIAWrJFAOpEvHuUtkaNeoggJBrCBpgA3dnC6IYwRMdZTc3ZeTQDpAHMWMBYIxC9EQyV4v15OcTgIfgA6KxtqHigQLiQAVgBuKwBfK3lWLmBeCHYAWVQASTAoesbm4jzqAAcuOEGALkRBKC5Yyop5mh0DLgAFEfGtEGQOernKamRWYzglAgmwLZ2uOcWArhajvROzxDc4GCU9siqgA/config/N4KAviQ/plugin/typescript)

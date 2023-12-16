@@ -15,14 +15,16 @@ layout: layouts/documentation.njk
 
 ## Install and Setup
 
-In a dprint configuration file:
+In your project's directory with a dprint.json file, run:
 
-1. Specify the plugin url in the `"plugins"` array.
-2. Add a `"markdown"` configuration property if desired.
+```shellsession
+dprint config add markdown
+```
+
+This will update your config file to have an entry for the plugin. Then optionally specify a `"markdown"` property to add configuration:
 
 ```json
 {
-  // omitted...
   "markdown": {
     // markdown config goes here
   },
@@ -38,7 +40,6 @@ Code blocks are formatted based on the other provided plugins. For example, if y
 
 ```json
 {
-  // omitted...
   "plugins": [
     "https://plugins.dprint.dev/typescript-x.x.x.wasm",
     "https://plugins.dprint.dev/json-x.x.x.wasm",
@@ -53,7 +54,7 @@ See [Configuration](/plugins/markdown/config)
 
 ## Playground
 
-See [Playground](https://dprint.dev/playground#language/markdown)
+See [Playground](https://dprint.dev/playground#plugin/markdown)
 
 ## Ignore Comments
 

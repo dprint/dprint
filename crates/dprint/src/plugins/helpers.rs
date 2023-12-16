@@ -23,7 +23,7 @@ pub async fn output_plugin_config_diagnostics<TEnvironment: Environment>(
   let mut diagnostic_count = 0;
 
   for diagnostic in plugin.config_diagnostics(format_config).await? {
-    environment.log_stderr(&format!("[{}]: {}", plugin_name, diagnostic));
+    log_warn!(environment, "[{}]: {}", plugin_name, diagnostic);
     diagnostic_count += 1;
   }
 

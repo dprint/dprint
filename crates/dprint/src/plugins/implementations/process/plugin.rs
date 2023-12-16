@@ -76,12 +76,12 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
   async fn initialize(&self) -> Result<Rc<dyn InitializedPlugin>> {
     let start_instant = Instant::now();
     let plugin_name = &self.info().name;
-    log_verbose!(self.environment, "Creating instance of {}", plugin_name);
+    log_debug!(self.environment, "Creating instance of {}", plugin_name);
     let communicator = InitializedProcessPluginCommunicator::new(plugin_name.to_string(), self.executable_file_path.clone(), self.environment.clone()).await?;
     let process_plugin = InitializedProcessPlugin::new(communicator)?;
 
     let result: Rc<dyn InitializedPlugin> = Rc::new(process_plugin);
-    log_verbose!(
+    log_debug!(
       self.environment,
       "Created instance of {} in {}ms",
       plugin_name,

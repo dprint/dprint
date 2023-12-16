@@ -36,6 +36,7 @@ use crate::environment::Environment;
 use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins;
 use crate::paths::FilesPathsByPlugins;
+use crate::paths::NoFilesFoundError;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
@@ -124,7 +125,7 @@ impl PluginWithConfig {
       None => {
         let result = instance.output_config_diagnostics(environment).await?;
         if let Err(err) = result {
-          environment.log_stderr(&err.to_string());
+          log_error!(environment, &err.to_string());
           *config_diagnostic_count = Some(err.diagnostic_count);
           Ok(GetPluginResult::HadDiagnostics(err.diagnostic_count))
         } else {
@@ -138,7 +139,7 @@ impl PluginWithConfig {
 
 pub struct InitializedPluginWithConfigFormatRequest {
   pub file_path: PathBuf,
-  pub file_text: String,
+  pub file_bytes: Vec<u8>,
   pub range: FormatRange,
   pub override_config: ConfigKeyMap,
   pub on_host_format: HostFormatCallback,
@@ -184,7 +185,7 @@ impl InitializedPluginWithConfig {
       .instance
       .format_text(InitializedPluginFormatRequest {
         file_path: request.file_path,
-        file_text: request.file_text,
+        file_text: request.file_bytes,
         range: request.range,
         config: self.plugin.format_config.clone(),
         override_config: request.override_config,
@@ -316,17 +317,17 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
 
   pub fn format(self: &Rc<Self>, request: HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> {
     let plugin_names = self.plugin_name_maps.get_plugin_names_from_file_path(&request.file_path);
-    log_verbose!(
+    log_debug!(
       self.environment,
       "Host formatting {} - File length: {} - Plugins: [{}] - Range: {:?}",
       request.file_path.display(),
-      request.file_text.len(),
+      request.file_bytes.len(),
       plugin_names.join(", "),
       request.range,
     );
     let scope = self.clone();
     async move {
-      let mut file_text = request.file_text;
+      let mut file_text = request.file_bytes;
       let mut had_change = false;
       for plugin_name in plugin_names {
         let plugin = scope.get_plugin(&plugin_name);
@@ -335,7 +336,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
             let result = initialized_plugin
               .format_text(InitializedPluginWithConfigFormatRequest {
                 file_path: request.file_path.clone(),
-                file_text: file_text.clone(),
+                file_bytes: file_text.clone(),
                 range: request.range.clone(),
                 override_config: request.override_config.clone(),
                 on_host_format: scope.create_host_format_callback(),
@@ -358,25 +359,50 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 }
 
-pub struct PluginsScopeAndPathsCollection<TEnvironment: Environment>(Vec<PluginsScopeAndPaths<TEnvironment>>);
+pub struct PluginsScopeAndPathsCollection<TEnvironment: Environment> {
+  environment: TEnvironment,
+  inner: Vec<PluginsScopeAndPaths<TEnvironment>>,
+}
 
 impl<TEnvironment: Environment> PluginsScopeAndPathsCollection<TEnvironment> {
   pub fn ensure_valid_for_cli_args(&self, cli_args: &CliArgs) -> Result<()> {
-    for scope in &self.0 {
+    for scope in &self.inner {
       scope.scope.ensure_valid_for_cli_args(cli_args)?;
-      if let Some(config) = scope.scope.config.as_ref() {
-        scope.file_paths_by_plugins.ensure_not_empty(&config.base_path)?;
+    }
+
+    // ensure we found some files
+    if !cli_args.sub_command.allow_no_files() {
+      let has_cli_file_patterns = cli_args.sub_command.file_patterns().map(|p| !p.file_patterns.is_empty()).unwrap_or(false);
+      // when the user specifies a pattern on the command line, just ensure that one scope matched
+      if has_cli_file_patterns {
+        let all_empty = self.iter().all(|s| s.file_paths_by_plugins.is_empty());
+        if all_empty {
+          return Err(
+            NoFilesFoundError {
+              base_path: self.environment.cwd(),
+            }
+            .into(),
+          );
+        }
+      } else {
+        // if no args specified then ensure all scopes have files
+        for scope in &self.inner {
+          if let Some(config) = scope.scope.config.as_ref() {
+            scope.file_paths_by_plugins.ensure_not_empty(&config.base_path)?;
+          }
+        }
       }
     }
+
     Ok(())
   }
 
   pub fn iter(&self) -> impl Iterator<Item = &PluginsScopeAndPaths<TEnvironment>> {
-    self.0.iter()
+    self.inner.iter()
   }
 
   pub fn into_iter(self) -> impl Iterator<Item = PluginsScopeAndPaths<TEnvironment>> {
-    self.0.into_iter()
+    self.inner.into_iter()
   }
 }
 
@@ -422,7 +448,10 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       result.extend(self.resolve_for_sub_config(config_file_path, &config, root_config_path).await?);
     }
 
-    Ok(PluginsScopeAndPathsCollection(result))
+    Ok(PluginsScopeAndPathsCollection {
+      environment: self.environment.clone(),
+      inner: result,
+    })
   }
 
   fn resolve_for_sub_config(
@@ -432,7 +461,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     root_config_path: Option<&'a CanonicalizedPathBuf>,
   ) -> LocalBoxFuture<'a, Result<Vec<PluginsScopeAndPaths<TEnvironment>>>> {
     async move {
-      log_verbose!(self.environment, "Analyzing config file {}", config_file_path.display());
+      log_debug!(self.environment, "Analyzing config file {}", config_file_path.display());
       let config_file_path = self.environment.canonicalize(&config_file_path)?;
       if Some(&config_file_path) == root_config_path {
         // config file specified via `--config` so ignore it

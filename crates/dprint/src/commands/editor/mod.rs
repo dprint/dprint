@@ -82,7 +82,7 @@ pub async fn output_editor_info<TEnvironment: Environment>(
     });
   }
 
-  environment.log_machine_readable(&serde_json::to_string(&EditorInfo {
+  environment.log_machine_readable(&serde_json::to_vec(&EditorInfo {
     schema_version: 5,
     cli_version: environment.cli_version(),
     config_schema_url: "https://dprint.dev/schemas/v0.json".to_string(),
@@ -156,7 +156,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
             return;
           }
           Err(err) => {
-            environment.log_stderr(&format!("Editor service failed reading from stdin: {:#}", err));
+            log_error!(environment, "Editor service failed reading from stdin: {:#}", err);
             return;
           }
         };
@@ -166,9 +166,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       }
     });
     loop {
-      let Some(message) = rx.recv().await else {
-        return Ok(())
-      };
+      let Some(message) = rx.recv().await else { return Ok(()) };
       match message.body {
         EditorMessageBody::Success(_message_id) => {}
         EditorMessageBody::Error(_message_id, _data) => {}
@@ -208,13 +206,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
                 }
               }
             },
-            file_text: match String::from_utf8(body.file_text) {
-              Ok(text) => text,
-              Err(err) => {
-                send_error_response(&self.context, message.id, anyhow!("Error decoding text to utf8. {:#}", err));
-                continue;
-              }
-            },
+            file_bytes: body.file_bytes,
             token: token.clone(),
           };
 
@@ -235,7 +227,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
             }
 
             let body = match result {
-              Ok(text) => EditorMessageBody::FormatResponse(message.id, text.map(|t| t.into_bytes())),
+              Ok(text) => EditorMessageBody::FormatResponse(message.id, text),
               Err(err) => EditorMessageBody::Error(message.id, format!("{:#}", err).into_bytes()),
             };
             send_response_body(&context, body);
@@ -262,7 +254,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     let file_matcher = FileMatcher::new(&config, &FilePatternArgs::default(), self.environment)?;
     // canonicalize the file path, then check if it's in the list of file paths.
     let resolved_file_path = self.environment.canonicalize(file_path)?;
-    log_verbose!(self.environment, "Checking can format: {}", resolved_file_path.display());
+    log_debug!(self.environment, "Checking can format: {}", resolved_file_path.display());
     Ok(file_matcher.matches_and_dir_not_ignored(&resolved_file_path))
   }
 
@@ -437,18 +429,18 @@ mod test {
     pub async fn format_text(
       &self,
       file_path: impl AsRef<Path>,
-      file_text: &str,
+      file_bytes: Vec<u8>,
       range: FormatRange,
       override_config: ConfigKeyMap,
       token: CancellationToken,
     ) -> FormatResult {
       let (tx, rx) = oneshot::channel::<Result<Option<Vec<u8>>>>();
 
-      let result = self
+      self
         .send_message(
           EditorMessageBody::Format(FormatEditorMessageBody {
             file_path: file_path.as_ref().to_path_buf(),
-            file_text: file_text.to_string().into_bytes(),
+            file_bytes,
             override_config: serde_json::to_vec(&override_config).unwrap(),
             range,
           }),
@@ -456,8 +448,7 @@ mod test {
           rx,
           Arc::new(token),
         )
-        .await;
-      result.map(|maybe_text| maybe_text.map(|bytes| String::from_utf8(bytes).unwrap()))
+        .await
     }
 
     pub async fn exit(&self) -> Result<()> {
@@ -591,15 +582,21 @@ mod test {
 
           assert_eq!(
             communicator
-              .format_text(&txt_file_path, "testing", None, Default::default(), Default::default())
+              .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
               .await
               .unwrap()
               .unwrap(),
-            "testing_formatted"
+            b"testing_formatted"
           );
           assert_eq!(
             communicator
-              .format_text(&txt_file_path, "testing_formatted", None, Default::default(), Default::default())
+              .format_text(
+                &txt_file_path,
+                "testing_formatted".to_string().into_bytes(),
+                None,
+                Default::default(),
+                Default::default()
+              )
               .await
               .unwrap()
               .is_none(),
@@ -607,23 +604,43 @@ mod test {
           ); // it is already formatted
           assert_eq!(
             communicator
-              .format_text(&other_ext_path, "testing", None, Default::default(), Default::default())
+              .format_text(
+                &other_ext_path,
+                "testing".to_string().into_bytes(),
+                None,
+                Default::default(),
+                Default::default()
+              )
               .await
               .unwrap()
               .is_none(),
             true
           ); // can't format
           assert_eq!(
-            communicator
-              .format_text(&txt_file_path, "plugin: format this text", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &txt_file_path,
+                  "plugin: format this text".to_string().into_bytes(),
+                  None,
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "plugin: format this text_formatted_process_formatted"
           );
           assert_eq!(
             communicator
-              .format_text(&txt_file_path, "should_error", None, Default::default(), Default::default())
+              .format_text(
+                &txt_file_path,
+                "should_error".to_string().into_bytes(),
+                None,
+                Default::default(),
+                Default::default()
+              )
               .await
               .err()
               .unwrap()
@@ -632,7 +649,13 @@ mod test {
           );
           assert_eq!(
             communicator
-              .format_text(&txt_file_path, "plugin: should_error", None, Default::default(), Default::default())
+              .format_text(
+                &txt_file_path,
+                "plugin: should_error".to_string().into_bytes(),
+                None,
+                Default::default(),
+                Default::default()
+              )
               .await
               .err()
               .unwrap()
@@ -640,11 +663,19 @@ mod test {
             "Did error."
           );
           assert_eq!(
-            communicator
-              .format_text(&PathBuf::from("/file.txt_ps"), "testing", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &PathBuf::from("/file.txt_ps"),
+                  "testing".to_string().into_bytes(),
+                  None,
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "testing_formatted_process"
           );
 
@@ -663,11 +694,13 @@ mod test {
               let txt_file_path = txt_file_path.clone();
               async move {
                 assert_eq!(
-                  communicator
-                    .format_text(&txt_file_path, "testing", None, Default::default(), Default::default())
-                    .await
-                    .unwrap()
-                    .unwrap(),
+                  bytes_to_string(
+                    communicator
+                      .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+                      .await
+                      .unwrap()
+                      .unwrap()
+                  ),
                   "testing_formatted"
                 );
               }
@@ -676,11 +709,19 @@ mod test {
               let communicator = communicator.clone();
               async move {
                 assert_eq!(
-                  communicator
-                    .format_text(&PathBuf::from("/file.txt_ps"), "testing", None, Default::default(), Default::default())
-                    .await
-                    .unwrap()
-                    .unwrap(),
+                  bytes_to_string(
+                    communicator
+                      .format_text(
+                        &PathBuf::from("/file.txt_ps"),
+                        "testing".to_string().into_bytes(),
+                        None,
+                        Default::default(),
+                        Default::default()
+                      )
+                      .await
+                      .unwrap()
+                      .unwrap()
+                  ),
                   "testing_formatted_process"
                 );
               }
@@ -695,11 +736,19 @@ mod test {
 
           // test range formatting
           assert_eq!(
-            communicator
-              .format_text(&PathBuf::from("/file.txt_ps"), "testing", Some(1..2), Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &PathBuf::from("/file.txt_ps"),
+                  "testing".to_string().into_bytes(),
+                  Some(1..2),
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "t_formatted_process_sting_formatted_process"
           );
 
@@ -711,7 +760,13 @@ mod test {
             async move {
               assert_eq!(
                 communicator
-                  .format_text(&PathBuf::from("/file.txt_ps"), "wait_cancellation", None, Default::default(), token)
+                  .format_text(
+                    &PathBuf::from("/file.txt_ps"),
+                    "wait_cancellation".to_string().into_bytes(),
+                    None,
+                    Default::default(),
+                    token
+                  )
                   .await
                   .unwrap(),
                 None
@@ -726,21 +781,23 @@ mod test {
 
           // test override config
           assert_eq!(
-            communicator
-              .format_text(
-                &PathBuf::from("/file.txt_ps"),
-                "testing",
-                Some(2..5),
-                {
-                  let mut config = ConfigKeyMap::new();
-                  config.insert("ending".to_string(), "test".into());
-                  config
-                },
-                Default::default()
-              )
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &PathBuf::from("/file.txt_ps"),
+                  "testing".to_string().into_bytes(),
+                  Some(2..5),
+                  {
+                    let mut config = ConfigKeyMap::new();
+                    config.insert("ending".to_string(), "test".into());
+                    config
+                  },
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "te_test_ng_test"
           );
 
@@ -761,11 +818,13 @@ mod test {
           assert_eq!(communicator.check_file(&ts_file_path).await.unwrap(), false); // shouldn't match anymore
           assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true); // still ok
           assert_eq!(
-            communicator
-              .format_text(&txt_file_path, "testing", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "testing_new_ending"
           );
 
@@ -837,51 +896,69 @@ mod test {
           assert_eq!(communicator.check_file(&file_path5).await.unwrap(), true);
 
           assert_eq!(
-            communicator
-              .format_text(&file_path1, "text", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(&file_path1, "text".to_string().into_bytes(), None, Default::default(), Default::default())
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "text_wasm_ps"
           );
           assert_eq!(
-            communicator
-              .format_text(&file_path1, "plugin: text6", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &file_path1,
+                  "plugin: text6".to_string().into_bytes(),
+                  None,
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "plugin: text6_wasm_ps_wasm_ps_ps"
           );
           assert_eq!(
-            communicator
-              .format_text(&file_path2, "text", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(&file_path2, "text".to_string().into_bytes(), None, Default::default(), Default::default())
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "text_wasm_ps"
           );
           assert_eq!(
-            communicator
-              .format_text(&file_path3, "text", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(&file_path3, "text".to_string().into_bytes(), None, Default::default(), Default::default())
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "text_ps"
           );
           assert_eq!(
-            communicator
-              .format_text(&file_path4, "text", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(&file_path4, "text".to_string().into_bytes(), None, Default::default(), Default::default())
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "text_wasm"
           );
           assert_eq!(
-            communicator
-              .format_text(&file_path5, "text", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(&file_path5, "text".to_string().into_bytes(), None, Default::default(), Default::default())
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "text_wasm_ps"
           );
 
@@ -893,5 +970,9 @@ mod test {
     run_test_cli(vec!["editor-service", "--parent-pid", &std::process::id().to_string()], &environment).unwrap();
 
     result.join().unwrap();
+  }
+
+  fn bytes_to_string(bytes: Vec<u8>) -> String {
+    String::from_utf8(bytes).unwrap()
   }
 }
