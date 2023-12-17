@@ -86,6 +86,7 @@ impl SubCommand {
       | SubCommand::Version
       | SubCommand::License
       | SubCommand::Help(_)
+      | SubCommand::Lsp
       | SubCommand::EditorInfo
       | SubCommand::EditorService(_)
       | SubCommand::Completions(_)
@@ -524,7 +525,7 @@ EXAMPLES:
     )
     .subcommand(
       Command::new("lsp")
-      .about("Starts up a language server for formatting files. This can be used with any editor that supports the LSP.")
+      .about("Starts up a language server for formatting files.")
     )
     .arg(
       Arg::new("config")

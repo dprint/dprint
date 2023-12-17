@@ -18,6 +18,7 @@ console_static_text = "0.7.1"
 # don't upgrade to 0.26 https://github.com/crossterm-rs/crossterm/issues/752
 crossterm = "0.25.0" # manually retest everything when bumping this crate
 dirs = "4.0.0"
+dissimilar = "=1.0.4"
 dprint-core = { path = "../core", version = "0.65.0", features = ["process", "wasm"] }
 dunce = "1.0.3"
 fs3 = "0.5.0"
@@ -33,9 +34,11 @@ sha2 = "0.10.6"
 similar = { version = "2.2.1", features = ["inline"] }
 # disable the multi-threading feature of this crate
 sysinfo = { version = "0.29.8", default-features = false }
+text-size = "=1.1.0"
 thiserror = "1"
 tokio = { version = "1", features = ["rt", "time", "macros", "rt-multi-thread", "io-std"] }
 tokio-util = { version = "0.7.7" }
+tower-lsp = "0.20.0"
 twox-hash = "1.6.3"
 ureq = { version = "2.8.0", features = ["socks-proxy", "tls", "native-certs"] }
 url = "2.3.1"
@@ -45,7 +48,6 @@ zip = "0.6.4"
 # patch version increases of rkyv may cause panics when deserializing
 # data serialized with older versions
 rkyv = "=0.7.42"
-tower-lsp = "0.20.0"
 wasmer = "=4.2.2"
 wasmer-compiler = "=4.2.2"
 
