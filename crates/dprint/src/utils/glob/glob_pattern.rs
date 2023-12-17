@@ -8,7 +8,7 @@ use super::non_negated_glob;
 #[derive(Debug)]
 pub struct GlobPatterns {
   pub arg_includes: Option<Vec<GlobPattern>>,
-  pub config_includes: Vec<GlobPattern>,
+  pub config_includes: Option<Vec<GlobPattern>>,
   pub arg_excludes: Option<Vec<GlobPattern>>,
   pub config_excludes: Vec<GlobPattern>,
 }

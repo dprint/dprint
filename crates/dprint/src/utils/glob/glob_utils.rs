@@ -1,5 +1,3 @@
-use crate::environment::CanonicalizedPathBuf;
-
 pub fn is_negated_glob(pattern: &str) -> bool {
   let mut chars = pattern.chars();
   let first_char = chars.next();
@@ -19,22 +17,6 @@ pub fn non_negated_glob(pattern: &str) -> &str {
 pub fn is_absolute_pattern(pattern: &str) -> bool {
   let pattern = if is_negated_glob(pattern) { &pattern[1..] } else { pattern };
   pattern.starts_with('/') || is_windows_absolute_pattern(pattern)
-}
-
-pub fn make_absolute(pattern: &str, base: &CanonicalizedPathBuf) -> String {
-  if is_absolute_pattern(pattern) {
-    pattern.to_string()
-  } else {
-    let base = base.to_string_lossy().to_string().replace('\\', "/");
-    let is_negated = is_negated_glob(pattern);
-    let pattern = if is_negated { &pattern[1..] } else { pattern };
-    format!(
-      "{}{}/{}",
-      if is_negated { "!" } else { "" },
-      base.trim_end_matches('/'),
-      pattern.trim_start_matches("./")
-    )
-  }
 }
 
 fn is_windows_absolute_pattern(pattern: &str) -> bool {
@@ -75,20 +57,5 @@ mod tests {
     assert_eq!(is_absolute_pattern("!/test.ts"), true);
     assert_eq!(is_absolute_pattern("D:/test.ts"), true);
     assert_eq!(is_absolute_pattern("!D:/test.ts"), true);
-  }
-
-  #[test]
-  fn test_make_absolute() {
-    #[track_caller]
-    fn run_test(pattern: &str, dir: &str, expected: &str) {
-      assert_eq!(make_absolute(pattern, &CanonicalizedPathBuf::new_for_testing(dir)), expected);
-    }
-
-    run_test("./test", "/sub_dir", "/sub_dir/test");
-    run_test("./test", "/sub_dir/", "/sub_dir/test");
-    run_test("!./test/**/*", "/sub_dir/", "!/sub_dir/test/**/*");
-    run_test("/test", "/sub_dir/", "/test");
-    run_test("d:/test", "/sub_dir/", "d:/test");
-    run_test("!d:/test", "/sub_dir/", "!d:/test");
   }
 }

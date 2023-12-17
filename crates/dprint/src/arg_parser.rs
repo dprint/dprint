@@ -153,8 +153,10 @@ pub enum HiddenSubCommand {
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct FilePatternArgs {
-  pub file_patterns: Vec<String>,
-  pub exclude_file_patterns: Vec<String>,
+  pub include_patterns: Vec<String>,
+  pub include_pattern_overrides: Option<Vec<String>>,
+  pub exclude_patterns: Vec<String>,
+  pub exclude_pattern_overrides: Option<Vec<String>>,
   pub allow_node_modules: bool,
 }
 
@@ -267,13 +269,13 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       LogLevel::Info
     },
     config: matches.get_one::<String>("config").map(String::from),
-    plugins: values_to_vec(matches.get_many("plugins")),
+    plugins: maybe_values_to_vec(matches.get_many("plugins")),
   })
 }
 
 fn parse_file_patterns(matches: &ArgMatches) -> Result<FilePatternArgs> {
-  let plugins = values_to_vec(matches.get_many("plugins"));
-  let file_patterns = values_to_vec(matches.get_many("files"));
+  let plugins = maybe_values_to_vec(matches.get_many("plugins"));
+  let file_patterns = maybe_values_to_vec(matches.get_many("files"));
 
   if !plugins.is_empty() && file_patterns.is_empty() {
     validate_plugin_args_when_no_files(&plugins)?;
@@ -281,8 +283,10 @@ fn parse_file_patterns(matches: &ArgMatches) -> Result<FilePatternArgs> {
 
   Ok(FilePatternArgs {
     allow_node_modules: matches.get_flag("allow-node-modules"),
-    file_patterns,
-    exclude_file_patterns: values_to_vec(matches.get_many("excludes")),
+    include_patterns: file_patterns,
+    include_pattern_overrides: matches.get_many("includes-override").map(values_to_vec),
+    exclude_patterns: maybe_values_to_vec(matches.get_many("excludes")),
+    exclude_pattern_overrides: matches.get_many("excludes-override").map(values_to_vec),
   })
 }
 
@@ -296,8 +300,12 @@ fn parse_incremental(matches: &ArgMatches) -> Option<bool> {
   }
 }
 
-fn values_to_vec(values: Option<clap::parser::ValuesRef<String>>) -> Vec<String> {
-  values.map(|x| x.map(std::string::ToString::to_string).collect()).unwrap_or_default()
+fn maybe_values_to_vec(values: Option<clap::parser::ValuesRef<String>>) -> Vec<String> {
+  values.map(values_to_vec).unwrap_or_default()
+}
+
+fn values_to_vec(values: clap::parser::ValuesRef<String>) -> Vec<String> {
+  values.map(std::string::ToString::to_string).collect()
 }
 
 /// Users have accidentally specified: dprint fmt --plugins <url1> <url2> -- <file-path>
@@ -580,11 +588,25 @@ impl ClapExtensions for clap::Command {
     self
       .arg(
         Arg::new("files")
+          .help("List of file patterns in quotes to format. This can be a subset of what is found in the config file.")
+          .num_args(1..),
+      )
+      .arg(
+        Arg::new("includes-override")
+          .long("includes-override")
+          .value_name("patterns")
           .help("List of file patterns in quotes to format. This overrides what is specified in the config file.")
           .num_args(1..),
       )
       .arg(
         Arg::new("excludes")
+          .long("excludes")
+          .value_name("patterns")
+          .help("List of file patterns or directories in quotes to exclude when formatting. This excludes in addition to what is found in the config file.")
+          .num_args(1..),
+      )
+      .arg(
+        Arg::new("excludes-override")
           .long("excludes")
           .value_name("patterns")
           .help("List of file patterns or directories in quotes to exclude when formatting. This overrides what is specified in the config file.")

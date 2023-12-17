@@ -1785,7 +1785,6 @@ mod test {
 
   #[test]
   fn should_format_for_stdin_with_absolute_paths() {
-    // it should not output anything when downloading plugins
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
         c.add_includes("/src/**.*").add_remote_wasm_plugin();
