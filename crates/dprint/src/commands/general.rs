@@ -335,20 +335,30 @@ mod test {
   fn providing_includes_to_cli_should_not_override_negated_includes() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
-        c.add_includes("**/*.txt").add_includes("!sub/file4.txt");
+        c.add_includes("**/*.txt")
+          .add_includes("!sub/file4.txt")
+          // opt out
+          .add_includes("!sub3/sub/**/*.txt")
+          // then opt in
+          .add_includes("sub3/sub/dir/file.txt");
       })
       .write_file("/file.txt", "const t=4;")
       .write_file("/file2.txt", "const t=4;")
       .write_file("/sub/file3.txt", "const t=4;")
       .write_file("/sub/file4.txt", "const t=4;")
       .write_file("/sub2/file5.txt", "const t=4;")
+      .write_file("/sub3/sub/dir/file.txt", "const t=4;")
+      .write_file("/sub3/sub/dir/ignored.txt", "const t=4;")
       .build();
     // make sure it works as expected with no args
     {
       run_test_cli(vec!["output-file-paths"], &environment).unwrap();
       let mut logged_messages = environment.take_stdout_messages();
       logged_messages.sort();
-      assert_eq!(logged_messages, vec!["/file.txt", "/file2.txt", "/sub/file3.txt", "/sub2/file5.txt",]);
+      assert_eq!(
+        logged_messages,
+        vec!["/file.txt", "/file2.txt", "/sub/file3.txt", "/sub2/file5.txt", "/sub3/sub/dir/file.txt"]
+      );
     }
     // now provide an includes
     {
@@ -360,6 +370,19 @@ mod test {
         vec![
           // should not have sub/file4.txt here
           "/sub/file3.txt",
+        ]
+      );
+    }
+    // try another one
+    {
+      run_test_cli(vec!["output-file-paths", "./sub3/**/*.*"], &environment).unwrap();
+      let mut logged_messages = environment.take_stdout_messages();
+      logged_messages.sort();
+      assert_eq!(
+        logged_messages,
+        vec![
+          // should not have the ingored.txt here
+          "/sub3/sub/dir/file.txt",
         ]
       );
     }

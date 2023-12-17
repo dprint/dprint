@@ -8,6 +8,7 @@ use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::utils::is_absolute_pattern;
 use crate::utils::is_negated_glob;
+use crate::utils::make_absolute;
 use crate::utils::GlobMatcher;
 use crate::utils::GlobMatcherOptions;
 use crate::utils::GlobPattern;
@@ -72,8 +73,26 @@ fn get_include_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cw
   file_patterns.extend(if args.file_patterns.is_empty() {
     GlobPattern::new_vec(process_config_patterns(config.includes.as_ref()?).collect(), config.base_path.clone())
   } else {
+    let config_excludes_in_includes = config
+      .includes
+      .as_ref()
+      .map(|c| {
+        c.iter()
+          .filter(|p| is_negated_glob(p))
+          .map(|p| make_absolute(p, &config.base_path))
+          .collect::<Vec<_>>()
+      })
+      .unwrap_or_default();
     // resolve CLI patterns based on the current working directory
-    GlobPattern::new_vec(args.file_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect(), cwd.clone())
+    GlobPattern::new_vec(
+      args
+        .file_patterns
+        .iter()
+        .map(|p| process_cli_pattern(p, cwd))
+        .chain(config_excludes_in_includes)
+        .collect(),
+      cwd.clone(),
+    )
   });
 
   Some(file_patterns)
