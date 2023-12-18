@@ -182,8 +182,10 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   }
 
   let file_pattern_args = FilePatternArgs {
-    file_patterns: Vec::new(),
-    exclude_file_patterns: Vec::new(),
+    include_patterns: Vec::new(),
+    include_pattern_overrides: None,
+    exclude_patterns: Vec::new(),
+    exclude_pattern_overrides: None,
     allow_node_modules: false,
   };
   let scopes = resolve_plugins_scope_and_paths(args, &file_pattern_args, environment, plugin_resolver).await?;
