@@ -275,7 +275,6 @@ mod test {
       .add_remote_wasm_plugin()
       .with_default_config(|config_file| {
         config_file
-          .add_includes("**/*.txt")
           .add_config_section(
             "test-plugin",
             r#"{

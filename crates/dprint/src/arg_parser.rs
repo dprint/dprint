@@ -607,7 +607,7 @@ impl ClapExtensions for clap::Command {
       )
       .arg(
         Arg::new("excludes-override")
-          .long("excludes")
+          .long("excludes-override")
           .value_name("patterns")
           .help("List of file patterns or directories in quotes to exclude when formatting. This overrides what is specified in the config file.")
           .num_args(1..),

@@ -1223,7 +1223,30 @@ mod test {
   }
 
   #[test]
-  fn should_override_config_excludes_with_cli_excludes() {
+  fn should_combine_config_excludes_with_cli_excludes() {
+    let file_path1 = "/file1.txt";
+    let file_path2 = "/file2.txt";
+    let file_path3 = "/file3.txt";
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .write_file(&file_path1, "text1")
+      .write_file(&file_path2, "text2")
+      .write_file(&file_path3, "text3")
+      .with_default_config(|c| {
+        c.add_excludes("/file1.txt").add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["fmt", "--excludes", "/file2.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text1");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2");
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text3_formatted");
+  }
+
+  #[test]
+  fn should_override_config_excludes_with_cli_excludes_override() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
@@ -1235,7 +1258,7 @@ mod test {
       .initialize()
       .build();
 
-    run_test_cli(vec!["fmt", "--excludes", "/file2.txt"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--excludes-override", "/file2.txt"], &environment).unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
@@ -1243,7 +1266,7 @@ mod test {
   }
 
   #[test]
-  fn should_support_clearing_config_excludes_with_cli_excludes_arg() {
+  fn should_support_clearing_config_excludes_with_cli_excludes_override_arg() {
     let file_path1 = "/file1.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .write_file(&file_path1, "text1")
@@ -1253,7 +1276,7 @@ mod test {
       .initialize()
       .build();
 
-    run_test_cli(vec!["fmt", "--excludes="], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--excludes-override="], &environment).unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
@@ -1276,7 +1299,51 @@ mod test {
   }
 
   #[test]
-  fn should_override_config_includes_and_excludes_with_cli() {
+  fn should_combine_config_excludes_with_cli_args() {
+    let file_path1 = "/file1.txt";
+    let file_path2 = "/sub/file2.txt";
+    let file_path3 = "/sub/file3.txt";
+    let file_path4 = "/sub/file4.txt";
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .write_file(&file_path1, "text1")
+      .write_file(&file_path2, "text2")
+      .write_file(&file_path3, "text3")
+      .write_file(&file_path4, "text4")
+      .with_default_config(|c| {
+        c.add_includes("/sub/**/*.txt").add_excludes("/sub/file4.txt").add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+    run_test_cli(vec!["fmt", "--excludes", "/sub/file3.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text1");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted");
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text3");
+    assert_eq!(environment.read_file(&file_path4).unwrap(), "text4");
+  }
+
+  #[test]
+  fn should_format_intersect_of_config_includes_and_cli_includes() {
+    let file_path1 = "/sub/file1.txt";
+    let file_path2 = "/sub/file2.txt";
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .write_file(&file_path1, "text1")
+      .write_file(&file_path2, "text2")
+      .with_default_config(|c| {
+        c.add_includes("/sub/**/*.txt").add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+    run_test_cli(vec!["fmt", "/sub/file2.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text1");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted");
+  }
+
+  #[test]
+  fn should_override_config_includes_and_excludes_with_cli_overrides() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
@@ -1287,7 +1354,11 @@ mod test {
       })
       .initialize()
       .build();
-    run_test_cli(vec!["fmt", "/file1.txt", "--excludes", "/file2.txt"], &environment).unwrap();
+    run_test_cli(
+      vec!["fmt", "--includes-override", "/file1.txt", "--excludes-override", "/file2.txt"],
+      &environment,
+    )
+    .unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
@@ -1797,12 +1868,17 @@ mod test {
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "/file.txt"], &environment, test_std_in.clone()).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["text"]);
 
-    // make it matching on the cli
-    run_test_cli_with_stdin(vec!["fmt", "--stdin", "/file.txt", "--", "**/*.txt"], &environment, test_std_in.clone()).unwrap();
+    // matching file
+    run_test_cli_with_stdin(vec!["fmt", "--stdin", "/src/file.txt"], &environment, test_std_in.clone()).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
 
-    // matching file
-    run_test_cli_with_stdin(vec!["fmt", "--stdin", "/src/file.txt"], &environment, test_std_in).unwrap();
+    // override what's in the config when overriding
+    run_test_cli_with_stdin(
+      vec!["fmt", "--stdin", "/file.txt", "--includes-override", "**/*.txt"],
+      &environment,
+      test_std_in,
+    )
+    .unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
   }
 

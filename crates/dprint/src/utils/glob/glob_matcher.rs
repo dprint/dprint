@@ -126,12 +126,12 @@ impl GlobMatcher {
     {
       GlobMatchesDetail::Excluded
     } else if self
-      .config_include_matcher
+      .arg_include_matcher
       .as_ref()
       .map(|m| matches!(m.matched(&path, false), Match::Whitelist(_)))
       .unwrap_or(true)
       && self
-        .arg_include_matcher
+        .config_include_matcher
         .as_ref()
         .map(|m| matches!(m.matched(&path, false), Match::Whitelist(_)))
         .unwrap_or(true)
