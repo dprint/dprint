@@ -78,8 +78,11 @@
 <p>After <a href="/setup">setting up a configuration file</a>, run the <code>fmt</code> command:</p>
 <pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span>
 </code></pre>
-<p>Or to override the configuration file's <code>includes</code> and <code>excludes</code>, you may specify the file paths to format or not format here:</p>
+<p>To format a subset of the files the configuration file matches, you may specify the file paths to format or not format:</p>
 <pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> **/*.js --excludes **/data
+</code></pre>
+<p>A rare use case, but to override/ignore the patterns in the config file, use the <code>--includes-override</code> and <code>--excludes-override</code> flags:</p>
+<pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --includes-override **/*.js --excludes-override **/data
 </code></pre>
 <h3 id="formatting-standard-input" tabindex="-1"><a class="header-anchor" href="#formatting-standard-input">Formatting Standard Input</a></h3>
 <p>Use <code>dprint fmt --stdin &lt;file-path/file-name/extension&gt;</code> and provide the input file text to stdin. The output will be directed by the CLI to stdout.</p>
