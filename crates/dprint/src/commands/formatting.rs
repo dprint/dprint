@@ -1098,7 +1098,7 @@ mod test {
   #[cfg(target_os = "windows")]
   #[test]
   fn should_format_absolute_paths_on_windows() {
-    let file_path = "D:\\test\\other\\file1.txt"; // needs to be in the base directory
+    let file_path = "D:\\test\\other\\asdf\\file1.txt"; // needs to be in the base directory
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_local_config("D:\\test\\other\\dprint.json", |c| {
         c.add_includes("asdf/**/*.txt").add_remote_wasm_plugin();
@@ -1115,10 +1115,10 @@ mod test {
     assert_eq!(environment.read_file(&file_path).unwrap(), "text1_formatted");
   }
 
-  #[cfg(target_os = "linux")]
+  #[cfg(unix)]
   #[test]
-  fn should_format_absolute_paths_on_linux() {
-    let file_path = "/test/other/file1.txt"; // needs to be in the base directory
+  fn should_format_absolute_paths_on_unix() {
+    let file_path = "/test/other/asdf/file1.txt"; // needs to be in the base directory
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_local_config("/test/other/dprint.json", |c| {
         c.add_includes("asdf/**/*.txt").add_remote_wasm_plugin();
@@ -1128,7 +1128,7 @@ mod test {
       .initialize()
       .build();
 
-    run_test_cli(vec!["fmt", "--", "/test/other/file1.txt"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--", "/test/other/asdf/file1.txt"], &environment).unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path).unwrap(), "text1_formatted");
