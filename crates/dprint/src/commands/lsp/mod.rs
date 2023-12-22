@@ -2,15 +2,16 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use anyhow::Result;
 use dprint_core::plugins::process::start_parent_process_checker_task;
-use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::HostFormatRequest;
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio::sync::Semaphore;
 use tokio::try_join;
 use tokio_util::sync::CancellationToken;
-use tower_lsp::jsonrpc::Result;
+use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::DidChangeTextDocumentParams;
 use tower_lsp::lsp_types::DidCloseTextDocumentParams;
 use tower_lsp::lsp_types::DidOpenTextDocumentParams;
@@ -19,7 +20,6 @@ use tower_lsp::lsp_types::DocumentRangeFormattingParams;
 use tower_lsp::lsp_types::InitializeParams;
 use tower_lsp::lsp_types::InitializeResult;
 use tower_lsp::lsp_types::InitializedParams;
-use tower_lsp::lsp_types::MessageType;
 use tower_lsp::lsp_types::OneOf;
 use tower_lsp::lsp_types::ServerCapabilities;
 use tower_lsp::lsp_types::ServerInfo;
@@ -27,7 +27,6 @@ use tower_lsp::lsp_types::TextDocumentSyncCapability;
 use tower_lsp::lsp_types::TextDocumentSyncKind;
 use tower_lsp::lsp_types::TextDocumentSyncOptions;
 use tower_lsp::lsp_types::TextEdit;
-use tower_lsp::Client;
 use tower_lsp::LanguageServer;
 use tower_lsp::LspService;
 use tower_lsp::Server;
@@ -37,8 +36,14 @@ use crate::arg_parser::CliArgs;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
 
+use self::client::ClientWrapper;
+use self::config::LspPluginsScopeContainer;
 use self::documents::Documents;
+use self::text::get_edits;
+use self::text::LineIndex;
 
+mod client;
+mod config;
 mod documents;
 mod text;
 
@@ -68,7 +73,7 @@ impl Drop for DropToken {
 }
 
 enum ChannelMessage {
-  Format(HostFormatRequest, oneshot::Sender<Result<Option<Vec<TextEdit>>>>),
+  Format(HostFormatRequest, ClientWrapper, oneshot::Sender<Result<Option<Vec<TextEdit>>>>),
 }
 
 struct State {
@@ -76,9 +81,36 @@ struct State {
 }
 
 struct Backend {
-  client: Client,
+  client: ClientWrapper,
   sender: mpsc::UnboundedSender<ChannelMessage>,
   state: Mutex<State>,
+}
+
+async fn handle_format_request<TEnvironment: Environment>(
+  request: HostFormatRequest,
+  scope_container: Rc<LspPluginsScopeContainer<TEnvironment>>,
+  client: ClientWrapper,
+) -> Result<Option<Vec<TextEdit>>> {
+  let Some(parent_dir) = request.file_path.parent() else {
+    client.log_warning(format!("Cannot format non-file path: {}", request.file_path.display()));
+    return Ok(None);
+  };
+  let Some(scope) = scope_container.resolve_by_path(parent_dir).await? else {
+    client.log_info(format!("Path did not have a dprint config file: {}", request.file_path.display()));
+    return Ok(None);
+  };
+  let original_text = request.file_bytes.clone();
+  let Some(result) = scope.format(request).await? else {
+    return Ok(None);
+  };
+  dprint_core::async_runtime::spawn_blocking(|| {
+    // todo: don't do this conversion from original bytes to string
+    let original_text = String::from_utf8(original_text)?;
+    let new_text = String::from_utf8(result)?;
+    // todo: pass the line index into here as well so it doesn't need to be recomputed
+    Ok(Some(get_edits(&original_text, &new_text, &LineIndex::new(&original_text))))
+  })
+  .await?
 }
 
 pub async fn run_language_server<TEnvironment: Environment>(
@@ -93,28 +125,40 @@ pub async fn run_language_server<TEnvironment: Environment>(
   // tower_lsp requires Backend to implement Send and Sync, but
   // we use a single threaded runtime. So spawn some tasks and
   // communicate over a channel.
-  let recv_task = dprint_core::async_runtime::spawn(async move {
-    while let Some(message) = rx.recv().await {
-      match message {
-        ChannelMessage::Format(request, sender) => {
-          dprint_core::async_runtime::spawn(async move {
-            // TODO: Send the actual format request.
-            // TODO: How to get the plugin scope?
-            // TODO: Return back an actual response
-            let _ = sender.send(Ok(None));
-          });
+  let recv_task = {
+    let max_cores = environment.max_threads();
+    let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
+    let scope_container = Rc::new(LspPluginsScopeContainer::new(environment.clone()));
+    dprint_core::async_runtime::spawn(async move {
+      while let Some(message) = rx.recv().await {
+        match message {
+          ChannelMessage::Format(request, client, sender) => {
+            let concurrency_limiter = concurrency_limiter.clone();
+            let scope_container = scope_container.clone();
+            dprint_core::async_runtime::spawn(async move {
+              let _permit = concurrency_limiter.acquire().await;
+              if request.token.is_cancelled() {
+                return;
+              }
+              let result = handle_format_request(request, scope_container, client).await;
+              let _ = sender.send(result);
+            });
+          }
         }
       }
-    }
-  });
+    })
+  };
 
   let lsp_task = dprint_core::async_runtime::spawn(async move {
-    let (service, socket) = LspService::new(|client| Backend {
-      client: client.clone(),
-      sender: tx,
-      state: Mutex::new(State {
-        documents: Documents::new(client),
-      }),
+    let (service, socket) = LspService::new(|client| {
+      let client = ClientWrapper::new(client);
+      Backend {
+        client: client.clone(),
+        sender: tx,
+        state: Mutex::new(State {
+          documents: Documents::new(client),
+        }),
+      }
     });
     Server::new(stdin, stdout, socket).serve(service).await;
   });
@@ -126,7 +170,7 @@ pub async fn run_language_server<TEnvironment: Environment>(
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-  async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+  async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
     if let Some(parent_id) = params.process_id {
       start_parent_process_checker_task(parent_id);
     }
@@ -158,7 +202,7 @@ impl LanguageServer for Backend {
 
   async fn initialized(&self, _: InitializedParams) {
     // todo: log more information probably
-    self.client.log_message(MessageType::INFO, "Server initialized.").await;
+    self.client.log_info("Server initialized.".to_string());
   }
 
   async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -173,7 +217,7 @@ impl LanguageServer for Backend {
     self.state.lock().documents.closed(params);
   }
 
-  async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+  async fn formatting(&self, params: DocumentFormattingParams) -> LspResult<Option<Vec<TextEdit>>> {
     let (sender, receiver) = oneshot::channel();
     let Some(file_path) = url_to_file_path(&params.text_document.uri) else {
       return Ok(None);
@@ -193,21 +237,27 @@ impl LanguageServer for Backend {
           override_config: Default::default(),
           token,
         },
+        self.client.clone(),
         sender,
       ))
       .unwrap();
     let result = receiver.await.unwrap();
     drop_token.completed();
-    result
+    match result {
+      Ok(value) => Ok(value),
+      Err(err) => {
+        self.client.log_error(format!("Failed formatting '{}': {:#}", params.text_document.uri, err));
+        Ok(None)
+      }
+    }
   }
 
-  async fn range_formatting(&self, params: DocumentRangeFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+  async fn range_formatting(&self, params: DocumentRangeFormattingParams) -> LspResult<Option<Vec<TextEdit>>> {
     let (sender, receiver) = oneshot::channel();
     let Some(file_path) = url_to_file_path(&params.text_document.uri) else {
       return Ok(None);
     };
-    let range = Default::default(); // TODO: Map LSP range to FormatRange
-    let Some(file_text) = self.state.lock().documents.get_content(&params.text_document.uri) else {
+    let Some((file_text, range)) = self.state.lock().documents.get_content_with_range(&params.text_document.uri, params.range) else {
       return Ok(None);
     };
     let token = Arc::new(CancellationToken::new());
@@ -222,15 +272,22 @@ impl LanguageServer for Backend {
           override_config: Default::default(),
           token,
         },
+        self.client.clone(),
         sender,
       ))
       .unwrap();
     let result = receiver.await.unwrap();
     drop_token.completed();
-    result
+    match result {
+      Ok(value) => Ok(value),
+      Err(err) => {
+        self.client.log_error(format!("Failed formatting '{}': {:#}", params.text_document.uri, err));
+        Ok(None)
+      }
+    }
   }
 
-  async fn shutdown(&self) -> Result<()> {
+  async fn shutdown(&self) -> LspResult<()> {
     Ok(())
   }
 }

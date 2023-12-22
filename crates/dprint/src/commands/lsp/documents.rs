@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+use dprint_core::plugins::FormatRange;
+use tower_lsp::lsp_types;
 use tower_lsp::lsp_types::DidChangeTextDocumentParams;
 use tower_lsp::lsp_types::DidCloseTextDocumentParams;
-use tower_lsp::lsp_types::MessageType;
 use tower_lsp::lsp_types::TextDocumentItem;
-use tower_lsp::Client;
 use url::Url;
 
+use super::client::ClientWrapper;
 use super::text::LineIndex;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -33,12 +34,12 @@ pub struct Document {
 }
 
 pub struct Documents {
-  client: Client,
+  client: ClientWrapper,
   docs: HashMap<Url, Document>,
 }
 
 impl Documents {
-  pub fn new(client: Client) -> Self {
+  pub fn new(client: ClientWrapper) -> Self {
     Self {
       client,
       docs: Default::default(),
@@ -58,29 +59,35 @@ impl Documents {
   }
 
   pub fn get_content(&self, uri: &Url) -> Option<String> {
-    let Some(entry) = self.docs.get(&uri) else {
-      self.client.log_message(MessageType::WARNING, &format!("Missing document: {}", uri));
+    let Some(entry) = self.docs.get(uri) else {
+      self.client.log_warning(format!("Missing document: {}", uri));
       return None;
     };
     Some(entry.text.clone())
   }
 
+  pub fn get_content_with_range(&mut self, uri: &Url, lsp_range: lsp_types::Range) -> Option<(String, FormatRange)> {
+    let Some(entry) = self.docs.get_mut(uri) else {
+      self.client.log_warning(format!("Missing document: {}", uri));
+      return None;
+    };
+
+    let line_index = entry.line_index.get_or_insert_with(|| LineIndex::new(&entry.text));
+    let range = line_index.get_text_range(lsp_range).ok()?;
+    Some((entry.text.clone(), Some(range.start().into()..range.end().into())))
+  }
+
   pub fn changed(&mut self, params: DidChangeTextDocumentParams) {
     let Some(entry) = self.docs.get_mut(&params.text_document.uri) else {
-      self
-        .client
-        .log_message(MessageType::WARNING, &format!("Missing document: {}", params.text_document.uri));
+      self.client.log_warning(format!("Missing document: {}", params.text_document.uri));
       return;
     };
     if entry.version > params.text_document.version {
       // the state has gone out of sync so it's no longer safe to format this document
-      self.client.log_message(
-        MessageType::WARNING,
-        &format!(
-          "Changed version ({}) was less than existing version ({}) for '{}'. Forgetting document.",
-          params.text_document.version, entry.version, params.text_document.uri
-        ),
-      );
+      self.client.log_warning(format!(
+        "Changed version ({}) was less than existing version ({}) for '{}'. Forgetting document.",
+        params.text_document.version, entry.version, params.text_document.uri
+      ));
       self.docs.remove(&params.text_document.uri);
       return;
     }
@@ -96,10 +103,9 @@ impl Documents {
         let range = match line_index.get_text_range(range) {
           Ok(range) => range,
           Err(err) => {
-            self.client.log_message(
-              MessageType::WARNING,
-              &format!("Had error for '{}'. Forgetting document. {:#}", params.text_document.uri, err),
-            );
+            self
+              .client
+              .log_warning(format!("Had error for '{}'. Forgetting document. {:#}", params.text_document.uri, err));
             self.docs.remove(&params.text_document.uri);
             return;
           }
