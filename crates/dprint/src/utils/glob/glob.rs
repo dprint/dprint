@@ -32,9 +32,15 @@ pub struct GlobOptions {
 }
 
 pub fn glob(environment: &impl Environment, opts: GlobOptions) -> Result<GlobOutput> {
-  if opts.file_patterns.includes.is_some() && opts.file_patterns.includes.as_ref().unwrap().iter().all(|p| p.is_negated()) {
+  if opts
+    .file_patterns
+    .arg_includes
+    .as_ref()
+    .map(|p| p.iter().all(|p| p.is_negated()))
+    .unwrap_or(false)
+  {
     // performance improvement (see issue #379)
-    log_debug!(environment, "Skipping negated globs: {:?}", opts.file_patterns.includes);
+    log_debug!(environment, "Skipping negated globs: {:?}", opts.file_patterns.arg_includes);
     return Ok(Default::default());
   }
 
@@ -358,8 +364,10 @@ mod test {
       GlobOptions {
         start_dir: PathBuf::from("/"),
         file_patterns: GlobPatterns {
-          includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
-          excludes: vec![GlobPattern::new("**/ignore".to_string(), root_dir)],
+          arg_includes: None,
+          config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
+          arg_excludes: None,
+          config_excludes: vec![GlobPattern::new("**/ignore".to_string(), root_dir)],
         },
         pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
@@ -381,8 +389,10 @@ mod test {
       GlobOptions {
         start_dir: PathBuf::from("/"),
         file_patterns: GlobPatterns {
-          includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
-          excludes: Vec::new(),
+          arg_includes: None,
+          config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
+          arg_excludes: None,
+          config_excludes: Vec::new(),
         },
         pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
@@ -402,8 +412,10 @@ mod test {
       GlobOptions {
         start_dir: PathBuf::from("/"),
         file_patterns: GlobPatterns {
-          includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
-          excludes: Vec::new(),
+          arg_includes: None,
+          config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
+          arg_excludes: None,
+          config_excludes: Vec::new(),
         },
         pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
@@ -425,11 +437,13 @@ mod test {
       GlobOptions {
         start_dir: PathBuf::from("/"),
         file_patterns: GlobPatterns {
-          includes: Some(vec![
+          arg_includes: None,
+          config_includes: Some(vec![
             GlobPattern::new("!**/*.*".to_string(), root_dir.clone()),
             GlobPattern::new("**/a.txt".to_string(), root_dir),
           ]),
-          excludes: Vec::new(),
+          arg_excludes: None,
+          config_excludes: Vec::new(),
         },
         pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
@@ -453,12 +467,14 @@ mod test {
       GlobOptions {
         start_dir: PathBuf::from("/"),
         file_patterns: GlobPatterns {
-          includes: Some(vec![
+          arg_includes: None,
+          config_includes: Some(vec![
             GlobPattern::new("**/*.json".to_string(), root_dir.clone()),
             GlobPattern::new("!**/*.json".to_string(), root_dir.clone()),
             GlobPattern::new("**/a.json".to_string(), root_dir),
           ]),
-          excludes: Vec::new(),
+          arg_excludes: None,
+          config_excludes: Vec::new(),
         },
         pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },
@@ -483,12 +499,14 @@ mod test {
       GlobOptions {
         start_dir: PathBuf::from("/test/"),
         file_patterns: GlobPatterns {
-          includes: Some(vec![
+          arg_includes: None,
+          config_includes: Some(vec![
             GlobPattern::new("**/*.json".to_string(), test_dir.clone()),
             GlobPattern::new("!a/**/*.json".to_string(), test_dir.clone()),
             GlobPattern::new("a/b/**/*.json".to_string(), test_dir),
           ]),
-          excludes: Vec::new(),
+          arg_excludes: None,
+          config_excludes: Vec::new(),
         },
         pattern_base: CanonicalizedPathBuf::new_for_testing("/test/"),
       },
@@ -512,12 +530,14 @@ mod test {
       GlobOptions {
         start_dir: PathBuf::from("/"),
         file_patterns: GlobPatterns {
-          includes: Some(vec![
+          arg_includes: None,
+          config_includes: Some(vec![
             GlobPattern::new("**/*.*".to_string(), root_dir.clone()),
             GlobPattern::new("!dir/a/**/*".to_string(), root_dir.clone()),
             GlobPattern::new("dir/b/b/**/*".to_string(), root_dir),
           ]),
-          excludes: Vec::new(),
+          arg_excludes: None,
+          config_excludes: Vec::new(),
         },
         pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
       },

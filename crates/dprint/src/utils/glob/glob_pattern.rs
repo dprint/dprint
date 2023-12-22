@@ -7,8 +7,10 @@ use super::non_negated_glob;
 
 #[derive(Debug)]
 pub struct GlobPatterns {
-  pub includes: Option<Vec<GlobPattern>>,
-  pub excludes: Vec<GlobPattern>,
+  pub arg_includes: Option<Vec<GlobPattern>>,
+  pub config_includes: Option<Vec<GlobPattern>>,
+  pub arg_excludes: Option<Vec<GlobPattern>>,
+  pub config_excludes: Vec<GlobPattern>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

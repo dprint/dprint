@@ -30,10 +30,16 @@ After [setting up a configuration file](/setup), run the `fmt` command:
 dprint fmt
 ```
 
-Or to override the configuration file's `includes` and `excludes`, you may specify the file paths to format or not format here:
+To format a subset of the files the configuration file matches, you may specify the file paths to format or not format:
 
 ```sh
 dprint fmt **/*.js --excludes **/data
+```
+
+A rare use case, but to override/ignore the patterns in the config file, use the `--includes-override` and `--excludes-override` flags:
+
+```sh
+dprint fmt --includes-override **/*.js --excludes-override **/data
 ```
 
 ### Formatting Standard Input

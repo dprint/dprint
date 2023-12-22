@@ -91,11 +91,11 @@ pub async fn get_and_resolve_file_paths<'a>(
 ) -> Result<GlobOutput> {
   let cwd = environment.cwd();
   let mut file_patterns = get_all_file_patterns(config, args, &cwd);
-  if file_patterns.includes.is_none() {
+  if file_patterns.config_includes.is_none() {
     // If no includes patterns were specified, derive one from the list of plugins
     // as this is a massive performance improvement, because it collects less file
     // paths to examine and match to plugins later.
-    file_patterns.includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), cwd.clone()));
+    file_patterns.config_includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), cwd.clone()));
   }
   get_and_resolve_file_patterns(config, file_patterns, environment).await
 }
