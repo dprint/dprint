@@ -13,13 +13,22 @@ use crate::utils::GlobMatcherOptions;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
 
+pub struct FileMatcherOptions<'a> {
+  pub config: &'a ResolvedConfig,
+  pub args: Option<FileMatcherCliArgOptions<'a>>,
+}
+
+pub struct FileMatcherCliArgOptions<'a> {
+  pub cwd: &'a CanonicalizedPathBuf,
+  pub args: &'a FilePatternArgs,
+}
+
 pub struct FileMatcher {
   glob_matcher: GlobMatcher,
 }
 
 impl FileMatcher {
-  pub fn new(config: &ResolvedConfig, args: &FilePatternArgs, environment: &impl Environment) -> Result<Self> {
-    let cwd = environment.cwd();
+  pub fn new(options: &FileMatcherOptions) -> Result<Self> {
     let patterns = get_all_file_patterns(config, args, &cwd);
     let glob_matcher = GlobMatcher::new(
       patterns,
@@ -61,19 +70,23 @@ pub fn get_patterns_as_glob_matcher(patterns: &[String], config_base_path: &Cano
   )
 }
 
-pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> GlobPatterns {
+pub fn get_all_file_patterns(config: &ResolvedConfig, args: Option<FileMatcherCliArgOptions>) -> GlobPatterns {
   GlobPatterns {
-    config_includes: get_config_includes_file_patterns(config, args, cwd),
-    arg_includes: if args.include_patterns.is_empty() {
-      None
-    } else {
-      // resolve CLI patterns based on the current working directory
-      Some(GlobPattern::new_vec(
-        args.include_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect(),
-        cwd.clone(),
-      ))
-    },
-    config_excludes: get_config_exclude_file_patterns(config, args, cwd),
+    config_includes: get_config_includes_file_patterns(config, args),
+    arg_includes: args.and_then(|args| {
+      let cwd = args.cwd;
+      let args = args.args;
+      if args.include_patterns.is_empty() {
+        None
+      } else {
+        // resolve CLI patterns based on the current working directory
+        Some(GlobPattern::new_vec(
+          args.include_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect(),
+          cwd.clone(),
+        ))
+      }
+    }),
+    config_excludes: get_config_exclude_file_patterns(config, args),
     arg_excludes: if args.exclude_patterns.is_empty() {
       None
     } else {
@@ -88,11 +101,12 @@ pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cw
   }
 }
 
-fn get_config_includes_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> Option<Vec<GlobPattern>> {
+fn get_config_includes_file_patterns(config: &ResolvedConfig, args: Option<FileMatcherCliArgOptions>) -> Option<Vec<GlobPattern>> {
   let mut file_patterns = Vec::new();
+  let arg_overrides = args.and_then(|args| args.args.include_pattern_overrides.as_ref().map(|overrides| (overrides, args.cwd)));
 
-  file_patterns.extend(match &args.include_pattern_overrides {
-    Some(includes_overrides) => {
+  file_patterns.extend(match arg_overrides {
+    Some((includes_overrides, cwd)) => {
       // resolve CLI patterns based on the current working directory
       GlobPattern::new_vec(includes_overrides.iter().map(|p| process_cli_pattern(p, cwd)).collect(), cwd.clone())
     }
@@ -102,12 +116,13 @@ fn get_config_includes_file_patterns(config: &ResolvedConfig, args: &FilePattern
   Some(file_patterns)
 }
 
-fn get_config_exclude_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
+fn get_config_exclude_file_patterns(config: &ResolvedConfig, args: Option<FileMatcherCliArgOptions>) -> Vec<GlobPattern> {
   let mut file_patterns = Vec::new();
+  let arg_exclude_overrides = args.and_then(|args| args.args.exclude_pattern_overrides.as_ref().map(|overrides| (overrides, args.cwd)));
 
   file_patterns.extend(
-    match &args.exclude_pattern_overrides {
-      Some(exclude_overrides) => {
+    match arg_exclude_overrides {
+      Some((exclude_overrides, cwd)) => {
         // resolve CLI patterns based on the current working directory
         GlobPattern::new_vec(exclude_overrides.iter().map(|p| process_cli_pattern(p, cwd)).collect(), cwd.clone())
       }
@@ -121,7 +136,8 @@ fn get_config_exclude_file_patterns(config: &ResolvedConfig, args: &FilePatternA
     .map(|pattern| pattern.into_negated()),
   );
 
-  if !args.allow_node_modules {
+  let allow_node_modules = args.map(|args| args.args.allow_node_modules).unwrap_or(false);
+  if !allow_node_modules {
     // glob walker will not search the children of a directory once it's ignored like this
     let node_modules_exclude = String::from("!**/node_modules");
     let mut exclude_node_module_patterns = vec![GlobPattern::new(node_modules_exclude.clone(), cwd.clone())];
