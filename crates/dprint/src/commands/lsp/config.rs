@@ -33,6 +33,11 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     }
   }
 
+  pub async fn shutdown(&self) {
+    self.plugins_scope_by_config.borrow_mut().clear();
+    self.plugin_resolver.clear_and_shutdown_initialized().await;
+  }
+
   pub async fn resolve_by_path(&self, dir_path: &Path) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
     let Some(config_path) = get_default_config_file_in_ancestor_directories(&self.environment, dir_path)? else {
       return Ok(None);

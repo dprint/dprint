@@ -13,14 +13,6 @@ impl ClientWrapper {
     self.log(MessageType::INFO, message);
   }
 
-  pub fn log_warning(&self, message: String) {
-    self.log(MessageType::WARNING, message);
-  }
-
-  pub fn log_error(&self, message: String) {
-    self.log(MessageType::ERROR, message);
-  }
-
   fn log(&self, message_type: MessageType, message: String) {
     let client = self.0.clone();
     dprint_core::async_runtime::spawn(async move {

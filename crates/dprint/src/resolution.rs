@@ -1,5 +1,7 @@
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::hash::Hasher;
+use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -37,6 +39,7 @@ use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins;
 use crate::paths::FilesPathsByPlugins;
 use crate::paths::NoFilesFoundError;
+use crate::patterns::FileMatcher;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
@@ -202,6 +205,7 @@ pub struct PluginsScope<TEnvironment: Environment> {
   pub plugins: IndexMap<String, Rc<PluginWithConfig>>,
   pub plugin_name_maps: PluginNameResolutionMaps,
   global_config_diagnostics: Vec<GlobalConfigDiagnostic>,
+  cached_editor_file_matcher: RefCell<Option<FileMatcher>>,
 }
 
 impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
@@ -219,6 +223,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       plugin_name_maps,
       plugins: plugins.into_iter().map(|p| (p.name().to_string(), p)).collect(),
       global_config_diagnostics,
+      cached_editor_file_matcher: Default::default(),
     })
   }
 
@@ -313,6 +318,27 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   pub fn create_host_format_callback(self: &Rc<Self>) -> HostFormatCallback {
     let scope = self.clone();
     Rc::new(move |host_request| scope.format(host_request))
+  }
+
+  pub fn can_format_for_editor(&self, file_path: &Path) -> bool {
+    let mut file_matcher_borrow = self.cached_editor_file_matcher.borrow_mut();
+    if file_matcher_borrow.is_none() {
+      let Some(config) = &self.config else {
+        return false;
+      };
+      let matcher = match FileMatcher::new(&config, &FilePatternArgs::default(), &config.base_path) {
+        Ok(matcher) => matcher,
+        Err(err) => {
+          log_warn!(self.environment, "Error creating file matcher: {}", err);
+          return false;
+        }
+      };
+      file_matcher_borrow.replace(matcher);
+    }
+    match file_matcher_borrow.as_ref() {
+      Some(file_matcher) => file_matcher.matches_and_dir_not_ignored(file_path),
+      None => false, // should never happen
+    }
   }
 
   pub fn format(self: &Rc<Self>, request: HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> {
@@ -506,6 +532,7 @@ pub async fn get_plugins_scope_from_args<TEnvironment: Environment>(
       plugin_name_maps: Default::default(),
       plugins: Default::default(),
       global_config_diagnostics: Default::default(),
+      cached_editor_file_matcher: Default::default(),
     }),
   }
 }

@@ -8,6 +8,8 @@ use tower_lsp::lsp_types::DidCloseTextDocumentParams;
 use tower_lsp::lsp_types::TextDocumentItem;
 use url::Url;
 
+use crate::environment::Environment;
+
 use super::client::ClientWrapper;
 use super::text::LineIndex;
 
@@ -33,15 +35,17 @@ pub struct Document {
   pub text: String,
 }
 
-pub struct Documents {
+pub struct Documents<TEnvironment: Environment> {
   client: ClientWrapper,
+  environment: TEnvironment,
   docs: HashMap<Url, Document>,
 }
 
-impl Documents {
-  pub fn new(client: ClientWrapper) -> Self {
+impl<TEnvironment: Environment> Documents<TEnvironment> {
+  pub fn new(client: ClientWrapper, environment: TEnvironment) -> Self {
     Self {
       client,
+      environment,
       docs: Default::default(),
     }
   }
@@ -60,7 +64,7 @@ impl Documents {
 
   pub fn get_content(&self, uri: &Url) -> Option<String> {
     let Some(entry) = self.docs.get(uri) else {
-      self.client.log_warning(format!("Missing document: {}", uri));
+      log_warn!(self.environment, "Missing document: {}", uri);
       return None;
     };
     Some(entry.text.clone())
@@ -68,7 +72,7 @@ impl Documents {
 
   pub fn get_content_with_range(&mut self, uri: &Url, lsp_range: lsp_types::Range) -> Option<(String, FormatRange)> {
     let Some(entry) = self.docs.get_mut(uri) else {
-      self.client.log_warning(format!("Missing document: {}", uri));
+      log_warn!(self.environment, "Missing document: {}", uri);
       return None;
     };
 
@@ -79,15 +83,18 @@ impl Documents {
 
   pub fn changed(&mut self, params: DidChangeTextDocumentParams) {
     let Some(entry) = self.docs.get_mut(&params.text_document.uri) else {
-      self.client.log_warning(format!("Missing document: {}", params.text_document.uri));
+      log_warn!(self.environment, "Missing document: {}", params.text_document.uri);
       return;
     };
     if entry.version > params.text_document.version {
       // the state has gone out of sync so it's no longer safe to format this document
-      self.client.log_warning(format!(
+      log_warn!(
+        self.environment,
         "Changed version ({}) was less than existing version ({}) for '{}'. Forgetting document.",
-        params.text_document.version, entry.version, params.text_document.uri
-      ));
+        params.text_document.version,
+        entry.version,
+        params.text_document.uri,
+      );
       self.docs.remove(&params.text_document.uri);
       return;
     }
@@ -103,9 +110,7 @@ impl Documents {
         let range = match line_index.get_text_range(range) {
           Ok(range) => range,
           Err(err) => {
-            self
-              .client
-              .log_warning(format!("Had error for '{}'. Forgetting document. {:#}", params.text_document.uri, err));
+            log_warn!(self.environment, "Had error for '{}'. Forgetting document. {:#}", params.text_document.uri, err);
             self.docs.remove(&params.text_document.uri);
             return;
           }
