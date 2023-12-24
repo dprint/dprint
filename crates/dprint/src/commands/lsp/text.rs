@@ -10,7 +10,6 @@ use dissimilar::Chunk;
 use std::collections::HashMap;
 use text_size::TextRange;
 use text_size::TextSize;
-use tower_lsp::jsonrpc;
 use tower_lsp::lsp_types as lsp;
 use tower_lsp::lsp_types::TextEdit;
 
@@ -111,36 +110,6 @@ impl LineIndex {
     }
   }
 
-  /// Convert an lsp Position into a tsc/TypeScript "position", which is really
-  /// an u16 byte offset from the start of the string represented as an u32.
-  pub fn offset_tsc(&self, position: lsp::Position) -> jsonrpc::Result<u32> {
-    self
-      .offset_utf16(position)
-      .map(|ts| ts.into())
-      .map_err(|err| jsonrpc::Error::invalid_params(err.to_string()))
-  }
-
-  fn offset_utf16(&self, position: lsp::Position) -> Result<TextSize> {
-    if let Some(line_offset) = self.utf16_offsets.get(position.line as usize) {
-      Ok(line_offset + TextSize::from(position.character))
-    } else {
-      bail!("The position is out of range.")
-    }
-  }
-
-  /// Returns a u16 position based on a u16 offset, which TypeScript offsets are
-  /// returned as u16.
-  pub fn position_tsc(&self, offset: TextSize) -> lsp::Position {
-    let line = partition_point(&self.utf16_offsets, |&it| it <= offset) - 1;
-    let line_start_offset = self.utf16_offsets[line];
-    let col = offset - line_start_offset;
-
-    lsp::Position {
-      line: line as u32,
-      character: col.into(),
-    }
-  }
-
   /// Returns a u16 position based on a u8 offset.
   pub fn position_utf16(&self, offset: TextSize) -> lsp::Position {
     let line = partition_point(&self.utf16_offsets, |&it| it <= offset) - 1;
@@ -151,10 +120,6 @@ impl LineIndex {
       line: line as u32,
       character: col.into(),
     }
-  }
-
-  pub fn text_content_length_utf16(&self) -> TextSize {
-    *self.utf16_offsets.last().unwrap()
   }
 
   fn utf16_to_utf8_col(&self, line: u32, mut col: u32) -> TextSize {

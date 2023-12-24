@@ -10,7 +10,6 @@ use url::Url;
 
 use crate::environment::Environment;
 
-use super::client::ClientWrapper;
 use super::text::LineIndex;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -36,15 +35,13 @@ pub struct Document {
 }
 
 pub struct Documents<TEnvironment: Environment> {
-  client: ClientWrapper,
   environment: TEnvironment,
   docs: HashMap<Url, Document>,
 }
 
 impl<TEnvironment: Environment> Documents<TEnvironment> {
-  pub fn new(client: ClientWrapper, environment: TEnvironment) -> Self {
+  pub fn new(environment: TEnvironment) -> Self {
     Self {
-      client,
       environment,
       docs: Default::default(),
     }

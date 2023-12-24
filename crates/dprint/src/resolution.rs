@@ -326,7 +326,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       let Some(config) = &self.config else {
         return false;
       };
-      let matcher = match FileMatcher::new(&config, &FilePatternArgs::default(), &config.base_path) {
+      let matcher = match FileMatcher::new(config, &FilePatternArgs::default(), &config.base_path) {
         Ok(matcher) => matcher,
         Err(err) => {
           log_warn!(self.environment, "Error creating file matcher: {}", err);

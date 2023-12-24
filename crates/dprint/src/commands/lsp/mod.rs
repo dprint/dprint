@@ -183,7 +183,7 @@ pub async fn run_language_server<TEnvironment: Environment>(
         environment: environment.clone(),
         sender: tx,
         state: Mutex::new(State {
-          documents: Documents::new(client, environment),
+          documents: Documents::new(environment),
         }),
       }
     });
