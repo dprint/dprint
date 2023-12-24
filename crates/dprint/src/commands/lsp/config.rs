@@ -23,9 +23,7 @@ pub struct LspPluginsScopeContainer<TEnvironment: Environment> {
 }
 
 impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
-  pub fn new(environment: TEnvironment) -> Self {
-    let plugin_cache = plugins::PluginCache::new(environment.clone());
-    let plugin_resolver = Rc::new(plugins::PluginResolver::new(environment.clone(), plugin_cache));
+  pub fn new(environment: TEnvironment, plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>) -> Self {
     Self {
       environment,
       plugin_resolver,

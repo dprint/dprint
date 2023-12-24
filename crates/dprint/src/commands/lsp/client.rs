@@ -1,11 +1,26 @@
+use std::sync::Arc;
+
 use tower_lsp::lsp_types::MessageType;
 use tower_lsp::Client;
 
+pub trait ClientTrait: std::fmt::Debug + Send + Sync {
+  fn log(&self, message_type: MessageType, message: String);
+}
+
+impl ClientTrait for Client {
+  fn log(&self, message_type: MessageType, message: String) {
+    let client = self.clone();
+    dprint_core::async_runtime::spawn(async move {
+      client.log_message(message_type, &message).await;
+    });
+  }
+}
+
 #[derive(Debug, Clone)]
-pub struct ClientWrapper(Client);
+pub struct ClientWrapper(Arc<dyn ClientTrait>);
 
 impl ClientWrapper {
-  pub fn new(client: Client) -> Self {
+  pub fn new(client: Arc<dyn ClientTrait>) -> Self {
     Self(client)
   }
 
@@ -14,9 +29,6 @@ impl ClientWrapper {
   }
 
   fn log(&self, message_type: MessageType, message: String) {
-    let client = self.0.clone();
-    dprint_core::async_runtime::spawn(async move {
-      client.log_message(message_type, &message).await;
-    });
+    self.0.log(message_type, message)
   }
 }
