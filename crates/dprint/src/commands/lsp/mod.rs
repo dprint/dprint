@@ -2,8 +2,10 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use anyhow::Context;
 use anyhow::Result;
 use dprint_core::plugins::process::start_parent_process_checker_task;
+use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::HostFormatRequest;
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
@@ -72,13 +74,21 @@ impl Drop for DropToken {
   }
 }
 
+struct EditorFormatRequest {
+  pub file_path: PathBuf,
+  pub file_text: String,
+  pub maybe_line_index: Option<LineIndex>,
+  pub range: FormatRange,
+  pub token: Arc<CancellationToken>,
+}
+
 enum ChannelMessage {
-  Format(HostFormatRequest, oneshot::Sender<Result<Option<Vec<TextEdit>>>>),
+  Format(EditorFormatRequest, oneshot::Sender<Result<Option<Vec<TextEdit>>>>),
   Shutdown(oneshot::Sender<()>),
 }
 
 async fn handle_format_request<TEnvironment: Environment>(
-  mut request: HostFormatRequest,
+  mut request: EditorFormatRequest,
   scope_container: Rc<LspPluginsScopeContainer<TEnvironment>>,
   environment: &TEnvironment,
 ) -> Result<Option<Vec<TextEdit>>> {
@@ -101,16 +111,22 @@ async fn handle_format_request<TEnvironment: Environment>(
     return Ok(None);
   }
 
-  let original_text = request.file_bytes.clone();
-  let Some(result) = scope.format(request).await? else {
+  let Some(result) = scope
+    .format(HostFormatRequest {
+      file_path: request.file_path,
+      file_bytes: request.file_text.as_bytes().to_vec(),
+      range: request.range,
+      override_config: Default::default(),
+      token: request.token,
+    })
+    .await?
+  else {
     return Ok(None);
   };
-  dprint_core::async_runtime::spawn_blocking(|| {
-    // todo: don't do this conversion from original bytes to string
-    let original_text = String::from_utf8(original_text)?;
-    let new_text = String::from_utf8(result)?;
-    // todo: pass the line index into here as well so it doesn't need to be recomputed
-    Ok(Some(get_edits(&original_text, &new_text, &LineIndex::new(&original_text))))
+  dprint_core::async_runtime::spawn_blocking(move || {
+    let new_text = String::from_utf8(result).context("Failed converting formatted text to utf-8.")?;
+    let line_index = request.maybe_line_index.unwrap_or_else(|| LineIndex::new(&request.file_text));
+    Ok(Some(get_edits(&request.file_text, &new_text, &line_index)))
   })
   .await?
 }
@@ -191,14 +207,14 @@ struct Backend<TEnvironment: Environment> {
 }
 
 impl<TEnvironment: Environment> Backend<TEnvironment> {
-  async fn send_format_request(&self, request: HostFormatRequest, token: Arc<CancellationToken>) -> Result<Option<Vec<TextEdit>>> {
-    let mut drop_token = DropToken::new(token.clone());
+  async fn send_format_request(&self, request: EditorFormatRequest) -> Result<Option<Vec<TextEdit>>> {
+    let mut drop_token = DropToken::new(request.token.clone());
     let result = self.send_format_request_inner(request).await;
     drop_token.completed();
     result
   }
 
-  async fn send_format_request_inner(&self, request: HostFormatRequest) -> Result<Option<Vec<TextEdit>>> {
+  async fn send_format_request_inner(&self, request: EditorFormatRequest) -> Result<Option<Vec<TextEdit>>> {
     let (sender, receiver) = oneshot::channel();
     self.sender.send(ChannelMessage::Format(request, sender))?;
     receiver.await?
@@ -259,21 +275,18 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     let Some(file_path) = url_to_file_path(&params.text_document.uri) else {
       return Ok(None);
     };
-    let Some(file_text) = self.state.lock().documents.get_content(&params.text_document.uri) else {
+    let Some((file_text, maybe_line_index)) = self.state.lock().documents.get_content(&params.text_document.uri) else {
       return Ok(None);
     };
     let token = Arc::new(CancellationToken::new());
     let result = self
-      .send_format_request(
-        HostFormatRequest {
-          file_path,
-          file_bytes: file_text.into_bytes(),
-          range: None,
-          override_config: Default::default(),
-          token: token.clone(),
-        },
-        token,
-      )
+      .send_format_request(EditorFormatRequest {
+        file_path,
+        file_text,
+        range: None,
+        maybe_line_index,
+        token: token.clone(),
+      })
       .await;
     match result {
       Ok(value) => Ok(value),
@@ -288,21 +301,18 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     let Some(file_path) = url_to_file_path(&params.text_document.uri) else {
       return Ok(None);
     };
-    let Some((file_text, range)) = self.state.lock().documents.get_content_with_range(&params.text_document.uri, params.range) else {
+    let Some((file_text, range, line_index)) = self.state.lock().documents.get_content_with_range(&params.text_document.uri, params.range) else {
       return Ok(None);
     };
     let token = Arc::new(CancellationToken::new());
     let result = self
-      .send_format_request(
-        HostFormatRequest {
-          file_path,
-          file_bytes: file_text.into_bytes(),
-          range,
-          override_config: Default::default(),
-          token: token.clone(),
-        },
-        token,
-      )
+      .send_format_request(EditorFormatRequest {
+        file_path,
+        file_text,
+        range,
+        maybe_line_index: Some(line_index),
+        token: token.clone(),
+      })
       .await;
     match result {
       Ok(value) => Ok(value),

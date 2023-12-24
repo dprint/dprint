@@ -62,15 +62,15 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
     );
   }
 
-  pub fn get_content(&self, uri: &Url) -> Option<String> {
+  pub fn get_content(&self, uri: &Url) -> Option<(String, Option<LineIndex>)> {
     let Some(entry) = self.docs.get(uri) else {
       log_warn!(self.environment, "Missing document: {}", uri);
       return None;
     };
-    Some(entry.text.clone())
+    Some((entry.text.clone(), entry.line_index.clone()))
   }
 
-  pub fn get_content_with_range(&mut self, uri: &Url, lsp_range: lsp_types::Range) -> Option<(String, FormatRange)> {
+  pub fn get_content_with_range(&mut self, uri: &Url, lsp_range: lsp_types::Range) -> Option<(String, FormatRange, LineIndex)> {
     let Some(entry) = self.docs.get_mut(uri) else {
       log_warn!(self.environment, "Missing document: {}", uri);
       return None;
@@ -78,7 +78,7 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
 
     let line_index = entry.line_index.get_or_insert_with(|| LineIndex::new(&entry.text));
     let range = line_index.get_text_range(lsp_range).ok()?;
-    Some((entry.text.clone(), Some(range.start().into()..range.end().into())))
+    Some((entry.text.clone(), Some(range.start().into()..range.end().into()), line_index.clone()))
   }
 
   pub fn changed(&mut self, params: DidChangeTextDocumentParams) {
