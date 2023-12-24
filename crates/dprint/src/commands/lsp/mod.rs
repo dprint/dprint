@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -74,6 +76,52 @@ impl Drop for DropToken {
   }
 }
 
+struct PendingTokenGuard {
+  id: u16,
+  tokens: Rc<RefCell<HashMap<u16, Arc<CancellationToken>>>>,
+}
+
+impl Drop for PendingTokenGuard {
+  fn drop(&mut self) {
+    self.tokens.borrow_mut().remove(&self.id);
+  }
+}
+
+#[derive(Default)]
+struct PendingTokens {
+  next_id: u16,
+  tokens: Rc<RefCell<HashMap<u16, Arc<CancellationToken>>>>,
+}
+
+impl PendingTokens {
+  pub fn insert(&mut self, token: Arc<CancellationToken>) -> PendingTokenGuard {
+    let id = self.next_id();
+    self.tokens.borrow_mut().insert(id, token);
+    PendingTokenGuard {
+      id,
+      tokens: self.tokens.clone(),
+    }
+  }
+
+  pub fn cancel_all(&mut self) {
+    let mut pending_tokens = self.tokens.borrow_mut();
+    for (_, token) in pending_tokens.iter() {
+      token.cancel();
+    }
+    pending_tokens.clear();
+    self.next_id = 0;
+  }
+
+  pub fn next_id(&mut self) -> u16 {
+    if self.next_id == u16::MAX {
+      self.next_id = 0;
+    }
+    let id = self.next_id;
+    self.next_id += 1;
+    id
+  }
+}
+
 struct EditorFormatRequest {
   pub file_path: PathBuf,
   pub file_text: String,
@@ -96,10 +144,16 @@ async fn handle_format_request<TEnvironment: Environment>(
     log_warn!(environment, "Cannot format non-file path: {}", request.file_path.display());
     return Ok(None);
   };
+  if request.token.is_cancelled() {
+    return Ok(None);
+  }
   let Some(scope) = scope_container.resolve_by_path(parent_dir).await? else {
     log_stderr_info!(environment, "Path did not have a dprint config file: {}", request.file_path.display());
     return Ok(None);
   };
+  if request.token.is_cancelled() {
+    return Ok(None);
+  }
   // canonicalize the path
   request.file_path = environment
     .canonicalize(&request.file_path)
@@ -149,22 +203,23 @@ pub async fn run_language_server<TEnvironment: Environment>(
     let environment = environment.clone();
     let scope_container = Rc::new(LspPluginsScopeContainer::new(environment.clone()));
     dprint_core::async_runtime::spawn(async move {
+      let mut pending_tokens = PendingTokens::default();
       while let Some(message) = rx.recv().await {
         match message {
           ChannelMessage::Format(request, sender) => {
+            let token_guard = pending_tokens.insert(request.token.clone());
             let concurrency_limiter = concurrency_limiter.clone();
             let scope_container = scope_container.clone();
             let environment = environment.clone();
             dprint_core::async_runtime::spawn(async move {
               let _permit = concurrency_limiter.acquire().await;
-              if request.token.is_cancelled() {
-                return;
-              }
               let result = handle_format_request(request, scope_container, &environment).await;
               let _ = sender.send(result);
+              drop(token_guard); // remove the token from the pending tokens
             });
           }
           ChannelMessage::Shutdown(sender) => {
+            pending_tokens.cancel_all();
             scope_container.shutdown().await;
             let _ = sender.send(());
             break; // exit
