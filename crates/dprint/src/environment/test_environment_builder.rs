@@ -19,7 +19,7 @@ pub struct TestConfigFileBuilder {
 }
 
 impl TestConfigFileBuilder {
-  fn new(environment: TestEnvironment) -> Self {
+  pub fn new(environment: TestEnvironment) -> Self {
     TestConfigFileBuilder {
       environment,
       incremental: None,

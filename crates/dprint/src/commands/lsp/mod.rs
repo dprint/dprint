@@ -134,6 +134,9 @@ struct EditorFormatRequest {
 enum ChannelMessage {
   Format(EditorFormatRequest, oneshot::Sender<Result<Option<Vec<TextEdit>>>>),
   Shutdown(oneshot::Sender<()>),
+  /// This message is used for testing.
+  #[cfg(test)]
+  HasPending(oneshot::Sender<bool>),
 }
 
 async fn handle_format_request<TEnvironment: Environment>(
@@ -245,6 +248,11 @@ fn start_message_handler<TEnvironment: Environment>(
           let _ = sender.send(());
           break; // exit
         }
+        #[cfg(test)]
+        ChannelMessage::HasPending(sender) => {
+          let is_empty = pending_tokens.tokens.borrow().is_empty();
+          let _ = sender.send(!is_empty);
+        }
       }
     }
   })
@@ -273,17 +281,34 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     }
   }
 
-  async fn send_format_request(&self, request: EditorFormatRequest) -> Result<Option<Vec<TextEdit>>> {
+  async fn send_format_request(&self, uri: &Url, request: EditorFormatRequest) -> LspResult<Option<Vec<TextEdit>>> {
     let mut drop_token = DropToken::new(request.token.clone());
     let result = self.send_format_request_inner(request).await;
     drop_token.completed();
-    result
+    match result {
+      Ok(value) => Ok(value),
+      Err(err) => {
+        log_error!(self.environment, "Failed formatting '{}': {:#}", uri, err);
+        Ok(None)
+      }
+    }
   }
 
   async fn send_format_request_inner(&self, request: EditorFormatRequest) -> Result<Option<Vec<TextEdit>>> {
     let (sender, receiver) = oneshot::channel();
     self.sender.send(ChannelMessage::Format(request, sender))?;
     receiver.await?
+  }
+
+  /// This is used in the test code to ensure there are no pending requests.
+  #[cfg(test)]
+  pub async fn has_pending(&self) -> bool {
+    let (sender, receiver) = oneshot::channel();
+    if self.sender.send(ChannelMessage::HasPending(sender)).is_ok() {
+      receiver.await.unwrap_or(false)
+    } else {
+      false
+    }
   }
 }
 
@@ -344,23 +369,18 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     let Some((file_text, maybe_line_index)) = self.state.lock().documents.get_content(&params.text_document.uri) else {
       return Ok(None);
     };
-    let token = Arc::new(CancellationToken::new());
-    let result = self
-      .send_format_request(EditorFormatRequest {
-        file_path,
-        file_text,
-        range: None,
-        maybe_line_index,
-        token: token.clone(),
-      })
-      .await;
-    match result {
-      Ok(value) => Ok(value),
-      Err(err) => {
-        log_error!(self.environment, "Failed formatting '{}': {:#}", params.text_document.uri, err);
-        Ok(None)
-      }
-    }
+    self
+      .send_format_request(
+        &params.text_document.uri,
+        EditorFormatRequest {
+          file_path,
+          file_text,
+          range: None,
+          maybe_line_index,
+          token: Arc::new(CancellationToken::new()),
+        },
+      )
+      .await
   }
 
   async fn range_formatting(&self, params: DocumentRangeFormattingParams) -> LspResult<Option<Vec<TextEdit>>> {
@@ -370,23 +390,18 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     let Some((file_text, range, line_index)) = self.state.lock().documents.get_content_with_range(&params.text_document.uri, params.range) else {
       return Ok(None);
     };
-    let token = Arc::new(CancellationToken::new());
-    let result = self
-      .send_format_request(EditorFormatRequest {
-        file_path,
-        file_text,
-        range,
-        maybe_line_index: Some(line_index),
-        token: token.clone(),
-      })
-      .await;
-    match result {
-      Ok(value) => Ok(value),
-      Err(err) => {
-        log_error!(self.environment, "Failed formatting '{}': {:#}", params.text_document.uri, err);
-        Ok(None)
-      }
-    }
+    self
+      .send_format_request(
+        &params.text_document.uri,
+        EditorFormatRequest {
+          file_path,
+          file_text,
+          range,
+          maybe_line_index: Some(line_index),
+          token: Arc::new(CancellationToken::new()),
+        },
+      )
+      .await
   }
 
   async fn shutdown(&self) -> LspResult<()> {
@@ -434,12 +449,18 @@ pub fn url_to_file_path(specifier: &Url) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod test {
+  use std::time::Duration;
+
+  use dprint_core::async_runtime::future;
   use tower_lsp::lsp_types::MessageType;
   use tower_lsp::lsp_types::Position;
   use tower_lsp::lsp_types::Range;
+  use tower_lsp::lsp_types::TextDocumentContentChangeEvent;
   use tower_lsp::lsp_types::TextDocumentIdentifier;
   use tower_lsp::lsp_types::TextDocumentItem;
+  use tower_lsp::lsp_types::VersionedTextDocumentIdentifier;
 
+  use crate::environment::TestConfigFileBuilder;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
   use crate::plugins::PluginCache;
@@ -464,58 +485,337 @@ mod test {
 
     environment.clone().run_in_runtime(async move {
       let (backend, recv_task, test_client) = setup_backend(environment.clone());
-      let run_test_task = dprint_core::async_runtime::spawn(async move {
-        backend
-          .initialize(InitializeParams {
-            process_id: Some(std::process::id()),
-            ..Default::default()
-          })
-          .await
-          .unwrap();
-        backend.initialized(InitializedParams {}).await;
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let environment = environment.clone();
+        async move {
+          macro_rules! did_open {
+            ($uri: ident, $text: expr) => {
+              backend
+                .did_open(DidOpenTextDocumentParams {
+                  text_document: TextDocumentItem {
+                    uri: $uri.clone(),
+                    language_id: "txt".to_string(),
+                    version: 0,
+                    text: $text.to_string(),
+                  },
+                })
+                .await;
+            };
+          }
 
-        let file_uri = Url::parse("file:///file.txt").unwrap();
-        backend
-          .did_open(DidOpenTextDocumentParams {
-            text_document: TextDocumentItem {
-              uri: file_uri.clone(),
-              language_id: "txt".to_string(),
-              version: 0,
-              text: "testing".to_string(),
-            },
-          })
-          .await;
-        let result = backend
-          .formatting(DocumentFormattingParams {
-            text_document: TextDocumentIdentifier { uri: file_uri.clone() },
-            options: Default::default(),
-            work_done_progress_params: Default::default(),
-          })
-          .await;
-        assert_eq!(
-          result.unwrap().unwrap(),
-          vec![TextEdit {
-            range: Range {
-              start: Position { line: 0, character: 7 },
-              end: Position { line: 0, character: 7 }
-            },
-            new_text: "_formatted".to_string()
-          }]
-        );
+          macro_rules! assert_format {
+            ($uri: ident, $expected: expr) => {
+              let result = backend
+                .formatting(DocumentFormattingParams {
+                  text_document: TextDocumentIdentifier { uri: $uri.clone() },
+                  options: Default::default(),
+                  work_done_progress_params: Default::default(),
+                })
+                .await;
+              assert_eq!(result.unwrap(), $expected);
+            };
+          }
 
-        assert_eq!(
-          test_client.take_messages(),
-          vec![
-            (
-              MessageType::INFO,
-              format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
-            ),
-            (MessageType::INFO, "Server ready.".to_string())
-          ]
-        );
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          let file_uri = Url::parse("file:///file.txt").unwrap();
+          did_open!(file_uri, "testing");
+          assert_format!(
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+              new_text: "_formatted".to_string()
+            }])
+          );
+
+          // update the document
+          backend
+            .did_change(DidChangeTextDocumentParams {
+              text_document: VersionedTextDocumentIdentifier {
+                uri: file_uri.clone(),
+                version: 1,
+              },
+              content_changes: vec![TextDocumentContentChangeEvent {
+                range: Some(Range::new(Position::new(0, 7), Position::new(0, 7))),
+                range_length: None,
+                text: "_formatted".to_string(),
+              }],
+            })
+            .await;
+
+          // format again, but it should be formatted now
+          assert_format!(file_uri, None);
+
+          // change the text to an error
+          backend
+            .did_change(DidChangeTextDocumentParams {
+              text_document: VersionedTextDocumentIdentifier {
+                uri: file_uri.clone(),
+                version: 1,
+              },
+              content_changes: vec![TextDocumentContentChangeEvent {
+                range: Some(Range::new(Position::new(0, 0), Position::new(0, 17))),
+                range_length: None,
+                text: "plugin: should_error".to_string(),
+              }],
+            })
+            .await;
+          assert_format!(file_uri, None);
+          assert_eq!(
+            environment.take_stderr_messages(),
+            vec!["Failed formatting 'file:///file.txt': Did error.".to_string()],
+          );
+
+          let mut handles = Vec::new();
+          for i in 0..50 {
+            let file_uri = Url::parse(&format!("file:///file_{}.txt", i)).unwrap();
+            let backend = backend.clone();
+            handles.push(dprint_core::async_runtime::spawn(async move {
+              let file_text = format!("testing_{}", i);
+              backend
+                .did_open(DidOpenTextDocumentParams {
+                  text_document: TextDocumentItem {
+                    uri: file_uri.clone(),
+                    language_id: "txt".to_string(),
+                    version: 0,
+                    text: file_text.clone(),
+                  },
+                })
+                .await;
+              let result = backend
+                .formatting(DocumentFormattingParams {
+                  text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                  options: Default::default(),
+                  work_done_progress_params: Default::default(),
+                })
+                .await;
+              assert_eq!(
+                result.unwrap().unwrap(),
+                vec![TextEdit {
+                  range: Range::new(Position::new(0, file_text.len() as u32), Position::new(0, file_text.len() as u32),),
+                  new_text: "_formatted".to_string()
+                }]
+              );
+
+              // test closing too
+              backend
+                .did_close(DidCloseTextDocumentParams {
+                  text_document: TextDocumentIdentifier { uri: file_uri },
+                })
+                .await;
+            }))
+          }
+
+          // ensure nothing panicked
+          let results = future::join_all(handles).await;
+          for result in results {
+            result.unwrap();
+          }
+
+          // ignores excluded files
+          let file_uri = Url::parse("file:///ignored_file.txt").unwrap();
+          did_open!(file_uri, "testing");
+          assert_format!(file_uri, None);
+
+          // ignores excluded directory files
+          let file_uri = Url::parse("file:///ignored-dir/file.txt").unwrap();
+          did_open!(file_uri, "testing");
+          assert_format!(file_uri, None);
+
+          // ignores non-included files
+          let file_uri = Url::parse("file:///file.txt_ps").unwrap();
+          did_open!(file_uri, "testing");
+          assert_format!(file_uri, None);
+
+          // now update the config file to include it by removing the includes,
+          // which it should in the range formatting
+          {
+            let mut config_file = TestConfigFileBuilder::new(environment.clone());
+            config_file.add_remote_wasm_plugin().add_remote_process_plugin();
+            environment.write_file("/dprint.json", &config_file.to_string()).unwrap();
+          }
+
+          // range formatting
+          let result = backend
+            .range_formatting(DocumentRangeFormattingParams {
+              text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+              range: Range {
+                start: Position { line: 0, character: 1 },
+                end: Position { line: 0, character: 2 },
+              },
+              options: Default::default(),
+              work_done_progress_params: Default::default(),
+            })
+            .await;
+          assert_eq!(
+            result.unwrap().unwrap(),
+            vec![TextEdit {
+              range: Range::new(Position::new(0, 1), Position::new(0, 7)),
+              new_text: "_formatted_process_sting_formatted_process".to_string()
+            }]
+          );
+
+          // cancellation via a drop
+          let file_uri = Url::parse("file:///file_cancellation.txt_ps").unwrap();
+          did_open!(file_uri, "wait_cancellation");
+
+          let token = Arc::new(CancellationToken::new());
+          dprint_core::async_runtime::spawn({
+            let backend = backend.clone();
+            let token = token.clone();
+            async move {
+              let future = backend.formatting(DocumentFormattingParams {
+                text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                options: Default::default(),
+                work_done_progress_params: Default::default(),
+              });
+              // this token's cancellation will drop the future which
+              // will cancel the formatting request internally
+              tokio::select! {
+                _ = future => {},
+                _ = token.cancelled() => {}
+              }
+            }
+          });
+
+          // give some time for the message to be sent
+          tokio::time::sleep(Duration::from_millis(50)).await;
+          assert!(backend.has_pending().await);
+          token.cancel();
+          // give some time for the message to be cancelled
+          tokio::time::sleep(Duration::from_millis(50)).await;
+          assert!(!backend.has_pending().await);
+
+          // create a config file with associations
+          {
+            let mut config_file = TestConfigFileBuilder::new(environment.clone());
+            config_file
+              .add_remote_wasm_plugin()
+              .add_remote_process_plugin()
+              .add_config_section(
+                "test-plugin",
+                r#"{
+                "associations": [
+                  "**/*.{txt,txt_ps}",
+                  "some_file_name",
+                  "test-process-plugin-exact-file"
+                ],
+                "ending": "wasm"
+              }"#,
+              )
+              .add_config_section(
+                "testProcessPlugin",
+                r#"{
+                "associations": [
+                  "**/*.{txt,txt_ps,other}",
+                  "test-process-plugin-exact-file"
+                ]
+                "ending": "ps"
+              }"#,
+              );
+            environment.write_file("/dprint.json", &config_file.to_string()).unwrap();
+          }
+
+          // format using it
+          let file_uri = Url::parse("file:///associations1.txt").unwrap();
+          did_open!(file_uri, "text");
+          assert_format!(
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+              new_text: "_wasm_ps".to_string()
+            }])
+          );
+          backend
+            .did_change(DidChangeTextDocumentParams {
+              text_document: VersionedTextDocumentIdentifier {
+                uri: file_uri.clone(),
+                version: 1,
+              },
+              content_changes: vec![TextDocumentContentChangeEvent {
+                range: Some(Range::new(Position::new(0, 0), Position::new(0, 4))),
+                range_length: None,
+                text: "plugin: text6".to_string(),
+              }],
+            })
+            .await;
+          assert_format!(
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 13), Position::new(0, 13)),
+              new_text: "_wasm_ps_wasm_ps_ps".to_string()
+            }])
+          );
+
+          // try .txt_ps file, which should act the same as above because
+          // of the associations
+          let file_uri = Url::parse("file:///associations1.txt_ps").unwrap();
+          did_open!(file_uri, "text");
+          assert_format!(
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+              new_text: "_wasm_ps".to_string()
+            }])
+          );
+
+          // try the .other extension
+          let file_uri = Url::parse("file:///dir/file.other").unwrap();
+          did_open!(file_uri, "text");
+          assert_format!(
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+              new_text: "_ps".to_string()
+            }])
+          );
+
+          // try the exact file with no extension
+          let file_uri = Url::parse("file:///dir/some_file_name").unwrap();
+          did_open!(file_uri, "text");
+          assert_format!(
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+              new_text: "_wasm".to_string()
+            }])
+          );
+
+          // now try this special file name
+          let file_uri = Url::parse("file:///dir/test-process-plugin-exact-file").unwrap();
+          did_open!(file_uri, "text");
+          assert_format!(
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+              new_text: "_wasm_ps".to_string()
+            }])
+          );
+
+          backend.shutdown().await.unwrap();
+        }
       });
 
       try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
     });
   }
 
