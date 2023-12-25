@@ -264,6 +264,7 @@ SUBCOMMANDS:
   upgrade                 Upgrades the dprint executable.
   completions             Generate shell completions script for dprint
   license                 Outputs the software license.
+  lsp                     Starts up a language server for formatting files.
 
 More details at `dprint help <SUBCOMMAND>`
 

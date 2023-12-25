@@ -18,11 +18,9 @@ mod messages;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::EditorServiceSubCommand;
-use crate::arg_parser::FilePatternArgs;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::ResolvedConfig;
 use crate::environment::Environment;
-use crate::patterns::FileMatcher;
 use crate::plugins::PluginResolver;
 use crate::resolution::get_plugins_scope_from_args;
 use crate::resolution::resolve_plugins_scope;
@@ -249,13 +247,15 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   }
 
   async fn can_format(&mut self, file_path: &Path) -> Result<bool> {
-    let config = self.ensure_latest_config().await?;
-
-    let file_matcher = FileMatcher::new(&config, &FilePatternArgs::default(), self.environment)?;
+    self.ensure_latest_config().await?;
     // canonicalize the file path, then check if it's in the list of file paths.
-    let resolved_file_path = self.environment.canonicalize(file_path)?;
-    log_debug!(self.environment, "Checking can format: {}", resolved_file_path.display());
-    Ok(file_matcher.matches_and_dir_not_ignored(&resolved_file_path))
+    let file_path = self
+      .environment
+      .canonicalize(file_path)
+      .map(|p| p.into_path_buf())
+      .unwrap_or(file_path.to_path_buf());
+    log_debug!(self.environment, "Checking can format: {}", file_path.display());
+    Ok(self.plugins_scope.as_ref().map(|s| s.can_format_for_editor(&file_path)).unwrap_or(false))
   }
 
   async fn ensure_latest_config(&mut self) -> Result<Rc<ResolvedConfig>> {

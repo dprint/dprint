@@ -37,7 +37,7 @@ pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs,
         resolved_path: ResolvedPath::local(environment.canonicalize(config_file_path)?),
         base_path: start_search_dir,
       }
-    } else if let Some(resolved_config_path) = get_default_config_file_in_ancestor_directories(environment)? {
+    } else if let Some(resolved_config_path) = get_default_config_file_in_ancestor_directories(environment, environment.cwd().as_ref())? {
       resolved_config_path
     } else {
       // just return this even though it doesn't exist
@@ -62,28 +62,27 @@ pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs,
 
     Ok(environment.cwd())
   }
+}
 
-  fn get_default_config_file_in_ancestor_directories(environment: &impl Environment) -> Result<Option<ResolvedConfigPath>> {
-    let cwd = environment.cwd().into_path_buf();
-    for ancestor_dir in cwd.ancestors() {
-      if let Some(ancestor_config_path) = get_config_file_in_dir(ancestor_dir, environment) {
-        return Ok(Some(ResolvedConfigPath {
-          resolved_path: ResolvedPath::local(environment.canonicalize(ancestor_config_path)?),
-          base_path: environment.canonicalize(ancestor_dir)?,
-        }));
-      }
+pub fn get_default_config_file_in_ancestor_directories(environment: &impl Environment, start_dir: &Path) -> Result<Option<ResolvedConfigPath>> {
+  for ancestor_dir in start_dir.ancestors() {
+    if let Some(ancestor_config_path) = get_config_file_in_dir(ancestor_dir, environment) {
+      return Ok(Some(ResolvedConfigPath {
+        resolved_path: ResolvedPath::local(environment.canonicalize(ancestor_config_path)?),
+        base_path: environment.canonicalize(ancestor_dir)?,
+      }));
     }
-
-    Ok(None)
   }
 
-  fn get_config_file_in_dir(dir: impl AsRef<Path>, environment: &impl Environment) -> Option<PathBuf> {
-    for file_name in &POSSIBLE_CONFIG_FILE_NAMES {
-      let config_path = dir.as_ref().join(file_name);
-      if environment.path_exists(&config_path) {
-        return Some(config_path);
-      }
+  Ok(None)
+}
+
+fn get_config_file_in_dir(dir: impl AsRef<Path>, environment: &impl Environment) -> Option<PathBuf> {
+  for file_name in &POSSIBLE_CONFIG_FILE_NAMES {
+    let config_path = dir.as_ref().join(file_name);
+    if environment.path_exists(&config_path) {
+      return Some(config_path);
     }
-    None
   }
+  None
 }

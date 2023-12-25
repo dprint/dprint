@@ -5,7 +5,6 @@ use anyhow::Result;
 use crate::arg_parser::FilePatternArgs;
 use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
-use crate::environment::Environment;
 use crate::utils::is_absolute_pattern;
 use crate::utils::is_negated_glob;
 use crate::utils::GlobMatcher;
@@ -18,9 +17,8 @@ pub struct FileMatcher {
 }
 
 impl FileMatcher {
-  pub fn new(config: &ResolvedConfig, args: &FilePatternArgs, environment: &impl Environment) -> Result<Self> {
-    let cwd = environment.cwd();
-    let patterns = get_all_file_patterns(config, args, &cwd);
+  pub fn new(config: &ResolvedConfig, args: &FilePatternArgs, root_dir: &CanonicalizedPathBuf) -> Result<Self> {
+    let patterns = get_all_file_patterns(config, args, root_dir);
     let glob_matcher = GlobMatcher::new(
       patterns,
       &GlobMatcherOptions {
