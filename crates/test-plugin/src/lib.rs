@@ -122,6 +122,8 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
       "unstable_fmt_false".to_string()
     } else if file_text == "unstable_fmt_false" {
       "unstable_fmt_true".to_string()
+    } else if file_text.starts_with("format_to_empty") {
+      return Ok(Some(String::new().into_bytes()));
     } else {
       file_text.to_string()
     };
