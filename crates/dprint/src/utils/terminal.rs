@@ -3,6 +3,7 @@ use crossterm::event::read;
 use crossterm::event::Event;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
+use crossterm::event::KeyEventKind;
 use crossterm::event::KeyModifiers;
 use crossterm::terminal;
 
@@ -20,13 +21,25 @@ pub fn get_terminal_size() -> Option<TerminalSize> {
   }
 }
 
-pub(crate) fn read_terminal_event() -> Result<Event> {
+pub(crate) fn read_terminal_key_press() -> Result<Event> {
+  fn read_until_key_press() -> Result<Event> {
+    loop {
+      let result = read();
+      if let Ok(Event::Key(e)) = &result {
+        if e.kind == KeyEventKind::Press {
+          return Ok(result?);
+        }
+      }
+    }
+  }
+
   // https://github.com/crossterm-rs/crossterm/issues/521
   let was_raw_mode_enabled = terminal::is_raw_mode_enabled()?;
   if !was_raw_mode_enabled {
     terminal::enable_raw_mode()?;
   }
-  let result = read();
+
+  let result = read_until_key_press();
   if !was_raw_mode_enabled {
     terminal::disable_raw_mode()?;
   }

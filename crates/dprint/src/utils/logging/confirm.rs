@@ -6,7 +6,7 @@ use crossterm::event::KeyCode;
 use super::Logger;
 use super::LoggerRefreshItemKind;
 use super::LoggerTextItem;
-use crate::utils::terminal::read_terminal_event;
+use crate::utils::terminal::read_terminal_key_press;
 
 pub fn show_confirm(logger: &Logger, context_name: &str, prompt: &str, default_value: bool) -> Result<bool> {
   let result = loop {
@@ -17,7 +17,7 @@ pub fn show_confirm(logger: &Logger, context_name: &str, prompt: &str, default_v
     ))];
     logger.set_refresh_item(LoggerRefreshItemKind::Selection, text_items);
 
-    if let Event::Key(key_event) = read_terminal_event()? {
+    if let Event::Key(key_event) = read_terminal_key_press()? {
       match &key_event.code {
         KeyCode::Char(c) if *c == 'Y' || *c == 'y' => {
           break true;
