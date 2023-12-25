@@ -175,7 +175,7 @@ where
   return if error_count == 0 {
     Ok(())
   } else {
-    bail!("Had {0} error(s) formatting.", error_count)
+    bail!("Had {} error{} formatting.", error_count, if error_count == 1 { "" } else { "s" })
   };
 
   #[inline]
@@ -275,6 +275,7 @@ where
     file_text: &[u8],
   ) -> Result<(Instant, Vec<u8>)> {
     let start_instant = Instant::now();
+    let original_text = file_text;
     let mut file_text = Cow::Borrowed(file_text);
     let plugins_len = plugins.len();
     for (i, plugin) in plugins.iter().enumerate() {
@@ -304,6 +305,24 @@ where
         file_text = Cow::Owned(text)
       }
     }
+
+    // some heuristic to stop plugins accidentally formatting a file to empty
+    const MIN_CHARS_TO_EMPTY: usize = 300;
+    if file_text.len() < 100 && original_text.len() > MIN_CHARS_TO_EMPTY {
+      let original_text = String::from_utf8_lossy(original_text);
+      let new_text = String::from_utf8_lossy(&file_text);
+      if original_text.trim().len() > MIN_CHARS_TO_EMPTY && new_text.trim().is_empty() {
+        bail!(
+          concat!(
+            "The original file text was greater than {} characters, but the formatted text was empty. ",
+            "Most likely this is a bug in the plugin and the dprint CLI has prevented the plugin from ",
+            "formatting the file to an empty file. Please report this scenario.",
+          ),
+          MIN_CHARS_TO_EMPTY
+        )
+      }
+    }
+
     Ok((start_instant, file_text.into_owned()))
   }
 }

@@ -378,7 +378,7 @@ mod test {
       environment.take_stderr_messages(),
       vec![String::from("Error formatting /file.txt. Message: Did error.")]
     );
-    assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(error_message.to_string(), "Had 1 error formatting.");
   }
 
   #[test]
@@ -391,7 +391,7 @@ mod test {
       environment.take_stderr_messages(),
       vec![String::from("Error formatting /file.txt_ps. Message: Did error.")]
     );
-    assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(error_message.to_string(), "Had 1 error formatting.");
   }
 
   #[test]
@@ -409,7 +409,7 @@ mod test {
       "This may be a bug in the plugin, the dprint cli is out of date, or the plugin is out of date.",
     );
     assert_eq!(&logged_errors[0][..expected_start_text.len()], expected_start_text);
-    assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(error_message.to_string(), "Had 1 error formatting.");
     // should still format with the other plugin
     assert_eq!(environment.read_file("/file2.txt_ps").unwrap(), "test_formatted_process");
   }
@@ -465,7 +465,7 @@ mod test {
       .write_file("/file.txt", "plugin: should_error")
       .build();
     let error_message = run_test_cli(vec!["fmt", "/file.txt"], &environment).err().unwrap();
-    assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(error_message.to_string(), "Had 1 error formatting.");
     assert_eq!(
       environment.take_stderr_messages(),
       vec![String::from("Error formatting /file.txt. Message: Did error.")]
@@ -523,7 +523,7 @@ mod test {
       .write_file("/file.txt_ps", "plugin: should_error")
       .build();
     let error_message = run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).err().unwrap();
-    assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(error_message.to_string(), "Had 1 error formatting.");
     assert_eq!(
       environment.take_stderr_messages(),
       vec![String::from("Error formatting /file.txt_ps. Message: Did error.")]
@@ -865,7 +865,7 @@ mod test {
 
     let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
 
-    assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(error_message.to_string(), "Had 1 error formatting.");
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
@@ -896,7 +896,7 @@ mod test {
 
     let error_message = run_test_cli(vec!["fmt", "**/*.txt_ps"], &environment).err().unwrap();
 
-    assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(error_message.to_string(), "Had 1 error formatting.");
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
@@ -937,7 +937,7 @@ mod test {
 
     let error_message = run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).err().unwrap();
 
-    assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(error_message.to_string(), "Had 1 error formatting.");
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
@@ -1584,7 +1584,7 @@ mod test {
 
     let result = run_test_cli(vec!["fmt", "--incremental"], &environment).err().unwrap();
 
-    assert_eq!(result.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(result.to_string(), "Had 1 error formatting.");
     assert_eq!(
       environment.take_stderr_messages(),
       vec![concat!(
@@ -1604,7 +1604,7 @@ mod test {
 
     let result = run_test_cli(vec!["fmt", "--incremental"], &environment).err().unwrap();
 
-    assert_eq!(result.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(result.to_string(), "Had 1 error formatting.");
     assert_eq!(
       environment.take_stderr_messages(),
       vec![concat!(
@@ -2102,7 +2102,7 @@ mod test {
 
     let error_message = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
 
-    assert_eq!(error_message.to_string(), "Had 1 error(s) formatting.");
+    assert_eq!(error_message.to_string(), "Had 1 error formatting.");
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
@@ -2194,5 +2194,29 @@ mod test {
       "No files found to format with the specified plugins at /sub_dir. You may want to try using `dprint output-file-paths` to see which files it's finding or run with `--allow-no-files`."
     );
     err.assert_exit_code(14);
+  }
+
+  #[test]
+  fn should_error_format_to_empty() {
+    // this is to prevent a plugin accidentally formatting a file to an empty file
+    let file_path1 = "/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file(&file_path1, &format!("format_to_empty {}", "a".repeat(400)))
+      .build();
+    let err = run_test_cli(vec!["fmt"], &environment).err().unwrap();
+    assert_eq!(err.to_string(), "Had 1 error formatting.");
+    err.assert_exit_code(1);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![concat!(
+        "Error formatting /file.txt. Message: The original file text was greater than 300 characters, ",
+        "but the formatted text was empty. Most likely this is a bug in the plugin and the dprint CLI has ",
+        "prevented the plugin from formatting the file to an empty file. Please report this scenario."
+      )
+      .to_string()]
+    );
   }
 }
