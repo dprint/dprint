@@ -11,9 +11,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
-use sysinfo::CpuExt;
 use sysinfo::System;
-use sysinfo::SystemExt;
 
 use dprint_core::async_runtime::async_trait;
 
@@ -357,7 +355,7 @@ impl Environment for RealEnvironment {
     };
 
     // wait a duration that allows getting a more accurate cpu usage
-    tokio::time::sleep(System::MINIMUM_CPU_UPDATE_INTERVAL).await;
+    tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
 
     dprint_core::async_runtime::spawn_blocking(move || {
       let mut system = system.lock();
