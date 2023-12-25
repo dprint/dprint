@@ -1,5 +1,7 @@
 # Developing an Editor Extension (Schema Version 5)
 
+**DO NOT USE THIS**: dprint 0.45 introduced a `dprint lsp` command that supports formatting files over the language server protocol. Please use that instead. This editor-service will remain active for the foreseeable future as it's currently used by the vscode and intellij plugins (though vscode is switching over to `dprint lsp` in the future).
+
 Note: Schema version 5 was introduced in dprint 0.25
 
 Editor extensions communicate with the CLI using the `dprint editor-info` and `dprint editor-service` subcommand.
