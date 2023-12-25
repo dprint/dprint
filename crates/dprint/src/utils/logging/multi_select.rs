@@ -3,7 +3,7 @@ use anyhow::Result;
 use crossterm::event::Event;
 use crossterm::event::KeyCode;
 
-use crate::utils::terminal::read_terminal_event;
+use crate::utils::terminal::read_terminal_key_press;
 
 use super::Logger;
 use super::LoggerRefreshItemKind;
@@ -28,7 +28,7 @@ pub fn show_multi_select(logger: &Logger, context_name: &str, prompt: &str, item
     let text_items = render_multi_select(&data);
     logger.set_refresh_item(LoggerRefreshItemKind::Selection, text_items);
 
-    if let Event::Key(key_event) = read_terminal_event()? {
+    if let Event::Key(key_event) = read_terminal_key_press()? {
       match &key_event.code {
         KeyCode::Up => {
           if data.active_index == 0 {

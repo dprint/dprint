@@ -14,9 +14,8 @@ description = "Binary for dprint code formatter—a pluggable and configurable c
 anyhow = "1.0.69"
 clap = "4.3.8"
 clap_complete = "4.3.1"
-console_static_text = "0.7.1"
-# don't upgrade to 0.26 https://github.com/crossterm-rs/crossterm/issues/752
-crossterm = "0.25.0" # manually retest everything when bumping this crate
+console_static_text = "0.8.2"
+crossterm = "0.27.0" # manually retest everything when bumping this crate
 dirs = "4.0.0"
 dissimilar = "=1.0.4"
 dprint-core = { path = "../core", version = "0.65.0", features = ["process", "wasm"] }
