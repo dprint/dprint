@@ -4,11 +4,13 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const https = require("https");
+const cp = require("child_process");
 /** @type {string | undefined} */
 let cachedIsMusl = undefined;
 
 module.exports = {
-  runInstall() {
+  async runInstall() {
     const dprintFileName = os.platform() === "win32" ? "dprint.exe" : "dprint";
     const targetExecutablePath = path.join(
       __dirname,
@@ -20,8 +22,24 @@ module.exports = {
     }
 
     const target = getTarget();
-    const sourcePackagePath = path.dirname(require.resolve("@dprint/" + target + "/package.json"));
-    const sourceExecutablePath = path.join(sourcePackagePath, dprintFileName);
+    let sourceExecutablePath;
+    if (target === "unsupported" || process.env.DPRINT_BUILD_FROM_SOURCE === "1") {
+      console.log("Building dprint binary from source...");
+      const packageVersion = require("./package.json").version;
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "tmp-"));
+      const dprintZip = path.join(tmp, "dprint.zip");
+      const dprintRepo = path.join(tmp, `dprint-${packageVersion}`);
+      await downloadFile(
+        `https://github.com/dprint/dprint/archive/refs/tags/${packageVersion}.zip`,
+        dprintZip,
+      );
+      await unzipFile(dprintZip, tmp);
+      cp.execFileSync("cargo", ["build", "--release"], { cwd: dprintRepo });
+      sourceExecutablePath = path.join(dprintRepo, "target/release", dprintFileName);
+    } else {
+      const sourcePackagePath = path.dirname(require.resolve("@dprint/" + target + "/package.json"));
+      sourceExecutablePath = path.join(sourcePackagePath, dprintFileName);
+    }
 
     if (!fs.existsSync(sourceExecutablePath)) {
       throw new Error("Could not find executable for @dprint/" + target + " at " + sourceExecutablePath);
@@ -72,6 +90,10 @@ function chmodX(filePath) {
 
 function getTarget() {
   const platform = os.platform();
+  const arch = getArch();
+  if (arch === "unsupported") {
+    return arch;
+  }
   if (platform === "linux") {
     return platform + "-" + getArch() + "-" + getLinuxFamily();
   } else {
@@ -82,7 +104,7 @@ function getTarget() {
 function getArch() {
   const arch = os.arch();
   if (arch !== "arm64" && arch !== "x64") {
-    throw new Error("Unsupported architecture " + os.arch() + ". Only x64 and aarch64 binaries are available.");
+    return "unsupported";
   }
   return arch;
 }
@@ -161,4 +183,67 @@ function atomicCopyFileSync(sourcePath, destinationPath) {
     }
     throw err;
   }
+}
+
+async function downloadFile(url, targetFile) {
+  return await new Promise((resolve, reject) => {
+    https.get(url, (response) => {
+      const code = response.statusCode ?? 0;
+      if (code >= 400) {
+        return reject(new Error(response.statusMessage));
+      }
+      if (code > 300 && code < 400 && !!response.headers.location) {
+        return resolve(downloadFile(response.headers.location, targetFile));
+      }
+      const fileWriter = fs
+        .createWriteStream(targetFile)
+        .on("finish", () => {
+          resolve({});
+        });
+      response.pipe(fileWriter);
+    }).on("error", error => {
+      reject(error);
+    });
+  });
+}
+
+async function unzipFile(archiveName, destFolder) {
+  let yauzl;
+  try {
+    yauzl = require("yauzl");
+  } catch {
+    throw new Error("`yauzl` is required to build dprint from source");
+  }
+
+  return new Promise((resolve, reject) => {
+    try {
+      yauzl.open(archiveName, { lazyEntries: true }, (err, zipfile) => {
+        if (err) reject(err);
+        zipfile.readEntry();
+        zipfile.on("entry", (entry) => {
+          if (/\/$/.test(entry.fileName)) {
+            // Directory file names end with '/'.
+            // Note that entries for directories themselves are optional.
+            // An entry's fileName implicitly requires its parent directories to exist.
+            zipfile.readEntry();
+          } else {
+            // file entry
+            zipfile.openReadStream(entry, (err, readStream) => {
+              if (err) reject(err);
+              readStream.on("end", () => {
+                zipfile.readEntry();
+              });
+              const destPath = path.join(destFolder, entry.fileName);
+              fs.mkdirSync(path.dirname(destPath), { recursive: true });
+              const writeFileStream = fs.createWriteStream(path.join(destFolder, entry.fileName));
+              readStream.pipe(writeFileStream);
+            });
+          }
+        });
+        zipfile.on("end", () => resolve({}));
+      });
+    } catch (err) {
+      reject(new Error(`Error unzipping ${archiveName}: ${err.message}`));
+    }
+  });
 }
