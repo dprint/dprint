@@ -18,45 +18,8 @@ export function replaceConfigTable() {
             propertyTitle.textContent = property.name;
             propertyContainer.appendChild(propertyTitle);
 
-            // description
-            const propertyDesc = document.createElement("p");
-            propertyDesc.textContent = property.description;
-            propertyContainer.appendChild(propertyDesc);
-
-            const infoContainer = document.createElement("ul");
-            propertyContainer.appendChild(infoContainer);
-
-            if (property.oneOf) {
-              property.oneOf.forEach(function(oneOf) {
-                const oneOfContainer = document.createElement("li");
-                infoContainer.appendChild(oneOfContainer);
-                const prefix = document.createElement("strong");
-                prefix.textContent = valueToText(oneOf.const);
-                oneOfContainer.appendChild(prefix);
-                if (oneOf.description != null && oneOf.description.length > 0) {
-                  oneOfContainer.append(" - " + oneOf.description);
-                }
-                if (oneOf.const === property.default) {
-                  oneOfContainer.append(" (Default)");
-                }
-              });
-            } else {
-              // type
-              const typeContainer = document.createElement("li");
-              infoContainer.appendChild(typeContainer);
-              const typePrefix = document.createElement("strong");
-              typePrefix.textContent = "Type: ";
-              typeContainer.appendChild(typePrefix);
-              typeContainer.append(property.type);
-
-              // default
-              const defaultContainer = document.createElement("li");
-              infoContainer.appendChild(defaultContainer);
-              const defaultPrefix = document.createElement("strong");
-              defaultPrefix.textContent = "Default: ";
-              defaultContainer.appendChild(defaultPrefix);
-              defaultContainer.append(valueToText(property.default));
-            }
+            addDescription(propertyContainer, property);
+            addInfoContainer(propertyContainer, property);
 
             if (property.astSpecificProperties != null && property.astSpecificProperties.length > 0) {
               const astSpecificPropertiesPrefix = document.createElement("p");
@@ -66,9 +29,22 @@ export function replaceConfigTable() {
               const astSpecificPropertyNamesContainer = document.createElement("ul");
               propertyContainer.appendChild(astSpecificPropertyNamesContainer);
 
-              property.astSpecificProperties.forEach(function(propName) {
+              property.astSpecificProperties.forEach(function({ propertyName, definition }) {
                 const propertyNameLi = document.createElement("li");
-                propertyNameLi.textContent = valueToText(propName);
+
+                const labelSpan = document.createElement("span");
+                labelSpan.textContent = valueToText(propertyName);
+                propertyNameLi.appendChild(labelSpan);
+
+                if (definition != null) {
+                  const definitionDiv = document.createElement("div");
+                  if (definition.description !== property.description) {
+                    addDescription(definitionDiv, definition);
+                  }
+                  addInfoContainer(definitionDiv, definition);
+                  propertyNameLi.appendChild(definitionDiv);
+                }
+
                 astSpecificPropertyNamesContainer.appendChild(propertyNameLi);
               });
             }
@@ -80,6 +56,49 @@ export function replaceConfigTable() {
             propertyContainer.appendChild(errorMessage);
           }
         });
+
+        function addDescription(propertyContainer, property) {
+          const propertyDesc = document.createElement("p");
+          propertyDesc.textContent = property.description;
+          propertyContainer.appendChild(propertyDesc);
+        }
+
+        function addInfoContainer(propertyContainer, property) {
+          const infoContainer = document.createElement("ul");
+          propertyContainer.appendChild(infoContainer);
+
+          if (property.oneOf) {
+            property.oneOf.forEach(function(oneOf) {
+              const oneOfContainer = document.createElement("li");
+              infoContainer.appendChild(oneOfContainer);
+              const prefix = document.createElement("strong");
+              prefix.textContent = valueToText(oneOf.const);
+              oneOfContainer.appendChild(prefix);
+              if (oneOf.description != null && oneOf.description.length > 0) {
+                oneOfContainer.append(" - " + oneOf.description);
+              }
+              if (oneOf.const === property.default) {
+                oneOfContainer.append(" (Default)");
+              }
+            });
+          } else {
+            // type
+            const typeContainer = document.createElement("li");
+            infoContainer.appendChild(typeContainer);
+            const typePrefix = document.createElement("strong");
+            typePrefix.textContent = "Type: ";
+            typeContainer.appendChild(typePrefix);
+            typeContainer.append(property.type);
+
+            // default
+            const defaultContainer = document.createElement("li");
+            infoContainer.appendChild(defaultContainer);
+            const defaultPrefix = document.createElement("strong");
+            defaultPrefix.textContent = "Default: ";
+            defaultContainer.appendChild(defaultPrefix);
+            defaultContainer.append(valueToText(property.default));
+          }
+        }
 
         function valueToText(value) {
           if (typeof value === "string") {
@@ -122,18 +141,20 @@ function getDprintPluginConfig(configSchemaUrl) {
       const property = json.properties[propertyName];
 
       if (property["$ref"]) {
-        const definition = json.definitions[propertyName];
-        if (definition != null) {
-          setDefinitionForPropertyName(propertyName, definition);
+        const lastSegment = propertyName.split(".").pop();
+        const astSpecific = lastSegment !== propertyName && json.properties[lastSegment] != null;
+
+        const derivedPropName = property["$ref"].replace("#/definitions/", "");
+        const definition = json.definitions[derivedPropName];
+        if (astSpecific) {
+          ensurePropertyName(lastSegment);
+          const isSameDefinition = property["$ref"] === json.properties[lastSegment]["$ref"];
+          properties[lastSegment].astSpecificProperties.push({
+            propertyName,
+            definition: isSameDefinition ? null : definition,
+          });
         } else {
-          const derivedPropName = property["$ref"].replace("#/definitions/", "");
-          if (json.properties[derivedPropName] == null) {
-            // occurs when the definition doesn't have a corresponding property
-            setDefinitionForPropertyName(propertyName, json.definitions[derivedPropName]);
-          } else {
-            ensurePropertyName(derivedPropName);
-            properties[derivedPropName].astSpecificProperties.push(propertyName);
-          }
+          setDefinitionForPropertyName(propertyName, definition);
         }
       } else {
         ensurePropertyName(propertyName);
