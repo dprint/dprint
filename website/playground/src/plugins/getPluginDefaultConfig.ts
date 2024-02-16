@@ -15,11 +15,22 @@ export async function getPluginDefaultConfig(configSchemaUrl: string, signal: Ab
       if (propertyName === "$schema" || propertyName === "deno" || propertyName === "locked") {
         continue;
       }
+
+      const lastSegment = propertyName.split(".").pop()!;
+      const astSpecific = lastSegment !== propertyName && json.properties[lastSegment] != null;
+      if (astSpecific) {
+        continue;
+      }
+
       const property = json.properties[propertyName];
       let defaultValue: string | boolean | number | undefined;
 
       if (property["$ref"]) {
-        defaultValue = json.definitions[propertyName]?.default;
+        const derivedPropName = property["$ref"].replace("#/definitions/", "");
+        const definition = json.definitions[derivedPropName];
+        if (definition != null) {
+          defaultValue = definition?.default;
+        }
       } else {
         defaultValue = property.default;
       }
