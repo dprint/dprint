@@ -155,7 +155,7 @@ function atomicCopyFileSync(sourcePath, destinationPath) {
     // will maybe throw when another process had already done this
     // so just ignore and delete the created temporary file
     try {
-      fs.unlikSync(tempFilePath);
+      fs.unlinkSync(tempFilePath);
     } catch (_err2) {
       // ignore
     }
