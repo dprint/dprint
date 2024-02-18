@@ -141,15 +141,21 @@ function getDprintPluginConfig(configSchemaUrl) {
       const property = json.properties[propertyName];
 
       if (property["$ref"]) {
-        const lastSegment = propertyName.split(".").pop();
-        const astSpecific = lastSegment !== propertyName && json.properties[lastSegment] != null;
-
         const derivedPropName = property["$ref"].replace("#/definitions/", "");
+
+        const lastSegment = propertyName.split(".").pop();
+        let parentProperty;
+        if (derivedPropName !== propertyName && derivedPropName in json.properties) {
+          parentProperty = derivedPropName;
+        } else if (lastSegment !== propertyName && lastSegment in json.properties) {
+          parentProperty = lastSegment;
+        }
+
         const definition = json.definitions[derivedPropName];
-        if (astSpecific) {
-          ensurePropertyName(lastSegment);
-          const isSameDefinition = property["$ref"] === json.properties[lastSegment]["$ref"];
-          properties[lastSegment].astSpecificProperties.push({
+        if (parentProperty) {
+          ensurePropertyName(parentProperty);
+          const isSameDefinition = property["$ref"] === json.properties[parentProperty]["$ref"];
+          properties[parentProperty].astSpecificProperties.push({
             propertyName,
             definition: isSameDefinition ? null : definition,
           });

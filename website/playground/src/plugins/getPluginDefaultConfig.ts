@@ -15,18 +15,19 @@ export async function getPluginDefaultConfig(configSchemaUrl: string, signal: Ab
       if (propertyName === "$schema" || propertyName === "deno" || propertyName === "locked") {
         continue;
       }
+      const property = json.properties[propertyName];
+      const derivedPropName = property["$ref"]?.replace("#/definitions/", "");
 
       const lastSegment = propertyName.split(".").pop()!;
-      const astSpecific = lastSegment !== propertyName && json.properties[lastSegment] != null;
+      const astSpecific = (derivedPropName !== propertyName && derivedPropName in json.properties)
+        || (lastSegment !== propertyName && lastSegment in json.properties);
       if (astSpecific) {
         continue;
       }
 
-      const property = json.properties[propertyName];
       let defaultValue: string | boolean | number | undefined;
 
-      if (property["$ref"]) {
-        const derivedPropName = property["$ref"].replace("#/definitions/", "");
+      if (derivedPropName) {
         const definition = json.definitions[derivedPropName];
         if (definition != null) {
           defaultValue = definition?.default;
