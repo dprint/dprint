@@ -6,13 +6,16 @@ use std::time::Duration;
 /// Note: This must be called from a tokio runtime.
 pub fn start_parent_process_checker_task(parent_process_id: u32) {
   crate::async_runtime::spawn(async move {
-    loop {
-      tokio::time::sleep(Duration::from_secs(10)).await;
+    // wait cheaply for 2 seconds
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
+    // now spawn a dedicated thread if we're still alive
+    std::thread::spawn(move || loop {
+      std::thread::sleep(Duration::from_secs(5));
       if !is_process_active(parent_process_id) {
         std::process::exit(1);
       }
-    }
+    });
   });
 }
 
