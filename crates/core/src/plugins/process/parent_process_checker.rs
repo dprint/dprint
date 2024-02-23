@@ -9,7 +9,10 @@ pub fn start_parent_process_checker_task(parent_process_id: u32) {
     // wait cheaply for 2 seconds
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    // now spawn a dedicated thread if we're still alive
+    // now spawn a dedicated thread that will keep checking this
+    // in case the tokio runtime gets blocked. Also, DO NOT
+    // use spawn_blocking from tokio here because it will keep
+    // the process alive
     std::thread::spawn(move || loop {
       std::thread::sleep(Duration::from_secs(5));
       if !is_process_active(parent_process_id) {
