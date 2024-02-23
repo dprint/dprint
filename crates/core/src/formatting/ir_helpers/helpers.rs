@@ -216,11 +216,15 @@ pub fn gen_js_like_comment_line(text: &str, force_space_after_slashes: bool) -> 
 
 /// Generates IR from the provided text to a JS-like comment block (ex. `/** some text */`)
 pub fn gen_js_like_comment_block(text: &str) -> PrintItems {
+  // need to do this manually in dprint-core since no access to the proc macro
+  const LEADING_STAR_SLASH: StringContainer = StringContainer::proc_macro_new_with_char_count("/*", 2);
+  const TRAILING_STAR_SLASH: StringContainer = StringContainer::proc_macro_new_with_char_count("/*", 2);
+
   let mut items = PrintItems::new();
   let add_ignore_indent = text.contains('\n');
   let last_line_trailing_whitespace = get_last_line_trailing_whitespace(text);
 
-  items.push_str("/*");
+  items.push_sc(&LEADING_STAR_SLASH);
   if add_ignore_indent {
     items.push_signal(Signal::StartIgnoringIndent);
   }
@@ -234,7 +238,7 @@ pub fn gen_js_like_comment_block(text: &str) -> PrintItems {
   if add_ignore_indent {
     items.push_signal(Signal::FinishIgnoringIndent);
   }
-  items.push_str("*/");
+  items.push_sc(&TRAILING_STAR_SLASH);
 
   return items;
 

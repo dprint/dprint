@@ -1,6 +1,16 @@
+use std::borrow::Cow;
 use std::cell::UnsafeCell;
+use std::rc::Rc;
 
-use bumpalo::Bump;
+use super::collections::GraphNode;
+use super::collections::NodeStackNode;
+use super::Condition;
+use super::ConditionResolver;
+use super::PrintNodeCell;
+use super::SavePoint;
+use super::StringContainer;
+use super::UnsafePrintLifetime;
+use super::WriteItem;
 
 #[derive(Default)]
 pub struct Counts {
@@ -19,20 +29,85 @@ pub struct Counts {
   graph_node_id_count: u32,
 }
 
+/// This file is a dumpster fireand the API is actually really
+/// unsafe if used incorrectly. The way it ended up this way was
+/// because I wanted to try out the performance improvements of
+/// a bump allocator without having to deal with lifetimes everywhere.
+/// Anyway, this landed and I haven't had time to go through and
+/// make the API safe.
+pub struct BumpAllocator {
+  condition_resolvers: Vec<ConditionResolver>,
+  bump: bumpalo::Bump,
+}
+
+impl BumpAllocator {
+  fn new() -> Self {
+    Self {
+      condition_resolvers: Default::default(),
+      bump: bumpalo::Bump::new(),
+    }
+  }
+
+  pub fn inner(&self) -> &bumpalo::Bump {
+    &self.bump
+  }
+
+  pub fn alloc_condition(&mut self, condition: Condition) -> UnsafePrintLifetime<Condition> {
+    unsafe {
+      // Leak the Rc that gets stored in the bump allocator, then add another
+      // rc in a vector that we store here, which will cause a decrement of the
+      // rc when this is dropped.
+      let condition_resolver = condition.condition.clone();
+      let rc_raw = Rc::into_raw(condition_resolver);
+      Rc::decrement_strong_count(rc_raw);
+      self.condition_resolvers.push(Rc::from_raw(rc_raw));
+    }
+    let condition = self.bump.alloc(condition);
+    unsafe { std::mem::transmute::<&Condition, UnsafePrintLifetime<Condition>>(condition) }
+  }
+
+  pub fn alloc_string(&self, item: Cow<'static, str>) -> UnsafePrintLifetime<StringContainer> {
+    let string = match item {
+      Cow::Borrowed(item) => item,
+      Cow::Owned(item) => {
+        let string = self.bump.alloc(bumpalo::collections::String::from_str_in(&item, &self.bump));
+        unsafe { std::mem::transmute::<&bumpalo::collections::String, UnsafePrintLifetime<bumpalo::collections::String>>(string) }
+      }
+    };
+    let string = StringContainer::new(string);
+    let string = self.bump.alloc(string);
+    unsafe { std::mem::transmute::<&StringContainer, UnsafePrintLifetime<StringContainer>>(string) }
+  }
+
+  pub fn alloc_write_item_graph_node<'a>(&'a self, node: GraphNode<'a, WriteItem<'a>>) -> &'a GraphNode<'a, WriteItem<'a>> {
+    self.bump.alloc(node)
+  }
+
+  pub fn alloc_node_stack_node<'a>(&'a self, node: NodeStackNode<'a>) -> &'a NodeStackNode<'a> {
+    self.bump.alloc(node)
+  }
+
+  pub fn alloc_save_point<'a>(&'a self, save_point: SavePoint<'a>) -> &'a SavePoint {
+    self.bump.alloc(save_point)
+  }
+
+  pub fn alloc_print_node_cell(&self, cell: PrintNodeCell) -> UnsafePrintLifetime<PrintNodeCell> {
+    let result = self.bump.alloc(cell);
+    unsafe { std::mem::transmute::<&PrintNodeCell, UnsafePrintLifetime<PrintNodeCell>>(result) }
+  }
+
+  pub fn reset(&mut self) {
+    self.bump.reset();
+    self.condition_resolvers.clear();
+  }
+}
+
 thread_local! {
-  static BUMP_ALLOCATOR: UnsafeCell<Bump> = UnsafeCell::new(Bump::new());
+  static BUMP_ALLOCATOR: UnsafeCell<BumpAllocator> = UnsafeCell::new(BumpAllocator::new());
   static COUNTS: UnsafeCell<Counts> = UnsafeCell::new(Default::default());
 }
 
-pub fn with_bump_allocator<TReturn>(action: impl FnOnce(&Bump) -> TReturn) -> TReturn {
-  BUMP_ALLOCATOR.with(|bump_cell| unsafe {
-    let bump = bump_cell.get();
-    action(&*bump)
-  })
-}
-
-pub fn with_bump_allocator_mut<TReturn>(action: impl FnMut(&mut Bump) -> TReturn) -> TReturn {
-  let mut action = action;
+pub fn with_bump_allocator<TReturn>(action: impl FnOnce(&mut BumpAllocator) -> TReturn) -> TReturn {
   BUMP_ALLOCATOR.with(|bump_cell| unsafe {
     let bump = bump_cell.get();
     action(&mut *bump)

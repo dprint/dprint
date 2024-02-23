@@ -1,0 +1,25 @@
+name: cargo publish core-macros crate
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rust:
+    name: cargo publish core-macros crate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GH_DPRINTBOT_PAT }}
+
+      - uses: denoland/setup-deno@v1
+      - uses: dsherret/rust-toolchain-file@v1
+
+      - name: Cargo login
+        run: cargo login ${{ secrets.CRATES_TOKEN }}
+
+      - name: Cargo publish
+        run: cd crates/core-macros && cargo publish

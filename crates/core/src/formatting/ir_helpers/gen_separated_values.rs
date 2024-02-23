@@ -268,7 +268,7 @@ pub fn gen_separated_values(
         }
         items.extend(generated_values_items.into());
         if opts.single_line_options.space_at_end {
-          items.push_str(" ");
+          items.push_space();
         }
         items
       }),

@@ -8,7 +8,7 @@ fn test_tracing() {
       let mut print_items = PrintItems::new();
       print_items.push_info(LineNumber::new("line_number"));
       print_items.push_signal(Signal::NewLine);
-      print_items.push_str("string");
+      print_items.push_str_runtime_width_computed("string");
       print_items.push_condition(conditions::if_true_or(
         "condition_name",
         std::rc::Rc::new(|_| Some(true)),

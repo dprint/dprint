@@ -33,10 +33,7 @@ impl PrintItems {
 
   #[inline]
   fn push_item_internal(&mut self, item: PrintItem) {
-    let node = thread_state::with_bump_allocator(|bump| {
-      let result = bump.alloc(PrintNodeCell::new(item));
-      unsafe { std::mem::transmute::<&PrintNodeCell, UnsafePrintLifetime<PrintNodeCell>>(result) }
-    });
+    let node = thread_state::with_bump_allocator(|bump| bump.alloc_print_node_cell(PrintNodeCell::new(item)));
     if let Some(first_node) = &self.first_node {
       let new_last_node = node.get_last_next().unwrap_or(node);
       self.last_node.as_ref().unwrap_or(first_node).set_next(Some(node));
@@ -66,8 +63,27 @@ impl PrintItems {
     }
   }
 
-  pub fn push_str(&mut self, item: &'static str) {
+  /// Pushes a string that will have its width computed at runtime.
+  ///
+  /// Instead of using this, prefer to use `push_sc` where possible
+  /// with the `sc!` macro from the dprint-core-macros crate.
+  pub fn push_str_runtime_width_computed(&mut self, item: &'static str) {
     self.push_cow_string(Cow::Borrowed(item))
+  }
+
+  pub fn push_force_current_line_indentation(&mut self) {
+    const STR_EMPTY: StringContainer = StringContainer { text: "", char_count: 0 };
+    self.push_item_internal(PrintItem::String(&STR_EMPTY))
+  }
+
+  pub fn push_space(&mut self) {
+    const STR_SPACE: StringContainer = StringContainer { text: " ", char_count: 1 };
+    self.push_item_internal(PrintItem::String(&STR_SPACE))
+  }
+
+  /// Pushes a string that's had its width computed at compile time.
+  pub fn push_sc(&mut self, item: &'static StringContainer) {
+    self.push_item_internal(PrintItem::String(item))
   }
 
   pub fn push_string(&mut self, item: String) {
@@ -75,18 +91,12 @@ impl PrintItems {
   }
 
   fn push_cow_string(&mut self, item: Cow<'static, str>) {
-    let string_container = thread_state::with_bump_allocator(|bump| {
-      let result = bump.alloc(StringContainer::new(item));
-      unsafe { std::mem::transmute::<&StringContainer, UnsafePrintLifetime<StringContainer>>(result) }
-    });
+    let string_container = thread_state::with_bump_allocator(|bump| bump.alloc_string(item));
     self.push_item_internal(PrintItem::String(string_container));
   }
 
   pub fn push_condition(&mut self, condition: Condition) {
-    let condition = thread_state::with_bump_allocator(|bump| {
-      let result = bump.alloc(condition);
-      unsafe { std::mem::transmute::<&Condition, UnsafePrintLifetime<Condition>>(result) }
-    });
+    let condition = thread_state::with_bump_allocator(|bump| bump.alloc_condition(condition));
     self.push_item_internal(PrintItem::Condition(condition));
   }
 
@@ -212,7 +222,7 @@ impl Iterator for PrintItemsIterator {
 impl From<&'static str> for PrintItems {
   fn from(value: &'static str) -> Self {
     let mut items = PrintItems::new();
-    items.push_str(value);
+    items.push_str_runtime_width_computed(value);
     items
   }
 }
@@ -470,7 +480,7 @@ pub type PrintItemPath = UnsafePrintLifetime<PrintNodeCell>;
 /// around an object that wraps an arena. Perhaps that will be the way going forward
 /// in the future, but for now this was an easy way to get the big performance
 /// boost from an arena without changing the API much.
-type UnsafePrintLifetime<T> = &'static T;
+pub(super) type UnsafePrintLifetime<T> = &'static T;
 
 /* Print item and kinds */
 
@@ -1067,7 +1077,7 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
 #[derive(Clone)]
 pub struct StringContainer {
   /// The string value.
-  pub text: Cow<'static, str>,
+  pub text: UnsafePrintLifetime<str>,
   /// The cached character count.
   /// It is much faster to cache this than to recompute it all the time.
   pub(super) char_count: u32,
@@ -1075,8 +1085,14 @@ pub struct StringContainer {
 
 impl StringContainer {
   /// Creates a new string container.
-  pub fn new(text: Cow<'static, str>) -> Self {
-    let char_count = unicode_width::UnicodeWidthStr::width(text.as_ref()) as u32;
+  pub fn new(text: UnsafePrintLifetime<str>) -> Self {
+    let char_count = unicode_width::UnicodeWidthStr::width(text) as u32;
+    Self { text, char_count }
+  }
+
+  /// This is used by the sc! proc macro and should not be used otherwise
+  /// because the character count is pre-computed.
+  pub const fn proc_macro_new_with_char_count(text: UnsafePrintLifetime<str>, char_count: u32) -> Self {
     Self { text, char_count }
   }
 }
