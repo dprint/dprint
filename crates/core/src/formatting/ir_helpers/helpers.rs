@@ -218,7 +218,7 @@ pub fn gen_js_like_comment_line(text: &str, force_space_after_slashes: bool) -> 
 pub fn gen_js_like_comment_block(text: &str) -> PrintItems {
   // need to do this manually in dprint-core since no access to the proc macro
   const LEADING_STAR_SLASH: StringContainer = StringContainer::proc_macro_new_with_char_count("/*", 2);
-  const TRAILING_STAR_SLASH: StringContainer = StringContainer::proc_macro_new_with_char_count("/*", 2);
+  const TRAILING_STAR_SLASH: StringContainer = StringContainer::proc_macro_new_with_char_count("*/", 2);
 
   let mut items = PrintItems::new();
   let add_ignore_indent = text.contains('\n');
