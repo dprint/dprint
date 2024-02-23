@@ -1,5 +1,6 @@
-use bumpalo::Bump;
 use std::cell::RefCell;
+
+use self::thread_state::BumpAllocator;
 
 use super::*;
 
@@ -36,7 +37,7 @@ pub fn format(get_print_items: impl FnOnce() -> PrintItems, options: PrintOption
   let old_counts = thread_state::take_counts();
   let print_items = get_print_items();
 
-  let result = thread_state::with_bump_allocator_mut(|bump| {
+  let result = thread_state::with_bump_allocator(|bump| {
     let result = print_with_allocator(bump, &print_items, &options);
     if decrement_formatting_count() {
       bump.reset();
@@ -62,7 +63,7 @@ pub fn print(print_items: PrintItems, options: PrintOptions) -> String {
   result
 }
 
-fn print_with_allocator(bump: &Bump, print_items: &PrintItems, options: &PrintOptions) -> String {
+fn print_with_allocator(bump: &mut BumpAllocator, print_items: &PrintItems, options: &PrintOptions) -> String {
   match Printer::new(bump, print_items.first_node, options.to_printer_options()).print() {
     Some(write_items) => WriteItemsPrinter::from(options).print(write_items),
     None => String::new(),
@@ -86,7 +87,7 @@ pub fn trace_printing(get_print_items: impl FnOnce() -> PrintItems, options: Pri
   increment_formatting_count();
   let print_items = get_print_items();
 
-  thread_state::with_bump_allocator_mut(|bump| {
+  thread_state::with_bump_allocator(|bump| {
     let tracing_result = Printer::new(bump, print_items.first_node, {
       let mut printer_options = options.to_printer_options();
       printer_options.enable_tracing = true;
@@ -163,7 +164,7 @@ mod test {
           assert_eq!(LineNumber::new("").unique_id(), 0);
           assert_eq!(LineNumber::new("").unique_id(), 1);
           assert_eq!(LineNumber::new("").unique_id(), 2);
-          items.push_str("test");
+          items.push_str_runtime_width_computed("test");
           items.push_string(format(
             || {
               // It's important that these start incrementing from

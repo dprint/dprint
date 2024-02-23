@@ -351,7 +351,7 @@ where
   T: std::str::FromStr,
   <T as std::str::FromStr>::Err: std::fmt::Display,
 {
-  if let Some(raw_value) = config.remove(key) {
+  if let Some(raw_value) = config.shift_remove(key) {
     // not exactly the best, but can't think of anything better at the moment
     let parsed_value = match raw_value {
       ConfigKeyValue::Bool(value) => value.to_string().parse::<T>().map_err(|e| e.to_string()),
@@ -378,7 +378,7 @@ where
 /// If it exists, moves over the configuration value over from the old key
 /// to the new key and adds a diagnostic.
 pub fn handle_renamed_config_property(config: &mut ConfigKeyMap, old_key: &str, new_key: &str, diagnostics: &mut Vec<ConfigurationDiagnostic>) {
-  if let Some(raw_value) = config.remove(old_key) {
+  if let Some(raw_value) = config.shift_remove(old_key) {
     if !config.contains_key(new_key) {
       config.insert(new_key.to_string(), raw_value);
     }
