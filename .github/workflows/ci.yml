@@ -48,7 +48,7 @@ jobs:
             run_tests: "false"
             target: aarch64-unknown-linux-musl
             cross: "true"
-          - os: ubuntu-latest
+          - os: ubuntu-20.04
             run_tests: "false"
             target: riscv64gc-unknown-linux-gnu
             cross: "true"
