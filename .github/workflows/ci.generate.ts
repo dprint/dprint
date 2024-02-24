@@ -151,13 +151,6 @@ const ci = {
           ].join("\n"),
         },
         {
-          name: "Setup (Linux riscv64)",
-          if: "matrix.config.target == 'riscv64gc-unknown-linux-gnu'",
-          run: [
-            "rustup target add riscv64gc-unknown-linux-gnu",
-          ].join("\n"),
-        },
-        {
           name: "Setup cross",
           if: "matrix.config.cross == 'true'",
           run: [
@@ -295,14 +288,15 @@ const ci = {
           shell: "pwsh",
           run: ["cd website/src/assets", "./install.ps1"].join("\n"),
         },
-        {
-          name: "Test npm",
-          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-          run: [
-            "cd deployment/npm",
-            "deno run -A build.ts 0.42.5",
-          ].join("\n"),
-        },
+        // temporarily disable until release
+        // {
+        //   name: "Test npm",
+        //   if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
+        //   run: [
+        //     "cd deployment/npm",
+        //     "deno run -A build.ts 0.42.5",
+        //   ].join("\n"),
+        // },
       ],
     },
     draft_release: {
