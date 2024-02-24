@@ -51,7 +51,7 @@ jobs:
           - os: ubuntu-20.04
             run_tests: "false"
             target: riscv64gc-unknown-linux-gnu
-            cross: "false"
+            cross: "true"
     env:
       CARGO_INCREMENTAL: 0
       RUST_BACKTRACE: full
