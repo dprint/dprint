@@ -42,7 +42,7 @@ const profileDataItems: ProfileData[] = [{
   cross: true,
 }, {
   os: OperatingSystem.Linux,
-  target: "riscv64-unknown-linux-gnu",
+  target: "riscv64gc-unknown-linux-gnu",
 }];
 const profiles = profileDataItems.map(profile => {
   return {
@@ -151,7 +151,7 @@ const ci = {
         },
         {
           name: "Setup (Linux riscv64)",
-          if: "matrix.config.target == 'riscv64-unknown-linux-gnu'",
+          if: "matrix.config.target == 'riscv64gc-unknown-linux-gnu'",
           run: [
             "rustup target add riscv64gc-unknown-linux-gnu",
           ].join("\n"),
