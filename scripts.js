@@ -30,48 +30,27 @@
               }
               propertyTitle.textContent = property.name;
               propertyContainer.appendChild(propertyTitle);
-              const propertyDesc = document.createElement("p");
-              propertyDesc.textContent = property.description;
-              propertyContainer.appendChild(propertyDesc);
-              const infoContainer = document.createElement("ul");
-              propertyContainer.appendChild(infoContainer);
-              if (property.oneOf) {
-                property.oneOf.forEach(function(oneOf) {
-                  const oneOfContainer = document.createElement("li");
-                  infoContainer.appendChild(oneOfContainer);
-                  const prefix = document.createElement("strong");
-                  prefix.textContent = valueToText(oneOf.const);
-                  oneOfContainer.appendChild(prefix);
-                  if (oneOf.description != null && oneOf.description.length > 0) {
-                    oneOfContainer.append(" - " + oneOf.description);
-                  }
-                  if (oneOf.const === property.default) {
-                    oneOfContainer.append(" (Default)");
-                  }
-                });
-              } else {
-                const typeContainer = document.createElement("li");
-                infoContainer.appendChild(typeContainer);
-                const typePrefix = document.createElement("strong");
-                typePrefix.textContent = "Type: ";
-                typeContainer.appendChild(typePrefix);
-                typeContainer.append(property.type);
-                const defaultContainer = document.createElement("li");
-                infoContainer.appendChild(defaultContainer);
-                const defaultPrefix = document.createElement("strong");
-                defaultPrefix.textContent = "Default: ";
-                defaultContainer.appendChild(defaultPrefix);
-                defaultContainer.append(valueToText(property.default));
-              }
+              addDescription(propertyContainer, property);
+              addInfoContainer(propertyContainer, property);
               if (property.astSpecificProperties != null && property.astSpecificProperties.length > 0) {
                 const astSpecificPropertiesPrefix = document.createElement("p");
                 astSpecificPropertiesPrefix.textContent = "AST node specific configuration property names:";
                 propertyContainer.appendChild(astSpecificPropertiesPrefix);
                 const astSpecificPropertyNamesContainer = document.createElement("ul");
                 propertyContainer.appendChild(astSpecificPropertyNamesContainer);
-                property.astSpecificProperties.forEach(function(propName) {
+                property.astSpecificProperties.forEach(function({ propertyName, definition }) {
                   const propertyNameLi = document.createElement("li");
-                  propertyNameLi.textContent = valueToText(propName);
+                  const labelSpan = document.createElement("span");
+                  labelSpan.textContent = valueToText(propertyName);
+                  propertyNameLi.appendChild(labelSpan);
+                  if (definition != null) {
+                    const definitionDiv = document.createElement("div");
+                    if (definition.description !== property.description) {
+                      addDescription(definitionDiv, definition);
+                    }
+                    addInfoContainer(definitionDiv, definition);
+                    propertyNameLi.appendChild(definitionDiv);
+                  }
                   astSpecificPropertyNamesContainer.appendChild(propertyNameLi);
                 });
               }
@@ -83,6 +62,45 @@
               propertyContainer.appendChild(errorMessage);
             }
           });
+          function addDescription(propertyContainer, property) {
+            const propertyDesc = document.createElement("p");
+            propertyDesc.textContent = property.description;
+            propertyContainer.appendChild(propertyDesc);
+          }
+          __name(addDescription, "addDescription");
+          function addInfoContainer(propertyContainer, property) {
+            const infoContainer = document.createElement("ul");
+            propertyContainer.appendChild(infoContainer);
+            if (property.oneOf) {
+              property.oneOf.forEach(function(oneOf) {
+                const oneOfContainer = document.createElement("li");
+                infoContainer.appendChild(oneOfContainer);
+                const prefix = document.createElement("strong");
+                prefix.textContent = valueToText(oneOf.const);
+                oneOfContainer.appendChild(prefix);
+                if (oneOf.description != null && oneOf.description.length > 0) {
+                  oneOfContainer.append(" - " + oneOf.description);
+                }
+                if (oneOf.const === property.default) {
+                  oneOfContainer.append(" (Default)");
+                }
+              });
+            } else {
+              const typeContainer = document.createElement("li");
+              infoContainer.appendChild(typeContainer);
+              const typePrefix = document.createElement("strong");
+              typePrefix.textContent = "Type: ";
+              typeContainer.appendChild(typePrefix);
+              typeContainer.append(property.type);
+              const defaultContainer = document.createElement("li");
+              infoContainer.appendChild(defaultContainer);
+              const defaultPrefix = document.createElement("strong");
+              defaultPrefix.textContent = "Default: ";
+              defaultContainer.appendChild(defaultPrefix);
+              defaultContainer.append(valueToText(property.default));
+            }
+          }
+          __name(addInfoContainer, "addInfoContainer");
           function valueToText(value) {
             if (typeof value === "string") {
               return '"' + value + '"';
@@ -123,17 +141,24 @@
         }
         const property = json.properties[propertyName];
         if (property["$ref"]) {
-          const definition = json.definitions[propertyName];
-          if (definition != null) {
-            setDefinitionForPropertyName(propertyName, definition);
+          const derivedPropName = property["$ref"].replace("#/definitions/", "");
+          const lastSegment = propertyName.split(".").pop();
+          let parentProperty;
+          if (derivedPropName !== propertyName && derivedPropName in json.properties) {
+            parentProperty = derivedPropName;
+          } else if (lastSegment !== propertyName && lastSegment in json.properties) {
+            parentProperty = lastSegment;
+          }
+          const definition = json.definitions[derivedPropName];
+          if (parentProperty) {
+            ensurePropertyName(parentProperty);
+            const isSameDefinition = property["$ref"] === json.properties[parentProperty]["$ref"];
+            properties[parentProperty].astSpecificProperties.push({
+              propertyName,
+              definition: isSameDefinition ? null : definition
+            });
           } else {
-            const derivedPropName = property["$ref"].replace("#/definitions/", "");
-            if (json.properties[derivedPropName] == null) {
-              setDefinitionForPropertyName(propertyName, json.definitions[derivedPropName]);
-            } else {
-              ensurePropertyName(derivedPropName);
-              properties[derivedPropName].astSpecificProperties.push(propertyName);
-            }
+            setDefinitionForPropertyName(propertyName, definition);
           }
         } else {
           ensurePropertyName(propertyName);
