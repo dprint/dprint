@@ -150,6 +150,13 @@ const ci = {
           ].join("\n"),
         },
         {
+          name: "Setup (Linux riscv64)",
+          if: "matrix.config.target == 'riscv64-unknown-linux-gnu'",
+          run: [
+            "rustup target add riscv64-unknown-linux-gnu",
+          ].join("\n"),
+        },
+        {
           name: "Setup cross",
           if: "matrix.config.cross == 'true'",
           run: [
