@@ -5,7 +5,6 @@ enum OperatingSystem {
   Mac = "macOS-latest",
   Windows = "windows-latest",
   Linux = "ubuntu-20.04",
-  LinuxLatest = "ubuntu-latest",
 }
 
 interface ProfileData {
@@ -42,7 +41,7 @@ const profileDataItems: ProfileData[] = [{
   target: "aarch64-unknown-linux-musl",
   cross: true,
 }, {
-  os: OperatingSystem.LinuxLatest,
+  os: OperatingSystem.Linux,
   target: "riscv64gc-unknown-linux-gnu",
   cross: true,
 }];
@@ -229,7 +228,6 @@ const ci = {
                   `echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 ${profile.zipFileName} | awk '{print $1}')\"`,
                 ];
               case OperatingSystem.Linux:
-              case OperatingSystem.LinuxLatest:
                 return [
                   `cd target/${profile.target}/release`,
                   `zip -r ${profile.zipFileName} dprint`,
