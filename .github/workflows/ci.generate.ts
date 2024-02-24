@@ -5,6 +5,7 @@ enum OperatingSystem {
   Mac = "macOS-latest",
   Windows = "windows-latest",
   Linux = "ubuntu-20.04",
+  LinuxLatest = "ubuntu-latest",
 }
 
 interface ProfileData {
@@ -41,7 +42,7 @@ const profileDataItems: ProfileData[] = [{
   target: "aarch64-unknown-linux-musl",
   cross: true,
 }, {
-  os: OperatingSystem.Linux,
+  os: OperatingSystem.LinuxLatest,
   target: "riscv64gc-unknown-linux-gnu",
   cross: true,
 }];
@@ -154,7 +155,7 @@ const ci = {
           name: "Setup cross",
           if: "matrix.config.cross == 'true'",
           run: [
-            "cargo install cross --git https://github.com/cross-rs/cross --rev 44011c8854cb2eaac83b173cc323220ccdff18ea",
+            "cargo install cross --git https://github.com/cross-rs/cross --rev 88f49ff79e777bef6d3564531636ee4d3cc2f8d2",
           ].join("\n"),
         },
         {
@@ -228,6 +229,7 @@ const ci = {
                   `echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 ${profile.zipFileName} | awk '{print $1}')\"`,
                 ];
               case OperatingSystem.Linux:
+              case OperatingSystem.LinuxLatest:
                 return [
                   `cd target/${profile.target}/release`,
                   `zip -r ${profile.zipFileName} dprint`,
