@@ -16,10 +16,22 @@ export async function getPluginDefaultConfig(configSchemaUrl: string, signal: Ab
         continue;
       }
       const property = json.properties[propertyName];
+      const derivedPropName = property["$ref"]?.replace("#/definitions/", "");
+
+      const lastSegment = propertyName.split(".").pop()!;
+      const astSpecific = (derivedPropName !== propertyName && derivedPropName in json.properties)
+        || (lastSegment !== propertyName && lastSegment in json.properties);
+      if (astSpecific) {
+        continue;
+      }
+
       let defaultValue: string | boolean | number | undefined;
 
-      if (property["$ref"]) {
-        defaultValue = json.definitions[propertyName]?.default;
+      if (derivedPropName) {
+        const definition = json.definitions[derivedPropName];
+        if (definition != null) {
+          defaultValue = definition?.default;
+        }
       } else {
         defaultValue = property.default;
       }
