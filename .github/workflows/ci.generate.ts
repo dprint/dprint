@@ -40,6 +40,9 @@ const profileDataItems: ProfileData[] = [{
   os: OperatingSystem.Linux,
   target: "aarch64-unknown-linux-musl",
   cross: true,
+}, {
+  os: OperatingSystem.Linux,
+  target: "riscv64-unknown-linux-gnu",
 }];
 const profiles = profileDataItems.map(profile => {
   return {

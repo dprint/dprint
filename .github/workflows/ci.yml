@@ -48,6 +48,10 @@ jobs:
             run_tests: "false"
             target: aarch64-unknown-linux-musl
             cross: "true"
+          - os: ubuntu-20.04
+            run_tests: "false"
+            target: riscv64-unknown-linux-gnu
+            cross: "false"
     env:
       CARGO_INCREMENTAL: 0
       RUST_BACKTRACE: full
@@ -60,6 +64,7 @@ jobs:
       ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_MUSL: "${{steps.pre_release_x86_64_unknown_linux_musl.outputs.ZIP_CHECKSUM}}"
       ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_GNU: "${{steps.pre_release_aarch64_unknown_linux_gnu.outputs.ZIP_CHECKSUM}}"
       ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_MUSL: "${{steps.pre_release_aarch64_unknown_linux_musl.outputs.ZIP_CHECKSUM}}"
+      ZIP_CHECKSUM_RISCV64_UNKNOWN_LINUX_GNU: "${{steps.pre_release_riscv64_unknown_linux_gnu.outputs.ZIP_CHECKSUM}}"
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -173,6 +178,13 @@ jobs:
           cd target/aarch64-unknown-linux-musl/release
           zip -r dprint-aarch64-unknown-linux-musl.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-aarch64-unknown-linux-musl.zip | awk '{print $1}')"
+      - name: Pre-release (riscv64-unknown-linux-gnu)
+        id: pre_release_riscv64_unknown_linux_gnu
+        if: "matrix.config.target == 'riscv64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/')"
+        run: |-
+          cd target/riscv64-unknown-linux-gnu/release
+          zip -r dprint-riscv64-unknown-linux-gnu.zip dprint
+          echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-riscv64-unknown-linux-gnu.zip | awk '{print $1}')"
       - name: Upload artifacts (x86_64-apple-darwin)
         if: "matrix.config.target == 'x86_64-apple-darwin' && startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v2
@@ -217,6 +229,12 @@ jobs:
         with:
           name: aarch64-unknown-linux-musl-artifacts
           path: target/aarch64-unknown-linux-musl/release/dprint-aarch64-unknown-linux-musl.zip
+      - name: Upload artifacts (riscv64-unknown-linux-gnu)
+        if: "matrix.config.target == 'riscv64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v2
+        with:
+          name: riscv64-unknown-linux-gnu-artifacts
+          path: target/riscv64-unknown-linux-gnu/release/dprint-riscv64-unknown-linux-gnu.zip
       - name: Test shell installer
         if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')"
         run: |-
@@ -252,6 +270,7 @@ jobs:
           echo "dprint-x86_64-unknown-linux-musl.zip: ${{needs.build.outputs.ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_MUSL}}"
           echo "dprint-aarch64-unknown-linux-gnu.zip: ${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_GNU}}"
           echo "dprint-aarch64-unknown-linux-musl.zip: ${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_MUSL}}"
+          echo "dprint-riscv64-unknown-linux-gnu.zip: ${{needs.build.outputs.ZIP_CHECKSUM_RISCV64_UNKNOWN_LINUX_GNU}}"
       - name: Create SHASUMS256.txt file
         run: |-
           echo "${{needs.build.outputs.ZIP_CHECKSUM_X86_64_APPLE_DARWIN}} dprint-x86_64-apple-darwin.zip" > SHASUMS256.txt
@@ -262,6 +281,7 @@ jobs:
           echo "${{needs.build.outputs.ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_MUSL}} dprint-x86_64-unknown-linux-musl.zip" >> SHASUMS256.txt
           echo "${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_GNU}} dprint-aarch64-unknown-linux-gnu.zip" >> SHASUMS256.txt
           echo "${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_MUSL}} dprint-aarch64-unknown-linux-musl.zip" >> SHASUMS256.txt
+          echo "${{needs.build.outputs.ZIP_CHECKSUM_RISCV64_UNKNOWN_LINUX_GNU}} dprint-riscv64-unknown-linux-gnu.zip" >> SHASUMS256.txt
       - name: Draft release
         uses: softprops/action-gh-release@v1
         env:
@@ -276,6 +296,7 @@ jobs:
             x86_64-unknown-linux-musl-artifacts/dprint-x86_64-unknown-linux-musl.zip
             aarch64-unknown-linux-gnu-artifacts/dprint-aarch64-unknown-linux-gnu.zip
             aarch64-unknown-linux-musl-artifacts/dprint-aarch64-unknown-linux-musl.zip
+            riscv64-unknown-linux-gnu-artifacts/dprint-riscv64-unknown-linux-gnu.zip
             SHASUMS256.txt
           body: |
             ## Changes
@@ -298,4 +319,5 @@ jobs:
             |dprint-x86_64-unknown-linux-musl.zip|${{needs.build.outputs.ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_MUSL}}|
             |dprint-aarch64-unknown-linux-gnu.zip|${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_GNU}}|
             |dprint-aarch64-unknown-linux-musl.zip|${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_MUSL}}|
+            |dprint-riscv64-unknown-linux-gnu.zip|${{needs.build.outputs.ZIP_CHECKSUM_RISCV64_UNKNOWN_LINUX_GNU}}|
           draft: true
