@@ -50,6 +50,7 @@ pub fn glob(environment: &impl Environment, opts: GlobOptions) -> Result<GlobOut
   let start_instant = std::time::Instant::now();
   log_debug!(environment, "Globbing: {:?}", opts.file_patterns);
 
+  let git_ignore_tree = GitIgnoreTree::new(environment.clone(), opts.file_patterns.include_paths());
   let glob_matcher = GlobMatcher::new(
     opts.file_patterns,
     &GlobMatcherOptions {
@@ -68,7 +69,7 @@ pub fn glob(environment: &impl Environment, opts: GlobOptions) -> Result<GlobOut
   dprint_core::async_runtime::spawn_blocking(move || read_dir_runner.run());
 
   // run the glob matching on the current thread (the two threads will communicate with each other)
-  let glob_matching_processor = GlobMatchingProcessor::new(environment.clone(), shared_state, glob_matcher);
+  let mut glob_matching_processor = GlobMatchingProcessor::new(shared_state, glob_matcher, git_ignore_tree);
   let results = glob_matching_processor.run()?;
 
   log_debug!(environment, "File(s) matched: {:?}", results);
@@ -217,23 +218,22 @@ fn is_system_volume_error(dir_path: &Path, err: &std::io::Error) -> bool {
 }
 
 struct GlobMatchingProcessor<TEnvironment: Environment> {
-  environment: TEnvironment,
   shared_state: Arc<SharedState>,
   glob_matcher: GlobMatcher,
+  git_ignore_tree: GitIgnoreTree<TEnvironment>,
 }
 
 impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
-  pub fn new(environment: TEnvironment, shared_state: Arc<SharedState>, glob_matcher: GlobMatcher) -> Self {
+  pub fn new(shared_state: Arc<SharedState>, glob_matcher: GlobMatcher, git_ignore_tree: GitIgnoreTree<TEnvironment>) -> Self {
     Self {
-      environment,
       shared_state,
       glob_matcher,
+      git_ignore_tree,
     }
   }
 
-  pub fn run(&self) -> Result<GlobOutput> {
+  pub fn run(&mut self) -> Result<GlobOutput> {
     let mut output = GlobOutput::default();
-    let mut gitignore = GitIgnoreTree::new(self.environment.clone(), vec![]);
 
     loop {
       let mut pending_dirs = Vec::new();
@@ -243,7 +243,7 @@ impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
         Err(err) => return Err(err), // error
         Ok(Some(entries)) => {
           for dir in entries.into_iter().flatten() {
-            let gitignore = gitignore.get_resolved_git_ignore_for_dir_children(&dir.path);
+            let gitignore = self.git_ignore_tree.get_resolved_git_ignore_for_dir_children(&dir.path);
             for entry in dir.entries {
               match entry {
                 DirOrConfigEntry::Dir(path) => {

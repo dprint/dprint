@@ -23,8 +23,11 @@ pub struct FileMatcher<TEnvironment: Environment> {
 impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
   pub fn new(environment: TEnvironment, config: &ResolvedConfig, args: &FilePatternArgs, root_dir: &CanonicalizedPathBuf) -> Result<Self> {
     let patterns = get_all_file_patterns(config, args, root_dir);
-    // todo(THIS PR): fill in this vec
-    let gitignores = GitIgnoreTree::new(environment, vec![]);
+    let gitignores = GitIgnoreTree::new(
+      environment,
+      // explicitly specified paths should override what's in the gitignore
+      patterns.include_paths(),
+    );
     let glob_matcher = GlobMatcher::new(
       patterns,
       &GlobMatcherOptions {
