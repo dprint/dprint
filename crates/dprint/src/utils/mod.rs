@@ -31,6 +31,7 @@ pub use file_path_utils::*;
 pub use file_text::*;
 pub use get_bytes_hash::*;
 pub use get_difference::*;
+pub use gitignore::*;
 pub use glob::*;
 pub use lax_single_process_fs_flag::*;
 pub use logging::*;

@@ -103,7 +103,10 @@ impl GlobMatcher {
   }
 
   pub fn matches(&self, path: impl AsRef<Path>) -> bool {
-    self.matches_detail(path) == GlobMatchesDetail::Matched
+    matches!(
+      self.matches_detail(path),
+      GlobMatchesDetail::Matched | GlobMatchesDetail::MatchedOptedOutExclude
+    )
   }
 
   pub fn matches_detail(&self, path: impl AsRef<Path>) -> GlobMatchesDetail {
@@ -185,30 +188,27 @@ impl GlobMatcher {
   /// More expensive check for if the directory is already ignored.
   /// Prefer using `matches` if you already know the parent directory
   /// isn't ignored as it's faster.
-  pub fn matches_and_dir_not_ignored(&self, file_path: impl AsRef<Path>) -> bool {
-    if !self.matches(&file_path) {
-      return false;
-    }
+  pub fn matches_and_dir_not_ignored(&self, file_path: &Path) -> GlobMatchesDetail {
+    let match_result = self.matches_detail(&file_path);
+    let match_result = match match_result {
+      GlobMatchesDetail::Matched | GlobMatchesDetail::MatchedOptedOutExclude => match_result,
+      GlobMatchesDetail::Excluded | GlobMatchesDetail::NotMatched => return match_result,
+    };
 
-    // todo(THIS PR): need to take into account gitignore for this
-    if file_path.as_ref().starts_with(&self.base_dir) {
-      for ancestor in file_path.as_ref().ancestors() {
+    if file_path.starts_with(&self.base_dir) {
+      for ancestor in file_path.ancestors() {
         if let Ok(path) = ancestor.strip_prefix(&self.base_dir) {
-          if matches!(self.config_exclude_matcher.matched(path, true), Match::Ignore(_)) {
-            return false;
-          }
-          if let Some(arg_exclude_matcher) = &self.arg_exclude_matcher {
-            if matches!(arg_exclude_matcher.matched(path, true), Match::Ignore(_)) {
-              return false;
-            }
+          match self.check_exclude(path, true) {
+            ExcludeMatchDetail::Excluded => return GlobMatchesDetail::Excluded,
+            ExcludeMatchDetail::OptedOutExclude | ExcludeMatchDetail::NotExcluded => {}
           }
         } else {
-          return true;
+          return match_result;
         }
       }
-      true
+      match_result
     } else {
-      false
+      GlobMatchesDetail::NotMatched
     }
   }
 }
@@ -264,6 +264,8 @@ fn get_base_dir<'a>(dirs: impl Iterator<Item = &'a CanonicalizedPathBuf>) -> Opt
 
 #[cfg(test)]
 mod test {
+  use std::path::PathBuf;
+
   use super::*;
 
   #[test]
@@ -371,10 +373,10 @@ mod test {
       },
     )
     .unwrap();
-    assert!(glob_matcher.matches_and_dir_not_ignored("/testing/dir/match.ts"));
-    assert!(glob_matcher.matches_and_dir_not_ignored("/testing/dir/other/match.ts"));
-    assert!(!glob_matcher.matches_and_dir_not_ignored("/testing/sub-dir/no-match.ts"));
-    assert!(!glob_matcher.matches_and_dir_not_ignored("/testing/sub-dir/nested/no-match.ts"));
+    assert_matches_dir_and_not_ignored(&glob_matcher, "/testing/dir/match.ts", GlobMatchesDetail::Matched);
+    assert_matches_dir_and_not_ignored(&glob_matcher, "/testing/dir/other/match.ts", GlobMatchesDetail::Matched);
+    assert_matches_dir_and_not_ignored(&glob_matcher, "/testing/sub-dir/no-match.ts", GlobMatchesDetail::NotMatched);
+    assert_matches_dir_and_not_ignored(&glob_matcher, "/testing/sub-dir/nested/no-match.ts", GlobMatchesDetail::NotMatched);
   }
 
   #[test]
@@ -396,9 +398,13 @@ mod test {
       },
     )
     .unwrap();
-    assert!(glob_matcher.matches_and_dir_not_ignored("/sub-dir/dir/match.ts"));
-    assert!(glob_matcher.matches_and_dir_not_ignored("/sub-dir/dir/other/match.ts"));
-    eprintln!("1");
-    assert!(!glob_matcher.matches_and_dir_not_ignored("/sub-dir/dist/no-match.ts"));
+    assert_matches_dir_and_not_ignored(&glob_matcher, "/sub-dir/dir/match.ts", GlobMatchesDetail::Matched);
+    assert_matches_dir_and_not_ignored(&glob_matcher, "/sub-dir/dir/other/match.ts", GlobMatchesDetail::Matched);
+    assert_matches_dir_and_not_ignored(&glob_matcher, "/sub-dir/dist/no-match.ts", GlobMatchesDetail::Excluded);
+  }
+
+  #[track_caller]
+  fn assert_matches_dir_and_not_ignored(matcher: &GlobMatcher, path: &str, expected: GlobMatchesDetail) {
+    assert_eq!(matcher.matches_and_dir_not_ignored(&PathBuf::from(path)), expected);
   }
 }

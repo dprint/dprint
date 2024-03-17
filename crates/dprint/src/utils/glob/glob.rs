@@ -247,27 +247,25 @@ impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
             for entry in dir.entries {
               match entry {
                 DirOrConfigEntry::Dir(path) => {
-                  let is_gitignored = match &gitignore {
-                    Some(gitignore) => gitignore.is_ignored(&path, /* is dir */ true),
-                    None => false,
-                  };
                   let is_ignored = match self.glob_matcher.is_dir_ignored(&path) {
                     ExcludeMatchDetail::Excluded => true,
                     ExcludeMatchDetail::OptedOutExclude => false,
-                    ExcludeMatchDetail::NotExcluded => is_gitignored,
+                    ExcludeMatchDetail::NotExcluded => match &gitignore {
+                      Some(gitignore) => gitignore.is_ignored(&path, /* is dir */ true),
+                      None => false,
+                    },
                   };
                   if !is_ignored {
                     pending_dirs.push(path);
                   }
                 }
                 DirOrConfigEntry::File(path) => {
-                  let is_gitignored = match &gitignore {
-                    Some(gitignore) => gitignore.is_ignored(&path, /* is dir */ false),
-                    None => false,
-                  };
                   let is_matched = match self.glob_matcher.matches_detail(&path) {
                     GlobMatchesDetail::Excluded => false,
-                    GlobMatchesDetail::Matched => !is_gitignored,
+                    GlobMatchesDetail::Matched => match &gitignore {
+                      Some(gitignore) => !gitignore.is_ignored(&path, /* is dir */ false),
+                      None => true,
+                    },
                     GlobMatchesDetail::MatchedOptedOutExclude => true,
                     GlobMatchesDetail::NotMatched => false,
                   };

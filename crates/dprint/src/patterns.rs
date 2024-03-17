@@ -5,20 +5,26 @@ use anyhow::Result;
 use crate::arg_parser::FilePatternArgs;
 use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
+use crate::environment::Environment;
 use crate::utils::is_absolute_pattern;
 use crate::utils::is_negated_glob;
+use crate::utils::GitIgnoreTree;
 use crate::utils::GlobMatcher;
 use crate::utils::GlobMatcherOptions;
+use crate::utils::GlobMatchesDetail;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
 
-pub struct FileMatcher {
+pub struct FileMatcher<TEnvironment: Environment> {
   glob_matcher: GlobMatcher,
+  gitignores: GitIgnoreTree<TEnvironment>,
 }
 
-impl FileMatcher {
-  pub fn new(config: &ResolvedConfig, args: &FilePatternArgs, root_dir: &CanonicalizedPathBuf) -> Result<Self> {
+impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
+  pub fn new(environment: TEnvironment, config: &ResolvedConfig, args: &FilePatternArgs, root_dir: &CanonicalizedPathBuf) -> Result<Self> {
     let patterns = get_all_file_patterns(config, args, root_dir);
+    // todo(THIS PR): fill in this vec
+    let gitignores = GitIgnoreTree::new(environment, vec![]);
     let glob_matcher = GlobMatcher::new(
       patterns,
       &GlobMatcherOptions {
@@ -27,7 +33,7 @@ impl FileMatcher {
       },
     )?;
 
-    Ok(FileMatcher { glob_matcher })
+    Ok(FileMatcher { glob_matcher, gitignores })
   }
 
   pub fn matches(&self, file_path: impl AsRef<Path>) -> bool {
@@ -37,8 +43,19 @@ impl FileMatcher {
   /// More expensive check for if the directory is already ignored.
   /// Prefer using `matches` if you already know the parent directory
   /// isn't ignored.
-  pub fn matches_and_dir_not_ignored(&self, file_path: impl AsRef<Path>) -> bool {
-    self.glob_matcher.matches_and_dir_not_ignored(file_path)
+  pub fn matches_and_dir_not_ignored(&mut self, file_path: &Path) -> bool {
+    match self.glob_matcher.matches_and_dir_not_ignored(file_path) {
+      GlobMatchesDetail::Matched => !self.is_gitignored(file_path),
+      GlobMatchesDetail::MatchedOptedOutExclude => true,
+      GlobMatchesDetail::Excluded | GlobMatchesDetail::NotMatched => false,
+    }
+  }
+
+  fn is_gitignored(&mut self, file_path: &Path) -> bool {
+    let Some(gitignore) = self.gitignores.get_resolved_git_ignore_for_file(file_path) else {
+      return false;
+    };
+    gitignore.is_ignored(file_path, false)
   }
 }
 
@@ -119,6 +136,8 @@ fn get_config_exclude_file_patterns(config: &ResolvedConfig, args: &FilePatternA
     .into_iter(),
   );
 
+  // todo(THIS PR): document removing this flag in favour of a !**/node_modules pattern
+  // and make this work with that
   if !args.allow_node_modules {
     // glob walker will not search the children of a directory once it's ignored like this
     let node_modules_exclude = String::from("**/node_modules");
@@ -132,6 +151,7 @@ fn get_config_exclude_file_patterns(config: &ResolvedConfig, args: &FilePatternA
       }
     }
   }
+
   file_patterns
 }
 

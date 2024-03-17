@@ -35,7 +35,6 @@ impl GlobPattern {
     is_negated_glob(&self.relative_pattern)
   }
 
-  #[allow(dead_code)]
   pub fn invert(self) -> Self {
     if self.is_negated() {
       GlobPattern {
