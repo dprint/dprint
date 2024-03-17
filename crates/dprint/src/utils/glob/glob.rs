@@ -243,7 +243,7 @@ impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
         Err(err) => return Err(err), // error
         Ok(Some(entries)) => {
           for dir in entries.into_iter().flatten() {
-            let gitignore = gitignore.get_resolved_git_ignore_for_dir(&dir.path);
+            let gitignore = gitignore.get_resolved_git_ignore_for_dir_children(&dir.path);
             for entry in dir.entries {
               match entry {
                 DirOrConfigEntry::Dir(path) => {

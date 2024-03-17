@@ -55,12 +55,8 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     }
   }
 
-  pub fn get_resolved_git_ignore_for_dir(&mut self, dir_path: &Path) -> Option<Rc<DirGitIgnores>> {
-    // for directories, provide itself in order to tell
-    // if it should stop searching for gitignores because
-    // maybe this dir_path is a .git directory
-    let parent = dir_path.parent()?;
-    self.get_resolved_git_ignore_inner(parent, Some(dir_path))
+  pub fn get_resolved_git_ignore_for_dir_children(&mut self, dir_path: &Path) -> Option<Rc<DirGitIgnores>> {
+    self.get_resolved_git_ignore_inner(dir_path, None)
   }
 
   pub fn get_resolved_git_ignore_for_file(&mut self, file_path: &Path) -> Option<Rc<DirGitIgnores>> {
