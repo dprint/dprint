@@ -6,6 +6,7 @@ mod file_path_utils;
 mod file_text;
 mod get_bytes_hash;
 mod get_difference;
+mod gitignore;
 mod glob;
 mod lax_single_process_fs_flag;
 mod logging;

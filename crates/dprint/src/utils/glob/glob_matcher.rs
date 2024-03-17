@@ -2,6 +2,8 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use anyhow::Result;
+use ignore::gitignore::Gitignore;
+use ignore::gitignore::GitignoreBuilder;
 use ignore::overrides::Override;
 use ignore::overrides::OverrideBuilder;
 use ignore::Match;
@@ -20,18 +22,27 @@ pub struct GlobMatcherOptions {
 pub enum GlobMatchesDetail {
   /// Matched an includes pattern.
   Matched,
+  /// Matched and opted out of gitignore exclusion.
+  MatchedOptedOutExclude,
   /// Matched an excludes pattern.
   Excluded,
   /// Matched neither an includes or excludes pattern.
   NotMatched,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ExcludeMatchDetail {
+  Excluded,
+  OptedOutExclude,
+  NotExcluded,
+}
+
 pub struct GlobMatcher {
   base_dir: CanonicalizedPathBuf,
   config_include_matcher: Option<Override>,
   arg_include_matcher: Option<Override>,
-  config_exclude_matcher: Override,
-  arg_exclude_matcher: Option<Override>,
+  config_exclude_matcher: Gitignore,
+  arg_exclude_matcher: Option<Gitignore>,
 }
 
 impl GlobMatcher {
@@ -46,7 +57,7 @@ impl GlobMatcher {
     let config_excludes = patterns
       .config_excludes
       .into_iter()
-      .filter_map(|pattern| pattern.into_non_negated().into_new_base(base_dir.clone()))
+      .filter_map(|pattern| pattern.into_new_base(base_dir.clone()))
       .collect::<Vec<_>>();
     let config_includes = patterns.config_includes.map(|includes| {
       includes
@@ -63,7 +74,7 @@ impl GlobMatcher {
     let arg_excludes = patterns.arg_excludes.map(|excludes| {
       excludes
         .into_iter()
-        .filter_map(|pattern| pattern.into_non_negated().into_new_base(base_dir.clone()))
+        .filter_map(|pattern| pattern.into_new_base(base_dir.clone()))
         .collect::<Vec<_>>()
     });
 
@@ -76,9 +87,9 @@ impl GlobMatcher {
         Some(includes) => Some(build_override(&includes, opts, &base_dir)?),
         None => None,
       },
-      config_exclude_matcher: build_override(&config_excludes, opts, &base_dir)?,
+      config_exclude_matcher: build_gitignore(&config_excludes, opts, &base_dir)?,
       arg_exclude_matcher: match arg_excludes {
-        Some(excludes) => Some(build_override(&excludes, opts, &base_dir)?),
+        Some(excludes) => Some(build_gitignore(&excludes, opts, &base_dir)?),
         None => None,
       },
       base_dir,
@@ -117,15 +128,13 @@ impl GlobMatcher {
       Cow::Borrowed(path)
     };
 
-    if matches!(self.config_exclude_matcher.matched(&path, false), Match::Whitelist(_))
-      || self
-        .arg_exclude_matcher
-        .as_ref()
-        .map(|m| matches!(m.matched(&path, false), Match::Whitelist(_)))
-        .unwrap_or(false)
-    {
-      GlobMatchesDetail::Excluded
-    } else if self
+    let matched_result = match self.check_exclude(&path, false) {
+      ExcludeMatchDetail::Excluded => return GlobMatchesDetail::Excluded,
+      ExcludeMatchDetail::OptedOutExclude => GlobMatchesDetail::MatchedOptedOutExclude,
+      ExcludeMatchDetail::NotExcluded => GlobMatchesDetail::Matched,
+    };
+
+    if self
       .arg_include_matcher
       .as_ref()
       .map(|m| matches!(m.matched(&path, false), Match::Whitelist(_)))
@@ -136,23 +145,40 @@ impl GlobMatcher {
         .map(|m| matches!(m.matched(&path, false), Match::Whitelist(_)))
         .unwrap_or(true)
     {
-      GlobMatchesDetail::Matched
+      matched_result
     } else {
       GlobMatchesDetail::NotMatched
     }
   }
 
-  pub fn is_dir_ignored(&self, path: impl AsRef<Path>) -> bool {
+  fn check_exclude(&self, path: &Path, is_dir: bool) -> ExcludeMatchDetail {
+    let config_match = self.config_exclude_matcher.matched(&path, is_dir);
+    let mut result = match config_match {
+      Match::None => ExcludeMatchDetail::NotExcluded,
+      Match::Ignore(_) => ExcludeMatchDetail::Excluded,
+      Match::Whitelist(_) => ExcludeMatchDetail::OptedOutExclude,
+    };
+    if let Some(matcher) = &self.arg_exclude_matcher {
+      let arg_match = matcher.matched(path, is_dir);
+      match arg_match {
+        Match::None => {}
+        Match::Ignore(_) => {
+          result = ExcludeMatchDetail::Excluded;
+        }
+        Match::Whitelist(_) => {
+          result = ExcludeMatchDetail::OptedOutExclude;
+        }
+      }
+    }
+    result
+  }
+
+  pub fn is_dir_ignored(&self, path: impl AsRef<Path>) -> ExcludeMatchDetail {
     if path.as_ref().starts_with(&self.base_dir) {
       let path = path.as_ref().strip_prefix(&self.base_dir).unwrap();
-      matches!(self.config_exclude_matcher.matched(path, true), Match::Whitelist(_))
-        || self
-          .arg_exclude_matcher
-          .as_ref()
-          .map(|m| matches!(m.matched(path, true), Match::Whitelist(_)))
-          .unwrap_or(false)
+      self.check_exclude(path, true)
     } else {
-      true
+      ExcludeMatchDetail::Excluded
     }
   }
 
@@ -164,14 +190,15 @@ impl GlobMatcher {
       return false;
     }
 
+    // todo(THIS PR): need to take into account gitignore for this
     if file_path.as_ref().starts_with(&self.base_dir) {
       for ancestor in file_path.as_ref().ancestors() {
         if let Ok(path) = ancestor.strip_prefix(&self.base_dir) {
-          if matches!(self.config_exclude_matcher.matched(path, true), Match::Whitelist(_)) {
+          if matches!(self.config_exclude_matcher.matched(path, true), Match::Ignore(_)) {
             return false;
           }
           if let Some(arg_exclude_matcher) = &self.arg_exclude_matcher {
-            if matches!(arg_exclude_matcher.matched(path, true), Match::Whitelist(_)) {
+            if matches!(arg_exclude_matcher.matched(path, true), Match::Ignore(_)) {
               return false;
             }
           }
@@ -191,18 +218,34 @@ fn build_override(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir:
   let builder = builder.case_insensitive(!opts.case_sensitive)?;
 
   for pattern in patterns {
-    // change patterns that start with ./ to be at the "root" of the globbing
-    let pattern = if pattern.relative_pattern.starts_with("!./") {
-      Cow::Owned(format!("!/{}", &pattern.relative_pattern[3..]))
-    } else if pattern.relative_pattern.starts_with("./") {
-      Cow::Owned(format!("/{}", &pattern.relative_pattern[2..]))
-    } else {
-      Cow::Borrowed(&pattern.relative_pattern)
-    };
+    let pattern = normalize_pattern(pattern);
     builder.add(&pattern)?;
   }
 
   Ok(builder.build()?)
+}
+
+fn build_gitignore(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir: &CanonicalizedPathBuf) -> Result<Gitignore> {
+  let mut builder = GitignoreBuilder::new(base_dir);
+  let builder = builder.case_insensitive(!opts.case_sensitive)?;
+
+  for pattern in patterns {
+    let pattern = normalize_pattern(pattern);
+    builder.add_line(None, &pattern)?;
+  }
+
+  Ok(builder.build()?)
+}
+
+fn normalize_pattern(pattern: &GlobPattern) -> Cow<str> {
+  // change patterns that start with ./ to be at the "root" of the globbing
+  if pattern.relative_pattern.starts_with("!./") {
+    Cow::Owned(format!("!/{}", &pattern.relative_pattern[3..]))
+  } else if pattern.relative_pattern.starts_with("./") {
+    Cow::Owned(format!("/{}", &pattern.relative_pattern[2..]))
+  } else {
+    Cow::Borrowed(&pattern.relative_pattern)
+  }
 }
 
 fn get_base_dir<'a>(dirs: impl Iterator<Item = &'a CanonicalizedPathBuf>) -> Option<CanonicalizedPathBuf> {
@@ -355,6 +398,7 @@ mod test {
     .unwrap();
     assert!(glob_matcher.matches_and_dir_not_ignored("/sub-dir/dir/match.ts"));
     assert!(glob_matcher.matches_and_dir_not_ignored("/sub-dir/dir/other/match.ts"));
+    eprintln!("1");
     assert!(!glob_matcher.matches_and_dir_not_ignored("/sub-dir/dist/no-match.ts"));
   }
 }

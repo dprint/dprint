@@ -35,20 +35,13 @@ impl GlobPattern {
     is_negated_glob(&self.relative_pattern)
   }
 
-  pub fn into_non_negated(self) -> GlobPattern {
+  #[allow(dead_code)]
+  pub fn invert(self) -> Self {
     if self.is_negated() {
       GlobPattern {
         base_dir: self.base_dir,
         relative_pattern: non_negated_glob(&self.relative_pattern).to_string(),
       }
-    } else {
-      self
-    }
-  }
-
-  pub fn into_negated(self) -> GlobPattern {
-    if self.is_negated() {
-      self
     } else {
       GlobPattern {
         base_dir: self.base_dir,
@@ -171,25 +164,14 @@ mod test {
   use super::*;
 
   #[test]
-  fn should_make_negated() {
+  fn should_invert() {
     let test_dir = CanonicalizedPathBuf::new_for_testing("/test");
-    let pattern = GlobPattern::new("**/*".to_string(), test_dir.clone()).into_negated();
-    assert_eq!(pattern.relative_pattern, "!**/*");
-
-    // should keep as-is
-    let pattern = GlobPattern::new("!**/*".to_string(), test_dir).into_negated();
-    assert_eq!(pattern.relative_pattern, "!**/*");
-  }
-
-  #[test]
-  fn should_make_non_negated() {
-    let test_dir = CanonicalizedPathBuf::new_for_testing("/test");
-    let pattern = GlobPattern::new("!**/*".to_string(), test_dir.clone()).into_non_negated();
+    let pattern = GlobPattern::new("!**/*".to_string(), test_dir.clone()).invert();
     assert_eq!(pattern.relative_pattern, "**/*");
 
     // should keep as-is
-    let pattern = GlobPattern::new("**/*".to_string(), test_dir).into_non_negated();
-    assert_eq!(pattern.relative_pattern, "**/*");
+    let pattern = GlobPattern::new("**/*".to_string(), test_dir).invert();
+    assert_eq!(pattern.relative_pattern, "!**/*");
   }
 
   #[test]

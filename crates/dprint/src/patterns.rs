@@ -50,7 +50,10 @@ pub fn get_patterns_as_glob_matcher(patterns: &[String], config_base_path: &Cano
       arg_includes: None,
       config_includes: Some(GlobPattern::new_vec(includes, config_base_path.clone())),
       arg_excludes: None,
-      config_excludes: GlobPattern::new_vec(excludes, config_base_path.clone()),
+      config_excludes: excludes
+        .into_iter()
+        .map(|relative_pattern| GlobPattern::new(relative_pattern, config_base_path.clone()).invert())
+        .collect(),
     },
     &GlobMatcherOptions {
       case_sensitive: !cfg!(windows),
@@ -76,12 +79,10 @@ pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cw
       None
     } else {
       // resolve CLI patterns based on the current working directory
-      Some(
-        GlobPattern::new_vec(args.exclude_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect(), cwd.clone())
-          .into_iter()
-          .map(|pattern| pattern.into_negated())
-          .collect(),
-      )
+      Some(GlobPattern::new_vec(
+        args.exclude_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect(),
+        cwd.clone(),
+      ))
     },
   }
 }
@@ -115,13 +116,12 @@ fn get_config_exclude_file_patterns(config: &ResolvedConfig, args: &FilePatternA
         .map(|excludes| GlobPattern::new_vec(process_config_patterns(excludes).collect(), config.base_path.clone()))
         .unwrap_or_default(),
     }
-    .into_iter()
-    .map(|pattern| pattern.into_negated()),
+    .into_iter(),
   );
 
   if !args.allow_node_modules {
     // glob walker will not search the children of a directory once it's ignored like this
-    let node_modules_exclude = String::from("!**/node_modules");
+    let node_modules_exclude = String::from("**/node_modules");
     let mut exclude_node_module_patterns = vec![GlobPattern::new(node_modules_exclude.clone(), cwd.clone())];
     if !cwd.starts_with(&config.base_path) {
       exclude_node_module_patterns.push(GlobPattern::new(node_modules_exclude, config.base_path.clone()));
