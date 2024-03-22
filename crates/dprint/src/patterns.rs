@@ -8,6 +8,7 @@ use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::utils::is_absolute_pattern;
 use crate::utils::is_negated_glob;
+use crate::utils::ExcludeMatchDetail;
 use crate::utils::GitIgnoreTree;
 use crate::utils::GlobMatcher;
 use crate::utils::GlobMatcherOptions;
@@ -47,18 +48,43 @@ impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
   /// Prefer using `matches` if you already know the parent directory
   /// isn't ignored.
   pub fn matches_and_dir_not_ignored(&mut self, file_path: &Path) -> bool {
-    match self.glob_matcher.matches_and_dir_not_ignored(file_path) {
-      GlobMatchesDetail::Matched => !self.is_gitignored(file_path),
-      GlobMatchesDetail::MatchedOptedOutExclude => true,
-      GlobMatchesDetail::Excluded | GlobMatchesDetail::NotMatched => false,
+    let match_result = self.glob_matcher.matches_detail(&file_path);
+    match match_result {
+      GlobMatchesDetail::Matched => {
+        if self.is_gitignored(file_path, /* is dir */ false) {
+          return false;
+        }
+      }
+      GlobMatchesDetail::MatchedOptedOutExclude => {}
+      GlobMatchesDetail::Excluded | GlobMatchesDetail::NotMatched => return false,
+    };
+    // ensure the parents aren't ignored
+    if !file_path.starts_with(self.glob_matcher.base_dir()) {
+      return false;
     }
+    for ancestor in file_path.ancestors() {
+      if let Ok(path) = ancestor.strip_prefix(self.glob_matcher.base_dir()) {
+        match self.glob_matcher.check_exclude(path, true) {
+          ExcludeMatchDetail::Excluded => return false,
+          ExcludeMatchDetail::OptedOutExclude => {}
+          ExcludeMatchDetail::NotExcluded => {
+            if self.is_gitignored(path, /* is dir */ true) {
+              return false;
+            }
+          }
+        }
+      } else {
+        break;
+      }
+    }
+    true
   }
 
-  fn is_gitignored(&mut self, file_path: &Path) -> bool {
-    let Some(gitignore) = self.gitignores.get_resolved_git_ignore_for_file(file_path) else {
+  fn is_gitignored(&mut self, path: &Path, is_dir: bool) -> bool {
+    let Some(gitignore) = self.gitignores.get_resolved_git_ignore_for_file(path) else {
       return false;
     };
-    gitignore.is_ignored(file_path, false)
+    gitignore.is_ignored(path, is_dir)
   }
 }
 
@@ -213,6 +239,10 @@ fn process_config_pattern(file_pattern: &str) -> String {
 
 #[cfg(test)]
 mod test {
+  use std::path::PathBuf;
+
+  use crate::environment::TestEnvironment;
+
   use super::*;
 
   #[test]
@@ -254,5 +284,66 @@ mod test {
     assert_eq!(process_config_pattern("!./test"), "!./test");
     assert_eq!(process_config_pattern("!test"), "!test");
     assert_eq!(process_config_pattern("!**/test"), "!**/test");
+  }
+
+  #[test]
+  fn handles_ignored_dir() {
+    let environment = TestEnvironment::new();
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        arg_includes: None,
+        config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
+        arg_excludes: None,
+        config_excludes: vec![GlobPattern::new("sub-dir".to_string(), cwd.clone())],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    let mut file_matcher = FileMatcher {
+      glob_matcher,
+      gitignores: GitIgnoreTree::new(environment, vec![]),
+    };
+    assert_matches_dir_and_not_ignored(&mut file_matcher, "/testing/dir/match.ts", true);
+    assert_matches_dir_and_not_ignored(&mut file_matcher, "/testing/dir/other/match.ts", true);
+    assert_matches_dir_and_not_ignored(&mut file_matcher, "/testing/sub-dir/no-match.ts", false);
+    assert_matches_dir_and_not_ignored(&mut file_matcher, "/testing/sub-dir/nested/no-match.ts", false);
+  }
+
+  #[test]
+  fn handles_ignored_dir_while_include_is_sub_dir() {
+    let environment = TestEnvironment::new();
+    let base_dir = CanonicalizedPathBuf::new_for_testing("/");
+    let cwd = CanonicalizedPathBuf::new_for_testing("/sub-dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        arg_includes: None,
+        // notice cwd and base_dir are different. This will happen when the config
+        // file is in an ancestor dir and the user has stepped into a folder
+        config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
+        arg_excludes: None,
+        config_excludes: vec![GlobPattern::new("**/dist".to_string(), base_dir.clone())],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    let mut file_matcher = FileMatcher {
+      glob_matcher,
+      gitignores: GitIgnoreTree::new(environment, vec![]),
+    };
+    assert_matches_dir_and_not_ignored(&mut file_matcher, "/sub-dir/dir/match.ts", true);
+    assert_matches_dir_and_not_ignored(&mut file_matcher, "/sub-dir/dir/other/match.ts", true);
+    assert_matches_dir_and_not_ignored(&mut file_matcher, "/sub-dir/dist/no-match.ts", false);
+  }
+
+  #[track_caller]
+  fn assert_matches_dir_and_not_ignored(matcher: &mut FileMatcher<TestEnvironment>, path: &str, expected: bool) {
+    assert_eq!(matcher.matches_and_dir_not_ignored(&PathBuf::from(path)), expected);
   }
 }

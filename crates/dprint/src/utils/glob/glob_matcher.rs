@@ -96,6 +96,10 @@ impl GlobMatcher {
     })
   }
 
+  pub fn base_dir(&self) -> &CanonicalizedPathBuf {
+    &self.base_dir
+  }
+
   /// Gets if the matcher only has excludes patterns.
   pub fn has_only_excludes(&self) -> bool {
     (self.config_include_matcher.as_ref().map(|m| m.is_empty()).unwrap_or(true) && self.arg_include_matcher.as_ref().map(|m| m.is_empty()).unwrap_or(true))
@@ -154,7 +158,7 @@ impl GlobMatcher {
     }
   }
 
-  fn check_exclude(&self, path: &Path, is_dir: bool) -> ExcludeMatchDetail {
+  pub fn check_exclude(&self, path: &Path, is_dir: bool) -> ExcludeMatchDetail {
     let config_match = self.config_exclude_matcher.matched(&path, is_dir);
     let mut result = match config_match {
       Match::None => ExcludeMatchDetail::NotExcluded,
@@ -182,33 +186,6 @@ impl GlobMatcher {
       self.check_exclude(path, true)
     } else {
       ExcludeMatchDetail::Excluded
-    }
-  }
-
-  /// More expensive check for if the directory is already ignored.
-  /// Prefer using `matches` if you already know the parent directory
-  /// isn't ignored as it's faster.
-  pub fn matches_and_dir_not_ignored(&self, file_path: &Path) -> GlobMatchesDetail {
-    let match_result = self.matches_detail(&file_path);
-    let match_result = match match_result {
-      GlobMatchesDetail::Matched | GlobMatchesDetail::MatchedOptedOutExclude => match_result,
-      GlobMatchesDetail::Excluded | GlobMatchesDetail::NotMatched => return match_result,
-    };
-
-    if file_path.starts_with(&self.base_dir) {
-      for ancestor in file_path.ancestors() {
-        if let Ok(path) = ancestor.strip_prefix(&self.base_dir) {
-          match self.check_exclude(path, true) {
-            ExcludeMatchDetail::Excluded => return GlobMatchesDetail::Excluded,
-            ExcludeMatchDetail::OptedOutExclude | ExcludeMatchDetail::NotExcluded => {}
-          }
-        } else {
-          return match_result;
-        }
-      }
-      match_result
-    } else {
-      GlobMatchesDetail::NotMatched
     }
   }
 }
@@ -264,8 +241,6 @@ fn get_base_dir<'a>(dirs: impl Iterator<Item = &'a CanonicalizedPathBuf>) -> Opt
 
 #[cfg(test)]
 mod test {
-  use std::path::PathBuf;
-
   use super::*;
 
   #[test]
@@ -355,56 +330,5 @@ mod test {
     assert!(glob_matcher.matches("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\match.ts"));
     assert!(glob_matcher.matches("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\dir\\other.ts"));
     assert!(!glob_matcher.matches("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\no-match.ts"));
-  }
-
-  #[test]
-  fn handles_ignored_dir() {
-    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
-    let glob_matcher = GlobMatcher::new(
-      GlobPatterns {
-        arg_includes: None,
-        config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
-        arg_excludes: None,
-        config_excludes: vec![GlobPattern::new("sub-dir".to_string(), cwd.clone())],
-      },
-      &GlobMatcherOptions {
-        case_sensitive: true,
-        base_dir: cwd,
-      },
-    )
-    .unwrap();
-    assert_matches_dir_and_not_ignored(&glob_matcher, "/testing/dir/match.ts", GlobMatchesDetail::Matched);
-    assert_matches_dir_and_not_ignored(&glob_matcher, "/testing/dir/other/match.ts", GlobMatchesDetail::Matched);
-    assert_matches_dir_and_not_ignored(&glob_matcher, "/testing/sub-dir/no-match.ts", GlobMatchesDetail::NotMatched);
-    assert_matches_dir_and_not_ignored(&glob_matcher, "/testing/sub-dir/nested/no-match.ts", GlobMatchesDetail::NotMatched);
-  }
-
-  #[test]
-  fn handles_ignored_dir_while_include_is_sub_dir() {
-    let base_dir = CanonicalizedPathBuf::new_for_testing("/");
-    let cwd = CanonicalizedPathBuf::new_for_testing("/sub-dir");
-    let glob_matcher = GlobMatcher::new(
-      GlobPatterns {
-        arg_includes: None,
-        // notice cwd and base_dir are different. This will happen when the config
-        // file is in an ancestor dir and the user has stepped into a folder
-        config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
-        arg_excludes: None,
-        config_excludes: vec![GlobPattern::new("**/dist".to_string(), base_dir.clone())],
-      },
-      &GlobMatcherOptions {
-        case_sensitive: true,
-        base_dir: cwd,
-      },
-    )
-    .unwrap();
-    assert_matches_dir_and_not_ignored(&glob_matcher, "/sub-dir/dir/match.ts", GlobMatchesDetail::Matched);
-    assert_matches_dir_and_not_ignored(&glob_matcher, "/sub-dir/dir/other/match.ts", GlobMatchesDetail::Matched);
-    assert_matches_dir_and_not_ignored(&glob_matcher, "/sub-dir/dist/no-match.ts", GlobMatchesDetail::Excluded);
-  }
-
-  #[track_caller]
-  fn assert_matches_dir_and_not_ignored(matcher: &GlobMatcher, path: &str, expected: GlobMatchesDetail) {
-    assert_eq!(matcher.matches_and_dir_not_ignored(&PathBuf::from(path)), expected);
   }
 }
