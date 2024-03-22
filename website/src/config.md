@@ -26,7 +26,6 @@ See [Setup](/setup).
     "indentWidth": 2
   },
   "excludes": [
-    "**/node_modules",
     "**/*-lock.json"
   ],
   "plugins": [
@@ -104,15 +103,27 @@ These should be file globs according to [`gitignore`'s extended glob syntax](htt
 {
   // ...omitted...
   "excludes": [
-    "**/node_modules",
     "**/*-lock.json"
+  ]
+}
+```
+
+### Un-excluding gitignored files
+
+Files that are gitignored will be excluded by default, but you can "un-exclude" them by specifying a negated glob:
+
+```json
+{
+  "excludes": [
+    // will format dist/main.js even though it's gitignored
+    "!dist/main.js"
   ]
 }
 ```
 
 ## Includes
 
-The `includes` property can be used to limit dprint to only formatting certain files. Generally, you shouldn't bother to provide this.
+The `includes` property can be used to limit dprint to only formatting certain files. Generally, you don't need to bother providing this.
 
 ```json
 {
