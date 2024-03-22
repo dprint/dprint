@@ -490,23 +490,6 @@ mod test {
   }
 
   #[test]
-  fn unexcluding_file_in_gitignored_dir() {
-    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
-      .with_default_config(|c| {
-        c.add_excludes("!sub_dir/sub.txt");
-      })
-      .write_file("/file1.txt", "")
-      .write_file("/sub_dir/sub.txt", "")
-      .write_file("/file2.txt", "")
-      .write_file("/.gitignore", "file1.txt\nsub_dir")
-      .build();
-    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
-    let mut logged_messages = environment.take_stdout_messages();
-    logged_messages.sort();
-    assert_eq!(logged_messages, vec!["/file2.txt", "/sub_dir/sub.txt"]);
-  }
-
-  #[test]
   fn should_clear_cache_directory() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["clear-cache"], &environment).unwrap();

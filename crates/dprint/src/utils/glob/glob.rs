@@ -251,7 +251,9 @@ impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
                     ExcludeMatchDetail::Excluded => true,
                     ExcludeMatchDetail::OptedOutExclude => false,
                     ExcludeMatchDetail::NotExcluded => match &gitignore {
-                      Some(gitignore) => gitignore.is_ignored(&path, /* is dir */ true),
+                      Some(gitignore) => {
+                        gitignore.is_ignored(&path, /* is dir */ true)
+                      }
                       None => false,
                     },
                   };

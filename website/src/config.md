@@ -115,8 +115,8 @@ Files that are gitignored will be excluded by default, but you can "un-exclude" 
 ```json
 {
   "excludes": [
-    // will format dist/main.js even though it's gitignored
-    "!dist/main.js"
+    // will format dist.js even though it's gitignored
+    "!dist.js"
   ]
 }
 ```
