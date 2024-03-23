@@ -159,7 +159,7 @@ impl GlobMatcher {
   }
 
   pub fn check_exclude(&self, path: &Path, is_dir: bool) -> ExcludeMatchDetail {
-    let config_match = self.config_exclude_matcher.matched(&path, is_dir);
+    let config_match = self.config_exclude_matcher.matched(path, is_dir);
     let mut result = match config_match {
       Match::None => ExcludeMatchDetail::NotExcluded,
       Match::Ignore(_) => ExcludeMatchDetail::Excluded,

@@ -48,7 +48,7 @@ impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
   /// Prefer using `matches` if you already know the parent directory
   /// isn't ignored.
   pub fn matches_and_dir_not_ignored(&mut self, file_path: &Path) -> bool {
-    let match_result = self.glob_matcher.matches_detail(&file_path);
+    let match_result = self.glob_matcher.matches_detail(file_path);
     match match_result {
       GlobMatchesDetail::Matched => {
         if self.is_gitignored(file_path, /* is dir */ false) {
@@ -150,20 +150,17 @@ fn get_config_includes_file_patterns(config: &ResolvedConfig, args: &FilePattern
 fn get_config_exclude_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
   let mut file_patterns = Vec::new();
 
-  file_patterns.extend(
-    match &args.exclude_pattern_overrides {
-      Some(exclude_overrides) => {
-        // resolve CLI patterns based on the current working directory
-        GlobPattern::new_vec(exclude_overrides.iter().map(|p| process_cli_pattern(p, cwd)).collect(), cwd.clone())
-      }
-      None => config
-        .excludes
-        .as_ref()
-        .map(|excludes| GlobPattern::new_vec(process_config_patterns(excludes).collect(), config.base_path.clone()))
-        .unwrap_or_default(),
+  file_patterns.extend(match &args.exclude_pattern_overrides {
+    Some(exclude_overrides) => {
+      // resolve CLI patterns based on the current working directory
+      GlobPattern::new_vec(exclude_overrides.iter().map(|p| process_cli_pattern(p, cwd)).collect(), cwd.clone())
     }
-    .into_iter(),
-  );
+    None => config
+      .excludes
+      .as_ref()
+      .map(|excludes| GlobPattern::new_vec(process_config_patterns(excludes).collect(), config.base_path.clone()))
+      .unwrap_or_default(),
+  });
 
   // todo(THIS PR): document removing this flag in favour of a !**/node_modules pattern
   // and make this work with that

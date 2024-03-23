@@ -78,13 +78,13 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
   fn resolve_gitignore_in_dir(&mut self, dir_path: &Path, maybe_parent: Option<&Path>) -> Option<Rc<DirGitIgnores>> {
     if let Some(parent) = maybe_parent {
       // stop searching if the parent dir had a .git directory in it
-      if self.environment.path_exists(&parent.join(".git")) {
+      if self.environment.path_exists(parent.join(".git")) {
         return None;
       }
     }
 
     let parent = dir_path.parent().and_then(|parent| self.get_resolved_git_ignore_inner(parent, Some(dir_path)));
-    let current = self.environment.read_file(&dir_path.join(".gitignore")).ok().and_then(|text| {
+    let current = self.environment.read_file(dir_path.join(".gitignore")).ok().and_then(|text| {
       let mut builder = ignore::gitignore::GitignoreBuilder::new(dir_path);
       for line in text.lines() {
         builder.add_line(None, line).ok()?;
