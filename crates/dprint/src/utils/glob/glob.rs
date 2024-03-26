@@ -256,7 +256,7 @@ impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
                       }
                       None => false,
                     },
-                  };
+                  } || path.file_name().map(|f| f == ".git").unwrap_or(false);
                   if !is_ignored {
                     pending_dirs.push(path);
                   }
@@ -380,6 +380,8 @@ mod test {
   async fn should_glob() {
     let mut environment_builder = TestEnvironmentBuilder::new();
     let mut expected_matches = Vec::new();
+    // ignores .git folder
+    environment_builder.write_file("/.git/data.txt", "");
     for i in 1..100 {
       environment_builder.write_file(format!("/{}.txt", i), "");
       expected_matches.push(format!("/{}.txt", i));
