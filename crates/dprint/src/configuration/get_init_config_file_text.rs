@@ -105,7 +105,7 @@ pub async fn get_init_config_file_text(environment: &impl Environment) -> Result
     }
     json_text.push_str("  ]\n}\n");
   } else {
-    json_text.push_str("  \"excludes\": [\n    \"**/node_modules\",\n    \"**/*-lock.json\"\n  ],\n");
+    json_text.push_str("  \"excludes\": [\n    \"**/*-lock.json\"\n  ],\n");
     json_text.push_str("  \"plugins\": [\n");
     json_text.push_str("    // specify plugin urls here\n");
     json_text.push_str("  ]\n}\n");
@@ -303,7 +303,6 @@ mod test {
         text,
         r#"{
   "excludes": [
-    "**/node_modules",
     "**/*-lock.json"
   ],
   "plugins": [
@@ -382,7 +381,6 @@ mod test {
         text,
         r#"{
   "excludes": [
-    "**/node_modules",
     "**/*-lock.json"
   ],
   "plugins": [

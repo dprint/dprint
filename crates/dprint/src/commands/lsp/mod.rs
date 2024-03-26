@@ -482,6 +482,7 @@ mod test {
       })
       .initialize()
       .build();
+    environment.write_file(".gitignore", "gitignored_file.txt\ngitignored_dir").unwrap();
 
     environment.clone().run_in_runtime(async move {
       let (backend, recv_task, test_client) = setup_backend(environment.clone());
@@ -622,6 +623,16 @@ mod test {
 
           // ignores excluded files
           let file_uri = Url::parse("file:///ignored_file.txt").unwrap();
+          did_open!(file_uri, "testing");
+          assert_format!(file_uri, None);
+
+          // ignores gitignored files
+          let file_uri = Url::parse("file:///gitignored_file.txt").unwrap();
+          did_open!(file_uri, "testing");
+          assert_format!(file_uri, None);
+
+          // ignores file in gitignored dir
+          let file_uri = Url::parse("file:///gitignored_dir/file.txt").unwrap();
           did_open!(file_uri, "testing");
           assert_format!(file_uri, None);
 
