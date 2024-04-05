@@ -56,9 +56,7 @@ impl RealEnvironment {
       log_level: options.log_level,
     }));
     let progress_bars = ProgressBars::new(&logger).map(Arc::new);
-    let url_downloader = Arc::new(RealUrlDownloader::new(progress_bars.clone(), logger.clone(), |env_var_name| {
-      std::env::var(env_var_name).ok()
-    })?);
+    let url_downloader = Arc::new(RealUrlDownloader::new(progress_bars.clone(), logger.clone())?);
     let environment = RealEnvironment {
       url_downloader,
       logger,
