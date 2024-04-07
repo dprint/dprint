@@ -69,7 +69,6 @@ if (version == null) {
     "name": "dprint",
     "version": version,
     "description": "Pluggable and configurable code formatting platform written in Rust.",
-    "bin": "bin.js",
     "repository": {
       "type": "git",
       "url": "git+https://github.com/dprint/dprint.git",
@@ -86,16 +85,10 @@ if (version == null) {
     "homepage": "https://github.com/dprint/dprint#readme",
     // for yarn berry (https://github.com/dprint/dprint/issues/686)
     "preferUnplugged": true,
-    "scripts": {
-      "postinstall": "node ./install.js",
-    },
     optionalDependencies: packages
       .map(pkg => `@dprint/${getPackageNameNoScope(pkg)}`)
       .reduce((obj, pkgName) => ({ ...obj, [pkgName]: version }), {}),
   };
-  currentDir.join("bin.js").copyFileToDirSync(dprintDir);
-  currentDir.join("install_api.js").copyFileToDirSync(dprintDir);
-  currentDir.join("install.js").copyFileToDirSync(dprintDir);
   dprintDir.join("package.json").writeJsonPrettySync(pkgJson);
   rootDir.join("LICENSE").copyFileSync(dprintDir.join("LICENSE"));
   dprintDir.join("README.md").writeTextSync(markdownText);
@@ -123,6 +116,9 @@ if (version == null) {
       "name": `@dprint/${pkgName}`,
       "version": version,
       "description": `${pkgName} distribution of the dprint code formatter`,
+      "bin": {
+        "dprint": pkg.os === 'win32' ? "dprint.exe" : "dprint"
+      },
       "repository": {
         "type": "git",
         "url": "git+https://github.com/dprint/dprint.git",
@@ -145,11 +141,12 @@ if (version == null) {
 // verify that the package is created correctly
 {
   $.logStep("Verifying packages...");
+  const testArch = Deno.build.arch === "aarch64" ? "arm64" : "x64";
   const testPlatform = Deno.build.os == "windows"
-    ? "@dprint/win32-x64"
+    ? `@dprint/win32-${testArch}`
     : Deno.build.os === "darwin"
-    ? "@dprint/darwin-x64"
-    : "@dprint/linux-x64-glibc";
+    ? `@dprint/darwin-${testArch}`
+    : `@dprint/linux-${testArch}-glibc`;
   outputDir.join("package.json").writeJsonPrettySync({
     workspaces: [
       "dprint",
@@ -167,14 +164,15 @@ if (version == null) {
   // ensure the post-install script adds the executable to the dprint package,
   // which is necessary for faster caching and to ensure the vscode extension
   // picks it up
-  if (!dprintDir.join(dprintExe).existsSync()) {
+  if (!outputDir.join(`./node_modules/.bin/${dprintExe}`).existsSync()) {
     throw new Error("dprint executable did not exist after post install");
   }
 
   // run once after post install created dprint, once with a simulated readonly file system, once creating the cache and once with
-  await $`node bin.js -v && rm ${dprintExe} && DPRINT_SIMULATED_READONLY_FILE_SYSTEM=1 node bin.js -v && node bin.js -v && node bin.js -v`.cwd(dprintDir);
+  await $`./node_modules/.bin/${dprintExe} -v`.cwd(outputDir);
+  await $`DPRINT_SIMULATED_READONLY_FILE_SYSTEM=1 ./node_modules/.bin/${dprintExe} -v`.cwd(outputDir);
 
-  if (!dprintDir.join(dprintExe).existsSync()) {
+  if (!outputDir.join(`./node_modules/.bin/${dprintExe}`).existsSync()) {
     throw new Error("dprint executable did not exist when lazily initialized");
   }
 }
