@@ -87,6 +87,9 @@ if (version == null) {
     "homepage": "https://github.com/dprint/dprint#readme",
     // for yarn berry (https://github.com/dprint/dprint/issues/686)
     "preferUnplugged": true,
+    "engines": {
+      "node": ">=18.19.1"
+    },
     "scripts": {
       "postinstall": "node ./postinstall.js",
     },
@@ -125,9 +128,6 @@ if (version == null) {
       "repository": {
         "type": "git",
         "url": "git+https://github.com/dprint/dprint.git",
-      },
-      "engines": {
-        "node": ">=18.19.1"
       },
       // force yarn to unpack
       "preferUnplugged": true,
