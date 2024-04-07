@@ -170,7 +170,7 @@ if (version == null) {
 
   // run once after post install created dprint, once with a simulated readonly file system, once creating the cache and once with
   await $`./node_modules/.bin/${dprintExe} -v`.cwd(outputDir);
-  await $`DPRINT_SIMULATED_READONLY_FILE_SYSTEM=1 ./node_modules/.bin/${dprintExe} -v`.cwd(outputDir);
+  await $`DPRINT_SIMULATED_READONLY_FILE_SYSTEM=1 ./node_modules/.bin/${dprintExe} -v && ./node_modules/.bin/${dprintExe} -v`.cwd(outputDir);
 
   if (!outputDir.join(`./node_modules/.bin/${dprintExe}`).existsSync()) {
     throw new Error("dprint executable did not exist when lazily initialized");
