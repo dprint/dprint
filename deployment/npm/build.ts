@@ -69,6 +69,7 @@ if (version == null) {
     "name": "dprint",
     "version": version,
     "description": "Pluggable and configurable code formatting platform written in Rust.",
+    "type": "module",
     "bin": "bin.js",
     "repository": {
       "type": "git",
@@ -87,15 +88,13 @@ if (version == null) {
     // for yarn berry (https://github.com/dprint/dprint/issues/686)
     "preferUnplugged": true,
     "scripts": {
-      "postinstall": "node ./install.js",
+      "postinstall": "node ./postinstall.js",
     },
     optionalDependencies: packages
       .map(pkg => `@dprint/${getPackageNameNoScope(pkg)}`)
       .reduce((obj, pkgName) => ({ ...obj, [pkgName]: version }), {}),
   };
-  currentDir.join("bin.js").copyFileToDirSync(dprintDir);
-  currentDir.join("install_api.js").copyFileToDirSync(dprintDir);
-  currentDir.join("install.js").copyFileToDirSync(dprintDir);
+  currentDir.join("postinstall.js").copyFileToDirSync(dprintDir);
   dprintDir.join("package.json").writeJsonPrettySync(pkgJson);
   rootDir.join("LICENSE").copyFileSync(dprintDir.join("LICENSE"));
   dprintDir.join("README.md").writeTextSync(markdownText);
@@ -126,6 +125,9 @@ if (version == null) {
       "repository": {
         "type": "git",
         "url": "git+https://github.com/dprint/dprint.git",
+      },
+      "engines": {
+        "node": ">=18.19.1"
       },
       // force yarn to unpack
       "preferUnplugged": true,
@@ -172,7 +174,7 @@ if (version == null) {
   }
 
   // run once after post install created dprint, once with a simulated readonly file system, once creating the cache and once with
-  await $`node bin.js -v && rm ${dprintExe} && DPRINT_SIMULATED_READONLY_FILE_SYSTEM=1 node bin.js -v && node bin.js -v && node bin.js -v`.cwd(dprintDir);
+  await $`./${dprintExe} -v && rm ${dprintExe} && DPRINT_SIMULATED_READONLY_FILE_SYSTEM=1 ./${dprintExe} -v && ./${dprintExe} -v && ./${dprintExe} -v`.cwd(dprintDir);
 
   if (!dprintDir.join(dprintExe).existsSync()) {
     throw new Error("dprint executable did not exist when lazily initialized");
