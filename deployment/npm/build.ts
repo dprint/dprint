@@ -147,11 +147,12 @@ if (version == null) {
 // verify that the package is created correctly
 {
   $.logStep("Verifying packages...");
+  const testArch = Deno.build.arch === "aarch64" ? "arm64" : "x64";
   const testPlatform = Deno.build.os == "windows"
-    ? "@dprint/win32-x64"
+    ? `@dprint/win32-${testArch}`
     : Deno.build.os === "darwin"
-    ? "@dprint/darwin-x64"
-    : "@dprint/linux-x64-glibc";
+    ? `@dprint/darwin-${testArch}`
+    : `@dprint/linux-${testArch}-glibc`;
   outputDir.join("package.json").writeJsonPrettySync({
     workspaces: [
       "dprint",
@@ -174,7 +175,8 @@ if (version == null) {
   }
 
   // run once after post install created dprint, once with a simulated readonly file system, once creating the cache and once with
-  await $`./${dprintExe} -v && rm ${dprintExe} && DPRINT_SIMULATED_READONLY_FILE_SYSTEM=1 ./${dprintExe} -v && ./${dprintExe} -v && ./${dprintExe} -v`.cwd(dprintDir);
+  await $`./${dprintExe} -v`.cwd(dprintDir);
+  await $`DPRINT_SIMULATED_READONLY_FILE_SYSTEM=1 ./${dprintExe} -v && ./${dprintExe} -v`.cwd(dprintDir);
 
   if (!dprintDir.join(dprintExe).existsSync()) {
     throw new Error("dprint executable did not exist when lazily initialized");
