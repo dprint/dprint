@@ -128,19 +128,15 @@ fn get_plugin_patterns<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>) 
   let mut file_exts = HashSet::new();
   let mut association_globs = Vec::new();
   for plugin in plugins {
-    let mut had_positive_association = false;
     if let Some(associations) = plugin.associations.as_ref() {
       for pattern in process_config_patterns(associations) {
         if !is_negated_glob(&pattern) {
-          had_positive_association = true;
           association_globs.push(pattern);
         }
       }
     }
-    if !had_positive_association {
-      file_names.extend(&plugin.file_matching.file_names);
-      file_exts.extend(&plugin.file_matching.file_extensions);
-    }
+    file_names.extend(&plugin.file_matching.file_names);
+    file_exts.extend(&plugin.file_matching.file_extensions);
   }
   let mut result = Vec::new();
   if !file_exts.is_empty() {
