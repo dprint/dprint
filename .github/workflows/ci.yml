@@ -62,7 +62,7 @@ jobs:
       ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_MUSL: "${{steps.pre_release_aarch64_unknown_linux_musl.outputs.ZIP_CHECKSUM}}"
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - uses: dsherret/rust-toolchain-file@v1
       - uses: Swatinem/rust-cache@v2
       - uses: denoland/setup-deno@v1

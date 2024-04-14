@@ -43,7 +43,7 @@ You may change how all the tests are run by adding certain words to a test descr
 - `(skip-format-twice)` - Skips formatting the output again to ensure it stays the same—only formats once.
 - `(trace)` - Only runs this test and outputs the IR graph to an HTML file to view in a web browser. Must be run with `cargo test --features tracing`
 
-For example, adding `(only)` to the description will only run the first test in this example:
+For example, adding `(only)` to the description will only run the first test in this example (you'll need to filter using `cargo test` to only run that specific test though):
 
 ```
 == test 1 (only) ==
@@ -61,7 +61,7 @@ console.log(10);
 
 ### Only Running Tests In A File
 
-To only run tests in a single file, temporarily change the file name to add `_Only` at the end before the extension. For example, `CatchClause_All_Only.txt`.
+Note the name of the test that corresponds to the current file, and run with `cargo test <name of test>`
 
 ### Overwriting Failures
 

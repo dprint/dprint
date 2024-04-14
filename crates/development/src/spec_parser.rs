@@ -13,6 +13,7 @@ pub struct Spec {
 
 pub type SpecConfigMap = serde_json::Map<String, serde_json::Value>;
 
+#[derive(Debug, Clone)]
 pub struct ParseSpecOptions {
   /// The default file name for a parsed spec.
   pub default_file_name: &'static str,
