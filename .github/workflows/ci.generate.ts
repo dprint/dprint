@@ -109,7 +109,7 @@ const ci = {
         }).flat(),
       ),
       steps: [
-        { name: "Checkout", uses: "actions/checkout@v2" },
+        { name: "Checkout", uses: "actions/checkout@v4" },
         { uses: "dsherret/rust-toolchain-file@v1" },
         { uses: "Swatinem/rust-cache@v2" },
         { uses: "denoland/setup-deno@v1" },

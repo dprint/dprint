@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use anyhow::bail;
 use anyhow::Result;
+use once_cell::sync::OnceCell;
 
 use super::logging::ProgressBarStyle;
 use super::logging::ProgressBars;
@@ -11,17 +12,17 @@ use super::Logger;
 const MAX_RETRIES: u8 = 2;
 
 pub struct RealUrlDownloader {
-  https_agent: ureq::Agent,
-  http_agent: ureq::Agent,
+  https_agent: OnceCell<ureq::Agent>,
+  http_agent: OnceCell<ureq::Agent>,
   progress_bars: Option<Arc<ProgressBars>>,
   logger: Arc<Logger>,
 }
 
 impl RealUrlDownloader {
-  pub fn new(progress_bars: Option<Arc<ProgressBars>>, logger: Arc<Logger>, read_env_var: impl Fn(&str) -> Option<String>) -> Result<Self> {
+  pub fn new(progress_bars: Option<Arc<ProgressBars>>, logger: Arc<Logger>) -> Result<Self> {
     Ok(Self {
-      https_agent: build_agent(AgentKind::Https, &read_env_var)?,
-      http_agent: build_agent(AgentKind::Http, &read_env_var)?,
+      https_agent: Default::default(),
+      http_agent: Default::default(),
       progress_bars,
       logger,
     })
@@ -29,13 +30,15 @@ impl RealUrlDownloader {
 
   pub fn download(&self, url: &str) -> Result<Option<Vec<u8>>> {
     let lowercase_url = url.to_lowercase();
-    let agent = if lowercase_url.starts_with("https://") {
-      &self.https_agent
+    let (agent, kind) = if lowercase_url.starts_with("https://") {
+      (&self.https_agent, AgentKind::Https)
     } else if lowercase_url.starts_with("http://") {
-      &self.http_agent
+      (&self.http_agent, AgentKind::Http)
     } else {
       bail!("Not implemented url scheme: {}", url);
     };
+    // this is expensive, but we're already in a blocking task here
+    let agent = agent.get_or_try_init(|| build_agent(kind))?;
     self.download_with_retries(url, agent)
   }
 
@@ -105,21 +108,25 @@ enum AgentKind {
   Https,
 }
 
-fn build_agent(kind: AgentKind, read_env_var: &impl Fn(&str) -> Option<String>) -> Result<ureq::Agent> {
+fn build_agent(kind: AgentKind) -> Result<ureq::Agent> {
   let mut agent = ureq::AgentBuilder::new();
-  if let Some(proxy_url) = get_proxy_url(kind, read_env_var) {
+  if let Some(proxy_url) = get_proxy_url(kind) {
     agent = agent.proxy(ureq::Proxy::new(proxy_url)?);
   }
   Ok(agent.build())
 }
 
-fn get_proxy_url(kind: AgentKind, read_env_var: &impl Fn(&str) -> Option<String>) -> Option<String> {
+fn get_proxy_url(kind: AgentKind) -> Option<String> {
   match kind {
-    AgentKind::Http => read_proxy_env_var("HTTP_PROXY", read_env_var),
-    AgentKind::Https => read_proxy_env_var("HTTPS_PROXY", read_env_var),
+    AgentKind::Http => read_proxy_env_var("HTTP_PROXY"),
+    AgentKind::Https => read_proxy_env_var("HTTPS_PROXY"),
   }
 }
 
-fn read_proxy_env_var(env_var_name: &str, read_env_var: &impl Fn(&str) -> Option<String>) -> Option<String> {
-  read_env_var(&env_var_name.to_uppercase()).or_else(|| read_env_var(&env_var_name.to_lowercase()))
+fn read_proxy_env_var(env_var_name: &str) -> Option<String> {
+  // too much of a hassle to create a seam for the env var reading
+  // and this struct is created before an env is created anyway
+  std::env::var(env_var_name.to_uppercase())
+    .ok()
+    .or_else(|| std::env::var(env_var_name.to_lowercase()).ok())
 }

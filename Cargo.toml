@@ -4,8 +4,8 @@ members = [
   "crates/core",
   "crates/core-macros",
   "crates/development",
-  "crates/test-process-plugin",
   "crates/dprint",
+  "crates/test-process-plugin",
 ]
 # excluded because this needs to be compiled as wasm to work
 exclude = [
