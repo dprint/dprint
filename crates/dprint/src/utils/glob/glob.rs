@@ -265,7 +265,9 @@ impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
                   let is_matched = match self.glob_matcher.matches_detail(&path) {
                     GlobMatchesDetail::Excluded => false,
                     GlobMatchesDetail::Matched => match &gitignore {
-                      Some(gitignore) => !gitignore.is_ignored(&path, /* is dir */ false),
+                      Some(gitignore) => {
+                        !gitignore.is_ignored(&path, /* is dir */ false)
+                      }
                       None => true,
                     },
                     GlobMatchesDetail::MatchedOptedOutExclude => true,
