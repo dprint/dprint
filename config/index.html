@@ -81,7 +81,6 @@
     <span class="hljs-attr">"indentWidth"</span><span class="hljs-punctuation">:</span> <span class="hljs-number">2</span>
   <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
   <span class="hljs-attr">"excludes"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
-    <span class="hljs-string">"**/node_modules"</span><span class="hljs-punctuation">,</span>
     <span class="hljs-string">"**/*-lock.json"</span>
   <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
   <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
@@ -130,13 +129,21 @@
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
   <span class="hljs-comment">// ...omitted...</span>
   <span class="hljs-attr">"excludes"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
-    <span class="hljs-string">"**/node_modules"</span><span class="hljs-punctuation">,</span>
     <span class="hljs-string">"**/*-lock.json"</span>
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
+<h3 id="un-excluding-gitignored-files" tabindex="-1"><a class="header-anchor" href="#un-excluding-gitignored-files">Un-excluding gitignored files</a></h3>
+<p>Files that are gitignored will be excluded by default, but you can "un-exclude" them by specifying a negated glob:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"excludes"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-comment">// will format dist.js even though it's gitignored</span>
+    <span class="hljs-string">"!dist.js"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
 <h2 id="includes" tabindex="-1"><a class="header-anchor" href="#includes">Includes</a></h2>
-<p>The <code>includes</code> property can be used to limit dprint to only formatting certain files. Generally, you shouldn't bother to provide this.</p>
+<p>The <code>includes</code> property can be used to limit dprint to only formatting certain files. Generally, you don't need to bother providing this.</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
   <span class="hljs-comment">// ...omitted...</span>
   <span class="hljs-attr">"includes"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
