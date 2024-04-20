@@ -388,6 +388,142 @@ mod test {
   }
 
   #[test]
+  fn should_respect_gitignore() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      .write_file("/file1.txt", "")
+      .write_file("/file2.txt", "")
+      .write_file("/file3.txt", "")
+      .write_file(".gitignore", "file2.txt")
+      .build();
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file1.txt", "/file3.txt",]);
+  }
+
+  #[test]
+  fn should_respect_gitignore_sub_dir() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      .write_file("/file1.txt", "")
+      .write_file("/file2.txt", "")
+      .write_file("/file3.txt", "")
+      .write_file("/sub/.gitignore", "file1.txt")
+      .write_file("/sub/file1.txt", "")
+      .write_file("/sub/file2.txt", "")
+      .build();
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file1.txt", "/file2.txt", "/file3.txt", "/sub/file2.txt"]);
+  }
+
+  #[test]
+  fn should_include_gitignored_explicitly_specified_file() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt").add_includes("file1.txt");
+      })
+      .write_file("/file1.txt", "")
+      .write_file("/file2.txt", "")
+      .write_file("/.gitignore", "file1.txt")
+      .build();
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file1.txt", "/file2.txt"]);
+  }
+
+  #[test]
+  fn should_include_gitignored_explicitly_specified_dir() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt").add_includes("sub_dir");
+      })
+      .write_file("/file.txt", "")
+      .write_file("/sub_dir/file.txt", "")
+      .write_file("/sub_dir/sub/file.txt", "")
+      .write_file("/sub_dir2/file.txt", "")
+      .write_file("/.gitignore", "sub_dir\nsub_dir2")
+      .build();
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.txt", "/sub_dir/file.txt", "/sub_dir/sub/file.txt"]);
+  }
+
+  #[test]
+  fn unexcluding_gitignored_file() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_excludes("!file1.txt");
+      })
+      .write_file("/file1.txt", "")
+      .write_file("/.gitignore", "file1.txt")
+      .build();
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file1.txt"]);
+  }
+
+  #[test]
+  fn unexcluding_gitignored_dir() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_excludes("!sub_dir");
+      })
+      .write_file("/file1.txt", "")
+      .write_file("/sub_dir/sub.txt", "")
+      .write_file("/file2.txt", "")
+      .write_file("/.gitignore", "file1.txt\nsub_dir")
+      .build();
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file2.txt", "/sub_dir/sub.txt"]);
+  }
+
+  #[test]
+  fn excluded_include_and_excluded_gitignore() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt").add_includes("!sub/sub_dir/*.txt");
+      })
+      .write_file("/sub/sub_dir/.gitignore", "!not_ignored.txt\n")
+      .write_file("/sub/sub_dir/not_ignored.txt", "")
+      .write_file("/sub/sub_dir/sub.txt", "")
+      .write_file("/data.txt", "")
+      .build();
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/data.txt"]);
+  }
+
+  #[test]
+  fn include_and_excluded_gitignore_subdir() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      .write_file("/sub/sub_dir/.gitignore", "ignored.txt\n")
+      .write_file("/sub/sub_dir/ignored.txt", "")
+      .write_file("/sub/sub_dir/sub.txt", "")
+      .write_file("/data.txt", "")
+      .build();
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/data.txt", "/sub/sub_dir/sub.txt"]);
+  }
+
+  #[test]
   fn should_clear_cache_directory() {
     let environment = TestEnvironment::new();
     run_test_cli(vec!["clear-cache"], &environment).unwrap();

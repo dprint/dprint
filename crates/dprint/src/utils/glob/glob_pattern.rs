@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::path::PathBuf;
 
 use crate::environment::CanonicalizedPathBuf;
 
@@ -11,6 +12,44 @@ pub struct GlobPatterns {
   pub config_includes: Option<Vec<GlobPattern>>,
   pub arg_excludes: Option<Vec<GlobPattern>>,
   pub config_excludes: Vec<GlobPattern>,
+}
+
+impl GlobPatterns {
+  /// Resolves the include paths (not patterns).
+  pub fn include_paths(&self) -> Vec<PathBuf> {
+    // we only make the explicitly specified paths override the gitignore
+    // because it starts getting really complicated with globs and some
+    // people may not want globs to not match gitignored files
+    self
+      .arg_includes
+      .iter()
+      .flat_map(|i| i.iter())
+      .chain(self.config_includes.iter().flat_map(|i| i.iter()))
+      .filter_map(|pattern| {
+        if !is_pattern(&pattern.relative_pattern) {
+          Some(pattern.base_dir.join(&pattern.relative_pattern))
+        } else {
+          None
+        }
+      })
+      .collect()
+  }
+}
+
+fn is_pattern(pattern: &str) -> bool {
+  if pattern.starts_with('!') {
+    return true;
+  }
+
+  let mut was_last_escape = false;
+  for c in pattern.chars() {
+    if !was_last_escape && matches!(c, '*' | '{' | '?') {
+      return true;
+    }
+
+    was_last_escape = matches!(c, '\\');
+  }
+  false
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,20 +74,12 @@ impl GlobPattern {
     is_negated_glob(&self.relative_pattern)
   }
 
-  pub fn into_non_negated(self) -> GlobPattern {
+  pub fn invert(self) -> Self {
     if self.is_negated() {
       GlobPattern {
         base_dir: self.base_dir,
         relative_pattern: non_negated_glob(&self.relative_pattern).to_string(),
       }
-    } else {
-      self
-    }
-  }
-
-  pub fn into_negated(self) -> GlobPattern {
-    if self.is_negated() {
-      self
     } else {
       GlobPattern {
         base_dir: self.base_dir,
@@ -171,25 +202,14 @@ mod test {
   use super::*;
 
   #[test]
-  fn should_make_negated() {
+  fn should_invert() {
     let test_dir = CanonicalizedPathBuf::new_for_testing("/test");
-    let pattern = GlobPattern::new("**/*".to_string(), test_dir.clone()).into_negated();
-    assert_eq!(pattern.relative_pattern, "!**/*");
-
-    // should keep as-is
-    let pattern = GlobPattern::new("!**/*".to_string(), test_dir).into_negated();
-    assert_eq!(pattern.relative_pattern, "!**/*");
-  }
-
-  #[test]
-  fn should_make_non_negated() {
-    let test_dir = CanonicalizedPathBuf::new_for_testing("/test");
-    let pattern = GlobPattern::new("!**/*".to_string(), test_dir.clone()).into_non_negated();
+    let pattern = GlobPattern::new("!**/*".to_string(), test_dir.clone()).invert();
     assert_eq!(pattern.relative_pattern, "**/*");
 
     // should keep as-is
-    let pattern = GlobPattern::new("**/*".to_string(), test_dir).into_non_negated();
-    assert_eq!(pattern.relative_pattern, "**/*");
+    let pattern = GlobPattern::new("**/*".to_string(), test_dir).invert();
+    assert_eq!(pattern.relative_pattern, "!**/*");
   }
 
   #[test]
