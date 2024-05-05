@@ -29,20 +29,6 @@ pub struct SavePoint<'a> {
   pub next_node_stack: NodeStack<'a>,
 }
 
-struct PrintItemContainer<'a> {
-  items: &'a Vec<PrintItem>,
-  index: i32,
-}
-
-impl<'a> Clone for PrintItemContainer<'a> {
-  fn clone(&self) -> PrintItemContainer<'a> {
-    PrintItemContainer {
-      items: self.items,
-      index: self.index,
-    }
-  }
-}
-
 #[cfg(feature = "tracing")]
 pub struct PrintTracingResult<'a> {
   pub traces: Vec<Trace>,
