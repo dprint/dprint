@@ -21,7 +21,6 @@ use crate::resolution::PluginWithConfig;
 use crate::resolution::PluginsScope;
 use crate::resolution::PluginsScopeAndPaths;
 use crate::utils::ErrorCountLogger;
-use crate::utils::FileText;
 use crate::utils::Semaphore;
 
 struct TaskWork {
@@ -41,7 +40,7 @@ pub async fn run_parallelized<F, TEnvironment: Environment>(
   f: F,
 ) -> Result<()>
 where
-  F: Fn(PathBuf, FileText, Vec<u8>, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
+  F: Fn(PathBuf, Vec<u8>, Vec<u8>, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
 {
   if let Some(config) = &scope_and_paths.scope.config {
     log_debug!(environment, "Running for config: {}", config.resolved_path.file_path.display());
@@ -189,14 +188,14 @@ where
     f: F,
   ) -> Result<()>
   where
-    F: Fn(PathBuf, FileText, Vec<u8>, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
+    F: Fn(PathBuf, Vec<u8>, Vec<u8>, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
   {
     // it's a big perf improvement to do this work on a blocking thread
     let result = dprint_core::async_runtime::spawn_blocking(move || {
-      let file_text = FileText::new(environment.read_file_bytes(&file_path)?);
+      let file_text = environment.read_file_bytes(&file_path)?;
 
       if let Some(incremental_file) = &incremental_file {
-        if incremental_file.is_file_known_formatted(file_text.as_ref()) {
+        if incremental_file.is_file_known_formatted(&file_text) {
           log_debug!(environment, "No change: {}", file_path.display());
           return Ok::<_, anyhow::Error>(None);
         }
@@ -211,9 +210,9 @@ where
     };
 
     let (start_instant, formatted_text) =
-      run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), file_text.as_ref()).await?;
+      run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), &file_text).await?;
 
-    let formatted_text = if ensure_stable_format.0 && formatted_text != file_text.as_ref() {
+    let formatted_text = if ensure_stable_format.0 && formatted_text != file_text {
       get_stabilized_format_text(environment.clone(), scope, plugins, file_path.clone(), formatted_text).await?
     } else {
       formatted_text

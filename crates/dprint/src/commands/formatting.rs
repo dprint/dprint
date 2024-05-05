@@ -26,7 +26,6 @@ use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::resolution::PluginsScope;
 use crate::utils::get_difference;
 use crate::utils::AtomicCounter;
-use crate::utils::BOM_BYTES;
 
 pub async fn stdin_fmt<TEnvironment: Environment>(
   cmd: &StdInFmtSubCommand,
@@ -141,12 +140,12 @@ pub async fn check<TEnvironment: Environment>(
       let not_formatted_files_count = not_formatted_files_count.clone();
       let incremental_file = incremental_file.clone();
       move |file_path, file_bytes, formatted_bytes, _, environment| {
-        if formatted_bytes != file_bytes.as_ref() {
+        if formatted_bytes != file_bytes {
           not_formatted_files_count.inc();
           if list_different {
             log_stdout_info!(environment, "{}", file_path.display());
           } else {
-            output_difference(&file_path, file_bytes.as_ref(), &formatted_bytes, &environment);
+            output_difference(&file_path, &file_bytes, &formatted_bytes, &environment);
           }
         } else {
           // update the incremental cache when the file is already formatted correctly
@@ -241,23 +240,13 @@ pub async fn format<TEnvironment: Environment>(
             incremental_file.update_file(&formatted_bytes);
           }
 
-          if formatted_bytes != file_bytes.as_ref() {
+          if formatted_bytes != file_bytes {
             if output_diff {
-              output_difference(&file_path, file_bytes.as_ref(), &formatted_bytes, &environment);
+              output_difference(&file_path, &file_bytes, &formatted_bytes, &environment);
             }
 
-            let new_text = if file_bytes.has_bom() {
-              // add back the BOM
-              let mut new_bytes = Vec::with_capacity(file_bytes.as_ref().len() + BOM_BYTES.len());
-              new_bytes.extend_from_slice(BOM_BYTES);
-              new_bytes.extend(formatted_bytes);
-              new_bytes
-            } else {
-              formatted_bytes
-            };
-
             formatted_files_count.inc();
-            environment.write_file_bytes(file_path, &new_text)?;
+            environment.write_file_bytes(file_path, &formatted_bytes)?;
           }
 
           Ok(())
