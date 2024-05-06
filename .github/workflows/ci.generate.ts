@@ -126,6 +126,7 @@ const ci = {
           run: [
             "sudo apt update",
             "sudo apt install musl musl-dev musl-tools",
+            "rustup target add x86_64-unknown-linux-musl",
           ].join("\n"),
         },
         {
@@ -134,6 +135,7 @@ const ci = {
           run: [
             "sudo apt update",
             "sudo apt install gcc-aarch64-linux-gnu",
+            "rustup target add aarch64-unknown-linux-gnu",
           ].join("\n"),
         },
         {
@@ -142,11 +144,6 @@ const ci = {
           run: [
             "cargo install cross --git https://github.com/cross-rs/cross --rev 44011c8854cb2eaac83b173cc323220ccdff18ea",
           ].join("\n"),
-        },
-        {
-          name: "Setup rustup target",
-          if: "matrix.config.cross != 'true'",
-          run: "rustup target add ${{ matrix.config.target }}",
         },
         {
           name: "Build test plugins (Debug)",
