@@ -20,11 +20,11 @@ jobs:
     strategy:
       matrix:
         config:
-          - os: macOS-latest
+          - os: macos-13
             run_tests: "true"
             target: x86_64-apple-darwin
             cross: "false"
-          - os: macos-13
+          - os: macOS-latest
             run_tests: "true"
             target: aarch64-apple-darwin
             cross: "false"

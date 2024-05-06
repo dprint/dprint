@@ -17,11 +17,11 @@ interface ProfileData {
 }
 
 const profileDataItems: ProfileData[] = [{
-  os: OperatingSystem.Mac,
+  os: OperatingSystem.MacX86,
   target: "x86_64-apple-darwin",
   runTests: true,
 }, {
-  os: OperatingSystem.MacX86,
+  os: OperatingSystem.Mac,
   target: "aarch64-apple-darwin",
   runTests: true,
 }, {
