@@ -499,7 +499,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       };
       let mut config = resolve_config_from_path(&config_path, self.environment).await?;
       if !self.args.plugins.is_empty() {
-        config.plugins = parent_config.plugins.clone();
+        config.plugins.clone_from(&parent_config.plugins);
       }
       let config = Rc::new(config);
       let scope = resolve_plugins_scope(config.clone(), self.environment, self.plugin_resolver).await?;

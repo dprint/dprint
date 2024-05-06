@@ -27,10 +27,10 @@ macro_rules! generate_str_to_from {
             }
         }
 
-        impl std::string::ToString for $enum_name {
-            fn to_string(&self) -> String {
+        impl std::fmt::Display for $enum_name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match self {
-                    $($enum_name::$member_name => String::from($string_value)),*,
+                    $($enum_name::$member_name => write!(f, $string_value)),*,
                 }
             }
         }
