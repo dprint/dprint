@@ -3,6 +3,7 @@ import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
+  MacX86 = "macos-13",
   Windows = "windows-latest",
   Linux = "ubuntu-20.04",
 }
@@ -20,8 +21,9 @@ const profileDataItems: ProfileData[] = [{
   target: "x86_64-apple-darwin",
   runTests: true,
 }, {
-  os: OperatingSystem.Mac,
+  os: OperatingSystem.MacX86,
   target: "aarch64-apple-darwin",
+  runTests: true,
 }, {
   os: OperatingSystem.Windows,
   target: "x86_64-pc-windows-msvc",
@@ -124,6 +126,7 @@ const ci = {
           run: [
             "sudo apt update",
             "sudo apt install musl musl-dev musl-tools",
+            "rustup target add x86_64-unknown-linux-musl",
           ].join("\n"),
         },
         {
@@ -132,6 +135,7 @@ const ci = {
           run: [
             "sudo apt update",
             "sudo apt install gcc-aarch64-linux-gnu",
+            "rustup target add aarch64-unknown-linux-gnu",
           ].join("\n"),
         },
         {
@@ -140,11 +144,6 @@ const ci = {
           run: [
             "cargo install cross --git https://github.com/cross-rs/cross --rev 44011c8854cb2eaac83b173cc323220ccdff18ea",
           ].join("\n"),
-        },
-        {
-          name: "Setup rustup target",
-          if: "matrix.config.cross != 'true'",
-          run: "rustup target add ${{ matrix.config.target }}",
         },
         {
           name: "Build test plugins (Debug)",
@@ -216,6 +215,7 @@ const ci = {
           function getRunSteps() {
             switch (profile.os) {
               case OperatingSystem.Mac:
+              case OperatingSystem.MacX86:
                 return [
                   `cd target/${profile.target}/release`,
                   `zip -r ${profile.zipFileName} dprint`,
@@ -234,6 +234,10 @@ const ci = {
                   `echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.zipFileName} | awk '{print $1}')"`,
                   `echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.installerFileName} | awk '{print $1}')"`,
                 ];
+              default: {
+                const _assertNever: never = profile.os;
+                throw new Error(`Unhandled OS: ${profile.os}`);
+              }
             }
           }
           return {
