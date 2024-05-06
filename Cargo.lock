@@ -116,9 +116,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.76"
+version = "1.0.82"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59d2a3357dde987206219e78ecfbbb6e8dad06cbb65292758d3270e6254f7355"
+checksum = "f538837af36e6f6a9be0faa67f9a314f8119e4e4b5867c6ab40ed60360142519"
 
 [[package]]
 name = "arrayvec"
@@ -797,7 +797,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-development"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "anyhow",
  "console",
@@ -895,10 +895,11 @@ checksum = "25cbce373ec4653f1a01a31e8a5e5ec0c622dc27ff9c4e6606eefef5cbbed4a5"
 
 [[package]]
 name = "file_test_runner"
-version = "0.3.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1113d2a60090d3e004084aa4e2fd3344d66070afa3473164c869c55f7e2b5a4"
+checksum = "cc644d2903f00e5f0e5d34dca805c7a100b09a1d257e07697101d90eb10d3351"
 dependencies = [
+ "anyhow",
  "crossbeam-channel",
  "deno_terminal",
  "parking_lot",
