@@ -148,7 +148,7 @@ if (version == null) {
   const testPlatform = Deno.build.os == "windows"
     ? "@dprint/win32-x64"
     : Deno.build.os === "darwin"
-    ? "@dprint/darwin-x64"
+    ? (Deno.build.arch === "x86_64" ? "@dprint/darwin-x64" : "@dprint/darwin-arm64")
     : "@dprint/linux-x64-glibc";
   outputDir.join("package.json").writeJsonPrettySync({
     workspaces: [

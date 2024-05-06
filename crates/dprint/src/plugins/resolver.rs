@@ -39,7 +39,7 @@ impl PluginWrapper {
   }
 
   pub async fn initialize(&self) -> Result<Rc<dyn InitializedPlugin>> {
-    self.initialized_plugin.get_or_try_init(|| self.plugin.initialize()).await.map(|x| x.clone())
+    self.initialized_plugin.get_or_try_init(|| self.plugin.initialize()).await.cloned()
   }
 
   pub async fn shutdown(&self) {
@@ -126,6 +126,6 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
         }
       })
       .await
-      .map(|p| p.clone())
+      .cloned()
   }
 }
