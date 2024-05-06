@@ -121,7 +121,7 @@ pub fn trace_printing(get_print_items: impl FnOnce() -> PrintItems, options: Pri
 }
 
 thread_local! {
-  static FORMATTING_COUNT: RefCell<u32> = RefCell::new(0);
+  static FORMATTING_COUNT: RefCell<u32> = const { RefCell::new(0) };
 }
 
 fn increment_formatting_count() {

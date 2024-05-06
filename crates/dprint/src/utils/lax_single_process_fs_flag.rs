@@ -30,7 +30,7 @@ impl<TEnvironment: Environment> LaxSingleProcessFsFlag<TEnvironment> {
     use fs3::FileExt;
     let last_updated_path = file_path.with_extension("lock.poll");
     let start_instant = std::time::Instant::now();
-    let open_result = std::fs::OpenOptions::new().read(true).write(true).create(true).open(&file_path);
+    let open_result = std::fs::OpenOptions::new().read(true).write(true).truncate(true).create(true).open(&file_path);
 
     match open_result {
       Ok(fs_file) => {

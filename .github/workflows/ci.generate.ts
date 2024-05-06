@@ -3,6 +3,7 @@ import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
+  MacX86 = "macos-13",
   Windows = "windows-latest",
   Linux = "ubuntu-20.04",
 }
@@ -16,12 +17,13 @@ interface ProfileData {
 }
 
 const profileDataItems: ProfileData[] = [{
-  os: OperatingSystem.Mac,
+  os: OperatingSystem.MacX86,
   target: "x86_64-apple-darwin",
   runTests: true,
 }, {
   os: OperatingSystem.Mac,
   target: "aarch64-apple-darwin",
+  runTests: true,
 }, {
   os: OperatingSystem.Windows,
   target: "x86_64-pc-windows-msvc",
@@ -119,16 +121,6 @@ const ci = {
           run: "deno run --allow-env --allow-read --allow-net=deno.land .github/workflows/scripts/verify_wasmer_compiler_version.ts",
         },
         {
-          name: "Build test plugins (Debug)",
-          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}}",
-        },
-        {
-          name: "Build test plugins (Release)",
-          if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
-          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}} --release",
-        },
-        {
           name: "Setup (Linux x86_64-musl)",
           if: "matrix.config.target == 'x86_64-unknown-linux-musl'",
           run: [
@@ -154,9 +146,14 @@ const ci = {
           ].join("\n"),
         },
         {
-          name: "Setup (Mac aarch64)",
-          if: "matrix.config.target == 'aarch64-apple-darwin'",
-          run: "rustup target add aarch64-apple-darwin",
+          name: "Build test plugins (Debug)",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
+          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}}",
+        },
+        {
+          name: "Build test plugins (Release)",
+          if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
+          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}} --release",
         },
         {
           name: "Build (Debug)",
@@ -218,6 +215,7 @@ const ci = {
           function getRunSteps() {
             switch (profile.os) {
               case OperatingSystem.Mac:
+              case OperatingSystem.MacX86:
                 return [
                   `cd target/${profile.target}/release`,
                   `zip -r ${profile.zipFileName} dprint`,
@@ -236,6 +234,10 @@ const ci = {
                   `echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.zipFileName} | awk '{print $1}')"`,
                   `echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.installerFileName} | awk '{print $1}')"`,
                 ];
+              default: {
+                const _assertNever: never = profile.os;
+                throw new Error(`Unhandled OS: ${profile.os}`);
+              }
             }
           }
           return {
@@ -289,7 +291,7 @@ const ci = {
           if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
           run: [
             "cd deployment/npm",
-            "deno run -A build.ts 0.42.5",
+            "deno run -A build.ts 0.45.1",
           ].join("\n"),
         },
       ],
