@@ -1,9 +1,9 @@
 use anyhow::Result;
 use console::Style;
-use file_test_runner::CollectOptions;
+use file_test_runner::collection::CollectOptions;
 use file_test_runner::RunOptions;
+use file_test_runner::SubTestResult;
 use file_test_runner::TestResult;
-use file_test_runner::TestStepResult;
 use similar::ChangeTag;
 use similar::TextDiff;
 use std::fmt::Display;
@@ -71,9 +71,8 @@ pub fn run_specs(
   file_test_runner::collect_and_run_tests(
     CollectOptions {
       base: directory_path.to_path_buf(),
-      root_category_name: directory_path.file_name().unwrap().to_string_lossy().to_string(),
       filter_override: None,
-      strategy: file_test_runner::FileCollectionStrategy::TestPerFile { file_pattern: None },
+      strategy: Box::new(file_test_runner::collection::strategies::TestPerFileCollectionStrategy { file_pattern: None }),
     },
     RunOptions { parallel: true },
     Arc::new(move |test| {
@@ -84,13 +83,13 @@ pub fn run_specs(
       } else {
         specs
       };
-      let mut test_steps = Vec::new();
+      let mut sub_tests = Vec::new();
       for spec in specs {
         #[cfg(not(debug_assertions))]
         assert_spec_not_only_or_trace(&spec);
 
         if spec.skip {
-          test_steps.push(TestStepResult {
+          sub_tests.push(SubTestResult {
             name: spec.message.clone(),
             result: TestResult::Ignored,
           });
@@ -100,7 +99,7 @@ pub fn run_specs(
         let test_file_path = &test.path;
         let maybe_failed_result = run_spec(&spec, test_file_path, &run_spec_options, &format_text, &get_trace_json);
 
-        test_steps.push(TestStepResult {
+        sub_tests.push(SubTestResult {
           name: spec.message.clone(),
           result: if let Some(failed_test) = maybe_failed_result {
             let mut output = Vec::<u8>::new();
@@ -133,7 +132,7 @@ pub fn run_specs(
         });
       }
 
-      TestResult::Steps(test_steps)
+      TestResult::SubTests(sub_tests)
     }),
   );
 
