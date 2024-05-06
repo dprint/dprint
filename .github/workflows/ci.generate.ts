@@ -119,22 +119,11 @@ const ci = {
           run: "deno run --allow-env --allow-read --allow-net=deno.land .github/workflows/scripts/verify_wasmer_compiler_version.ts",
         },
         {
-          name: "Build test plugins (Debug)",
-          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}}",
-        },
-        {
-          name: "Build test plugins (Release)",
-          if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
-          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}} --release",
-        },
-        {
           name: "Setup (Linux x86_64-musl)",
           if: "matrix.config.target == 'x86_64-unknown-linux-musl'",
           run: [
             "sudo apt update",
             "sudo apt install musl musl-dev musl-tools",
-            "rustup target add x86_64-unknown-linux-musl",
           ].join("\n"),
         },
         {
@@ -143,7 +132,6 @@ const ci = {
           run: [
             "sudo apt update",
             "sudo apt install gcc-aarch64-linux-gnu",
-            "rustup target add aarch64-unknown-linux-gnu",
           ].join("\n"),
         },
         {
@@ -154,9 +142,18 @@ const ci = {
           ].join("\n"),
         },
         {
-          name: "Setup (Mac aarch64)",
-          if: "matrix.config.target == 'aarch64-apple-darwin'",
-          run: "rustup target add aarch64-apple-darwin",
+          name: "Setup rustup target",
+          run: "rustup target add ${{ matrix.config.target }}",
+        },
+        {
+          name: "Build test plugins (Debug)",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
+          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}}",
+        },
+        {
+          name: "Build test plugins (Release)",
+          if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
+          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}} --release",
         },
         {
           name: "Build (Debug)",
