@@ -143,6 +143,7 @@ const ci = {
         },
         {
           name: "Setup rustup target",
+          if: "matrix.config.cross != 'true'",
           run: "rustup target add ${{ matrix.config.target }}",
         },
         {
@@ -286,7 +287,7 @@ const ci = {
           if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
           run: [
             "cd deployment/npm",
-            "deno run -A build.ts 0.42.5",
+            "deno run -A build.ts 0.45.1",
           ].join("\n"),
         },
       ],

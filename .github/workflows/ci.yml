@@ -83,6 +83,7 @@ jobs:
         if: matrix.config.cross == 'true'
         run: "cargo install cross --git https://github.com/cross-rs/cross --rev 44011c8854cb2eaac83b173cc323220ccdff18ea"
       - name: Setup rustup target
+        if: matrix.config.cross != 'true'
         run: "rustup target add ${{ matrix.config.target }}"
       - name: Build test plugins (Debug)
         if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')"
@@ -230,7 +231,7 @@ jobs:
         if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')"
         run: |-
           cd deployment/npm
-          deno run -A build.ts 0.42.5
+          deno run -A build.ts 0.45.1
   draft_release:
     name: draft_release
     if: "startsWith(github.ref, 'refs/tags/')"
