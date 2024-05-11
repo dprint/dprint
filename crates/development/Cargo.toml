@@ -5,6 +5,7 @@ authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2021"
 license = "MIT"
 description = "Helper functions for testing dprint plugins."
+repository = "https://github.com/dprint/dprint"
 
 [dependencies]
 anyhow = "1.0.66"
