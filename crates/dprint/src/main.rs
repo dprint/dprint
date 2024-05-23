@@ -5,8 +5,6 @@ use anyhow::Result;
 use dprint_core::plugins::process::setup_exit_process_panic_hook;
 use environment::RealEnvironment;
 use environment::RealEnvironmentOptions;
-use log::Metadata;
-use log::Record;
 use run_cli::AppError;
 use std::rc::Rc;
 use utils::LogLevel;
@@ -27,31 +25,8 @@ mod utils;
 #[cfg(test)]
 mod test_helpers;
 
-static TEMP_LOGGER: TempLogger = TempLogger;
-
-struct TempLogger;
-
-impl log::Log for TempLogger {
-  fn enabled(&self, _metadata: &Metadata) -> bool {
-    true
-  }
-
-  fn log(&self, record: &Record) {
-    if let Some(module_path) = record.module_path() {
-      if module_path.contains("rustls") || module_path.contains("ureq") {
-        eprintln!("{} - {}", record.level(), record.args());
-      }
-    }
-  }
-
-  fn flush(&self) {}
-}
-
 fn main() {
   setup_exit_process_panic_hook();
-  log::set_max_level(log::LevelFilter::Trace);
-  log::set_logger(&TEMP_LOGGER).unwrap();
-
   let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
   rt.block_on(async move {
     match run().await {

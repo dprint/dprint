@@ -775,7 +775,6 @@ dependencies = [
  "ignore",
  "indexmap 2.1.0",
  "jsonc-parser",
- "log",
  "once_cell",
  "parking_lot",
  "path-clean",
