@@ -5,6 +5,7 @@ use anyhow::bail;
 use anyhow::Result;
 use once_cell::sync::OnceCell;
 
+use super::certs::get_root_cert_store;
 use super::logging::ProgressBarStyle;
 use super::logging::ProgressBars;
 use super::Logger;
@@ -110,6 +111,14 @@ enum AgentKind {
 
 fn build_agent(kind: AgentKind) -> Result<ureq::Agent> {
   let mut agent = ureq::AgentBuilder::new();
+  if kind == AgentKind::Https {
+    let root_store = get_root_cert_store(|env_var| std::env::var(env_var).ok(), |file_path| std::fs::read(file_path))?;
+    let config = rustls::ClientConfig::builder()
+      .with_safe_defaults()
+      .with_root_certificates(root_store)
+      .with_no_client_auth();
+    agent = agent.tls_config(Arc::new(config));
+  }
   if let Some(proxy_url) = get_proxy_url(kind) {
     agent = agent.proxy(ureq::Proxy::new(proxy_url)?);
   }

@@ -1,4 +1,5 @@
 use anyhow::bail;
+use anyhow::Context;
 use anyhow::Result;
 use dprint_core::async_runtime::future;
 use dprint_core::communication::IdGenerator;
@@ -121,7 +122,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
                 )
               }
             }
-            bail!("Error resolving plugin {}: {:#}", plugin_reference.display(), err);
+            Err(err).with_context(|| format!("Error resolving plugin {}", plugin_reference.display()))
           }
         }
       })

@@ -381,12 +381,16 @@ OPTIONS:
 {options}
 
 ENVIRONMENT VARIABLES:
-  DPRINT_CACHE_DIR    Directory to store the dprint cache. Note that this
-                      directory may be periodically deleted by the CLI.
-  DPRINT_MAX_THREADS  Limit the number of threads dprint uses for
-                      formatting (ex. DPRINT_MAX_THREADS=4).
-  HTTPS_PROXY         Proxy to use when downloading plugins or configuration
-                      files (set HTTP_PROXY for HTTP).{after-help}"#)
+  DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
+                       directory may be periodically deleted by the CLI.
+  DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
+                       formatting (ex. DPRINT_MAX_THREADS=4).
+  DPRINT_CERT          Load certificate authority from PEM encoded file.
+  DPRINT_TLS_CA_STORE  Comma-separate list of order dependent certificate stores.
+                       Possible values: "system", "mozilla".
+                       Defaults to "system".
+  HTTPS_PROXY          Proxy to use when downloading plugins or configuration
+                       files (set HTTP_PROXY for HTTP).{after-help}"#)
     .after_help(
             r#"GETTING STARTED:
   1. Navigate to the root directory of a code repository.
