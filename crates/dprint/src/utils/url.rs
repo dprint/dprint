@@ -112,7 +112,8 @@ enum AgentKind {
 fn build_agent(kind: AgentKind) -> Result<ureq::Agent> {
   let mut agent = ureq::AgentBuilder::new();
   if kind == AgentKind::Https {
-    let root_store = get_root_cert_store(|env_var| std::env::var(env_var).ok(), |file_path| std::fs::read(file_path))?;
+    #[allow(clippy::disallowed_methods)]
+    let root_store = get_root_cert_store(&|env_var| std::env::var(env_var).ok(), &|file_path| std::fs::read(file_path))?;
     let config = rustls::ClientConfig::builder()
       .with_safe_defaults()
       .with_root_certificates(root_store)
@@ -135,6 +136,7 @@ fn get_proxy_url(kind: AgentKind) -> Option<String> {
 fn read_proxy_env_var(env_var_name: &str) -> Option<String> {
   // too much of a hassle to create a seam for the env var reading
   // and this struct is created before an env is created anyway
+  #[allow(clippy::disallowed_methods)]
   std::env::var(env_var_name.to_uppercase())
     .ok()
     .or_else(|| std::env::var(env_var_name.to_lowercase()).ok())
