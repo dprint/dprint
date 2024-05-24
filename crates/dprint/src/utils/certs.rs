@@ -88,7 +88,7 @@ fn load_store(store: CaStore, root_cert_store: &mut RootCertStore) {
 
 fn parse_ca_stores(read_env_var: &impl Fn(&str) -> Option<String>) -> Result<Vec<CaStore>, RootCertStoreLoadError> {
   let Some(env_ca_store) = read_env_var("DPRINT_TLS_CA_STORE") else {
-    return Ok(vec![CaStore::System]);
+    return Ok(vec![CaStore::Mozilla, CaStore::System]);
   };
 
   let mut values = Vec::with_capacity(2);

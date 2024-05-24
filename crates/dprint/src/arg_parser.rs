@@ -388,7 +388,7 @@ ENVIRONMENT VARIABLES:
   DPRINT_CERT          Load certificate authority from PEM encoded file.
   DPRINT_TLS_CA_STORE  Comma-separate list of order dependent certificate stores.
                        Possible values: "system", "mozilla".
-                       Defaults to "system".
+                       Defaults to "mozilla,system".
   HTTPS_PROXY          Proxy to use when downloading plugins or configuration
                        files (set HTTP_PROXY for HTTP).{after-help}"#)
     .after_help(
