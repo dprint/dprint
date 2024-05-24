@@ -68,14 +68,14 @@ enum CaStore {
 
 fn load_store(store: CaStore, root_cert_store: &mut RootCertStore) {
   match store {
-    CaStore::System => {
+    CaStore::Mozilla => {
       root_cert_store.add_trust_anchors(
         webpki_roots::TLS_SERVER_ROOTS
           .iter()
           .map(|ta| rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(ta.subject, ta.spki, ta.name_constraints)),
       );
     }
-    CaStore::Mozilla => {
+    CaStore::System => {
       let roots = load_native_certs().expect("could not load platform certs");
       for root in roots {
         root_cert_store
