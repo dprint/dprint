@@ -94,6 +94,18 @@ dprint init --config path/to/dprint.json
 <p>By default, dprint stores information in the current system user's cache directory (<code>~/.cache/dprint</code> on Linux, <code>~/Library/Caches/dprint</code> on Mac, and <code>%APPLOCALDATA%/dprint</code> on Windows) such as cached plugins and incremental formatting information. If you would like to store the cache in a custom location, then specify a <code>DPRINT_CACHE_DIR</code> environment variable. Note that this directory may be periodically deleted by the CLI, so if you set it please make sure it's set correctly and you're ok with the custom directory being deleted.</p>
 <h2 id="proxy" tabindex="-1"><a class="header-anchor" href="#proxy">Proxy</a></h2>
 <p>You may specify a proxy for dprint to use when downloading plugins or configuration files by setting the <code>HTTPS_PROXY</code> and <code>HTTP_PROXY</code> environment variables.</p>
+<h2 id="tls-certificates" tabindex="-1"><a class="header-anchor" href="#tls-certificates">TLS Certificates</a></h2>
+<p>dprint downloads plugins via HTTPS. In some cases you may wish to configure this. This is possible via the following environment variables:</p>
+<ul>
+<li><code>DPRINT_CERT</code> - Load certificate authority from PEM encoded file.</li>
+<li><code>DPRINT_TLS_CA_STORE</code> - Comma-separated list of order dependent certificate stores.
+<ul>
+<li>Possible values: <code>mozilla</code> and <code>system</code></li>
+<li>Defaults to <code>mozilla,system</code></li>
+</ul>
+</li>
+</ul>
+<p>Requires dprint &gt;= 0.46.0</p>
 <h2 id="limiting-parallelism" tabindex="-1"><a class="header-anchor" href="#limiting-parallelism">Limiting Parallelism</a></h2>
 <p>By default, dprint only runs for a short period of time and so it will try to take advantage of as many CPU cores as it can. This might be an issue in some scenarios, and so you can limit the amount of parallelism by setting the <code>DPRINT_MAX_THREADS</code> environment variable in version 0.32 and up (ex. <code>DPRINT_MAX_THREADS=4</code>).</p>
 <p>Next step: <a href="/config">Configuration</a></p>
