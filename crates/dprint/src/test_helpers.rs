@@ -279,8 +279,8 @@ ENVIRONMENT VARIABLES:
   DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
                        formatting (ex. DPRINT_MAX_THREADS=4).
   DPRINT_CERT          Load certificate authority from PEM encoded file.
-  DPRINT_TLS_CA_STORE  Comma-separate list of order dependent certificate stores.
-                       Possible values: "system", "mozilla".
+  DPRINT_TLS_CA_STORE  Comma-separated list of order dependent certificate stores.
+                       Possible values: "mozilla" and "system".
                        Defaults to "mozilla,system".
   HTTPS_PROXY          Proxy to use when downloading plugins or configuration
                        files (set HTTP_PROXY for HTTP).
