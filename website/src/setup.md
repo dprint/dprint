@@ -57,7 +57,7 @@ You may specify a proxy for dprint to use when downloading plugins or configurat
 
 ## TLS Certificates
 
-dprint downloads plugins via HTTPS. In some cases you may wish to configure this.
+dprint downloads plugins via HTTPS. In some cases you may wish to configure this. This is possible via the following environment variables:
 
 - `DPRINT_CERT` - Load certificate authority from PEM encoded file.
 - `DPRINT_TLS_CA_STORE` - Comma-separated list of order dependent certificate stores.
