@@ -1,6 +1,5 @@
 use std::io::Cursor;
 
-use deno_native_certs::load_native_certs;
 use rustls::RootCertStore;
 use thiserror::Error;
 
@@ -76,7 +75,7 @@ fn load_store(store: CaStore, root_cert_store: &mut RootCertStore) {
       );
     }
     CaStore::System => {
-      let roots = load_native_certs().expect("could not load platform certs");
+      let roots = rustls_native_certs::load_native_certs().expect("could not load platform certs");
       for root in roots {
         root_cert_store
           .add(&rustls::Certificate(root.0))
