@@ -1,4 +1,5 @@
 mod cached_downloader;
+mod certs;
 mod checksums;
 mod error_count_logger;
 mod extract_zip;

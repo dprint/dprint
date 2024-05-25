@@ -272,6 +272,7 @@ impl Environment for RealEnvironment {
   }
 
   fn max_threads(&self) -> usize {
+    #[allow(clippy::disallowed_methods)]
     resolve_max_threads(std::env::var("DPRINT_MAX_THREADS").ok(), std::thread::available_parallelism().ok())
   }
 
@@ -455,6 +456,7 @@ fn canonicalize_path(path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
 const CACHE_DIR_ENV_VAR_NAME: &str = "DPRINT_CACHE_DIR";
 
 static CACHE_DIR: Lazy<Result<CanonicalizedPathBuf>> = Lazy::new(|| {
+  #[allow(clippy::disallowed_methods)]
   let cache_dir = get_cache_dir_internal(|var_name| std::env::var(var_name).ok())?;
   #[allow(clippy::disallowed_methods)]
   std::fs::create_dir_all(&cache_dir)?;
