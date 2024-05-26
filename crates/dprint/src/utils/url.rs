@@ -114,10 +114,7 @@ fn build_agent(kind: AgentKind) -> Result<ureq::Agent> {
   if kind == AgentKind::Https {
     #[allow(clippy::disallowed_methods)]
     let root_store = get_root_cert_store(&|env_var| std::env::var(env_var).ok(), &|file_path| std::fs::read(file_path))?;
-    let config = rustls::ClientConfig::builder()
-      .with_safe_defaults()
-      .with_root_certificates(root_store)
-      .with_no_client_auth();
+    let config = rustls::ClientConfig::builder().with_root_certificates(root_store).with_no_client_auth();
     agent = agent.tls_config(Arc::new(config));
   }
   if let Some(proxy_url) = get_proxy_url(kind) {
