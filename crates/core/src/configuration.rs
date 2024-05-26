@@ -495,7 +495,7 @@ mod test {
     config.insert("oldProp".to_string(), ConfigKeyValue::from_str("value"));
     handle_renamed_config_property(&mut config, "oldProp", "newProp", &mut diagnostics);
     assert_eq!(config.len(), 1);
-    assert_eq!(config.remove("newProp").unwrap(), ConfigKeyValue::from_str("value"));
+    assert_eq!(config.shift_remove("newProp").unwrap(), ConfigKeyValue::from_str("value"));
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].message, "The configuration key was renamed to 'newProp'");
     assert_eq!(diagnostics[0].property_name, "oldProp");
@@ -509,7 +509,7 @@ mod test {
     config.insert("newProp".to_string(), ConfigKeyValue::from_str("value"));
     handle_renamed_config_property(&mut config, "oldProp", "newProp", &mut diagnostics);
     assert_eq!(config.len(), 1);
-    assert_eq!(config.remove("newProp").unwrap(), ConfigKeyValue::from_str("value"));
+    assert_eq!(config.shift_remove("newProp").unwrap(), ConfigKeyValue::from_str("value"));
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].message, "The configuration key was renamed to 'newProp'");
     assert_eq!(diagnostics[0].property_name, "oldProp");

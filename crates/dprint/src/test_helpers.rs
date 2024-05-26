@@ -51,7 +51,7 @@ pub static PROCESS_PLUGIN_ZIP_BYTES: Lazy<Vec<u8>> = Lazy::new(|| {
   let buf: Vec<u8> = Vec::new();
   let w = std::io::Cursor::new(buf);
   let mut zip = zip::ZipWriter::new(w);
-  let options = zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+  let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
   zip
     .start_file(
       if cfg!(target_os = "windows") {
