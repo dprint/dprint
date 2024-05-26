@@ -51,7 +51,7 @@ rustls = "=0.22.4"
 rustls-native-certs = "=0.7.0"
 rustls-pemfile = "=2.1.2"
 ureq = { version = "=2.9.7", features = ["socks-proxy"] }
-webpki-roots = "=0.25.2"
+webpki-roots = "=0.26.1"
 
 # pin these to prevent them changing with `cargo install` because
 # patch version increases of rkyv may cause panics when deserializing

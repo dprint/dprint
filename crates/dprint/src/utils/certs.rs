@@ -70,13 +70,7 @@ enum CaStore {
 fn load_store(store: CaStore, root_cert_store: &mut RootCertStore) {
   match store {
     CaStore::Mozilla => {
-      root_cert_store
-        .roots
-        .extend(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| rustls::pki_types::TrustAnchor {
-          subject: ta.subject.into(),
-          subject_public_key_info: ta.spki.into(),
-          name_constraints: ta.name_constraints.map(|n| n.into()),
-        }));
+      root_cert_store.roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     }
     CaStore::System => {
       let roots = rustls_native_certs::load_native_certs().expect("could not load platform certs");

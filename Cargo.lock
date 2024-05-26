@@ -805,7 +805,7 @@ dependencies = [
  "url",
  "wasmer",
  "wasmer-compiler",
- "webpki-roots 0.25.2",
+ "webpki-roots",
  "winreg",
  "zip",
 ]
@@ -2540,7 +2540,7 @@ dependencies = [
  "rustls-webpki",
  "socks",
  "url",
- "webpki-roots 0.26.1",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -2833,12 +2833,6 @@ checksum = "53253d920ab413fca1c7dc2161d601c79b4fdf631d0ba51dd4343bf9b556c3f6"
 dependencies = [
  "wast",
 ]
-
-[[package]]
-name = "webpki-roots"
-version = "0.25.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14247bb57be4f377dfb94c72830b8ce8fc6beac03cf4bf7b9732eadd414123fc"
 
 [[package]]
 name = "webpki-roots"
