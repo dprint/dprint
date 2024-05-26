@@ -73,7 +73,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
   async fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> PluginResolveConfigurationResult<Configuration> {
     // todo: way to do something like get_value in dprint-core, but with vectors
     fn get_string_vec(config: &mut ConfigKeyMap, key: &str, diagnostics: &mut Vec<ConfigurationDiagnostic>) -> Option<Vec<String>> {
-      match config.remove(key) {
+      match config.shift_remove(key) {
         Some(value) => match value {
           ConfigKeyValue::Array(values) => {
             let mut result = Vec::with_capacity(values.len());

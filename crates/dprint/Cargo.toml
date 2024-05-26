@@ -44,11 +44,11 @@ url = "2.5.0"
 zip = "0.6.6"
 
 # keep these in sync
-rustls = "0.21.8"
-rustls-native-certs = "0.6.2"
-rustls-pemfile = "1.0.3"
-ureq = { version = "2.9.1", features = ["socks-proxy"] }
-webpki-roots = "0.25.2"
+rustls = "=0.21.8"
+rustls-native-certs = "=0.6.2"
+rustls-pemfile = "=1.0.3"
+ureq = { version = "=2.9.1", features = ["socks-proxy"] }
+webpki-roots = "=0.25.2"
 
 # pin these to prevent them changing with `cargo install` because
 # patch version increases of rkyv may cause panics when deserializing

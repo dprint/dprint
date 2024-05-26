@@ -117,7 +117,7 @@ pub async fn resolve_config_from_path<TEnvironment: Environment>(
   // control over what files get formatted.
   if !resolved_config_path.resolved_path.is_local() {
     // Careful! Don't be fancy and ensure this is removed.
-    let removed_includes = config_map.remove("includes"); // NEVER REMOVE THIS STATEMENT
+    let removed_includes = config_map.shift_remove("includes"); // NEVER REMOVE THIS STATEMENT
     if removed_includes.is_some() && resolved_config_path.resolved_path.is_first_download {
       log_warn!(environment, &get_warn_includes_message());
     }
@@ -128,7 +128,7 @@ pub async fn resolve_config_from_path<TEnvironment: Environment>(
   let excludes = take_array_from_config_map(&mut config_map, "excludes")?;
 
   let incremental = take_bool_from_config_map(&mut config_map, "incremental")?;
-  config_map.remove("projectType"); // this was an old config property that's no longer used
+  config_map.shift_remove("projectType"); // this was an old config property that's no longer used
   let extends = take_extends(&mut config_map)?;
   let resolved_config = ResolvedConfig {
     resolved_path: resolved_config_path.resolved_path.clone(),
@@ -184,7 +184,7 @@ async fn handle_config_file<TEnvironment: Environment>(
     // we don't want it specifying something like system or some configuration
     // files that it could change. Basically, the end user should have 100%
     // control over what files get formatted.
-    let removed_includes = new_config_map.remove("includes"); // NEVER REMOVE THIS STATEMENT
+    let removed_includes = new_config_map.shift_remove("includes"); // NEVER REMOVE THIS STATEMENT
     if removed_includes.is_some() && resolved_path.is_first_download {
       log_warn!(environment, &get_warn_includes_message());
     }
@@ -257,7 +257,7 @@ async fn handle_config_file<TEnvironment: Environment>(
 }
 
 fn take_extends(config_map: &mut ConfigMap) -> Result<Vec<String>> {
-  match config_map.remove("extends") {
+  match config_map.shift_remove("extends") {
     Some(ConfigMapValue::KeyValue(ConfigKeyValue::String(url_or_file_path))) => Ok(vec![url_or_file_path]),
     Some(ConfigMapValue::Vec(url_or_file_paths)) => Ok(url_or_file_paths),
     Some(_) => bail!("Extends in configuration must be a string or an array of strings."),
@@ -293,7 +293,7 @@ fn take_plugins_array_from_config_map(
 }
 
 fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Option<Vec<String>>> {
-  match config_map.remove(property_name) {
+  match config_map.shift_remove(property_name) {
     Some(ConfigMapValue::Vec(elements)) => Ok(Some(elements)),
     Some(_) => bail!("Expected array in '{}' property.", property_name),
     None => Ok(None),
@@ -301,7 +301,7 @@ fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -
 }
 
 fn take_bool_from_config_map(config_map: &mut ConfigMap, property_name: &str) -> Result<Option<bool>> {
-  if let Some(value) = config_map.remove(property_name) {
+  if let Some(value) = config_map.shift_remove(property_name) {
     match value {
       ConfigMapValue::KeyValue(ConfigKeyValue::Bool(value)) => Ok(Some(value)),
       _ => bail!("Expected boolean in '{}' property.", property_name),
