@@ -11,8 +11,9 @@ repository = "https://github.com/dprint/dprint"
 description = "Binary for dprint code formatter—a pluggable and configurable code formatting platform."
 
 [dependencies]
-# all these deps are pinned because `cargo install dprint`
-# doesn't lock dependencies without the `--locked` flag
+# all these deps are pinned because `cargo install dprint` doesn't lock deps
+# without the `--locked` flag so this helps reduce the chance of a dep being
+# released that breaks compiling dprint
 anyhow = "=1.0.86"
 clap = "=4.5.4"
 clap_complete = "=4.5.2"
