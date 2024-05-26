@@ -1,5 +1,7 @@
 use std::io::Cursor;
 
+use indexmap::IndexSet;
+use rustls::pki_types::CertificateDer;
 use rustls::RootCertStore;
 use thiserror::Error;
 
@@ -26,7 +28,7 @@ pub fn get_root_cert_store(
 
 struct CertInfo {
   ca_stores: Vec<CaStore>,
-  ca_file: Option<Vec<Vec<u8>>>,
+  ca_file: Option<Vec<CertificateDer<'static>>>,
 }
 
 fn load_cert_info(
@@ -53,13 +55,13 @@ fn create_root_cert_store(info: CertInfo) -> RootCertStore {
   }
 
   if let Some(ca_file) = info.ca_file {
-    root_cert_store.add_parsable_certificates(&ca_file);
+    root_cert_store.add_parsable_certificates(ca_file.into_iter());
   }
 
   root_cert_store
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 enum CaStore {
   System,
   Mozilla,
@@ -68,18 +70,18 @@ enum CaStore {
 fn load_store(store: CaStore, root_cert_store: &mut RootCertStore) {
   match store {
     CaStore::Mozilla => {
-      root_cert_store.add_trust_anchors(
-        webpki_roots::TLS_SERVER_ROOTS
-          .iter()
-          .map(|ta| rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(ta.subject, ta.spki, ta.name_constraints)),
-      );
+      root_cert_store
+        .roots
+        .extend(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| rustls::pki_types::TrustAnchor {
+          subject: ta.subject.into(),
+          subject_public_key_info: ta.spki.into(),
+          name_constraints: ta.name_constraints.map(|n| n.into()),
+        }));
     }
     CaStore::System => {
       let roots = rustls_native_certs::load_native_certs().expect("could not load platform certs");
       for root in roots {
-        root_cert_store
-          .add(&rustls::Certificate(root.0))
-          .expect("Failed to add platform cert to root cert store");
+        root_cert_store.add(root).expect("Failed to add platform cert to root cert store");
       }
     }
   }
@@ -90,27 +92,35 @@ fn parse_ca_stores(read_env_var: &impl Fn(&str) -> Option<String>) -> Result<Vec
     return Ok(vec![CaStore::Mozilla, CaStore::System]);
   };
 
-  let mut values = Vec::with_capacity(2);
+  let mut values = IndexSet::with_capacity(2);
   for value in env_ca_store.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
     match value {
       "system" => {
-        values.push(CaStore::System);
+        values.insert(CaStore::System);
       }
       "mozilla" => {
-        values.push(CaStore::Mozilla);
+        values.insert(CaStore::Mozilla);
       }
       _ => {
         return Err(RootCertStoreLoadError::UnknownStore(value.to_string()));
       }
     }
   }
-  Ok(values)
+  Ok(values.into_iter().collect())
 }
 
-fn load_certs_from_file(file_path: &str, read_file_bytes: &impl Fn(&str) -> Result<Vec<u8>, std::io::Error>) -> Result<Vec<Vec<u8>>, RootCertStoreLoadError> {
+fn load_certs_from_file(
+  file_path: &str,
+  read_file_bytes: &impl Fn(&str) -> Result<Vec<u8>, std::io::Error>,
+) -> Result<Vec<CertificateDer<'static>>, RootCertStoreLoadError> {
   let certfile = read_file_bytes(file_path).map_err(|err| RootCertStoreLoadError::CaFileOpenError(err.to_string()))?;
   let mut reader = Cursor::new(certfile);
-  rustls_pemfile::certs(&mut reader).map_err(|e| RootCertStoreLoadError::FailedAddPemFile(e.to_string()))
+  let mut data = Vec::new();
+  for result in rustls_pemfile::certs(&mut reader) {
+    let cert = result.map_err(|e| RootCertStoreLoadError::FailedAddPemFile(e.to_string()))?;
+    data.push(cert);
+  }
+  Ok(data)
 }
 
 #[cfg(test)]
@@ -123,6 +133,7 @@ mod test {
       ("mozilla", Ok(vec![CaStore::Mozilla])),
       ("system", Ok(vec![CaStore::System])),
       ("mozilla,system", Ok(vec![CaStore::Mozilla, CaStore::System])),
+      ("mozilla,system,mozilla,system", Ok(vec![CaStore::Mozilla, CaStore::System])),
       ("system,mozilla", Ok(vec![CaStore::System, CaStore::Mozilla])),
       ("  system  ,  mozilla,  , ,,", Ok(vec![CaStore::System, CaStore::Mozilla])),
       ("system,mozilla,other", Err(RootCertStoreLoadError::UnknownStore("other".to_string()))),
