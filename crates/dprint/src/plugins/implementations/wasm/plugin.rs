@@ -8,12 +8,9 @@ use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
-use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
-use dprint_core::plugins::SyncPluginInfo;
 use std::cell::RefCell;
-use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -21,18 +18,16 @@ use std::time::Instant;
 
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
-use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::PluginInfo;
 
 use super::create_pools_import_object;
 use super::load_instance;
 use super::load_instance::WasmInstance;
 use super::load_instance::WasmModule;
-use super::WasmFormatResult;
-use super::WasmFunctions;
 use super::WasmHostFormatSender;
 use super::WasmModuleCreator;
 use crate::environment::Environment;
+use crate::plugins::implementations::wasm::create_wasm_plugin_instance;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
@@ -112,177 +107,6 @@ struct InstanceState {
 struct WasmPluginSenderWithState {
   sender: Rc<WasmPluginSender>,
   instance_state_cell: Rc<RefCell<Option<InstanceState>>>,
-}
-
-pub(super) struct InitializedWasmPluginInstance {
-  wasm_functions: WasmFunctions,
-  buffer_size: usize,
-  current_config_id: FormatConfigId,
-}
-
-impl InitializedWasmPluginInstance {
-  pub fn new(mut wasm_functions: WasmFunctions) -> Result<Self> {
-    let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
-    Ok(Self {
-      wasm_functions,
-      buffer_size,
-      current_config_id: FormatConfigId::uninitialized(),
-    })
-  }
-
-  pub fn set_global_config(&mut self, global_config: &GlobalConfiguration) -> Result<()> {
-    let json = serde_json::to_string(global_config)?;
-    self.send_string(&json)?;
-    self.wasm_functions.set_global_config()?;
-    Ok(())
-  }
-
-  pub fn set_plugin_config(&mut self, plugin_config: &ConfigKeyMap) -> Result<()> {
-    let json = serde_json::to_string(plugin_config)?;
-    self.send_string(&json)?;
-    self.wasm_functions.set_plugin_config()?;
-    Ok(())
-  }
-
-  pub fn plugin_info(&mut self) -> Result<PluginInfo> {
-    self.sync_plugin_info().map(|i| i.info)
-  }
-
-  fn sync_plugin_info(&mut self) -> Result<SyncPluginInfo> {
-    let len = self.wasm_functions.get_plugin_info()?;
-    let json_text = self.receive_string(len)?;
-    Ok(serde_json::from_str(&json_text)?)
-  }
-
-  fn license_text(&mut self) -> Result<String> {
-    let len = self.wasm_functions.get_license_text()?;
-    self.receive_string(len)
-  }
-
-  fn resolved_config(&mut self, config: &FormatConfig) -> Result<String> {
-    self.ensure_config(config)?;
-    let len = self.wasm_functions.get_resolved_config()?;
-    self.receive_string(len)
-  }
-
-  fn config_diagnostics(&mut self, config: &FormatConfig) -> Result<Vec<ConfigurationDiagnostic>> {
-    self.ensure_config(config)?;
-    let len = self.wasm_functions.get_config_diagnostics()?;
-    let json_text = self.receive_string(len)?;
-    Ok(serde_json::from_str(&json_text)?)
-  }
-
-  fn file_matching_info(&mut self, _config: &FormatConfig) -> Result<FileMatchingInfo> {
-    self.sync_plugin_info().map(|i| i.file_matching)
-  }
-
-  fn format_text(&mut self, file_path: &Path, file_bytes: &[u8], config: &FormatConfig, override_config: &ConfigKeyMap) -> FormatResult {
-    self.ensure_config(config)?;
-    match self.inner_format_text(file_path, file_bytes, override_config) {
-      Ok(inner) => inner,
-      Err(err) => Err(CriticalFormatError(err).into()),
-    }
-  }
-
-  fn inner_format_text(&mut self, file_path: &Path, file_bytes: &[u8], override_config: &ConfigKeyMap) -> Result<FormatResult> {
-    // send override config if necessary
-    if !override_config.is_empty() {
-      self.send_string(&match serde_json::to_string(override_config) {
-        Ok(text) => text,
-        Err(err) => return Ok(Err(err.into())),
-      })?;
-      self.wasm_functions.set_override_config()?;
-    }
-
-    // send file path
-    self.send_string(&file_path.to_string_lossy())?;
-    self.wasm_functions.set_file_path()?;
-
-    // send file text and format
-    self.send_bytes(file_bytes)?;
-    let response_code = self.wasm_functions.format()?;
-
-    // handle the response
-    match response_code {
-      WasmFormatResult::NoChange => Ok(Ok(None)),
-      WasmFormatResult::Change => {
-        let len = self.wasm_functions.get_formatted_text()?;
-        let text_bytes = self.receive_bytes(len)?;
-        Ok(Ok(Some(text_bytes)))
-      }
-      WasmFormatResult::Error => {
-        let len = self.wasm_functions.get_error_text()?;
-        let text = self.receive_string(len)?;
-        Ok(Err(anyhow!("{}", text)))
-      }
-    }
-  }
-
-  fn ensure_config(&mut self, config: &FormatConfig) -> Result<()> {
-    if self.current_config_id != config.id {
-      // set this to uninitialized in case it errors below
-      self.current_config_id = FormatConfigId::uninitialized();
-      // update the plugin
-      self.set_global_config(&config.global)?;
-      self.set_plugin_config(&config.raw)?;
-      // now mark this as successfully set
-      self.current_config_id = config.id;
-    }
-    Ok(())
-  }
-
-  /* LOW LEVEL SENDING AND RECEIVING */
-
-  // These methods should panic when failing because that may indicate
-  // a major problem where the CLI is out of sync with the plugin.
-
-  fn send_string(&mut self, text: &str) -> Result<()> {
-    self.send_bytes(text.as_bytes())
-  }
-
-  fn send_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-    let mut index = 0;
-    let len = bytes.len();
-    self.wasm_functions.clear_shared_bytes(len)?;
-    while index < len {
-      let write_count = std::cmp::min(len - index, self.buffer_size);
-      self.write_bytes_to_memory_buffer(&bytes[index..(index + write_count)])?;
-      self.wasm_functions.add_to_shared_bytes_from_buffer(write_count)?;
-      index += write_count;
-    }
-    Ok(())
-  }
-
-  fn write_bytes_to_memory_buffer(&mut self, bytes: &[u8]) -> Result<()> {
-    let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr()?;
-    let memory_view = self.wasm_functions.get_memory_view();
-    memory_view.write(wasm_buffer_pointer.offset() as u64, bytes)?;
-    Ok(())
-  }
-
-  fn receive_string(&mut self, len: usize) -> Result<String> {
-    let bytes = self.receive_bytes(len)?;
-    Ok(String::from_utf8(bytes)?)
-  }
-
-  fn receive_bytes(&mut self, len: usize) -> Result<Vec<u8>> {
-    let mut index = 0;
-    let mut bytes: Vec<u8> = vec![0; len];
-    while index < len {
-      let read_count = std::cmp::min(len - index, self.buffer_size);
-      self.wasm_functions.set_buffer_with_shared_bytes(index, read_count)?;
-      self.read_bytes_from_memory_buffer(&mut bytes[index..(index + read_count)])?;
-      index += read_count;
-    }
-    Ok(bytes)
-  }
-
-  fn read_bytes_from_memory_buffer(&mut self, bytes: &mut [u8]) -> Result<()> {
-    let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr()?;
-    let memory_view = self.wasm_functions.get_memory_view();
-    memory_view.read(wasm_buffer_pointer.offset() as u64, bytes)?;
-    Ok(())
-  }
 }
 
 type LoadInstanceFn = dyn Fn(&mut wasmer::Store, &WasmModule, WasmHostFormatSender) -> Result<WasmInstance> + Send + Sync;
@@ -438,8 +262,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
       move || {
         let initialize = || {
           let instance = (load_instance)(&mut store, &module, host_format_tx)?;
-          let wasm_functions = WasmFunctions::new(store, instance)?;
-          let instance = InitializedWasmPluginInstance::new(wasm_functions)?;
+          let instance = create_wasm_plugin_instance(store, instance)?;
           Ok(instance)
         };
         let mut instance = match initialize() {
