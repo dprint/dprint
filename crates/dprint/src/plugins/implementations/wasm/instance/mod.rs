@@ -42,6 +42,7 @@ pub fn get_current_plugin_schema_version(module: &wasmer::Module) -> Result<Plug
     for export in module.exports() {
       let name = export.name();
       if matches!(name, "get_plugin_schema_version") {
+        // not exactly correct, but practically ok because this has been returning v3 for many years
         return Ok(3);
       } else if let Some(version) = name.strip_prefix("dprint_plugin_version_") {
         // this is what dprint will use in the future
