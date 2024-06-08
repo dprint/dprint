@@ -55,7 +55,7 @@ fn create_root_cert_store(info: CertInfo) -> RootCertStore {
   }
 
   if let Some(ca_file) = info.ca_file {
-    root_cert_store.add_parsable_certificates(ca_file.into_iter());
+    root_cert_store.add_parsable_certificates(ca_file);
   }
 
   root_cert_store

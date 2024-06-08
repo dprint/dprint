@@ -130,7 +130,7 @@ impl ProcessPluginCommunicator {
     let mut stdout_reader = MessageReader::new(child.stdout.take().unwrap());
     let mut stdin_writer = MessageWriter::new(child.stdin.take().unwrap());
 
-    let (mut stdout_reader, stdin_writer, schema_version) = tokio::task::spawn_blocking(move || {
+    let (mut stdout_reader, stdin_writer, schema_version) = crate::async_runtime::spawn_blocking(move || {
       let schema_version = get_plugin_schema_version(&mut stdout_reader, &mut stdin_writer)
         .context("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade")?;
       Ok::<_, anyhow::Error>((stdout_reader, stdin_writer, schema_version))
