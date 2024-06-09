@@ -11,7 +11,7 @@ use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
-use dprint_core::plugins::SyncPluginInfo;
+use serde::Serialize;
 use wasmer::Engine;
 use wasmer::Instance;
 use wasmer::Memory;
@@ -32,13 +32,21 @@ enum WasmFormatResult {
   Error,
 }
 
-pub struct InitializedWasmPluginInstanceV1 {
+#[derive(Clone, Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+struct SyncPluginInfo {
+  #[serde(flatten)]
+  pub info: PluginInfo,
+  #[serde(flatten)]
+  pub file_matching: FileMatchingInfo,
+}
+
+pub struct InitializedWasmPluginInstanceV3 {
   wasm_functions: WasmFunctions,
   buffer_size: usize,
   current_config_id: FormatConfigId,
 }
 
-impl InitializedWasmPluginInstanceV1 {
+impl InitializedWasmPluginInstanceV3 {
   pub fn new(store: Store, instance: WasmInstance) -> Result<Self> {
     let mut wasm_functions = WasmFunctions::new(store, instance)?;
     let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
@@ -170,7 +178,7 @@ impl InitializedWasmPluginInstanceV1 {
   }
 }
 
-impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV1 {
+impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV3 {
   fn plugin_info(&mut self) -> Result<PluginInfo> {
     self.sync_plugin_info().map(|i| i.info)
   }

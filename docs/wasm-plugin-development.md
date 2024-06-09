@@ -1,4 +1,4 @@
-# Creating a Wasm Plugin (Schema Version 3)
+# Creating a Wasm Plugin (Schema Version 4)
 
 Wasm plugins are the preferred way of developing plugins (as opposed to process plugins) because they are portable and run sandboxed in a Wasm runtime. They can be written in any language that supports compiling to a WebAssembly file (_.wasm_)—emscripten solutions do not work.
 
@@ -64,8 +64,6 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
          name: env!("CARGO_PKG_NAME").to_string(),
          version: env!("CARGO_PKG_VERSION").to_string(),
          config_key: "keyGoesHere".to_string(),
-         file_extensions: vec!["txt_ps".to_string()],
-         file_names: vec![],
          help_url: "".to_string(),          // fill this in
          config_schema_url: "".to_string(), // leave this empty for now
          update_url: None,                  // leave this empty for now
@@ -76,7 +74,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
        "License text goes here.".to_string()
      }
 
-     fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+     fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> PluginResolveConfigurationResult<Configuration> {
        // implement this... for example
        let mut config = config;
        let mut diagnostics = Vec::new();
@@ -87,6 +85,11 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
        ResolveConfigurationResult {
          config: Configuration { line_width },
          diagnostics,
+         file_matching: FileMatchingInfo {
+          // these can be derived from the config
+          file_extensions: vec!["txt_ps".to_string()],
+          file_names: vec![],
+         }
        }
      }
 

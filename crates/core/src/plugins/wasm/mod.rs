@@ -185,7 +185,7 @@ pub mod macros {
 
       // INFORMATION & CONFIGURATION
 
-      static RESOLVE_CONFIGURATION_RESULT: StaticCell<Option<dprint_core::configuration::ResolveConfigurationResult<Configuration>>> = StaticCell::new(None);
+      static RESOLVE_CONFIGURATION_RESULT: StaticCell<Option<dprint_core::plugins::PluginResolveConfigurationResult<Configuration>>> = StaticCell::new(None);
 
       #[no_mangle]
       pub fn get_plugin_info() -> usize {
@@ -220,7 +220,7 @@ pub mod macros {
         }
       }
 
-      fn get_resolved_config_result<'a>() -> &'a dprint_core::configuration::ResolveConfigurationResult<Configuration> {
+      fn get_resolved_config_result<'a>() -> &'a dprint_core::plugins::PluginResolveConfigurationResult<Configuration> {
         unsafe {
           ensure_initialized();
           return RESOLVE_CONFIGURATION_RESULT.get().as_ref().unwrap();
@@ -238,7 +238,7 @@ pub mod macros {
 
       fn create_resolved_config_result(
         override_config: dprint_core::configuration::ConfigKeyMap,
-      ) -> dprint_core::configuration::ResolveConfigurationResult<Configuration> {
+      ) -> dprint_core::plugins::PluginResolveConfigurationResult<Configuration> {
         unsafe {
           if let Some(global_config) = GLOBAL_CONFIG.get().as_ref() {
             if let Some(plugin_config) = PLUGIN_CONFIG.get().as_ref() {

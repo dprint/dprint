@@ -13,7 +13,6 @@ use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigKeyValue;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
-use crate::configuration::ResolveConfigurationResult;
 use crate::plugins::PluginInfo;
 
 use super::FileMatchingInfo;
@@ -204,22 +203,13 @@ pub trait AsyncPluginHandler: 'static {
   ) -> FormatResult;
 }
 
-#[cfg(feature = "wasm")]
-#[derive(Clone, Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
-pub struct SyncPluginInfo {
-  #[serde(flatten)]
-  pub info: PluginInfo,
-  #[serde(flatten)]
-  pub file_matching: FileMatchingInfo,
-}
-
 /// Trait for implementing a Wasm plugin.
 #[cfg(feature = "wasm")]
 pub trait SyncPluginHandler<TConfiguration: Clone + serde::Serialize> {
   /// Resolves configuration based on the provided config map and global configuration.
-  fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<TConfiguration>;
+  fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> PluginResolveConfigurationResult<TConfiguration>;
   /// Gets the plugin's plugin info.
-  fn plugin_info(&mut self) -> SyncPluginInfo;
+  fn plugin_info(&mut self) -> PluginInfo;
   /// Gets the plugin's license text.
   fn license_text(&mut self) -> String;
   /// Formats the provided file text based on the provided file path and configuration.

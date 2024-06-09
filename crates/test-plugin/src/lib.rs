@@ -4,13 +4,12 @@ use dprint_core::configuration::get_unknown_property_diagnostics;
 use dprint_core::configuration::get_value;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::GlobalConfiguration;
-use dprint_core::configuration::ResolveConfigurationResult;
 use dprint_core::generate_plugin_code;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::PluginResolveConfigurationResult;
 use dprint_core::plugins::SyncPluginHandler;
-use dprint_core::plugins::SyncPluginInfo;
 use serde::Deserialize;
 use serde::Serialize;
 use std::path::Path;
@@ -34,7 +33,7 @@ impl TestWasmPlugin {
 }
 
 impl SyncPluginHandler<Configuration> for TestWasmPlugin {
-  fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+  fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> PluginResolveConfigurationResult<Configuration> {
     let mut config = config;
     let mut diagnostics = Vec::new();
     let ending = get_value(&mut config, "ending", String::from("formatted"), &mut diagnostics);
@@ -42,26 +41,24 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
 
     diagnostics.extend(get_unknown_property_diagnostics(config));
 
-    ResolveConfigurationResult {
+    PluginResolveConfigurationResult {
       config: Configuration { ending, line_width },
       diagnostics,
-    }
-  }
-
-  fn plugin_info(&mut self) -> SyncPluginInfo {
-    SyncPluginInfo {
-      info: PluginInfo {
-        name: env!("CARGO_PKG_NAME").to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        config_key: "test-plugin".to_string(),
-        help_url: "https://dprint.dev/plugins/test".to_string(),
-        config_schema_url: "https://plugins.dprint.dev/test/schema.json".to_string(),
-        update_url: Some("https://plugins.dprint.dev/dprint/test-plugin/latest.json".to_string()),
-      },
       file_matching: FileMatchingInfo {
         file_extensions: vec!["txt".to_string()],
         file_names: vec![],
       },
+    }
+  }
+
+  fn plugin_info(&mut self) -> PluginInfo {
+    PluginInfo {
+      name: env!("CARGO_PKG_NAME").to_string(),
+      version: env!("CARGO_PKG_VERSION").to_string(),
+      config_key: "test-plugin".to_string(),
+      help_url: "https://dprint.dev/plugins/test".to_string(),
+      config_schema_url: "https://plugins.dprint.dev/test/schema.json".to_string(),
+      update_url: Some("https://plugins.dprint.dev/dprint/test-plugin/latest.json".to_string()),
     }
   }
 
