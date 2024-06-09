@@ -1,6 +1,6 @@
 /// The plugin system schema version that is incremented
 /// when there are any breaking changes.
-pub const PLUGIN_SYSTEM_SCHEMA_VERSION: u32 = 3;
+pub const PLUGIN_SYSTEM_SCHEMA_VERSION: u32 = 4;
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub mod macros {
@@ -286,7 +286,7 @@ pub mod macros {
       static SHARED_BYTES: StaticCell<Vec<u8>> = StaticCell::new(Vec::new());
 
       #[no_mangle]
-      pub fn get_plugin_schema_version() -> u32 {
+      pub fn dprint_plugin_version_4() -> u32 {
         dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION
       }
 
