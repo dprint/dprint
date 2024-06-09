@@ -124,30 +124,20 @@ To format code using a different plugin, call the `format_with_host(file_path, f
 
 For example, this function is used by the markdown plugin to format code blocks.
 
-## Schema Version 3 Overview
+## Schema Version 4 Overview
 
 If you are not using `Rust`, then you must implement a lot of low level functionality.
-
-How it works:
-
-1. The Wasm plugin initializes a shared memory buffer. Data between the CLI and Wasm plugin is transferred in here.
-2. Generally, the Wasm plugin stores its own local byte array. The plugin should copy from the shared memory buffer into this byte array for composing the final received data or copy from this array into the shared memory buffer for sending back data. This is referred to as "shared bytes" below, but that could probably have used a better name like "local bytes" or something.
-3. The CLI/host will communicate by calling the Wasm exports.
-4. The plugin may get the CLI/host to format other text by using the provided Wasm imports.
 
 ## Wasm Exports
 
 Low level communication:
 
-- `get_wasm_memory_buffer_size() -> usize` - Called to get the size of the shared Wasm memory buffer.
-- `get_wasm_memory_buffer() -> *const u8` - Called to get a pointer to the Wasm memory buffer.
-- `clear_shared_bytes(capacity: usize)` - Called to get the plugin to clear its local byte array.
-- `set_buffer_with_shared_bytes(offset: usize, length: usize)` - Gets the plugin to set the Wasm memory buffer with the local byte array at the specified position and length.
-- `add_to_shared_bytes_from_buffer(length: usize)` - Gets the plugin to add to its shared bytes from the Wasm memory buffer. The plugin should keep track of the current index.
+- `get_shared_bytes_buffer() -> *const u8` - Called to get a pointer to the Wasm memory buffer.
+- `clear_shared_bytes(size: usize)` - Called to get the plugin to clear its local byte array.
 
 Initialization functions:
 
-- `get_plugin_schema_version() -> u32` - Return `3`
+- `dprint_plugin_version_4() -> u32` - Return `4`, but the CLI never calls this function (it only checks for it in the exports)
 - `set_global_config()` - Called when the global configuration is done transferring over. Store it somewhere.
 - `set_plugin_config()` - Called when the plugin specific configuration is done transferring over. Store it somewhere.
 - `get_config_diagnostics() -> usize` - Called by the CLI to get the configuration diagnostics. Serialize the diagnostics as a JSON string, store it in the local bytes, and return the byte length.
@@ -180,9 +170,8 @@ Communication is done by using a shared Wasm buffer. Essentially, the plugin sto
 
 Low level communication:
 
-- `host_clear_bytes(length: u32)` - Tell the host to clear its local byte array and reinitialize it with the provided length.
 - `host_read_buffer(pointer: u32, length: u32)` - Tell the host to read from provided Wasm memory address and store it in its local byte array.
-- `host_write_buffer(pointer: u32, offset: u32, length: u32)` - Tell the host to write to the provided Wasm memory address using the provided offset and length of its local byte array.
+- `host_write_buffer(pointer: u32)` - Tell the host to write data to the provided Wasm memory address.
 
 High level functions:
 
