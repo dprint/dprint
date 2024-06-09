@@ -1,8 +1,8 @@
 use anyhow::bail;
 use anyhow::Result;
 
-use super::create_identity_import_object;
 use super::create_wasm_plugin_instance;
+use super::instance::create_identity_import_object;
 use super::load_instance::load_instance;
 use super::load_instance::WasmModuleCreator;
 use crate::plugins::CompilationResult;
@@ -19,7 +19,7 @@ pub fn compile(wasm_bytes: &[u8]) -> Result<CompilationResult> {
 
   // load the plugin and get the info
   let mut store = wasmer::Store::default();
-  let imports = create_identity_import_object(&mut store);
+  let imports = create_identity_import_object(module.version(), &mut store);
   let instance = load_instance(&mut store, &module, &imports)?;
   let mut instance = create_wasm_plugin_instance(store, instance)?;
 

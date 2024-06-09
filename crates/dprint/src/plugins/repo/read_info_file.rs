@@ -193,7 +193,7 @@ mod test {
       assert_eq!(
         info_file,
         InfoFile {
-          plugin_system_schema_version: 3,
+          plugin_system_schema_version: 4,
           latest_plugins: vec![
             InfoFilePluginInfo {
               name: "dprint-plugin-typescript".to_string(),

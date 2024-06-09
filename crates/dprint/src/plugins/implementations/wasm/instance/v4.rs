@@ -31,11 +31,11 @@ use wasmer::TypedFunction;
 use wasmer::WasmPtr;
 use wasmer::WasmTypeList;
 
+use crate::plugins::implementations::wasm::ImportObjectEnvironment;
 use crate::plugins::implementations::wasm::WasmHostFormatSender;
 use crate::plugins::implementations::wasm::WasmInstance;
 use crate::plugins::FormatConfig;
 
-use super::ImportObjectEnvironment;
 use super::InitializedWasmPluginInstance;
 
 enum WasmFormatResult {
@@ -55,7 +55,7 @@ struct SyncPluginInfo {
 pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
   let host_clear_bytes = |_: u32| {};
   let host_read_buffer = |_: u32, _: u32| {};
-  let host_write_buffer = |_: u32, _: u32, _: u32| {};
+  let host_write_buffer = |_: u32| {};
   let host_take_override_config = || {};
   let host_take_file_path = || {};
   let host_format = || -> u32 { 0 }; // no change
@@ -77,39 +77,23 @@ pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
 }
 
 pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHostFormatSender) -> (wasmer::Imports, Box<dyn ImportObjectEnvironment>) {
-  #[derive(Default)]
-  struct SharedBytes {
-    data: Vec<u8>,
-    index: usize,
-  }
-
-  impl SharedBytes {
-    pub fn with_size(size: usize) -> Self {
-      Self::from_bytes(vec![0; size])
-    }
-
-    pub fn from_bytes(data: Vec<u8>) -> Self {
-      Self { data, index: 0 }
-    }
-  }
-
-  struct ImportObjectEnvironmentV3 {
+  struct ImportObjectEnvironmentV4 {
     memory: Option<Memory>,
     override_config: Option<ConfigKeyMap>,
     file_path: Option<PathBuf>,
     formatted_text_store: Vec<u8>,
-    shared_bytes: Mutex<SharedBytes>,
+    shared_bytes: Mutex<Vec<u8>>,
     error_text_store: String,
     host_format_sender: WasmHostFormatSender,
   }
 
-  impl ImportObjectEnvironmentV3 {
+  impl ImportObjectEnvironmentV4 {
     pub fn new(host_format_sender: WasmHostFormatSender) -> Self {
-      ImportObjectEnvironmentV3 {
+      ImportObjectEnvironmentV4 {
         memory: None,
         override_config: None,
         file_path: None,
-        shared_bytes: Mutex::new(SharedBytes::default()),
+        shared_bytes: Default::default(),
         formatted_text_store: Default::default(),
         error_text_store: Default::default(),
         host_format_sender,
@@ -118,25 +102,18 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
 
     fn take_shared_bytes(&self) -> Vec<u8> {
       let mut shared_bytes = self.shared_bytes.lock();
-      let data = std::mem::take(&mut shared_bytes.data);
-      shared_bytes.index = 0;
-      data
+      std::mem::take(&mut shared_bytes)
     }
   }
 
-  impl ImportObjectEnvironment for FunctionEnv<ImportObjectEnvironmentV3> {
+  impl ImportObjectEnvironment for FunctionEnv<ImportObjectEnvironmentV4> {
     fn initialize(&self, store: &mut Store, instance: &Instance) -> Result<(), ExportError> {
       self.as_mut(store).memory = Some(instance.exports.get_memory("memory")?.clone());
       Ok(())
     }
   }
 
-  fn host_clear_bytes(env: FunctionEnvMut<ImportObjectEnvironmentV3>, length: u32) {
-    let env = env.data();
-    *env.shared_bytes.lock() = SharedBytes::with_size(length as usize);
-  }
-
-  fn host_read_buffer(env: FunctionEnvMut<ImportObjectEnvironmentV3>, buffer_pointer: u32, length: u32) {
+  fn host_read_buffer(env: FunctionEnvMut<ImportObjectEnvironmentV4>, buffer_pointer: u32, length: u32) {
     let buffer_pointer: wasmer::WasmPtr<u32> = wasmer::WasmPtr::new(buffer_pointer);
     let env_data = env.data();
     let memory = env_data.memory.as_ref().unwrap();
@@ -145,45 +122,35 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
 
     let length = length as usize;
     let mut shared_bytes = env_data.shared_bytes.lock();
-    let shared_bytes_index = shared_bytes.index;
-    memory_view
-      .read(
-        buffer_pointer.offset() as u64,
-        &mut shared_bytes.data[shared_bytes_index..shared_bytes_index + length],
-      )
-      .unwrap();
-    shared_bytes.index += length;
+    *shared_bytes = Vec::with_capacity(length);
+    memory_view.read(buffer_pointer.offset() as u64, &mut shared_bytes).unwrap();
   }
 
-  fn host_write_buffer(env: FunctionEnvMut<ImportObjectEnvironmentV3>, buffer_pointer: u32, offset: u32, length: u32) {
+  fn host_write_buffer(env: FunctionEnvMut<ImportObjectEnvironmentV4>, buffer_pointer: u32) {
     let buffer_pointer: wasmer::WasmPtr<u32> = wasmer::WasmPtr::new(buffer_pointer);
     let env_data = env.data();
     let memory = env_data.memory.as_ref().unwrap();
     let store_ref = env.as_store_ref();
     let memory_view = memory.view(&store_ref);
-    let offset = offset as usize;
-    let length = length as usize;
     let shared_bytes = env_data.shared_bytes.lock();
-    memory_view
-      .write(buffer_pointer.offset() as u64, &shared_bytes.data[offset..offset + length])
-      .unwrap();
+    memory_view.write(buffer_pointer.offset() as u64, &shared_bytes).unwrap();
   }
 
-  fn host_take_override_config(mut env: FunctionEnvMut<ImportObjectEnvironmentV3>) {
+  fn host_take_override_config(mut env: FunctionEnvMut<ImportObjectEnvironmentV4>) {
     let env = env.data_mut();
     let bytes = env.take_shared_bytes();
     let config_key_map: ConfigKeyMap = serde_json::from_slice(&bytes).unwrap_or_default();
     env.override_config.replace(config_key_map);
   }
 
-  fn host_take_file_path(mut env: FunctionEnvMut<ImportObjectEnvironmentV3>) {
+  fn host_take_file_path(mut env: FunctionEnvMut<ImportObjectEnvironmentV4>) {
     let env = env.data_mut();
     let bytes = env.take_shared_bytes();
     let file_path_str = String::from_utf8(bytes).unwrap();
     env.file_path.replace(PathBuf::from(file_path_str));
   }
 
-  fn host_format(mut env: FunctionEnvMut<ImportObjectEnvironmentV3>) -> u32 {
+  fn host_format(mut env: FunctionEnvMut<ImportObjectEnvironmentV4>) -> u32 {
     let env = env.data_mut();
     let override_config = env.override_config.take().unwrap_or_default();
     let file_path = env.file_path.take().expect("Expected to have file path.");
@@ -193,7 +160,7 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
       file_bytes,
       range: None,
       override_config,
-      // cancellation not supported for this version
+      // todo: cancellation
       token: Arc::new(NullCancellationToken),
     };
     // todo: worth it to use a oneshot channel library here?
@@ -226,29 +193,28 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     }
   }
 
-  fn host_get_formatted_text(mut env: FunctionEnvMut<ImportObjectEnvironmentV3>) -> u32 {
+  fn host_get_formatted_text(mut env: FunctionEnvMut<ImportObjectEnvironmentV4>) -> u32 {
     let env = env.data_mut();
     let formatted_bytes = std::mem::take(&mut env.formatted_text_store);
     let len = formatted_bytes.len();
-    *env.shared_bytes.lock() = SharedBytes::from_bytes(formatted_bytes);
+    *env.shared_bytes.lock() = formatted_bytes;
     len as u32
   }
 
-  fn host_get_error_text(mut env: FunctionEnvMut<ImportObjectEnvironmentV3>) -> u32 {
+  fn host_get_error_text(mut env: FunctionEnvMut<ImportObjectEnvironmentV4>) -> u32 {
     let env = env.data_mut();
     let error_text = std::mem::take(&mut env.error_text_store);
     let len = error_text.len();
-    *env.shared_bytes.lock() = SharedBytes::from_bytes(error_text.into_bytes());
+    *env.shared_bytes.lock() = error_text.into_bytes();
     len as u32
   }
 
-  let env = ImportObjectEnvironmentV3::new(host_format_sender);
+  let env = ImportObjectEnvironmentV4::new(host_format_sender);
   let env = FunctionEnv::new(store, env);
 
   (
     wasmer::imports! {
       "dprint" => {
-        "host_clear_bytes" => Function::new_typed_with_env(store, &env, host_clear_bytes),
         "host_read_buffer" => Function::new_typed_with_env(store, &env, host_read_buffer),
         "host_write_buffer" => Function::new_typed_with_env(store, &env, host_write_buffer),
         "host_take_override_config" => Function::new_typed_with_env(store, &env, host_take_override_config),
@@ -262,19 +228,16 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
   )
 }
 
-pub struct InitializedWasmPluginInstanceV3 {
+pub struct InitializedWasmPluginInstanceV4 {
   wasm_functions: WasmFunctions,
-  buffer_size: usize,
   current_config_id: FormatConfigId,
 }
 
-impl InitializedWasmPluginInstanceV3 {
+impl InitializedWasmPluginInstanceV4 {
   pub fn new(store: Store, instance: WasmInstance) -> Result<Self> {
-    let mut wasm_functions = WasmFunctions::new(store, instance)?;
-    let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
+    let wasm_functions = WasmFunctions::new(store, instance)?;
     Ok(Self {
       wasm_functions,
-      buffer_size,
       current_config_id: FormatConfigId::uninitialized(),
     })
   }
@@ -356,22 +319,15 @@ impl InitializedWasmPluginInstanceV3 {
   }
 
   fn send_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-    let mut index = 0;
-    let len = bytes.len();
-    self.wasm_functions.clear_shared_bytes(len)?;
-    while index < len {
-      let write_count = std::cmp::min(len - index, self.buffer_size);
-      self.write_bytes_to_memory_buffer(&bytes[index..(index + write_count)])?;
-      self.wasm_functions.add_to_shared_bytes_from_buffer(write_count)?;
-      index += write_count;
-    }
+    self.wasm_functions.clear_shared_bytes(bytes.len())?;
+    self.write_bytes_to_shared_bytes(bytes)?;
     Ok(())
   }
 
-  fn write_bytes_to_memory_buffer(&mut self, bytes: &[u8]) -> Result<()> {
-    let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr()?;
+  fn write_bytes_to_shared_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+    let shared_bytes_ptr = self.wasm_functions.get_shared_bytes_buffer_ptr()?;
     let memory_view = self.wasm_functions.get_memory_view();
-    memory_view.write(wasm_buffer_pointer.offset() as u64, bytes)?;
+    memory_view.write(shared_bytes_ptr.offset() as u64, bytes)?;
     Ok(())
   }
 
@@ -381,26 +337,20 @@ impl InitializedWasmPluginInstanceV3 {
   }
 
   fn receive_bytes(&mut self, len: usize) -> Result<Vec<u8>> {
-    let mut index = 0;
     let mut bytes: Vec<u8> = vec![0; len];
-    while index < len {
-      let read_count = std::cmp::min(len - index, self.buffer_size);
-      self.wasm_functions.set_buffer_with_shared_bytes(index, read_count)?;
-      self.read_bytes_from_memory_buffer(&mut bytes[index..(index + read_count)])?;
-      index += read_count;
-    }
+    self.read_bytes_from_shared_bytes(&mut bytes)?;
     Ok(bytes)
   }
 
-  fn read_bytes_from_memory_buffer(&mut self, bytes: &mut [u8]) -> Result<()> {
-    let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr()?;
+  fn read_bytes_from_shared_bytes(&mut self, bytes: &mut [u8]) -> Result<()> {
+    let wasm_buffer_pointer = self.wasm_functions.get_shared_bytes_buffer_ptr()?;
     let memory_view = self.wasm_functions.get_memory_view();
     memory_view.read(wasm_buffer_pointer.offset() as u64, bytes)?;
     Ok(())
   }
 }
 
-impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV3 {
+impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
   fn plugin_info(&mut self) -> Result<PluginInfo> {
     self.sync_plugin_info().map(|i| i.info)
   }
@@ -535,28 +485,9 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn get_wasm_memory_buffer_size(&mut self) -> Result<usize> {
-    let get_wasm_memory_buffer_size_func = self.get_export::<(), u32>("get_wasm_memory_buffer_size")?;
-    Ok(get_wasm_memory_buffer_size_func.call(&mut self.store).map(|value| value as usize)?)
-  }
-
-  #[inline]
-  pub fn get_wasm_memory_buffer_ptr(&mut self) -> Result<WasmPtr<u32>> {
-    let get_wasm_memory_buffer_func = self.get_export::<(), WasmPtr<u32>>("get_wasm_memory_buffer")?;
-    Ok(get_wasm_memory_buffer_func.call(&mut self.store)?)
-  }
-
-  #[inline]
-  pub fn set_buffer_with_shared_bytes(&mut self, offset: usize, length: usize) -> Result<()> {
-    let set_buffer_with_shared_bytes_func = self.get_export::<(u32, u32), ()>("set_buffer_with_shared_bytes")?;
-    Ok(set_buffer_with_shared_bytes_func.call(&mut self.store, offset as u32, length as u32)?)
-  }
-
-  #[inline]
-  pub fn add_to_shared_bytes_from_buffer(&mut self, length: usize) -> Result<()> {
-    let add_to_shared_bytes_from_buffer_func = self.get_export::<u32, ()>("add_to_shared_bytes_from_buffer")?;
-
-    Ok(add_to_shared_bytes_from_buffer_func.call(&mut self.store, length as u32)?)
+  pub fn get_shared_bytes_buffer_ptr(&mut self) -> Result<WasmPtr<u32>> {
+    let func = self.get_export::<(), WasmPtr<u32>>("get_shared_bytes_buffer")?;
+    Ok(func.call(&mut self.store)?)
   }
 
   fn get_export<Args, Rets>(&mut self, name: &str) -> Result<TypedFunction<Args, Rets>>

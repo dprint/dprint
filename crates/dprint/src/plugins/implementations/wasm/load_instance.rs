@@ -53,6 +53,10 @@ impl WasmModule {
     })
   }
 
+  pub fn version(&self) -> PluginSchemaVersion {
+    self.version
+  }
+
   pub fn inner(&self) -> &wasmer::Module {
     &self.inner
   }

@@ -39,9 +39,8 @@ pub mod macros {
       ) -> anyhow::Result<Option<Vec<u8>>> {
         #[link(wasm_import_module = "dprint")]
         extern "C" {
-          fn host_clear_bytes(length: u32);
           fn host_read_buffer(pointer: u32, length: u32);
-          fn host_write_buffer(pointer: u32, offset: u32, length: u32);
+          fn host_write_buffer(pointer: u32);
           fn host_take_file_path();
           fn host_take_override_config();
           fn host_format() -> u8;
@@ -90,15 +89,7 @@ pub mod macros {
           let mut index = 0;
           let length = set_shared_bytes(bytes);
           unsafe {
-            host_clear_bytes(length as u32);
-          }
-          while index < length {
-            let read_count = std::cmp::min(length - index, WASM_MEMORY_BUFFER_SIZE);
-            set_buffer_with_shared_bytes(index, read_count);
-            unsafe {
-              host_read_buffer(get_wasm_memory_buffer() as u32, read_count as u32);
-            }
-            index += read_count;
+            host_read_buffer(get_shared_bytes_buffer() as u32, length as u32);
           }
         }
 
@@ -109,13 +100,8 @@ pub mod macros {
         fn get_bytes_from_host(length: u32) -> Vec<u8> {
           let mut index: u32 = 0;
           clear_shared_bytes(length as usize);
-          while index < length {
-            let read_count = std::cmp::min(length - index, WASM_MEMORY_BUFFER_SIZE as u32);
-            unsafe {
-              host_write_buffer(get_wasm_memory_buffer() as u32, index, read_count);
-            }
-            add_to_shared_bytes_from_buffer(read_count as usize);
-            index += read_count;
+          unsafe {
+            host_write_buffer(get_shared_bytes_buffer() as u32);
           }
           take_from_shared_bytes()
         }
@@ -281,8 +267,6 @@ pub mod macros {
 
       // LOW LEVEL SENDING AND RECEIVING
 
-      const WASM_MEMORY_BUFFER_SIZE: usize = 4 * 1024;
-      static mut WASM_MEMORY_BUFFER: [u8; WASM_MEMORY_BUFFER_SIZE] = [0; WASM_MEMORY_BUFFER_SIZE];
       static SHARED_BYTES: StaticCell<Vec<u8>> = StaticCell::new(Vec::new());
 
       #[no_mangle]
@@ -291,31 +275,13 @@ pub mod macros {
       }
 
       #[no_mangle]
-      pub fn get_wasm_memory_buffer() -> *const u8 {
-        unsafe { WASM_MEMORY_BUFFER.as_ptr() }
+      pub fn get_shared_bytes_buffer() -> *const u8 {
+        unsafe { SHARED_BYTES.get().as_ptr() }
       }
 
       #[no_mangle]
-      pub fn get_wasm_memory_buffer_size() -> usize {
-        WASM_MEMORY_BUFFER_SIZE
-      }
-
-      #[no_mangle]
-      pub fn add_to_shared_bytes_from_buffer(length: usize) {
-        unsafe { SHARED_BYTES.get().extend(&WASM_MEMORY_BUFFER[..length]) }
-      }
-
-      #[no_mangle]
-      pub fn set_buffer_with_shared_bytes(offset: usize, length: usize) {
-        unsafe {
-          let bytes = &SHARED_BYTES.get()[offset..(offset + length)];
-          WASM_MEMORY_BUFFER[..length].copy_from_slice(bytes);
-        }
-      }
-
-      #[no_mangle]
-      pub fn clear_shared_bytes(capacity: usize) {
-        SHARED_BYTES.replace(Vec::with_capacity(capacity));
+      pub fn clear_shared_bytes(size: usize) {
+        SHARED_BYTES.replace(vec![0; size]);
       }
 
       fn take_string_from_shared_bytes() -> String {

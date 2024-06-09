@@ -7,8 +7,10 @@ use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatResult;
+use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::PluginInfo;
-use v3::InitializedWasmPluginInstanceV3;
+use wasmer::ExportError;
+use wasmer::Instance;
 use wasmer::Store;
 
 use crate::plugins::FormatConfig;
@@ -16,6 +18,19 @@ use crate::plugins::FormatConfig;
 use super::WasmInstance;
 
 mod v3;
+mod v4;
+
+pub type WasmHostFormatSender = tokio::sync::mpsc::UnboundedSender<(HostFormatRequest, std::sync::mpsc::Sender<FormatResult>)>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PluginSchemaVersion {
+  V3,
+  V4,
+}
+
+pub trait ImportObjectEnvironment {
+  fn initialize(&self, store: &mut Store, instance: &Instance) -> Result<(), ExportError>;
+}
 
 pub trait InitializedWasmPluginInstance {
   fn plugin_info(&mut self) -> Result<PluginInfo>;
@@ -28,15 +43,29 @@ pub trait InitializedWasmPluginInstance {
 
 pub fn create_wasm_plugin_instance(store: Store, instance: WasmInstance) -> Result<Box<dyn InitializedWasmPluginInstance>> {
   match instance.version() {
-    PluginSchemaVersion::V3 => Ok(Box::new(InitializedWasmPluginInstanceV3::new(store, instance)?)),
-    PluginSchemaVersion::V4 => todo!(),
+    PluginSchemaVersion::V3 => Ok(Box::new(v3::InitializedWasmPluginInstanceV3::new(store, instance)?)),
+    PluginSchemaVersion::V4 => Ok(Box::new(v4::InitializedWasmPluginInstanceV4::new(store, instance)?)),
   }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum PluginSchemaVersion {
-  V3,
-  V4,
+/// Use this when the plugins don't need to format via a plugin pool.
+pub fn create_identity_import_object(version: PluginSchemaVersion, store: &mut Store) -> wasmer::Imports {
+  match version {
+    PluginSchemaVersion::V3 => v3::create_identity_import_object(store),
+    PluginSchemaVersion::V4 => v4::create_identity_import_object(store),
+  }
+}
+
+/// Create an import object that formats text using plugins from the plugin pool
+pub fn create_pools_import_object(
+  version: PluginSchemaVersion,
+  store: &mut Store,
+  host_format_sender: WasmHostFormatSender,
+) -> (wasmer::Imports, Box<dyn ImportObjectEnvironment>) {
+  match version {
+    PluginSchemaVersion::V3 => v3::create_pools_import_object(store, host_format_sender),
+    PluginSchemaVersion::V4 => v4::create_pools_import_object(store, host_format_sender),
+  }
 }
 
 pub fn get_current_plugin_schema_version(module: &wasmer::Module) -> Result<PluginSchemaVersion> {

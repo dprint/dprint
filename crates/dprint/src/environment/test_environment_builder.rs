@@ -171,7 +171,7 @@ impl TestInfoFileBuilder {
   pub fn to_string(&self) -> String {
     let mut parts = Vec::new();
     parts.push("\"schemaVersion\": 4".to_string());
-    parts.push(format!("\"pluginSystemSchemaVersion\": {}", self.plugin_schema_version.unwrap_or(3)));
+    parts.push(format!("\"pluginSystemSchemaVersion\": {}", self.plugin_schema_version.unwrap_or(4)));
     let plugins_text = serde_json::to_string_pretty(&self.plugins).unwrap();
     parts.push(format!("\"latest\": {}", plugins_text));
     format!("{{\n{}\n}}", parts.join(",\n"))

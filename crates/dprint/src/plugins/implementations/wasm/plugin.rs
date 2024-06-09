@@ -66,9 +66,9 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
       self.module.clone(),
       Arc::new({
         move |store, module, host_format_sender| {
-          let (import_object, env) = create_pools_import_object(store, host_format_sender);
+          let (import_object, env) = create_pools_import_object(module.version(), store, host_format_sender);
           let instance = load_instance(store, module, &import_object)?;
-          env.as_mut(store).initialize(&instance.inner)?;
+          env.initialize(store, &instance.inner)?;
           Ok(instance)
         }
       }),
