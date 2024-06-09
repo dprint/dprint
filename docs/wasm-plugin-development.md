@@ -133,17 +133,17 @@ If you are not using `Rust`, then you must implement a lot of low level function
 Low level communication:
 
 - `get_shared_bytes_buffer() -> *const u8` - Called to get a pointer to the Wasm memory buffer.
-- `clear_shared_bytes(size: usize)` - Called to get the plugin to clear its local byte array.
+- `clear_shared_bytes(size: u32)` - Called to get the plugin to clear its local byte array.
 
 Initialization functions:
 
 - `dprint_plugin_version_4() -> u32` - Return `4`, but the CLI never calls this function (it only checks for it in the exports)
-- `set_global_config()` - Called when the global configuration is done transferring over. Store it somewhere.
-- `set_plugin_config()` - Called when the plugin specific configuration is done transferring over. Store it somewhere.
-- `get_config_diagnostics() -> usize` - Called by the CLI to get the configuration diagnostics. Serialize the diagnostics as a JSON string, store it in the local bytes, and return the byte length.
-- `get_resolved_config() -> usize` - Called by the CLI to get the resolved configuration for display in the CLI. Serialize it as a JSON string, store it in the local bytes, and return the byte length.
-- `get_license_text() -> usize` - Store the plugin's license text in the local bytes and return the byte length.
-- `get_plugin_info() -> usize` - Store the plugin's JSON serialized information in the local bytes and return the byte length. The plugin info is a JSON object with the following properties:
+- `register_config(config_id: u32)` - Called when the plugin and global configuration is done transferring over. Store it somewhere.
+- `release_config(config_id: u32)` - Release the config from memory.
+- `get_config_diagnostics(config_id: u32) -> u32` - Called by the CLI to get the configuration diagnostics. Serialize the diagnostics as a JSON string, store it in the local bytes, and return the byte length.
+- `get_resolved_config(config_id: u32) -> u32` - Called by the CLI to get the resolved configuration for display in the CLI. Serialize it as a JSON string, store it in the local bytes, and return the byte length.
+- `get_license_text() -> u32` - Store the plugin's license text in the local bytes and return the byte length.
+- `get_plugin_info() -> u32` - Store the plugin's JSON serialized information in the local bytes and return the byte length. The plugin info is a JSON object with the following properties:
   - `name` - String saying the plugin name.
   - `version` - Version of the plugin (ex. `"0.1.0"`)
   - `configKey` - Configuration key to use for this plugin in the dprint configuration file.
@@ -155,12 +155,12 @@ Formatting functions:
 
 - `set_file_path()` - Called by the CLI for the plugin to take from its local byte array and store that data as the file path.
 - `set_override_config()` - Possibly called by the CLI for the plugin to take from its local byte array and store that data as the format specific configuration.
-- `format() -> u8`
+- `format(config_id: u32) -> u8`
   - Return `0` when there's no change.
   - `1` when there's a change.
   - `2` when there's an error.
-- `get_formatted_text() -> usize` - Plugin should put the formatted text into its local byte array and return the size of that data.
-- `get_error_text() -> usize` - Plugin should put the error text into its local byte array and return the size of that data.
+- `get_formatted_text() -> u32` - Plugin should put the formatted text into its local byte array and return the size of that data.
+- `get_error_text() -> u32` - Plugin should put the error text into its local byte array and return the size of that data.
 
 ### Wasm Imports
 

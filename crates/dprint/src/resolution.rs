@@ -84,7 +84,7 @@ impl PluginWithConfig {
     hasher.write(self.info().version.as_bytes());
 
     // serialize the config keys in order to prevent the hash from changing
-    let sorted_config = self.format_config.raw.iter().collect::<BTreeMap<_, _>>();
+    let sorted_config = self.format_config.plugin.iter().collect::<BTreeMap<_, _>>();
     for (key, value) in sorted_config {
       hasher.write(key.as_bytes());
       value.hash(hasher);
@@ -573,7 +573,7 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
       let format_config = Arc::new(FormatConfig {
         id: next_config_id,
         global: global_config,
-        raw: plugin_config.properties,
+        plugin: plugin_config.properties,
       });
       let file_matching_info = instance.file_matching_info(format_config.clone()).await?;
       Ok::<_, anyhow::Error>(Rc::new(PluginWithConfig::new(

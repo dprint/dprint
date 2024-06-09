@@ -29,7 +29,7 @@ pub trait Plugin: Send + Sync {
 
 pub struct FormatConfig {
   pub id: FormatConfigId,
-  pub raw: ConfigKeyMap,
+  pub plugin: ConfigKeyMap,
   pub global: GlobalConfiguration,
 }
 

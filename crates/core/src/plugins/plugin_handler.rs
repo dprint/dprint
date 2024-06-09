@@ -86,8 +86,14 @@ pub struct HostFormatRequest {
 /// `Err(err)` - Error formatting. Use a `CriticalError` to signal that the plugin can't recover.
 pub type FormatResult = Result<Option<Vec<u8>>>;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawFormatConfig {
+  pub plugin: ConfigKeyMap,
+  pub global: GlobalConfiguration,
+}
+
 /// A unique configuration id used for formatting.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FormatConfigId(u32);
 
 impl std::fmt::Display for FormatConfigId {

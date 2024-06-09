@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,7 +17,6 @@ use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
 use dprint_core::plugins::PluginInfo;
 use parking_lot::Mutex;
-use serde::Serialize;
 use wasmer::AsStoreRef;
 use wasmer::Engine;
 use wasmer::ExportError;
@@ -42,14 +42,6 @@ enum WasmFormatResult {
   NoChange,
   Change,
   Error,
-}
-
-#[derive(Clone, Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
-struct SyncPluginInfo {
-  #[serde(flatten)]
-  pub info: PluginInfo,
-  #[serde(flatten)]
-  pub file_matching: FileMatchingInfo,
 }
 
 pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
@@ -230,7 +222,7 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
 
 pub struct InitializedWasmPluginInstanceV4 {
   wasm_functions: WasmFunctions,
-  current_config_id: FormatConfigId,
+  registered_config_ids: HashSet<FormatConfigId>,
 }
 
 impl InitializedWasmPluginInstanceV4 {
@@ -238,31 +230,27 @@ impl InitializedWasmPluginInstanceV4 {
     let wasm_functions = WasmFunctions::new(store, instance)?;
     Ok(Self {
       wasm_functions,
-      current_config_id: FormatConfigId::uninitialized(),
+      registered_config_ids: HashSet::new(),
     })
   }
 
-  fn set_global_config(&mut self, global_config: &GlobalConfiguration) -> Result<()> {
-    let json = serde_json::to_string(global_config)?;
+  fn register_config(&mut self, config: &FormatConfig) -> Result<()> {
+    #[derive(serde::Serialize)]
+    struct RawFormatConfig<'a> {
+      pub plugin: &'a ConfigKeyMap,
+      pub global: &'a GlobalConfiguration,
+    }
+
+    let json = serde_json::to_string(&RawFormatConfig {
+      plugin: &config.plugin,
+      global: &config.global,
+    })?;
     self.send_string(&json)?;
-    self.wasm_functions.set_global_config()?;
+    self.wasm_functions.register_config(config.id)?;
     Ok(())
   }
 
-  fn set_plugin_config(&mut self, plugin_config: &ConfigKeyMap) -> Result<()> {
-    let json = serde_json::to_string(plugin_config)?;
-    self.send_string(&json)?;
-    self.wasm_functions.set_plugin_config()?;
-    Ok(())
-  }
-
-  fn sync_plugin_info(&mut self) -> Result<SyncPluginInfo> {
-    let len = self.wasm_functions.get_plugin_info()?;
-    let json_text = self.receive_string(len)?;
-    Ok(serde_json::from_str(&json_text)?)
-  }
-
-  fn inner_format_text(&mut self, file_path: &Path, file_bytes: &[u8], override_config: &ConfigKeyMap) -> Result<FormatResult> {
+  fn inner_format_text(&mut self, file_path: &Path, file_bytes: &[u8], config: &FormatConfig, override_config: &ConfigKeyMap) -> Result<FormatResult> {
     // send override config if necessary
     if !override_config.is_empty() {
       self.send_string(&match serde_json::to_string(override_config) {
@@ -278,7 +266,7 @@ impl InitializedWasmPluginInstanceV4 {
 
     // send file text and format
     self.send_bytes(file_bytes)?;
-    let response_code = self.wasm_functions.format()?;
+    let response_code = self.wasm_functions.format(config.id)?;
 
     // handle the response
     match response_code {
@@ -297,14 +285,11 @@ impl InitializedWasmPluginInstanceV4 {
   }
 
   fn ensure_config(&mut self, config: &FormatConfig) -> Result<()> {
-    if self.current_config_id != config.id {
-      // set this to uninitialized in case it errors below
-      self.current_config_id = FormatConfigId::uninitialized();
+    if !self.registered_config_ids.contains(&config.id) {
       // update the plugin
-      self.set_global_config(&config.global)?;
-      self.set_plugin_config(&config.raw)?;
+      self.register_config(config)?;
       // now mark this as successfully set
-      self.current_config_id = config.id;
+      self.registered_config_ids.insert(config.id);
     }
     Ok(())
   }
@@ -352,7 +337,9 @@ impl InitializedWasmPluginInstanceV4 {
 
 impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
   fn plugin_info(&mut self) -> Result<PluginInfo> {
-    self.sync_plugin_info().map(|i| i.info)
+    let len = self.wasm_functions.get_plugin_info()?;
+    let json_bytes = self.receive_bytes(len)?;
+    Ok(serde_json::from_slice(&json_bytes)?)
   }
 
   fn license_text(&mut self) -> Result<String> {
@@ -362,24 +349,27 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
 
   fn resolved_config(&mut self, config: &FormatConfig) -> Result<String> {
     self.ensure_config(config)?;
-    let len = self.wasm_functions.get_resolved_config()?;
+    let len = self.wasm_functions.get_resolved_config(config.id)?;
     self.receive_string(len)
   }
 
   fn config_diagnostics(&mut self, config: &FormatConfig) -> Result<Vec<ConfigurationDiagnostic>> {
     self.ensure_config(config)?;
-    let len = self.wasm_functions.get_config_diagnostics()?;
+    let len = self.wasm_functions.get_config_diagnostics(config.id)?;
     let json_text = self.receive_string(len)?;
     Ok(serde_json::from_str(&json_text)?)
   }
 
-  fn file_matching_info(&mut self, _config: &FormatConfig) -> Result<FileMatchingInfo> {
-    self.sync_plugin_info().map(|i| i.file_matching)
+  fn file_matching_info(&mut self, config: &FormatConfig) -> Result<FileMatchingInfo> {
+    self.ensure_config(config)?;
+    let len = self.wasm_functions.get_config_file_matching(config.id)?;
+    let json_text = self.receive_string(len)?;
+    Ok(serde_json::from_str(&json_text)?)
   }
 
   fn format_text(&mut self, file_path: &Path, file_bytes: &[u8], config: &FormatConfig, override_config: &ConfigKeyMap) -> FormatResult {
     self.ensure_config(config)?;
-    match self.inner_format_text(file_path, file_bytes, override_config) {
+    match self.inner_format_text(file_path, file_bytes, config, override_config) {
       Ok(inner) => inner,
       Err(err) => Err(CriticalFormatError(err).into()),
     }
@@ -408,15 +398,15 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn set_global_config(&mut self) -> Result<()> {
-    let set_global_config_func = self.get_export::<(), ()>("set_global_config")?;
-    Ok(set_global_config_func.call(&mut self.store)?)
+  pub fn register_config(&mut self, config_id: FormatConfigId) -> Result<()> {
+    let func = self.get_export::<u32, ()>("register_config")?;
+    Ok(func.call(&mut self.store, config_id.as_raw())?)
   }
 
   #[inline]
-  pub fn set_plugin_config(&mut self) -> Result<()> {
-    let set_plugin_config_func = self.get_export::<(), ()>("set_plugin_config")?;
-    Ok(set_plugin_config_func.call(&mut self.store)?)
+  pub fn release_config(&mut self, config_id: FormatConfigId) -> Result<()> {
+    let func = self.get_export::<u32, ()>("release_config")?;
+    Ok(func.call(&mut self.store, config_id.as_raw())?)
   }
 
   #[inline]
@@ -432,15 +422,21 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn get_resolved_config(&mut self) -> Result<usize> {
-    let get_resolved_config_func = self.get_export::<(), u32>("get_resolved_config")?;
-    Ok(get_resolved_config_func.call(&mut self.store).map(|value| value as usize)?)
+  pub fn get_resolved_config(&mut self, config_id: FormatConfigId) -> Result<usize> {
+    let get_resolved_config_func = self.get_export::<u32, u32>("get_resolved_config")?;
+    Ok(get_resolved_config_func.call(&mut self.store, config_id.as_raw()).map(|value| value as usize)?)
   }
 
   #[inline]
-  pub fn get_config_diagnostics(&mut self) -> Result<usize> {
-    let get_config_diagnostics_func = self.get_export::<(), u32>("get_config_diagnostics")?;
-    Ok(get_config_diagnostics_func.call(&mut self.store).map(|value| value as usize)?)
+  pub fn get_config_diagnostics(&mut self, config_id: FormatConfigId) -> Result<usize> {
+    let func = self.get_export::<u32, u32>("get_config_diagnostics")?;
+    Ok(func.call(&mut self.store, config_id.as_raw()).map(|value| value as usize)?)
+  }
+
+  #[inline]
+  pub fn get_config_file_matching(&mut self, config_id: FormatConfigId) -> Result<usize> {
+    let func = self.get_export::<u32, u32>("get_config_file_matching")?;
+    Ok(func.call(&mut self.store, config_id.as_raw()).map(|value| value as usize)?)
   }
 
   #[inline]
@@ -456,9 +452,9 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn format(&mut self) -> Result<WasmFormatResult> {
-    let format_func = self.get_export::<(), u8>("format")?;
-    Ok(format_func.call(&mut self.store).map(u8_to_format_result)?)
+  pub fn format(&mut self, config_id: FormatConfigId) -> Result<WasmFormatResult> {
+    let format_func = self.get_export::<u32, u8>("format")?;
+    Ok(format_func.call(&mut self.store, config_id.as_raw()).map(u8_to_format_result)?)
   }
 
   #[inline]

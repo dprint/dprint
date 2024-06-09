@@ -7,9 +7,36 @@ pub mod macros {
   #[macro_export]
   macro_rules! generate_plugin_code {
     ($wasm_plugin_struct:ident, $wasm_plugin_creation:expr) => {
+      struct RefStaticCell<T: Default>(std::cell::OnceCell<StaticCell<T>>);
+
+      impl<T: Default> RefStaticCell<T> {
+        pub const fn new() -> Self {
+          RefStaticCell(std::cell::OnceCell::new())
+        }
+
+        #[allow(clippy::mut_from_ref)]
+        unsafe fn get(&self) -> &mut T {
+          let inner = self.0.get_or_init(Default::default);
+          inner.get()
+        }
+
+        fn replace(&self, value: T) -> T {
+          let inner = self.0.get_or_init(Default::default);
+          inner.replace(value)
+        }
+      }
+
+      unsafe impl<T: Default> Sync for RefStaticCell<T> {}
+
       // This is ok to do because Wasm plugins are only ever executed on a single thread.
       // https://github.com/rust-lang/rust/issues/53639#issuecomment-790091647
       struct StaticCell<T>(std::cell::UnsafeCell<T>);
+
+      impl<T: Default> Default for StaticCell<T> {
+        fn default() -> Self {
+          StaticCell(std::cell::UnsafeCell::new(T::default()))
+        }
+      }
 
       impl<T> StaticCell<T> {
         const fn new(value: T) -> Self {
@@ -129,13 +156,14 @@ pub mod macros {
       }
 
       #[no_mangle]
-      pub fn format() -> u8 {
-        ensure_initialized();
+      pub fn format(config_id: u32) -> u8 {
+        let config_id = dprint_core::plugins::FormatConfigId::from_raw(config_id);
+        ensure_initialized(config_id);
         let config = unsafe {
           if let Some(override_config) = OVERRIDE_CONFIG.get().take() {
-            std::borrow::Cow::Owned(create_resolved_config_result(override_config).config)
+            std::borrow::Cow::Owned(create_resolved_config_result(config_id, override_config).config)
           } else {
-            std::borrow::Cow::Borrowed(&get_resolved_config_result().config)
+            std::borrow::Cow::Borrowed(&get_resolved_config_result(config_id).config)
           }
         };
         let file_path = unsafe { FILE_PATH.get().take().expect("Expected the file path to be set.") };
@@ -171,7 +199,9 @@ pub mod macros {
 
       // INFORMATION & CONFIGURATION
 
-      static RESOLVE_CONFIGURATION_RESULT: StaticCell<Option<dprint_core::plugins::PluginResolveConfigurationResult<Configuration>>> = StaticCell::new(None);
+      static RESOLVE_CONFIGURATION_RESULT: RefStaticCell<
+        std::collections::HashMap<dprint_core::plugins::FormatConfigId, dprint_core::plugins::PluginResolveConfigurationResult<Configuration>>,
+      > = RefStaticCell::new();
 
       #[no_mangle]
       pub fn get_plugin_info() -> usize {
@@ -187,81 +217,83 @@ pub mod macros {
       }
 
       #[no_mangle]
-      pub fn get_resolved_config() -> usize {
-        let bytes = serde_json::to_vec(&get_resolved_config_result().config).unwrap();
+      pub fn get_resolved_config(config_id: u32) -> usize {
+        let config_id = dprint_core::plugins::FormatConfigId::from_raw(config_id);
+        let bytes = serde_json::to_vec(&get_resolved_config_result(config_id).config).unwrap();
         set_shared_bytes(bytes)
       }
 
       #[no_mangle]
-      pub fn get_config_diagnostics() -> usize {
-        let bytes = serde_json::to_vec(&get_resolved_config_result().diagnostics).unwrap();
+      pub fn get_config_diagnostics(config_id: u32) -> usize {
+        let config_id = dprint_core::plugins::FormatConfigId::from_raw(config_id);
+        let bytes = serde_json::to_vec(&get_resolved_config_result(config_id).diagnostics).unwrap();
         set_shared_bytes(bytes)
       }
 
-      // for clearing the config in the playground
       #[no_mangle]
-      pub fn reset_config() {
+      pub fn get_config_file_matching(config_id: u32) -> usize {
+        let config_id = dprint_core::plugins::FormatConfigId::from_raw(config_id);
+        let bytes = serde_json::to_vec(&get_resolved_config_result(config_id).file_matching).unwrap();
+        set_shared_bytes(bytes)
+      }
+
+      fn get_resolved_config_result<'a>(
+        config_id: dprint_core::plugins::FormatConfigId,
+      ) -> &'a dprint_core::plugins::PluginResolveConfigurationResult<Configuration> {
         unsafe {
-          RESOLVE_CONFIGURATION_RESULT.get().take();
+          ensure_initialized(config_id);
+          return RESOLVE_CONFIGURATION_RESULT.get().get(&config_id).unwrap();
         }
       }
 
-      fn get_resolved_config_result<'a>() -> &'a dprint_core::plugins::PluginResolveConfigurationResult<Configuration> {
+      fn ensure_initialized(config_id: dprint_core::plugins::FormatConfigId) {
         unsafe {
-          ensure_initialized();
-          return RESOLVE_CONFIGURATION_RESULT.get().as_ref().unwrap();
-        }
-      }
-
-      fn ensure_initialized() {
-        unsafe {
-          if RESOLVE_CONFIGURATION_RESULT.get().is_none() {
-            let config_result = create_resolved_config_result(dprint_core::configuration::ConfigKeyMap::new());
-            RESOLVE_CONFIGURATION_RESULT.get().replace(config_result);
+          if !RESOLVE_CONFIGURATION_RESULT.get().contains_key(&config_id) {
+            let config_result = create_resolved_config_result(config_id, dprint_core::configuration::ConfigKeyMap::new());
+            RESOLVE_CONFIGURATION_RESULT.get().insert(config_id, config_result);
           }
         }
       }
 
       fn create_resolved_config_result(
+        config_id: dprint_core::plugins::FormatConfigId,
         override_config: dprint_core::configuration::ConfigKeyMap,
       ) -> dprint_core::plugins::PluginResolveConfigurationResult<Configuration> {
         unsafe {
-          if let Some(global_config) = GLOBAL_CONFIG.get().as_ref() {
-            if let Some(plugin_config) = PLUGIN_CONFIG.get().as_ref() {
-              let mut plugin_config = plugin_config.clone();
-              for (key, value) in override_config {
-                plugin_config.insert(key, value);
-              }
-              return WASM_PLUGIN.get().resolve_config(plugin_config, global_config);
+          if let Some(config) = UNRESOLVED_CONFIG.get().get(&config_id) {
+            let mut plugin_config = config.plugin.clone();
+            for (key, value) in override_config {
+              plugin_config.insert(key, value);
             }
+            return WASM_PLUGIN.get().resolve_config(plugin_config, &config.global);
           }
         }
 
-        panic!("Plugin must have global config and plugin config set before use.");
+        panic!("Plugin must have config set before use (id: {:?}).", config_id);
       }
 
       // INITIALIZATION
 
-      static GLOBAL_CONFIG: StaticCell<Option<dprint_core::configuration::GlobalConfiguration>> = StaticCell::new(None);
-      static PLUGIN_CONFIG: StaticCell<Option<dprint_core::configuration::ConfigKeyMap>> = StaticCell::new(None);
+      static UNRESOLVED_CONFIG: RefStaticCell<std::collections::HashMap<dprint_core::plugins::FormatConfigId, dprint_core::plugins::RawFormatConfig>> =
+        RefStaticCell::new();
 
       #[no_mangle]
-      pub fn set_global_config() {
+      pub fn register_config(config_id: u32) {
+        let config_id = dprint_core::plugins::FormatConfigId::from_raw(config_id);
         let bytes = take_from_shared_bytes();
-        let global_config: dprint_core::configuration::GlobalConfiguration = serde_json::from_slice(&bytes).unwrap();
+        let config: dprint_core::plugins::RawFormatConfig = serde_json::from_slice(&bytes).unwrap();
         unsafe {
-          GLOBAL_CONFIG.get().replace(global_config);
-          RESOLVE_CONFIGURATION_RESULT.get().take(); // clear
+          UNRESOLVED_CONFIG.get().insert(config_id, config);
+          RESOLVE_CONFIGURATION_RESULT.get().remove(&config_id); // clear
         }
       }
 
       #[no_mangle]
-      pub fn set_plugin_config() {
-        let bytes = take_from_shared_bytes();
-        let plugin_config: dprint_core::configuration::ConfigKeyMap = serde_json::from_slice(&bytes).unwrap();
+      pub fn release_config(config_id: u32) {
+        let config_id = dprint_core::plugins::FormatConfigId::from_raw(config_id);
         unsafe {
-          PLUGIN_CONFIG.get().replace(plugin_config);
-          RESOLVE_CONFIGURATION_RESULT.get().take(); // clear
+          UNRESOLVED_CONFIG.get().remove(&config_id);
+          RESOLVE_CONFIGURATION_RESULT.get().remove(&config_id);
         }
       }
 

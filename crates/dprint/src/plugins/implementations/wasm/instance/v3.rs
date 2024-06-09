@@ -339,7 +339,7 @@ impl InitializedWasmPluginInstanceV3 {
       self.current_config_id = FormatConfigId::uninitialized();
       // update the plugin
       self.set_global_config(&config.global)?;
-      self.set_plugin_config(&config.raw)?;
+      self.set_plugin_config(&config.plugin)?;
       // now mark this as successfully set
       self.current_config_id = config.id;
     }
