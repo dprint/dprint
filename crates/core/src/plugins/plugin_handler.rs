@@ -17,7 +17,7 @@ use crate::plugins::PluginInfo;
 
 use super::FileMatchingInfo;
 
-pub trait CancellationToken: Send + Sync {
+pub trait CancellationToken: Send + Sync + std::fmt::Debug {
   fn is_cancelled(&self) -> bool;
   #[cfg(feature = "async_runtime")]
   fn wait_cancellation(&self) -> LocalBoxFuture<'static, ()>;
@@ -36,6 +36,7 @@ impl CancellationToken for tokio_util::sync::CancellationToken {
 }
 
 /// A cancellation token that always says it's not cancelled.
+#[derive(Debug)]
 pub struct NullCancellationToken;
 
 impl CancellationToken for NullCancellationToken {
@@ -72,6 +73,7 @@ impl std::error::Error for CriticalFormatError {
 }
 
 #[cfg(feature = "process")]
+#[derive(Debug)]
 pub struct HostFormatRequest {
   pub file_path: PathBuf,
   pub file_bytes: Vec<u8>,

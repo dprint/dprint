@@ -114,7 +114,7 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
 
     let length = length as usize;
     let mut shared_bytes = env_data.shared_bytes.lock();
-    *shared_bytes = Vec::with_capacity(length);
+    *shared_bytes = vec![0; length];
     memory_view.read(buffer_pointer.offset() as u64, &mut shared_bytes).unwrap();
   }
 
@@ -400,12 +400,6 @@ impl WasmFunctions {
   #[inline]
   pub fn register_config(&mut self, config_id: FormatConfigId) -> Result<()> {
     let func = self.get_export::<u32, ()>("register_config")?;
-    Ok(func.call(&mut self.store, config_id.as_raw())?)
-  }
-
-  #[inline]
-  pub fn release_config(&mut self, config_id: FormatConfigId) -> Result<()> {
-    let func = self.get_export::<u32, ()>("release_config")?;
     Ok(func.call(&mut self.store, config_id.as_raw())?)
   }
 
