@@ -844,6 +844,52 @@ mod test {
   }
 
   #[test]
+  fn should_allow_using_config_to_get_file_matching_info() {
+    let file_path1 = "/file1.txt";
+    let file_path2 = "/file2.txt_ps";
+    let file_path3 = "/file1.other";
+    let file_path4 = "/file2.other_ps";
+    let file_path5 = "/format_wasm";
+    let file_path6 = "/format_ps";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "file_extensions": ["other"],
+              "file_names": ["format_wasm"]
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "file_extensions": ["other_ps"],
+              "file_names": ["format_ps"]
+            }"#,
+          );
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text2")
+      .write_file(&file_path3, "text3")
+      .write_file(&file_path4, "text4")
+      .write_file(&file_path5, "text5")
+      .write_file(&file_path6, "text6")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(4)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2");
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text3_formatted");
+    assert_eq!(environment.read_file(&file_path4).unwrap(), "text4_formatted_process");
+    assert_eq!(environment.read_file(&file_path5).unwrap(), "text5_formatted");
+    assert_eq!(environment.read_file(&file_path6).unwrap(), "text6_formatted_process");
+  }
+
+  #[test]
   fn should_error_on_wasm_plugin_config_diagnostic() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {

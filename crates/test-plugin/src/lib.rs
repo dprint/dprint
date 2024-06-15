@@ -1,8 +1,11 @@
 use anyhow::bail;
 use anyhow::Result;
+use dprint_core::configuration::get_nullable_vec;
 use dprint_core::configuration::get_unknown_property_diagnostics;
 use dprint_core::configuration::get_value;
 use dprint_core::configuration::ConfigKeyMap;
+use dprint_core::configuration::ConfigKeyValue;
+use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::generate_plugin_code;
 use dprint_core::plugins::FileMatchingInfo;
@@ -34,20 +37,38 @@ impl TestWasmPlugin {
 
 impl SyncPluginHandler<Configuration> for TestWasmPlugin {
   fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> PluginResolveConfigurationResult<Configuration> {
+    fn get_string_vec(config: &mut ConfigKeyMap, key: &str, diagnostics: &mut Vec<ConfigurationDiagnostic>) -> Option<Vec<String>> {
+      get_nullable_vec(
+        config,
+        key,
+        |value, _index, diagnostics| match value {
+          ConfigKeyValue::String(value) => Some(value),
+          _ => {
+            diagnostics.push(ConfigurationDiagnostic {
+              property_name: key.to_string(),
+              message: "Expected only string values.".to_string(),
+            });
+            None
+          }
+        },
+        diagnostics,
+      )
+    }
+
     let mut config = config;
     let mut diagnostics = Vec::new();
     let ending = get_value(&mut config, "ending", String::from("formatted"), &mut diagnostics);
     let line_width = get_value(&mut config, "line_width", global_config.line_width.unwrap_or(120), &mut diagnostics);
+
+    let file_extensions = get_string_vec(&mut config, "file_extensions", &mut diagnostics).unwrap_or_else(|| vec!["txt".to_string()]);
+    let file_names = get_string_vec(&mut config, "file_names", &mut diagnostics).unwrap_or_else(|| vec![]);
 
     diagnostics.extend(get_unknown_property_diagnostics(config));
 
     PluginResolveConfigurationResult {
       config: Configuration { ending, line_width },
       diagnostics,
-      file_matching: FileMatchingInfo {
-        file_extensions: vec!["txt".to_string()],
-        file_names: vec![],
-      },
+      file_matching: FileMatchingInfo { file_extensions, file_names },
     }
   }
 

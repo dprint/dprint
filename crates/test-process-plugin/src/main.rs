@@ -4,6 +4,7 @@ use anyhow::bail;
 use anyhow::Result;
 use dprint_core::async_runtime::async_trait;
 use dprint_core::async_runtime::LocalBoxFuture;
+use dprint_core::configuration::get_nullable_vec;
 use dprint_core::configuration::get_unknown_property_diagnostics;
 use dprint_core::configuration::get_value;
 use dprint_core::configuration::ConfigKeyMap;
@@ -71,37 +72,22 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
   }
 
   async fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> PluginResolveConfigurationResult<Configuration> {
-    // todo: way to do something like get_value in dprint-core, but with vectors
     fn get_string_vec(config: &mut ConfigKeyMap, key: &str, diagnostics: &mut Vec<ConfigurationDiagnostic>) -> Option<Vec<String>> {
-      match config.shift_remove(key) {
-        Some(value) => match value {
-          ConfigKeyValue::Array(values) => {
-            let mut result = Vec::with_capacity(values.len());
-            for value in values {
-              match value {
-                ConfigKeyValue::String(value) => {
-                  result.push(value);
-                }
-                _ => {
-                  diagnostics.push(ConfigurationDiagnostic {
-                    property_name: key.to_string(),
-                    message: "Expected only string values.".to_string(),
-                  });
-                }
-              }
-            }
-            Some(result)
-          }
+      get_nullable_vec(
+        config,
+        key,
+        |value, _index, diagnostics| match value {
+          ConfigKeyValue::String(value) => Some(value),
           _ => {
             diagnostics.push(ConfigurationDiagnostic {
               property_name: key.to_string(),
-              message: "Expected an array.".to_string(),
+              message: "Expected only string values.".to_string(),
             });
             None
           }
         },
-        None => None,
-      }
+        diagnostics,
+      )
     }
 
     let mut config = config;
