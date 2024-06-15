@@ -183,5 +183,6 @@ High level functions:
   - `2` for error (use `host_get_error_text()`)
 - `host_get_formatted_text() -> u32` - Tell the host to store the formatted text in its local byte array and return back the byte length of that text.
 - `host_get_error_text() -> u32` - Tell the host to store the error text in its local byte array and return back the byte length of that error message.
+- `host_has_cancelled() -> i32` - Check if the host has cancelled the formatting request (`1`) or not (`0`).
 
 I recommend looking in the [`dprint-core` wasm module](https://github.com/dprint/dprint/blob/main/crates/core/src/plugins/wasm/mod.rs) for how to use these.
