@@ -170,7 +170,6 @@ mod test {
     environment.run_in_runtime({
       let environment = environment.clone();
       async move {
-        //debug_here::debug_here!();
         // ensure that the config gets recreated as well
         let communicator = Rc::new(InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone()).await);
         let format_config = Arc::new(FormatConfig {

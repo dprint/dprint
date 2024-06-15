@@ -8,6 +8,7 @@ use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
+use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
@@ -18,7 +19,6 @@ use dprint_core::plugins::PluginInfo;
 use parking_lot::Mutex;
 use serde::Serialize;
 use wasmer::AsStoreRef;
-use wasmer::Engine;
 use wasmer::ExportError;
 use wasmer::Function;
 use wasmer::FunctionEnv;
@@ -100,6 +100,7 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     formatted_text_store: Vec<u8>,
     shared_bytes: Mutex<SharedBytes>,
     error_text_store: String,
+    token: Arc<dyn CancellationToken>,
     host_format_sender: WasmHostFormatSender,
   }
 
@@ -112,6 +113,7 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
         shared_bytes: Mutex::new(SharedBytes::default()),
         formatted_text_store: Default::default(),
         error_text_store: Default::default(),
+        token: Arc::new(NullCancellationToken),
         host_format_sender,
       }
     }
@@ -128,6 +130,11 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     fn initialize(&self, store: &mut Store, instance: &Instance) -> Result<(), ExportError> {
       self.as_mut(store).memory = Some(instance.exports.get_memory("memory")?.clone());
       Ok(())
+    }
+
+    fn set_token(&self, store: &mut Store, token: Arc<dyn CancellationToken>) {
+      // only used for host formatting in v3
+      self.as_mut(store).token = token;
     }
   }
 
@@ -193,8 +200,7 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
       file_bytes,
       range: None,
       override_config,
-      // cancellation not supported for this version
-      token: Arc::new(NullCancellationToken),
+      token: env.token.clone(),
     };
     // todo: worth it to use a oneshot channel library here?
     let (tx, rx) = std::sync::mpsc::channel();
@@ -427,7 +433,15 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV3 {
     self.sync_plugin_info().map(|i| i.file_matching)
   }
 
-  fn format_text(&mut self, file_path: &Path, file_bytes: &[u8], config: &FormatConfig, override_config: &ConfigKeyMap) -> FormatResult {
+  fn format_text(
+    &mut self,
+    file_path: &Path,
+    file_bytes: &[u8],
+    config: &FormatConfig,
+    override_config: &ConfigKeyMap,
+    token: Arc<dyn CancellationToken>,
+  ) -> FormatResult {
+    self.wasm_functions.instance.set_token(&mut self.wasm_functions.store, token);
     self.ensure_config(config)?;
     match self.inner_format_text(file_path, file_bytes, override_config) {
       Ok(inner) => inner,
@@ -438,23 +452,15 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV3 {
 
 struct WasmFunctions {
   store: Store,
-  instance: Instance,
+  instance: WasmInstance,
   memory: Memory,
-  // keep this alive for the duration of the engine otherwise it
-  // could be cleaned up before the instance is dropped
-  _engine: Engine,
 }
 
 impl WasmFunctions {
   pub fn new(store: Store, instance: WasmInstance) -> Result<Self> {
-    let memory = instance.inner.exports.get_memory("memory")?.clone();
+    let memory = instance.get_memory("memory")?.clone();
 
-    Ok(WasmFunctions {
-      instance: instance.inner,
-      memory,
-      store,
-      _engine: instance.engine,
-    })
+    Ok(WasmFunctions { instance, memory, store })
   }
 
   #[inline]
@@ -564,7 +570,7 @@ impl WasmFunctions {
     Args: WasmTypeList,
     Rets: WasmTypeList,
   {
-    match self.instance.exports.get_function(name) {
+    match self.instance.get_function(name) {
       Ok(func) => match func.typed::<Args, Rets>(&self.store) {
         Ok(native_func) => Ok(native_func),
         Err(err) => bail!("Error creating function '{}'. Message: {:#}", name, err),

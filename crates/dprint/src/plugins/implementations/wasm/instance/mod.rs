@@ -1,10 +1,12 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::bail;
 use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION;
+use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
@@ -30,6 +32,7 @@ pub enum PluginSchemaVersion {
 
 pub trait ImportObjectEnvironment {
   fn initialize(&self, store: &mut Store, instance: &Instance) -> Result<(), ExportError>;
+  fn set_token(&self, store: &mut Store, token: Arc<dyn CancellationToken>);
 }
 
 pub trait InitializedWasmPluginInstance {
@@ -38,7 +41,14 @@ pub trait InitializedWasmPluginInstance {
   fn resolved_config(&mut self, config: &FormatConfig) -> Result<String>;
   fn config_diagnostics(&mut self, config: &FormatConfig) -> Result<Vec<ConfigurationDiagnostic>>;
   fn file_matching_info(&mut self, config: &FormatConfig) -> Result<FileMatchingInfo>;
-  fn format_text(&mut self, file_path: &Path, file_bytes: &[u8], config: &FormatConfig, override_config: &ConfigKeyMap) -> FormatResult;
+  fn format_text(
+    &mut self,
+    file_path: &Path,
+    file_bytes: &[u8],
+    config: &FormatConfig,
+    override_config: &ConfigKeyMap,
+    token: Arc<dyn CancellationToken>,
+  ) -> FormatResult;
 }
 
 pub fn create_wasm_plugin_instance(store: Store, instance: WasmInstance) -> Result<Box<dyn InitializedWasmPluginInstance>> {

@@ -59,6 +59,11 @@ pub mod macros {
 
       // HOST FORMATTING
 
+      #[link(wasm_import_module = "dprint")]
+      extern "C" {
+        fn host_has_cancelled() -> i32;
+      }
+
       fn format_with_host(
         file_path: &std::path::Path,
         file_bytes: Vec<u8>,
@@ -157,6 +162,15 @@ pub mod macros {
 
       #[no_mangle]
       pub fn format(config_id: u32) -> u8 {
+        #[derive(Debug)]
+        struct HostCancellationToken;
+
+        impl dprint_core::plugins::CancellationToken for HostCancellationToken {
+          fn is_cancelled(&self) -> bool {
+            unsafe { host_has_cancelled() == 1 }
+          }
+        }
+
         let config_id = dprint_core::plugins::FormatConfigId::from_raw(config_id);
         ensure_initialized(config_id);
         let config = unsafe {
@@ -169,7 +183,11 @@ pub mod macros {
         let file_path = unsafe { FILE_PATH.get().take().expect("Expected the file path to be set.") };
         let file_bytes = take_from_shared_bytes();
 
-        let formatted_text = unsafe { WASM_PLUGIN.get().format(&file_path, file_bytes, &config, format_with_host) };
+        let formatted_text = unsafe {
+          WASM_PLUGIN
+            .get()
+            .format(&file_path, file_bytes, &config, &HostCancellationToken, format_with_host)
+        };
         match formatted_text {
           Ok(None) => {
             0 // no change

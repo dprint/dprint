@@ -92,6 +92,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
     _: &Path,
     file_bytes: Vec<u8>,
     config: &Configuration,
+    token: &dyn dprint_core::plugins::CancellationToken,
     mut format_with_host: impl FnMut(&Path, Vec<u8>, &ConfigKeyMap) -> FormatResult,
   ) -> FormatResult {
     fn handle_host_response(result: FormatResult, original_text: &str) -> Result<String> {
@@ -103,6 +104,14 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
     }
 
     let file_text = String::from_utf8(file_bytes).unwrap();
+    if file_text == "wait_cancellation" {
+      loop {
+        if token.is_cancelled() {
+          return Ok(None);
+        }
+      }
+    }
+
     let (had_suffix, file_text) = if let Some(text) = file_text.strip_suffix(&format!("_{}", config.ending)) {
       (true, text.to_string())
     } else {

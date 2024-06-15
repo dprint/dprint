@@ -67,9 +67,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
       Arc::new({
         move |store, module, host_format_sender| {
           let (import_object, env) = create_pools_import_object(module.version(), store, host_format_sender);
-          let instance = load_instance(store, module, &import_object)?;
-          env.initialize(store, &instance.inner)?;
-          Ok(instance)
+          load_instance(store, module, env, &import_object)
         }
       }),
       self.environment.clone(),
@@ -84,6 +82,7 @@ struct WasmPluginFormatMessage {
   file_bytes: Vec<u8>,
   config: Arc<FormatConfig>,
   override_config: ConfigKeyMap,
+  token: Arc<dyn CancellationToken>,
 }
 
 type WasmResponseSender<T> = tokio::sync::oneshot::Sender<T>;
@@ -101,7 +100,6 @@ type WasmPluginSender = std::sync::mpsc::Sender<WasmPluginMessage>;
 #[derive(Clone)]
 struct InstanceState {
   host_format_callback: HostFormatCallback,
-  token: Arc<dyn CancellationToken>,
 }
 
 struct WasmPluginSenderWithState {
@@ -231,12 +229,10 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     dprint_core::async_runtime::spawn({
       let instance_state_cell = instance_state_cell.clone();
       async move {
-        while let Some((mut request, sender)) = host_format_rx.recv().await {
+        while let Some((request, sender)) = host_format_rx.recv().await {
           let instance_state = instance_state_cell.borrow().clone();
           match instance_state {
             Some(instance_state) => {
-              // forward the provided token on to the host format
-              request.token = instance_state.token.clone();
               let message = (instance_state.host_format_callback)(request).await;
               if sender.send(message).is_err() {
                 return; // disconnected
@@ -304,7 +300,13 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
               }
             }
             WasmPluginMessage::FormatRequest(request, response) => {
-              let result = instance.format_text(&request.file_path, &request.file_bytes, &request.config, &request.override_config);
+              let result = instance.format_text(
+                &request.file_path,
+                &request.file_bytes,
+                &request.config,
+                &request.override_config,
+                request.token.clone(),
+              );
               if response.send(result).is_err() {
                 break; // disconnected
               }
@@ -405,10 +407,10 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
       file_bytes: request.file_text,
       config: request.config,
       override_config: request.override_config,
+      token: request.token,
     });
     let instance_state = InstanceState {
       host_format_callback: request.on_host_format,
-      token: request.token,
     };
     self
       .with_instance(Some(instance_state), move |plugin_sender| {

@@ -752,32 +752,34 @@ mod test {
             "t_formatted_process_sting_formatted_process"
           );
 
-          // test cancellation
-          let token = CancellationToken::new();
-          let handle = dprint_core::async_runtime::spawn({
-            let communicator = communicator.clone();
-            let token = token.clone();
-            async move {
-              assert_eq!(
-                communicator
-                  .format_text(
-                    &PathBuf::from("/file.txt_ps"),
-                    "wait_cancellation".to_string().into_bytes(),
-                    None,
-                    Default::default(),
-                    token
-                  )
-                  .await
-                  .unwrap(),
-                None
-              )
-            }
-          });
+          // test process and wasm plugin cancellation
+          for file_name in ["/file.txt_ps", "/file.txt"] {
+            let token = CancellationToken::new();
+            let handle = dprint_core::async_runtime::spawn({
+              let communicator = communicator.clone();
+              let token = token.clone();
+              async move {
+                assert_eq!(
+                  communicator
+                    .format_text(
+                      &PathBuf::from(file_name),
+                      "wait_cancellation".to_string().into_bytes(),
+                      None,
+                      Default::default(),
+                      token
+                    )
+                    .await
+                    .unwrap(),
+                  None
+                )
+              }
+            });
 
-          // give some time for the message to be sent
-          tokio::time::sleep(Duration::from_millis(50)).await;
-          token.cancel();
-          handle.await.unwrap();
+            // give some time for the message to be sent
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            token.cancel();
+            handle.await.unwrap();
+          }
 
           // test override config
           assert_eq!(

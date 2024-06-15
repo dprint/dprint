@@ -226,6 +226,7 @@ pub trait SyncPluginHandler<TConfiguration: Clone + serde::Serialize> {
     file_path: &std::path::Path,
     file_bytes: Vec<u8>,
     config: &TConfiguration,
+    token: &dyn CancellationToken,
     format_with_host: impl FnMut(&std::path::Path, Vec<u8>, &ConfigKeyMap) -> FormatResult,
   ) -> FormatResult;
 }
