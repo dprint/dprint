@@ -15,6 +15,7 @@ use dprint_core::plugins::PluginResolveConfigurationResult;
 use dprint_core::plugins::SyncPluginHandler;
 use serde::Deserialize;
 use serde::Serialize;
+use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -110,6 +111,13 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
           return Ok(None);
         }
       }
+    }
+    if let Some(output) = file_text.strip_prefix("stderr:") {
+      let mut stderr = dprint_core::plugins::wasm::WasiPrintFd(2);
+      stderr.write_all(output.as_bytes()).unwrap();
+    } else if let Some(output) = file_text.strip_prefix("stdout:") {
+      let mut stderr = dprint_core::plugins::wasm::WasiPrintFd(1);
+      stderr.write_all(output.as_bytes()).unwrap();
     }
 
     let (had_suffix, file_text) = if let Some(text) = file_text.strip_suffix(&format!("_{}", config.ending)) {

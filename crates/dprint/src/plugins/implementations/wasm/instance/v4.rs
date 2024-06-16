@@ -54,8 +54,12 @@ pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
   let host_get_formatted_text = || -> u32 { 0 }; // zero length
   let host_get_error_text = || -> u32 { 0 }; // zero length
   let host_has_cancelled = || -> u32 { 0 }; // false
+  let fd_write = |_: u32, _: u32, _: u32, _: u32| 0; // ignore
 
   wasmer::imports! {
+    "env" => {
+      "fd_write" => Function::new_typed(store, fd_write),
+    },
     "dprint" => {
       "host_clear_bytes" => Function::new_typed(store, host_clear_bytes),
       "host_read_buffer" => Function::new_typed(store, host_read_buffer),
@@ -113,8 +117,55 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     }
   }
 
-  fn host_read_buffer(env: FunctionEnvMut<ImportObjectEnvironmentV4>, buffer_pointer: u32, length: u32) {
-    let buffer_pointer: wasmer::WasmPtr<u32> = wasmer::WasmPtr::new(buffer_pointer);
+  fn fd_write(env: FunctionEnvMut<ImportObjectEnvironmentV4>, fd: u32, iovs_ptr: u32, iovs_len: u32, nwritten: WasmPtr<u32>) -> u32 {
+    #[derive(Copy, Clone)]
+    #[repr(C)]
+    struct Iovec {
+      buf: *const u8,
+      buf_len: usize,
+    }
+
+    unsafe impl wasmer::ValueType for Iovec {
+      fn zero_padding_bytes(&self, _bytes: &mut [std::mem::MaybeUninit<u8>]) {}
+    }
+
+    let env_data = env.data();
+    let memory = env_data.memory.as_ref().unwrap();
+    let store_ref = env.as_store_ref();
+    let memory_view = memory.view(&store_ref);
+
+    let mut total_written = 0;
+
+    for i in 0..iovs_len {
+      let iovec_ptr = WasmPtr::<Iovec>::new(iovs_ptr + i * std::mem::size_of::<Iovec>() as u32);
+      let iovec = iovec_ptr.deref(&memory_view).read().unwrap();
+
+      let buf_addr = iovec.buf;
+      let buf_len = iovec.buf_len;
+
+      let mut bytes = vec![0; buf_len as usize];
+      memory_view.read(buf_addr as u64, &mut bytes).unwrap();
+
+      // todo(THIS PR): should always output to stderr and use the logger
+      if fd == 1 {
+        print!("{}", String::from_utf8_lossy(&bytes));
+      } else if fd == 2 {
+        eprint!("{}", String::from_utf8_lossy(&bytes));
+      } else {
+        return 1; // Indicate error for unsupported fd
+      }
+
+      total_written += buf_len;
+    }
+
+    let nwritten = nwritten.deref(&memory_view);
+    nwritten.write(total_written as u32).unwrap();
+
+    0
+  }
+
+  fn host_read_buffer(env: FunctionEnvMut<ImportObjectEnvironmentV4>, buffer_ptr: u32, length: u32) {
+    let buffer_ptr: wasmer::WasmPtr<u32> = wasmer::WasmPtr::new(buffer_ptr);
     let env_data = env.data();
     let memory = env_data.memory.as_ref().unwrap();
     let store_ref = env.as_store_ref();
@@ -123,7 +174,7 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     let length = length as usize;
     let mut shared_bytes = env_data.shared_bytes.lock();
     *shared_bytes = vec![0; length];
-    memory_view.read(buffer_pointer.offset() as u64, &mut shared_bytes).unwrap();
+    memory_view.read(buffer_ptr.offset() as u64, &mut shared_bytes).unwrap();
   }
 
   fn host_write_buffer(env: FunctionEnvMut<ImportObjectEnvironmentV4>, buffer_pointer: u32) {
@@ -221,6 +272,9 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
 
   (
     wasmer::imports! {
+      "env" => {
+        "fd_write" => Function::new_typed_with_env(store, &env, fd_write),
+      },
       "dprint" => {
         "host_read_buffer" => Function::new_typed_with_env(store, &env, host_read_buffer),
         "host_write_buffer" => Function::new_typed_with_env(store, &env, host_write_buffer),

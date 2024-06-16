@@ -3,6 +3,52 @@
 pub const PLUGIN_SYSTEM_SCHEMA_VERSION: u32 = 4;
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+extern "C" {
+  fn fd_write(fd: i32, iovs: *const crate::plugins::wasm::Iovec, iovs_len: i32, nwritten: *mut i32) -> i32;
+}
+
+pub struct WasiPrintFd(pub i32);
+
+impl std::io::Write for WasiPrintFd {
+  fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    {
+      let iovec = Iovec {
+        buf: buf.as_ptr(),
+        buf_len: buf.len(),
+      };
+      let mut nwritten: i32 = 0;
+      let result = unsafe { fd_write(self.0, &iovec, 1, &mut nwritten) };
+      if result == 0 {
+        Ok(nwritten as usize)
+      } else {
+        Err(std::io::Error::from_raw_os_error(result))
+      }
+    }
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    {
+      let size = buf.len();
+      match self.0 {
+        0 => std::io::stdout().write_all(buf)?,
+        1 => std::io::stderr().write_all(buf)?,
+        _ => return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput)),
+      }
+      Ok(size)
+    }
+  }
+
+  fn flush(&mut self) -> std::io::Result<()> {
+    Ok(())
+  }
+}
+
+#[repr(C)]
+pub struct Iovec {
+  pub buf: *const u8,
+  pub buf_len: usize,
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub mod macros {
   #[macro_export]
   macro_rules! generate_plugin_code {
