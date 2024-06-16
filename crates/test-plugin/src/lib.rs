@@ -94,7 +94,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
     file_bytes: Vec<u8>,
     config: &Configuration,
     token: &dyn dprint_core::plugins::CancellationToken,
-    mut format_with_host: impl FnMut(&Path, Vec<u8>, &ConfigKeyMap) -> FormatResult,
+    mut format_with_host: impl FnMut(&Path, &[u8], &ConfigKeyMap) -> FormatResult,
   ) -> FormatResult {
     fn handle_host_response(result: FormatResult, original_text: &str) -> Result<String> {
       match result {
@@ -132,7 +132,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
       format!(
         "plugin: {}",
         handle_host_response(
-          format_with_host(&PathBuf::from("./test.txt_ps"), new_text.to_string().into_bytes(), &ConfigKeyMap::new()),
+          format_with_host(&PathBuf::from("./test.txt_ps"), new_text.as_bytes(), &ConfigKeyMap::new()),
           new_text,
         )?,
       )
@@ -141,10 +141,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
       config_map.insert("ending".to_string(), "custom_config".into());
       format!(
         "plugin-config: {}",
-        handle_host_response(
-          format_with_host(&PathBuf::from("./test.txt_ps"), new_text.to_string().into_bytes(), &config_map),
-          new_text
-        )?
+        handle_host_response(format_with_host(&PathBuf::from("./test.txt_ps"), new_text.as_bytes(), &config_map), new_text)?
       )
     } else if file_text == "should_error" {
       bail!("Did error.")

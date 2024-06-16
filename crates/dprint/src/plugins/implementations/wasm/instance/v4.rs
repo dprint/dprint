@@ -48,9 +48,7 @@ pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
   let host_clear_bytes = |_: u32| {};
   let host_read_buffer = |_: u32, _: u32| {};
   let host_write_buffer = |_: u32| {};
-  let host_take_override_config = || {};
-  let host_take_file_path = || {};
-  let host_format = || -> u32 { 0 }; // no change
+  let host_format = |_: u32, _: u32, _: u32, _: u32, _: u32, _: u32| -> u32 { 0 }; // no change
   let host_get_formatted_text = || -> u32 { 0 }; // zero length
   let host_get_error_text = || -> u32 { 0 }; // zero length
   let host_has_cancelled = || -> u32 { 0 }; // false
@@ -64,8 +62,6 @@ pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
       "host_clear_bytes" => Function::new_typed(store, host_clear_bytes),
       "host_read_buffer" => Function::new_typed(store, host_read_buffer),
       "host_write_buffer" => Function::new_typed(store, host_write_buffer),
-      "host_take_override_config" => Function::new_typed(store, host_take_override_config),
-      "host_take_file_path" => Function::new_typed(store, host_take_file_path),
       "host_format" => Function::new_typed(store, host_format),
       "host_get_formatted_text" => Function::new_typed(store, host_get_formatted_text),
       "host_get_error_text" => Function::new_typed(store, host_get_error_text),
@@ -77,8 +73,6 @@ pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
 pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHostFormatSender) -> (wasmer::Imports, Box<dyn ImportObjectEnvironment>) {
   struct ImportObjectEnvironmentV4 {
     memory: Option<Memory>,
-    override_config: Option<ConfigKeyMap>,
-    file_path: Option<PathBuf>,
     formatted_text_store: Vec<u8>,
     shared_bytes: Mutex<Vec<u8>>,
     error_text_store: String,
@@ -90,19 +84,12 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     pub fn new(host_format_sender: WasmHostFormatSender) -> Self {
       ImportObjectEnvironmentV4 {
         memory: None,
-        override_config: None,
-        file_path: None,
         shared_bytes: Default::default(),
         formatted_text_store: Default::default(),
         error_text_store: Default::default(),
         token: Arc::new(NullCancellationToken),
         host_format_sender,
       }
-    }
-
-    fn take_shared_bytes(&self) -> Vec<u8> {
-      let mut shared_bytes = self.shared_bytes.lock();
-      std::mem::take(&mut shared_bytes)
     }
   }
 
@@ -143,7 +130,7 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
       let buf_addr = iovec.buf;
       let buf_len = iovec.buf_len;
 
-      let mut bytes = vec![0; buf_len as usize];
+      let mut bytes = vec![0; buf_len];
       memory_view.read(buf_addr as u64, &mut bytes).unwrap();
 
       // todo(THIS PR): should always output to stderr and use the logger
@@ -187,25 +174,39 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     memory_view.write(buffer_pointer.offset() as u64, &shared_bytes).unwrap();
   }
 
-  fn host_take_override_config(mut env: FunctionEnvMut<ImportObjectEnvironmentV4>) {
+  fn host_format(
+    mut env: FunctionEnvMut<ImportObjectEnvironmentV4>,
+    file_path_ptr: u32,
+    file_path_len: u32,
+    override_cfg_ptr: u32,
+    override_cfg_len: u32,
+    file_bytes_ptr: u32,
+    file_bytes_len: u32,
+  ) -> u32 {
+    let env_data = env.data();
+    let memory = env_data.memory.as_ref().unwrap();
+    let store_ref = env.as_store_ref();
+    let memory_view = memory.view(&store_ref);
+    let override_config = {
+      if override_cfg_len == 0 {
+        Default::default()
+      } else {
+        let mut buf = vec![0; override_cfg_len as usize];
+        memory_view.read(override_cfg_ptr as u64, &mut buf).unwrap();
+        serde_json::from_slice::<ConfigKeyMap>(&buf).unwrap()
+      }
+    };
+    let file_path = {
+      let mut buf = vec![0; file_path_len as usize];
+      memory_view.read(file_path_ptr as u64, &mut buf).unwrap();
+      PathBuf::from(String::from_utf8(buf).unwrap())
+    };
+    let file_bytes = {
+      let mut buf = vec![0; file_bytes_len as usize];
+      memory_view.read(file_bytes_ptr as u64, &mut buf).unwrap();
+      buf
+    };
     let env = env.data_mut();
-    let bytes = env.take_shared_bytes();
-    let config_key_map: ConfigKeyMap = serde_json::from_slice(&bytes).unwrap_or_default();
-    env.override_config.replace(config_key_map);
-  }
-
-  fn host_take_file_path(mut env: FunctionEnvMut<ImportObjectEnvironmentV4>) {
-    let env = env.data_mut();
-    let bytes = env.take_shared_bytes();
-    let file_path_str = String::from_utf8(bytes).unwrap();
-    env.file_path.replace(PathBuf::from(file_path_str));
-  }
-
-  fn host_format(mut env: FunctionEnvMut<ImportObjectEnvironmentV4>) -> u32 {
-    let env = env.data_mut();
-    let override_config = env.override_config.take().unwrap_or_default();
-    let file_path = env.file_path.take().expect("Expected to have file path.");
-    let file_bytes = env.take_shared_bytes();
     let request = HostFormatRequest {
       file_path,
       file_bytes,
@@ -278,8 +279,6 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
       "dprint" => {
         "host_read_buffer" => Function::new_typed_with_env(store, &env, host_read_buffer),
         "host_write_buffer" => Function::new_typed_with_env(store, &env, host_write_buffer),
-        "host_take_override_config" => Function::new_typed_with_env(store, &env, host_take_override_config),
-        "host_take_file_path" => Function::new_typed_with_env(store, &env, host_take_file_path),
         "host_format" => Function::new_typed_with_env(store, &env, host_format),
         "host_get_formatted_text" => Function::new_typed_with_env(store, &env, host_get_formatted_text),
         "host_get_error_text" => Function::new_typed_with_env(store, &env, host_get_error_text),

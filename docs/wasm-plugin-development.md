@@ -171,9 +171,7 @@ Low level communication:
 
 High level functions:
 
-- `host_take_file_path()` - Tell the host to take the file path from its local byte array.
-- `host_take_override_config()` - Tell the host to take the override configuration from its local byte array.
-- `host_format() -> i32` - Tell the host to format using the file text in its local byte array.
+- `host_format(file_path_ptr: i32, file_path_len: i32, override_cfg_ptr: i32, override_cfg_len: i32, file_bytes_ptr: i32, file_bytes_len: i32) -> i32` - Tell the host to format using the file text in its local byte array.
   - Returns `0` for no change (do nothing else, no transfer needed)
   - `1` for change (use `host_get_formatted_text()`)
   - `2` for error (use `host_get_error_text()`)

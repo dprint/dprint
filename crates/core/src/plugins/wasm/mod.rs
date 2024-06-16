@@ -112,34 +112,44 @@ pub mod macros {
 
       fn format_with_host(
         file_path: &std::path::Path,
-        file_bytes: Vec<u8>,
+        file_bytes: &[u8],
         override_config: &dprint_core::configuration::ConfigKeyMap,
       ) -> anyhow::Result<Option<Vec<u8>>> {
+        use std::borrow::Cow;
+
         #[link(wasm_import_module = "dprint")]
         extern "C" {
           fn host_read_buffer(pointer: u32, length: u32);
           fn host_write_buffer(pointer: u32);
-          fn host_take_file_path();
-          fn host_take_override_config();
-          fn host_format() -> u8;
+          fn host_format(
+            file_path_ptr: *const u8,
+            file_path_len: u32,
+            override_config_ptr: *const u8,
+            override_config_len: u32,
+            file_text_ptr: *const u8,
+            file_text_len: u32,
+          ) -> u8;
           fn host_get_formatted_text() -> u32;
           fn host_get_error_text() -> u32;
         }
 
-        if !override_config.is_empty() {
-          send_string_to_host(serde_json::to_string(override_config).unwrap());
-          unsafe {
-            host_take_override_config();
-          }
-        }
+        let file_path = file_path.to_string_lossy();
+        let override_config = if !override_config.is_empty() {
+          Cow::Owned(serde_json::to_string(override_config).unwrap())
+        } else {
+          Cow::Borrowed("")
+        };
 
-        send_string_to_host(file_path.to_string_lossy().to_string());
-        unsafe {
-          host_take_file_path();
-        }
-        send_bytes_to_host(file_bytes);
-
-        return match unsafe { host_format() } {
+        return match unsafe {
+          host_format(
+            file_path.as_ptr(),
+            file_path.len() as u32,
+            override_config.as_ptr(),
+            override_config.len() as u32,
+            file_bytes.as_ptr(),
+            file_bytes.len() as u32,
+          )
+        } {
           0 => {
             // no change
             Ok(None)
