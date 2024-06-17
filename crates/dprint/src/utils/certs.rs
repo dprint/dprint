@@ -5,6 +5,8 @@ use rustls::pki_types::CertificateDer;
 use rustls::RootCertStore;
 use thiserror::Error;
 
+use super::Logger;
+
 /// Much of this code lifted and adapted from https://github.com/denoland/deno/blob/5de30c53239ac74843725d981afc0bb8c45bdf16/cli/args/mod.rs#L600
 /// Copyright the Deno authors. MIT License.
 
@@ -19,11 +21,12 @@ pub enum RootCertStoreLoadError {
 }
 
 pub fn get_root_cert_store(
+  logger: &Logger,
   read_env_var: &impl Fn(&str) -> Option<String>,
   read_file_bytes: &impl Fn(&str) -> Result<Vec<u8>, std::io::Error>,
 ) -> Result<RootCertStore, RootCertStoreLoadError> {
   let cert_info = load_cert_info(read_env_var, read_file_bytes)?;
-  Ok(create_root_cert_store(cert_info))
+  Ok(create_root_cert_store(logger, cert_info))
 }
 
 struct CertInfo {
@@ -47,11 +50,11 @@ fn load_cert_info(
   })
 }
 
-fn create_root_cert_store(info: CertInfo) -> RootCertStore {
+fn create_root_cert_store(logger: &Logger, info: CertInfo) -> RootCertStore {
   let mut root_cert_store = RootCertStore::empty();
 
   for store in info.ca_stores {
-    load_store(store, &mut root_cert_store);
+    load_store(logger, store, &mut root_cert_store);
   }
 
   if let Some(ca_file) = info.ca_file {
@@ -67,17 +70,23 @@ enum CaStore {
   Mozilla,
 }
 
-fn load_store(store: CaStore, root_cert_store: &mut RootCertStore) {
+fn load_store(logger: &Logger, store: CaStore, root_cert_store: &mut RootCertStore) {
   match store {
     CaStore::Mozilla => {
       root_cert_store.roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     }
-    CaStore::System => {
-      let roots = rustls_native_certs::load_native_certs().expect("could not load platform certs");
-      for root in roots {
-        root_cert_store.add(root).expect("Failed to add platform cert to root cert store");
+    CaStore::System => match rustls_native_certs::load_native_certs() {
+      Ok(roots) => {
+        for root in roots {
+          if let Err(err) = root_cert_store.add(root) {
+            log_debug!(logger, "Failed to add platform cert to root cert store. {:#}", err);
+          }
+        }
       }
-    }
+      Err(err) => {
+        log_warn!(logger, "Could not load platform certs. {:#}", err);
+      }
+    },
   }
 }
 
