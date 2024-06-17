@@ -52,15 +52,12 @@ const rootDir = currentDir.parentOrThrow().parentOrThrow();
 const outputDir = currentDir.join("./dist");
 const scopeDir = outputDir.join("@dprint");
 const dprintDir = outputDir.join("dprint");
+const version = resolveVersion();
+
+$.logStep(`Publishing ${version}...`);
 
 await $`rm -rf ${outputDir}`;
 await $`mkdir -p ${dprintDir} ${scopeDir}`;
-
-const version = Deno.args[0];
-
-if (version == null) {
-  throw new Error("Please provide a version as the first argument.");
-}
 
 // setup dprint packages
 {
@@ -184,6 +181,10 @@ if (Deno.args.includes("--publish")) {
   for (const pkg of packages) {
     const pkgName = getPackageNameNoScope(pkg);
     $.logStep(`Publishing @dprint/${pkgName}...`);
+    if (await checkPackagePublished(`@dprint/${pkgName}`)) {
+      $.logLight("  Already published.");
+      continue;
+    }
     const pkgDir = scopeDir.join(pkgName);
     await $`cd ${pkgDir} && npm publish --access public`;
   }
@@ -195,4 +196,17 @@ if (Deno.args.includes("--publish")) {
 function getPackageNameNoScope(name: Package) {
   const libc = name.libc == null ? "" : `-${name.libc}`;
   return `${name.os}-${name.cpu}${libc}`;
+}
+
+function resolveVersion() {
+  const version = (rootDir.join("crates/dprint/Cargo.toml").readTextSync().match(/version = "(.*?)"/))?.[1];
+  if (version == null) {
+    throw new Error("Could not resolve version.");
+  }
+  return version;
+}
+
+async function checkPackagePublished(pkgName: string) {
+  const result = await $`npm info ${pkgName}@${version}`.quiet().noThrow();
+  return result.code === 0;
 }
