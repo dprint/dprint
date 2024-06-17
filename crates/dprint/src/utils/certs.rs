@@ -79,12 +79,12 @@ fn load_store(logger: &Logger, store: CaStore, root_cert_store: &mut RootCertSto
       Ok(roots) => {
         for root in roots {
           if let Err(err) = root_cert_store.add(root) {
-            log_debug!(logger, "Failed to add platform cert to root cert store. {:#}", err);
+            log_debug!(logger, "Failed to add native cert to root cert store. {:#}", err);
           }
         }
       }
       Err(err) => {
-        log_warn!(logger, "Could not load platform certs. {:#}", err);
+        log_warn!(logger, "Failed loading native certs. {:#}", err);
       }
     },
   }
