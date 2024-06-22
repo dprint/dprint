@@ -39,7 +39,7 @@ impl RealUrlDownloader {
       bail!("Not implemented url scheme: {}", url);
     };
     // this is expensive, but we're already in a blocking task here
-    let agent = agent.get_or_try_init(|| build_agent(kind))?;
+    let agent = agent.get_or_try_init(|| build_agent(kind, &self.logger))?;
     self.download_with_retries(url, agent)
   }
 
@@ -109,11 +109,11 @@ enum AgentKind {
   Https,
 }
 
-fn build_agent(kind: AgentKind) -> Result<ureq::Agent> {
+fn build_agent(kind: AgentKind, logger: &Logger) -> Result<ureq::Agent> {
   let mut agent = ureq::AgentBuilder::new();
   if kind == AgentKind::Https {
     #[allow(clippy::disallowed_methods)]
-    let root_store = get_root_cert_store(&|env_var| std::env::var(env_var).ok(), &|file_path| std::fs::read(file_path))?;
+    let root_store = get_root_cert_store(logger, &|env_var| std::env::var(env_var).ok(), &|file_path| std::fs::read(file_path))?;
     let config = rustls::ClientConfig::builder().with_root_certificates(root_store).with_no_client_auth();
     agent = agent.tls_config(Arc::new(config));
   }
