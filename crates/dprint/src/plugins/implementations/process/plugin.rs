@@ -137,7 +137,7 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
   }
 
   async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
-    self.communicator.check_config_updates(message).await
+    self.communicator.check_config_updates(&message).await
   }
 
   async fn format_text(&self, request: InitializedPluginFormatRequest) -> FormatResult {

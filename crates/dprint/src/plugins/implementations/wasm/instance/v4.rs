@@ -9,7 +9,10 @@ use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
+use dprint_core::plugins::wasm::JsonResponse;
 use dprint_core::plugins::CancellationToken;
+use dprint_core::plugins::CheckConfigUpdatesMessage;
+use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
@@ -410,6 +413,18 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
     self.receive_string(len)
   }
 
+  fn check_config_updates(&mut self, message: &CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+    let bytes = serde_json::to_vec(&message)?;
+    self.send_bytes(&bytes)?;
+    let len = self.wasm_functions.check_config_updates()?;
+    let bytes = self.receive_bytes(len)?;
+    let result: JsonResponse = serde_json::from_slice(&bytes)?;
+    match result {
+      JsonResponse::Ok(value) => Ok(serde_json::from_value(value)?),
+      JsonResponse::Err(err) => Err(anyhow!("{}", err)),
+    }
+  }
+
   fn resolved_config(&mut self, config: &FormatConfig) -> Result<String> {
     self.ensure_config(config)?;
     let len = self.wasm_functions.get_resolved_config(config.id)?;
@@ -468,20 +483,29 @@ impl WasmFunctions {
 
   #[inline]
   pub fn get_plugin_info(&mut self) -> Result<usize> {
-    let get_plugin_info_func = self.get_export::<(), u32>("get_plugin_info")?;
-    Ok(get_plugin_info_func.call(&mut self.store).map(|value| value as usize)?)
+    let func = self.get_export::<(), u32>("get_plugin_info")?;
+    Ok(func.call(&mut self.store).map(|value| value as usize)?)
   }
 
   #[inline]
   pub fn get_license_text(&mut self) -> Result<usize> {
-    let get_license_text_func = self.get_export::<(), u32>("get_license_text")?;
-    Ok(get_license_text_func.call(&mut self.store).map(|value| value as usize)?)
+    let func = self.get_export::<(), u32>("get_license_text")?;
+    Ok(func.call(&mut self.store).map(|value| value as usize)?)
+  }
+
+  #[inline]
+  pub fn check_config_updates(&mut self) -> Result<usize> {
+    if self.instance.get_function("check_config_updates").is_err() {
+      return Ok(0); // ignore, the plugin doesn't have this defined
+    }
+    let func = self.get_export::<(), u32>("check_config_updates")?;
+    Ok(func.call(&mut self.store).map(|value| value as usize)?)
   }
 
   #[inline]
   pub fn get_resolved_config(&mut self, config_id: FormatConfigId) -> Result<usize> {
-    let get_resolved_config_func = self.get_export::<u32, u32>("get_resolved_config")?;
-    Ok(get_resolved_config_func.call(&mut self.store, config_id.as_raw()).map(|value| value as usize)?)
+    let func = self.get_export::<u32, u32>("get_resolved_config")?;
+    Ok(func.call(&mut self.store, config_id.as_raw()).map(|value| value as usize)?)
   }
 
   #[inline]
@@ -504,26 +528,26 @@ impl WasmFunctions {
 
   #[inline]
   pub fn set_file_path(&mut self) -> Result<()> {
-    let set_file_path_func = self.get_export::<(), ()>("set_file_path")?;
-    Ok(set_file_path_func.call(&mut self.store)?)
+    let func = self.get_export::<(), ()>("set_file_path")?;
+    Ok(func.call(&mut self.store)?)
   }
 
   #[inline]
   pub fn format(&mut self, config_id: FormatConfigId) -> Result<WasmFormatResult> {
-    let format_func = self.get_export::<u32, u8>("format")?;
-    Ok(format_func.call(&mut self.store, config_id.as_raw()).map(u8_to_format_result)?)
+    let func = self.get_export::<u32, u8>("format")?;
+    Ok(func.call(&mut self.store, config_id.as_raw()).map(u8_to_format_result)?)
   }
 
   #[inline]
   pub fn get_formatted_text(&mut self) -> Result<usize> {
-    let get_formatted_text_func = self.get_export::<(), u32>("get_formatted_text")?;
-    Ok(get_formatted_text_func.call(&mut self.store).map(|value| value as usize)?)
+    let func = self.get_export::<(), u32>("get_formatted_text")?;
+    Ok(func.call(&mut self.store).map(|value| value as usize)?)
   }
 
   #[inline]
   pub fn get_error_text(&mut self) -> Result<usize> {
-    let get_error_text_func = self.get_export::<(), u32>("get_error_text")?;
-    Ok(get_error_text_func.call(&mut self.store).map(|value| value as usize)?)
+    let func = self.get_export::<(), u32>("get_error_text")?;
+    Ok(func.call(&mut self.store).map(|value| value as usize)?)
   }
 
   #[inline]

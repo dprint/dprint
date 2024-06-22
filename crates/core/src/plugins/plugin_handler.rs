@@ -231,9 +231,7 @@ pub trait SyncPluginHandler<TConfiguration: Clone + serde::Serialize> {
   fn license_text(&mut self) -> String;
   /// Updates the config key map. This will be called after the CLI has upgraded the
   /// plugin in `dprint config update`.
-  fn check_config_updates(&self, _message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
-    Ok(Vec::new())
-  }
+  fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>>;
   /// Formats the provided file text based on the provided file path and configuration.
   fn format(
     &mut self,

@@ -9,6 +9,8 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::CancellationToken;
+use dprint_core::plugins::CheckConfigUpdatesMessage;
+use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
@@ -414,6 +416,10 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV3 {
   fn license_text(&mut self) -> Result<String> {
     let len = self.wasm_functions.get_license_text()?;
     self.receive_string(len)
+  }
+
+  fn check_config_updates(&mut self, _message: &CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+    Ok(Vec::new())
   }
 
   fn resolved_config(&mut self, config: &FormatConfig) -> Result<String> {

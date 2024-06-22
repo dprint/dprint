@@ -129,17 +129,17 @@ If you are not using `Rust`, then you must implement a lot of low level function
 Low level communication:
 
 - `get_shared_bytes_ptr() -> *const u8` - Called to get a pointer to the shared Wasm memory buffer.
-- `clear_shared_bytes(size: i32) -> *const u8` - Called to get the plugin to clear its shared byte array and return a pointer to it.
+- `clear_shared_bytes(size: u32) -> *const u8` - Called to get the plugin to clear its shared byte array and return a pointer to it.
 
 Initialization functions:
 
-- `dprint_plugin_version_4() -> i32` - Return `4`, but the CLI never calls this function (it only checks for it in the exports)
-- `register_config(config_id: i32)` - Called when the plugin and global configuration is done transferring over. Store it somewhere.
-- `release_config(config_id: i32)` - Release the config from memory.
-- `get_config_diagnostics(config_id: i32) -> i32` - Called by the CLI to get the configuration diagnostics. Serialize the diagnostics as a JSON string, store it in the local bytes, and return the byte length.
-- `get_resolved_config(config_id: i32) -> i32` - Called by the CLI to get the resolved configuration for display in the CLI. Serialize it as a JSON string, store it in the local bytes, and return the byte length.
-- `get_license_text() -> i32` - Store the plugin's license text in the local bytes and return the byte length.
-- `get_plugin_info() -> i32` - Store the plugin's JSON serialized information in the local bytes and return the byte length. The plugin info is a JSON object with the following properties:
+- `dprint_plugin_version_4() -> u32` - Return `4`, but the CLI never calls this function (it only checks for it in the exports)
+- `register_config(config_id: u32)` - Called when the plugin and global configuration is done transferring over. Store it somewhere.
+- `release_config(config_id: u32)` - Release the config from memory.
+- `get_config_diagnostics(config_id: u32) -> u32` - Called by the CLI to get the configuration diagnostics. Serialize the diagnostics as a JSON string, store it in the local bytes, and return the byte length.
+- `get_resolved_config(config_id: u32) -> u32` - Called by the CLI to get the resolved configuration for display in the CLI. Serialize it as a JSON string, store it in the local bytes, and return the byte length.
+- `get_license_text() -> u32` - Store the plugin's license text in the local bytes and return the byte length.
+- `get_plugin_info() -> u32` - Store the plugin's JSON serialized information in the local bytes and return the byte length. The plugin info is a JSON object with the following properties:
   - `name` - String saying the plugin name.
   - `version` - Version of the plugin (ex. `"0.1.0"`)
   - `configKey` - Configuration key to use for this plugin in the dprint configuration file.
@@ -151,16 +151,18 @@ Formatting functions:
 
 - `set_file_path()` - Called by the CLI for the plugin to take from its local byte array and store that data as the file path.
 - `set_override_config()` - Possibly called by the CLI for the plugin to take from its local byte array and store that data as the format specific configuration.
-- `format(config_id: i32) -> i32`
+- `format(config_id: u32) -> u32`
   - Return `0` when there's no change.
   - `1` when there's a change.
   - `2` when there's an error.
-- `get_formatted_text() -> i32` - Plugin should put the formatted text into its local byte array and return the size of that data.
-- `get_error_text() -> i32` - Plugin should put the error text into its local byte array and return the size of that data.
+- `get_formatted_text() -> u32` - Plugin should put the formatted text into its local byte array and return the size of that data.
+- `get_error_text() -> u32` - Plugin should put the error text into its local byte array and return the size of that data.
 
 Optional functions:
 
-- ``
+- `check_config_updates() -> u32` - Set the shared bytes with the input. Returns the length of the output which can be read from the shared bytes.
+  - Input: todo...
+  - Output: todo...
 
 ### Wasm Imports
 
@@ -170,17 +172,17 @@ Communication is done by using a shared Wasm buffer. Essentially, the plugin sto
 
 Low level communication:
 
-- `host_read_buffer(pointer: i32, length: i32)` - Tell the host to read from provided Wasm memory address and store it in its local byte array.
-- `host_write_buffer(pointer: i32)` - Tell the host to write data to the provided Wasm memory address.
+- `host_read_buffer(pointer: u32, length: u32)` - Tell the host to read from provided Wasm memory address and store it in its local byte array.
+- `host_write_buffer(pointer: u32)` - Tell the host to write data to the provided Wasm memory address.
 
 High level functions:
 
-- `host_format(file_path_ptr: i32, file_path_len: i32, override_cfg_ptr: i32, override_cfg_len: i32, file_bytes_ptr: i32, file_bytes_len: i32) -> i32` - Tell the host to format using the file text in its local byte array.
+- `host_format(file_path_ptr: u32, file_path_len: u32, override_cfg_ptr: u32, override_cfg_len: u32, file_bytes_ptr: u32, file_bytes_len: u32) -> u32` - Tell the host to format using the file text in its local byte array.
   - Returns `0` for no change (do nothing else, no transfer needed)
   - `1` for change (use `host_get_formatted_text()`)
   - `2` for error (use `host_get_error_text()`)
-- `host_get_formatted_text() -> i32` - Tell the host to store the formatted text in its local byte array and return back the byte length of that text.
-- `host_get_error_text() -> i32` - Tell the host to store the error text in its local byte array and return back the byte length of that error message.
-- `host_has_cancelled() -> i32` - Check if the host has cancelled the formatting request (`1`) or not (`0`).
+- `host_get_formatted_text() -> u32` - Tell the host to store the formatted text in its local byte array and return back the byte length of that text.
+- `host_get_error_text() -> u32` - Tell the host to store the error text in its local byte array and return back the byte length of that error message.
+- `host_has_cancelled() -> u32` - Check if the host has cancelled the formatting request (`1`) or not (`0`).
 
 I recommend looking in the [`dprint-core` wasm module](https://github.com/dprint/dprint/blob/main/crates/core/src/plugins/wasm/mod.rs) for how to use these.

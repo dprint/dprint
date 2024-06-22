@@ -16,7 +16,7 @@ async_runtime = ["async-trait", "futures", "parking_lot", "tokio", "tokio-util"]
 formatting = ["bumpalo", "hashbrown", "rustc-hash", "unicode-width"]
 communication = ["crossbeam-channel", "async_runtime"]
 process = ["communication", "serde_json", "libc", "winapi"]
-wasm = []
+wasm = ["serde_json"]
 tracing = ["formatting"]
 
 [dependencies]

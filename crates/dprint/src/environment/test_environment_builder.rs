@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
@@ -7,6 +8,7 @@ use super::Environment;
 use super::TestEnvironment;
 use crate::test_helpers;
 use crate::test_helpers::TestProcessPluginFile;
+use crate::test_helpers::WASM_PLUGIN_0_1_0_BYTES;
 use crate::utils::get_sha256_checksum;
 
 pub struct TestConfigFileBuilder {
@@ -15,7 +17,7 @@ pub struct TestConfigFileBuilder {
   includes: Option<Vec<String>>,
   excludes: Option<Vec<String>>,
   plugins: Option<Vec<String>>,
-  sections: HashMap<String, String>,
+  sections: IndexMap<String, String>,
 }
 
 impl TestConfigFileBuilder {
@@ -26,7 +28,7 @@ impl TestConfigFileBuilder {
       includes: None,
       excludes: None,
       plugins: None,
-      sections: HashMap::new(),
+      sections: Default::default(),
     }
   }
 
@@ -72,6 +74,18 @@ impl TestConfigFileBuilder {
 
   pub fn add_remote_wasm_plugin_with_checksum(&mut self, checksum: &str) -> &mut Self {
     self.add_plugin(&format!("https://plugins.dprint.dev/test-plugin.wasm@{}", checksum))
+  }
+
+  /// This is a v3 old Wasm plugin.
+  pub fn add_remote_wasm_plugin_0_1_0(&mut self) -> &mut Self {
+    self.add_plugin("https://plugins.dprint.dev/test-plugin-0.1.0.wasm")
+  }
+
+  pub fn add_remote_wasm_plugin_0_1_0_with_checksum(&mut self) -> &mut Self {
+    self.add_plugin(&format!(
+      "https://plugins.dprint.dev/test-plugin-0.1.0.wasm@{}",
+      &crate::utils::get_sha256_checksum(&WASM_PLUGIN_0_1_0_BYTES)
+    ))
   }
 
   pub fn add_config_section(&mut self, name: &str, text: &str) -> &mut Self {
@@ -251,6 +265,13 @@ impl TestEnvironmentBuilder {
 
   pub fn add_remote_wasm_plugin(&mut self) -> &mut Self {
     self.add_remote_wasm_plugin_at_url("https://plugins.dprint.dev/test-plugin.wasm");
+    self
+  }
+
+  pub fn add_remote_wasm_0_1_0_plugin(&mut self) -> &mut Self {
+    self
+      .environment
+      .add_remote_file("https://plugins.dprint.dev/test-plugin-0.1.0.wasm", test_helpers::WASM_PLUGIN_0_1_0_BYTES);
     self
   }
 

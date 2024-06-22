@@ -84,7 +84,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     self.get_inner_ensure_config(config).await?.config_diagnostics(config.id).await
   }
 
-  pub async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+  pub async fn check_config_updates(&self, message: &CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
     self.get_inner().await.check_config_updates(message).await
   }
 

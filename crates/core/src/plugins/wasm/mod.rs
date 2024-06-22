@@ -7,6 +7,15 @@ extern "C" {
   fn fd_write(fd: i32, iovs: *const crate::plugins::wasm::Iovec, iovs_len: i32, nwritten: *mut i32) -> i32;
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", content = "data")]
+pub enum JsonResponse {
+  #[serde(rename = "ok")]
+  Ok(serde_json::Value),
+  #[serde(rename = "err")]
+  Err(String),
+}
+
 pub struct WasiPrintFd(pub i32);
 
 impl std::io::Write for WasiPrintFd {
@@ -15,7 +24,7 @@ impl std::io::Write for WasiPrintFd {
     {
       let iovec = Iovec {
         buf: buf.as_ptr(),
-        buf_len: buf.len(),
+        buf_len: buf.len() as u32,
       };
       let mut nwritten: i32 = 0;
       let result = unsafe { fd_write(self.0, &iovec, 1, &mut nwritten) };
@@ -45,7 +54,7 @@ impl std::io::Write for WasiPrintFd {
 #[repr(C)]
 pub struct Iovec {
   pub buf: *const u8,
-  pub buf_len: usize,
+  pub buf_len: u32,
 }
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
@@ -369,6 +378,23 @@ pub mod macros {
           UNRESOLVED_CONFIG.get().remove(&config_id);
           RESOLVE_CONFIGURATION_RESULT.get().remove(&config_id);
         }
+      }
+
+      #[no_mangle]
+      pub fn check_config_updates() -> usize {
+        fn try_check_config_updates(bytes: &[u8]) -> anyhow::Result<serde_json::Value> {
+          let message: dprint_core::plugins::CheckConfigUpdatesMessage = serde_json::from_slice(&bytes)?;
+          let result = unsafe { WASM_PLUGIN.get().check_config_updates(message) }?;
+          Ok(serde_json::to_value(&result)?)
+        }
+
+        let bytes = take_from_shared_bytes();
+        let bytes = serde_json::to_vec(&match try_check_config_updates(&bytes) {
+          Ok(value) => dprint_core::plugins::wasm::JsonResponse::Ok(value),
+          Err(err) => dprint_core::plugins::wasm::JsonResponse::Err(err.to_string()),
+        })
+        .unwrap();
+        set_shared_bytes(bytes)
       }
 
       // LOW LEVEL SENDING AND RECEIVING

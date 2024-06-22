@@ -309,8 +309,6 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
         .iter()
         .find(|info| info.name == plugin.info().name && info.new_version == plugin.info().version)
       else {
-        eprintln!("{:#?}", updated_plugins);
-        eprintln!("{} {}", plugin.info().name, plugin.info().version);
         continue;
       };
       log_debug!(environment, "Updating for {}", plugin.name());
@@ -504,7 +502,6 @@ mod test {
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
   use crate::environment::TestInfoFilePlugin;
-  use crate::test_helpers;
   use crate::test_helpers::get_test_wasm_plugin_checksum;
   use crate::test_helpers::run_test_cli;
   use crate::test_helpers::TestProcessPluginFile;
@@ -627,8 +624,8 @@ mod test {
 
   #[test]
   fn config_add() {
-    let old_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
-    let new_wasm_url = "https://plugins.dprint.dev/test-plugin-2.wasm".to_string();
+    let old_wasm_url = "https://plugins.dprint.dev/test-plugin-0.1.0.wasm".to_string();
+    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
     let old_ps_checksum = OLD_PROCESS_PLUGIN_FILE.checksum();
     let old_ps_url = format!("https://plugins.dprint.dev/test-process.json@{}", old_ps_checksum);
     let new_ps_url = "https://plugins.dprint.dev/test-plugin-3.json".to_string();
@@ -815,7 +812,7 @@ mod test {
 
   #[test]
   fn config_update_should_always_upgrade_to_latest_plugins() {
-    let new_wasm_url = "https://plugins.dprint.dev/test-plugin-2.wasm".to_string();
+    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
     // test all the process plugin combinations
     let new_ps_url = "https://plugins.dprint.dev/test-plugin-3.json".to_string();
     let new_ps_url_with_checksum = format!("{}@{}", new_ps_url, NEW_PROCESS_PLUGIN_FILE.checksum());
@@ -877,7 +874,7 @@ mod test {
       expected_logs: vec![
         "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
         "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
-        "Compiling https://plugins.dprint.dev/test-plugin-2.wasm".to_string(),
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string(),
         "Extracting zip for test-process-plugin".to_string(),
       ],
       expected_urls: vec![new_wasm_url.clone(), new_ps_url_with_checksum.clone()],
@@ -889,10 +886,10 @@ mod test {
 
   #[test]
   fn config_update_should_upgrade_to_latest_plugins() {
-    let new_wasm_url = "https://plugins.dprint.dev/test-plugin-2.wasm".to_string();
+    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
     let new_wasm_url_with_checksum = format!("{}@{}", new_wasm_url, get_test_wasm_plugin_checksum());
     let updating_message = "Updating test-plugin 0.1.0 to 0.2.0...".to_string();
-    let compiling_message = "Compiling https://plugins.dprint.dev/test-plugin-2.wasm".to_string();
+    let compiling_message = "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string();
 
     // test all the wasm combinations
     test_update(TestUpdateOptions {
@@ -1019,7 +1016,7 @@ mod test {
         "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url_with_checksum),
         "Do you want to update it? N".to_string(),
-        "Compiling https://plugins.dprint.dev/test-plugin-2.wasm".to_string(),
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string(),
       ],
       expected_urls: vec![new_wasm_url.clone(), old_ps_url.clone()],
       always_update: false,
@@ -1048,14 +1045,33 @@ mod test {
   "should_set_past_version": "",
 }"#,
       );
-    });
-    builder.with_local_config("/sub_folder/dprint.json", |config| {
-      config.add_remote_process_plugin().add_config_section(
-        "testProcessPlugin",
+      config.add_config_section(
+        "test-plugin",
         r#"{
-  "should_set": "asdf"
+  "should_add": {
+  },
+  "should_set": "other",
+  "should_remove": {},
+  "should_set_past_version": "",
 }"#,
       );
+    });
+    builder.with_local_config("/sub_folder/dprint.json", |config| {
+      config
+        .add_remote_process_plugin()
+        .add_remote_wasm_plugin_0_1_0()
+        .add_config_section(
+          "testProcessPlugin",
+          r#"{
+  "should_set": "asdf"
+}"#,
+        )
+        .add_config_section(
+          "test-plugin",
+          r#"{
+  "should_set": "asdf"
+}"#,
+        );
     });
     let environment = builder.initialize().build();
     run_test_cli(vec!["config", "update", "--yes"], &environment).unwrap();
@@ -1065,7 +1081,8 @@ mod test {
         "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
         "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
         "Updating test-process-plugin 0.1.0 in /sub_folder/dprint.json to 0.3.0...".to_string(),
-        "Compiling https://plugins.dprint.dev/test-plugin-2.wasm".to_string(),
+        "Updating test-plugin 0.1.0 in /sub_folder/dprint.json to 0.2.0...".to_string(),
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string(),
         "Extracting zip for test-process-plugin".to_string()
       ]
     );
@@ -1084,8 +1101,19 @@ mod test {
       "new_prop": "new_value"
     }},
   }},
+  "test-plugin": {{
+    "should_add": "new_value_wasm",
+    "should_set": "new_value_wasm",
+    "should_set_past_version": "0.1.0",
+    "new_prop1": [
+      "new_value_wasm"
+    ],
+    "new_prop2": {{
+      "new_prop": "new_value_wasm"
+    }},
+  }},
   "plugins": [
-    "https://plugins.dprint.dev/test-plugin-2.wasm",
+    "https://plugins.dprint.dev/test-plugin.wasm",
     "https://plugins.dprint.dev/test-plugin-3.json@{}"
   ]
 }}"#,
@@ -1099,8 +1127,12 @@ mod test {
   "testProcessPlugin": {{
     "should_set": "new_value"
   }},
+  "test-plugin": {{
+    "should_set": "new_value_wasm"
+  }},
   "plugins": [
-    "https://plugins.dprint.dev/test-plugin-3.json@{}"
+    "https://plugins.dprint.dev/test-plugin-3.json@{}",
+    "https://plugins.dprint.dev/test-plugin.wasm"
   ]
 }}"#,
         NEW_PROCESS_PLUGIN_FILE.checksum()
@@ -1184,12 +1216,11 @@ mod test {
   }
 
   fn get_setup_builder(opts: SetupEnvOptions) -> TestEnvironmentBuilder {
-    let actual_wasm_plugin_checksum = test_helpers::get_test_wasm_plugin_checksum();
     let mut builder = TestEnvironmentBuilder::new();
 
     if opts.config_has_wasm {
       builder.add_remote_wasm_plugin();
-      builder.add_remote_wasm_plugin_at_url("https://plugins.dprint.dev/test-plugin-2.wasm");
+      builder.add_remote_wasm_0_1_0_plugin();
     }
     if opts.config_has_process {
       builder.add_remote_process_plugin();
@@ -1201,7 +1232,7 @@ mod test {
         info.add_plugin(TestInfoFilePlugin {
           name: "test-plugin".to_string(),
           version: "0.2.0".to_string(),
-          url: "https://plugins.dprint.dev/test-plugin-2.wasm".to_string(),
+          url: "https://plugins.dprint.dev/test-plugin.wasm".to_string(),
           config_key: Some("test-plugin".to_string()),
           checksum: if opts.remote_has_wasm_checksum {
             Some(get_test_wasm_plugin_checksum())
@@ -1228,9 +1259,9 @@ mod test {
         config.ensure_plugins_section();
         if opts.config_has_wasm {
           if opts.config_has_wasm_checksum {
-            config.add_remote_wasm_plugin_with_checksum(&actual_wasm_plugin_checksum);
+            config.add_remote_wasm_plugin_0_1_0_with_checksum();
           } else {
-            config.add_remote_wasm_plugin();
+            config.add_remote_wasm_plugin_0_1_0();
           }
         }
         if opts.config_has_process {
@@ -1243,7 +1274,7 @@ mod test {
         "https://plugins.dprint.dev/dprint/test-plugin/latest.json",
         &json!({
           "schemaVersion": 1,
-          "url": "https://plugins.dprint.dev/test-plugin-2.wasm",
+          "url": "https://plugins.dprint.dev/test-plugin.wasm",
           "version": "0.2.0",
           "checksum": if opts.remote_has_wasm_checksum { Some(get_test_wasm_plugin_checksum()) } else { None },
         })
@@ -1274,8 +1305,8 @@ mod test {
         "https://plugins.dprint.dev/dprint/test-plugin/latest.json",
         &json!({
           "schemaVersion": 1,
-          "url": "https://plugins.dprint.dev/test-plugin-2.wasm",
-          "version": "0.1.0"
+          "url": "https://plugins.dprint.dev/test-plugin.wasm",
+          "version": "0.2.0"
         })
         .to_string(),
       )
@@ -1290,9 +1321,10 @@ mod test {
   fn config_update_should_handle_wasm_to_process_plugin() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
+      .add_remote_wasm_0_1_0_plugin()
       .with_info_file(|_| {})
       .with_default_config(|config| {
-        config.add_remote_wasm_plugin();
+        config.add_remote_wasm_plugin_0_1_0();
       })
       .add_remote_file(
         "https://plugins.dprint.dev/dprint/test-plugin/latest.json",

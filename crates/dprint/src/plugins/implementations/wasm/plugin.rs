@@ -91,6 +91,7 @@ type WasmResponseSender<T> = tokio::sync::oneshot::Sender<T>;
 enum WasmPluginMessage {
   LicenseText(WasmResponseSender<Result<String>>),
   ResolvedConfig(Arc<FormatConfig>, WasmResponseSender<Result<String>>),
+  CheckConfigUpdates(Arc<CheckConfigUpdatesMessage>, WasmResponseSender<Result<Vec<ConfigChange>>>),
   FileMatchingInfo(Arc<FormatConfig>, WasmResponseSender<Result<FileMatchingInfo>>),
   ConfigDiagnostics(Arc<FormatConfig>, WasmResponseSender<Result<Vec<ConfigurationDiagnostic>>>),
   FormatRequest(Arc<WasmPluginFormatMessage>, WasmResponseSender<FormatResult>),
@@ -282,6 +283,12 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
                 break; // disconnected
               }
             }
+            WasmPluginMessage::CheckConfigUpdates(message, response) => {
+              let result = instance.check_config_updates(&message);
+              if response.send(result).is_err() {
+                break; // disconnected
+              }
+            }
             WasmPluginMessage::ConfigDiagnostics(config, response) => {
               let result = instance.config_diagnostics(&config);
               if response.send(result).is_err() {
@@ -390,8 +397,19 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
       .await
   }
 
-  async fn check_config_updates(&self, _message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
-    Ok(Vec::new()) // not supported atm
+  async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+    let message = Arc::new(message);
+    self
+      .with_instance(None, move |plugin_sender| {
+        let message = message.clone();
+        async move {
+          let (tx, rx) = tokio::sync::oneshot::channel();
+          plugin_sender.send(WasmPluginMessage::CheckConfigUpdates(message, tx))?;
+          rx.await?
+        }
+        .boxed_local()
+      })
+      .await
   }
 
   async fn format_text(&self, request: InitializedPluginFormatRequest) -> FormatResult {

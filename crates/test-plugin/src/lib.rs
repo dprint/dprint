@@ -8,6 +8,9 @@ use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::generate_plugin_code;
+use dprint_core::plugins::CheckConfigUpdatesMessage;
+use dprint_core::plugins::ConfigChange;
+use dprint_core::plugins::ConfigChangeKind;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
@@ -86,6 +89,48 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
 
   fn license_text(&mut self) -> String {
     std::str::from_utf8(include_bytes!("../LICENSE")).unwrap().into()
+  }
+
+  fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+    let mut changes = Vec::new();
+    if message.config.contains_key("should_add") {
+      changes.extend([
+        ConfigChange {
+          path: vec!["should_add".to_string().into()],
+          kind: ConfigChangeKind::Set(ConfigKeyValue::String("new_value_wasm".to_string())),
+        },
+        ConfigChange {
+          path: vec!["new_prop1".to_string().into()],
+          kind: ConfigChangeKind::Add(ConfigKeyValue::Array(vec![ConfigKeyValue::String("new_value_wasm".to_string())])),
+        },
+        ConfigChange {
+          path: vec!["new_prop2".to_string().into()],
+          kind: ConfigChangeKind::Add(ConfigKeyValue::Object(ConfigKeyMap::from([(
+            "new_prop".to_string(),
+            ConfigKeyValue::String("new_value_wasm".to_string()),
+          )]))),
+        },
+      ]);
+    }
+    if message.config.contains_key("should_set") {
+      changes.push(ConfigChange {
+        path: vec!["should_set".to_string().into()],
+        kind: ConfigChangeKind::Set(ConfigKeyValue::String("new_value_wasm".to_string())),
+      });
+    }
+    if message.config.contains_key("should_remove") {
+      changes.push(ConfigChange {
+        path: vec!["should_remove".to_string().into()],
+        kind: ConfigChangeKind::Remove,
+      });
+    }
+    if message.config.contains_key("should_set_past_version") {
+      changes.push(ConfigChange {
+        path: vec!["should_set_past_version".to_string().into()],
+        kind: ConfigChangeKind::Set(ConfigKeyValue::String(message.old_version.unwrap())),
+      });
+    }
+    Ok(changes)
   }
 
   fn format(
