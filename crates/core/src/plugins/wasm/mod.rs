@@ -119,8 +119,8 @@ pub mod macros {
 
         #[link(wasm_import_module = "dprint")]
         extern "C" {
-          fn host_read_buffer(pointer: u32, length: u32);
-          fn host_write_buffer(pointer: u32);
+          fn host_read_buffer(pointer: *const u8, length: u32);
+          fn host_write_buffer(pointer: *const u8);
           fn host_format(
             file_path_ptr: *const u8,
             file_path_len: u32,
@@ -175,9 +175,9 @@ pub mod macros {
 
         fn send_bytes_to_host(bytes: Vec<u8>) {
           let mut index = 0;
-          let length = set_shared_bytes(bytes);
+          let (ptr, len) = set_shared_bytes(bytes);
           unsafe {
-            host_read_buffer(get_shared_bytes_buffer() as u32, length as u32);
+            host_read_buffer(ptr, len);
           }
         }
 
@@ -185,11 +185,11 @@ pub mod macros {
           String::from_utf8(get_bytes_from_host(length)).unwrap()
         }
 
-        fn get_bytes_from_host(length: u32) -> Vec<u8> {
+        fn get_bytes_from_host(len: u32) -> Vec<u8> {
           let mut index: u32 = 0;
-          clear_shared_bytes(length as usize);
+          let ptr = clear_shared_bytes(len);
           unsafe {
-            host_write_buffer(get_shared_bytes_buffer() as u32);
+            host_write_buffer(ptr);
           }
           take_from_shared_bytes()
         }
@@ -217,7 +217,7 @@ pub mod macros {
       }
 
       #[no_mangle]
-      pub fn format(config_id: u32) -> u8 {
+      pub fn format(config_id: u32) -> (u32, *const u8, u32) {
         #[derive(Debug)]
         struct HostCancellationToken;
 
@@ -239,36 +239,25 @@ pub mod macros {
         let file_path = unsafe { FILE_PATH.get().take().expect("Expected the file path to be set.") };
         let file_bytes = take_from_shared_bytes();
 
-        let formatted_text = unsafe {
+        let formatted_bytes = unsafe {
           WASM_PLUGIN
             .get()
             .format(&file_path, file_bytes, &config, &HostCancellationToken, format_with_host)
         };
-        match formatted_text {
+        match formatted_bytes {
           Ok(None) => {
-            0 // no change
+            (/* no change */ 0, get_shared_bytes_ptr(), 0)
           }
-          Ok(Some(formatted_text)) => {
-            unsafe { FORMATTED_TEXT.get().replace(formatted_text) };
-            1 // change
+          Ok(Some(formatted_bytes)) => {
+            let (ptr, len) = set_shared_bytes(formatted_bytes);
+            (/* change */ 1, ptr, len)
           }
           Err(err_text) => {
-            unsafe { ERROR_TEXT.get().replace(err_text.to_string()) };
-            2 // error
+            let bytes = err_text.to_string().into_bytes();
+            let (ptr, len) = set_shared_bytes(bytes);
+            (/* error */ 2, ptr, len)
           }
         }
-      }
-
-      #[no_mangle]
-      pub fn get_formatted_text() -> usize {
-        let formatted_text = unsafe { FORMATTED_TEXT.get().take().expect("Expected to have formatted text.") };
-        set_shared_bytes(formatted_text)
-      }
-
-      #[no_mangle]
-      pub fn get_error_text() -> usize {
-        let error_text = unsafe { ERROR_TEXT.get().take().expect("Expected to have error text.") };
-        set_shared_bytes_str(error_text)
       }
 
       // INFORMATION & CONFIGURATION
@@ -278,7 +267,7 @@ pub mod macros {
       > = RefStaticCell::new();
 
       #[no_mangle]
-      pub fn get_plugin_info() -> usize {
+      pub fn get_plugin_info() -> (*const u8, u32) {
         use dprint_core::plugins::PluginInfo;
         let plugin_info = unsafe { WASM_PLUGIN.get().plugin_info() };
         let info_json = serde_json::to_string(&plugin_info).unwrap();
@@ -286,26 +275,26 @@ pub mod macros {
       }
 
       #[no_mangle]
-      pub fn get_license_text() -> usize {
+      pub fn get_license_text() -> (*const u8, u32) {
         set_shared_bytes_str(unsafe { WASM_PLUGIN.get().license_text() })
       }
 
       #[no_mangle]
-      pub fn get_resolved_config(config_id: u32) -> usize {
+      pub fn get_resolved_config(config_id: u32) -> (*const u8, u32) {
         let config_id = dprint_core::plugins::FormatConfigId::from_raw(config_id);
         let bytes = serde_json::to_vec(&get_resolved_config_result(config_id).config).unwrap();
         set_shared_bytes(bytes)
       }
 
       #[no_mangle]
-      pub fn get_config_diagnostics(config_id: u32) -> usize {
+      pub fn get_config_diagnostics(config_id: u32) -> (*const u8, u32) {
         let config_id = dprint_core::plugins::FormatConfigId::from_raw(config_id);
         let bytes = serde_json::to_vec(&get_resolved_config_result(config_id).diagnostics).unwrap();
         set_shared_bytes(bytes)
       }
 
       #[no_mangle]
-      pub fn get_config_file_matching(config_id: u32) -> usize {
+      pub fn get_config_file_matching(config_id: u32) -> (*const u8, u32) {
         let config_id = dprint_core::plugins::FormatConfigId::from_raw(config_id);
         let bytes = serde_json::to_vec(&get_resolved_config_result(config_id).file_matching).unwrap();
         set_shared_bytes(bytes)
@@ -381,13 +370,13 @@ pub mod macros {
       }
 
       #[no_mangle]
-      pub fn get_shared_bytes_buffer() -> *const u8 {
-        unsafe { SHARED_BYTES.get().as_ptr() }
+      pub fn clear_shared_bytes(size: u32) -> *const u8 {
+        SHARED_BYTES.replace(vec![0; size as usize]);
+        get_shared_bytes_ptr()
       }
 
-      #[no_mangle]
-      pub fn clear_shared_bytes(size: usize) {
-        SHARED_BYTES.replace(vec![0; size]);
+      fn get_shared_bytes_ptr() -> *const u8 {
+        unsafe { SHARED_BYTES.get().as_ptr() }
       }
 
       fn take_string_from_shared_bytes() -> String {
@@ -398,14 +387,14 @@ pub mod macros {
         SHARED_BYTES.replace(Vec::new())
       }
 
-      fn set_shared_bytes_str(text: String) -> usize {
+      fn set_shared_bytes_str(text: String) -> (*const u8, u32) {
         set_shared_bytes(text.into_bytes())
       }
 
-      fn set_shared_bytes(bytes: Vec<u8>) -> usize {
-        let length = bytes.len();
+      fn set_shared_bytes(bytes: Vec<u8>) -> (*const u8, u32) {
+        let length = bytes.len() as u32;
         SHARED_BYTES.replace(bytes);
-        length
+        (get_shared_bytes_ptr(), length)
       }
     };
   }

@@ -128,8 +128,7 @@ If you are not using `Rust`, then you must implement a lot of low level function
 
 Low level communication:
 
-- `get_shared_bytes_buffer() -> *const u8` - Called to get a pointer to the Wasm memory buffer.
-- `clear_shared_bytes(size: i32)` - Called to get the plugin to clear its local byte array.
+- `clear_shared_bytes(size: i32) -> *const u8` - Called to get the plugin to clear and resize its local byte array and get a pointer to it.
 
 Initialization functions:
 
@@ -157,6 +156,10 @@ Formatting functions:
   - `2` when there's an error.
 - `get_formatted_text() -> i32` - Plugin should put the formatted text into its local byte array and return the size of that data.
 - `get_error_text() -> i32` - Plugin should put the error text into its local byte array and return the size of that data.
+
+Optional functions:
+
+- ``
 
 ### Wasm Imports
 
