@@ -335,17 +335,19 @@ impl InitializedWasmPluginInstanceV4 {
 
     // send file text and format
     self.send_bytes(file_bytes)?;
-    let (response_code, ptr, len) = self.wasm_functions.format(config.id)?;
+    let response_code = self.wasm_functions.format(config.id)?;
 
     // handle the response
     match response_code {
       WasmFormatResult::NoChange => Ok(Ok(None)),
       WasmFormatResult::Change => {
-        let text_bytes = self.wasm_functions.read_bytes_from_ptr(ptr, len)?;
+        let len = self.wasm_functions.get_formatted_text()?;
+        let text_bytes = self.receive_bytes(len)?;
         Ok(Ok(Some(text_bytes)))
       }
       WasmFormatResult::Error => {
-        let text = self.wasm_functions.read_string_from_ptr(ptr, len)?;
+        let len = self.wasm_functions.get_error_text()?;
+        let text = self.receive_string(len)?;
         Ok(Err(anyhow!("{}", text)))
       }
     }
@@ -371,43 +373,67 @@ impl InitializedWasmPluginInstanceV4 {
   }
 
   fn send_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-    let shared_bytes_ptr = self.wasm_functions.clear_shared_bytes(bytes.len())?;
+    self.wasm_functions.clear_shared_bytes(bytes.len())?;
+    self.write_bytes_to_shared_bytes(bytes)?;
+    Ok(())
+  }
+
+  fn write_bytes_to_shared_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+    let shared_bytes_ptr = self.wasm_functions.get_shared_bytes_buffer_ptr()?;
     let memory_view = self.wasm_functions.get_memory_view();
     memory_view.write(shared_bytes_ptr.offset() as u64, bytes)?;
+    Ok(())
+  }
+
+  fn receive_string(&mut self, len: usize) -> Result<String> {
+    let bytes = self.receive_bytes(len)?;
+    Ok(String::from_utf8(bytes)?)
+  }
+
+  fn receive_bytes(&mut self, len: usize) -> Result<Vec<u8>> {
+    let mut bytes: Vec<u8> = vec![0; len];
+    self.read_bytes_from_shared_bytes(&mut bytes)?;
+    Ok(bytes)
+  }
+
+  fn read_bytes_from_shared_bytes(&mut self, bytes: &mut [u8]) -> Result<()> {
+    let wasm_buffer_pointer = self.wasm_functions.get_shared_bytes_buffer_ptr()?;
+    let memory_view = self.wasm_functions.get_memory_view();
+    memory_view.read(wasm_buffer_pointer.offset() as u64, bytes)?;
     Ok(())
   }
 }
 
 impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
   fn plugin_info(&mut self) -> Result<PluginInfo> {
-    let (ptr, len) = self.wasm_functions.get_plugin_info()?;
-    let bytes = self.wasm_functions.read_bytes_from_ptr(ptr, len)?;
-    Ok(serde_json::from_slice(&bytes)?)
+    let len = self.wasm_functions.get_plugin_info()?;
+    let json_bytes = self.receive_bytes(len)?;
+    Ok(serde_json::from_slice(&json_bytes)?)
   }
 
   fn license_text(&mut self) -> Result<String> {
-    let (ptr, len) = self.wasm_functions.get_license_text()?;
-    self.wasm_functions.read_string_from_ptr(ptr, len)
+    let len = self.wasm_functions.get_license_text()?;
+    self.receive_string(len)
   }
 
   fn resolved_config(&mut self, config: &FormatConfig) -> Result<String> {
     self.ensure_config(config)?;
-    let (ptr, len) = self.wasm_functions.get_resolved_config(config.id)?;
-    self.wasm_functions.read_string_from_ptr(ptr, len)
+    let len = self.wasm_functions.get_resolved_config(config.id)?;
+    self.receive_string(len)
   }
 
   fn config_diagnostics(&mut self, config: &FormatConfig) -> Result<Vec<ConfigurationDiagnostic>> {
     self.ensure_config(config)?;
-    let (ptr, len) = self.wasm_functions.get_config_diagnostics(config.id)?;
-    let bytes = self.wasm_functions.read_bytes_from_ptr(ptr, len)?;
-    Ok(serde_json::from_slice(&bytes)?)
+    let len = self.wasm_functions.get_config_diagnostics(config.id)?;
+    let json_text = self.receive_string(len)?;
+    Ok(serde_json::from_str(&json_text)?)
   }
 
   fn file_matching_info(&mut self, config: &FormatConfig) -> Result<FileMatchingInfo> {
     self.ensure_config(config)?;
-    let (ptr, len) = self.wasm_functions.get_config_file_matching(config.id)?;
-    let bytes = self.wasm_functions.read_bytes_from_ptr(ptr, len)?;
-    Ok(serde_json::from_slice(&bytes)?)
+    let len = self.wasm_functions.get_config_file_matching(config.id)?;
+    let json_text = self.receive_string(len)?;
+    Ok(serde_json::from_str(&json_text)?)
   }
 
   fn format_text(
@@ -440,18 +466,6 @@ impl WasmFunctions {
     Ok(WasmFunctions { instance, memory, store })
   }
 
-  pub fn read_string_from_ptr(&mut self, ptr: WasmPtr<u32>, len: u32) -> Result<String> {
-    let bytes = self.read_bytes_from_ptr(ptr, len)?;
-    Ok(String::from_utf8(bytes)?)
-  }
-
-  pub fn read_bytes_from_ptr(&mut self, ptr: WasmPtr<u32>, len: u32) -> Result<Vec<u8>> {
-    let mut bytes: Vec<u8> = vec![0; len as usize];
-    let memory_view = self.get_memory_view();
-    memory_view.read(ptr.offset() as u64, &mut bytes)?;
-    Ok(bytes)
-  }
-
   #[inline]
   pub fn register_config(&mut self, config_id: FormatConfigId) -> Result<()> {
     let func = self.get_export::<u32, ()>("register_config")?;
@@ -459,33 +473,33 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn get_plugin_info(&mut self) -> Result<(WasmPtr<u32>, u32)> {
-    let get_plugin_info_func = self.get_export::<(), (WasmPtr<u32>, u32)>("get_plugin_info")?;
-    Ok(get_plugin_info_func.call(&mut self.store)?)
+  pub fn get_plugin_info(&mut self) -> Result<usize> {
+    let get_plugin_info_func = self.get_export::<(), u32>("get_plugin_info")?;
+    Ok(get_plugin_info_func.call(&mut self.store).map(|value| value as usize)?)
   }
 
   #[inline]
-  pub fn get_license_text(&mut self) -> Result<(WasmPtr<u32>, u32)> {
-    let get_license_text_func = self.get_export::<(), (WasmPtr<u32>, u32)>("get_license_text")?;
-    Ok(get_license_text_func.call(&mut self.store)?)
+  pub fn get_license_text(&mut self) -> Result<usize> {
+    let get_license_text_func = self.get_export::<(), u32>("get_license_text")?;
+    Ok(get_license_text_func.call(&mut self.store).map(|value| value as usize)?)
   }
 
   #[inline]
-  pub fn get_resolved_config(&mut self, config_id: FormatConfigId) -> Result<(WasmPtr<u32>, u32)> {
-    let get_resolved_config_func = self.get_export::<u32, (WasmPtr<u32>, u32)>("get_resolved_config")?;
-    Ok(get_resolved_config_func.call(&mut self.store, config_id.as_raw())?)
+  pub fn get_resolved_config(&mut self, config_id: FormatConfigId) -> Result<usize> {
+    let get_resolved_config_func = self.get_export::<u32, u32>("get_resolved_config")?;
+    Ok(get_resolved_config_func.call(&mut self.store, config_id.as_raw()).map(|value| value as usize)?)
   }
 
   #[inline]
-  pub fn get_config_diagnostics(&mut self, config_id: FormatConfigId) -> Result<(WasmPtr<u32>, u32)> {
-    let func = self.get_export::<u32, (WasmPtr<u32>, u32)>("get_config_diagnostics")?;
-    Ok(func.call(&mut self.store, config_id.as_raw())?)
+  pub fn get_config_diagnostics(&mut self, config_id: FormatConfigId) -> Result<usize> {
+    let func = self.get_export::<u32, u32>("get_config_diagnostics")?;
+    Ok(func.call(&mut self.store, config_id.as_raw()).map(|value| value as usize)?)
   }
 
   #[inline]
-  pub fn get_config_file_matching(&mut self, config_id: FormatConfigId) -> Result<(WasmPtr<u32>, u32)> {
-    let func = self.get_export::<u32, (WasmPtr<u32>, u32)>("get_config_file_matching")?;
-    Ok(func.call(&mut self.store, config_id.as_raw())?)
+  pub fn get_config_file_matching(&mut self, config_id: FormatConfigId) -> Result<usize> {
+    let func = self.get_export::<u32, u32>("get_config_file_matching")?;
+    Ok(func.call(&mut self.store, config_id.as_raw()).map(|value| value as usize)?)
   }
 
   #[inline]
@@ -501,13 +515,21 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn format(&mut self, config_id: FormatConfigId) -> Result<(WasmFormatResult, WasmPtr<u32>, u32)> {
-    let format_func = self.get_export::<u32, (u32, WasmPtr<u32>, u32)>("format")?;
-    Ok(
-      format_func
-        .call(&mut self.store, config_id.as_raw())
-        .map(|(value, ptr, len)| (int_to_format_result(value), ptr, len))?,
-    )
+  pub fn format(&mut self, config_id: FormatConfigId) -> Result<WasmFormatResult> {
+    let format_func = self.get_export::<u32, u8>("format")?;
+    Ok(format_func.call(&mut self.store, config_id.as_raw()).map(u8_to_format_result)?)
+  }
+
+  #[inline]
+  pub fn get_formatted_text(&mut self) -> Result<usize> {
+    let get_formatted_text_func = self.get_export::<(), u32>("get_formatted_text")?;
+    Ok(get_formatted_text_func.call(&mut self.store).map(|value| value as usize)?)
+  }
+
+  #[inline]
+  pub fn get_error_text(&mut self) -> Result<usize> {
+    let get_error_text_func = self.get_export::<(), u32>("get_error_text")?;
+    Ok(get_error_text_func.call(&mut self.store).map(|value| value as usize)?)
   }
 
   #[inline]
@@ -516,9 +538,15 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn clear_shared_bytes(&mut self, capacity: usize) -> Result<WasmPtr<u32>> {
-    let clear_shared_bytes_func = self.get_export::<u32, WasmPtr<u32>>("clear_shared_bytes")?;
+  pub fn clear_shared_bytes(&mut self, capacity: usize) -> Result<()> {
+    let clear_shared_bytes_func = self.get_export::<u32, ()>("clear_shared_bytes")?;
     Ok(clear_shared_bytes_func.call(&mut self.store, capacity as u32)?)
+  }
+
+  #[inline]
+  pub fn get_shared_bytes_buffer_ptr(&mut self) -> Result<WasmPtr<u32>> {
+    let func = self.get_export::<(), WasmPtr<u32>>("get_shared_bytes_buffer")?;
+    Ok(func.call(&mut self.store)?)
   }
 
   fn get_export<Args, Rets>(&mut self, name: &str) -> Result<TypedFunction<Args, Rets>>
@@ -536,7 +564,7 @@ impl WasmFunctions {
   }
 }
 
-fn int_to_format_result(orig: u32) -> WasmFormatResult {
+fn u8_to_format_result(orig: u8) -> WasmFormatResult {
   match orig {
     0 => WasmFormatResult::NoChange,
     1 => WasmFormatResult::Change,
