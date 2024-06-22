@@ -1,7 +1,7 @@
 use anyhow::Result;
 use dprint_core::async_runtime::async_trait;
-use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
+use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatResult;
@@ -29,21 +29,36 @@ pub fn get_test_safe_executable_path(executable_file_path: PathBuf, environment:
     // do this so that we can launch the process in the tests
     let tmp_dir = PathBuf::from("temp");
     let temp_process_plugin_file = tmp_dir.join(if cfg!(target_os = "windows") { "temp-plugin.exe" } else { "temp-plugin" });
+    let temp_process_plugin_file_0_3_0 = tmp_dir.join(if cfg!(target_os = "windows") {
+      "temp-plugin-0.3.0.exe"
+    } else {
+      "temp-plugin-0.3.0"
+    });
     PLUGIN_FILE_INITIALIZE.call_once(|| {
+      fn create_for_file(file_path: &PathBuf, bytes: &[u8]) {
+        #[allow(clippy::disallowed_methods)]
+        let _ = std::fs::write(file_path, bytes);
+        if cfg!(unix) {
+          std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("chmod +x {}", file_path.to_string_lossy()))
+            .status()
+            .unwrap();
+        }
+      }
       #[allow(clippy::disallowed_methods)]
       let _ = std::fs::create_dir(&tmp_dir);
-      #[allow(clippy::disallowed_methods)]
-      let _ = std::fs::write(&temp_process_plugin_file, environment.read_file_bytes(&executable_file_path).unwrap());
-      if cfg!(unix) {
-        std::process::Command::new("sh")
-          .arg("-c")
-          .arg(format!("chmod +x {}", temp_process_plugin_file.to_string_lossy()))
-          .status()
-          .unwrap();
-      }
+      let bytes = environment.read_file_bytes(&executable_file_path).unwrap();
+      create_for_file(&temp_process_plugin_file, &bytes);
+      create_for_file(&temp_process_plugin_file_0_3_0, &bytes);
     });
-    // ignore errors if path already exists
-    temp_process_plugin_file
+    if executable_file_path.to_string_lossy().contains("0.1.0") {
+      temp_process_plugin_file
+    } else if executable_file_path.to_string_lossy().contains("0.3.0") {
+      temp_process_plugin_file_0_3_0
+    } else {
+      unreachable!();
+    }
   }
 }
 
@@ -121,8 +136,8 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedProcessPlugin<T
     self.communicator.get_config_diagnostics(&config).await
   }
 
-  async fn check_config_updates(&self, plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
-    self.communicator.check_config_updates(plugin_config).await
+  async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+    self.communicator.check_config_updates(message).await
   }
 
   async fn format_text(&self, request: InitializedPluginFormatRequest) -> FormatResult {

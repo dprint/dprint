@@ -15,6 +15,7 @@ use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
 use dprint_core::plugins::process::handle_process_stdio_messages;
 use dprint_core::plugins::process::start_parent_process_checker_task;
 use dprint_core::plugins::AsyncPluginHandler;
+use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::ConfigChangeKind;
 use dprint_core::plugins::FileMatchingInfo;
@@ -59,7 +60,14 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
   fn plugin_info(&self) -> PluginInfo {
     PluginInfo {
       name: String::from(env!("CARGO_PKG_NAME")),
-      version: String::from(env!("CARGO_PKG_VERSION")),
+      version: {
+        let exe_path = std::env::current_exe().unwrap();
+        if exe_path.to_string_lossy().contains("temp-plugin-0.3.0") {
+          "0.3.0".to_string()
+        } else {
+          String::from(env!("CARGO_PKG_VERSION"))
+        }
+      },
       config_key: "testProcessPlugin".to_string(),
       help_url: "https://dprint.dev/plugins/test-process".to_string(),
       config_schema_url: "".to_string(),
@@ -107,9 +115,9 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
     }
   }
 
-  async fn check_config_updates(&self, config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
+  async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
     let mut changes = Vec::new();
-    if config.contains_key("should_add") {
+    if message.config.contains_key("should_add") {
       changes.extend([
         ConfigChange {
           path: vec!["should_add".to_string().into()],
@@ -128,16 +136,22 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
         },
       ]);
     }
-    if config.contains_key("should_set") {
+    if message.config.contains_key("should_set") {
       changes.push(ConfigChange {
         path: vec!["should_set".to_string().into()],
         kind: ConfigChangeKind::Set(ConfigKeyValue::String("new_value".to_string())),
       });
     }
-    if config.contains_key("should_remove") {
+    if message.config.contains_key("should_remove") {
       changes.push(ConfigChange {
         path: vec!["should_remove".to_string().into()],
         kind: ConfigChangeKind::Remove,
+      });
+    }
+    if message.config.contains_key("should_set_past_version") {
+      changes.push(ConfigChange {
+        path: vec!["should_set_past_version".to_string().into()],
+        kind: ConfigChangeKind::Set(ConfigKeyValue::String(message.old_version.unwrap())),
       });
     }
     Ok(changes)

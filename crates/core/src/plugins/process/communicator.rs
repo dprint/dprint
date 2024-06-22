@@ -280,8 +280,7 @@ impl ProcessPluginCommunicator {
     self.send_receiving_data(MessageBody::GetConfigDiagnostics(config_id)).await
   }
 
-  pub async fn check_config_updates(&self, plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
-    let message = CheckConfigUpdatesMessageBody { config: plugin_config };
+  pub async fn check_config_updates(&self, message: CheckConfigUpdatesMessageBody) -> Result<Vec<ConfigChange>> {
     let bytes = serde_json::to_vec(&message)?;
     let response: CheckConfigUpdatesResponseBody = self.send_receiving_data(MessageBody::CheckConfigUpdates(bytes)).await?;
     Ok(response.changes)

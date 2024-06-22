@@ -3,10 +3,10 @@ use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::utils::AsyncMutex;
 use anyhow::Result;
-use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::plugins::process::ProcessPluginCommunicatorFormatRequest;
+use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
@@ -84,8 +84,8 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     self.get_inner_ensure_config(config).await?.config_diagnostics(config.id).await
   }
 
-  pub async fn check_config_updates(&self, plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
-    self.get_inner().await.check_config_updates(plugin_config).await
+  pub async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+    self.get_inner().await.check_config_updates(message).await
   }
 
   pub async fn format_text(&self, request: InitializedPluginFormatRequest) -> FormatResult {

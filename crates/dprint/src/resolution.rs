@@ -13,6 +13,7 @@ use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::process::HostFormatCallback;
 use dprint_core::plugins::CancellationToken;
+use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
@@ -179,8 +180,8 @@ impl InitializedPluginWithConfig {
     output_plugin_config_diagnostics(&self.info().name, &*self.instance, self.plugin.format_config.clone(), environment).await
   }
 
-  pub async fn check_config_updates(&self, plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
-    self.instance.check_config_updates(plugin_config).await
+  pub async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+    self.instance.check_config_updates(message).await
   }
 
   pub async fn format_text(&self, request: InitializedPluginWithConfigFormatRequest) -> FormatResult {
@@ -421,6 +422,10 @@ impl<TEnvironment: Environment> PluginsScopeAndPathsCollection<TEnvironment> {
     }
 
     Ok(())
+  }
+
+  pub fn len(&self) -> usize {
+    self.inner.len()
   }
 
   pub fn iter(&self) -> impl Iterator<Item = &PluginsScopeAndPaths<TEnvironment>> {

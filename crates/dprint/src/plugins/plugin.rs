@@ -9,6 +9,7 @@ use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::process::HostFormatCallback;
 use dprint_core::plugins::CancellationToken;
+use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
@@ -54,7 +55,7 @@ pub trait InitializedPlugin {
   /// Gets the configuration diagnostics.
   async fn config_diagnostics(&self, config: Arc<FormatConfig>) -> Result<Vec<ConfigurationDiagnostic>>;
   /// Checks for any configuration changes based on the provided plugin config.
-  async fn check_config_updates(&self, plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>>;
+  async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>>;
   /// Formats the text in memory based on the file path and file text.
   async fn format_text(&self, format_request: InitializedPluginFormatRequest) -> FormatResult;
   /// Shuts down the plugin. This is used for process plugins.
@@ -127,7 +128,7 @@ impl InitializedPlugin for InitializedTestPlugin {
     Ok(vec![])
   }
 
-  async fn check_config_updates(&self, _plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
+  async fn check_config_updates(&self, _message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
     Ok(Vec::new())
   }
 

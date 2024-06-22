@@ -72,6 +72,15 @@ impl std::error::Error for CriticalFormatError {
   }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckConfigUpdatesMessage {
+  /// dprint versions < 0.47 won't have this set
+  #[serde(default)]
+  pub old_version: Option<String>,
+  pub config: ConfigKeyMap,
+}
+
 #[cfg(feature = "process")]
 #[derive(Debug)]
 pub struct HostFormatRequest {
@@ -200,7 +209,7 @@ pub trait AsyncPluginHandler: 'static {
   async fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> PluginResolveConfigurationResult<Self::Configuration>;
   /// Updates the config key map. This will be called after the CLI has upgraded the
   /// plugin in `dprint config update`.
-  async fn check_config_updates(&self, _plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
+  async fn check_config_updates(&self, _message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
     Ok(Vec::new())
   }
   /// Formats the provided file text based on the provided file path and configuration.
@@ -220,6 +229,11 @@ pub trait SyncPluginHandler<TConfiguration: Clone + serde::Serialize> {
   fn plugin_info(&mut self) -> PluginInfo;
   /// Gets the plugin's license text.
   fn license_text(&mut self) -> String;
+  /// Updates the config key map. This will be called after the CLI has upgraded the
+  /// plugin in `dprint config update`.
+  fn check_config_updates(&self, _message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+    Ok(Vec::new())
+  }
   /// Formats the provided file text based on the provided file path and configuration.
   fn format(
     &mut self,

@@ -4,6 +4,7 @@ use anyhow::Context;
 use anyhow::Error;
 use anyhow::Result;
 use dprint_core::async_runtime::future;
+use dprint_core::plugins;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -14,6 +15,7 @@ use crate::arg_parser::CliArgs;
 use crate::arg_parser::FilePatternArgs;
 use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
@@ -104,7 +106,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
                   let new_reference = plugin.as_source_reference()?;
                   let file_text = update_plugin_in_config(
                     &file_text,
-                    PluginUpdateInfo {
+                    &PluginUpdateInfo {
                       name: config_plugin.info().name.to_string(),
                       old_version: config_plugin.info().version.to_string(),
                       old_reference: config_plugin_reference,
@@ -190,6 +192,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   };
   let scopes = resolve_plugins_scope_and_paths(args, &file_pattern_args, environment, plugin_resolver).await?;
   let mut plugin_responses = HashMap::new();
+  let mut updates_per_scope = HashMap::with_capacity(scopes.len());
   for (i, scope) in scopes.into_iter().enumerate() {
     let is_main_config = i == 0;
     let Some(config) = &scope.scope.config else {
@@ -206,6 +209,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     let mut file_text = environment.read_file(config_path)?;
     let plugins_to_update = get_plugins_to_update(environment, plugin_resolver, config.plugins.clone()).await?;
 
+    let mut updated_plugins = Vec::with_capacity(plugins_to_update.len());
     for result in plugins_to_update {
       match result {
         Ok(info) => {
@@ -240,7 +244,8 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
               },
               info.new_version
             );
-            file_text = update_plugin_in_config(&file_text, info);
+            file_text = update_plugin_in_config(&file_text, &info);
+            updated_plugins.push(info);
           }
         }
         Err(err_info) => {
@@ -249,12 +254,14 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
       }
     }
 
+    updates_per_scope.insert(config_path.clone(), updated_plugins);
+
     environment.write_file(config_path, &file_text)?;
   }
 
   // now resolve the plugins again in every scope and run their config updates
 
-  run_plugin_config_updates(environment, args, &file_pattern_args, plugin_resolver)
+  run_plugin_config_updates(environment, args, &file_pattern_args, plugin_resolver, &updates_per_scope)
     .await
     .with_context(|| "Failed running plugin config updates.".to_string())?;
 
@@ -266,6 +273,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
   args: &CliArgs,
   file_pattern_args: &FilePatternArgs,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  updates_per_scope: &HashMap<CanonicalizedPathBuf, Vec<PluginUpdateInfo>>,
 ) -> Result<()> {
   let scopes = resolve_plugins_scope_and_paths(args, file_pattern_args, environment, plugin_resolver).await?;
   for scope in scopes.into_iter() {
@@ -278,6 +286,15 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
         continue;
       }
     };
+    let updated_plugins = match updates_per_scope.get(&config_path) {
+      Some(updates) => updates,
+      None => {
+        continue;
+      }
+    };
+    if updated_plugins.is_empty() {
+      continue;
+    }
     let mut file_text = environment.read_file(config_path)?;
     let config_map = match deserialize_config_raw(&file_text) {
       Ok(map) => map,
@@ -288,6 +305,14 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
     };
     let mut all_diagnostics = Vec::new();
     for plugin in scope.scope.plugins.values() {
+      let Some(update_info) = updated_plugins
+        .iter()
+        .find(|info| info.name == plugin.info().name && info.new_version == plugin.info().version)
+      else {
+        eprintln!("{:#?}", updated_plugins);
+        eprintln!("{} {}", plugin.info().name, plugin.info().version);
+        continue;
+      };
       log_debug!(environment, "Updating for {}", plugin.name());
       let config_key = &plugin.info().config_key;
       let Some(plugin_config) = config_map.get(config_key).and_then(|c| c.as_object()).cloned() else {
@@ -301,7 +326,13 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
         }
       };
 
-      let changes = match initialized_plugin.check_config_updates(plugin_config).await {
+      let changes = match initialized_plugin
+        .check_config_updates(plugins::CheckConfigUpdatesMessage {
+          old_version: Some(update_info.old_version.clone()),
+          config: plugin_config,
+        })
+        .await
+      {
         Ok(changes) => changes,
         Err(err) => {
           log_warn!(environment, "Failed updating {}. {:#}", plugin.name(), err);
@@ -1014,6 +1045,7 @@ mod test {
   },
   "should_set": "other",
   "should_remove": {},
+  "should_set_past_version": "",
 }"#,
       );
     });
@@ -1044,6 +1076,7 @@ mod test {
   "testProcessPlugin": {{
     "should_add": "new_value",
     "should_set": "new_value",
+    "should_set_past_version": "0.1.0",
     "new_prop1": [
       "new_value"
     ],

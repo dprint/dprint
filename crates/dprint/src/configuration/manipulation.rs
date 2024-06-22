@@ -19,6 +19,7 @@ use crate::utils::PluginKind;
 // This entire module is pretty bad. It would be better to add some manipulation
 // capabilities to jsonc-parser.
 
+#[derive(Debug)]
 pub struct PluginUpdateInfo {
   pub name: String,
   pub old_version: String,
@@ -43,7 +44,7 @@ impl PluginUpdateInfo {
   }
 }
 
-pub fn update_plugin_in_config(file_text: &str, info: PluginUpdateInfo) -> String {
+pub fn update_plugin_in_config(file_text: &str, info: &PluginUpdateInfo) -> String {
   let new_url = info.get_full_new_config_url();
   file_text.replace(&info.old_reference.to_string(), &new_url)
 }

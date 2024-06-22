@@ -8,7 +8,6 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::communication::Message;
-use crate::configuration::ConfigKeyMap;
 use crate::plugins::ConfigChange;
 use crate::plugins::FormatConfigId;
 use crate::plugins::FormatRange;
@@ -294,11 +293,7 @@ pub struct RegisterConfigMessageBody {
   pub plugin_config: Vec<u8>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CheckConfigUpdatesMessageBody {
-  pub config: ConfigKeyMap,
-}
+pub type CheckConfigUpdatesMessageBody = crate::plugins::CheckConfigUpdatesMessage;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
