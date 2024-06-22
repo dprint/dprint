@@ -62,6 +62,10 @@ await $`mkdir -p ${dprintDir} ${scopeDir}`;
 // setup dprint packages
 {
   $.logStep(`Setting up dprint ${version}...`);
+  let optionalDependencies = packages
+    .map((pkg) => `@dprint/${getPackageNameNoScope(pkg)}`)
+    .reduce((obj, pkgName) => ({ ...obj, [pkgName]: version }), {});
+  optionalDependencies["yauzl"] = "^2.10.0";
   const pkgJson = {
     "name": "dprint",
     "version": version,
@@ -86,9 +90,7 @@ await $`mkdir -p ${dprintDir} ${scopeDir}`;
     "scripts": {
       "postinstall": "node ./install.js",
     },
-    optionalDependencies: packages
-      .map(pkg => `@dprint/${getPackageNameNoScope(pkg)}`)
-      .reduce((obj, pkgName) => ({ ...obj, [pkgName]: version }), {}),
+    optionalDependencies,
   };
   currentDir.join("bin.js").copyFileToDirSync(dprintDir);
   currentDir.join("install_api.js").copyFileToDirSync(dprintDir);
