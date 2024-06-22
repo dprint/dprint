@@ -286,7 +286,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
         continue;
       }
     };
-    let updated_plugins = match updates_per_scope.get(&config_path) {
+    let updated_plugins = match updates_per_scope.get(config_path) {
       Some(updates) => updates,
       None => {
         continue;

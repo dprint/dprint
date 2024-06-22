@@ -119,8 +119,8 @@ pub mod macros {
 
         #[link(wasm_import_module = "dprint")]
         extern "C" {
-          fn host_read_buffer(pointer: u32, length: u32);
-          fn host_write_buffer(pointer: u32);
+          fn host_read_buffer(pointer: *const u8, length: u32);
+          fn host_write_buffer(pointer: *const u8);
           fn host_format(
             file_path_ptr: *const u8,
             file_path_len: u32,
@@ -177,7 +177,7 @@ pub mod macros {
           let mut index = 0;
           let length = set_shared_bytes(bytes);
           unsafe {
-            host_read_buffer(get_shared_bytes_buffer() as u32, length as u32);
+            host_read_buffer(get_shared_bytes_ptr(), length as u32);
           }
         }
 
@@ -187,9 +187,9 @@ pub mod macros {
 
         fn get_bytes_from_host(length: u32) -> Vec<u8> {
           let mut index: u32 = 0;
-          clear_shared_bytes(length as usize);
+          let ptr = clear_shared_bytes(length as usize);
           unsafe {
-            host_write_buffer(get_shared_bytes_buffer() as u32);
+            host_write_buffer(ptr);
           }
           take_from_shared_bytes()
         }
@@ -381,13 +381,14 @@ pub mod macros {
       }
 
       #[no_mangle]
-      pub fn get_shared_bytes_buffer() -> *const u8 {
+      pub fn get_shared_bytes_ptr() -> *const u8 {
         unsafe { SHARED_BYTES.get().as_ptr() }
       }
 
       #[no_mangle]
-      pub fn clear_shared_bytes(size: usize) {
+      pub fn clear_shared_bytes(size: usize) -> *const u8 {
         SHARED_BYTES.replace(vec![0; size]);
+        unsafe { SHARED_BYTES.get().as_ptr() }
       }
 
       fn take_string_from_shared_bytes() -> String {

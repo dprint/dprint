@@ -128,8 +128,8 @@ If you are not using `Rust`, then you must implement a lot of low level function
 
 Low level communication:
 
-- `get_shared_bytes_buffer() -> *const u8` - Called to get a pointer to the Wasm memory buffer.
-- `clear_shared_bytes(size: i32)` - Called to get the plugin to clear its local byte array.
+- `get_shared_bytes_ptr() -> *const u8` - Called to get a pointer to the shared Wasm memory buffer.
+- `clear_shared_bytes(size: i32) -> *const u8` - Called to get the plugin to clear its shared byte array and return a pointer to it.
 
 Initialization functions:
 

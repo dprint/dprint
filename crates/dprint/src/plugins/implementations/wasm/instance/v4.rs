@@ -373,13 +373,7 @@ impl InitializedWasmPluginInstanceV4 {
   }
 
   fn send_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-    self.wasm_functions.clear_shared_bytes(bytes.len())?;
-    self.write_bytes_to_shared_bytes(bytes)?;
-    Ok(())
-  }
-
-  fn write_bytes_to_shared_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-    let shared_bytes_ptr = self.wasm_functions.get_shared_bytes_buffer_ptr()?;
+    let shared_bytes_ptr = self.wasm_functions.clear_shared_bytes(bytes.len())?;
     let memory_view = self.wasm_functions.get_memory_view();
     memory_view.write(shared_bytes_ptr.offset() as u64, bytes)?;
     Ok(())
@@ -397,7 +391,7 @@ impl InitializedWasmPluginInstanceV4 {
   }
 
   fn read_bytes_from_shared_bytes(&mut self, bytes: &mut [u8]) -> Result<()> {
-    let wasm_buffer_pointer = self.wasm_functions.get_shared_bytes_buffer_ptr()?;
+    let wasm_buffer_pointer = self.wasm_functions.get_shared_bytes_ptr()?;
     let memory_view = self.wasm_functions.get_memory_view();
     memory_view.read(wasm_buffer_pointer.offset() as u64, bytes)?;
     Ok(())
@@ -538,14 +532,14 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn clear_shared_bytes(&mut self, capacity: usize) -> Result<()> {
-    let clear_shared_bytes_func = self.get_export::<u32, ()>("clear_shared_bytes")?;
+  pub fn clear_shared_bytes(&mut self, capacity: usize) -> Result<WasmPtr<u32>> {
+    let clear_shared_bytes_func = self.get_export::<u32, WasmPtr<u32>>("clear_shared_bytes")?;
     Ok(clear_shared_bytes_func.call(&mut self.store, capacity as u32)?)
   }
 
   #[inline]
-  pub fn get_shared_bytes_buffer_ptr(&mut self) -> Result<WasmPtr<u32>> {
-    let func = self.get_export::<(), WasmPtr<u32>>("get_shared_bytes_buffer")?;
+  pub fn get_shared_bytes_ptr(&mut self) -> Result<WasmPtr<u32>> {
+    let func = self.get_export::<(), WasmPtr<u32>>("get_shared_bytes_ptr")?;
     Ok(func.call(&mut self.store)?)
   }
 
