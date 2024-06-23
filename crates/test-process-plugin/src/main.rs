@@ -169,9 +169,23 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
       (false, file_text.to_string())
     };
 
-    let inner_format_text = if let Some(range) = &request.range {
-      let text = format!("{}_{}_{}", &file_text[0..range.start], request.config.ending, &file_text[range.end..]);
-      text
+    let inner_format_text = if let Some(range) = request.range {
+      if let Some(new_text) = file_text.strip_prefix("plugin-range: ") {
+        let result = (format_with_host)(HostFormatRequest {
+          file_path: PathBuf::from("./test.txt"),
+          file_bytes: new_text.to_string().into_bytes(),
+          range: Some(range),
+          override_config: Default::default(),
+          token: request.token.clone(),
+        })
+        .await?;
+        format!(
+          "plugin-range: {}",
+          result.map(|r| String::from_utf8(r).unwrap()).unwrap_or_else(|| new_text.to_string())
+        )
+      } else {
+        format!("{}_{}_{}", &file_text[0..range.start], request.config.ending, &file_text[range.end..])
+      }
     } else if file_text.starts_with("wait_cancellation") {
       request.token.wait_cancellation().await;
       return Ok(None);

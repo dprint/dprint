@@ -168,9 +168,23 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
 
     let inner_format_text = if self.has_panicked {
       panic!("Previously panicked. Plugin should not have been used by the CLI again.")
-    } else if let Some(range) = &request.range {
-      let text = format!("{}_{}_{}", &file_text[0..range.start], request.config.ending, &file_text[range.end..]);
-      text
+    } else if let Some(range) = request.range {
+      if let Some(new_text) = file_text.strip_prefix("plugin-range: ") {
+        format!(
+          "plugin-range: {}",
+          handle_host_response(
+            format_with_host(SyncHostFormatRequest {
+              file_path: &PathBuf::from("./test.txt_ps"),
+              file_bytes: new_text.as_bytes(),
+              range: Some(range),
+              override_config: &Default::default(),
+            }),
+            new_text
+          )?
+        )
+      } else {
+        format!("{}_{}_{}", &file_text[0..range.start], request.config.ending, &file_text[range.end..])
+      }
     } else if let Some(new_text) = file_text.strip_prefix("plugin: ") {
       format!(
         "plugin: {}",

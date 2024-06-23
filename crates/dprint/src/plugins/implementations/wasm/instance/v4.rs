@@ -52,7 +52,7 @@ pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
   let host_clear_bytes = |_: u32| {};
   let host_read_buffer = |_: u32, _: u32| {};
   let host_write_buffer = |_: u32| {};
-  let host_format = |_: u32, _: u32, _: u32, _: u32, _: u32, _: u32| -> u32 { 0 }; // no change
+  let host_format = |_: u32, _: u32, _: u32, _: u32, _: u32, _: u32, _: u32, _: u32| -> u32 { 0 }; // no change
   let host_get_formatted_text = || -> u32 { 0 }; // zero length
   let host_get_error_text = || -> u32 { 0 }; // zero length
   let host_has_cancelled = || -> u32 { 0 }; // false
@@ -182,6 +182,8 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     mut env: FunctionEnvMut<ImportObjectEnvironmentV4>,
     file_path_ptr: u32,
     file_path_len: u32,
+    range_start: u32,
+    range_end: u32,
     override_cfg_ptr: u32,
     override_cfg_len: u32,
     file_bytes_ptr: u32,
@@ -210,11 +212,17 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
       memory_view.read(file_bytes_ptr as u64, &mut buf).unwrap();
       buf
     };
+    let range = if range_start == 0 && range_end == file_bytes_len {
+      None
+    } else {
+      Some(range_start as usize..range_end as usize)
+    };
+    eprintln!("RANGE: {:?}", range);
     let env = env.data_mut();
     let request = HostFormatRequest {
       file_path,
       file_bytes,
-      range: None,
+      range,
       override_config,
       token: env.token.clone(),
     };
@@ -225,7 +233,7 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
       Ok(()) => match rx.recv() {
         Ok(result) => result,
         Err(_) => {
-          Ok(None) //receive error
+          Ok(None) // receive error
         }
       },
       Err(_) => Ok(None), // send error

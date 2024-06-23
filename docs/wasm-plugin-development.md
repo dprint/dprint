@@ -179,7 +179,7 @@ Low level communication:
 
 High level functions:
 
-- `host_format(file_path_ptr: u32, file_path_len: u32, override_cfg_ptr: u32, override_cfg_len: u32, file_bytes_ptr: u32, file_bytes_len: u32) -> u32` - Tell the host to format using the file text in its local byte array.
+- `host_format(file_path_ptr: u32, file_path_len: u32, range_start: u32, range_end: u32, override_cfg_ptr: u32, override_cfg_len: u32, file_bytes_ptr: u32, file_bytes_len: u32) -> u32` - Tell the host to format using the file text in its local byte array. Provide `0` and `file_bytes_len` for no range formatting.
   - Returns `0` for no change (do nothing else, no transfer needed)
   - `1` for change (use `host_get_formatted_text()`)
   - `2` for error (use `host_get_error_text()`)

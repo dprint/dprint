@@ -751,6 +751,24 @@ mod test {
             ),
             "t_formatted_process_sting_formatted_process"
           );
+          // test process plugin host formatting with range
+          assert_eq!(
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &PathBuf::from("/file.txt_ps"),
+                  "plugin-range: testing".to_string().into_bytes(),
+                  Some(1..2),
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
+            "plugin-range: t_formatted_sting_formatted_formatted_process"
+          );
+
           // test wasm range formatting
           assert_eq!(
             bytes_to_string(
@@ -767,6 +785,24 @@ mod test {
                 .unwrap()
             ),
             "t_formatted_sting_formatted"
+          );
+
+          // test wasm plugin host formatting with range
+          assert_eq!(
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &PathBuf::from("/file.txt"),
+                  "plugin-range: testing".to_string().into_bytes(),
+                  Some(1..2),
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
+            "plugin-range: t_formatted_process_sting_formatted_process_formatted"
           );
 
           // test process and wasm plugin cancellation

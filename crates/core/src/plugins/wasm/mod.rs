@@ -129,6 +129,8 @@ pub mod macros {
           fn host_format(
             file_path_ptr: *const u8,
             file_path_len: u32,
+            start_range: u32,
+            end_range: u32,
             override_config_ptr: *const u8,
             override_config_len: u32,
             file_text_ptr: *const u8,
@@ -144,11 +146,14 @@ pub mod macros {
         } else {
           Cow::Borrowed("")
         };
+        let range = request.range.unwrap_or(0..request.file_bytes.len());
 
         return match unsafe {
           host_format(
             file_path.as_ptr(),
             file_path.len() as u32,
+            range.start as u32,
+            range.end as u32,
             override_config.as_ptr(),
             override_config.len() as u32,
             request.file_bytes.as_ptr(),
