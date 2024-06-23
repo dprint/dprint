@@ -1,8 +1,6 @@
 use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
-use std::path::PathBuf;
-use std::sync::Arc;
 
 #[cfg(feature = "async_runtime")]
 use crate::async_runtime::FutureExt;
@@ -84,12 +82,22 @@ pub struct CheckConfigUpdatesMessage {
 #[cfg(feature = "process")]
 #[derive(Debug)]
 pub struct HostFormatRequest {
-  pub file_path: PathBuf,
+  pub file_path: std::path::PathBuf,
   pub file_bytes: Vec<u8>,
   /// Range to format.
   pub range: FormatRange,
   pub override_config: ConfigKeyMap,
-  pub token: Arc<dyn CancellationToken>,
+  pub token: std::sync::Arc<dyn CancellationToken>,
+}
+
+#[cfg(feature = "wasm")]
+#[derive(Debug)]
+pub struct SyncHostFormatRequest<'a> {
+  pub file_path: &'a std::path::Path,
+  pub file_bytes: &'a [u8],
+  /// Range to format.
+  pub range: FormatRange,
+  pub override_config: &'a ConfigKeyMap,
 }
 
 /// `Ok(Some(text))` - Changes due to the format.
@@ -127,16 +135,18 @@ impl FormatConfigId {
   }
 }
 
+#[cfg(feature = "process")]
 pub struct FormatRequest<TConfiguration> {
-  pub file_path: PathBuf,
+  pub file_path: std::path::PathBuf,
   pub file_bytes: Vec<u8>,
   pub config_id: FormatConfigId,
-  pub config: Arc<TConfiguration>,
+  pub config: std::sync::Arc<TConfiguration>,
   /// Range to format.
   pub range: FormatRange,
-  pub token: Arc<dyn CancellationToken>,
+  pub token: std::sync::Arc<dyn CancellationToken>,
 }
 
+#[cfg(feature = "wasm")]
 pub struct SyncFormatRequest<'a, TConfiguration> {
   pub file_path: &'a std::path::Path,
   pub file_bytes: Vec<u8>,
@@ -243,9 +253,5 @@ pub trait SyncPluginHandler<TConfiguration: Clone + serde::Serialize> {
   /// plugin in `dprint config update`.
   fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>>;
   /// Formats the provided file text based on the provided file path and configuration.
-  fn format(
-    &mut self,
-    request: SyncFormatRequest<TConfiguration>,
-    format_with_host: impl FnMut(&std::path::Path, &[u8], &ConfigKeyMap) -> FormatResult,
-  ) -> FormatResult;
+  fn format(&mut self, request: SyncFormatRequest<TConfiguration>, format_with_host: impl FnMut(SyncHostFormatRequest) -> FormatResult) -> FormatResult;
 }

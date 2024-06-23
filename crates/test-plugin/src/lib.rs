@@ -16,11 +16,11 @@ use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::PluginResolveConfigurationResult;
 use dprint_core::plugins::SyncFormatRequest;
+use dprint_core::plugins::SyncHostFormatRequest;
 use dprint_core::plugins::SyncPluginHandler;
 use serde::Deserialize;
 use serde::Serialize;
 use std::io::Write;
-use std::path::Path;
 use std::path::PathBuf;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -134,11 +134,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
     Ok(changes)
   }
 
-  fn format(
-    &mut self,
-    request: SyncFormatRequest<Configuration>,
-    mut format_with_host: impl FnMut(&Path, &[u8], &ConfigKeyMap) -> FormatResult,
-  ) -> FormatResult {
+  fn format(&mut self, request: SyncFormatRequest<Configuration>, mut format_with_host: impl FnMut(SyncHostFormatRequest) -> FormatResult) -> FormatResult {
     fn handle_host_response(result: FormatResult, original_text: &str) -> Result<String> {
       match result {
         Ok(Some(text)) => Ok(String::from_utf8(text).unwrap()),
@@ -175,7 +171,12 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
       format!(
         "plugin: {}",
         handle_host_response(
-          format_with_host(&PathBuf::from("./test.txt_ps"), new_text.as_bytes(), &ConfigKeyMap::new()),
+          format_with_host(SyncHostFormatRequest {
+            file_path: &PathBuf::from("./test.txt_ps"),
+            file_bytes: new_text.as_bytes(),
+            range: None,
+            override_config: &ConfigKeyMap::new(),
+          }),
           new_text,
         )?,
       )
@@ -184,7 +185,15 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
       config_map.insert("ending".to_string(), "custom_config".into());
       format!(
         "plugin-config: {}",
-        handle_host_response(format_with_host(&PathBuf::from("./test.txt_ps"), new_text.as_bytes(), &config_map), new_text)?
+        handle_host_response(
+          format_with_host(SyncHostFormatRequest {
+            file_path: &PathBuf::from("./test.txt_ps"),
+            file_bytes: new_text.as_bytes(),
+            range: None,
+            override_config: &config_map,
+          }),
+          new_text
+        )?
       )
     } else if file_text == "should_error" {
       bail!("Did error.")

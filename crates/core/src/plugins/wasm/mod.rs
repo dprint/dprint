@@ -119,11 +119,7 @@ pub mod macros {
         fn host_has_cancelled() -> i32;
       }
 
-      fn format_with_host(
-        file_path: &std::path::Path,
-        file_bytes: &[u8],
-        override_config: &dprint_core::configuration::ConfigKeyMap,
-      ) -> anyhow::Result<Option<Vec<u8>>> {
+      fn format_with_host(request: dprint_core::plugins::SyncHostFormatRequest) -> anyhow::Result<Option<Vec<u8>>> {
         use std::borrow::Cow;
 
         #[link(wasm_import_module = "dprint")]
@@ -142,9 +138,9 @@ pub mod macros {
           fn host_get_error_text() -> u32;
         }
 
-        let file_path = file_path.to_string_lossy();
-        let override_config = if !override_config.is_empty() {
-          Cow::Owned(serde_json::to_string(override_config).unwrap())
+        let file_path = request.file_path.to_string_lossy();
+        let override_config = if !request.override_config.is_empty() {
+          Cow::Owned(serde_json::to_string(request.override_config).unwrap())
         } else {
           Cow::Borrowed("")
         };
@@ -155,8 +151,8 @@ pub mod macros {
             file_path.len() as u32,
             override_config.as_ptr(),
             override_config.len() as u32,
-            file_bytes.as_ptr(),
-            file_bytes.len() as u32,
+            request.file_bytes.as_ptr(),
+            request.file_bytes.len() as u32,
           )
         } {
           0 => {
@@ -208,6 +204,7 @@ pub mod macros {
 
       static OVERRIDE_CONFIG: StaticCell<Option<dprint_core::configuration::ConfigKeyMap>> = StaticCell::new(None);
       static FILE_PATH: StaticCell<Option<std::path::PathBuf>> = StaticCell::new(None);
+      static RANGE: StaticCell<Option<dprint_core::plugins::FormatRange>> = StaticCell::new(None);
       static FORMATTED_TEXT: StaticCell<Option<Vec<u8>>> = StaticCell::new(None);
       static ERROR_TEXT: StaticCell<Option<String>> = StaticCell::new(None);
 
