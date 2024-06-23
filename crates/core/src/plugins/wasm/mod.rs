@@ -248,11 +248,15 @@ pub mod macros {
         let file_path = unsafe { FILE_PATH.get().take().expect("Expected the file path to be set.") };
         let file_bytes = take_from_shared_bytes();
 
-        let formatted_text = unsafe {
-          WASM_PLUGIN
-            .get()
-            .format(&file_path, file_bytes, &config, &HostCancellationToken, format_with_host)
+        let request = dprint_core::plugins::SyncFormatRequest::<Configuration> {
+          file_path: &file_path,
+          file_bytes,
+          config: &config,
+          config_id,
+          range: None, // todo: support range
+          token: &HostCancellationToken,
         };
+        let formatted_text = unsafe { WASM_PLUGIN.get().format(request, format_with_host) };
         match formatted_text {
           Ok(None) => {
             0 // no change

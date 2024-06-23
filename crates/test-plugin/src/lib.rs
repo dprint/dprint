@@ -15,6 +15,7 @@ use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::PluginResolveConfigurationResult;
+use dprint_core::plugins::SyncFormatRequest;
 use dprint_core::plugins::SyncPluginHandler;
 use serde::Deserialize;
 use serde::Serialize;
@@ -135,10 +136,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
 
   fn format(
     &mut self,
-    _: &Path,
-    file_bytes: Vec<u8>,
-    config: &Configuration,
-    token: &dyn dprint_core::plugins::CancellationToken,
+    request: SyncFormatRequest<Configuration>,
     mut format_with_host: impl FnMut(&Path, &[u8], &ConfigKeyMap) -> FormatResult,
   ) -> FormatResult {
     fn handle_host_response(result: FormatResult, original_text: &str) -> Result<String> {
@@ -149,10 +147,10 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
       }
     }
 
-    let file_text = String::from_utf8(file_bytes).unwrap();
+    let file_text = String::from_utf8(request.file_bytes).unwrap();
     if file_text == "wait_cancellation" {
       loop {
-        if token.is_cancelled() {
+        if request.token.is_cancelled() {
           return Ok(None);
         }
       }
@@ -165,7 +163,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
       stderr.write_all(output.as_bytes()).unwrap();
     }
 
-    let (had_suffix, file_text) = if let Some(text) = file_text.strip_suffix(&format!("_{}", config.ending)) {
+    let (had_suffix, file_text) = if let Some(text) = file_text.strip_suffix(&format!("_{}", request.config.ending)) {
       (true, text.to_string())
     } else {
       (false, file_text)
@@ -208,7 +206,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
     if had_suffix && inner_format_text == file_text {
       Ok(None)
     } else {
-      Ok(Some(format!("{}_{}", inner_format_text, config.ending).into_bytes()))
+      Ok(Some(format!("{}_{}", inner_format_text, request.config.ending).into_bytes()))
     }
   }
 }

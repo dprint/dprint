@@ -137,6 +137,16 @@ pub struct FormatRequest<TConfiguration> {
   pub token: Arc<dyn CancellationToken>,
 }
 
+pub struct SyncFormatRequest<'a, TConfiguration> {
+  pub file_path: &'a std::path::Path,
+  pub file_bytes: Vec<u8>,
+  pub config_id: FormatConfigId,
+  pub config: &'a TConfiguration,
+  /// Range to format.
+  pub range: FormatRange,
+  pub token: &'a dyn CancellationToken,
+}
+
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ConfigChangePathItem {
@@ -235,10 +245,7 @@ pub trait SyncPluginHandler<TConfiguration: Clone + serde::Serialize> {
   /// Formats the provided file text based on the provided file path and configuration.
   fn format(
     &mut self,
-    file_path: &std::path::Path,
-    file_bytes: Vec<u8>,
-    config: &TConfiguration,
-    token: &dyn CancellationToken,
+    request: SyncFormatRequest<TConfiguration>,
     format_with_host: impl FnMut(&std::path::Path, &[u8], &ConfigKeyMap) -> FormatResult,
   ) -> FormatResult;
 }

@@ -288,13 +288,27 @@ mod test {
     assert_eq!(file_path, expected_file_path);
 
     // should have saved the manifest
+    let expected_text = serde_json::json!({
+      "schemaVersion": 8,
+      "wasmCacheVersion": "4.2.5",
+      "plugins": {
+        "local:/test.wasm": {
+          "createdTime": 123456,
+          "fileHash": get_bytes_hash(&WASM_PLUGIN_BYTES),
+          "info": {
+            "name": "test-plugin",
+            "version": "0.2.0",
+            "configKey": "test-plugin",
+            "helpUrl": "https://dprint.dev/plugins/test",
+            "configSchemaUrl": "https://plugins.dprint.dev/test/schema.json",
+            "updateUrl": "https://plugins.dprint.dev/dprint/test-plugin/latest.json"
+          }
+        }
+      }
+    });
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      concat!(
-        r#"{"schemaVersion":8,"wasmCacheVersion":"4.2.5","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":17322546861888703328,"info":{"#,
-        r#""name":"test-plugin","version":"0.2.0","configKey":"test-plugin","#,
-        r#""helpUrl":"https://dprint.dev/plugins/test","configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","updateUrl":"https://plugins.dprint.dev/dprint/test-plugin/latest.json"}}}}"#,
-      )
+      expected_text.to_string(),
     );
 
     assert_eq!(environment.take_stderr_messages().len(), 0); // no logs, nothing changed
@@ -310,13 +324,27 @@ mod test {
       .file_path;
     assert_eq!(file_path, expected_file_path);
 
+    let expected_text = serde_json::json!({
+      "schemaVersion": 8,
+      "wasmCacheVersion": "4.2.5",
+      "plugins": {
+        "local:/test.wasm": {
+          "createdTime": 123456,
+          "fileHash": get_bytes_hash(&WASM_PLUGIN_0_1_0_BYTES),
+          "info": {
+            "name": "test-plugin",
+            "version": "0.1.0",
+            "configKey": "test-plugin",
+            "helpUrl": "https://dprint.dev/plugins/test",
+            "configSchemaUrl": "https://plugins.dprint.dev/test/schema.json",
+            "updateUrl": "https://plugins.dprint.dev/dprint/test-plugin/latest.json"
+          }
+        }
+      }
+    });
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      concat!(
-        r#"{"schemaVersion":8,"wasmCacheVersion":"4.2.5","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":1108610550602378214,"info":{"#,
-        r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
-        r#""helpUrl":"https://dprint.dev/plugins/test","configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","updateUrl":"https://plugins.dprint.dev/dprint/test-plugin/latest.json"}}}}"#,
-      )
+      expected_text.to_string()
     );
 
     assert_eq!(environment.take_stderr_messages(), vec!["Compiling /test.wasm"]);
