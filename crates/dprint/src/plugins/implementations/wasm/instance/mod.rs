@@ -10,6 +10,7 @@ use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
+use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::PluginInfo;
@@ -48,6 +49,7 @@ pub trait InitializedWasmPluginInstance {
     &mut self,
     file_path: &Path,
     file_bytes: &[u8],
+    range: FormatRange,
     config: &FormatConfig,
     override_config: &ConfigKeyMap,
     token: Arc<dyn CancellationToken>,

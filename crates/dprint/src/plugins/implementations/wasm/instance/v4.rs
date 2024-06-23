@@ -16,6 +16,7 @@ use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
+use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
@@ -322,13 +323,26 @@ impl InitializedWasmPluginInstanceV4 {
     Ok(())
   }
 
-  fn inner_format_text(&mut self, file_path: &Path, file_bytes: &[u8], config: &FormatConfig, override_config: &ConfigKeyMap) -> Result<FormatResult> {
+  fn inner_format_text(
+    &mut self,
+    file_path: &Path,
+    file_bytes: &[u8],
+    range: FormatRange,
+    config: &FormatConfig,
+    override_config: Option<&str>,
+  ) -> Result<FormatResult> {
+    self.inner_setup_formatting(file_path, file_bytes, override_config)?;
+    let response_code = match range {
+      Some(range) => self.wasm_functions.format_range(config.id, range)?,
+      None => self.wasm_functions.format(config.id)?,
+    };
+    self.inner_handle_response(response_code)
+  }
+
+  fn inner_setup_formatting(&mut self, file_path: &Path, file_bytes: &[u8], override_config: Option<&str>) -> Result<()> {
     // send override config if necessary
-    if !override_config.is_empty() {
-      self.send_string(&match serde_json::to_string(override_config) {
-        Ok(text) => text,
-        Err(err) => return Ok(Err(err.into())),
-      })?;
+    if let Some(override_config) = override_config {
+      self.send_string(override_config)?;
       self.wasm_functions.set_override_config()?;
     }
 
@@ -336,11 +350,11 @@ impl InitializedWasmPluginInstanceV4 {
     self.send_string(&file_path.to_string_lossy())?;
     self.wasm_functions.set_file_path()?;
 
-    // send file text and format
-    self.send_bytes(file_bytes)?;
-    let response_code = self.wasm_functions.format(config.id)?;
+    // send file text
+    self.send_bytes(file_bytes)
+  }
 
-    // handle the response
+  fn inner_handle_response(&mut self, response_code: WasmFormatResult) -> Result<FormatResult> {
     match response_code {
       WasmFormatResult::NoChange => Ok(Ok(None)),
       WasmFormatResult::Change => {
@@ -449,13 +463,19 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
     &mut self,
     file_path: &Path,
     file_bytes: &[u8],
+    range: FormatRange,
     config: &FormatConfig,
     override_config: &ConfigKeyMap,
     token: Arc<dyn CancellationToken>,
   ) -> FormatResult {
+    let override_config = if !override_config.is_empty() {
+      Some(serde_json::to_string(override_config)?)
+    } else {
+      None
+    };
     self.wasm_functions.instance.set_token(&mut self.wasm_functions.store, token);
     self.ensure_config(config)?;
-    match self.inner_format_text(file_path, file_bytes, config, override_config) {
+    match self.inner_format_text(file_path, file_bytes, range, config, override_config.as_deref()) {
       Ok(inner) => inner,
       Err(err) => Err(CriticalFormatError(err).into()),
     }
@@ -495,11 +515,11 @@ impl WasmFunctions {
 
   #[inline]
   pub fn check_config_updates(&mut self) -> Result<usize> {
-    if self.instance.get_function("check_config_updates").is_err() {
-      return Ok(0); // ignore, the plugin doesn't have this defined
+    let maybe_func = self.get_maybe_export::<(), u32>("check_config_updates")?;
+    match maybe_func {
+      Some(func) => Ok(func.call(&mut self.store).map(|value| value as usize)?),
+      None => Ok(0), // ignore, the plugin doesn't have this defined
     }
-    let func = self.get_export::<(), u32>("check_config_updates")?;
-    Ok(func.call(&mut self.store).map(|value| value as usize)?)
   }
 
   #[inline]
@@ -539,6 +559,22 @@ impl WasmFunctions {
   }
 
   #[inline]
+  pub fn format_range(&mut self, config_id: FormatConfigId, range: std::ops::Range<usize>) -> Result<WasmFormatResult> {
+    let maybe_func = self.get_maybe_export::<(u32, u32, u32), u8>("format_range")?;
+    match maybe_func {
+      Some(func) => Ok(
+        func
+          .call(&mut self.store, config_id.as_raw(), range.start as u32, range.end as u32)
+          .map(u8_to_format_result)?,
+      ),
+      None => {
+        // not supported
+        Ok(WasmFormatResult::NoChange)
+      }
+    }
+  }
+
+  #[inline]
   pub fn get_formatted_text(&mut self) -> Result<usize> {
     let func = self.get_export::<(), u32>("get_formatted_text")?;
     Ok(func.call(&mut self.store).map(|value| value as usize)?)
@@ -572,12 +608,29 @@ impl WasmFunctions {
     Args: WasmTypeList,
     Rets: WasmTypeList,
   {
+    let maybe_export = self.get_maybe_export(name)?;
+    match maybe_export {
+      Some(export) => Ok(export),
+      None => bail!("Could not find export '{}' in plugin.", name),
+    }
+  }
+
+  fn get_maybe_export<Args, Rets>(&mut self, name: &str) -> Result<Option<TypedFunction<Args, Rets>>>
+  where
+    Args: WasmTypeList,
+    Rets: WasmTypeList,
+  {
     match self.instance.get_function(name) {
       Ok(func) => match func.typed::<Args, Rets>(&self.store) {
-        Ok(native_func) => Ok(native_func),
+        Ok(native_func) => Ok(Some(native_func)),
         Err(err) => bail!("Error creating function '{}'. Message: {:#}", name, err),
       },
-      Err(err) => bail!("Could not find export in plugin with name '{}'. Message: {:#}", name, err),
+      Err(err) => match err {
+        ExportError::IncompatibleType => {
+          bail!("Export '{}'. {:#}", name, err)
+        }
+        ExportError::Missing(_) => Ok(None),
+      },
     }
   }
 }

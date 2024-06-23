@@ -163,6 +163,8 @@ Optional functions:
 - `check_config_updates() -> u32` - Set the shared bytes with the input. Returns the length of the output which can be read from the shared bytes.
   - Input: todo...
   - Output: todo...
+- `format_range(config_id: u32, range_start: u32, range_end: u32) -> u32`
+  - Response is same as `format`
 
 ### Wasm Imports
 

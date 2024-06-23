@@ -9,6 +9,7 @@ use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
+use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use std::cell::RefCell;
@@ -81,6 +82,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
 struct WasmPluginFormatMessage {
   file_path: PathBuf,
   file_bytes: Vec<u8>,
+  range: FormatRange,
   config: Arc<FormatConfig>,
   override_config: ConfigKeyMap,
   token: Arc<dyn CancellationToken>,
@@ -311,6 +313,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
               let result = instance.format_text(
                 &request.file_path,
                 &request.file_bytes,
+                request.range.clone(),
                 &request.config,
                 &request.override_config,
                 request.token.clone(),
@@ -413,17 +416,13 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
   }
 
   async fn format_text(&self, request: InitializedPluginFormatRequest) -> FormatResult {
-    // Wasm plugins do not currently support range formatting
-    // so always return back None for now.
-    if request.range.is_some() {
-      return Ok(None);
-    }
     if request.token.is_cancelled() {
       return Ok(None);
     }
     let message = Arc::new(WasmPluginFormatMessage {
       file_path: request.file_path,
       file_bytes: request.file_text,
+      range: request.range,
       config: request.config,
       override_config: request.override_config,
       token: request.token,

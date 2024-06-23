@@ -151,6 +151,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
         }
       }
     }
+
     if let Some(output) = file_text.strip_prefix("stderr:") {
       let mut stderr = dprint_core::plugins::wasm::WasiPrintFd(2);
       stderr.write_all(output.as_bytes()).unwrap();
@@ -167,6 +168,9 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
 
     let inner_format_text = if self.has_panicked {
       panic!("Previously panicked. Plugin should not have been used by the CLI again.")
+    } else if let Some(range) = &request.range {
+      let text = format!("{}_{}_{}", &file_text[0..range.start], request.config.ending, &file_text[range.end..]);
+      text
     } else if let Some(new_text) = file_text.strip_prefix("plugin: ") {
       format!(
         "plugin: {}",

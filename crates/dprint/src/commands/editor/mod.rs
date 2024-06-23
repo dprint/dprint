@@ -734,7 +734,7 @@ mod test {
             result.unwrap();
           }
 
-          // test range formatting
+          // test process range formatting
           assert_eq!(
             bytes_to_string(
               communicator
@@ -750,6 +750,23 @@ mod test {
                 .unwrap()
             ),
             "t_formatted_process_sting_formatted_process"
+          );
+          // test wasm range formatting
+          assert_eq!(
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &PathBuf::from("/file.txt"),
+                  "testing".to_string().into_bytes(),
+                  Some(1..2),
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
+            "t_formatted_sting_formatted"
           );
 
           // test process and wasm plugin cancellation

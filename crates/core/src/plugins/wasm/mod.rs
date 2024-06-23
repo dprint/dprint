@@ -204,7 +204,6 @@ pub mod macros {
 
       static OVERRIDE_CONFIG: StaticCell<Option<dprint_core::configuration::ConfigKeyMap>> = StaticCell::new(None);
       static FILE_PATH: StaticCell<Option<std::path::PathBuf>> = StaticCell::new(None);
-      static RANGE: StaticCell<Option<dprint_core::plugins::FormatRange>> = StaticCell::new(None);
       static FORMATTED_TEXT: StaticCell<Option<Vec<u8>>> = StaticCell::new(None);
       static ERROR_TEXT: StaticCell<Option<String>> = StaticCell::new(None);
 
@@ -224,6 +223,15 @@ pub mod macros {
 
       #[no_mangle]
       pub fn format(config_id: u32) -> u8 {
+        format_inner(config_id, None)
+      }
+
+      #[no_mangle]
+      pub fn format_range(config_id: u32, range_start: u32, range_end: u32) -> u8 {
+        format_inner(config_id, Some(range_start as usize..range_end as usize))
+      }
+
+      fn format_inner(config_id: u32, range: dprint_core::plugins::FormatRange) -> u8 {
         #[derive(Debug)]
         struct HostCancellationToken;
 
@@ -250,7 +258,7 @@ pub mod macros {
           file_bytes,
           config: &config,
           config_id,
-          range: None, // todo: support range
+          range,
           token: &HostCancellationToken,
         };
         let formatted_text = unsafe { WASM_PLUGIN.get().format(request, format_with_host) };

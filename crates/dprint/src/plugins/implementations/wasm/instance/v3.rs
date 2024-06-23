@@ -14,6 +14,7 @@ use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
+use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
@@ -443,10 +444,14 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV3 {
     &mut self,
     file_path: &Path,
     file_bytes: &[u8],
+    range: FormatRange,
     config: &FormatConfig,
     override_config: &ConfigKeyMap,
     token: Arc<dyn CancellationToken>,
   ) -> FormatResult {
+    if range.is_some() && range != Some(0..file_bytes.len()) {
+      return Ok(None); // not supported for v3
+    }
     self.wasm_functions.instance.set_token(&mut self.wasm_functions.store, token);
     self.ensure_config(config)?;
     match self.inner_format_text(file_path, file_bytes, override_config) {
