@@ -73,6 +73,15 @@ impl SubCommand {
     }
   }
 
+  // pub fn only_staged(&self) -> bool {
+  //   match self {
+  //     SubCommand::Check(a) => a.allow_no_files,
+  //     SubCommand::Fmt(a) => a.only_staged,
+  //     SubCommand::OutputFormatTimes(a) => a.allow_no_files,
+  //     _ => false,
+  //   }
+  // }
+
   pub fn file_patterns(&self) -> Option<&FilePatternArgs> {
     match self {
       SubCommand::Check(a) => Some(&a.patterns),
@@ -103,6 +112,7 @@ pub struct CheckSubCommand {
   pub incremental: Option<bool>,
   pub list_different: bool,
   pub allow_no_files: bool,
+  pub only_staged: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -112,6 +122,7 @@ pub struct FmtSubCommand {
   pub incremental: Option<bool>,
   pub enable_stable_format: bool,
   pub allow_no_files: bool,
+  pub only_staged: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -155,6 +166,7 @@ pub enum HiddenSubCommand {
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct FilePatternArgs {
+  pub only_staged: bool,
   pub include_patterns: Vec<String>,
   pub include_pattern_overrides: Option<Vec<String>>,
   pub exclude_patterns: Vec<String>,
@@ -208,12 +220,14 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
           incremental: parse_incremental(matches),
           enable_stable_format: !matches.get_flag("skip-stable-format"),
           allow_no_files: matches.get_flag("allow-no-files"),
+          only_staged: matches.get_flag("only-staged"),
         })
       }
     }
     ("check", matches) => SubCommand::Check(CheckSubCommand {
       patterns: parse_file_patterns(matches)?,
       incremental: parse_incremental(matches),
+      only_staged: matches.get_flag("only-staged"),
       list_different: matches.get_flag("list-different"),
       allow_no_files: matches.get_flag("allow-no-files"),
     }),
@@ -285,6 +299,7 @@ fn parse_file_patterns(matches: &ArgMatches) -> Result<FilePatternArgs> {
   }
 
   Ok(FilePatternArgs {
+    only_staged: matches.get_flag("only-staged"),
     allow_node_modules: matches.get_flag("allow-node-modules"),
     include_patterns: file_patterns,
     include_pattern_overrides: matches.get_many("includes-override").map(values_to_vec),
@@ -436,6 +451,13 @@ EXAMPLES:
           Arg::new("diff")
             .long("diff")
             .help("Outputs a check-like diff of every formatted file.")
+            .num_args(0)
+            .required(false)
+        )
+        .arg(
+          Arg::new("staged")
+            .long("only-staged")
+            .help("Format only the staged files.")
             .num_args(0)
             .required(false)
         )
