@@ -350,8 +350,8 @@ Requires dprint >= 0.47.0
 
 dprint expands certain variables in the config:
 
-- `${configDir}` - Expands to the current configurations directory.
-- `${originConfigDir}` - Useful when the current config is being extended by another configuration file and you want the original directory.
+- `${configDir}` - The current configuration's directory.
+- `${originConfigDir}` - The original configuration's directory. Useful when the current config is being extended by another configuration file and you want the original directory.
 
 For example, in a JSON value you might do `"rustfmt --config-path ${configDir}/rustfmt.toml"`.
 
