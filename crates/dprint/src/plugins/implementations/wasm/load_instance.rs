@@ -1,7 +1,7 @@
 use anyhow::bail;
 use anyhow::Result;
+use wasmer::sys::EngineBuilder;
 use wasmer::Cranelift;
-use wasmer::EngineBuilder;
 use wasmer::EngineRef;
 use wasmer::Imports;
 use wasmer::Instance;

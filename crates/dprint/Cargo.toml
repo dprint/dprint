@@ -56,9 +56,9 @@ webpki-roots = "=0.26.1"
 # pin these to prevent them changing with `cargo install` because
 # patch version increases of rkyv may cause panics when deserializing
 # data serialized with older versions
-rkyv = "=0.7.43"
-wasmer = "=4.2.5"
-wasmer-compiler = "=4.2.5"
+rkyv = "=0.7.44"
+wasmer = "=4.3.2"
+wasmer-compiler = "=4.3.2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "=0.52.0"
