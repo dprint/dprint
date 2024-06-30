@@ -344,6 +344,21 @@ But specifying properties in the `"typescript"` or `"json"` objects would cause 
 }
 ```
 
+## Configuration Variables
+
+Requires dprint >= 0.47.0
+
+dprint expands certain variables in the config:
+
+- `${configDir}` - The current configuration's directory.
+- `${originConfigDir}` - The original configuration's directory. Useful when the current config is being extended by another configuration file and you want the original directory.
+
+For example, in a JSON value you might do `"rustfmt --config-path ${configDir}/rustfmt.toml"`.
+
+This is useful to use in some scenarios like with [dprint-plugin-exec](https://github.com/dprint/dprint-plugin-exec) because the CLI will only launch a single plugin for many configs and when resolving configs, the plugins have no concept of where that config was resolved from. Additionally, configs may resolve other configs and perhaps you want to use the directory of a configuration file that was extended.
+
+Note: dprint will error for unknown configuration variables (ex. `"${unknown}"`). You can get around this by escaping the `$` sign (ex. `"\\${unknown}"`).
+
 ## Plugin/Language Specific Configuration
 
 Running `dprint help` will list the help urls for all the configured plugins in your configuration file. On those pages you can view the help information.
