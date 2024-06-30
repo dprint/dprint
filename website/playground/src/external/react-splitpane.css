@@ -9,10 +9,12 @@
   -webkit-background-clip: padding;
   background-clip: padding-box;
 }
+
 .Resizer:hover {
   -webkit-transition: all 2s ease;
   transition: all 2s ease;
 }
+
 .Resizer.horizontal {
   height: 11px;
   margin: -5px 0;
@@ -21,10 +23,12 @@
   cursor: row-resize;
   width: 100%;
 }
+
 .Resizer.horizontal:hover {
   border-top: 5px solid rgba(0, 0, 0, 0.5);
   border-bottom: 5px solid rgba(0, 0, 0, 0.5);
 }
+
 .Resizer.vertical {
   width: 11px;
   margin: 0 -5px;
@@ -32,30 +36,35 @@
   border-right: 5px solid rgba(255, 255, 255, 0);
   cursor: col-resize;
 }
+
 .Resizer.vertical:hover {
   border-left: 5px solid rgba(255, 255, 255, 0.5);
   border-right: 5px solid rgba(255, 255, 255, 0.5);
 }
+
 .Resizer.disabled {
   height: 0px;
   cursor: default;
   margin: 0;
 }
+
 .Resizer.disabled.horizontal {
   border-top-width: 0px;
   border-bottom-width: 0px;
 }
+
 .Resizer.disabled.horizontal:hover {
   border-top-width: 0px;
   border-bottom-width: 0px;
 }
+
 .Resizer.disabled.vertical {
   width: 0px;
   border-left-width: 0px;
   border-right-width: 0px;
 }
+
 .Resizer.disabled.vertical:hover {
   border-left-width: 0px;
   border-right-width: 0px;
 }
-.Resizer.disabled:hover {}
