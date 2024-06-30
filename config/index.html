@@ -306,6 +306,16 @@
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
+<h2 id="configuration-variables" tabindex="-1"><a class="header-anchor" href="#configuration-variables">Configuration Variables</a></h2>
+<p>Requires dprint &gt;= 0.47.0</p>
+<p>dprint expands certain variables in the config:</p>
+<ul>
+<li><code>${configDir}</code> - The current configuration's directory.</li>
+<li><code>${originConfigDir}</code> - The original configuration's directory. Useful when the current config is being extended by another configuration file and you want the original directory.</li>
+</ul>
+<p>For example, in a JSON value you might do <code>"rustfmt --config-path ${configDir}/rustfmt.toml"</code>.</p>
+<p>This is useful to use in some scenarios like with <a href="https://github.com/dprint/dprint-plugin-exec">dprint-plugin-exec</a> because the CLI will only launch a single plugin for many configs and when resolving configs, the plugins have no concept of where that config was resolved from. Additionally, configs may resolve other configs and perhaps you want to use the directory of a configuration file that was extended.</p>
+<p>Note: dprint will error for unknown configuration variables (ex. <code>"${unknown}"</code>). You can get around this by escaping the <code>$</code> sign (ex. <code>"\\${unknown}"</code>).</p>
 <h2 id="plugin%2Flanguage-specific-configuration" tabindex="-1"><a class="header-anchor" href="#plugin%2Flanguage-specific-configuration">Plugin/Language Specific Configuration</a></h2>
 <p>Running <code>dprint help</code> will list the help urls for all the configured plugins in your configuration file. On those pages you can view the help information.</p>
 <p>For information on the official plugins' configuration, see the <a href="https://dprint.dev/plugins/">plugins</a> section.</p>
