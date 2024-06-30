@@ -2,7 +2,6 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::process::Command;
 use std::str::Split;
 use thiserror::Error;
 
@@ -94,18 +93,12 @@ pub async fn get_and_resolve_file_paths<'a>(
   let mut file_patterns = get_all_file_patterns(config, args, &cwd);
 
   if args.only_staged {
-    let output = Command::new("git")
-      .arg("diff")
-      .arg("--name-only")
-      .arg("--relative")
-      .arg("--staged")
-      .arg("--diff-filter=ACMR")
-      .output()?;
-
-    file_patterns.config_includes = Some(GlobPattern::new_vec(
-      String::from_utf8_lossy(&output.stdout).lines().map(|l| l.to_string()).collect(),
-      cwd.clone(),
-    ));
+    if let Ok(staged_files) = environment.get_staged_files() {
+      file_patterns.config_includes = Some(GlobPattern::new_vec(
+        staged_files.into_iter().map(|path| path.to_string_lossy().into_owned()).collect(),
+        cwd.clone(),
+      ));
+    }
   }
 
   if file_patterns.config_includes.is_none() {

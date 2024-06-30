@@ -9,6 +9,7 @@ use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::Arc;
 use std::time::SystemTime;
 use sysinfo::System;
@@ -116,6 +117,18 @@ impl Environment for RealEnvironment {
       Ok(bytes) => Ok(bytes),
       Err(err) => bail!("Error reading file {}: {:#}", file_path.as_ref().display(), err),
     }
+  }
+
+  fn get_staged_files(&self) -> Result<Vec<PathBuf>> {
+    let output = Command::new("git")
+      .arg("diff")
+      .arg("--name-only")
+      .arg("--relative")
+      .arg("--staged")
+      .arg("--diff-filter=ACMR")
+      .output()?;
+
+    Ok(String::from_utf8_lossy(&output.stdout).lines().map(|l| PathBuf::from(l)).collect())
   }
 
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()> {
