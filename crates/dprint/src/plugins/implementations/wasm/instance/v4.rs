@@ -154,7 +154,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
     }
 
     let nwritten = nwritten.deref(&memory_view);
-    let success = nwritten.write(total_written as u32).is_ok();
+    let success = nwritten.write(total_written).is_ok();
     if !success {
       return 1;
     }
@@ -225,7 +225,6 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
     } else {
       Some(range_start as usize..range_end as usize)
     };
-    eprintln!("RANGE: {:?}", range);
     let env = env.data_mut();
     let request = HostFormatRequest {
       file_path,
