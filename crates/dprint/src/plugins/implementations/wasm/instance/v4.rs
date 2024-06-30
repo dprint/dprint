@@ -35,6 +35,7 @@ use wasmer::TypedFunction;
 use wasmer::WasmPtr;
 use wasmer::WasmTypeList;
 
+use crate::environment::Environment;
 use crate::plugins::implementations::wasm::ImportObjectEnvironment;
 use crate::plugins::implementations::wasm::WasmHostFormatSender;
 use crate::plugins::implementations::wasm::WasmInstance;
@@ -74,8 +75,15 @@ pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
   }
 }
 
-pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHostFormatSender) -> (wasmer::Imports, Box<dyn ImportObjectEnvironment>) {
-  struct ImportObjectEnvironmentV4 {
+pub fn create_pools_import_object<TEnvironment: Environment>(
+  environment: TEnvironment,
+  plugin_name: String,
+  store: &mut Store,
+  host_format_sender: WasmHostFormatSender,
+) -> (wasmer::Imports, Box<dyn ImportObjectEnvironment>) {
+  struct ImportObjectEnvironmentV4<TEnvironment: Environment> {
+    environment: TEnvironment,
+    plugin_name: String,
     memory: Option<Memory>,
     formatted_text_store: Vec<u8>,
     shared_bytes: Mutex<Vec<u8>>,
@@ -84,20 +92,7 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     host_format_sender: WasmHostFormatSender,
   }
 
-  impl ImportObjectEnvironmentV4 {
-    pub fn new(host_format_sender: WasmHostFormatSender) -> Self {
-      ImportObjectEnvironmentV4 {
-        memory: None,
-        shared_bytes: Default::default(),
-        formatted_text_store: Default::default(),
-        error_text_store: Default::default(),
-        token: Arc::new(NullCancellationToken),
-        host_format_sender,
-      }
-    }
-  }
-
-  impl ImportObjectEnvironment for FunctionEnv<ImportObjectEnvironmentV4> {
+  impl<TEnvironment: Environment> ImportObjectEnvironment for FunctionEnv<ImportObjectEnvironmentV4<TEnvironment>> {
     fn initialize(&self, store: &mut Store, instance: &Instance) -> Result<(), ExportError> {
       self.as_mut(store).memory = Some(instance.exports.get_memory("memory")?.clone());
       Ok(())
@@ -108,12 +103,18 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     }
   }
 
-  fn fd_write(env: FunctionEnvMut<ImportObjectEnvironmentV4>, fd: u32, iovs_ptr: u32, iovs_len: u32, nwritten: WasmPtr<u32>) -> u32 {
+  fn fd_write<TEnvironment: Environment>(
+    env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>,
+    fd: u32,
+    iovs_ptr: u32,
+    iovs_len: u32,
+    nwritten: WasmPtr<u32>,
+  ) -> u32 {
     #[derive(Copy, Clone)]
     #[repr(C)]
     struct Iovec {
-      buf: *const u8,
-      buf_len: usize,
+      buf: u32,
+      buf_len: u32,
     }
 
     unsafe impl wasmer::ValueType for Iovec {
@@ -129,19 +130,22 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
 
     for i in 0..iovs_len {
       let iovec_ptr = WasmPtr::<Iovec>::new(iovs_ptr + i * std::mem::size_of::<Iovec>() as u32);
-      let iovec = iovec_ptr.deref(&memory_view).read().unwrap();
+      let Ok(iovec) = iovec_ptr.deref(&memory_view).read() else {
+        return 1;
+      };
 
       let buf_addr = iovec.buf;
       let buf_len = iovec.buf_len;
 
-      let mut bytes = vec![0; buf_len];
-      memory_view.read(buf_addr as u64, &mut bytes).unwrap();
+      let mut bytes = vec![0; buf_len as usize];
+      let success = memory_view.read(buf_addr as u64, &mut bytes).is_ok();
+      if !success {
+        return 1;
+      }
 
-      // todo(THIS PR): should always output to stderr and use the logger
-      if fd == 1 {
-        print!("{}", String::from_utf8_lossy(&bytes));
-      } else if fd == 2 {
-        eprint!("{}", String::from_utf8_lossy(&bytes));
+      if matches!(fd, 1 | 2) {
+        let text = String::from_utf8_lossy(&bytes);
+        env_data.environment.log_stderr_with_context(&text, &env_data.plugin_name);
       } else {
         return 1; // Indicate error for unsupported fd
       }
@@ -150,12 +154,15 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     }
 
     let nwritten = nwritten.deref(&memory_view);
-    nwritten.write(total_written as u32).unwrap();
+    let success = nwritten.write(total_written as u32).is_ok();
+    if !success {
+      return 1;
+    }
 
     0
   }
 
-  fn host_read_buffer(env: FunctionEnvMut<ImportObjectEnvironmentV4>, buffer_ptr: u32, length: u32) {
+  fn host_read_buffer<TEnvironment: Environment>(env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>, buffer_ptr: u32, length: u32) {
     let buffer_ptr: wasmer::WasmPtr<u32> = wasmer::WasmPtr::new(buffer_ptr);
     let env_data = env.data();
     let memory = env_data.memory.as_ref().unwrap();
@@ -168,7 +175,7 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     memory_view.read(buffer_ptr.offset() as u64, &mut shared_bytes).unwrap();
   }
 
-  fn host_write_buffer(env: FunctionEnvMut<ImportObjectEnvironmentV4>, buffer_pointer: u32) {
+  fn host_write_buffer<TEnvironment: Environment>(env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>, buffer_pointer: u32) {
     let buffer_pointer: wasmer::WasmPtr<u32> = wasmer::WasmPtr::new(buffer_pointer);
     let env_data = env.data();
     let memory = env_data.memory.as_ref().unwrap();
@@ -178,8 +185,9 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     memory_view.write(buffer_pointer.offset() as u64, &shared_bytes).unwrap();
   }
 
-  fn host_format(
-    mut env: FunctionEnvMut<ImportObjectEnvironmentV4>,
+  #[allow(clippy::too_many_arguments)]
+  fn host_format<TEnvironment: Environment>(
+    mut env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>,
     file_path_ptr: u32,
     file_path_len: u32,
     range_start: u32,
@@ -256,7 +264,7 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     }
   }
 
-  fn host_get_formatted_text(mut env: FunctionEnvMut<ImportObjectEnvironmentV4>) -> u32 {
+  fn host_get_formatted_text<TEnvironment: Environment>(mut env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>) -> u32 {
     let env = env.data_mut();
     let formatted_bytes = std::mem::take(&mut env.formatted_text_store);
     let len = formatted_bytes.len();
@@ -264,7 +272,7 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     len as u32
   }
 
-  fn host_get_error_text(mut env: FunctionEnvMut<ImportObjectEnvironmentV4>) -> u32 {
+  fn host_get_error_text<TEnvironment: Environment>(mut env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>) -> u32 {
     let env = env.data_mut();
     let error_text = std::mem::take(&mut env.error_text_store);
     let len = error_text.len();
@@ -272,7 +280,7 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     len as u32
   }
 
-  fn host_has_cancelled(env: FunctionEnvMut<ImportObjectEnvironmentV4>) -> i32 {
+  fn host_has_cancelled<TEnvironment: Environment>(env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>) -> i32 {
     if env.data().token.as_ref().is_cancelled() {
       1
     } else {
@@ -280,7 +288,16 @@ pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHos
     }
   }
 
-  let env = ImportObjectEnvironmentV4::new(host_format_sender);
+  let env = ImportObjectEnvironmentV4 {
+    environment,
+    plugin_name,
+    memory: None,
+    shared_bytes: Default::default(),
+    formatted_text_store: Default::default(),
+    error_text_store: Default::default(),
+    token: Arc::new(NullCancellationToken),
+    host_format_sender,
+  };
   let env = FunctionEnv::new(store, env);
 
   (

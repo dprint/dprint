@@ -2254,4 +2254,28 @@ mod test {
       .to_string()]
     );
   }
+
+  #[test]
+  fn wasm_log_stderr() {
+    let file_path1 = "/file1.txt";
+    let file_path2 = "/file2.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      // these will both go to stderr actually
+      .write_file(&file_path1, "stdout: hi stdout")
+      .write_file(&file_path2, "stderr: hi stderr")
+      .build();
+    run_test_cli(vec!["fmt", "*.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "stdout: hi stdout_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "stderr: hi stderr_formatted");
+    assert_eq!(
+      {
+        let mut messages = environment.take_stderr_messages();
+        messages.sort();
+        messages
+      },
+      // everything goes to stderr
+      vec![" hi stderr", " hi stderr_formatted", " hi stdout", " hi stdout_formatted"]
+    );
+  }
 }

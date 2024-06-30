@@ -236,7 +236,10 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           if let Some(sender) = context.format_host_senders.take(body.message_id) {
             sender.send(Err(anyhow!("{}", text))).unwrap();
           } else {
-            eprintln!("Received error from CLI. {}", text);
+            #[allow(clippy::print_stderr)]
+            {
+              eprintln!("Received error from CLI. {}", text);
+            }
           }
         }
         MessageBody::FormatResponse(body) => {

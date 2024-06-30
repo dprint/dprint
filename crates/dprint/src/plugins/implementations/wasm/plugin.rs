@@ -63,12 +63,14 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
   }
 
   async fn initialize(&self) -> Result<Rc<dyn InitializedPlugin>> {
+    let environment = self.environment.clone();
+    let plugin_name = self.info().name.clone();
     let plugin: Rc<dyn InitializedPlugin> = Rc::new(InitializedWasmPlugin::new(
-      self.info().name.to_string(),
+      plugin_name.clone(),
       self.module.clone(),
       Arc::new({
         move |store, module, host_format_sender| {
-          let (import_object, env) = create_pools_import_object(module.version(), store, host_format_sender);
+          let (import_object, env) = create_pools_import_object(environment.clone(), &plugin_name, module.version(), store, host_format_sender);
           load_instance(store, module, env, &import_object)
         }
       }),

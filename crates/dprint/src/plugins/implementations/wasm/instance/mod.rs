@@ -18,6 +18,7 @@ use wasmer::ExportError;
 use wasmer::Instance;
 use wasmer::Store;
 
+use crate::environment::Environment;
 use crate::plugins::FormatConfig;
 
 use super::WasmInstance;
@@ -72,14 +73,16 @@ pub fn create_identity_import_object(version: PluginSchemaVersion, store: &mut S
 }
 
 /// Create an import object that formats text using plugins from the plugin pool
-pub fn create_pools_import_object(
+pub fn create_pools_import_object<TEnvironment: Environment>(
+  environment: TEnvironment,
+  plugin_name: &str,
   version: PluginSchemaVersion,
   store: &mut Store,
   host_format_sender: WasmHostFormatSender,
 ) -> (wasmer::Imports, Box<dyn ImportObjectEnvironment>) {
   match version {
     PluginSchemaVersion::V3 => v3::create_pools_import_object(store, host_format_sender),
-    PluginSchemaVersion::V4 => v4::create_pools_import_object(store, host_format_sender),
+    PluginSchemaVersion::V4 => v4::create_pools_import_object(environment, plugin_name.to_string(), store, host_format_sender),
   }
 }
 
