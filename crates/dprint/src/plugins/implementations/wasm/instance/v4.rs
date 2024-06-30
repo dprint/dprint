@@ -50,7 +50,6 @@ enum WasmFormatResult {
 }
 
 pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
-  let host_clear_bytes = |_: u32| {};
   let host_write_buffer = |_: u32| {};
   let host_format = |_: u32, _: u32, _: u32, _: u32, _: u32, _: u32, _: u32, _: u32| -> u32 { 0 }; // no change
   let host_get_formatted_text = || -> u32 { 0 }; // zero length
@@ -63,7 +62,6 @@ pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
       "fd_write" => Function::new_typed(store, fd_write),
     },
     "dprint" => {
-      "host_clear_bytes" => Function::new_typed(store, host_clear_bytes),
       "host_write_buffer" => Function::new_typed(store, host_write_buffer),
       "host_format" => Function::new_typed(store, host_format),
       "host_get_formatted_text" => Function::new_typed(store, host_get_formatted_text),
