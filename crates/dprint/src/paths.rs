@@ -94,7 +94,7 @@ pub async fn get_and_resolve_file_paths<'a>(
 
   if args.only_staged {
     if let Ok(staged_files) = environment.get_staged_files() {
-      file_patterns.config_includes = Some(GlobPattern::new_vec(
+      file_patterns.arg_includes = Some(GlobPattern::new_vec(
         staged_files.into_iter().map(|path| path.to_string_lossy().into_owned()).collect(),
         cwd.clone(),
       ));

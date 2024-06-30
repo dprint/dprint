@@ -330,6 +330,44 @@ mod test {
   }
 
   #[test]
+  fn should_format_only_staged_files() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/file.txt_ps";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .write_file(&file_path1, "text_1")
+      .write_file(&file_path2, "text_2")
+      .add_staged_file(file_path1)
+      .build();
+
+    environment.set_max_threads(1);
+    run_test_cli(vec!["fmt", "--staged"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_1_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text_2");
+  }
+
+  #[test]
+  fn should_format_only_staged_files_while_respecting_includes() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/file.txt_ps";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("./dprint.json", |c| {
+        c.add_includes("**/*.txt_ps").add_remote_wasm_plugin().add_remote_process_plugin();
+      })
+      .write_file(&file_path1, "text_1")
+      .write_file(&file_path2, "text_2")
+      .add_staged_file(file_path1)
+      .add_staged_file(file_path2)
+      .build();
+
+    environment.set_max_threads(1);
+    run_test_cli(vec!["fmt", "--staged"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_1");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text_2_formatted_process");
+  }
+
+  #[test]
   fn should_format_plugin_explicitly_specified_files() {
     // this file name is mentioned in test-process-plugin's PluginInfo
     let file_path1 = "/test-process-plugin-exact-file";
