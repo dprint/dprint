@@ -156,6 +156,11 @@ const ci = {
           run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}} --release",
         },
         {
+          name: "Clippy",
+          if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && !startsWith(github.ref, 'refs/tags/')",
+          run: "cargo clippy",
+        },
+        {
           name: "Build (Debug)",
           if: "matrix.config.cross != 'true' && !startsWith(github.ref, 'refs/tags/')",
           env: {
