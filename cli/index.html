@@ -84,6 +84,12 @@
 <p>A rare use case, but to override/ignore the patterns in the config file, use the <code>--includes-override</code> and <code>--excludes-override</code> flags:</p>
 <pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --includes-override **/*.js --excludes-override **/data
 </code></pre>
+<h3 id="formatting-only-git-staged-files" tabindex="-1"><a class="header-anchor" href="#formatting-only-git-staged-files">Formatting only git staged files</a></h3>
+<p>Requires dprint &gt;= 0.47.0</p>
+<p>To format only files that are staged use the <code>--staged</code> flag:</p>
+<pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --staged
+</code></pre>
+<p>Note: This requires that <a href="https://git-scm.com/">git</a> is installed and that you use git for source control.</p>
 <h3 id="formatting-standard-input" tabindex="-1"><a class="header-anchor" href="#formatting-standard-input">Formatting Standard Input</a></h3>
 <p>Use <code>dprint fmt --stdin &lt;file-path/file-name/extension&gt;</code> and provide the input file text to stdin. The output will be directed by the CLI to stdout.</p>
 <p>Provide a full file path to format with inclusion/exclusion rules of your dprint configuration file or provide only a file name or extension to always format the file.</p>
