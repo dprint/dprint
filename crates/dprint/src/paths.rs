@@ -1,3 +1,4 @@
+use anyhow::Context;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -93,12 +94,11 @@ pub async fn get_and_resolve_file_paths<'a>(
   let mut file_patterns = get_all_file_patterns(config, args, &cwd);
 
   if args.only_staged {
-    if let Ok(staged_files) = environment.get_staged_files() {
-      file_patterns.arg_includes = Some(GlobPattern::new_vec(
-        staged_files.into_iter().map(|path| path.to_string_lossy().into_owned()).collect(),
-        cwd.clone(),
-      ));
-    }
+    let staged_files = environment.get_staged_files().context("Failed running git staged.")?;
+    file_patterns.arg_includes = Some(GlobPattern::new_vec(
+      staged_files.into_iter().map(|path| path.to_string_lossy().into_owned()).collect(),
+      cwd.clone(),
+    ));
   }
 
   if file_patterns.config_includes.is_none() {
@@ -108,7 +108,6 @@ pub async fn get_and_resolve_file_paths<'a>(
     file_patterns.config_includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), cwd.clone()));
   }
 
-  // if args.allow_node_modules
   get_and_resolve_file_patterns(config, file_patterns, environment).await
 }
 

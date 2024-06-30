@@ -128,7 +128,7 @@ impl Environment for RealEnvironment {
       .arg("--diff-filter=ACMR")
       .output()?;
 
-    Ok(String::from_utf8_lossy(&output.stdout).lines().map(|l| PathBuf::from(l)).collect())
+    Ok(String::from_utf8_lossy(&output.stdout).lines().map(PathBuf::from).collect())
   }
 
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()> {
