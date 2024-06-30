@@ -122,11 +122,14 @@ impl GlobMatcher {
         // this is a very strange state that we want to know more about,
         // so just always log directly to stderr in this scenario and maybe
         // eventually remove this code.
-        eprintln!(
-          "WARNING: Path prefix error for {} and {}. Please report this error in issue #540.",
-          &self.base_dir.display(),
-          path.display()
-        );
+        #[allow(clippy::print_stderr)]
+        {
+          eprintln!(
+            "WARNING: Path prefix error for {} and {}. Please report this error in issue #540.",
+            &self.base_dir.display(),
+            path.display()
+          );
+        }
         return GlobMatchesDetail::NotMatched;
       }
     } else if !path.is_absolute() {

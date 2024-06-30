@@ -1,4 +1,4 @@
-import type { PluginInfo } from "@dprint/formatter";
+import type { FileMatchingInfo, PluginInfo } from "@dprint/formatter";
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom";
 import { Spinner } from "./components";
@@ -16,6 +16,7 @@ function Loader() {
   const [pluginUrls, setPluginUrls] = useState<string[]>([]);
   const [pluginUrl, setPluginUrl] = useState(initialUrl.pluginUrl);
   const [pluginInfo, setPluginInfo] = useState<PluginInfo | undefined>();
+  const [fileMatchingInfo, setFileMatchingInfo] = useState<FileMatchingInfo | undefined>();
   const [text, setText] = useState(initialUrl.text);
   const [configText, setConfigText] = useState(initialUrl.configText ?? "");
   const [defaultConfigText, setDefaultConfigText] = useState("");
@@ -43,17 +44,23 @@ function Loader() {
 
   useEffect(() => {
     formatterWorker.addOnPluginInfo(onPluginInfo);
+    formatterWorker.addOnFileMatchingInfo(onFileMatchingInfo);
     formatterWorker.addOnFormat(onFormat);
     formatterWorker.addOnError(onError);
 
     return () => {
       formatterWorker.removeOnPluginInfo(onPluginInfo);
+      formatterWorker.removeOnFileMatchingInfo(onFileMatchingInfo);
       formatterWorker.removeOnError(onError);
       formatterWorker.removeOnFormat(onFormat);
     };
 
     function onPluginInfo(pluginInfo: PluginInfo) {
       setPluginInfo(pluginInfo);
+    }
+
+    function onFileMatchingInfo(info: FileMatchingInfo) {
+      setFileMatchingInfo(info);
     }
 
     function onFormat(text: string) {
@@ -120,7 +127,7 @@ function Loader() {
     };
   }, [pluginUrl, pluginInfo]);
 
-  if (pluginUrl == null || pluginInfo == null) {
+  if (pluginUrl == null || pluginInfo == null || fileMatchingInfo == null) {
     return <Spinner />;
   }
 
@@ -134,6 +141,7 @@ function Loader() {
       pluginUrls={pluginUrls}
       selectedPluginUrl={pluginUrl}
       selectedPluginInfo={pluginInfo}
+      fileMatchingInfo={fileMatchingInfo}
       onSelectPluginUrl={url => {
         setPluginInfo(undefined);
         if (!pluginUrls.includes(url)) {

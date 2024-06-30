@@ -1,40 +1,89 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::bail;
 use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION;
+use dprint_core::plugins::CancellationToken;
+use dprint_core::plugins::CheckConfigUpdatesMessage;
+use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
+use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
+use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::PluginInfo;
-use v1::InitializedWasmPluginInstanceV1;
+use wasmer::ExportError;
+use wasmer::Instance;
 use wasmer::Store;
 
+use crate::environment::Environment;
 use crate::plugins::FormatConfig;
 
 use super::WasmInstance;
 
-mod v1;
+mod v3;
+mod v4;
+
+pub type WasmHostFormatSender = tokio::sync::mpsc::UnboundedSender<(HostFormatRequest, std::sync::mpsc::Sender<FormatResult>)>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PluginSchemaVersion {
+  V3,
+  V4,
+}
+
+pub trait ImportObjectEnvironment {
+  fn initialize(&self, store: &mut Store, instance: &Instance) -> Result<(), ExportError>;
+  fn set_token(&self, store: &mut Store, token: Arc<dyn CancellationToken>);
+}
 
 pub trait InitializedWasmPluginInstance {
   fn plugin_info(&mut self) -> Result<PluginInfo>;
   fn license_text(&mut self) -> Result<String>;
   fn resolved_config(&mut self, config: &FormatConfig) -> Result<String>;
   fn config_diagnostics(&mut self, config: &FormatConfig) -> Result<Vec<ConfigurationDiagnostic>>;
-  fn file_matching_info(&mut self, _config: &FormatConfig) -> Result<FileMatchingInfo>;
-  fn format_text(&mut self, file_path: &Path, file_bytes: &[u8], config: &FormatConfig, override_config: &ConfigKeyMap) -> FormatResult;
+  fn file_matching_info(&mut self, config: &FormatConfig) -> Result<FileMatchingInfo>;
+  fn check_config_updates(&mut self, message: &CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>>;
+  fn format_text(
+    &mut self,
+    file_path: &Path,
+    file_bytes: &[u8],
+    range: FormatRange,
+    config: &FormatConfig,
+    override_config: &ConfigKeyMap,
+    token: Arc<dyn CancellationToken>,
+  ) -> FormatResult;
 }
 
 pub fn create_wasm_plugin_instance(store: Store, instance: WasmInstance) -> Result<Box<dyn InitializedWasmPluginInstance>> {
   match instance.version() {
-    PluginSchemaVersion::V3 => Ok(Box::new(InitializedWasmPluginInstanceV1::new(store, instance)?)),
+    PluginSchemaVersion::V3 => Ok(Box::new(v3::InitializedWasmPluginInstanceV3::new(store, instance)?)),
+    PluginSchemaVersion::V4 => Ok(Box::new(v4::InitializedWasmPluginInstanceV4::new(store, instance)?)),
   }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum PluginSchemaVersion {
-  V3,
+/// Use this when the plugins don't need to format via a plugin pool.
+pub fn create_identity_import_object(version: PluginSchemaVersion, store: &mut Store) -> wasmer::Imports {
+  match version {
+    PluginSchemaVersion::V3 => v3::create_identity_import_object(store),
+    PluginSchemaVersion::V4 => v4::create_identity_import_object(store),
+  }
+}
+
+/// Create an import object that formats text using plugins from the plugin pool
+pub fn create_pools_import_object<TEnvironment: Environment>(
+  environment: TEnvironment,
+  plugin_name: &str,
+  version: PluginSchemaVersion,
+  store: &mut Store,
+  host_format_sender: WasmHostFormatSender,
+) -> (wasmer::Imports, Box<dyn ImportObjectEnvironment>) {
+  match version {
+    PluginSchemaVersion::V3 => v3::create_pools_import_object(store, host_format_sender),
+    PluginSchemaVersion::V4 => v4::create_pools_import_object(environment, plugin_name.to_string(), store, host_format_sender),
+  }
 }
 
 pub fn get_current_plugin_schema_version(module: &wasmer::Module) -> Result<PluginSchemaVersion> {
@@ -56,8 +105,9 @@ pub fn get_current_plugin_schema_version(module: &wasmer::Module) -> Result<Plug
 
   let plugin_schema_version = from_exports(module)?;
   match plugin_schema_version {
-    PLUGIN_SYSTEM_SCHEMA_VERSION => Ok(PluginSchemaVersion::V3),
-    version if version > PLUGIN_SYSTEM_SCHEMA_VERSION => {
+    3 => Ok(PluginSchemaVersion::V3),
+    4 => Ok(PluginSchemaVersion::V4),
+    version if version > 4 => {
       bail!(
         "Invalid schema version: {} -- Expected: {}. Upgrade your dprint CLI ({}).",
         plugin_schema_version,

@@ -378,7 +378,7 @@ async fn run_cpu_throttling_task(environment: &impl Environment, number_threads:
     let cpu_usage = environment.cpu_usage().await;
     log_debug!(environment, "CPU usage: {}%", cpu_usage);
     if cpu_usage > decrease_bound {
-      if throttle_cpu(semaphores).await {
+      if throttle_cpu(semaphores) {
         log_debug!(environment, "High CPU. Reducing parallelism.");
         throttled_times += 1;
       }
@@ -403,7 +403,7 @@ async fn run_cpu_throttling_task(environment: &impl Environment, number_threads:
   }
 }
 
-async fn throttle_cpu(semaphores: &[Rc<Semaphore>]) -> bool {
+fn throttle_cpu(semaphores: &[Rc<Semaphore>]) -> bool {
   let mut best_match: Option<&Rc<Semaphore>> = None;
   let mut total_max_permits = 0;
   for semaphore in semaphores.iter() {
@@ -516,20 +516,20 @@ mod test {
     let permit2 = semaphore2.acquire().await;
     let permit3 = semaphore2.acquire().await;
     let semaphores = vec![semaphore1, semaphore2];
-    assert!(throttle_cpu(&semaphores).await);
+    assert!(throttle_cpu(&semaphores));
     assert_eq!(semaphores[1].max_permits(), 1);
     // still a pending removal
-    assert!(!throttle_cpu(&semaphores).await);
+    assert!(!throttle_cpu(&semaphores));
     drop(permit2);
-    assert!(throttle_cpu(&semaphores).await);
+    assert!(throttle_cpu(&semaphores));
     assert_eq!(semaphores[0].max_permits(), 0);
     assert_eq!(semaphores[1].max_permits(), 1);
     // still a pending removal
-    assert!(!throttle_cpu(&semaphores).await);
+    assert!(!throttle_cpu(&semaphores));
     drop(permit3);
     // only one permit remaining
-    assert!(!throttle_cpu(&semaphores).await);
+    assert!(!throttle_cpu(&semaphores));
     drop(permit1);
-    assert!(!throttle_cpu(&semaphores).await);
+    assert!(!throttle_cpu(&semaphores));
   }
 }

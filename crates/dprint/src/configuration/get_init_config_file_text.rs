@@ -363,7 +363,7 @@ mod test {
   fn should_get_initialization_text_when_old_plugin_system() {
     let environment = TestEnvironmentBuilder::new()
       .with_info_file(|info| {
-        info.set_plugin_schema_version(9).add_plugin(TestInfoFilePlugin {
+        info.set_plugin_schema_version(999).add_plugin(TestInfoFilePlugin {
           name: "dprint-plugin-typescript".to_string(),
           version: "0.17.2".to_string(),
           url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
@@ -393,7 +393,7 @@ mod test {
       expected_messages.push(concat!(
         "You are using an old version of dprint so the created config file may not be as helpful of a starting point. ",
         "Consider upgrading to support new plugins. ",
-        "Plugin system schema version is 3, latest is 9."
+        "Plugin system schema version is 4, latest is 999."
       ));
       assert_eq!(environment.take_stderr_messages(), expected_messages);
     });

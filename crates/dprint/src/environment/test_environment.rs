@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Result;
+use once_cell::sync::Lazy;
 use parking_lot::Condvar;
 use parking_lot::Mutex;
 use path_clean::PathClean;
@@ -21,6 +22,7 @@ use super::Environment;
 use super::FilePermissions;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
+use crate::utils::get_bytes_hash;
 use crate::utils::LogLevel;
 
 #[derive(Default)]
@@ -108,7 +110,6 @@ pub struct TestEnvironment {
   multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>>>>>,
   is_stdout_machine_readable: Arc<Mutex<bool>>,
-  wasm_compile_result: Arc<Mutex<Option<CompilationResult>>>,
   dir_info_error: Arc<Mutex<Option<std::io::Error>>>,
   std_in_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
   std_out_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
@@ -135,7 +136,6 @@ impl TestEnvironment {
       multi_selection_result: Arc::new(Mutex::new(None)),
       confirm_results: Default::default(),
       is_stdout_machine_readable: Arc::new(Mutex::new(false)),
-      wasm_compile_result: Arc::new(Mutex::new(None)),
       dir_info_error: Arc::new(Mutex::new(None)),
       std_in_pipe: Arc::new(Mutex::new({
         let pipe = create_test_pipe();
@@ -214,10 +214,6 @@ impl TestEnvironment {
 
   pub fn set_log_level(&self, value: LogLevel) {
     *self.log_level.lock() = value;
-  }
-
-  pub fn set_wasm_compile_result(&self, value: CompilationResult) {
-    *self.wasm_compile_result.lock() = Some(value);
   }
 
   pub fn stdout_reader(&self) -> Box<dyn Read + Send> {
@@ -540,9 +536,26 @@ impl Environment for TestEnvironment {
     *self.log_level.lock()
   }
 
-  fn compile_wasm(&self, _: &[u8]) -> Result<CompilationResult> {
-    let wasm_compile_result = self.wasm_compile_result.lock();
-    Ok(wasm_compile_result.clone().expect("Expected compilation result to be set."))
+  fn compile_wasm(&self, bytes: &[u8]) -> Result<CompilationResult> {
+    use std::collections::hash_map::Entry;
+
+    static COMPILE_RESULTS: Lazy<Mutex<HashMap<u64, CompilationResult>>> = Lazy::new(Default::default);
+
+    let hash = get_bytes_hash(bytes);
+    {
+      // hold the lock while compiling in order to prevent other
+      // threads from compiling at the same time
+      let mut results = COMPILE_RESULTS.lock();
+      let entry = results.entry(hash);
+      match entry {
+        Entry::Occupied(entry) => Ok(entry.get().clone()),
+        Entry::Vacant(entry) => {
+          let value = crate::plugins::compile_wasm(bytes).unwrap();
+          entry.insert(value.clone());
+          Ok(value)
+        }
+      }
+    }
   }
 
   fn wasm_cache_key(&self) -> String {

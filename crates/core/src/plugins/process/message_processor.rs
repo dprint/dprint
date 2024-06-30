@@ -159,7 +159,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
             async {
               let message_body = serde_json::from_slice::<CheckConfigUpdatesMessageBody>(&body_bytes)
                 .with_context(|| "Could not deserialize the check config updates message body.".to_string())?;
-              let changes = handler.check_config_updates(message_body.config).await?;
+              let changes = handler.check_config_updates(message_body).await?;
               let response = CheckConfigUpdatesResponseBody { changes };
               let data = serde_json::to_vec(&response)?;
               Ok(MessageBody::DataResponse(ResponseBody { message_id: message.id, data }))
@@ -236,7 +236,10 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           if let Some(sender) = context.format_host_senders.take(body.message_id) {
             sender.send(Err(anyhow!("{}", text))).unwrap();
           } else {
-            eprintln!("Received error from CLI. {}", text);
+            #[allow(clippy::print_stderr)]
+            {
+              eprintln!("Received error from CLI. {}", text);
+            }
           }
         }
         MessageBody::FormatResponse(body) => {
