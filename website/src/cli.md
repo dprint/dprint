@@ -44,6 +44,8 @@ dprint fmt --includes-override **/*.js --excludes-override **/data
 
 ### Formatting only git staged files
 
+Requires dprint >= 0.47.0
+
 To format only files that are staged use the `--staged` flag:
 
 ```sh
