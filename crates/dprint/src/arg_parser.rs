@@ -73,15 +73,6 @@ impl SubCommand {
     }
   }
 
-  // pub fn only_staged(&self) -> bool {
-  //   match self {
-  //     SubCommand::Check(a) => a.allow_no_files,
-  //     SubCommand::Fmt(a) => a.only_staged,
-  //     SubCommand::OutputFormatTimes(a) => a.allow_no_files,
-  //     _ => false,
-  //   }
-  // }
-
   pub fn file_patterns(&self) -> Option<&FilePatternArgs> {
     match self {
       SubCommand::Check(a) => Some(&a.patterns),
@@ -166,12 +157,12 @@ pub enum HiddenSubCommand {
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct FilePatternArgs {
-  pub only_staged: bool,
   pub include_patterns: Vec<String>,
   pub include_pattern_overrides: Option<Vec<String>>,
   pub exclude_patterns: Vec<String>,
   pub exclude_pattern_overrides: Option<Vec<String>>,
   pub allow_node_modules: bool,
+  pub only_staged: bool,
 }
 
 #[derive(Debug, Error)]
@@ -507,6 +498,7 @@ EXAMPLES:
       Command::new("output-file-paths")
         .about("Prints the resolved file paths for the plugins based on the args and configuration.")
         .add_resolve_file_path_args()
+        .add_only_staged_arg()
     )
     .subcommand(
       Command::new("output-resolved-config")
@@ -517,6 +509,7 @@ EXAMPLES:
         .about("Prints the amount of time it takes to format each file. Use this for debugging.")
         .add_resolve_file_path_args()
         .add_allow_no_files_arg()
+        .add_only_staged_arg()
     )
     .subcommand(
       Command::new("clear-cache")
