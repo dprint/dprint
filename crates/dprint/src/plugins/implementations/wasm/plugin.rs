@@ -5,9 +5,11 @@ use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::plugins::process::HostFormatCallback;
 use dprint_core::plugins::CancellationToken;
+use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
+use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use std::cell::RefCell;
@@ -61,15 +63,15 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
   }
 
   async fn initialize(&self) -> Result<Rc<dyn InitializedPlugin>> {
+    let environment = self.environment.clone();
+    let plugin_name = self.info().name.clone();
     let plugin: Rc<dyn InitializedPlugin> = Rc::new(InitializedWasmPlugin::new(
-      self.info().name.to_string(),
+      plugin_name.clone(),
       self.module.clone(),
       Arc::new({
         move |store, module, host_format_sender| {
-          let (import_object, env) = create_pools_import_object(store, host_format_sender);
-          let instance = load_instance(store, module, &import_object)?;
-          env.as_mut(store).initialize(&instance.inner)?;
-          Ok(instance)
+          let (import_object, env) = create_pools_import_object(environment.clone(), &plugin_name, module.version(), store, host_format_sender);
+          load_instance(store, module, env, &import_object)
         }
       }),
       self.environment.clone(),
@@ -82,8 +84,10 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
 struct WasmPluginFormatMessage {
   file_path: PathBuf,
   file_bytes: Vec<u8>,
+  range: FormatRange,
   config: Arc<FormatConfig>,
   override_config: ConfigKeyMap,
+  token: Arc<dyn CancellationToken>,
 }
 
 type WasmResponseSender<T> = tokio::sync::oneshot::Sender<T>;
@@ -91,6 +95,7 @@ type WasmResponseSender<T> = tokio::sync::oneshot::Sender<T>;
 enum WasmPluginMessage {
   LicenseText(WasmResponseSender<Result<String>>),
   ResolvedConfig(Arc<FormatConfig>, WasmResponseSender<Result<String>>),
+  CheckConfigUpdates(Arc<CheckConfigUpdatesMessage>, WasmResponseSender<Result<Vec<ConfigChange>>>),
   FileMatchingInfo(Arc<FormatConfig>, WasmResponseSender<Result<FileMatchingInfo>>),
   ConfigDiagnostics(Arc<FormatConfig>, WasmResponseSender<Result<Vec<ConfigurationDiagnostic>>>),
   FormatRequest(Arc<WasmPluginFormatMessage>, WasmResponseSender<FormatResult>),
@@ -101,7 +106,6 @@ type WasmPluginSender = std::sync::mpsc::Sender<WasmPluginMessage>;
 #[derive(Clone)]
 struct InstanceState {
   host_format_callback: HostFormatCallback,
-  token: Arc<dyn CancellationToken>,
 }
 
 struct WasmPluginSenderWithState {
@@ -231,12 +235,10 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     dprint_core::async_runtime::spawn({
       let instance_state_cell = instance_state_cell.clone();
       async move {
-        while let Some((mut request, sender)) = host_format_rx.recv().await {
+        while let Some((request, sender)) = host_format_rx.recv().await {
           let instance_state = instance_state_cell.borrow().clone();
           match instance_state {
             Some(instance_state) => {
-              // forward the provided token on to the host format
-              request.token = instance_state.token.clone();
               let message = (instance_state.host_format_callback)(request).await;
               if sender.send(message).is_err() {
                 return; // disconnected
@@ -285,6 +287,12 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
                 break; // disconnected
               }
             }
+            WasmPluginMessage::CheckConfigUpdates(message, response) => {
+              let result = instance.check_config_updates(&message);
+              if response.send(result).is_err() {
+                break; // disconnected
+              }
+            }
             WasmPluginMessage::ConfigDiagnostics(config, response) => {
               let result = instance.config_diagnostics(&config);
               if response.send(result).is_err() {
@@ -304,7 +312,14 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
               }
             }
             WasmPluginMessage::FormatRequest(request, response) => {
-              let result = instance.format_text(&request.file_path, &request.file_bytes, &request.config, &request.override_config);
+              let result = instance.format_text(
+                &request.file_path,
+                &request.file_bytes,
+                request.range.clone(),
+                &request.config,
+                &request.override_config,
+                request.token.clone(),
+              );
               if response.send(result).is_err() {
                 break; // disconnected
               }
@@ -387,28 +402,35 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
       .await
   }
 
-  async fn check_config_updates(&self, _plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
-    Ok(Vec::new()) // not supported atm
+  async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+    let message = Arc::new(message);
+    self
+      .with_instance(None, move |plugin_sender| {
+        let message = message.clone();
+        async move {
+          let (tx, rx) = tokio::sync::oneshot::channel();
+          plugin_sender.send(WasmPluginMessage::CheckConfigUpdates(message, tx))?;
+          rx.await?
+        }
+        .boxed_local()
+      })
+      .await
   }
 
   async fn format_text(&self, request: InitializedPluginFormatRequest) -> FormatResult {
-    // Wasm plugins do not currently support range formatting
-    // so always return back None for now.
-    if request.range.is_some() {
-      return Ok(None);
-    }
     if request.token.is_cancelled() {
       return Ok(None);
     }
     let message = Arc::new(WasmPluginFormatMessage {
       file_path: request.file_path,
       file_bytes: request.file_text,
+      range: request.range,
       config: request.config,
       override_config: request.override_config,
+      token: request.token,
     });
     let instance_state = InstanceState {
       host_format_callback: request.on_host_format,
-      token: request.token,
     };
     self
       .with_instance(Some(instance_state), move |plugin_sender| {

@@ -1,4 +1,6 @@
 use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::anyhow;
 use anyhow::bail;
@@ -6,13 +8,24 @@ use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
+use dprint_core::plugins::CancellationToken;
+use dprint_core::plugins::CheckConfigUpdatesMessage;
+use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
+use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
+use dprint_core::plugins::HostFormatRequest;
+use dprint_core::plugins::NullCancellationToken;
 use dprint_core::plugins::PluginInfo;
-use dprint_core::plugins::SyncPluginInfo;
-use wasmer::Engine;
+use parking_lot::Mutex;
+use serde::Serialize;
+use wasmer::AsStoreRef;
+use wasmer::ExportError;
+use wasmer::Function;
+use wasmer::FunctionEnv;
+use wasmer::FunctionEnvMut;
 use wasmer::Instance;
 use wasmer::Memory;
 use wasmer::MemoryView;
@@ -21,9 +34,11 @@ use wasmer::TypedFunction;
 use wasmer::WasmPtr;
 use wasmer::WasmTypeList;
 
+use crate::plugins::implementations::wasm::WasmHostFormatSender;
 use crate::plugins::implementations::wasm::WasmInstance;
 use crate::plugins::FormatConfig;
 
+use super::ImportObjectEnvironment;
 use super::InitializedWasmPluginInstance;
 
 enum WasmFormatResult {
@@ -32,13 +47,237 @@ enum WasmFormatResult {
   Error,
 }
 
-pub struct InitializedWasmPluginInstanceV1 {
+#[derive(Clone, Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+struct SyncPluginInfo {
+  #[serde(flatten)]
+  pub info: PluginInfo,
+  #[serde(flatten)]
+  pub file_matching: FileMatchingInfo,
+}
+
+pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
+  let host_clear_bytes = |_: u32| {};
+  let host_read_buffer = |_: u32, _: u32| {};
+  let host_write_buffer = |_: u32, _: u32, _: u32| {};
+  let host_take_override_config = || {};
+  let host_take_file_path = || {};
+  let host_format = || -> u32 { 0 }; // no change
+  let host_get_formatted_text = || -> u32 { 0 }; // zero length
+  let host_get_error_text = || -> u32 { 0 }; // zero length
+
+  wasmer::imports! {
+    "dprint" => {
+      "host_clear_bytes" => Function::new_typed(store, host_clear_bytes),
+      "host_read_buffer" => Function::new_typed(store, host_read_buffer),
+      "host_write_buffer" => Function::new_typed(store, host_write_buffer),
+      "host_take_override_config" => Function::new_typed(store, host_take_override_config),
+      "host_take_file_path" => Function::new_typed(store, host_take_file_path),
+      "host_format" => Function::new_typed(store, host_format),
+      "host_get_formatted_text" => Function::new_typed(store, host_get_formatted_text),
+      "host_get_error_text" => Function::new_typed(store, host_get_error_text),
+    }
+  }
+}
+
+pub fn create_pools_import_object(store: &mut Store, host_format_sender: WasmHostFormatSender) -> (wasmer::Imports, Box<dyn ImportObjectEnvironment>) {
+  #[derive(Default)]
+  struct SharedBytes {
+    data: Vec<u8>,
+    index: usize,
+  }
+
+  impl SharedBytes {
+    pub fn with_size(size: usize) -> Self {
+      Self::from_bytes(vec![0; size])
+    }
+
+    pub fn from_bytes(data: Vec<u8>) -> Self {
+      Self { data, index: 0 }
+    }
+  }
+
+  struct ImportObjectEnvironmentV3 {
+    memory: Option<Memory>,
+    override_config: Option<ConfigKeyMap>,
+    file_path: Option<PathBuf>,
+    formatted_text_store: Vec<u8>,
+    shared_bytes: Mutex<SharedBytes>,
+    error_text_store: String,
+    token: Arc<dyn CancellationToken>,
+    host_format_sender: WasmHostFormatSender,
+  }
+
+  impl ImportObjectEnvironmentV3 {
+    pub fn new(host_format_sender: WasmHostFormatSender) -> Self {
+      ImportObjectEnvironmentV3 {
+        memory: None,
+        override_config: None,
+        file_path: None,
+        shared_bytes: Mutex::new(SharedBytes::default()),
+        formatted_text_store: Default::default(),
+        error_text_store: Default::default(),
+        token: Arc::new(NullCancellationToken),
+        host_format_sender,
+      }
+    }
+
+    fn take_shared_bytes(&self) -> Vec<u8> {
+      let mut shared_bytes = self.shared_bytes.lock();
+      let data = std::mem::take(&mut shared_bytes.data);
+      shared_bytes.index = 0;
+      data
+    }
+  }
+
+  impl ImportObjectEnvironment for FunctionEnv<ImportObjectEnvironmentV3> {
+    fn initialize(&self, store: &mut Store, instance: &Instance) -> Result<(), ExportError> {
+      self.as_mut(store).memory = Some(instance.exports.get_memory("memory")?.clone());
+      Ok(())
+    }
+
+    fn set_token(&self, store: &mut Store, token: Arc<dyn CancellationToken>) {
+      // only used for host formatting in v3
+      self.as_mut(store).token = token;
+    }
+  }
+
+  fn host_clear_bytes(env: FunctionEnvMut<ImportObjectEnvironmentV3>, length: u32) {
+    let env = env.data();
+    *env.shared_bytes.lock() = SharedBytes::with_size(length as usize);
+  }
+
+  fn host_read_buffer(env: FunctionEnvMut<ImportObjectEnvironmentV3>, buffer_pointer: u32, length: u32) {
+    let buffer_pointer: wasmer::WasmPtr<u32> = wasmer::WasmPtr::new(buffer_pointer);
+    let env_data = env.data();
+    let memory = env_data.memory.as_ref().unwrap();
+    let store_ref = env.as_store_ref();
+    let memory_view = memory.view(&store_ref);
+
+    let length = length as usize;
+    let mut shared_bytes = env_data.shared_bytes.lock();
+    let shared_bytes_index = shared_bytes.index;
+    memory_view
+      .read(
+        buffer_pointer.offset() as u64,
+        &mut shared_bytes.data[shared_bytes_index..shared_bytes_index + length],
+      )
+      .unwrap();
+    shared_bytes.index += length;
+  }
+
+  fn host_write_buffer(env: FunctionEnvMut<ImportObjectEnvironmentV3>, buffer_pointer: u32, offset: u32, length: u32) {
+    let buffer_pointer: wasmer::WasmPtr<u32> = wasmer::WasmPtr::new(buffer_pointer);
+    let env_data = env.data();
+    let memory = env_data.memory.as_ref().unwrap();
+    let store_ref = env.as_store_ref();
+    let memory_view = memory.view(&store_ref);
+    let offset = offset as usize;
+    let length = length as usize;
+    let shared_bytes = env_data.shared_bytes.lock();
+    memory_view
+      .write(buffer_pointer.offset() as u64, &shared_bytes.data[offset..offset + length])
+      .unwrap();
+  }
+
+  fn host_take_override_config(mut env: FunctionEnvMut<ImportObjectEnvironmentV3>) {
+    let env = env.data_mut();
+    let bytes = env.take_shared_bytes();
+    let config_key_map: ConfigKeyMap = serde_json::from_slice(&bytes).unwrap_or_default();
+    env.override_config.replace(config_key_map);
+  }
+
+  fn host_take_file_path(mut env: FunctionEnvMut<ImportObjectEnvironmentV3>) {
+    let env = env.data_mut();
+    let bytes = env.take_shared_bytes();
+    let file_path_str = String::from_utf8(bytes).unwrap();
+    env.file_path.replace(PathBuf::from(file_path_str));
+  }
+
+  fn host_format(mut env: FunctionEnvMut<ImportObjectEnvironmentV3>) -> u32 {
+    let env = env.data_mut();
+    let override_config = env.override_config.take().unwrap_or_default();
+    let file_path = env.file_path.take().expect("Expected to have file path.");
+    let file_bytes = env.take_shared_bytes();
+    let request = HostFormatRequest {
+      file_path,
+      file_bytes,
+      range: None,
+      override_config,
+      token: env.token.clone(),
+    };
+    // todo: worth it to use a oneshot channel library here?
+    let (tx, rx) = std::sync::mpsc::channel();
+    let send_result = env.host_format_sender.send((request, tx));
+    let result = match send_result {
+      Ok(()) => match rx.recv() {
+        Ok(result) => result,
+        Err(_) => {
+          Ok(None) //receive error
+        }
+      },
+      Err(_) => Ok(None), // send error
+    };
+
+    match result {
+      Ok(Some(formatted_text)) => {
+        //let mut env = env.data_mut();
+        env.formatted_text_store = formatted_text;
+        1 // change
+      }
+      Ok(None) => {
+        0 // no change
+      }
+      // ignore critical error as we can just continue formatting
+      Err(err) => {
+        env.error_text_store = err.to_string();
+        2 // error
+      }
+    }
+  }
+
+  fn host_get_formatted_text(mut env: FunctionEnvMut<ImportObjectEnvironmentV3>) -> u32 {
+    let env = env.data_mut();
+    let formatted_bytes = std::mem::take(&mut env.formatted_text_store);
+    let len = formatted_bytes.len();
+    *env.shared_bytes.lock() = SharedBytes::from_bytes(formatted_bytes);
+    len as u32
+  }
+
+  fn host_get_error_text(mut env: FunctionEnvMut<ImportObjectEnvironmentV3>) -> u32 {
+    let env = env.data_mut();
+    let error_text = std::mem::take(&mut env.error_text_store);
+    let len = error_text.len();
+    *env.shared_bytes.lock() = SharedBytes::from_bytes(error_text.into_bytes());
+    len as u32
+  }
+
+  let env = ImportObjectEnvironmentV3::new(host_format_sender);
+  let env = FunctionEnv::new(store, env);
+
+  (
+    wasmer::imports! {
+      "dprint" => {
+        "host_clear_bytes" => Function::new_typed_with_env(store, &env, host_clear_bytes),
+        "host_read_buffer" => Function::new_typed_with_env(store, &env, host_read_buffer),
+        "host_write_buffer" => Function::new_typed_with_env(store, &env, host_write_buffer),
+        "host_take_override_config" => Function::new_typed_with_env(store, &env, host_take_override_config),
+        "host_take_file_path" => Function::new_typed_with_env(store, &env, host_take_file_path),
+        "host_format" => Function::new_typed_with_env(store, &env, host_format),
+        "host_get_formatted_text" => Function::new_typed_with_env(store, &env, host_get_formatted_text),
+        "host_get_error_text" => Function::new_typed_with_env(store, &env, host_get_error_text),
+      }
+    },
+    Box::new(env),
+  )
+}
+
+pub struct InitializedWasmPluginInstanceV3 {
   wasm_functions: WasmFunctions,
   buffer_size: usize,
   current_config_id: FormatConfigId,
 }
 
-impl InitializedWasmPluginInstanceV1 {
+impl InitializedWasmPluginInstanceV3 {
   pub fn new(store: Store, instance: WasmInstance) -> Result<Self> {
     let mut wasm_functions = WasmFunctions::new(store, instance)?;
     let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
@@ -109,7 +348,7 @@ impl InitializedWasmPluginInstanceV1 {
       self.current_config_id = FormatConfigId::uninitialized();
       // update the plugin
       self.set_global_config(&config.global)?;
-      self.set_plugin_config(&config.raw)?;
+      self.set_plugin_config(&config.plugin)?;
       // now mark this as successfully set
       self.current_config_id = config.id;
     }
@@ -170,7 +409,7 @@ impl InitializedWasmPluginInstanceV1 {
   }
 }
 
-impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV1 {
+impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV3 {
   fn plugin_info(&mut self) -> Result<PluginInfo> {
     self.sync_plugin_info().map(|i| i.info)
   }
@@ -178,6 +417,10 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV1 {
   fn license_text(&mut self) -> Result<String> {
     let len = self.wasm_functions.get_license_text()?;
     self.receive_string(len)
+  }
+
+  fn check_config_updates(&mut self, _message: &CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+    Ok(Vec::new())
   }
 
   fn resolved_config(&mut self, config: &FormatConfig) -> Result<String> {
@@ -197,7 +440,19 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV1 {
     self.sync_plugin_info().map(|i| i.file_matching)
   }
 
-  fn format_text(&mut self, file_path: &Path, file_bytes: &[u8], config: &FormatConfig, override_config: &ConfigKeyMap) -> FormatResult {
+  fn format_text(
+    &mut self,
+    file_path: &Path,
+    file_bytes: &[u8],
+    range: FormatRange,
+    config: &FormatConfig,
+    override_config: &ConfigKeyMap,
+    token: Arc<dyn CancellationToken>,
+  ) -> FormatResult {
+    if range.is_some() && range != Some(0..file_bytes.len()) {
+      return Ok(None); // not supported for v3
+    }
+    self.wasm_functions.instance.set_token(&mut self.wasm_functions.store, token);
     self.ensure_config(config)?;
     match self.inner_format_text(file_path, file_bytes, override_config) {
       Ok(inner) => inner,
@@ -208,23 +463,15 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV1 {
 
 struct WasmFunctions {
   store: Store,
-  instance: Instance,
+  instance: WasmInstance,
   memory: Memory,
-  // keep this alive for the duration of the engine otherwise it
-  // could be cleaned up before the instance is dropped
-  _engine: Engine,
 }
 
 impl WasmFunctions {
   pub fn new(store: Store, instance: WasmInstance) -> Result<Self> {
-    let memory = instance.inner.exports.get_memory("memory")?.clone();
+    let memory = instance.get_memory("memory")?.clone();
 
-    Ok(WasmFunctions {
-      instance: instance.inner,
-      memory,
-      store,
-      _engine: instance.engine,
-    })
+    Ok(WasmFunctions { instance, memory, store })
   }
 
   #[inline]
@@ -334,7 +581,7 @@ impl WasmFunctions {
     Args: WasmTypeList,
     Rets: WasmTypeList,
   {
-    match self.instance.exports.get_function(name) {
+    match self.instance.get_function(name) {
       Ok(func) => match func.typed::<Args, Rets>(&self.store) {
         Ok(native_func) => Ok(native_func),
         Err(err) => bail!("Error creating function '{}'. Message: {:#}", name, err),

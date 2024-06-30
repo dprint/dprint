@@ -48,7 +48,7 @@ mod test {
           let format_config = Arc::new(FormatConfig {
             id: FormatConfigId::from_raw(1),
             global: Default::default(),
-            raw: Default::default(),
+            plugin: Default::default(),
           });
           let instance = plugin.initialize().await.unwrap();
           let file_matching_info = instance.file_matching_info(format_config.clone()).await.unwrap();
@@ -103,7 +103,7 @@ mod test {
           let format_config = Arc::new(FormatConfig {
             id: FormatConfigId::from_raw(1),
             global: Default::default(),
-            raw: Default::default(),
+            plugin: Default::default(),
           });
           let instance = plugin.initialize().await.unwrap();
           let file_matching_info = instance.file_matching_info(format_config.clone()).await.unwrap();
