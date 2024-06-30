@@ -100,6 +100,7 @@ pub struct TestEnvironment {
   log_level: Arc<Mutex<LogLevel>>,
   cwd: Arc<Mutex<String>>,
   files: Arc<Mutex<HashMap<PathBuf, Vec<u8>>>>,
+  staged_files: Arc<Mutex<Vec<PathBuf>>>,
   file_permissions: Arc<Mutex<HashMap<PathBuf, FilePermissions>>>,
   stdout_messages: Arc<Mutex<Vec<String>>>,
   stderr_messages: Arc<Mutex<Vec<String>>>,
@@ -125,6 +126,7 @@ impl TestEnvironment {
       log_level: Arc::new(Mutex::new(LogLevel::Info)),
       cwd: Arc::new(Mutex::new(String::from("/"))),
       files: Default::default(),
+      staged_files: Default::default(),
       file_permissions: Default::default(),
       stdout_messages: Default::default(),
       stderr_messages: Default::default(),
@@ -227,6 +229,9 @@ impl TestEnvironment {
     self.path_dirs.lock().clone()
   }
 
+  pub fn set_staged_file(&self, file: impl AsRef<Path>) {
+    self.staged_files.lock().push(file.as_ref().to_path_buf())
+  }
   pub fn set_dir_info_error(&self, err: std::io::Error) {
     *self.dir_info_error.lock() = Some(err);
   }
@@ -292,6 +297,10 @@ impl UrlDownloader for TestEnvironment {
 impl Environment for TestEnvironment {
   fn is_real(&self) -> bool {
     false
+  }
+
+  fn get_staged_files(&self) -> Result<Vec<PathBuf>> {
+    Ok(self.staged_files.lock().clone())
   }
 
   fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String> {

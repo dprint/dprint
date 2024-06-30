@@ -56,6 +56,7 @@ pub trait UrlDownloader {
 #[async_trait]
 pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn is_real(&self) -> bool;
+  fn get_staged_files(&self) -> Result<Vec<PathBuf>>;
   fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String>;
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>>;
   fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> Result<()> {

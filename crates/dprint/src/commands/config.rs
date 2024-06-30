@@ -189,6 +189,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     exclude_patterns: Vec::new(),
     exclude_pattern_overrides: None,
     allow_node_modules: false,
+    only_staged: false,
   };
   let scopes = resolve_plugins_scope_and_paths(args, &file_pattern_args, environment, plugin_resolver).await?;
   let mut plugin_responses = HashMap::new();
