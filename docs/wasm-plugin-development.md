@@ -174,7 +174,6 @@ Communication is done by using a shared Wasm buffer. Essentially, the plugin sto
 
 Low level communication:
 
-- `host_read_buffer(pointer: u32, length: u32)` - Tell the host to read from provided Wasm memory address and store it in its local byte array.
 - `host_write_buffer(pointer: u32)` - Tell the host to write data to the provided Wasm memory address.
 
 High level functions:

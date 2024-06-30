@@ -51,7 +51,6 @@ enum WasmFormatResult {
 
 pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
   let host_clear_bytes = |_: u32| {};
-  let host_read_buffer = |_: u32, _: u32| {};
   let host_write_buffer = |_: u32| {};
   let host_format = |_: u32, _: u32, _: u32, _: u32, _: u32, _: u32, _: u32, _: u32| -> u32 { 0 }; // no change
   let host_get_formatted_text = || -> u32 { 0 }; // zero length
@@ -65,7 +64,6 @@ pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
     },
     "dprint" => {
       "host_clear_bytes" => Function::new_typed(store, host_clear_bytes),
-      "host_read_buffer" => Function::new_typed(store, host_read_buffer),
       "host_write_buffer" => Function::new_typed(store, host_write_buffer),
       "host_format" => Function::new_typed(store, host_format),
       "host_get_formatted_text" => Function::new_typed(store, host_get_formatted_text),
@@ -160,19 +158,6 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
     }
 
     0
-  }
-
-  fn host_read_buffer<TEnvironment: Environment>(env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>, buffer_ptr: u32, length: u32) {
-    let buffer_ptr: wasmer::WasmPtr<u32> = wasmer::WasmPtr::new(buffer_ptr);
-    let env_data = env.data();
-    let memory = env_data.memory.as_ref().unwrap();
-    let store_ref = env.as_store_ref();
-    let memory_view = memory.view(&store_ref);
-
-    let length = length as usize;
-    let mut shared_bytes = env_data.shared_bytes.lock();
-    *shared_bytes = vec![0; length];
-    memory_view.read(buffer_ptr.offset() as u64, &mut shared_bytes).unwrap();
   }
 
   fn host_write_buffer<TEnvironment: Environment>(env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>, buffer_pointer: u32) {
@@ -305,7 +290,6 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
         "fd_write" => Function::new_typed_with_env(store, &env, fd_write),
       },
       "dprint" => {
-        "host_read_buffer" => Function::new_typed_with_env(store, &env, host_read_buffer),
         "host_write_buffer" => Function::new_typed_with_env(store, &env, host_write_buffer),
         "host_format" => Function::new_typed_with_env(store, &env, host_format),
         "host_get_formatted_text" => Function::new_typed_with_env(store, &env, host_get_formatted_text),

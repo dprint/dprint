@@ -124,7 +124,6 @@ pub mod macros {
 
         #[link(wasm_import_module = "dprint")]
         extern "C" {
-          fn host_read_buffer(pointer: *const u8, length: u32);
           fn host_write_buffer(pointer: *const u8);
           fn host_format(
             file_path_ptr: *const u8,
@@ -178,18 +177,6 @@ pub mod macros {
           }
           value => panic!("unknown host format value: {}", value),
         };
-
-        fn send_string_to_host(text: String) {
-          send_bytes_to_host(text.into_bytes())
-        }
-
-        fn send_bytes_to_host(bytes: Vec<u8>) {
-          let mut index = 0;
-          let length = set_shared_bytes(bytes);
-          unsafe {
-            host_read_buffer(get_shared_bytes_ptr(), length as u32);
-          }
-        }
 
         fn get_string_from_host(length: u32) -> String {
           String::from_utf8(get_bytes_from_host(length)).unwrap()
