@@ -34,9 +34,7 @@ function loadUrl(url: string) {
 
       postPluginInfo(newFormatter);
 
-      if (config) {
-        setConfigSync(newFormatter, config);
-      }
+      setConfigSync(newFormatter, config ?? {});
 
       if (nextFormat) {
         formatSync(newFormatter, nextFormat.filePath, nextFormat.fileText);
@@ -60,9 +58,7 @@ function setConfig(providedConfig: Record<string, unknown>) {
 function refresh() {
   if (formatter) {
     formatter.then(f => {
-      if (config) {
-        setConfigSync(f, config);
-      }
+      setConfigSync(f, config ?? {});
       if (nextFormat) {
         formatSync(f, nextFormat.filePath, nextFormat.fileText);
       }
@@ -80,12 +76,16 @@ function format(filePath: string, fileText: string) {
 
 function setConfigSync(f: Formatter, config: Record<string, unknown>) {
   doHandlingError(() => f.setConfig({}, config));
+  postMessage({
+    type: "FileMatching",
+    info: f.getFileMatchingInfo(),
+  });
 }
 
 function formatSync(f: Formatter, filePath: string, fileText: string) {
   let result;
   try {
-    result = f.formatText(filePath, fileText);
+    result = f.formatText({ filePath, fileText });
   } catch (err: any) {
     result = err.message;
   }
