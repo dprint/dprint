@@ -7,6 +7,9 @@
       "exts": ["rs"]
     }]
   },
+  "malva": {
+    "blockSelectorLinebreak": "always"
+  },
   "excludes": [
     "website/playground/build",
     "website/_site",
@@ -20,7 +23,9 @@
     "https://plugins.dprint.dev/json-0.19.2.wasm",
     "https://plugins.dprint.dev/markdown-0.17.0.wasm",
     "https://plugins.dprint.dev/toml-0.6.1.wasm",
-    "https://plugins.dprint.dev/prettier-0.40.0.json@68c668863ec834d4be0f6f5ccaab415df75336a992aceb7eeeb14fdf096a9e9c",
-    "https://plugins.dprint.dev/exec-0.4.4.json@c207bf9b9a4ee1f0ecb75c594f774924baf62e8e53a2ce9d873816a408cecbf7"
+    "https://plugins.dprint.dev/exec-0.4.4.json@c207bf9b9a4ee1f0ecb75c594f774924baf62e8e53a2ce9d873816a408cecbf7",
+    "https://plugins.dprint.dev/g-plane/malva-v0.5.0.wasm",
+    "https://plugins.dprint.dev/g-plane/markup_fmt-v0.9.0.wasm",
+    "https://plugins.dprint.dev/prettier-0.40.0.json@68c668863ec834d4be0f6f5ccaab415df75336a992aceb7eeeb14fdf096a9e9c"
   ]
 }
