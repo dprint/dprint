@@ -24,7 +24,7 @@ impl WasmInstance {
   }
 }
 
-/// Loads a compiled wasm module from the specified bytes.
+/// Loads a compiled wasm module.
 pub fn load_instance(store: &mut Store, module: &WasmModule, import_object: &Imports) -> Result<WasmInstance> {
   let instance = Instance::new(store, &module.inner, import_object);
   match instance {
