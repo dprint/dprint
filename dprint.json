@@ -16,8 +16,7 @@
     "**/node_modules",
     "**/dist",
     "**/target",
-    "**/*-lock.json",
-    "**/*.njk"
+    "**/*-lock.json"
   ],
   "plugins": [
     "https://plugins.dprint.dev/typescript-0.90.5.wasm",
