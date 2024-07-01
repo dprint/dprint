@@ -7,6 +7,8 @@ const dockerfileUrl = "https://plugins.dprint.dev/dockerfile-x.x.x.wasm";
 const biomeUrl = "https://plugins.dprint.dev/biome-x.x.x.wasm";
 const ruffUrl = "https://plugins.dprint.dev/ruff-x.x.x.wasm";
 const jupyterUrl = "https://plugins.dprint.dev/jupyter-x.x.x.wasm";
+const malvaUrl = "https://plugins.dprint.dev/g-plane/malva-vx.x.x.wasm";
+const markupFmtUrl = "https://plugins.dprint.dev/g-plane/markup_fmt-vx.x.x.wasm";
 const pluginInfoUrl = "https://plugins.dprint.dev/info.json";
 const schemaVersion = 4;
 
@@ -41,6 +43,12 @@ export function replacePluginUrls() {
           case getWithQuotes(jupyterUrl):
             element.textContent = getWithQuotes(urls["jupyter"]);
             break;
+          case getWithQuotes(malvaUrl):
+            element.textContent = getWithQuotes(urls["malva"]);
+            break;
+          case getWithQuotes(markupFmtUrl):
+            element.textContent = getWithQuotes(urls["markup_fmt"]);
+            break;
         }
       }
     });
@@ -61,6 +69,8 @@ function getPluginUrlElements() {
       case getWithQuotes(biomeUrl):
       case getWithQuotes(ruffUrl):
       case getWithQuotes(jupyterUrl):
+      case getWithQuotes(malvaUrl):
+      case getWithQuotes(markupFmtUrl):
         result.push(stringElement);
         break;
     }
@@ -91,6 +101,8 @@ function getPluginInfo() {
         biome: getUrlForPlugin(data, "dprint-plugin-biome"),
         ruff: getUrlForPlugin(data, "dprint-plugin-ruff"),
         jupyter: getUrlForPlugin(data, "dprint-plugin-jupyter"),
+        malva: getUrlForPlugin(data, "g-plane/malva"),
+        markup_fmt: getUrlForPlugin(data, "g-plane/markup_fmt"),
       };
     });
 
