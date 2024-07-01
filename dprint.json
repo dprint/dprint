@@ -16,7 +16,9 @@
     "**/node_modules",
     "**/dist",
     "**/target",
-    "**/*-lock.json"
+    "**/*-lock.json",
+    // todo: revert after https://github.com/g-plane/markup_fmt/issues/29 is fixed
+    "**/*.njk"
   ],
   "plugins": [
     "https://plugins.dprint.dev/typescript-0.90.5.wasm",
