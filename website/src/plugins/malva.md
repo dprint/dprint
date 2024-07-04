@@ -25,7 +25,7 @@ dprint config add g-plane/malva
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"malva"` property to add configuration:
 
-```json
+```jsonc
 {
   "malva": {
     // malva config goes here
