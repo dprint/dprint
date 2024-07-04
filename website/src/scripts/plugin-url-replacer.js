@@ -9,6 +9,7 @@ const ruffUrl = "https://plugins.dprint.dev/ruff-x.x.x.wasm";
 const jupyterUrl = "https://plugins.dprint.dev/jupyter-x.x.x.wasm";
 const malvaUrl = "https://plugins.dprint.dev/g-plane/malva-vx.x.x.wasm";
 const markupFmtUrl = "https://plugins.dprint.dev/g-plane/markup_fmt-vx.x.x.wasm";
+const yamlUrl = "https://plugins.dprint.dev/g-plane/pretty_yaml-vx.x.x.wasm";
 const pluginInfoUrl = "https://plugins.dprint.dev/info.json";
 const schemaVersion = 4;
 
@@ -49,6 +50,9 @@ export function replacePluginUrls() {
           case getWithQuotes(markupFmtUrl):
             element.textContent = getWithQuotes(urls["markup_fmt"]);
             break;
+          case getWithQuotes(yamlUrl):
+            element.textContent = getWithQuotes(urls["yaml"]);
+            break;
         }
       }
     });
@@ -71,6 +75,7 @@ function getPluginUrlElements() {
       case getWithQuotes(jupyterUrl):
       case getWithQuotes(malvaUrl):
       case getWithQuotes(markupFmtUrl):
+      case getWithQuotes(yamlUrl):
         result.push(stringElement);
         break;
     }
@@ -103,6 +108,7 @@ function getPluginInfo() {
         jupyter: getUrlForPlugin(data, "dprint-plugin-jupyter"),
         malva: getUrlForPlugin(data, "g-plane/malva"),
         markup_fmt: getUrlForPlugin(data, "g-plane/markup_fmt"),
+        yaml: getUrlForPlugin(data, "g-plane/pretty_yaml"),
       };
     });
 
