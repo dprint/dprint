@@ -52,6 +52,8 @@ To format only files that are staged use the `--staged` flag:
 dprint fmt --staged
 ```
 
+Implicitly enables the `--allow-no-files` flag.
+
 Note: This requires that [git](https://git-scm.com/) is installed and that you use git for source control.
 
 ### Formatting Standard Input
