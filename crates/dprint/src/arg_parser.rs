@@ -210,7 +210,11 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
           patterns: parse_file_patterns(matches)?,
           incremental: parse_incremental(matches),
           enable_stable_format: !matches.get_flag("skip-stable-format"),
-          allow_no_files: matches.get_flag("allow-no-files"),
+          allow_no_files: if matches.get_flag("staged") == true {
+            true
+          } else {
+            matches.get_flag("allow-no-files")
+          },
           only_staged: matches.get_flag("staged"),
         })
       }
@@ -737,6 +741,13 @@ mod test {
     assert_eq!(fmt_cmd.only_staged, false);
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--staged"]).unwrap();
     assert_eq!(fmt_cmd.only_staged, true);
+  }
+
+  #[test]
+  fn no_files_arg() {
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--staged"]).unwrap();
+    assert_eq!(fmt_cmd.only_staged, true);
+    assert_eq!(fmt_cmd.allow_no_files, true);
   }
 
   fn parse_fmt_sub_command(args: Vec<&str>) -> Result<FmtSubCommand, ParseArgsError> {
