@@ -8,7 +8,7 @@ layout: layouts/documentation.njk
   <ul>
     <li><a href="/plugins">Plugins</a></li>
     <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
-    <li><a href="/plugins/yaml/config">Configuration</a></li>
+    <li><a href="/plugins/pretty_yaml/config">Configuration</a></li>
   </ul>
 </nav>
 

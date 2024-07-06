@@ -38,4 +38,4 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ## Configuration
 
-See [Configuration](/plugins/yaml/config)
+See [Configuration](/plugins/pretty_yaml/config)
