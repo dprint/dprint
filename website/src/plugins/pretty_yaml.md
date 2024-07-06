@@ -7,7 +7,7 @@ layout: layouts/documentation.njk
 <nav class="breadcrumb" aria-label="breadcrumbs">
   <ul>
     <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/yaml">YAML</a></li>
+    <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
   </ul>
 </nav>
 
