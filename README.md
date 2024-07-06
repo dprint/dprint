@@ -13,6 +13,10 @@ Monorepo for dprint—a pluggable and configurable code formatting platform.
 
 ## Plugins
 
+See https://dprint.dev/plugins/
+
+Repos:
+
 - [dprint-plugin-typescript](https://github.com/dprint/dprint-plugin-typescript) - TypeScript/JavaScript code formatter.
 - [dprint-plugin-json](https://github.com/dprint/dprint-plugin-json) - JSON/JSONC code formatter.
 - [dprint-plugin-markdown](https://github.com/dprint/dprint-plugin-markdown) - Markdown code formatter.
@@ -24,11 +28,10 @@ Monorepo for dprint—a pluggable and configurable code formatting platform.
 - [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - Roslyn (C#/VB) wrapper plugin.
 - [dprint-plugin-ruff](https://github.com/dprint/dprint-plugin-ruff) - Ruff (Python) wrapper plugin.
 - [dprint-plugin-exec](https://github.com/dprint/dprint-plugin-exec) - Formats code with any CLI executable.
+- [Malva](https://github.com/g-plane/malva) - CSS/SCSS/Sass/Less formatter
+- [markup_fmt](https://dprint.dev/plugins/markup_fmt/) - HTML, Vue, Svelte, Astro, Jinja, Twig, Nunjucks, and Vento formatter.
+- [pretty_yaml](https://github.com/g-plane/pretty_yaml) - YAML formatter.
 
 ## Notes
 
-This repo is under active early development.
-
-1. The interface between the CLI and plugins might change often. You may need to keep updating to the latest version of both the CLI and plugins (the CLI will let you know what to do).
-   - An upgrade path will be outlined in the [release notes](https://github.com/dprint/dprint/releases) when this occurs.
-2. I do a lot of this development in my spare time. Please consider [sponsoring](https://dprint.dev/sponsor) if you are a commercial company using this.
+I do a lot of this development in my spare time. Please consider [sponsoring](https://dprint.dev/sponsor) if you are a commercial company using this.
