@@ -11,7 +11,7 @@ layout: layouts/documentation.njk
   </ul>
 </nav>
 
-# YAML Plugin
+# Pretty YAML Plugin
 
 Adapter plugin that formats YAML files via [Pretty YAML](https://github.com/g-plane/pretty_yaml).
 

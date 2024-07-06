@@ -12,7 +12,7 @@ layout: layouts/documentation.njk
   </ul>
 </nav>
 
-# YAML - Configuration
+# Pretty YAML - Configuration
 
 <div class="plugin-config-table" data-url="https://plugins.dprint.dev/g-plane/pretty_yaml/latest/schema.json">
   Loading...
