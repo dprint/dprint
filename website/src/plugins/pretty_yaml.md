@@ -7,11 +7,11 @@ layout: layouts/documentation.njk
 <nav class="breadcrumb" aria-label="breadcrumbs">
   <ul>
     <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/yaml">YAML</a></li>
+    <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
   </ul>
 </nav>
 
-# YAML Plugin
+# Pretty YAML Plugin
 
 Adapter plugin that formats YAML files via [Pretty YAML](https://github.com/g-plane/pretty_yaml).
 
@@ -38,4 +38,4 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ## Configuration
 
-See [Configuration](/plugins/yaml/config)
+See [Configuration](/plugins/pretty_yaml/config)
