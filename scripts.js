@@ -203,6 +203,9 @@
   var biomeUrl = "https://plugins.dprint.dev/biome-x.x.x.wasm";
   var ruffUrl = "https://plugins.dprint.dev/ruff-x.x.x.wasm";
   var jupyterUrl = "https://plugins.dprint.dev/jupyter-x.x.x.wasm";
+  var malvaUrl = "https://plugins.dprint.dev/g-plane/malva-vx.x.x.wasm";
+  var markupFmtUrl = "https://plugins.dprint.dev/g-plane/markup_fmt-vx.x.x.wasm";
+  var yamlUrl = "https://plugins.dprint.dev/g-plane/pretty_yaml-vx.x.x.wasm";
   var pluginInfoUrl = "https://plugins.dprint.dev/info.json";
   var schemaVersion = 4;
   function replacePluginUrls() {
@@ -236,6 +239,15 @@
             case getWithQuotes(jupyterUrl):
               element.textContent = getWithQuotes(urls["jupyter"]);
               break;
+            case getWithQuotes(malvaUrl):
+              element.textContent = getWithQuotes(urls["malva"]);
+              break;
+            case getWithQuotes(markupFmtUrl):
+              element.textContent = getWithQuotes(urls["markup_fmt"]);
+              break;
+            case getWithQuotes(yamlUrl):
+              element.textContent = getWithQuotes(urls["yaml"]);
+              break;
           }
         }
       });
@@ -256,6 +268,9 @@
         case getWithQuotes(biomeUrl):
         case getWithQuotes(ruffUrl):
         case getWithQuotes(jupyterUrl):
+        case getWithQuotes(malvaUrl):
+        case getWithQuotes(markupFmtUrl):
+        case getWithQuotes(yamlUrl):
           result.push(stringElement);
           break;
       }
@@ -282,7 +297,10 @@
         dockerfile: getUrlForPlugin(data, "dprint-plugin-dockerfile"),
         biome: getUrlForPlugin(data, "dprint-plugin-biome"),
         ruff: getUrlForPlugin(data, "dprint-plugin-ruff"),
-        jupyter: getUrlForPlugin(data, "dprint-plugin-jupyter")
+        jupyter: getUrlForPlugin(data, "dprint-plugin-jupyter"),
+        malva: getUrlForPlugin(data, "g-plane/malva"),
+        markup_fmt: getUrlForPlugin(data, "g-plane/markup_fmt"),
+        yaml: getUrlForPlugin(data, "g-plane/pretty_yaml")
       };
     });
     function getUrlForPlugin(data, pluginName) {

@@ -2,15 +2,15 @@
 <html lang="en"><head>
     <script async="" src="/scripts.js"></script>
     <meta charset="utf-8">
-    <title>Markdown Plugin - dprint - Code Formatter</title>
+    <title>markup_fmt Plugin - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#000000">
-    <meta name="description" content="Documentation on the Markdown code formatting plugin for dprint.">
+    <meta name="description" content="Documentation on the markup_fmt code formatting plugin for dprint.">
     <meta name="author" content="Dprint Code Formatting">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:site" content="@dprintfmt">
-    <meta name="twitter:title" content="Markdown Plugin">
-    <meta name="twitter:description" content="Documentation on the Markdown code formatting plugin for dprint.">
+    <meta name="twitter:title" content="markup_fmt Plugin">
+    <meta name="twitter:description" content="Documentation on the markup_fmt code formatting plugin for dprint.">
     
     <link rel="stylesheet" href="/style.css">
   </head>
@@ -71,55 +71,27 @@
       <nav class="breadcrumb" aria-label="breadcrumbs">
   <ul>
     <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/markdown">Markdown</a></li>
+    <li><a href="/plugins/markup_fmt">markup_fmt</a></li>
   </ul>
 </nav>
-<h1>Markdown Code Formatter</h1>
+<h1>Markup_fmt Plugin</h1>
+<p>Adapter plugin that formats HTML, Vue, Svelte, Astro, Jinja, Twig, Nunjucks, and Vento files via <a href="https://github.com/g-plane/markup_fmt">markup_fmt</a>.</p>
 <h2 id="install-and-setup" tabindex="-1"><a class="header-anchor" href="#install-and-setup">Install and Setup</a></h2>
 <p>In your project's directory with a dprint.json file, run:</p>
-<pre><code class="language-shellsession hljs language-shell">dprint config add markdown
+<pre><code class="language-shellsession hljs language-shell">dprint config add g-plane/markup_fmt
 </code></pre>
-<p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"markdown"</code> property to add configuration:</p>
-<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
-  <span class="hljs-attr">"markdown"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
-    <span class="hljs-comment">// markdown config goes here</span>
-  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
-  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
-    <span class="hljs-string">"https://plugins.dprint.dev/markdown-x.x.x.wasm"</span>
-  <span class="hljs-punctuation">]</span>
-<span class="hljs-punctuation">}</span>
-</code></pre>
-<h2 id="code-block-formatters" tabindex="-1"><a class="header-anchor" href="#code-block-formatters">Code block formatters</a></h2>
-<p>Code blocks are formatted based on the other provided plugins. For example, if you wish to format JSON, TypeScript, and JavaScript code blocks, then ensure those plugins are also specified in the list of plugins to use.</p>
-<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
-  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
-    <span class="hljs-string">"https://plugins.dprint.dev/typescript-x.x.x.wasm"</span><span class="hljs-punctuation">,</span>
-    <span class="hljs-string">"https://plugins.dprint.dev/json-x.x.x.wasm"</span><span class="hljs-punctuation">,</span>
-    <span class="hljs-string">"https://plugins.dprint.dev/markdown-x.x.x.wasm"</span>
-  <span class="hljs-punctuation">]</span>
-<span class="hljs-punctuation">}</span>
+<p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"markup"</code> property (not <code>"markup_fmt"</code>) to add configuration:</p>
+<pre><code class="language-jsonc">{
+  "markup": { // not "markup_fmt"
+    // markup_fmt config goes here
+  },
+  "plugins": [
+    "https://plugins.dprint.dev/g-plane/markup_fmt-vx.x.x.wasm"
+  ]
+}
 </code></pre>
 <h2 id="configuration" tabindex="-1"><a class="header-anchor" href="#configuration">Configuration</a></h2>
-<p>See <a href="/plugins/markdown/config">Configuration</a></p>
-<h2 id="playground" tabindex="-1"><a class="header-anchor" href="#playground">Playground</a></h2>
-<p>See <a href="https://dprint.dev/playground#plugin/markdown">Playground</a></p>
-<h2 id="ignore-comments" tabindex="-1"><a class="header-anchor" href="#ignore-comments">Ignore Comments</a></h2>
-<p>Use an ignore comment:</p>
-<!-- dprint-ignore -->
-<pre><code class="language-md hljs language-markdown">&lt;!-- dprint-ignore --&gt;
-Some              text
-</code></pre>
-<p>Or a range ignore:</p>
-<!-- dprint-ignore -->
-<pre><code class="language-md hljs language-markdown">&lt;!-- dprint-ignore-start --&gt;
-
-Some    text
-
-<span class="hljs-bullet">*</span> other    text
-<span class="hljs-bullet">*</span>           testing
-
-&lt;!-- dprint-ignore-end --&gt;
-</code></pre>
+<p>See <a href="/plugins/markup_fmt/config">Configuration</a></p>
 
     </div>
   </div>
