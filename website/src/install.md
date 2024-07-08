@@ -84,12 +84,27 @@ Install using one of the methods below.
   asdf install dprint latest
   ```
 
+- [Arch Linux](https://aur.archlinux.org/packages/dprint):
+
+  Install with any AUR helper, for example:
+
+  ```sh
+  paru -S dprint
+  ```
+
+  or binaries
+
+  ```sh
+  paru -S dprint-bin
+  ```
+
 For binaries and source, see the [GitHub releases](https://github.com/dprint/dprint/releases).
 
 ## Editor Extensions
 
 - [Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=dprint.dprint)
 - [IntelliJ](https://plugins.jetbrains.com/plugin/18192-dprint) - Thanks to the developers at [Canva](https://canva.com)
+- Neovim with [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig/blob/master/doc/server_configurations.md#dprint)
 - The `dprint lsp` subcommand (requires dprint 0.45+) provides code formatting over the language server protocol. This can be used to format in other editors.
 
 Next step: [Setup](/setup)
