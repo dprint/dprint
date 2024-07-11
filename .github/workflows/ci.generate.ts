@@ -48,16 +48,16 @@ const profiles = profileDataItems.map(profile => {
     ...profile,
     zipChecksumEnvVarName: `ZIP_CHECKSUM_${profile.target.toUpperCase().replaceAll("-", "_")}`,
     get installerChecksumEnvVarName() {
-      if (profile.os !== OperatingSystem.Windows) {
-        throw new Error("Check for windows before accessing.");
+      if (profile.target !== "x86_64-pc-windows-msvc") {
+        throw new Error("Check for windows x86_64 before accessing.");
       }
       return `INSTALLER_CHECKSUM_${profile.target.toUpperCase().replaceAll("-", "_")}`;
     },
     artifactsName: `${profile.target}-artifacts`,
     zipFileName: `dprint-${profile.target}.zip`,
     get installerFileName() {
-      if (profile.os !== OperatingSystem.Windows) {
-        throw new Error("Check for windows before accessing.");
+      if (profile.target !== "x86_64-pc-windows-msvc") {
+        throw new Error("Check for windows x86_64 before accessing.");
       }
       return `dprint-${profile.target}-installer.exe`;
     },
@@ -101,7 +101,7 @@ const ci = {
             profile.zipChecksumEnvVarName,
             "${{steps.pre_release_" + profile.target.replaceAll("-", "_") + ".outputs.ZIP_CHECKSUM}}",
           ]);
-          if (profile.os === OperatingSystem.Windows) {
+          if (profile.target === "x86_64-pc-windows-msvc") {
             entries.push([
               profile.installerChecksumEnvVarName,
               "${{steps.pre_release_" + profile.target.replaceAll("-", "_") + ".outputs.INSTALLER_CHECKSUM}}",
@@ -212,7 +212,7 @@ const ci = {
         {
           name: "Create installer (Windows x86_64)",
           uses: "joncloud/makensis-action@v2.0",
-          if: "startsWith(matrix.config.os, 'windows') && startsWith(github.ref, 'refs/tags/')",
+          if: "matrix.config.target == 'x86_64-pc-windows-msvc' && startsWith(github.ref, 'refs/tags/')",
           with: { "script-file": "${{ github.workspace }}/deployment/installer/dprint-installer.nsi" },
         },
         // zip files
@@ -233,11 +233,16 @@ const ci = {
                   `echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 ${profile.zipFileName} | awk '{print $1}')\"`,
                 ];
               case OperatingSystem.Windows:
+                const installerSteps = profile.target === "x86_64-pc-windows-msvc"
+                  ? [
+                    `mv deployment/installer/${profile.installerFileName} target/${profile.target}/release/${profile.installerFileName}`,
+                    `echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.installerFileName} | awk '{print $1}')"`,
+                  ]
+                  : [];
                 return [
                   `Compress-Archive -CompressionLevel Optimal -Force -Path target/${profile.target}/release/dprint.exe -DestinationPath target/${profile.target}/release/${profile.zipFileName}`,
-                  `mv deployment/installer/${profile.installerFileName} target/${profile.target}/release/${profile.installerFileName}`,
                   `echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.zipFileName} | awk '{print $1}')"`,
-                  `echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.installerFileName} | awk '{print $1}')"`,
+                  ...installerSteps,
                 ];
               default: {
                 const _assertNever: never = profile.os;
@@ -258,7 +263,7 @@ const ci = {
             const paths = [
               `target/${profile.target}/release/${profile.zipFileName}`,
             ];
-            if (profile.os === OperatingSystem.Windows) {
+            if (profile.target === "x86_64-pc-windows-msvc") {
               paths.push(
                 `target/${profile.target}/release/${profile.installerFileName}`,
               );
@@ -287,7 +292,7 @@ const ci = {
         },
         {
           name: "Test powershell installer (Windows)",
-          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/') && startsWith(matrix.config.os, 'windows')",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/') && matrix.config.target == 'x86_64-pc-windows-msvc'",
           shell: "pwsh",
           run: ["cd website/src/assets", "./install.ps1"].join("\n"),
         },
@@ -317,7 +322,7 @@ const ci = {
             const output = [
               `echo "${profile.zipFileName}: \${{needs.build.outputs.${profile.zipChecksumEnvVarName}}}"`,
             ];
-            if (profile.os === OperatingSystem.Windows) {
+            if (profile.target === "x86_64-pc-windows-msvc") {
               output.push(`echo "${profile.installerFileName}: \${{needs.build.outputs.${profile.installerChecksumEnvVarName}}}"`);
             }
             return output;
@@ -330,7 +335,7 @@ const ci = {
             const output = [
               `echo "\${{needs.build.outputs.${profile.zipChecksumEnvVarName}}} ${profile.zipFileName}" ${op} SHASUMS256.txt`,
             ];
-            if (profile.os === OperatingSystem.Windows) {
+            if (profile.target === "x86_64-pc-windows-msvc") {
               output.push(`echo "\${{needs.build.outputs.${profile.installerChecksumEnvVarName}}} ${profile.installerFileName}" >> SHASUMS256.txt`);
             }
             return output;
@@ -348,7 +353,7 @@ const ci = {
                 const output = [
                   `${profile.artifactsName}/${profile.zipFileName}`,
                 ];
-                if (profile.os === OperatingSystem.Windows) {
+                if (profile.target === "x86_64-pc-windows-msvc") {
                   output.push(
                     `${profile.artifactsName}/${profile.installerFileName}`,
                   );
@@ -374,7 +379,7 @@ ${
                 const output = [
                   [`${profile.zipFileName}`, profile.zipChecksumEnvVarName],
                 ];
-                if (profile.os === OperatingSystem.Windows) {
+                if (profile.target === "x86_64-pc-windows-msvc") {
                   output.push(
                     [`${profile.installerFileName}`, profile.installerChecksumEnvVarName],
                   );
