@@ -8,6 +8,10 @@ export const knownPlugins = new Set([
   "dockerfile",
   "biome",
   "ruff",
+  // third party plugins, but user name is removed because there can't be `/` in the url
+  "malva",
+  "markup_fmt",
+  "pretty_yaml",
 ]);
 
 export class UrlSaver {

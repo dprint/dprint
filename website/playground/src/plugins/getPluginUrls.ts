@@ -14,12 +14,15 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
   const dockerfilePlugin = json.latest.find((p: any) => p.configKey === "dockerfile")!;
   const biomePlugin = json.latest.find((p: any) => p.configKey === "biome")!;
   const ruffPlugin = json.latest.find((p: any) => p.configKey === "ruff")!;
+  const malvaPlugin = json.latest.find((p: any) => p.configKey === "malva")!;
+  const markupFmtPlugin = json.latest.find((p: any) => p.configKey === "markup")!;
+  const prettyYamlPlugin = json.latest.find((p: any) => p.configKey === "yaml")!;
 
-  return [typescriptPlugin.url, jsonPlugin.url, markdownPlugin.url, tomlPlugin.url, dockerfilePlugin.url, biomePlugin.url, ruffPlugin.url];
+  return [typescriptPlugin.url, jsonPlugin.url, markdownPlugin.url, tomlPlugin.url, dockerfilePlugin.url, biomePlugin.url, ruffPlugin.url, malvaPlugin.url, markupFmtPlugin.url, prettyYamlPlugin.url];
 }
 
 export function getPluginShortNameFromPluginUrl(url: string) {
-  const result = /https:\/\/plugins\.dprint\.dev\/([a-z]+)-[0-9]+\.[0-9]+\.[0-9]+\.wasm$/.exec(url);
+  const result = /https:\/\/plugins\.dprint\.dev\/([a-z/_-]+)-v?[0-9]+\.[0-9]+\.[0-9]+\.wasm$/.exec(url);
   const name = result?.[1];
   switch (name) {
     case "typescript":
@@ -30,13 +33,18 @@ export function getPluginShortNameFromPluginUrl(url: string) {
     case "biome":
     case "ruff":
       return name;
+    case "g-plane/malva":
+    case "g-plane/markup_fmt":
+    case "g-plane/pretty_yaml":
+      // user name is removed because there can't be `/` in the url
+      return name.split("/")[1];
     default:
       return undefined;
   }
 }
 
 export function getLanguageFromPluginUrl(url: string) {
-  const result = /https:\/\/plugins\.dprint\.dev\/([a-z]+)-[0-9]+\.[0-9]+\.[0-9]+\.wasm$/.exec(url);
+  const result = /https:\/\/plugins\.dprint\.dev\/([a-z/_-]+)-v?[0-9]+\.[0-9]+\.[0-9]+\.wasm$/.exec(url);
   const language = result?.[1];
   switch (language) {
     case "typescript":
@@ -50,6 +58,12 @@ export function getLanguageFromPluginUrl(url: string) {
     case "ruff":
       // todo: specify python here eventually (probably need to upgrade the code editor)
       return "plaintext";
+    case "g-plane/malva":
+      return "css";
+    case "g-plane/markup_fmt":
+      return "html";
+    case "g-plane/pretty_yaml":
+      return "yaml";
     default:
       return undefined;
   }

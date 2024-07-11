@@ -25,7 +25,7 @@ dprint config add g-plane/malva
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"malva"` property to add configuration:
 
-```jsonc
+```json
 {
   "malva": {
     // malva config goes here
@@ -39,3 +39,7 @@ This will update your config file to have an entry for the plugin. Then optional
 ## Configuration
 
 See [Configuration](/plugins/malva/config)
+
+## Playground
+
+See [Playground](https://dprint.dev/playground#plugin/malva)
