@@ -29,10 +29,6 @@ const profileDataItems: ProfileData[] = [{
   target: "x86_64-pc-windows-msvc",
   runTests: true,
 }, {
-  os: OperatingSystem.Windows,
-  target: "aarch64-pc-windows-msvc",
-  cross: true,
-}, {
   os: OperatingSystem.Linux,
   target: "x86_64-unknown-linux-gnu",
   runTests: true,
@@ -300,15 +296,14 @@ const ci = {
           shell: "pwsh",
           run: ["cd website/src/assets", "./install.ps1"].join("\n"),
         },
-        // temporary until 0.47.2 is released
-        // {
-        //   name: "Test npm",
-        //   if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-        //   run: [
-        //     "cd deployment/npm",
-        //     "deno run -A build.ts 0.45.1",
-        //   ].join("\n"),
-        // },
+        {
+          name: "Test npm",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
+          run: [
+            "cd deployment/npm",
+            "deno run -A build.ts 0.45.1",
+          ].join("\n"),
+        },
       ],
     },
     draft_release: {
