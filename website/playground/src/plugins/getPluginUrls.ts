@@ -21,8 +21,10 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
   return [typescriptPlugin.url, jsonPlugin.url, markdownPlugin.url, tomlPlugin.url, dockerfilePlugin.url, biomePlugin.url, ruffPlugin.url, malvaPlugin.url, markupFmtPlugin.url, prettyYamlPlugin.url];
 }
 
+const RE_PLUGIN_URL = /https:\/\/plugins\.dprint\.dev\/(?:[a-z_-]+\/)?([a-z_-]+)-v?[0-9]+\.[0-9]+\.[0-9]+\.wasm$/;
+
 export function getPluginShortNameFromPluginUrl(url: string) {
-  const result = /https:\/\/plugins\.dprint\.dev\/([a-z/_-]+)-v?[0-9]+\.[0-9]+\.[0-9]+\.wasm$/.exec(url);
+  const result = RE_PLUGIN_URL.exec(url);
   const name = result?.[1];
   switch (name) {
     case "typescript":
@@ -32,19 +34,17 @@ export function getPluginShortNameFromPluginUrl(url: string) {
     case "dockerfile":
     case "biome":
     case "ruff":
+    case "malva":
+    case "markup_fmt":
+    case "pretty_yaml":
       return name;
-    case "g-plane/malva":
-    case "g-plane/markup_fmt":
-    case "g-plane/pretty_yaml":
-      // user name is removed because there can't be `/` in the url
-      return name.split("/")[1];
     default:
       return undefined;
   }
 }
 
 export function getLanguageFromPluginUrl(url: string) {
-  const result = /https:\/\/plugins\.dprint\.dev\/([a-z/_-]+)-v?[0-9]+\.[0-9]+\.[0-9]+\.wasm$/.exec(url);
+  const result = RE_PLUGIN_URL.exec(url);
   const language = result?.[1];
   switch (language) {
     case "typescript":
@@ -58,11 +58,11 @@ export function getLanguageFromPluginUrl(url: string) {
     case "ruff":
       // todo: specify python here eventually (probably need to upgrade the code editor)
       return "plaintext";
-    case "g-plane/malva":
+    case "malva":
       return "css";
-    case "g-plane/markup_fmt":
+    case "markup_fmt":
       return "html";
-    case "g-plane/pretty_yaml":
+    case "pretty_yaml":
       return "yaml";
     default:
       return undefined;
