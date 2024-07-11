@@ -18,7 +18,18 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
   const markupFmtPlugin = json.latest.find((p: any) => p.configKey === "markup")!;
   const prettyYamlPlugin = json.latest.find((p: any) => p.configKey === "yaml")!;
 
-  return [typescriptPlugin.url, jsonPlugin.url, markdownPlugin.url, tomlPlugin.url, dockerfilePlugin.url, biomePlugin.url, ruffPlugin.url, malvaPlugin.url, markupFmtPlugin.url, prettyYamlPlugin.url];
+  return [
+    typescriptPlugin.url,
+    jsonPlugin.url,
+    markdownPlugin.url,
+    tomlPlugin.url,
+    dockerfilePlugin.url,
+    biomePlugin.url,
+    ruffPlugin.url,
+    malvaPlugin.url,
+    markupFmtPlugin.url,
+    prettyYamlPlugin.url,
+  ];
 }
 
 const RE_PLUGIN_URL = /https:\/\/plugins\.dprint\.dev\/(?:[a-z_-]+\/)?([a-z_-]+)-v?[0-9]+\.[0-9]+\.[0-9]+\.wasm$/;
