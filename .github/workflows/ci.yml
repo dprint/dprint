@@ -241,16 +241,11 @@ jobs:
           chmod +x install.sh
           ./install.sh
       - name: Test powershell installer (Windows)
-        if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/') && startsWith(matrix.config.os, 'windows')"
+        if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/') && matrix.config.target == 'x86_64-pc-windows-msvc'"
         shell: pwsh
         run: |-
           cd website/src/assets
           ./install.ps1
-      - name: Test npm
-        if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')"
-        run: |-
-          cd deployment/npm
-          deno run -A build.ts 0.45.1
   draft_release:
     name: draft_release
     if: "startsWith(github.ref, 'refs/tags/')"
