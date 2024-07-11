@@ -198,6 +198,10 @@ impl TestProcessPluginFileBuilder {
       "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
       "checksum": "{3}"
   }},
+  "windows-aarch64": {{
+      "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
+      "checksum": "{3}"
+  }},
   "linux-aarch64": {{
       "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
       "checksum": "{3}"

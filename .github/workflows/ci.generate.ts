@@ -29,9 +29,13 @@ const profileDataItems: ProfileData[] = [{
   target: "x86_64-pc-windows-msvc",
   runTests: true,
 }, {
+  os: OperatingSystem.Windows,
+  target: "aarch64-pc-windows-msvc",
+  runTests: false,
+}, {
   os: OperatingSystem.Linux,
   target: "x86_64-unknown-linux-gnu",
-  runTests: true,
+  cross: true,
 }, {
   os: OperatingSystem.Linux,
   target: "x86_64-unknown-linux-musl",

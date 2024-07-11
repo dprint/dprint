@@ -13,6 +13,10 @@ const packages: Package[] = [{
   os: "win32",
   cpu: "x64",
 }, {
+  zipFileName: "dprint-aarch64-pc-windows-msvc.zip",
+  os: "win32",
+  cpu: "arm64",
+}, {
   zipFileName: "dprint-x86_64-apple-darwin.zip",
   os: "darwin",
   cpu: "x64",
@@ -143,7 +147,7 @@ await $`mkdir -p ${dprintDir} ${scopeDir}`;
 {
   $.logStep("Verifying packages...");
   const testPlatform = Deno.build.os == "windows"
-    ? "@dprint/win32-x64"
+    ? (Deno.build.arch === "x86_64" ? "@dprint/win32-x64" : "@dprint/win32-arm64")
     : Deno.build.os === "darwin"
     ? (Deno.build.arch === "x86_64" ? "@dprint/darwin-x64" : "@dprint/darwin-arm64")
     : "@dprint/linux-x64-glibc";
