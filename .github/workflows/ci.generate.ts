@@ -31,11 +31,11 @@ const profileDataItems: ProfileData[] = [{
 }, {
   os: OperatingSystem.Windows,
   target: "aarch64-pc-windows-msvc",
-  runTests: false,
+  cross: true,
 }, {
   os: OperatingSystem.Linux,
   target: "x86_64-unknown-linux-gnu",
-  cross: true,
+  runTests: true,
 }, {
   os: OperatingSystem.Linux,
   target: "x86_64-unknown-linux-musl",
