@@ -25,7 +25,7 @@ dprint config add g-plane/pretty_yaml
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"yaml"` property to add configuration:
 
-```jsonc
+```json
 {
   "yaml": { // not "pretty_yaml"
     // Pretty YAML config goes here
@@ -39,3 +39,7 @@ This will update your config file to have an entry for the plugin. Then optional
 ## Configuration
 
 See [Configuration](/plugins/pretty_yaml/config)
+
+## Playground
+
+See [Playground](https://dprint.dev/playground#plugin/pretty_yaml)

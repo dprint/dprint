@@ -25,7 +25,7 @@ dprint config add g-plane/markup_fmt
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"markup"` property (not `"markup_fmt"`) to add configuration:
 
-```jsonc
+```json
 {
   "markup": { // not "markup_fmt"
     // markup_fmt config goes here
@@ -39,3 +39,7 @@ This will update your config file to have an entry for the plugin. Then optional
 ## Configuration
 
 See [Configuration](/plugins/markup_fmt/config)
+
+## Playground
+
+See [Playground](https://dprint.dev/playground#plugin/markup_fmt)

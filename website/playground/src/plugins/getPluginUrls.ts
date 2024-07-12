@@ -14,12 +14,28 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
   const dockerfilePlugin = json.latest.find((p: any) => p.configKey === "dockerfile")!;
   const biomePlugin = json.latest.find((p: any) => p.configKey === "biome")!;
   const ruffPlugin = json.latest.find((p: any) => p.configKey === "ruff")!;
+  const malvaPlugin = json.latest.find((p: any) => p.configKey === "malva")!;
+  const markupFmtPlugin = json.latest.find((p: any) => p.configKey === "markup")!;
+  const prettyYamlPlugin = json.latest.find((p: any) => p.configKey === "yaml")!;
 
-  return [typescriptPlugin.url, jsonPlugin.url, markdownPlugin.url, tomlPlugin.url, dockerfilePlugin.url, biomePlugin.url, ruffPlugin.url];
+  return [
+    typescriptPlugin.url,
+    jsonPlugin.url,
+    markdownPlugin.url,
+    tomlPlugin.url,
+    dockerfilePlugin.url,
+    biomePlugin.url,
+    ruffPlugin.url,
+    malvaPlugin.url,
+    markupFmtPlugin.url,
+    prettyYamlPlugin.url,
+  ];
 }
 
+const RE_PLUGIN_URL = /https:\/\/plugins\.dprint\.dev\/(?:[a-z_-]+\/)?([a-z_-]+)-v?[0-9]+\.[0-9]+\.[0-9]+\.wasm$/;
+
 export function getPluginShortNameFromPluginUrl(url: string) {
-  const result = /https:\/\/plugins\.dprint\.dev\/([a-z]+)-[0-9]+\.[0-9]+\.[0-9]+\.wasm$/.exec(url);
+  const result = RE_PLUGIN_URL.exec(url);
   const name = result?.[1];
   switch (name) {
     case "typescript":
@@ -29,6 +45,9 @@ export function getPluginShortNameFromPluginUrl(url: string) {
     case "dockerfile":
     case "biome":
     case "ruff":
+    case "malva":
+    case "markup_fmt":
+    case "pretty_yaml":
       return name;
     default:
       return undefined;
@@ -36,7 +55,7 @@ export function getPluginShortNameFromPluginUrl(url: string) {
 }
 
 export function getLanguageFromPluginUrl(url: string) {
-  const result = /https:\/\/plugins\.dprint\.dev\/([a-z]+)-[0-9]+\.[0-9]+\.[0-9]+\.wasm$/.exec(url);
+  const result = RE_PLUGIN_URL.exec(url);
   const language = result?.[1];
   switch (language) {
     case "typescript":
@@ -50,6 +69,12 @@ export function getLanguageFromPluginUrl(url: string) {
     case "ruff":
       // todo: specify python here eventually (probably need to upgrade the code editor)
       return "plaintext";
+    case "malva":
+      return "css";
+    case "markup_fmt":
+      return "html";
+    case "pretty_yaml":
+      return "yaml";
     default:
       return undefined;
   }
