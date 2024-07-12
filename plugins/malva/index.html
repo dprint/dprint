@@ -81,17 +81,19 @@
 <pre><code class="language-shellsession hljs language-shell">dprint config add g-plane/malva
 </code></pre>
 <p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"malva"</code> property to add configuration:</p>
-<pre><code class="language-jsonc">{
-  "malva": {
-    // malva config goes here
-  },
-  "plugins": [
-    "https://plugins.dprint.dev/g-plane/malva-vx.x.x.wasm"
-  ]
-}
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"malva"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-comment">// malva config goes here</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/g-plane/malva-vx.x.x.wasm"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
 </code></pre>
 <h2 id="configuration" tabindex="-1"><a class="header-anchor" href="#configuration">Configuration</a></h2>
 <p>See <a href="/plugins/malva/config">Configuration</a></p>
+<h2 id="playground" tabindex="-1"><a class="header-anchor" href="#playground">Playground</a></h2>
+<p>See <a href="https://dprint.dev/playground#plugin/malva">Playground</a></p>
 
     </div>
   </div>

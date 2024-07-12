@@ -81,17 +81,19 @@
 <pre><code class="language-shellsession hljs language-shell">dprint config add g-plane/markup_fmt
 </code></pre>
 <p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"markup"</code> property (not <code>"markup_fmt"</code>) to add configuration:</p>
-<pre><code class="language-jsonc">{
-  "markup": { // not "markup_fmt"
-    // markup_fmt config goes here
-  },
-  "plugins": [
-    "https://plugins.dprint.dev/g-plane/markup_fmt-vx.x.x.wasm"
-  ]
-}
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"markup"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-comment">// not "markup_fmt"</span>
+    <span class="hljs-comment">// markup_fmt config goes here</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/g-plane/markup_fmt-vx.x.x.wasm"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
 </code></pre>
 <h2 id="configuration" tabindex="-1"><a class="header-anchor" href="#configuration">Configuration</a></h2>
 <p>See <a href="/plugins/markup_fmt/config">Configuration</a></p>
+<h2 id="playground" tabindex="-1"><a class="header-anchor" href="#playground">Playground</a></h2>
+<p>See <a href="https://dprint.dev/playground#plugin/markup_fmt">Playground</a></p>
 
     </div>
   </div>
