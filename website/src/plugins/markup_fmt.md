@@ -13,7 +13,7 @@ layout: layouts/documentation.njk
 
 # Markup_fmt Plugin
 
-Adapter plugin that formats HTML, Vue, Svelte, Astro, Jinja, Twig, Nunjucks, and Vento files via [markup_fmt](https://github.com/g-plane/markup_fmt).
+Adapter plugin that formats HTML, Vue, Svelte, Astro, Angular, Jinja, Twig, Nunjucks, and Vento files via [markup_fmt](https://github.com/g-plane/markup_fmt).
 
 ## Install and Setup
 
