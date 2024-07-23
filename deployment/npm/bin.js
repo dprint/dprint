@@ -8,21 +8,23 @@ const fs = require("fs");
 
 const exePath = path.join(__dirname, os.platform() === "win32" ? "dprint.exe" : "dprint");
 
-if (!fs.existsSync(exePath)) {
-  try {
-    const resolvedExePath = require("./install_api").runInstall();
-    runDprintExe(resolvedExePath);
-  } catch (err) {
-    if (err !== undefined && typeof err.message === "string") {
-      console.error(err.message);
-    } else {
-      console.error(err);
+(async () => {
+  if (!fs.existsSync(exePath)) {
+    try {
+      const resolvedExePath = await require("./install_api").runInstall();
+      runDprintExe(resolvedExePath);
+    } catch (err) {
+      if (err !== undefined && typeof err.message === "string") {
+        console.error(err.message);
+      } else {
+        console.error(err);
+      }
+      process.exit(1);
     }
-    process.exit(1);
+  } else {
+    runDprintExe(exePath);
   }
-} else {
-  runDprintExe(exePath);
-}
+})();
 
 /** @param exePath {string} */
 function runDprintExe(exePath) {
