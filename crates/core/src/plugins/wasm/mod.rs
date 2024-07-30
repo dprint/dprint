@@ -62,6 +62,9 @@ pub mod macros {
   #[macro_export]
   macro_rules! generate_plugin_code {
     ($wasm_plugin_struct:ident, $wasm_plugin_creation:expr) => {
+      generate_plugin_code!($wasm_plugin_struct, $wasm_plugin_creation, Configuration)
+    };
+    ($wasm_plugin_struct:ident, $wasm_plugin_creation:expr, $wasm_plugin_config:ident) => {
       struct RefStaticCell<T: Default>(std::cell::OnceCell<StaticCell<T>>);
 
       impl<T: Default> RefStaticCell<T> {
@@ -245,7 +248,7 @@ pub mod macros {
         let file_path = unsafe { FILE_PATH.get().take().expect("Expected the file path to be set.") };
         let file_bytes = take_from_shared_bytes();
 
-        let request = dprint_core::plugins::SyncFormatRequest::<Configuration> {
+        let request = dprint_core::plugins::SyncFormatRequest::<$wasm_plugin_config> {
           file_path: &file_path,
           file_bytes,
           config: &config,
@@ -284,7 +287,7 @@ pub mod macros {
       // INFORMATION & CONFIGURATION
 
       static RESOLVE_CONFIGURATION_RESULT: RefStaticCell<
-        std::collections::HashMap<dprint_core::plugins::FormatConfigId, dprint_core::plugins::PluginResolveConfigurationResult<Configuration>>,
+        std::collections::HashMap<dprint_core::plugins::FormatConfigId, dprint_core::plugins::PluginResolveConfigurationResult<$wasm_plugin_config>>,
       > = RefStaticCell::new();
 
       #[no_mangle]
@@ -323,7 +326,7 @@ pub mod macros {
 
       fn get_resolved_config_result<'a>(
         config_id: dprint_core::plugins::FormatConfigId,
-      ) -> &'a dprint_core::plugins::PluginResolveConfigurationResult<Configuration> {
+      ) -> &'a dprint_core::plugins::PluginResolveConfigurationResult<$wasm_plugin_config> {
         unsafe {
           ensure_initialized(config_id);
           return RESOLVE_CONFIGURATION_RESULT.get().get(&config_id).unwrap();
@@ -342,7 +345,7 @@ pub mod macros {
       fn create_resolved_config_result(
         config_id: dprint_core::plugins::FormatConfigId,
         override_config: dprint_core::configuration::ConfigKeyMap,
-      ) -> dprint_core::plugins::PluginResolveConfigurationResult<Configuration> {
+      ) -> dprint_core::plugins::PluginResolveConfigurationResult<$wasm_plugin_config> {
         unsafe {
           if let Some(config) = UNRESOLVED_CONFIG.get().get(&config_id) {
             let mut plugin_config = config.plugin.clone();
