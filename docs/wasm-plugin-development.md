@@ -44,7 +44,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
    use dprint_core::configuration::GlobalConfiguration;
    use dprint_core::configuration::ResolveConfigurationResult;
    use dprint_core::generate_plugin_code;
-   use·dprint_core::plugins::PluginInfo;
+   use dprint_core::plugins::PluginInfo;
    use dprint_core::plugins::SyncPluginHandler;
    use std::path::Path;
 
