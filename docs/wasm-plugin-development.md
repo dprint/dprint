@@ -81,10 +81,10 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
          config: Configuration { line_width },
          diagnostics,
          file_matching: FileMatchingInfo {
-          // these can be derived from the config
-          file_extensions: vec!["txt".to_string()],
-          file_names: vec![],
-         }
+           // these can be derived from the config
+           file_extensions: vec!["txt".to_string()],
+           file_names: vec![],
+         },
        }
      }
 
