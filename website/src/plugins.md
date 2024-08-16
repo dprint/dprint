@@ -24,7 +24,7 @@ The setup for both is the same except process plugins require a checksum to be s
 - [Dockerfile](/plugins/dockerfile)
 - [Biome](/plugins/biome) (JS/TS/JSON)
 - [Malva](/plugins/malva) (CSS/SCSS/Sass/Less)
-- [Markup_fmt](/plugins/pretty_yaml) (HTML/Vue/Svelte/Astro/Jinja/Twig/Nunjucks/Vento)
+- [Markup_fmt](/plugins/markup_fmt) (HTML/Vue/Svelte/Astro/Angular/Jinja/Twig/Nunjucks/Vento)
 - [Pretty YAML](/plugins/pretty_yaml) (YAML)
 - [Ruff](/plugins/ruff) (Python)
 - [Jupyter](/plugins/jupyter)
