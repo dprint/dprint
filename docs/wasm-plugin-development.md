@@ -30,7 +30,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
    #[serde(rename_all = "camelCase")]
    pub struct Configuration {
      // add configuration properties here...
-     line_width: u32, // for example
+     pub line_width: u32, // for example
    }
    ```
 
@@ -42,11 +42,11 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
    use dprint_core::configuration::get_value;
    use dprint_core::configuration::ConfigKeyMap;
    use dprint_core::configuration::GlobalConfiguration;
-   use dprint_core::configuration::ResolveConfigurationResult;
    use dprint_core::generate_plugin_code;
+   use dprint_core::plugins::FileMatchingInfo;
    use dprint_core::plugins::PluginInfo;
+   use dprint_core::plugins::PluginResolveConfigurationResult;
    use dprint_core::plugins::SyncPluginHandler;
-   use std::path::Path;
 
    use crate::configuration::Configuration; // import the Configuration from above
 
@@ -77,7 +77,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
 
        diagnostics.extend(get_unknown_property_diagnostics(config));
 
-       ResolveConfigurationResult {
+       PluginResolveConfigurationResult {
          config: Configuration { line_width },
          diagnostics,
          file_matching: FileMatchingInfo {
@@ -88,14 +88,15 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
        }
      }
 
+     fn check_config_updates(&self, message: dprint_core::plugins::CheckConfigUpdatesMessage) -> Result<Vec<dprint_core::plugins::ConfigChange>> {
+       // check config updates here
+     }
+
      fn format(
        &mut self,
-       file_path: &Path,
-       file_text: &str,
-       config: &Configuration,
-       token: &dyn dprint_core::plugins::CancellationToken,
-       mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<Option<String>>,
-     ) -> Result<Option<String>> {
+       request: dprint_core::plugins::SyncFormatRequest<Configuration>,
+       format_with_host: impl FnMut(dprint_core::plugins::SyncHostFormatRequest) -> dprint_core::plugins::FormatResult,
+     ) -> dprint_core::plugins::FormatResult {
        // format here
      }
    }
