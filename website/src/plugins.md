@@ -26,6 +26,7 @@ The setup for both is the same except process plugins require a checksum to be s
 - [Malva](/plugins/malva) (CSS/SCSS/Sass/Less)
 - [Markup_fmt](/plugins/markup_fmt) (HTML/Vue/Svelte/Astro/Angular/Jinja/Twig/Nunjucks/Vento)
 - [Pretty YAML](/plugins/pretty_yaml) (YAML)
+- [Pretty GraphQL](/plugins/pretty_graphql) (GraphQL)
 - [Ruff](/plugins/ruff) (Python)
 - [Jupyter](/plugins/jupyter)
 

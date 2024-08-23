@@ -31,6 +31,7 @@ Repos:
 - [Malva](https://github.com/g-plane/malva) - CSS/SCSS/Sass/Less formatter
 - [markup_fmt](https://github.com/g-plane/markup_fmt) - HTML, Vue, Svelte, Astro, Angular, Jinja, Twig, Nunjucks, and Vento formatter.
 - [pretty_yaml](https://github.com/g-plane/pretty_yaml) - YAML formatter.
+- [pretty_graphql](https://github.com/g-plane/pretty_graphql) - GraphQL formatter.
 
 ## Notes
 
