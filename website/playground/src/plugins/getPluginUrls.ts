@@ -17,6 +17,7 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
   const malvaPlugin = json.latest.find((p: any) => p.configKey === "malva")!;
   const markupFmtPlugin = json.latest.find((p: any) => p.configKey === "markup")!;
   const prettyYamlPlugin = json.latest.find((p: any) => p.configKey === "yaml")!;
+  const prettyGraphqlPlugin = json.latest.find((p: any) => p.configKey === "graphql")!;
 
   return [
     typescriptPlugin.url,
@@ -29,6 +30,7 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
     malvaPlugin.url,
     markupFmtPlugin.url,
     prettyYamlPlugin.url,
+    prettyGraphqlPlugin.url,
   ];
 }
 
@@ -48,6 +50,7 @@ export function getPluginShortNameFromPluginUrl(url: string) {
     case "malva":
     case "markup_fmt":
     case "pretty_yaml":
+    case "pretty_graphql":
       return name;
     default:
       return undefined;
