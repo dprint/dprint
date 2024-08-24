@@ -2,15 +2,15 @@
 <html lang="en"><head>
     <script async="" src="/scripts.js"></script>
     <meta charset="utf-8">
-    <title>Configuration - Pretty YAML - dprint - Code Formatter</title>
+    <title>Pretty GraphQL Plugin - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#000000">
-    <meta name="description" content="Documentation on the configuration file for the YAML formatting plugin for dprint.">
+    <meta name="description" content="Documentation on the GraphQL code formatting plugin for dprint.">
     <meta name="author" content="Dprint Code Formatting">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:site" content="@dprintfmt">
-    <meta name="twitter:title" content="Configuration - Pretty YAML">
-    <meta name="twitter:description" content="Documentation on the configuration file for the YAML formatting plugin for dprint.">
+    <meta name="twitter:title" content="Pretty GraphQL Plugin">
+    <meta name="twitter:description" content="Documentation on the GraphQL code formatting plugin for dprint.">
     
     <link rel="stylesheet" href="/style.css">
   </head>
@@ -72,14 +72,29 @@
       <nav class="breadcrumb" aria-label="breadcrumbs">
   <ul>
     <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
-    <li><a href="/plugins/pretty_yaml/config">Configuration</a></li>
+    <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
   </ul>
 </nav>
-<h1>Pretty YAML - Configuration</h1>
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/g-plane/pretty_yaml/latest/schema.json">
-  Loading...
-</div>
+<h1>Pretty GraphQL Plugin</h1>
+<p>Adapter plugin that formats GraphQL files via <a href="https://github.com/g-plane/pretty_graphql">Pretty GraphQL</a>.</p>
+<h2 id="install-and-setup" tabindex="-1"><a class="header-anchor" href="#install-and-setup">Install and Setup</a></h2>
+<p>In your project's directory with a dprint.json file, run:</p>
+<pre><code class="language-shellsession hljs language-shell">dprint config add g-plane/pretty_graphql
+</code></pre>
+<p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"graphql"</code> property to add configuration:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"graphql"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-comment">// not "pretty_graphql"</span>
+    <span class="hljs-comment">// Pretty GraphQL config goes here</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/g-plane/pretty_graphql-vx.x.x.wasm"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<h2 id="configuration" tabindex="-1"><a class="header-anchor" href="#configuration">Configuration</a></h2>
+<p>See <a href="/plugins/pretty_graphql/config">Configuration</a> or read <a href="https://pretty-graphql.netlify.app/">full documentation site</a> with code examples.</p>
+<h2 id="playground" tabindex="-1"><a class="header-anchor" href="#playground">Playground</a></h2>
+<p>See <a href="https://dprint.dev/playground#plugin/pretty_graphql">Playground</a></p>
 
     </div>
   </div>

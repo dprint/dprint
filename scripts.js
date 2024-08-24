@@ -206,6 +206,7 @@
   var malvaUrl = "https://plugins.dprint.dev/g-plane/malva-vx.x.x.wasm";
   var markupFmtUrl = "https://plugins.dprint.dev/g-plane/markup_fmt-vx.x.x.wasm";
   var yamlUrl = "https://plugins.dprint.dev/g-plane/pretty_yaml-vx.x.x.wasm";
+  var graphqlUrl = "https://plugins.dprint.dev/g-plane/pretty_graphql-vx.x.x.wasm";
   var pluginInfoUrl = "https://plugins.dprint.dev/info.json";
   var schemaVersion = 4;
   function replacePluginUrls() {
@@ -248,6 +249,9 @@
             case getWithQuotes(yamlUrl):
               element.textContent = getWithQuotes(urls["yaml"]);
               break;
+            case getWithQuotes(graphqlUrl):
+              element.textContent = getWithQuotes(urls["graphql"]);
+              break;
           }
         }
       });
@@ -271,6 +275,7 @@
         case getWithQuotes(malvaUrl):
         case getWithQuotes(markupFmtUrl):
         case getWithQuotes(yamlUrl):
+        case getWithQuotes(graphqlUrl):
           result.push(stringElement);
           break;
       }
@@ -300,7 +305,8 @@
         jupyter: getUrlForPlugin(data, "dprint-plugin-jupyter"),
         malva: getUrlForPlugin(data, "g-plane/malva"),
         markup_fmt: getUrlForPlugin(data, "g-plane/markup_fmt"),
-        yaml: getUrlForPlugin(data, "g-plane/pretty_yaml")
+        yaml: getUrlForPlugin(data, "g-plane/pretty_yaml"),
+        graphql: getUrlForPlugin(data, "g-plane/pretty_graphql")
       };
     });
     function getUrlForPlugin(data, pluginName) {
