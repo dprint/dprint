@@ -8,7 +8,7 @@ pub async fn get_init_config_file_text(environment: &impl Environment) -> Result
   let info = match read_info_file(environment).await {
     Ok(info) => {
       // ok to only check wasm here because the configuration file is only ever initialized with wasm plugins
-      if info.plugin_system_schema_version > wasm::PLUGIN_SYSTEM_SCHEMA_VERSION {
+      if wasm::PLUGIN_SYSTEM_SCHEMA_VERSION < info.plugin_system_schema_version {
         log_error!(
           environment,
           concat!(
