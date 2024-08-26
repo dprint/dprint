@@ -1,5 +1,6 @@
 import type { FileMatchingInfo, PluginInfo } from "@dprint/formatter";
 import { Allotment } from "allotment";
+import JSON5 from "json5";
 import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { CodeEditor, ExternalLink } from "./components";
 import { Spinner } from "./components";
@@ -60,7 +61,7 @@ export function Playground({
     const timeout = setTimeout(() => {
       let config;
       try {
-        config = JSON.parse(configText);
+        config = JSON5.parse(configText);
         if (config.lineWidth == null) {
           config.lineWidth = 80;
         }
@@ -75,7 +76,7 @@ export function Playground({
 
   const lineWidth = useMemo(() => {
     try {
-      const lineWidth = parseInt(JSON.parse(configText).lineWidth, 10);
+      const lineWidth = parseInt(JSON5.parse(configText).lineWidth, 10);
       if (!isNaN(lineWidth)) {
         return lineWidth;
       }
