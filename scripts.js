@@ -18,6 +18,7 @@
     if (items.length > 0) {
       items.forEach(function(item) {
         getDprintPluginConfig(item.url).then((properties) => {
+          const isOfficial = new URL(item.url).pathname.startsWith("/dprint/");
           const element = item.element;
           element.innerHTML = '<p>This information was auto generated from <a href="' + item.url + '">' + item.url + "</a>.</p>";
           properties.forEach(function(property) {
@@ -25,7 +26,7 @@
             element.appendChild(propertyContainer);
             try {
               const propertyTitle = document.createElement("h2");
-              if (property.name === "preferSingleLine") {
+              if (isOfficial && property.name === "preferSingleLine") {
                 property.name += " (Very Experimental)";
               }
               propertyTitle.textContent = property.name;
