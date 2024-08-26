@@ -6,6 +6,7 @@
   "dependencies": {
     "@dprint/formatter": "^0.4.1",
     "allotment": "^1.20.2",
+    "json5": "^2.2.3",
     "lz-string": "^1.4.4",
     "monaco-editor": "^0.31.1",
     "react": "^17.0.2",
