@@ -62,7 +62,7 @@ pub mod macros {
   #[macro_export]
   macro_rules! generate_plugin_code {
     ($wasm_plugin_struct:ident, $wasm_plugin_creation:expr) => {
-      generate_plugin_code!($wasm_plugin_struct, $wasm_plugin_creation, Configuration)
+      generate_plugin_code!($wasm_plugin_struct, $wasm_plugin_creation, Configuration);
     };
     ($wasm_plugin_struct:ident, $wasm_plugin_creation:expr, $wasm_plugin_config:ident) => {
       struct RefStaticCell<T: Default>(std::cell::OnceCell<StaticCell<T>>);
