@@ -771,6 +771,7 @@ mod test {
     expected_urls: Vec<String>,
   }
 
+  #[track_caller]
   fn test_add(options: TestAddOptions) {
     let expected_logs = options.expected_logs.clone();
     let expected_urls = options.expected_urls.clone();

@@ -8,10 +8,10 @@ use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::ConfigChangeKind;
 use dprint_core::plugins::ConfigChangePathItem;
-use jsonc_parser::ast::Array;
 use jsonc_parser::ast::Node;
 use jsonc_parser::ast::Object;
 use jsonc_parser::common::Ranged;
+use jsonc_parser::cst_value;
 
 use crate::plugins::PluginSourceReference;
 use crate::utils::PluginKind;
@@ -50,30 +50,12 @@ pub fn update_plugin_in_config(file_text: &str, info: &PluginUpdateInfo) -> Stri
 }
 
 pub fn add_to_plugins_array(file_text: &str, url: &str) -> Result<String> {
-  let root_obj = JsonRootObject::parse(file_text)?.root;
+  let root_node = jsonc_parser::cst::CstRootNode::parse(file_text, &Default::default()).context("Failed parsing config file.")?;
+  let root_obj = get_root_object(&root_node)?;
   let plugins = get_plugins_array(&root_obj)?;
-  let indentation_text = get_indentation_text(file_text, &root_obj);
-  let newline_char = get_newline_char(file_text);
-  // don't worry about comments or anything... too much to deal with
-  let start_pos = if let Some(last_element) = plugins.elements.last() {
-    last_element.end()
-  } else {
-    plugins.start() + 1
-  };
-  let end_pos = plugins.end() - 1;
-  let mut final_text = String::new();
-  final_text.push_str(&file_text[..start_pos]);
-  if !plugins.elements.is_empty() {
-    final_text.push(',');
-  }
-  final_text.push_str(&newline_char);
-  final_text.push_str(&indentation_text);
-  final_text.push_str(&indentation_text);
-  final_text.push_str(&format!("\"{}\"", url));
-  final_text.push_str(&newline_char);
-  final_text.push_str(&indentation_text);
-  final_text.push_str(&file_text[end_pos..]);
-  Ok(final_text)
+  plugins.ensure_multiline();
+  plugins.append(jsonc_parser::cst::RawCstValue::String(url.to_string()));
+  Ok(root_node.to_string())
 }
 
 pub struct JsonRootObject<'a> {
@@ -417,17 +399,22 @@ fn config_value_to_json_text(value: &ConfigKeyValue, indent_text: &IndentText) -
   }
 }
 
-fn get_plugins_array<'a>(root_obj: &'a Object<'a>) -> Result<&'a Array<'a>> {
-  root_obj
-    .get_array("plugins")
-    .ok_or_else(|| anyhow!("Please ensure your config file has an object with a plugins array in it to use this feature."))
+fn get_root_object(root_node: &jsonc_parser::cst::CstRootNode) -> Result<jsonc_parser::cst::CstObject> {
+  root_node
+    .ensure_object_value()
+    .ok_or_else(|| anyhow!("Please ensure your config file has a root JSON object to use this feature."))
 }
 
-fn get_newline_char(file_text: &str) -> String {
-  if file_text.contains("\r\n") {
-    "\r\n".to_string()
-  } else {
-    "\n".to_string()
+fn get_plugins_array(root_obj: &jsonc_parser::cst::CstObject) -> Result<jsonc_parser::cst::CstArray> {
+  match root_obj.property_by_name("plugins") {
+    Some(property) => property
+      .value()
+      .and_then(|value| value.as_array().cloned())
+      .ok_or_else(|| anyhow!("Please ensure your config file has a \"plugins\" property to use this feature.")),
+    None => {
+      root_obj.append("plugins", cst_value!([]));
+      Ok(root_obj.property_by_name("plugins").unwrap().value().unwrap().as_array().cloned().unwrap())
+    }
   }
 }
 
@@ -484,11 +471,11 @@ mod test {
     )
     .unwrap();
 
-    // don't bother... just remove it
     assert_eq!(
       final_text,
       r#"{
   "plugins": [
+    // some comment
     "value"
   ]
 }"#
@@ -553,12 +540,11 @@ mod test {
     )
     .unwrap();
 
-    // just remove it... too much work
     assert_eq!(
       final_text,
       r#"{
   "plugins": [
-    "some_value",
+    "some_value", // comment
     "value"
   ]
 }"#
