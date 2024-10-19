@@ -204,6 +204,9 @@ function getPackageNameNoScope(name: Package) {
 }
 
 function resolveVersion() {
+  if (Deno.args[0] != null && /^[0-9]+\.[0-9]+\.[0-9]+/.test(Deno.args[0])) {
+    return Deno.args[0];
+  }
   const version = (rootDir.join("crates/dprint/Cargo.toml").readTextSync().match(/version = "(.*?)"/))?.[1];
   if (version == null) {
     throw new Error("Could not resolve version.");
