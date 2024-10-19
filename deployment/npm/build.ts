@@ -1,5 +1,6 @@
 import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
-import { decompress } from "https://deno.land/x/zip@v1.2.5/decompress.ts";
+/// @ts-types="npm:@types/decompress@4.2.7"
+import { decompress } from "npm:decompress@4.2.1";
 
 interface Package {
   zipFileName: string;
