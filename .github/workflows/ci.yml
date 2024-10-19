@@ -65,7 +65,7 @@ jobs:
         uses: actions/checkout@v4
       - uses: dsherret/rust-toolchain-file@v1
       - uses: Swatinem/rust-cache@v2
-      - uses: denoland/setup-deno@v1
+      - uses: denoland/setup-deno@v2
       - name: Verify wasmer-compiler version
         if: matrix.config.target == 'x86_64-unknown-linux-gnu'
         run: deno run --allow-env --allow-read --allow-net=deno.land .github/workflows/scripts/verify_wasmer_compiler_version.ts
@@ -241,7 +241,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
       - name: Output checksums
         run: |-
           echo "dprint-x86_64-apple-darwin.zip: ${{needs.build.outputs.ZIP_CHECKSUM_X86_64_APPLE_DARWIN}}"
@@ -263,7 +263,7 @@ jobs:
           echo "${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_GNU}} dprint-aarch64-unknown-linux-gnu.zip" >> SHASUMS256.txt
           echo "${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_MUSL}} dprint-aarch64-unknown-linux-musl.zip" >> SHASUMS256.txt
       - name: Draft release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         with:

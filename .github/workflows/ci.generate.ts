@@ -114,7 +114,7 @@ const ci = {
         { name: "Checkout", uses: "actions/checkout@v4" },
         { uses: "dsherret/rust-toolchain-file@v1" },
         { uses: "Swatinem/rust-cache@v2" },
-        { uses: "denoland/setup-deno@v1" },
+        { uses: "denoland/setup-deno@v2" },
         {
           name: "Verify wasmer-compiler version",
           if: "matrix.config.target == 'x86_64-unknown-linux-gnu'",
@@ -314,7 +314,7 @@ const ci = {
       steps: [
         {
           name: "Download artifacts",
-          uses: "actions/download-artifact@v2",
+          uses: "actions/download-artifact@v4",
         },
         {
           name: "Output checksums",
@@ -343,7 +343,7 @@ const ci = {
         },
         {
           name: "Draft release",
-          uses: "softprops/action-gh-release@v1",
+          uses: "softprops/action-gh-release@v2",
           env: {
             GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}",
           },
