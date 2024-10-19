@@ -1064,7 +1064,7 @@ mod tests {
       assert_eq!(
         result.to_string(),
         concat!(
-          "Error deserializing. Expected a colon after the string or word in an object property on line 2 column 21.\n",
+          "Error deserializing. Expected colon after the string or word in object property on line 2 column 21\n",
           "    at https://dprint.dev/dir/test.json"
         )
       );

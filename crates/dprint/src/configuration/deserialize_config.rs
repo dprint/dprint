@@ -171,7 +171,7 @@ mod tests {
 
   #[test]
   fn should_error_when_there_is_a_parser_error() {
-    assert_error("{prop}", "Unexpected token on line 1 column 2.");
+    assert_error("{prop}", "Unexpected token on line 1 column 2");
   }
 
   #[test]

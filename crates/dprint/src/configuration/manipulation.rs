@@ -7,11 +7,11 @@ use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::ConfigChangeKind;
 use dprint_core::plugins::ConfigChangePathItem;
 use jsonc_parser::cst::CstContainerNode;
+use jsonc_parser::cst::CstInputValue;
 use jsonc_parser::cst::CstLeafNode;
 use jsonc_parser::cst::CstNode;
 use jsonc_parser::cst::CstObject;
-use jsonc_parser::cst::RawCstValue;
-use jsonc_parser::cst_value;
+use jsonc_parser::json;
 
 use crate::plugins::PluginSourceReference;
 use crate::utils::PluginKind;
@@ -51,7 +51,7 @@ pub fn add_to_plugins_array(file_text: &str, url: &str) -> Result<String> {
   let root_obj = get_root_object(&root_node)?;
   let plugins = get_plugins_array(&root_obj)?;
   plugins.ensure_multiline();
-  plugins.append(jsonc_parser::cst::RawCstValue::String(url.to_string()));
+  plugins.append(jsonc_parser::cst::CstInputValue::String(url.to_string()));
   Ok(root_node.to_string())
 }
 
@@ -182,7 +182,7 @@ fn apply_add(plugin_obj: CstObject, path: &[ConfigChangePathItem], value: &Confi
 }
 
 fn apply_set(plugin_obj: CstObject, path: &[ConfigChangePathItem], value: &ConfigKeyValue) -> Result<()> {
-  fn replace_node(node: CstNode, value: RawCstValue) -> Result<()> {
+  fn replace_node(node: CstNode, value: CstInputValue) -> Result<()> {
     match node {
       CstNode::Container(n) => match n {
         CstContainerNode::Root(_) => unreachable!(),
@@ -288,14 +288,14 @@ fn apply_remove(plugin_obj: jsonc_parser::cst::CstObject, path: &[ConfigChangePa
   bail!("Failed to discover item to remove.")
 }
 
-fn config_value_to_cst_json(value: &ConfigKeyValue) -> RawCstValue {
+fn config_value_to_cst_json(value: &ConfigKeyValue) -> CstInputValue {
   match value {
-    ConfigKeyValue::Bool(value) => RawCstValue::Bool(*value),
-    ConfigKeyValue::Number(value) => RawCstValue::Number(value.to_string()),
-    ConfigKeyValue::String(value) => RawCstValue::String(value.clone()),
-    ConfigKeyValue::Array(values) => RawCstValue::Array(values.iter().map(config_value_to_cst_json).collect()),
-    ConfigKeyValue::Object(values) => RawCstValue::Object(values.iter().map(|(key, value)| (key.clone(), config_value_to_cst_json(value))).collect()),
-    ConfigKeyValue::Null => RawCstValue::Null,
+    ConfigKeyValue::Bool(value) => CstInputValue::Bool(*value),
+    ConfigKeyValue::Number(value) => CstInputValue::Number(value.to_string()),
+    ConfigKeyValue::String(value) => CstInputValue::String(value.clone()),
+    ConfigKeyValue::Array(values) => CstInputValue::Array(values.iter().map(config_value_to_cst_json).collect()),
+    ConfigKeyValue::Object(values) => CstInputValue::Object(values.iter().map(|(key, value)| (key.clone(), config_value_to_cst_json(value))).collect()),
+    ConfigKeyValue::Null => CstInputValue::Null,
   }
 }
 
@@ -309,11 +309,11 @@ fn get_plugins_array(root_obj: &jsonc_parser::cst::CstObject) -> Result<jsonc_pa
   match root_obj.get("plugins") {
     Some(property) => property
       .value()
-      .and_then(|value| value.as_array().cloned())
+      .and_then(|value| value.as_array())
       .ok_or_else(|| anyhow!("Please ensure your config file has a \"plugins\" property to use this feature.")),
     None => {
-      root_obj.append("plugins", cst_value!([]));
-      Ok(root_obj.get("plugins").unwrap().value().unwrap().as_array().cloned().unwrap())
+      root_obj.append("plugins", json!([]));
+      Ok(root_obj.get("plugins").unwrap().value().unwrap().as_array().unwrap())
     }
   }
 }

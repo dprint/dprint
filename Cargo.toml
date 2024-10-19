@@ -16,6 +16,3 @@ exclude = [
 [profile.release-with-debug]
 inherits = "release"
 debug = true
-
-[patch.crates-io]
-jsonc-parser = { path = "../jsonc-parser" }
