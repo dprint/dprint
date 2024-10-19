@@ -344,7 +344,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
         continue;
       }
 
-      let result = apply_config_changes(file_text, config_key, &changes);
+      let result = apply_config_changes(&file_text, config_key, &changes);
       all_diagnostics.extend(result.diagnostics);
       file_text = result.new_text;
     }
@@ -771,6 +771,7 @@ mod test {
     expected_urls: Vec<String>,
   }
 
+  #[track_caller]
   fn test_add(options: TestAddOptions) {
     let expected_logs = options.expected_logs.clone();
     let expected_urls = options.expected_urls.clone();
@@ -1043,7 +1044,7 @@ mod test {
   },
   "should_set": "other",
   "should_remove": {},
-  "should_set_past_version": "",
+  "should_set_past_version": ""
 }"#,
       );
       config.add_config_section(
@@ -1053,7 +1054,7 @@ mod test {
   },
   "should_set": "other",
   "should_remove": {},
-  "should_set_past_version": "",
+  "should_set_past_version": ""
 }"#,
       );
     });
@@ -1095,23 +1096,19 @@ mod test {
     "should_add": "new_value",
     "should_set": "new_value",
     "should_set_past_version": "0.1.0",
-    "new_prop1": [
-      "new_value"
-    ],
+    "new_prop1": ["new_value"],
     "new_prop2": {{
       "new_prop": "new_value"
-    }},
+    }}
   }},
   "test-plugin": {{
     "should_add": "new_value_wasm",
     "should_set": "new_value_wasm",
     "should_set_past_version": "0.1.0",
-    "new_prop1": [
-      "new_value_wasm"
-    ],
+    "new_prop1": ["new_value_wasm"],
     "new_prop2": {{
       "new_prop": "new_value_wasm"
-    }},
+    }}
   }},
   "plugins": [
     "https://plugins.dprint.dev/test-plugin.wasm",
