@@ -1,5 +1,6 @@
 import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
-import { decompress } from "https://deno.land/x/zip@v1.2.5/decompress.ts";
+// @ts-types="npm:@types/decompress@4.2.7"
+import decompress from "npm:decompress@4.2.1";
 
 interface Package {
   zipFileName: string;
@@ -204,6 +205,9 @@ function getPackageNameNoScope(name: Package) {
 }
 
 function resolveVersion() {
+  if (Deno.args[0] != null && /^[0-9]+\.[0-9]+\.[0-9]+/.test(Deno.args[0])) {
+    return Deno.args[0];
+  }
   const version = (rootDir.join("crates/dprint/Cargo.toml").readTextSync().match(/version = "(.*?)"/))?.[1];
   if (version == null) {
     throw new Error("Could not resolve version.");

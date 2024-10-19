@@ -31,7 +31,7 @@ jobs:
         with:
           node-version: "20.x"
           registry-url: "https://registry.npmjs.org"
-      - uses: denoland/setup-deno@v1
+      - uses: denoland/setup-deno@v2
 
       - name: npm publish
         env:
