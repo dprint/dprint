@@ -11,6 +11,7 @@ use jsonc_parser::cst::CstInputValue;
 use jsonc_parser::cst::CstLeafNode;
 use jsonc_parser::cst::CstNode;
 use jsonc_parser::cst::CstObject;
+use jsonc_parser::cst::CstRootNode;
 use jsonc_parser::json;
 
 use crate::plugins::PluginSourceReference;
@@ -47,11 +48,13 @@ pub fn update_plugin_in_config(file_text: &str, info: &PluginUpdateInfo) -> Stri
 }
 
 pub fn add_to_plugins_array(file_text: &str, url: &str) -> Result<String> {
-  let root_node = jsonc_parser::cst::CstRootNode::parse(file_text, &Default::default()).context("Failed parsing config file.")?;
+  let root_node = CstRootNode::parse(file_text, &Default::default()).context("Failed parsing config file.")?;
   let root_obj = get_root_object(&root_node)?;
-  let plugins = get_plugins_array(&root_obj)?;
+  let plugins = root_obj
+    .array_value_or_create("plugins")
+    .ok_or_else(|| anyhow!("Please ensure the \"plugins\" property in your config file is an array to use this feature."))?;
   plugins.ensure_multiline();
-  plugins.append(jsonc_parser::cst::CstInputValue::String(url.to_string()));
+  plugins.append(json!(url));
   Ok(root_node.to_string())
 }
 
@@ -63,7 +66,7 @@ pub struct ApplyConfigChangesResult {
 
 pub fn apply_config_changes(file_text: &str, plugin_key: &str, changes: &[ConfigChange]) -> ApplyConfigChangesResult {
   let mut diagnostics = Vec::new();
-  let root_node = match jsonc_parser::cst::CstRootNode::parse(file_text, &Default::default()) {
+  let root_node = match CstRootNode::parse(file_text, &Default::default()) {
     Ok(root_node) => root_node,
     Err(err) => {
       diagnostics.push(format!("Failed applying change since config file failed to parse: {:#}", err));
@@ -85,7 +88,7 @@ pub fn apply_config_changes(file_text: &str, plugin_key: &str, changes: &[Config
   };
 
   for change in changes {
-    let Some(plugin_obj) = root_obj.get_object(plugin_key) else {
+    let Some(plugin_obj) = root_obj.object_value(plugin_key) else {
       return Default::default();
     };
     match &change.kind {
@@ -137,7 +140,7 @@ fn apply_add(plugin_obj: CstObject, path: &[ConfigChangePathItem], value: &Confi
     match path_item {
       ConfigChangePathItem::String(key) => {
         if path_index == path.len() - 1 {
-          let maybe_array_prop = current_node.as_object().and_then(|obj| obj.get_array(key));
+          let maybe_array_prop = current_node.as_object().and_then(|obj| obj.array_value(key));
           match maybe_array_prop {
             Some(array) => {
               array.append(config_value_to_cst_json(value));
@@ -253,7 +256,7 @@ fn apply_set(plugin_obj: CstObject, path: &[ConfigChangePathItem], value: &Confi
   bail!("Failed to discover item to set.")
 }
 
-fn apply_remove(plugin_obj: jsonc_parser::cst::CstObject, path: &[ConfigChangePathItem]) -> Result<()> {
+fn apply_remove(plugin_obj: CstObject, path: &[ConfigChangePathItem]) -> Result<()> {
   let mut current_node: CstNode = plugin_obj.into();
   for (path_index, path_item) in path.iter().enumerate() {
     match path_item {
@@ -299,23 +302,10 @@ fn config_value_to_cst_json(value: &ConfigKeyValue) -> CstInputValue {
   }
 }
 
-fn get_root_object(root_node: &jsonc_parser::cst::CstRootNode) -> Result<jsonc_parser::cst::CstObject> {
+fn get_root_object(root_node: &CstRootNode) -> Result<CstObject> {
   root_node
-    .ensure_object_value()
+    .object_value_or_create()
     .ok_or_else(|| anyhow!("Please ensure your config file has a root JSON object to use this feature."))
-}
-
-fn get_plugins_array(root_obj: &jsonc_parser::cst::CstObject) -> Result<jsonc_parser::cst::CstArray> {
-  match root_obj.get("plugins") {
-    Some(property) => property
-      .value()
-      .and_then(|value| value.as_array())
-      .ok_or_else(|| anyhow!("Please ensure your config file has a \"plugins\" property to use this feature.")),
-    None => {
-      root_obj.append("plugins", json!([]));
-      Ok(root_obj.get("plugins").unwrap().value().unwrap().as_array().unwrap())
-    }
-  }
 }
 
 #[cfg(test)]
