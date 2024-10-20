@@ -19,6 +19,9 @@ process = ["communication", "serde_json", "libc", "winapi"]
 wasm = ["serde_json"]
 tracing = ["formatting"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 anyhow = "1.0.69"
 async-trait = { version = "0.1.72", optional = true }
