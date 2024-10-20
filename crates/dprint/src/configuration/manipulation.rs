@@ -49,10 +49,8 @@ pub fn update_plugin_in_config(file_text: &str, info: &PluginUpdateInfo) -> Stri
 
 pub fn add_to_plugins_array(file_text: &str, url: &str) -> Result<String> {
   let root_node = CstRootNode::parse(file_text, &Default::default()).context("Failed parsing config file.")?;
-  let root_obj = get_root_object(&root_node)?;
-  let plugins = root_obj
-    .array_value_or_create("plugins")
-    .ok_or_else(|| anyhow!("Please ensure the \"plugins\" property in your config file is an array to use this feature."))?;
+  let root_obj = root_node.object_value_or_set();
+  let plugins = root_obj.array_value_or_set("plugins");
   plugins.ensure_multiline();
   plugins.append(json!(url));
   Ok(root_node.to_string())
@@ -76,16 +74,7 @@ pub fn apply_config_changes(file_text: &str, plugin_key: &str, changes: &[Config
       };
     }
   };
-  let root_obj = match get_root_object(&root_node) {
-    Ok(root_obj) => root_obj,
-    Err(err) => {
-      diagnostics.push(format!("Failed applying change: {:#}", err));
-      return ApplyConfigChangesResult {
-        new_text: file_text.to_string(),
-        diagnostics,
-      };
-    }
-  };
+  let root_obj = root_node.object_value_or_set();
 
   for change in changes {
     let Some(plugin_obj) = root_obj.object_value(plugin_key) else {
@@ -300,12 +289,6 @@ fn config_value_to_cst_json(value: &ConfigKeyValue) -> CstInputValue {
     ConfigKeyValue::Object(values) => CstInputValue::Object(values.iter().map(|(key, value)| (key.clone(), config_value_to_cst_json(value))).collect()),
     ConfigKeyValue::Null => CstInputValue::Null,
   }
-}
-
-fn get_root_object(root_node: &CstRootNode) -> Result<CstObject> {
-  root_node
-    .object_value_or_create()
-    .ok_or_else(|| anyhow!("Please ensure your config file has a root JSON object to use this feature."))
 }
 
 #[cfg(test)]
