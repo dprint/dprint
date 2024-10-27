@@ -1277,9 +1277,9 @@ dependencies = [
 
 [[package]]
 name = "jsonc-parser"
-version = "0.25.1"
+version = "0.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "904e1e5e243329498d28ffa4bf9b3dabd6bbc372ec04bc00d6482ac742bd3f3f"
+checksum = "90576e8cfcca1176ef07b458f7f7bd00569e373144eb13fc88b8fe620d3f03b3"
 dependencies = [
  "indexmap 2.2.6",
  "serde_json",
