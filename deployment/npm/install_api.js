@@ -82,7 +82,7 @@ function getTarget() {
 function getArch() {
   const arch = os.arch();
   if (arch !== "arm64" && arch !== "x64") {
-    throw new Error("Unsupported architecture " + os.arch() + ". Only x64 and aarch64 binaries are available.");
+    throw new Error("Unsupported architecture " + os.arch() + ". Only x64, riscv64, and aarch64 binaries are available.");
   }
   return arch;
 }
