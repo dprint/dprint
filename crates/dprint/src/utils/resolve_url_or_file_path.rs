@@ -101,6 +101,17 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
       }
       return Ok(PathSource::new_remote(url));
     }
+  } else if url_or_file_path.starts_with("~/") {
+    // handle home directory
+    match environment.get_home_dir() {
+      Some(home_dir) => {
+        if url_or_file_path.len() < 4 {
+          return Ok(PathSource::new_local(environment.canonicalize(home_dir)?));
+        }
+        return Ok(PathSource::new_local(environment.canonicalize(home_dir.join(&url_or_file_path[2..]))?));
+      }
+      None => bail!("Failed to get home directory path"),
+    }
   }
 
   Ok(match base {

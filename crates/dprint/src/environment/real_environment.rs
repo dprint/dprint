@@ -271,6 +271,10 @@ impl Environment for RealEnvironment {
     (*CACHE_DIR.as_ref().unwrap()).clone()
   }
 
+  fn get_home_dir(&self) -> Option<CanonicalizedPathBuf> {
+    dirs::home_dir().map(|path| self.canonicalize(path).unwrap())
+  }
+
   fn cpu_arch(&self) -> String {
     std::env::consts::ARCH.to_string()
   }
