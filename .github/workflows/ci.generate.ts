@@ -45,6 +45,7 @@ const profileDataItems: ProfileData[] = [{
 }, {
   os: OperatingSystem.Linux,
   target: "riscv64gc-unknown-linux-gnu",
+  cross: true,
 }];
 const profiles = profileDataItems.map(profile => {
   return {
@@ -147,17 +148,6 @@ const ci = {
           ].join("\n"),
         },
         {
-          name: "Setup (Linux riscv64gc)",
-          if: "matrix.config.target == 'riscv64gc-unknown-linux-gnu'",
-          run: [
-            "sudo apt update",
-            "sudo apt-get install gcc-riscv64-linux-gnu g++-riscv64-linux-gnu libc6-dev-riscv64-cross gcc-multilib libclang-dev",
-            // necessary for cross compiling aws-lc-sys
-            "cargo install --force --locked bindgen-cli",
-            "rustup target add riscv64gc-unknown-linux-gnu",
-          ].join("\n"),
-        },
-        {
           name: "Setup cross",
           if: "matrix.config.cross == 'true'",
           run: [
@@ -184,8 +174,6 @@ const ci = {
           if: "matrix.config.cross != 'true' && !startsWith(github.ref, 'refs/tags/')",
           env: {
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
-            "CC_riscv64gc_unknown_linux_gnu": "riscv64-unknown-linux-gnu-gcc",
-            "CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER": "riscv64-unknown-linux-gnu-gcc",
           },
           run: [
             "cargo build -p dprint --locked --target ${{matrix.config.target}}",
@@ -196,8 +184,6 @@ const ci = {
           if: "matrix.config.cross != 'true' && startsWith(github.ref, 'refs/tags/')",
           env: {
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
-            "CC_riscv64gc_unknown_linux_gnu": "riscv64-unknown-linux-gnu-gcc",
-            "CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER": "riscv64-unknown-linux-gnu-gcc",
           },
           run: [
             "cargo build -p dprint --locked --target ${{matrix.config.target}} --release",
