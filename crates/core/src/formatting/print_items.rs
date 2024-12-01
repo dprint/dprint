@@ -7,6 +7,8 @@ use super::condition_resolvers;
 use super::printer::Printer;
 use super::thread_state;
 
+/** Print Items */
+
 #[derive(Default)]
 pub struct PrintItems {
   pub(super) first_node: Option<PrintItemPath>,
@@ -374,6 +376,8 @@ pub struct TraceCondition {
   /// Identifier to the false path print node.
   pub false_path: Option<u32>,
 }
+
+/** Print Node */
 
 pub struct PrintNode {
   pub(super) next: Option<PrintItemPath>,

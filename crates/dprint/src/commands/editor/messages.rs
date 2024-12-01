@@ -75,8 +75,8 @@ impl EditorMessage {
       }
       8 => EditorMessageBody::CancelFormat(reader.read_u32()?),
       _ => {
-        let _data = reader.read_bytes(body_length as usize)?;
-        EditorMessageBody::Unknown(message_kind)
+        let data = reader.read_bytes(body_length as usize)?;
+        EditorMessageBody::Unknown(message_kind, data)
       }
     };
     reader.read_success_bytes()?;
@@ -128,7 +128,7 @@ impl Message for EditorMessage {
       EditorMessageBody::CancelFormat(message_id) => {
         builder.add_number(*message_id);
       }
-      EditorMessageBody::Unknown(..) => unreachable!(), // should never be written
+      EditorMessageBody::Unknown(_, _) => unreachable!(), // should never be written
     }
     builder.write(writer)?;
     Ok(())
@@ -207,22 +207,22 @@ pub enum EditorMessageBody {
   Format(FormatEditorMessageBody),
   FormatResponse(u32, Option<Vec<u8>>),
   CancelFormat(u32),
-  Unknown(u32),
+  Unknown(u32, Vec<u8>),
 }
 
 impl EditorMessageBody {
   pub fn as_u32(&self) -> u32 {
     match self {
-      EditorMessageBody::Success(..) => 0,
-      EditorMessageBody::Error(..) => 1,
+      EditorMessageBody::Success(_) => 0,
+      EditorMessageBody::Error(_, _) => 1,
       EditorMessageBody::Close => 2,
       EditorMessageBody::IsAlive => 3,
-      EditorMessageBody::CanFormat(..) => 4,
-      EditorMessageBody::CanFormatResponse(..) => 5,
-      EditorMessageBody::Format(..) => 6,
-      EditorMessageBody::FormatResponse(..) => 7,
-      EditorMessageBody::CancelFormat(..) => 8,
-      EditorMessageBody::Unknown(..) => unreachable!(),
+      EditorMessageBody::CanFormat(_) => 4,
+      EditorMessageBody::CanFormatResponse(_, _) => 5,
+      EditorMessageBody::Format(_) => 6,
+      EditorMessageBody::FormatResponse(_, _) => 7,
+      EditorMessageBody::CancelFormat(_) => 8,
+      EditorMessageBody::Unknown(_, _) => unreachable!(),
     }
   }
 }

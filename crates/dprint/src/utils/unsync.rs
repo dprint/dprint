@@ -56,7 +56,7 @@ pub struct MutexGuard<'a, T> {
   _permit: SemaphorePermit,
 }
 
-impl<T> Deref for MutexGuard<'_, T> {
+impl<'a, T> Deref for MutexGuard<'a, T> {
   type Target = T;
 
   fn deref(&self) -> &Self::Target {
@@ -64,7 +64,7 @@ impl<T> Deref for MutexGuard<'_, T> {
   }
 }
 
-impl<T> DerefMut for MutexGuard<'_, T> {
+impl<'a, T> DerefMut for MutexGuard<'a, T> {
   fn deref_mut(&mut self) -> &mut Self::Target {
     self.state.deref_mut()
   }

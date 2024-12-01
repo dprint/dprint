@@ -13,7 +13,7 @@ pub fn get_line_number_of_pos(text: &str, pos: usize) -> usize {
 
 pub fn get_column_number_of_pos(text: &str, pos: usize) -> usize {
   let line_start_byte_pos = get_line_start_byte_pos(text, pos);
-  text[line_start_byte_pos..pos].chars().count() + 1 // 1-indexed
+  return text[line_start_byte_pos..pos].chars().count() + 1; // 1-indexed
 }
 
 fn get_line_start_byte_pos(text: &str, pos: usize) -> usize {

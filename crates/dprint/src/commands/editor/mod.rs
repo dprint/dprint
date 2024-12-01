@@ -239,7 +239,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
             token.cancel();
           }
         }
-        EditorMessageBody::Unknown(message_kind) => {
+        EditorMessageBody::Unknown(message_kind, _) => {
           send_error_response(&self.context, message.id, anyhow!("Unknown message with kind: {}", message_kind));
         }
       }

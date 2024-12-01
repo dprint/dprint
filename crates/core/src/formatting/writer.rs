@@ -17,7 +17,7 @@ pub struct WriterState<'a> {
   items: Option<&'a GraphNode<'a, WriteItem<'a>>>,
 }
 
-impl WriterState<'_> {
+impl<'a> WriterState<'a> {
   pub fn writer_info(&self, indent_width: u8) -> WriterInfo {
     WriterInfo {
       line_number: self.current_line_number,
