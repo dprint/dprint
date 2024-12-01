@@ -28,7 +28,7 @@ struct DiffFailedMessage<'a> {
   actual: &'a str,
 }
 
-impl<'a> Display for DiffFailedMessage<'a> {
+impl Display for DiffFailedMessage<'_> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     let diff = TextDiff::from_lines(self.expected, self.actual);
 
