@@ -152,6 +152,7 @@ const ci = {
           run: [
             // necessary for cross compiling aws-lc-sys
             "cargo install --force --locked bindgen-cli",
+            "rustup target add riscv64gc-unknown-linux-gnu",
           ].join("\n"),
         },
         {
