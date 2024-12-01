@@ -45,7 +45,7 @@ pub struct RcIdStoreGuard<'a, T> {
   message_id: u32,
 }
 
-impl<'a, T> Drop for RcIdStoreGuard<'a, T> {
+impl<T> Drop for RcIdStoreGuard<'_, T> {
   fn drop(&mut self) {
     self.store.take(self.message_id);
   }

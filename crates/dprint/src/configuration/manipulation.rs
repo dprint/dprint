@@ -150,7 +150,7 @@ fn apply_add(plugin_obj: CstObject, path: &[ConfigChangePathItem], value: &Confi
             .and_then(|obj| obj.get(key))
             .ok_or_else(|| anyhow!("Expected property '{}'.", key))?;
           let value = property.value().ok_or_else(|| anyhow!("Expected value for property '{}'.", key))?;
-          current_node = value.into();
+          current_node = value;
         }
       }
       ConfigChangePathItem::Number(array_index) => {
@@ -164,7 +164,7 @@ fn apply_add(plugin_obj: CstObject, path: &[ConfigChangePathItem], value: &Confi
           if array_index >= elements.len() {
             bail!("Expected array index '{}' to be less than the length of the array.", array_index);
           }
-          current_node = elements.remove(array_index).into();
+          current_node = elements.remove(array_index);
         }
       }
     }
@@ -222,7 +222,7 @@ fn apply_set(plugin_obj: CstObject, path: &[ConfigChangePathItem], value: &Confi
         if path_index == path.len() - 1 {
           return replace_node(property_value, config_value_to_cst_json(value));
         } else {
-          current_node = property_value.into();
+          current_node = property_value;
         }
       }
       ConfigChangePathItem::Number(array_index) => {
@@ -236,7 +236,7 @@ fn apply_set(plugin_obj: CstObject, path: &[ConfigChangePathItem], value: &Confi
         if path_index == path.len() - 1 {
           return replace_node(element, config_value_to_cst_json(value));
         } else {
-          current_node = element.into();
+          current_node = element;
         }
       }
     }

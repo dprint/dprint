@@ -87,7 +87,7 @@ impl BumpAllocator {
     self.bump.alloc(node)
   }
 
-  pub fn alloc_save_point<'a>(&'a self, save_point: SavePoint<'a>) -> &'a SavePoint {
+  pub fn alloc_save_point<'a>(&'a self, save_point: SavePoint<'a>) -> &'a SavePoint<'a> {
     self.bump.alloc(save_point)
   }
 
