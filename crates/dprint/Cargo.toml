@@ -44,21 +44,21 @@ tokio-util = { version = "=0.7.11" }
 tower-lsp = "=0.20.0"
 twox-hash = "=1.6.3"
 url = "=2.5.0"
-zip = "=2.1.0"
+zip = "=2.2.1"
 
 # keep these in sync
-rustls = "=0.22.4"
+rustls = "=0.23.19"
 rustls-native-certs = "=0.7.0"
 rustls-pemfile = "=2.1.2"
-ureq = { version = "=2.9.7", features = ["socks-proxy"] }
-webpki-roots = "=0.26.1"
+ureq = { version = "=2.11.0", features = ["socks-proxy"] }
+webpki-roots = "=0.26.7"
 
 # pin these to prevent them changing with `cargo install` because
 # patch version increases of rkyv may cause panics when deserializing
 # data serialized with older versions
-rkyv = "=0.7.44"
-wasmer = "=4.3.2"
-wasmer-compiler = "=4.3.2"
+rkyv = "=0.8.9"
+wasmer = "=5.0.2"
+wasmer-compiler = "=5.0.2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "=0.52.0"

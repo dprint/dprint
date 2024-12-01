@@ -102,7 +102,7 @@ struct IndentText<'a> {
   level: usize,
 }
 
-impl<'a> IndentText<'a> {
+impl IndentText<'_> {
   pub fn inc(&self) -> Self {
     Self {
       text: self.text,
@@ -321,7 +321,7 @@ fn apply_remove(file_text: &str, plugin_obj: &jsonc_parser::ast::Object, path: &
   fn get_start_pos(file_text: &str, node: Node) -> usize {
     let start_pos = node.start();
     let start_text = &file_text[..start_pos];
-    let trimmed_text = start_text.trim_end_matches(|c| c == ' ' || c == '\t');
+    let trimmed_text = start_text.trim_end_matches([' ', '\t']);
     let trimmed_text = if let Some(text) = trimmed_text.strip_suffix("\r\n") {
       text
     } else if let Some(text) = trimmed_text.strip_suffix('\n') {

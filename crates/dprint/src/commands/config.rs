@@ -43,11 +43,11 @@ pub async fn init_config_file(environment: &impl Environment, config_arg: &Optio
   };
 
   fn get_config_path(config_arg: &Option<String>) -> Result<PathBuf> {
-    return Ok(if let Some(config_arg) = config_arg.as_ref() {
+    Ok(if let Some(config_arg) = config_arg.as_ref() {
       PathBuf::from(config_arg)
     } else {
       PathBuf::from("./dprint.json")
-    });
+    })
   }
 }
 

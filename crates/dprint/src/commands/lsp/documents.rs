@@ -30,6 +30,7 @@ impl IndexValid {
 pub struct Document {
   line_index: Option<LineIndex>,
   version: i32,
+  #[allow(dead_code)]
   pub language_id: String,
   pub text: String,
 }

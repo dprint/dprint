@@ -508,7 +508,7 @@ fn get_is_multi_line_for_hanging(value_datas: Rc<RefCell<Vec<GeneratedValueData>
         let is_start_standalone_line = condition_context.resolved_condition(&is_start_standalone_line_ref)?;
         if is_start_standalone_line {
           // check if the second value is on a newline
-          if let Some(second_value_data) = value_datas.borrow().iter().nth(1) {
+          if let Some(second_value_data) = value_datas.borrow().get(1) {
             return condition_context.resolved_is_start_of_line(second_value_data.is_start_of_line);
           }
         } else {
