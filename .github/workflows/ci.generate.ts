@@ -143,13 +143,6 @@ const ci = {
           ].join("\n"),
         },
         {
-          name: "Setup (Linux riscv64gc)",
-          if: "matrix.config.cross == 'true' && matrix.config.target == 'riscv64gc-unknown-linux-gnu'",
-          run: [
-            "cargo install --force --locked bindgen-cli",
-          ].join("\n"),
-        },
-        {
           name: "Setup cross",
           if: "matrix.config.cross == 'true'",
           run: [
