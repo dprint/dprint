@@ -113,6 +113,7 @@ jobs:
         run: "cargo build -p dprint --locked --target ${{matrix.config.target}} --release"
       - name: Build cross (Debug)
         if: "matrix.config.cross == 'true' && !startsWith(github.ref, 'refs/tags/')"
+        run: "cross build -p dprint --locked --target ${{matrix.config.target}}"
       - name: Build cross (Release)
         if: "matrix.config.cross == 'true' && startsWith(github.ref, 'refs/tags/')"
         run: "cross build -p dprint --locked --target ${{matrix.config.target}} --release"

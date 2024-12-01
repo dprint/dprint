@@ -194,6 +194,9 @@ const ci = {
         {
           name: "Build cross (Debug)",
           if: "matrix.config.cross == 'true' && !startsWith(github.ref, 'refs/tags/')",
+          run: [
+            "cross build -p dprint --locked --target ${{matrix.config.target}}",
+          ].join("\n"),
         },
         {
           name: "Build cross (Release)",
