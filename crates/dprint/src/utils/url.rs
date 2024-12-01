@@ -110,6 +110,8 @@ enum AgentKind {
 }
 
 fn build_agent(kind: AgentKind, logger: &Logger) -> Result<ureq::Agent> {
+  let previous_provider = rustls::crypto::aws_lc_rs::default_provider().install_default();
+  debug_assert!(previous_provider.is_ok());
   let mut agent = ureq::AgentBuilder::new();
   if kind == AgentKind::Https {
     #[allow(clippy::disallowed_methods)]
