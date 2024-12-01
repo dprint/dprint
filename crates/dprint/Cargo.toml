@@ -63,6 +63,9 @@ wasmer-compiler = "=5.0.2"
 [target.'cfg(windows)'.dependencies]
 winreg = "=0.52.0"
 
+[target.'cfg(target_arch = "riscv64gc")'.dependencies]
+aws-lc-rs = { version = "1", features = ["bindgen"] }
+
 [dev-dependencies]
 # stay on this version because it's good enough and makes the output the same on all platforms
 path-clean = "0.1.0"
