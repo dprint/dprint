@@ -47,15 +47,10 @@ const packages: Package[] = [{
   cpu: "arm64",
   libc: "musl",
 }, {
-  zipFileName: "dprint-riscv64-unknown-linux-gnu.zip",
+  zipFileName: "dprint-riscv64gc-unknown-linux-gnu.zip",
   os: "linux",
   cpu: "riscv64",
   libc: "glibc",
-}, {
-  zipFileName: "dprint-riscv64-unknown-linux-musl.zip",
-  os: "linux",
-  cpu: "riscv64",
-  libc: "musl",
 }];
 
 const markdownText = `# dprint

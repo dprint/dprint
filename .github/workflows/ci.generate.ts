@@ -44,11 +44,7 @@ const profileDataItems: ProfileData[] = [{
   cross: true,
 }, {
   os: OperatingSystem.Linux,
-  target: "riscv64-unknown-linux-gnu",
-  cross: true,
-}, {
-  os: OperatingSystem.Linux,
-  target: "riscv64-unknown-linux-musl",
+  target: "riscv64gc-unknown-linux-gnu",
   cross: true,
 }];
 const profiles = profileDataItems.map(profile => {
@@ -121,7 +117,12 @@ const ci = {
       steps: [
         { name: "Checkout", uses: "actions/checkout@v4" },
         { uses: "dsherret/rust-toolchain-file@v1" },
-        { uses: "Swatinem/rust-cache@v2" },
+        {
+          uses: "Swatinem/rust-cache@v2",
+          with: {
+            key: "${{ matrix.config.target }}",
+          },
+        },
         { uses: "denoland/setup-deno@v2" },
         {
           name: "Verify wasmer-compiler version",
@@ -150,7 +151,7 @@ const ci = {
           name: "Setup cross",
           if: "matrix.config.cross == 'true'",
           run: [
-            "cargo install cross --git https://github.com/cross-rs/cross --rev 44011c8854cb2eaac83b173cc323220ccdff18ea",
+            "cargo install cross --git https://github.com/cross-rs/cross --rev 88f49ff79e777bef6d3564531636ee4d3cc2f8d2",
           ].join("\n"),
         },
         {
@@ -304,14 +305,15 @@ const ci = {
           shell: "pwsh",
           run: ["cd website/src/assets", "./install.ps1"].join("\n"),
         },
-        {
-          name: "Test npm",
-          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-          run: [
-            "cd deployment/npm",
-            "deno run -A build.ts 0.45.1",
-          ].join("\n"),
-        },
+        // temporarily disable until release
+        // {
+        //   name: "Test npm",
+        //   if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
+        //   run: [
+        //     "cd deployment/npm",
+        //     "deno run -A build.ts 0.45.1",
+        //   ].join("\n"),
+        // },
       ],
     },
     draft_release: {

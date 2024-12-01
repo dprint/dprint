@@ -210,7 +210,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
           patterns: parse_file_patterns(matches)?,
           incremental: parse_incremental(matches),
           enable_stable_format: !matches.get_flag("skip-stable-format"),
-          allow_no_files: if matches.get_flag("staged") == true {
+          allow_no_files: if matches.get_flag("staged") {
             true
           } else {
             matches.get_flag("allow-no-files")
