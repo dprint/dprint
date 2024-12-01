@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use anyhow::bail;
 use anyhow::Result;
-use wasmer::sys::EngineBuilder;
 use dprint_core::plugins::CancellationToken;
+use wasmer::sys::EngineBuilder;
 use wasmer::Cranelift;
 use wasmer::EngineRef;
 use wasmer::ExportError;
