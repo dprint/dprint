@@ -119,7 +119,9 @@ const ci = {
         { uses: "dsherret/rust-toolchain-file@v1" },
         {
           uses: "Swatinem/rust-cache@v2",
-          key: "${{ matrix.config.target }}",
+          with: {
+            key: "${{ matrix.config.target }}",
+          },
         },
         { uses: "denoland/setup-deno@v2" },
         {
