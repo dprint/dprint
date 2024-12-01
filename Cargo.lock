@@ -888,7 +888,7 @@ checksum = "59f8e79d1fbf76bdfbde321e902714bf6c49df88a7dda6fc682fc2979226962d"
 
 [[package]]
 name = "dprint"
-version = "0.46.3"
+version = "0.47.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -936,7 +936,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.66.2"
+version = "0.67.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1451,9 +1451,9 @@ dependencies = [
 
 [[package]]
 name = "jsonc-parser"
-version = "0.23.0"
+version = "0.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7725c320caac8c21d8228c1d055af27a995d371f78cc763073d3e068323641b5"
+checksum = "90576e8cfcca1176ef07b458f7f7bd00569e373144eb13fc88b8fe620d3f03b3"
 dependencies = [
  "indexmap 2.2.6",
  "serde_json",

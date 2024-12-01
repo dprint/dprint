@@ -1,5 +1,6 @@
 import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
-import { decompress } from "https://deno.land/x/zip@v1.2.5/decompress.ts";
+// @ts-types="npm:@types/decompress@4.2.7"
+import decompress from "npm:decompress@4.2.1";
 
 interface Package {
   zipFileName: string;
@@ -12,6 +13,11 @@ const packages: Package[] = [{
   zipFileName: "dprint-x86_64-pc-windows-msvc.zip",
   os: "win32",
   cpu: "x64",
+}, {
+  // use x64_64 until there's an arm64 build
+  zipFileName: "dprint-x86_64-pc-windows-msvc.zip",
+  os: "win32",
+  cpu: "arm64",
 }, {
   zipFileName: "dprint-x86_64-apple-darwin.zip",
   os: "darwin",
@@ -143,7 +149,7 @@ await $`mkdir -p ${dprintDir} ${scopeDir}`;
 {
   $.logStep("Verifying packages...");
   const testPlatform = Deno.build.os == "windows"
-    ? "@dprint/win32-x64"
+    ? (Deno.build.arch === "x86_64" ? "@dprint/win32-x64" : "@dprint/win32-arm64")
     : Deno.build.os === "darwin"
     ? (Deno.build.arch === "x86_64" ? "@dprint/darwin-x64" : "@dprint/darwin-arm64")
     : "@dprint/linux-x64-glibc";
@@ -199,6 +205,9 @@ function getPackageNameNoScope(name: Package) {
 }
 
 function resolveVersion() {
+  if (Deno.args[0] != null && /^[0-9]+\.[0-9]+\.[0-9]+/.test(Deno.args[0])) {
+    return Deno.args[0];
+  }
   const version = (rootDir.join("crates/dprint/Cargo.toml").readTextSync().match(/version = "(.*?)"/))?.[1];
   if (version == null) {
     throw new Error("Could not resolve version.");

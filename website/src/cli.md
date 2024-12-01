@@ -42,6 +42,18 @@ A rare use case, but to override/ignore the patterns in the config file, use the
 dprint fmt --includes-override **/*.js --excludes-override **/data
 ```
 
+### Formatting only git staged files
+
+Requires dprint >= 0.47.0
+
+To format only files that are staged use the `--staged` flag:
+
+```sh
+dprint fmt --staged
+```
+
+Note: This requires that [git](https://git-scm.com/) is installed and that you use git for source control.
+
 ### Formatting Standard Input
 
 Use `dprint fmt --stdin <file-path/file-name/extension>` and provide the input file text to stdin. The output will be directed by the CLI to stdout.

@@ -4,6 +4,7 @@ use anyhow::Context;
 use anyhow::Error;
 use anyhow::Result;
 use dprint_core::async_runtime::future;
+use dprint_core::plugins;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -14,6 +15,7 @@ use crate::arg_parser::CliArgs;
 use crate::arg_parser::FilePatternArgs;
 use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
@@ -104,7 +106,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
                   let new_reference = plugin.as_source_reference()?;
                   let file_text = update_plugin_in_config(
                     &file_text,
-                    PluginUpdateInfo {
+                    &PluginUpdateInfo {
                       name: config_plugin.info().name.to_string(),
                       old_version: config_plugin.info().version.to_string(),
                       old_reference: config_plugin_reference,
@@ -187,9 +189,11 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     exclude_patterns: Vec::new(),
     exclude_pattern_overrides: None,
     allow_node_modules: false,
+    only_staged: false,
   };
   let scopes = resolve_plugins_scope_and_paths(args, &file_pattern_args, environment, plugin_resolver).await?;
   let mut plugin_responses = HashMap::new();
+  let mut updates_per_scope = HashMap::with_capacity(scopes.len());
   for (i, scope) in scopes.into_iter().enumerate() {
     let is_main_config = i == 0;
     let Some(config) = &scope.scope.config else {
@@ -206,6 +210,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     let mut file_text = environment.read_file(config_path)?;
     let plugins_to_update = get_plugins_to_update(environment, plugin_resolver, config.plugins.clone()).await?;
 
+    let mut updated_plugins = Vec::with_capacity(plugins_to_update.len());
     for result in plugins_to_update {
       match result {
         Ok(info) => {
@@ -240,7 +245,8 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
               },
               info.new_version
             );
-            file_text = update_plugin_in_config(&file_text, info);
+            file_text = update_plugin_in_config(&file_text, &info);
+            updated_plugins.push(info);
           }
         }
         Err(err_info) => {
@@ -249,12 +255,14 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
       }
     }
 
+    updates_per_scope.insert(config_path.clone(), updated_plugins);
+
     environment.write_file(config_path, &file_text)?;
   }
 
   // now resolve the plugins again in every scope and run their config updates
 
-  run_plugin_config_updates(environment, args, &file_pattern_args, plugin_resolver)
+  run_plugin_config_updates(environment, args, &file_pattern_args, plugin_resolver, &updates_per_scope)
     .await
     .with_context(|| "Failed running plugin config updates.".to_string())?;
 
@@ -266,6 +274,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
   args: &CliArgs,
   file_pattern_args: &FilePatternArgs,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  updates_per_scope: &HashMap<CanonicalizedPathBuf, Vec<PluginUpdateInfo>>,
 ) -> Result<()> {
   let scopes = resolve_plugins_scope_and_paths(args, file_pattern_args, environment, plugin_resolver).await?;
   for scope in scopes.into_iter() {
@@ -278,6 +287,15 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
         continue;
       }
     };
+    let updated_plugins = match updates_per_scope.get(config_path) {
+      Some(updates) => updates,
+      None => {
+        continue;
+      }
+    };
+    if updated_plugins.is_empty() {
+      continue;
+    }
     let mut file_text = environment.read_file(config_path)?;
     let config_map = match deserialize_config_raw(&file_text) {
       Ok(map) => map,
@@ -288,6 +306,12 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
     };
     let mut all_diagnostics = Vec::new();
     for plugin in scope.scope.plugins.values() {
+      let Some(update_info) = updated_plugins
+        .iter()
+        .find(|info| info.name == plugin.info().name && info.new_version == plugin.info().version)
+      else {
+        continue;
+      };
       log_debug!(environment, "Updating for {}", plugin.name());
       let config_key = &plugin.info().config_key;
       let Some(plugin_config) = config_map.get(config_key).and_then(|c| c.as_object()).cloned() else {
@@ -301,7 +325,13 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
         }
       };
 
-      let changes = match initialized_plugin.check_config_updates(plugin_config).await {
+      let changes = match initialized_plugin
+        .check_config_updates(plugins::CheckConfigUpdatesMessage {
+          old_version: Some(update_info.old_version.clone()),
+          config: plugin_config,
+        })
+        .await
+      {
         Ok(changes) => changes,
         Err(err) => {
           log_warn!(environment, "Failed updating {}. {:#}", plugin.name(), err);
@@ -314,7 +344,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
         continue;
       }
 
-      let result = apply_config_changes(file_text, config_key, &changes);
+      let result = apply_config_changes(&file_text, config_key, &changes);
       all_diagnostics.extend(result.diagnostics);
       file_text = result.new_text;
     }
@@ -473,7 +503,6 @@ mod test {
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
   use crate::environment::TestInfoFilePlugin;
-  use crate::test_helpers;
   use crate::test_helpers::get_test_wasm_plugin_checksum;
   use crate::test_helpers::run_test_cli;
   use crate::test_helpers::TestProcessPluginFile;
@@ -596,8 +625,8 @@ mod test {
 
   #[test]
   fn config_add() {
-    let old_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
-    let new_wasm_url = "https://plugins.dprint.dev/test-plugin-2.wasm".to_string();
+    let old_wasm_url = "https://plugins.dprint.dev/test-plugin-0.1.0.wasm".to_string();
+    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
     let old_ps_checksum = OLD_PROCESS_PLUGIN_FILE.checksum();
     let old_ps_url = format!("https://plugins.dprint.dev/test-process.json@{}", old_ps_checksum);
     let new_ps_url = "https://plugins.dprint.dev/test-plugin-3.json".to_string();
@@ -742,6 +771,7 @@ mod test {
     expected_urls: Vec<String>,
   }
 
+  #[track_caller]
   fn test_add(options: TestAddOptions) {
     let expected_logs = options.expected_logs.clone();
     let expected_urls = options.expected_urls.clone();
@@ -784,7 +814,7 @@ mod test {
 
   #[test]
   fn config_update_should_always_upgrade_to_latest_plugins() {
-    let new_wasm_url = "https://plugins.dprint.dev/test-plugin-2.wasm".to_string();
+    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
     // test all the process plugin combinations
     let new_ps_url = "https://plugins.dprint.dev/test-plugin-3.json".to_string();
     let new_ps_url_with_checksum = format!("{}@{}", new_ps_url, NEW_PROCESS_PLUGIN_FILE.checksum());
@@ -846,7 +876,7 @@ mod test {
       expected_logs: vec![
         "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
         "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
-        "Compiling https://plugins.dprint.dev/test-plugin-2.wasm".to_string(),
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string(),
         "Extracting zip for test-process-plugin".to_string(),
       ],
       expected_urls: vec![new_wasm_url.clone(), new_ps_url_with_checksum.clone()],
@@ -858,10 +888,10 @@ mod test {
 
   #[test]
   fn config_update_should_upgrade_to_latest_plugins() {
-    let new_wasm_url = "https://plugins.dprint.dev/test-plugin-2.wasm".to_string();
+    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
     let new_wasm_url_with_checksum = format!("{}@{}", new_wasm_url, get_test_wasm_plugin_checksum());
     let updating_message = "Updating test-plugin 0.1.0 to 0.2.0...".to_string();
-    let compiling_message = "Compiling https://plugins.dprint.dev/test-plugin-2.wasm".to_string();
+    let compiling_message = "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string();
 
     // test all the wasm combinations
     test_update(TestUpdateOptions {
@@ -988,7 +1018,7 @@ mod test {
         "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
         format!("The process plugin test-process-plugin 0.1.0 has a new url: {}", new_ps_url_with_checksum),
         "Do you want to update it? N".to_string(),
-        "Compiling https://plugins.dprint.dev/test-plugin-2.wasm".to_string(),
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string(),
       ],
       expected_urls: vec![new_wasm_url.clone(), old_ps_url.clone()],
       always_update: false,
@@ -1014,16 +1044,36 @@ mod test {
   },
   "should_set": "other",
   "should_remove": {},
+  "should_set_past_version": ""
+}"#,
+      );
+      config.add_config_section(
+        "test-plugin",
+        r#"{
+  "should_add": {
+  },
+  "should_set": "other",
+  "should_remove": {},
+  "should_set_past_version": ""
 }"#,
       );
     });
     builder.with_local_config("/sub_folder/dprint.json", |config| {
-      config.add_remote_process_plugin().add_config_section(
-        "testProcessPlugin",
-        r#"{
+      config
+        .add_remote_process_plugin()
+        .add_remote_wasm_plugin_0_1_0()
+        .add_config_section(
+          "testProcessPlugin",
+          r#"{
   "should_set": "asdf"
 }"#,
-      );
+        )
+        .add_config_section(
+          "test-plugin",
+          r#"{
+  "should_set": "asdf"
+}"#,
+        );
     });
     let environment = builder.initialize().build();
     run_test_cli(vec!["config", "update", "--yes"], &environment).unwrap();
@@ -1033,7 +1083,8 @@ mod test {
         "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
         "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
         "Updating test-process-plugin 0.1.0 in /sub_folder/dprint.json to 0.3.0...".to_string(),
-        "Compiling https://plugins.dprint.dev/test-plugin-2.wasm".to_string(),
+        "Updating test-plugin 0.1.0 in /sub_folder/dprint.json to 0.2.0...".to_string(),
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string(),
         "Extracting zip for test-process-plugin".to_string()
       ]
     );
@@ -1044,15 +1095,23 @@ mod test {
   "testProcessPlugin": {{
     "should_add": "new_value",
     "should_set": "new_value",
-    "new_prop1": [
-      "new_value"
-    ],
+    "should_set_past_version": "0.1.0",
+    "new_prop1": ["new_value"],
     "new_prop2": {{
       "new_prop": "new_value"
-    }},
+    }}
+  }},
+  "test-plugin": {{
+    "should_add": "new_value_wasm",
+    "should_set": "new_value_wasm",
+    "should_set_past_version": "0.1.0",
+    "new_prop1": ["new_value_wasm"],
+    "new_prop2": {{
+      "new_prop": "new_value_wasm"
+    }}
   }},
   "plugins": [
-    "https://plugins.dprint.dev/test-plugin-2.wasm",
+    "https://plugins.dprint.dev/test-plugin.wasm",
     "https://plugins.dprint.dev/test-plugin-3.json@{}"
   ]
 }}"#,
@@ -1066,8 +1125,12 @@ mod test {
   "testProcessPlugin": {{
     "should_set": "new_value"
   }},
+  "test-plugin": {{
+    "should_set": "new_value_wasm"
+  }},
   "plugins": [
-    "https://plugins.dprint.dev/test-plugin-3.json@{}"
+    "https://plugins.dprint.dev/test-plugin-3.json@{}",
+    "https://plugins.dprint.dev/test-plugin.wasm"
   ]
 }}"#,
         NEW_PROCESS_PLUGIN_FILE.checksum()
@@ -1151,12 +1214,11 @@ mod test {
   }
 
   fn get_setup_builder(opts: SetupEnvOptions) -> TestEnvironmentBuilder {
-    let actual_wasm_plugin_checksum = test_helpers::get_test_wasm_plugin_checksum();
     let mut builder = TestEnvironmentBuilder::new();
 
     if opts.config_has_wasm {
       builder.add_remote_wasm_plugin();
-      builder.add_remote_wasm_plugin_at_url("https://plugins.dprint.dev/test-plugin-2.wasm");
+      builder.add_remote_wasm_0_1_0_plugin();
     }
     if opts.config_has_process {
       builder.add_remote_process_plugin();
@@ -1168,7 +1230,7 @@ mod test {
         info.add_plugin(TestInfoFilePlugin {
           name: "test-plugin".to_string(),
           version: "0.2.0".to_string(),
-          url: "https://plugins.dprint.dev/test-plugin-2.wasm".to_string(),
+          url: "https://plugins.dprint.dev/test-plugin.wasm".to_string(),
           config_key: Some("test-plugin".to_string()),
           checksum: if opts.remote_has_wasm_checksum {
             Some(get_test_wasm_plugin_checksum())
@@ -1195,9 +1257,9 @@ mod test {
         config.ensure_plugins_section();
         if opts.config_has_wasm {
           if opts.config_has_wasm_checksum {
-            config.add_remote_wasm_plugin_with_checksum(&actual_wasm_plugin_checksum);
+            config.add_remote_wasm_plugin_0_1_0_with_checksum();
           } else {
-            config.add_remote_wasm_plugin();
+            config.add_remote_wasm_plugin_0_1_0();
           }
         }
         if opts.config_has_process {
@@ -1210,7 +1272,7 @@ mod test {
         "https://plugins.dprint.dev/dprint/test-plugin/latest.json",
         &json!({
           "schemaVersion": 1,
-          "url": "https://plugins.dprint.dev/test-plugin-2.wasm",
+          "url": "https://plugins.dprint.dev/test-plugin.wasm",
           "version": "0.2.0",
           "checksum": if opts.remote_has_wasm_checksum { Some(get_test_wasm_plugin_checksum()) } else { None },
         })
@@ -1241,8 +1303,8 @@ mod test {
         "https://plugins.dprint.dev/dprint/test-plugin/latest.json",
         &json!({
           "schemaVersion": 1,
-          "url": "https://plugins.dprint.dev/test-plugin-2.wasm",
-          "version": "0.1.0"
+          "url": "https://plugins.dprint.dev/test-plugin.wasm",
+          "version": "0.2.0"
         })
         .to_string(),
       )
@@ -1257,9 +1319,10 @@ mod test {
   fn config_update_should_handle_wasm_to_process_plugin() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
+      .add_remote_wasm_0_1_0_plugin()
       .with_info_file(|_| {})
       .with_default_config(|config| {
-        config.add_remote_wasm_plugin();
+        config.add_remote_wasm_plugin_0_1_0();
       })
       .add_remote_file(
         "https://plugins.dprint.dev/dprint/test-plugin/latest.json",

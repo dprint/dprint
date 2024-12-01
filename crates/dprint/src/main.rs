@@ -1,3 +1,7 @@
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
+#![deny(clippy::unused_async)]
+
 #[macro_use]
 mod environment;
 
@@ -34,6 +38,7 @@ fn main() {
       Err((err, log_level)) => {
         if log_level != LogLevel::Silent {
           let result = format!("{:#}", err.inner);
+          #[allow(clippy::print_stderr)]
           if !result.is_empty() {
             eprintln!("{}", result);
           }

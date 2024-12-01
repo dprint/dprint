@@ -1,20 +1,29 @@
+use std::sync::Arc;
+
 use anyhow::bail;
 use anyhow::Result;
 use wasmer::sys::EngineBuilder;
+use dprint_core::plugins::CancellationToken;
 use wasmer::Cranelift;
 use wasmer::EngineRef;
+use wasmer::ExportError;
+use wasmer::Function;
 use wasmer::Imports;
 use wasmer::Instance;
+use wasmer::Memory;
 use wasmer::Module;
 use wasmer::Store;
 
 use super::instance::get_current_plugin_schema_version;
+use super::ImportObjectEnvironment;
 use super::PluginSchemaVersion;
 
-#[derive(Clone)]
 pub struct WasmInstance {
-  pub inner: wasmer::Instance,
-  pub engine: wasmer::Engine,
+  inner: wasmer::Instance,
+  // note: keep the engine alive for the duration of the instance
+  // otherwise it could be cleaned up before the instance is dropped
+  _engine: wasmer::Engine,
+  env: Box<dyn ImportObjectEnvironment>,
   version: PluginSchemaVersion,
 }
 
@@ -22,17 +31,33 @@ impl WasmInstance {
   pub fn version(&self) -> PluginSchemaVersion {
     self.version
   }
+
+  pub fn set_token(&self, store: &mut Store, token: Arc<dyn CancellationToken>) {
+    self.env.set_token(store, token);
+  }
+
+  pub fn get_memory(&self, name: &str) -> Result<&Memory, ExportError> {
+    self.inner.exports.get_memory(name)
+  }
+
+  pub fn get_function(&self, name: &str) -> Result<&Function, ExportError> {
+    self.inner.exports.get_function(name)
+  }
 }
 
 /// Loads a compiled wasm module from the specified bytes.
-pub fn load_instance(store: &mut Store, module: &WasmModule, import_object: &Imports) -> Result<WasmInstance> {
+pub fn load_instance(store: &mut Store, module: &WasmModule, env: Box<dyn ImportObjectEnvironment>, import_object: &Imports) -> Result<WasmInstance> {
   let instance = Instance::new(store, &module.inner, import_object);
   match instance {
-    Ok(instance) => Ok(WasmInstance {
-      inner: instance,
-      engine: module.engine.clone(),
-      version: module.version,
-    }),
+    Ok(instance) => {
+      env.initialize(store, &instance)?;
+      Ok(WasmInstance {
+        inner: instance,
+        _engine: module.engine.clone(),
+        env,
+        version: module.version,
+      })
+    }
     Err(err) => bail!("Error instantiating module: {:#}", err),
   }
 }
@@ -51,6 +76,10 @@ impl WasmModule {
       inner: module,
       engine,
     })
+  }
+
+  pub fn version(&self) -> PluginSchemaVersion {
+    self.version
   }
 
   pub fn inner(&self) -> &wasmer::Module {

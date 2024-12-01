@@ -1,12 +1,15 @@
-import type { PluginInfo } from "@dprint/formatter";
+import type { FileMatchingInfo, PluginInfo } from "@dprint/formatter";
+import { Allotment } from "allotment";
+import JSON5 from "json5";
 import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
-import SplitPane from "react-split-pane";
 import { CodeEditor, ExternalLink } from "./components";
 import { Spinner } from "./components";
 import "./external/react-splitpane.css";
 import * as formatterWorker from "./FormatterWorker";
-import "./Playground.css";
 import { getLanguageFromPluginUrl } from "./plugins";
+
+import "./Playground.css";
+import "allotment/dist/style.css";
 
 export interface PlaygroundProps {
   configText: string;
@@ -15,6 +18,7 @@ export interface PlaygroundProps {
   onTextChanged: (text: string) => void;
   formattedText: string;
   selectedPluginInfo: PluginInfo;
+  fileMatchingInfo: FileMatchingInfo;
   selectedPluginUrl: string;
   pluginUrls: string[];
   onSelectPluginUrl: (pluginUrl: string) => void;
@@ -27,6 +31,7 @@ export function Playground({
   text,
   onTextChanged,
   formattedText,
+  fileMatchingInfo,
   selectedPluginUrl,
   selectedPluginInfo,
   pluginUrls,
@@ -37,8 +42,12 @@ export function Playground({
   const [fileExtension, setFileExtension] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    setFileExtension(selectedPluginInfo.fileExtensions[0]);
-  }, [selectedPluginInfo]);
+    if (fileMatchingInfo.fileExtensions.length > 0) {
+      if (fileExtension == null || !fileMatchingInfo.fileExtensions.includes(fileExtension)) {
+        setFileExtension(fileMatchingInfo.fileExtensions[0]);
+      }
+    }
+  }, [fileMatchingInfo, fileExtension]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -52,7 +61,7 @@ export function Playground({
     const timeout = setTimeout(() => {
       let config;
       try {
-        config = JSON.parse(configText);
+        config = JSON5.parse(configText);
         if (config.lineWidth == null) {
           config.lineWidth = 80;
         }
@@ -67,7 +76,7 @@ export function Playground({
 
   const lineWidth = useMemo(() => {
     try {
-      const lineWidth = parseInt(JSON.parse(configText).lineWidth, 10);
+      const lineWidth = parseInt(JSON5.parse(configText).lineWidth, 10);
       if (!isNaN(lineWidth)) {
         return lineWidth;
       }
@@ -81,93 +90,84 @@ export function Playground({
   }, [setFileExtension]);
 
   return (
-    <div className="App">
-      <SplitPane split="horizontal" defaultSize={53} allowResize={false}>
-        <header className="appHeader">
-          <h1 id="title">dprint - Playground</h1>
-          <div id="headerRight">
-            <a href="/overview">Overview</a>
-            <a href="/playground">Playground</a>
-            <a href="/sponsor">Sponsor</a>
-            <ExternalLink url="https://github.com/dprint/dprint" text="View on GitHub" />
-          </div>
-        </header>
-        <SplitPane
-          split="vertical"
-          minSize={50}
-          defaultSize="50%"
-          allowResize={true}
-          pane1Style={{ overflowX: "hidden", overflowY: "hidden" }}
-          pane2Style={{ overflowX: "hidden", overflowY: "hidden" }}
-        >
-          <SplitPane
-            split="horizontal"
-            allowResize={true}
-            defaultSize="60%"
-            pane1Style={{ overflowX: "hidden", overflowY: "hidden" }}
-            pane2Style={{ overflowX: "hidden", overflowY: "hidden" }}
-          >
-            <div className="container">
-              <div className="playgroundSubTitle">
-                <div className="row">
-                  <div className="column">
-                    Plugin:
-                  </div>
-                  <div className="column" style={{ flex: 1, display: "flex" }}>
-                    <select
-                      onChange={e => {
-                        if (e.target.selectedIndex >= pluginUrls.length) {
-                          let url = prompt("Please provide a Wasm plugin url:", "");
-                          if (url != null && url.trim().length > 0) {
-                            onSelectPluginUrl(url);
+    <div id="App">
+      <header id="AppHeader">
+        <h1 id="title">dprint - Playground</h1>
+        <div id="headerRight">
+          <a href="/overview">Overview</a>
+          <a href="/playground">Playground</a>
+          <a href="/sponsor">Sponsor</a>
+          <ExternalLink url="https://github.com/dprint/dprint" text="View on GitHub" />
+        </div>
+      </header>
+      <div id="AppBody">
+        <Allotment>
+          <Allotment.Pane preferredSize="50%">
+            <Allotment vertical={true}>
+              <div className="container">
+                <div className="playgroundSubTitle">
+                  <div className="row">
+                    <div className="column">
+                      Plugin:
+                    </div>
+                    <div className="column" style={{ flex: 1, display: "flex" }}>
+                      <select
+                        onChange={e => {
+                          if (e.target.selectedIndex >= pluginUrls.length) {
+                            let url = prompt("Please provide a Wasm plugin url:", "");
+                            if (url != null && url.trim().length > 0) {
+                              onSelectPluginUrl(url);
+                            } else {
+                              e.preventDefault();
+                            }
                           } else {
-                            e.preventDefault();
+                            onSelectPluginUrl(pluginUrls[e.target.selectedIndex]);
                           }
-                        } else {
-                          onSelectPluginUrl(pluginUrls[e.target.selectedIndex]);
-                        }
-                      }}
-                      style={{ flex: 1 }}
-                      value={selectedPluginUrl}
-                    >
-                      {pluginUrls.map((pluginUrl, i) => {
-                        return (
-                          <option key={i} value={pluginUrl}>
-                            {pluginUrl}
-                          </option>
-                        );
-                      })}
-                      <option key="custom">Custom</option>
-                    </select>
-                  </div>
-                  <div className="column" style={{ display: "flex" }}>
-                    <select value={fileExtension} onChange={onFileExtensionChange}>
-                      {selectedPluginInfo.fileExtensions.map((ext, i) => <option key={i} value={ext}>{"."}{ext}</option>)}
-                    </select>
+                        }}
+                        style={{ flex: 1 }}
+                        value={selectedPluginUrl}
+                      >
+                        {pluginUrls.map((pluginUrl, i) => {
+                          return (
+                            <option key={i} value={pluginUrl}>
+                              {pluginUrl}
+                            </option>
+                          );
+                        })}
+                        <option key="custom">Custom</option>
+                      </select>
+                    </div>
+                    <div className="column" style={{ display: "flex" }}>
+                      <select value={fileExtension} onChange={onFileExtensionChange}>
+                        {fileMatchingInfo.fileExtensions.map((ext, i) => <option key={i} value={ext}>{"."}{ext}</option>)}
+                      </select>
+                    </div>
                   </div>
                 </div>
+                <CodeEditor
+                  language={getLanguageFromPluginUrl(selectedPluginUrl) ?? "plaintext"}
+                  onChange={onTextChanged}
+                  text={text}
+                  lineWidth={lineWidth}
+                  onScrollTopChange={setScrollTop}
+                  scrollTop={scrollTop}
+                />
               </div>
-              <CodeEditor
-                language={getLanguageFromPluginUrl(selectedPluginUrl) ?? "plaintext"}
-                onChange={onTextChanged}
-                text={text}
-                lineWidth={lineWidth}
-                onScrollTopChange={setScrollTop}
-                scrollTop={scrollTop}
-              />
-            </div>
-            <div className="container">
-              <div className="playgroundSubTitle">
-                Configuration
-              </div>
-              <CodeEditor
-                language={"json"}
-                onChange={onConfigTextChanged}
-                jsonSchemaUrl={selectedPluginInfo?.configSchemaUrl}
-                text={configText}
-              />
-            </div>
-          </SplitPane>
+              <Allotment.Pane preferredSize="40%">
+                <div className="container">
+                  <div className="playgroundSubTitle">
+                    Configuration
+                  </div>
+                  <CodeEditor
+                    language={"json"}
+                    onChange={onConfigTextChanged}
+                    jsonSchemaUrl={selectedPluginInfo?.configSchemaUrl}
+                    text={configText}
+                  />
+                </div>
+              </Allotment.Pane>
+            </Allotment>
+          </Allotment.Pane>
           <div className="container">
             {isLoading ? <Spinner /> : (
               <CodeEditor
@@ -180,8 +180,8 @@ export function Playground({
               />
             )}
           </div>
-        </SplitPane>
-      </SplitPane>
+        </Allotment>
+      </div>
     </div>
   );
 }

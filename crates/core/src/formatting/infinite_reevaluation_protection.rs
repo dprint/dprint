@@ -34,9 +34,13 @@ impl InfiniteReevaluationProtector {
       if next_count == MAX_COUNT {
         // only ever log this once per execution
         if !LOGGED.swap(true, Ordering::SeqCst) {
-          eprintln!(
-            "[dprint-core] A file exceeded the re-evaluation count and formatting stabilized at a random condition value. Please report this as a bug."
-          );
+          // todo: use awasm logging here instead
+          #[allow(clippy::print_stderr)]
+          {
+            eprintln!(
+              "[dprint-core] A file exceeded the re-evaluation count and formatting stabilized at a random condition value. Please report this as a bug."
+            );
+          }
         }
         false
       } else {

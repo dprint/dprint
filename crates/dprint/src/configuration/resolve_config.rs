@@ -1,10 +1,11 @@
+use std::borrow::Cow;
+
 use anyhow::bail;
 use anyhow::Result;
 use crossterm::style::Stylize;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigKeyValue;
-use std::path::Path;
 use thiserror::Error;
 
 use crate::arg_parser::CliArgs;
@@ -87,7 +88,14 @@ pub async fn resolve_config_from_path<TEnvironment: Environment>(
 ) -> Result<ResolvedConfig, ResolveConfigError> {
   let base_source = resolved_config_path.resolved_path.source.parent();
   let config_file_path = &resolved_config_path.resolved_path.file_path;
-  let config_map = get_config_map_from_path(config_file_path, environment)?;
+  let config_map = get_config_map_from_path(
+    ConfigPathContext {
+      current: &resolved_config_path.resolved_path,
+      origin: &resolved_config_path.resolved_path,
+    },
+    environment,
+  )
+  .map_err(|err| anyhow::anyhow!("{:#}\n    at {}", err, resolved_config_path.resolved_path.source.display()))?;
 
   let mut config_map = match config_map {
     Ok(main_config_map) => main_config_map,
@@ -156,7 +164,7 @@ fn resolve_extends<TEnvironment: Environment>(
       let resolved_path = resolve_url_or_file_path(&url_or_file_path, &base_path, &environment).await?;
       resolved_config = match handle_config_file(&resolved_path, resolved_config, &environment).await {
         Ok(resolved_config) => resolved_config,
-        Err(err) => bail!("Error with '{}'. {:#}", resolved_path.source.display(), err),
+        Err(err) => bail!("{:#}\n    at {}", err, resolved_path.source.display()),
       }
     }
     Ok(resolved_config)
@@ -169,8 +177,13 @@ async fn handle_config_file<TEnvironment: Environment>(
   mut resolved_config: ResolvedConfig,
   environment: &TEnvironment,
 ) -> Result<ResolvedConfig> {
-  let config_file_path = &resolved_path.file_path;
-  let mut new_config_map = match get_config_map_from_path(config_file_path, environment)? {
+  let mut new_config_map = match get_config_map_from_path(
+    ConfigPathContext {
+      current: resolved_path,
+      origin: &resolved_config.resolved_path,
+    },
+    environment,
+  )? {
     Ok(config_map) => config_map,
     Err(err) => return Err(err),
   };
@@ -265,18 +278,139 @@ fn take_extends(config_map: &mut ConfigMap) -> Result<Vec<String>> {
   }
 }
 
-fn get_config_map_from_path(file_path: impl AsRef<Path>, environment: &impl Environment) -> Result<Result<ConfigMap>> {
-  let config_file_text = match environment.read_file(file_path) {
+#[derive(Debug, Clone, Copy)]
+struct ConfigPathContext<'a> {
+  /// The path of the configuration file being resolved.
+  ///
+  /// This could be a config being extended.
+  current: &'a ResolvedPath,
+  /// The original configuration file that may have extended
+  /// the current configuration file.
+  origin: &'a ResolvedPath,
+}
+
+fn get_config_map_from_path(path: ConfigPathContext, environment: &impl Environment) -> Result<Result<ConfigMap>> {
+  let config_file_text = match environment.read_file(&path.current.file_path) {
     Ok(file_text) => file_text,
     Err(err) => return Ok(Err(err)),
   };
 
-  let result = match deserialize_config(&config_file_text) {
+  let mut result = match deserialize_config(&config_file_text) {
     Ok(map) => map,
     Err(e) => bail!("Error deserializing. {}", e.to_string()),
   };
+  template_expand(path, &mut result)?;
 
   Ok(Ok(result))
+}
+
+fn template_expand(path_ctx: ConfigPathContext, config_map: &mut ConfigMap) -> Result<()> {
+  fn handle_string(path: ConfigPathContext, value: &mut String) -> Result<()> {
+    let mut parts = Vec::with_capacity(16); // unlikely to be more than this
+    let mut last_index = 0;
+    let mut chars = value.char_indices().peekable();
+
+    while let Some((index, c)) = chars.next() {
+      if c == '\\' && matches!(chars.peek(), Some((_, '$'))) {
+        parts.push(Cow::Borrowed(&value[last_index..index]));
+        last_index = index + 1; // skip '\'
+        chars.next(); // skip '$'
+      } else if c == '$' && matches!(chars.peek(), Some((_, '{'))) {
+        // Found start of template literal ${...}
+        chars.next(); // skip '{'
+
+        let mut template_name = "";
+        let template_start_index = index + 2; // skip '{' and '$'
+        for (current_index, inner_char) in chars.by_ref() {
+          if inner_char == '}' {
+            template_name = &value[template_start_index..current_index];
+            parts.push(Cow::Borrowed(&value[last_index..index]));
+            last_index = current_index + 1; // skip '}'
+            break;
+          }
+        }
+
+        match template_name {
+          "configDir" => {
+            if path.current.is_remote() {
+              bail!("Cannot use ${{configDir}} template in remote configuration files. Maybe use ${{originConfigDir}} instead?");
+            }
+            parts.push(Cow::Owned(path.current.file_path.parent().unwrap().to_string_lossy().to_string()));
+          }
+          "originConfigDir" => {
+            if path.origin.is_remote() {
+              bail!(
+                "Cannot use ${{originConfigDir}} template when the origin configuration file ({}) is remote.",
+                path.origin.source.display(),
+              );
+            }
+            parts.push(Cow::Owned(path.origin.file_path.parent().unwrap().to_string_lossy().to_string()));
+          }
+          "" => {
+            // ignore
+          }
+          _ => {
+            bail!(
+              concat!(
+                "Unknown template literal ${{{}}}. Only ${{configDir}} and ${{originConfigDir}} are supported. ",
+                "If you meant to pass this to a plugin, escape the dollar sign with two back slashes.",
+              ),
+              template_name,
+            );
+          }
+        }
+      }
+    }
+
+    if !parts.is_empty() {
+      parts.push(Cow::Borrowed(&value[last_index..]));
+      *value = parts.join("");
+    }
+
+    Ok(())
+  }
+
+  fn handle_config_key_value(path_ctx: ConfigPathContext, value: &mut ConfigKeyValue) -> Result<()> {
+    match value {
+      ConfigKeyValue::String(value) => {
+        handle_string(path_ctx, value)?;
+      }
+      ConfigKeyValue::Array(array) => {
+        for value in array {
+          handle_config_key_value(path_ctx, value)?;
+        }
+      }
+      ConfigKeyValue::Object(obj) => {
+        for value in obj.values_mut() {
+          handle_config_key_value(path_ctx, value)?;
+        }
+      }
+      ConfigKeyValue::Number(_) | ConfigKeyValue::Bool(_) | ConfigKeyValue::Null => {
+        // ignore
+      }
+    }
+    Ok(())
+  }
+
+  for value in config_map.values_mut() {
+    match value {
+      ConfigMapValue::KeyValue(kv) => {
+        handle_config_key_value(path_ctx, kv)?;
+      }
+      ConfigMapValue::PluginConfig(config) => {
+        for value in config.properties.values_mut() {
+          handle_config_key_value(path_ctx, value)?;
+        }
+      }
+      ConfigMapValue::Vec(vec) => {
+        for value in vec {
+          handle_string(path_ctx, value)?;
+        }
+      }
+    }
+  }
+
+  Ok(())
 }
 
 fn take_plugins_array_from_config_map(
@@ -930,8 +1064,8 @@ mod tests {
       assert_eq!(
         result.to_string(),
         concat!(
-          "Error with 'https://dprint.dev/dir/test.json'. Error deserializing. ",
-          "Expected a colon after the string or word in an object property on line 2 column 21."
+          "Error deserializing. Expected colon after the string or word in object property on line 2 column 21\n",
+          "    at https://dprint.dev/dir/test.json"
         )
       );
     });
@@ -968,9 +1102,9 @@ mod tests {
       assert_eq!(
         result.to_string(),
         concat!(
-          "Error with 'https://dprint.dev/test.json'. ",
           "The configuration for \"test\" was locked, but a parent configuration specified it. ",
-          "Locked configurations cannot have their properties overridden."
+          "Locked configurations cannot have their properties overridden.\n",
+          "    at https://dprint.dev/test.json",
         )
       );
     });
@@ -1447,6 +1581,153 @@ mod tests {
       let result = get_result("/test.json", &environment).await.unwrap();
       assert_eq!(environment.take_stdout_messages().len(), 0);
       assert_eq!(result.config_map.is_empty(), true); // should not include projectType
+    });
+  }
+
+  #[test]
+  fn should_resolve_config_dir_local_file() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r#"{
+      "extends": "./next.json",
+      "otherPlugin": {
+        "value": "${originConfigDir}/origin"
+      }
+}"#
+        .as_bytes(),
+    );
+    environment.add_remote_file(
+      "https://dprint.dev/next.json",
+      r#"{
+      "final": {
+        "value": "${originConfigDir}/final && \\${configDir}/escaped"
+      }
+}"#
+        .as_bytes(),
+    );
+    environment
+      .write_file(
+        "/dir/dprint.json",
+        r#"{
+      "extends": "https://dprint.dev/test.json",
+      "plugin": {
+        "value": "${configDir}/test && ${originConfigDir}/other"
+      }
+}"#,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let config = get_result("/dir/dprint.json", &environment).await.unwrap();
+      assert_eq!(
+        config.config_map,
+        ConfigMap::from([
+          (
+            "plugin".to_string(),
+            ConfigMapValue::PluginConfig(RawPluginConfig {
+              locked: false,
+              associations: None,
+              properties: ConfigKeyMap::from([(String::from("value"), ConfigKeyValue::from_str("/dir/test && /dir/other"))]),
+            }),
+          ),
+          (
+            "otherPlugin".to_string(),
+            ConfigMapValue::PluginConfig(RawPluginConfig {
+              locked: false,
+              associations: None,
+              properties: ConfigKeyMap::from([(String::from("value"), ConfigKeyValue::from_str("/dir/origin"))]),
+            }),
+          ),
+          (
+            "final".to_string(),
+            ConfigMapValue::PluginConfig(RawPluginConfig {
+              locked: false,
+              associations: None,
+              properties: ConfigKeyMap::from([(String::from("value"), ConfigKeyValue::from_str("/dir/final && ${configDir}/escaped"))]),
+            }),
+          )
+        ])
+      );
+    });
+  }
+
+  #[test]
+  fn should_error_remote_config_file_with_config_dir() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r#"{
+      "plugin": {
+        "value": "${configDir}/test"
+      }
+}"#
+        .as_bytes(),
+    );
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("https://dprint.dev/test.json", &environment).await.err().unwrap();
+      assert_eq!(
+        result.to_string(),
+        "Cannot use ${configDir} template in remote configuration files. Maybe use ${originConfigDir} instead?\n    at https://dprint.dev/test.json"
+      );
+    });
+  }
+
+  #[test]
+  fn should_error_remote_origin_config_file_with_config_dir() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r#"{
+      "extends": "./next.json",
+      "otherPlugin": {
+        "value": "test"
+      }
+}"#
+        .as_bytes(),
+    );
+    environment.add_remote_file(
+      "https://dprint.dev/next.json",
+      r#"{
+      "final": {
+        "value": "${originConfigDir}/final"
+      }
+}"#
+        .as_bytes(),
+    );
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("https://dprint.dev/test.json", &environment).await.err().unwrap();
+      assert_eq!(
+        result.to_string(),
+        "Cannot use ${originConfigDir} template when the origin configuration file (https://dprint.dev/test.json) is remote.\n    at https://dprint.dev/next.json"
+      );
+    });
+  }
+
+  #[test]
+  fn should_error_unknown_template() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r#"{
+      "plugin": {
+        "value": "${unknown}/test"
+      }
+}"#
+        .as_bytes(),
+    );
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("https://dprint.dev/test.json", &environment).await.err().unwrap();
+      assert_eq!(
+        result.to_string(),
+        concat!(
+          "Unknown template literal ${unknown}. Only ${configDir} and ${originConfigDir} are supported. If you meant to pass this to a plugin, escape the dollar sign with two back slashes.\n",
+          "    at https://dprint.dev/test.json"
+        ),
+      );
     });
   }
 }

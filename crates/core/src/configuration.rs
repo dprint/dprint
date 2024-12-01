@@ -375,6 +375,35 @@ where
   }
 }
 
+pub fn get_nullable_vec<T: std::str::FromStr>(
+  config: &mut ConfigKeyMap,
+  key: &str,
+  get_nullable_value: impl Fn(ConfigKeyValue, usize, &mut Vec<ConfigurationDiagnostic>) -> Option<T>,
+  diagnostics: &mut Vec<ConfigurationDiagnostic>,
+) -> Option<Vec<T>> {
+  match config.shift_remove(key) {
+    Some(value) => match value {
+      ConfigKeyValue::Array(values) => {
+        let mut result = Vec::with_capacity(values.len());
+        for (i, value) in values.into_iter().enumerate() {
+          if let Some(value) = get_nullable_value(value, i, diagnostics) {
+            result.push(value);
+          }
+        }
+        Some(result)
+      }
+      _ => {
+        diagnostics.push(ConfigurationDiagnostic {
+          property_name: key.to_string(),
+          message: "Expected an array.".to_string(),
+        });
+        None
+      }
+    },
+    None => None,
+  }
+}
+
 /// If it exists, moves over the configuration value over from the old key
 /// to the new key and adds a diagnostic.
 pub fn handle_renamed_config_property(config: &mut ConfigKeyMap, old_key: &str, new_key: &str, diagnostics: &mut Vec<ConfigurationDiagnostic>) {
