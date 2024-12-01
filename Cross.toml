@@ -1,5 +1,7 @@
 [target.riscv64gc-unknown-linux-gnu]
 # used for the "bindgen" feature of aws-lc-rs, which is necessary for cross compiling
 pre-build = [
-  "cargo install --force --locked bindgen-cli",
+  "sudo apt update",
+  "sudo apt-get install gcc-multilib libclang-dev",
+  "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/rust-lang/rust-bindgen/releases/download/v0.69.5/bindgen-cli-installer.sh | sh",
 ]
