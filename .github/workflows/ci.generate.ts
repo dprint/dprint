@@ -148,7 +148,7 @@ const ci = {
         },
         {
           name: "Setup (Linux riscv64gc)",
-          if: "matrix.config.cross == 'true' && matrix.config.target == 'riscv64gc-unknown-linux-gnu'",
+          if: "matrix.config.target == 'riscv64gc-unknown-linux-gnu'",
           run: [
             // necessary for cross compiling aws-lc-sys
             "cargo install --force --locked bindgen-cli",
