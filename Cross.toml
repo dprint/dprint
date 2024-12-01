@@ -4,4 +4,5 @@ pre-build = [
   "apt update",
   "apt-get install -y gcc-multilib libclang-dev xz-utils curl",
   "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/rust-lang/rust-bindgen/releases/download/v0.69.5/bindgen-cli-installer.sh | sh",
+  "source $HOME/.cargo/env",
 ]
