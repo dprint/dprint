@@ -45,7 +45,6 @@ const profileDataItems: ProfileData[] = [{
 }, {
   os: OperatingSystem.Linux,
   target: "riscv64gc-unknown-linux-gnu",
-  cross: true,
 }];
 const profiles = profileDataItems.map(profile => {
   return {
@@ -145,6 +144,14 @@ const ci = {
             "sudo apt update",
             "sudo apt install gcc-aarch64-linux-gnu",
             "rustup target add aarch64-unknown-linux-gnu",
+          ].join("\n"),
+        },
+        {
+          name: "Setup (Linux riscv64gc)",
+          if: "matrix.config.cross == 'true' && matrix.config.target == 'riscv64gc-unknown-linux-gnu'",
+          run: [
+            // necessary for cross compiling aws-lc-sys
+            "cargo install --force --locked bindgen-cli",
           ].join("\n"),
         },
         {
