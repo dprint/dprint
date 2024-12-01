@@ -10,9 +10,12 @@ use std::sync::Arc;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DirEntry;
 use crate::environment::Environment;
+use crate::utils::gitignore::GitIgnoreTree;
 
+use super::ExcludeMatchDetail;
 use super::GlobMatcher;
 use super::GlobMatcherOptions;
+use super::GlobMatchesDetail;
 use super::GlobPatterns;
 
 #[derive(Debug, Default, Clone)]
@@ -47,6 +50,7 @@ pub fn glob(environment: &impl Environment, opts: GlobOptions) -> Result<GlobOut
   let start_instant = std::time::Instant::now();
   log_debug!(environment, "Globbing: {:?}", opts.file_patterns);
 
+  let git_ignore_tree = GitIgnoreTree::new(environment.clone(), opts.file_patterns.include_paths());
   let glob_matcher = GlobMatcher::new(
     opts.file_patterns,
     &GlobMatcherOptions {
@@ -65,7 +69,7 @@ pub fn glob(environment: &impl Environment, opts: GlobOptions) -> Result<GlobOut
   dprint_core::async_runtime::spawn_blocking(move || read_dir_runner.run());
 
   // run the glob matching on the current thread (the two threads will communicate with each other)
-  let glob_matching_processor = GlobMatchingProcessor::new(shared_state, glob_matcher);
+  let mut glob_matching_processor = GlobMatchingProcessor::new(shared_state, glob_matcher, git_ignore_tree);
   let results = glob_matching_processor.run()?;
 
   log_debug!(environment, "File(s) matched: {:?}", results);
@@ -74,11 +78,15 @@ pub fn glob(environment: &impl Environment, opts: GlobOptions) -> Result<GlobOut
   Ok(results)
 }
 
+struct DirEntries {
+  path: PathBuf,
+  entries: Vec<DirOrConfigEntry>,
+}
+
 enum DirOrConfigEntry {
   Dir(PathBuf),
   File(PathBuf),
-  // todo: finish implementing this later
-  #[allow(dead_code)]
+  // todo: get rid of this from here probably
   Config(PathBuf),
 }
 
@@ -86,8 +94,6 @@ const PUSH_DIR_ENTRIES_BATCH_COUNT: usize = 500;
 
 struct ReadDirRunner<TEnvironment: Environment> {
   environment: TEnvironment,
-  // todo: finish implementing this later
-  #[allow(dead_code)]
   start_dir: PathBuf,
   shared_state: Arc<SharedState>,
 }
@@ -103,54 +109,64 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
 
   pub fn run(&self) {
     while let Some(pending_dirs) = self.get_next_pending_dirs() {
+      let mut pending_count = 0;
       let mut all_entries = Vec::new();
       for current_dir in pending_dirs.into_iter().flatten() {
         let info_result = self.environment.dir_info(&current_dir);
-        match info_result {
+        let entries = match info_result {
           Ok(entries) => {
-            if !entries.is_empty() {
-              let maybe_config_file = if current_dir != self.start_dir {
-                entries
-                  .iter()
-                  .filter_map(|e| match e {
-                    DirEntry::Directory(_) => None,
-                    DirEntry::File { name, path } => {
-                      if matches!(name.to_str(), Some(".dprint.json" | "dprint.json" | ".dprint.jsonc" | "dprint.jsonc")) {
-                        Some(path)
-                      } else {
-                        None
-                      }
+            if entries.is_empty() {
+              continue;
+            }
+            let maybe_config_file = if current_dir != self.start_dir {
+              entries
+                .iter()
+                .filter_map(|e| match e {
+                  DirEntry::Directory(_) => None,
+                  DirEntry::File { name, path } => {
+                    if matches!(name.to_str(), Some(".dprint.json" | "dprint.json" | ".dprint.jsonc" | "dprint.jsonc")) {
+                      Some(path)
+                    } else {
+                      None
                     }
-                  })
-                  .next()
-              } else {
-                None
-              };
-              if let Some(config_file) = maybe_config_file {
-                all_entries.push(DirOrConfigEntry::Config(config_file.clone()));
-              } else {
-                all_entries.extend(entries.into_iter().map(|e| match e {
+                  }
+                })
+                .next()
+            } else {
+              None
+            };
+            if let Some(config_file) = maybe_config_file {
+              vec![DirOrConfigEntry::Config(config_file.clone())]
+            } else {
+              entries
+                .into_iter()
+                .map(|e| match e {
                   DirEntry::Directory(path) => DirOrConfigEntry::Dir(path),
                   DirEntry::File { path, .. } => DirOrConfigEntry::File(path),
-                }));
-                // it is much faster to batch these than to hit the lock every time
-                if all_entries.len() > PUSH_DIR_ENTRIES_BATCH_COUNT {
-                  self.push_entries(std::mem::take(&mut all_entries));
-                }
-              }
+                })
+                .collect::<Vec<_>>()
             }
           }
           Err(err) => {
             let ignore_error = is_system_volume_error(&current_dir, &err);
-            if !ignore_error {
-              if err.kind() == std::io::ErrorKind::PermissionDenied {
-                log_warn!(self.environment, "WARNING: Ignoring directory. Permission denied: {}", current_dir.display());
-              } else {
-                self.set_glob_error(anyhow!("Error reading dir '{}': {:#}", current_dir.display(), err));
-                return;
-              }
+            if ignore_error {
+              continue;
+            }
+            if err.kind() == std::io::ErrorKind::PermissionDenied {
+              log_warn!(self.environment, "WARNING: Ignoring directory. Permission denied: {}", current_dir.display());
+              continue;
+            } else {
+              self.set_glob_error(anyhow!("Error reading dir '{}': {:#}", current_dir.display(), err));
+              return;
             }
           }
+        };
+        pending_count += entries.len();
+        all_entries.push(DirEntries { path: current_dir, entries });
+        // it is much faster to batch these than to hit the lock every time
+        if pending_count > PUSH_DIR_ENTRIES_BATCH_COUNT {
+          self.push_entries(std::mem::take(&mut all_entries));
+          pending_count = 0;
         }
       }
       if !all_entries.is_empty() {
@@ -186,7 +202,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     cvar.notify_one();
   }
 
-  fn push_entries(&self, entries: Vec<DirOrConfigEntry>) {
+  fn push_entries(&self, entries: Vec<DirEntries>) {
     let (ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     state.pending_entries.push(entries);
@@ -201,17 +217,22 @@ fn is_system_volume_error(dir_path: &Path, err: &std::io::Error) -> bool {
     && matches!(dir_path.file_name().and_then(|f| f.to_str()), Some("System Volume Information"))
 }
 
-struct GlobMatchingProcessor {
+struct GlobMatchingProcessor<TEnvironment: Environment> {
   shared_state: Arc<SharedState>,
   glob_matcher: GlobMatcher,
+  git_ignore_tree: GitIgnoreTree<TEnvironment>,
 }
 
-impl GlobMatchingProcessor {
-  pub fn new(shared_state: Arc<SharedState>, glob_matcher: GlobMatcher) -> Self {
-    Self { shared_state, glob_matcher }
+impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
+  pub fn new(shared_state: Arc<SharedState>, glob_matcher: GlobMatcher, git_ignore_tree: GitIgnoreTree<TEnvironment>) -> Self {
+    Self {
+      shared_state,
+      glob_matcher,
+      git_ignore_tree,
+    }
   }
 
-  pub fn run(&self) -> Result<GlobOutput> {
+  pub fn run(&mut self) -> Result<GlobOutput> {
     let mut output = GlobOutput::default();
 
     loop {
@@ -221,20 +242,44 @@ impl GlobMatchingProcessor {
         Ok(None) => return Ok(output),
         Err(err) => return Err(err), // error
         Ok(Some(entries)) => {
-          for entry in entries.into_iter().flatten() {
-            match entry {
-              DirOrConfigEntry::Dir(path) => {
-                if !self.glob_matcher.is_dir_ignored(&path) {
-                  pending_dirs.push(path);
+          for dir in entries.into_iter().flatten() {
+            let gitignore = self.git_ignore_tree.get_resolved_git_ignore_for_dir_children(&dir.path);
+            for entry in dir.entries {
+              match entry {
+                DirOrConfigEntry::Dir(path) => {
+                  let is_ignored = match self.glob_matcher.is_dir_ignored(&path) {
+                    ExcludeMatchDetail::Excluded => true,
+                    ExcludeMatchDetail::OptedOutExclude => false,
+                    ExcludeMatchDetail::NotExcluded => match &gitignore {
+                      Some(gitignore) => {
+                        gitignore.is_ignored(&path, /* is dir */ true)
+                      }
+                      None => false,
+                    },
+                  } || path.file_name().map(|f| f == ".git").unwrap_or(false);
+                  if !is_ignored {
+                    pending_dirs.push(path);
+                  }
                 }
-              }
-              DirOrConfigEntry::File(path) => {
-                if self.glob_matcher.matches(&path) {
-                  output.file_paths.push(path);
+                DirOrConfigEntry::File(path) => {
+                  let is_matched = match self.glob_matcher.matches_detail(&path) {
+                    GlobMatchesDetail::Excluded => false,
+                    GlobMatchesDetail::Matched => match &gitignore {
+                      Some(gitignore) => {
+                        !gitignore.is_ignored(&path, /* is dir */ false)
+                      }
+                      None => true,
+                    },
+                    GlobMatchesDetail::MatchedOptedOutExclude => true,
+                    GlobMatchesDetail::NotMatched => false,
+                  };
+                  if is_matched {
+                    output.file_paths.push(path);
+                  }
                 }
-              }
-              DirOrConfigEntry::Config(path) => {
-                output.config_files.push(path);
+                DirOrConfigEntry::Config(path) => {
+                  output.config_files.push(path);
+                }
               }
             }
           }
@@ -252,7 +297,7 @@ impl GlobMatchingProcessor {
     cvar.notify_one();
   }
 
-  fn get_next_entries(&self) -> Result<Option<Vec<Vec<DirOrConfigEntry>>>> {
+  fn get_next_entries(&self) -> Result<Option<Vec<Vec<DirEntries>>>> {
     let (ref lock, ref cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
     loop {
@@ -298,7 +343,7 @@ enum ProcessingThreadState {
 
 struct SharedStateInternal {
   pending_dirs: Vec<Vec<PathBuf>>,
-  pending_entries: Vec<Vec<DirOrConfigEntry>>,
+  pending_entries: Vec<Vec<DirEntries>>,
   read_dir_thread_state: ReadDirThreadState,
   processing_thread_state: ProcessingThreadState,
 }
@@ -337,6 +382,8 @@ mod test {
   async fn should_glob() {
     let mut environment_builder = TestEnvironmentBuilder::new();
     let mut expected_matches = Vec::new();
+    // ignores .git folder
+    environment_builder.write_file("/.git/data.txt", "");
     for i in 1..100 {
       environment_builder.write_file(format!("/{}.txt", i), "");
       expected_matches.push(format!("/{}.txt", i));

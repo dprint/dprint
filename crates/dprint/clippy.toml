@@ -37,4 +37,5 @@ disallowed-methods = [
   { path = "std::fs::set_permissions", reason = "File system operations should be done using an environment" },
   { path = "std::fs::symlink_metadata", reason = "File system operations should be done using an environment" },
   { path = "std::fs::write", reason = "File system operations should be done using an environment" },
+  { path = "std::env::var", reason = "Reading from the env should be done using an environment" },
 ]

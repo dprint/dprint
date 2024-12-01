@@ -29,20 +29,6 @@ pub struct SavePoint<'a> {
   pub next_node_stack: NodeStack<'a>,
 }
 
-struct PrintItemContainer<'a> {
-  items: &'a Vec<PrintItem>,
-  index: i32,
-}
-
-impl<'a> Clone for PrintItemContainer<'a> {
-  fn clone(&self) -> PrintItemContainer<'a> {
-    PrintItemContainer {
-      items: self.items,
-      index: self.index,
-    }
-  }
-}
-
 #[cfg(feature = "tracing")]
 pub struct PrintTracingResult<'a> {
   pub traces: Vec<Trace>,
@@ -368,13 +354,25 @@ impl<'a> Printer<'a> {
     self.current_node = save_point.node;
     self.new_line_group_depth = save_point.new_line_group_depth;
     self.force_no_newlines_depth = save_point.force_no_newlines_depth;
-    self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points.clone();
-    self.look_ahead_line_number_save_points = save_point.look_ahead_line_number_save_points.clone();
-    self.look_ahead_column_number_save_points = save_point.look_ahead_column_number_save_points.clone();
-    self.look_ahead_is_start_of_line_save_points = save_point.look_ahead_is_start_of_line_save_points.clone();
-    self.look_ahead_indent_level_save_points = save_point.look_ahead_indent_level_save_points.clone();
-    self.look_ahead_line_start_column_number_save_points = save_point.look_ahead_line_start_column_number_save_points.clone();
-    self.look_ahead_line_start_indent_level_save_points = save_point.look_ahead_line_start_indent_level_save_points.clone();
+    self.look_ahead_condition_save_points.clone_from(&save_point.look_ahead_condition_save_points);
+    self
+      .look_ahead_line_number_save_points
+      .clone_from(&save_point.look_ahead_line_number_save_points);
+    self
+      .look_ahead_column_number_save_points
+      .clone_from(&save_point.look_ahead_column_number_save_points);
+    self
+      .look_ahead_is_start_of_line_save_points
+      .clone_from(&save_point.look_ahead_is_start_of_line_save_points);
+    self
+      .look_ahead_indent_level_save_points
+      .clone_from(&save_point.look_ahead_indent_level_save_points);
+    self
+      .look_ahead_line_start_column_number_save_points
+      .clone_from(&save_point.look_ahead_line_start_column_number_save_points);
+    self
+      .look_ahead_line_start_indent_level_save_points
+      .clone_from(&save_point.look_ahead_line_start_indent_level_save_points);
     self.next_node_stack = save_point.next_node_stack.clone();
 
     if is_for_new_line {

@@ -35,9 +35,6 @@ This will update your config file to have an entry for the plugin. Then optional
   "typescript": {
     // TypeScript & JavaScript config goes here
   },
-  "excludes": [
-    "**/node_modules" // if necessary
-  ],
   "plugins": [
     // ...etc...
     "https://plugins.dprint.dev/typescript-x.x.x.wasm"

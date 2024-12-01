@@ -9,6 +9,7 @@ use std::hash::Hash;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::Arc;
 use std::time::SystemTime;
 use sysinfo::System;
@@ -56,9 +57,7 @@ impl RealEnvironment {
       log_level: options.log_level,
     }));
     let progress_bars = ProgressBars::new(&logger).map(Arc::new);
-    let url_downloader = Arc::new(RealUrlDownloader::new(progress_bars.clone(), logger.clone(), |env_var_name| {
-      std::env::var(env_var_name).ok()
-    })?);
+    let url_downloader = Arc::new(RealUrlDownloader::new(progress_bars.clone(), logger.clone())?);
     let environment = RealEnvironment {
       url_downloader,
       logger,
@@ -118,6 +117,18 @@ impl Environment for RealEnvironment {
       Ok(bytes) => Ok(bytes),
       Err(err) => bail!("Error reading file {}: {:#}", file_path.as_ref().display(), err),
     }
+  }
+
+  fn get_staged_files(&self) -> Result<Vec<PathBuf>> {
+    let output = Command::new("git")
+      .arg("diff")
+      .arg("--name-only")
+      .arg("--relative")
+      .arg("--staged")
+      .arg("--diff-filter=ACMR")
+      .output()?;
+
+    Ok(String::from_utf8_lossy(&output.stdout).lines().map(PathBuf::from).collect())
   }
 
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()> {
@@ -274,6 +285,7 @@ impl Environment for RealEnvironment {
   }
 
   fn max_threads(&self) -> usize {
+    #[allow(clippy::disallowed_methods)]
     resolve_max_threads(std::env::var("DPRINT_MAX_THREADS").ok(), std::thread::available_parallelism().ok())
   }
 
@@ -457,6 +469,7 @@ fn canonicalize_path(path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
 const CACHE_DIR_ENV_VAR_NAME: &str = "DPRINT_CACHE_DIR";
 
 static CACHE_DIR: Lazy<Result<CanonicalizedPathBuf>> = Lazy::new(|| {
+  #[allow(clippy::disallowed_methods)]
   let cache_dir = get_cache_dir_internal(|var_name| std::env::var(var_name).ok())?;
   #[allow(clippy::disallowed_methods)]
   std::fs::create_dir_all(&cache_dir)?;

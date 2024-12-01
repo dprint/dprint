@@ -103,6 +103,7 @@ pub struct CheckSubCommand {
   pub incremental: Option<bool>,
   pub list_different: bool,
   pub allow_no_files: bool,
+  pub only_staged: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -112,6 +113,7 @@ pub struct FmtSubCommand {
   pub incremental: Option<bool>,
   pub enable_stable_format: bool,
   pub allow_no_files: bool,
+  pub only_staged: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -160,6 +162,7 @@ pub struct FilePatternArgs {
   pub exclude_patterns: Vec<String>,
   pub exclude_pattern_overrides: Option<Vec<String>>,
   pub allow_node_modules: bool,
+  pub only_staged: bool,
 }
 
 #[derive(Debug, Error)]
@@ -207,13 +210,19 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
           patterns: parse_file_patterns(matches)?,
           incremental: parse_incremental(matches),
           enable_stable_format: !matches.get_flag("skip-stable-format"),
-          allow_no_files: matches.get_flag("allow-no-files"),
+          allow_no_files: if matches.get_flag("staged") {
+            true
+          } else {
+            matches.get_flag("allow-no-files")
+          },
+          only_staged: matches.get_flag("staged"),
         })
       }
     }
     ("check", matches) => SubCommand::Check(CheckSubCommand {
       patterns: parse_file_patterns(matches)?,
       incremental: parse_incremental(matches),
+      only_staged: matches.get_flag("staged"),
       list_different: matches.get_flag("list-different"),
       allow_no_files: matches.get_flag("allow-no-files"),
     }),
@@ -285,6 +294,7 @@ fn parse_file_patterns(matches: &ArgMatches) -> Result<FilePatternArgs> {
   }
 
   Ok(FilePatternArgs {
+    only_staged: matches.get_flag("staged"),
     allow_node_modules: matches.get_flag("allow-node-modules"),
     include_patterns: file_patterns,
     include_pattern_overrides: matches.get_many("includes-override").map(values_to_vec),
@@ -381,12 +391,16 @@ OPTIONS:
 {options}
 
 ENVIRONMENT VARIABLES:
-  DPRINT_CACHE_DIR    Directory to store the dprint cache. Note that this
-                      directory may be periodically deleted by the CLI.
-  DPRINT_MAX_THREADS  Limit the number of threads dprint uses for
-                      formatting (ex. DPRINT_MAX_THREADS=4).
-  HTTPS_PROXY         Proxy to use when downloading plugins or configuration
-                      files (set HTTP_PROXY for HTTP).{after-help}"#)
+  DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
+                       directory may be periodically deleted by the CLI.
+  DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
+                       formatting (ex. DPRINT_MAX_THREADS=4).
+  DPRINT_CERT          Load certificate authority from PEM encoded file.
+  DPRINT_TLS_CA_STORE  Comma-separated list of order dependent certificate stores.
+                       Possible values: "mozilla" and "system".
+                       Defaults to "mozilla,system".
+  HTTPS_PROXY          Proxy to use when downloading plugins or configuration
+                       files (set HTTP_PROXY for HTTP).{after-help}"#)
     .after_help(
             r#"GETTING STARTED:
   1. Navigate to the root directory of a code repository.
@@ -435,6 +449,7 @@ EXAMPLES:
             .num_args(0)
             .required(false)
         )
+        .add_only_staged_arg()
         .add_allow_no_files_arg()
         .arg(
           Arg::new("skip-stable-format")
@@ -452,6 +467,7 @@ EXAMPLES:
         .add_resolve_file_path_args()
         .add_incremental_arg()
         .add_allow_no_files_arg()
+        .add_only_staged_arg()
         .arg(
           Arg::new("list-different")
             .long("list-different")
@@ -486,6 +502,7 @@ EXAMPLES:
       Command::new("output-file-paths")
         .about("Prints the resolved file paths for the plugins based on the args and configuration.")
         .add_resolve_file_path_args()
+        .add_only_staged_arg()
     )
     .subcommand(
       Command::new("output-resolved-config")
@@ -496,6 +513,7 @@ EXAMPLES:
         .about("Prints the amount of time it takes to format each file. Use this for debugging.")
         .add_resolve_file_path_args()
         .add_allow_no_files_arg()
+        .add_only_staged_arg()
     )
     .subcommand(
       Command::new("clear-cache")
@@ -587,6 +605,7 @@ trait ClapExtensions {
   fn add_resolve_file_path_args(self) -> Self;
   fn add_incremental_arg(self) -> Self;
   fn add_allow_no_files_arg(self) -> Self;
+  fn add_only_staged_arg(self) -> Self;
 }
 
 impl ClapExtensions for clap::Command {
@@ -649,6 +668,17 @@ impl ClapExtensions for clap::Command {
         .required(false),
     )
   }
+
+  fn add_only_staged_arg(self) -> Self {
+    use clap::Arg;
+    self.arg(
+      Arg::new("staged")
+        .long("staged")
+        .help("Format only the staged files.")
+        .num_args(0)
+        .required(false),
+    )
+  }
 }
 
 #[cfg(test)]
@@ -703,6 +733,21 @@ mod test {
     assert_eq!(fmt_cmd.incremental, Some(false));
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--incremental"]).unwrap();
     assert_eq!(fmt_cmd.incremental, Some(true));
+  }
+
+  #[test]
+  fn staged_arg() {
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt"]).unwrap();
+    assert_eq!(fmt_cmd.only_staged, false);
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--staged"]).unwrap();
+    assert_eq!(fmt_cmd.only_staged, true);
+  }
+
+  #[test]
+  fn no_files_arg() {
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--staged"]).unwrap();
+    assert_eq!(fmt_cmd.only_staged, true);
+    assert_eq!(fmt_cmd.allow_no_files, true);
   }
 
   fn parse_fmt_sub_command(args: Vec<&str>) -> Result<FmtSubCommand, ParseArgsError> {

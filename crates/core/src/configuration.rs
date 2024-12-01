@@ -27,10 +27,10 @@ macro_rules! generate_str_to_from {
             }
         }
 
-        impl std::string::ToString for $enum_name {
-            fn to_string(&self) -> String {
+        impl std::fmt::Display for $enum_name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match self {
-                    $($enum_name::$member_name => String::from($string_value)),*,
+                    $($enum_name::$member_name => write!(f, $string_value)),*,
                 }
             }
         }
@@ -375,6 +375,35 @@ where
   }
 }
 
+pub fn get_nullable_vec<T: std::str::FromStr>(
+  config: &mut ConfigKeyMap,
+  key: &str,
+  get_nullable_value: impl Fn(ConfigKeyValue, usize, &mut Vec<ConfigurationDiagnostic>) -> Option<T>,
+  diagnostics: &mut Vec<ConfigurationDiagnostic>,
+) -> Option<Vec<T>> {
+  match config.shift_remove(key) {
+    Some(value) => match value {
+      ConfigKeyValue::Array(values) => {
+        let mut result = Vec::with_capacity(values.len());
+        for (i, value) in values.into_iter().enumerate() {
+          if let Some(value) = get_nullable_value(value, i, diagnostics) {
+            result.push(value);
+          }
+        }
+        Some(result)
+      }
+      _ => {
+        diagnostics.push(ConfigurationDiagnostic {
+          property_name: key.to_string(),
+          message: "Expected an array.".to_string(),
+        });
+        None
+      }
+    },
+    None => None,
+  }
+}
+
 /// If it exists, moves over the configuration value over from the old key
 /// to the new key and adds a diagnostic.
 pub fn handle_renamed_config_property(config: &mut ConfigKeyMap, old_key: &str, new_key: &str, diagnostics: &mut Vec<ConfigurationDiagnostic>) {
@@ -495,7 +524,7 @@ mod test {
     config.insert("oldProp".to_string(), ConfigKeyValue::from_str("value"));
     handle_renamed_config_property(&mut config, "oldProp", "newProp", &mut diagnostics);
     assert_eq!(config.len(), 1);
-    assert_eq!(config.remove("newProp").unwrap(), ConfigKeyValue::from_str("value"));
+    assert_eq!(config.shift_remove("newProp").unwrap(), ConfigKeyValue::from_str("value"));
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].message, "The configuration key was renamed to 'newProp'");
     assert_eq!(diagnostics[0].property_name, "oldProp");
@@ -509,7 +538,7 @@ mod test {
     config.insert("newProp".to_string(), ConfigKeyValue::from_str("value"));
     handle_renamed_config_property(&mut config, "oldProp", "newProp", &mut diagnostics);
     assert_eq!(config.len(), 1);
-    assert_eq!(config.remove("newProp").unwrap(), ConfigKeyValue::from_str("value"));
+    assert_eq!(config.shift_remove("newProp").unwrap(), ConfigKeyValue::from_str("value"));
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].message, "The configuration key was renamed to 'newProp'");
     assert_eq!(diagnostics[0].property_name, "oldProp");

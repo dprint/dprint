@@ -224,24 +224,23 @@ fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environmen
 mod test {
   use super::*;
   use crate::environment::TestEnvironment;
-  use crate::plugins::CompilationResult;
   use crate::plugins::PluginSourceReference;
+  use crate::test_helpers::WASM_PLUGIN_0_1_0_BYTES;
+  use crate::test_helpers::WASM_PLUGIN_BYTES;
   use anyhow::Result;
-  use dprint_core::plugins::PluginInfo;
   use pretty_assertions::assert_eq;
   use std::path::PathBuf;
 
   #[tokio::test]
   async fn should_download_remote_file() -> Result<()> {
     let environment = TestEnvironment::new();
-    environment.add_remote_file("https://plugins.dprint.dev/test.wasm", "t".as_bytes());
-    environment.set_wasm_compile_result(create_compilation_result("t".as_bytes()));
+    environment.add_remote_file("https://plugins.dprint.dev/test.wasm", WASM_PLUGIN_BYTES);
     environment.set_cpu_arch("aarch64");
 
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_source = PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test.wasm");
     let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
-    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.1.0-4.2.5-aarch64");
+    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.2.0-5.0.2-aarch64");
 
     assert_eq!(file_path, expected_file_path);
     assert_eq!(environment.take_stderr_messages(), vec!["Compiling https://plugins.dprint.dev/test.wasm"]);
@@ -253,7 +252,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":8,"wasmCacheVersion":"4.2.5","plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
+      r#"{"schemaVersion":8,"wasmCacheVersion":"5.0.2","plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.2.0","configKey":"test-plugin","helpUrl":"https://dprint.dev/plugins/test","configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","updateUrl":"https://plugins.dprint.dev/dprint/test-plugin/latest.json"}}}}"#,
     );
 
     // should forget it afterwards
@@ -263,7 +262,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":8,"wasmCacheVersion":"4.2.5","plugins":{}}"#,
+      r#"{"schemaVersion":8,"wasmCacheVersion":"5.0.2","plugins":{}}"#,
     );
 
     Ok(())
@@ -273,14 +272,12 @@ mod test {
   async fn should_cache_local_file() -> Result<()> {
     let environment = TestEnvironment::new();
     let original_file_path = PathBuf::from("/test.wasm");
-    let file_bytes = "t".as_bytes();
-    environment.write_file_bytes(&original_file_path, file_bytes).unwrap();
-    environment.set_wasm_compile_result(create_compilation_result("t".as_bytes()));
+    environment.write_file_bytes(&original_file_path, &WASM_PLUGIN_BYTES).unwrap();
 
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_source = PluginSourceReference::new_local(original_file_path.clone());
     let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
-    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.1.0-4.2.5-x86_64");
+    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.2.0-5.0.2-x86_64");
 
     assert_eq!(file_path, expected_file_path);
 
@@ -291,35 +288,63 @@ mod test {
     assert_eq!(file_path, expected_file_path);
 
     // should have saved the manifest
+    let expected_text = serde_json::json!({
+      "schemaVersion": 8,
+      "wasmCacheVersion": "5.0.2",
+      "plugins": {
+        "local:/test.wasm": {
+          "createdTime": 123456,
+          "fileHash": get_bytes_hash(&WASM_PLUGIN_BYTES),
+          "info": {
+            "name": "test-plugin",
+            "version": "0.2.0",
+            "configKey": "test-plugin",
+            "helpUrl": "https://dprint.dev/plugins/test",
+            "configSchemaUrl": "https://plugins.dprint.dev/test/schema.json",
+            "updateUrl": "https://plugins.dprint.dev/dprint/test-plugin/latest.json"
+          }
+        }
+      }
+    });
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      concat!(
-        r#"{"schemaVersion":8,"wasmCacheVersion":"4.2.5","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":10632242795325663332,"info":{"#,
-        r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
-        r#""helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
-      )
+      expected_text.to_string(),
     );
 
     assert_eq!(environment.take_stderr_messages().len(), 0); // no logs, nothing changed
 
     // update the file bytes
-    let file_bytes = "u".as_bytes();
-    environment.write_file_bytes(&original_file_path, file_bytes).unwrap();
+    environment.write_file_bytes(&original_file_path, &WASM_PLUGIN_0_1_0_BYTES).unwrap();
 
     // should update the cache with the new file
+    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.1.0-5.0.2-x86_64");
     let file_path = plugin_cache
       .get_plugin_cache_item(&PluginSourceReference::new_local(original_file_path.clone()))
       .await?
       .file_path;
     assert_eq!(file_path, expected_file_path);
 
+    let expected_text = serde_json::json!({
+      "schemaVersion": 8,
+      "wasmCacheVersion": "5.0.2",
+      "plugins": {
+        "local:/test.wasm": {
+          "createdTime": 123456,
+          "fileHash": get_bytes_hash(&WASM_PLUGIN_0_1_0_BYTES),
+          "info": {
+            "name": "test-plugin",
+            "version": "0.1.0",
+            "configKey": "test-plugin",
+            "helpUrl": "https://dprint.dev/plugins/test",
+            "configSchemaUrl": "https://plugins.dprint.dev/test/schema.json",
+            "updateUrl": "https://plugins.dprint.dev/dprint/test-plugin/latest.json"
+          }
+        }
+      }
+    });
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      concat!(
-        r#"{"schemaVersion":8,"wasmCacheVersion":"4.2.5","plugins":{"local:/test.wasm":{"createdTime":123456,"fileHash":6989588595861227504,"info":{"#,
-        r#""name":"test-plugin","version":"0.1.0","configKey":"test-plugin","#,
-        r#""helpUrl":"test-url","configSchemaUrl":"schema-url","updateUrl":"update-url"}}}}"#,
-      )
+      expected_text.to_string()
     );
 
     assert_eq!(environment.take_stderr_messages(), vec!["Compiling /test.wasm"]);
@@ -331,27 +356,9 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":8,"wasmCacheVersion":"4.2.5","plugins":{}}"#,
+      r#"{"schemaVersion":8,"wasmCacheVersion":"5.0.2","plugins":{}}"#,
     );
 
     Ok(())
-  }
-
-  fn create_compilation_result(bytes: &[u8]) -> CompilationResult {
-    CompilationResult {
-      bytes: bytes.to_vec(),
-      plugin_info: get_test_plugin_info(),
-    }
-  }
-
-  fn get_test_plugin_info() -> PluginInfo {
-    PluginInfo {
-      name: String::from("test-plugin"),
-      version: String::from("0.1.0"),
-      config_key: String::from("test-plugin"),
-      help_url: String::from("test-url"),
-      config_schema_url: String::from("schema-url"),
-      update_url: Some(String::from("update-url")),
-    }
   }
 }

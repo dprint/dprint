@@ -1,4 +1,4 @@
-﻿.Resizer {
+.Resizer {
   background: #fff;
   opacity: 0.2;
   z-index: 1;
@@ -47,10 +47,12 @@
   cursor: default;
   margin: 0;
 }
+
 .Resizer.disabled.horizontal {
   border-top-width: 0px;
   border-bottom-width: 0px;
 }
+
 .Resizer.disabled.horizontal:hover {
   border-top-width: 0px;
   border-bottom-width: 0px;
@@ -65,7 +67,4 @@
 .Resizer.disabled.vertical:hover {
   border-left-width: 0px;
   border-right-width: 0px;
-}
-
-.Resizer.disabled:hover {
 }

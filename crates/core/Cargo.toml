@@ -1,6 +1,6 @@
 [package]
 name = "dprint-core"
-version = "0.66.1"
+version = "0.67.2"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2021"
 homepage = "https://github.com/dprint/dprint/tree/main/crates/core"
@@ -16,7 +16,7 @@ async_runtime = ["async-trait", "futures", "parking_lot", "tokio", "tokio-util"]
 formatting = ["bumpalo", "hashbrown", "rustc-hash", "unicode-width"]
 communication = ["crossbeam-channel", "async_runtime"]
 process = ["communication", "serde_json", "libc", "winapi"]
-wasm = []
+wasm = ["serde_json"]
 tracing = ["formatting"]
 
 [dependencies]

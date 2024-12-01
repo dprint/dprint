@@ -1,6 +1,6 @@
 [package]
 name = "dprint"
-version = "0.45.0"
+version = "0.47.5"
 authors = ["dprint code formatting <david@dprint.dev>"]
 categories = ["development-tools"]
 default-run = "dprint"
@@ -11,48 +11,57 @@ repository = "https://github.com/dprint/dprint"
 description = "Binary for dprint code formatter—a pluggable and configurable code formatting platform."
 
 [dependencies]
-anyhow = "1.0.76"
-clap = "4.4.11"
-clap_complete = "4.4.4"
-console_static_text = "0.8.2"
-crossterm = "0.27.0" # manually retest everything when bumping this crate
-dirs = "5.0.1"
-dissimilar = "=1.0.7"
-dprint-core = { path = "../core", version = "0.66.0", features = ["process", "wasm"] }
-dunce = "1.0.4"
-fs3 = "0.5.0"
-ignore = "0.4.21"
-indexmap = { version = "2.1.0", features = ["serde"] }
-jsonc-parser = { version = "0.23.0", features = ["preserve_order"] }
-once_cell = "1.19.0"
-parking_lot = "0.12.1"
-percent-encoding = "2.3.1"
-rand = "0.8.5"
-serde = { version = "1.0.193", features = ["derive"] }
-serde_json = { version = "1.0", features = ["preserve_order"] }
-sha2 = "0.10.8"
-similar = { version = "2.3.0", features = ["inline"] }
+# all these deps are pinned because `cargo install dprint` doesn't lock deps
+# without the `--locked` flag so this helps reduce the chance of a dep being
+# released that breaks compiling dprint
+anyhow = "=1.0.86"
+clap = "=4.5.4"
+clap_complete = "=4.5.2"
+console_static_text = "=0.8.2"
+crossterm = "=0.27.0" # manually retest everything when bumping this crate
+dirs = "=5.0.1"
+dissimilar = "=1.0.9"
+dprint-core = { path = "../core", version = "=0.67.2", features = ["process", "wasm"] }
+dunce = "=1.0.4"
+fs3 = "=0.5.0"
+ignore = "=0.4.22"
+indexmap = { version = "=2.2.6", features = ["serde"] }
+jsonc-parser = { version = "=0.26.2", features = ["cst", "preserve_order"] }
+once_cell = "=1.19.0"
+parking_lot = "=0.12.3"
+percent-encoding = "=2.3.1"
+rand = "=0.8.5"
+serde = { version = "=1.0.203", features = ["derive"] }
+serde_json = { version = "=1.0.117", features = ["preserve_order"] }
+sha2 = "=0.10.8"
+similar = { version = "=2.5.0", features = ["inline"] }
 # disable the multi-threading feature of this crate
-sysinfo = { version = "0.30.1", default-features = false }
+sysinfo = { version = "=0.30.12", default-features = false }
 text-size = "=1.1.1"
-thiserror = "1"
-tokio = { version = "1", features = ["rt", "time", "macros", "rt-multi-thread", "io-std"] }
-tokio-util = { version = "0.7.10" }
-tower-lsp = "0.20.0"
-twox-hash = "1.6.3"
-ureq = { version = "2.9.1", features = ["socks-proxy", "tls", "native-certs"] }
-url = "2.5.0"
-zip = "0.6.6"
+thiserror = "=1.0.61"
+tokio = { version = "=1.37.0", features = ["rt", "time", "macros", "rt-multi-thread", "io-std"] }
+tokio-util = { version = "=0.7.11" }
+tower-lsp = "=0.20.0"
+twox-hash = "=1.6.3"
+url = "=2.5.0"
+zip = "=2.2.1"
+
+# keep these in sync
+rustls = "=0.23.19"
+rustls-native-certs = "=0.7.0"
+rustls-pemfile = "=2.1.2"
+ureq = { version = "=2.11.0", features = ["socks-proxy"] }
+webpki-roots = "=0.26.7"
 
 # pin these to prevent them changing with `cargo install` because
 # patch version increases of rkyv may cause panics when deserializing
 # data serialized with older versions
-rkyv = "=0.7.43"
-wasmer = "=4.2.5"
-wasmer-compiler = "=4.2.5"
+rkyv = "=0.8.9"
+wasmer = "=5.0.2"
+wasmer-compiler = "=5.0.2"
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.52.0"
+winreg = "=0.52.0"
 
 [dev-dependencies]
 # stay on this version because it's good enough and makes the output the same on all platforms

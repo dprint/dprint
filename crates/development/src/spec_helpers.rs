@@ -1,5 +1,9 @@
 use anyhow::Result;
 use console::Style;
+use file_test_runner::collection::CollectOptions;
+use file_test_runner::RunOptions;
+use file_test_runner::SubTestResult;
+use file_test_runner::TestResult;
 use similar::ChangeTag;
 use similar::TextDiff;
 use std::fmt::Display;
@@ -8,11 +12,11 @@ use std::panic::catch_unwind;
 use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use super::*;
 
 struct FailedTestResult {
-  file_path: PathBuf,
   expected: String,
   actual: String,
   actual_second: Option<String>,
@@ -24,7 +28,7 @@ struct DiffFailedMessage<'a> {
   actual: &'a str,
 }
 
-impl<'a> Display for DiffFailedMessage<'a> {
+impl Display for DiffFailedMessage<'_> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     let diff = TextDiff::from_lines(self.expected, self.actual);
 
@@ -42,6 +46,10 @@ impl<'a> Display for DiffFailedMessage<'a> {
   }
 }
 
+type FormatTextFunc = dyn (Fn(&Path, &str, &SpecConfigMap) -> Result<Option<String>>) + Send + Sync;
+type GetTraceJsonFunc = dyn (Fn(&Path, &str, &SpecConfigMap) -> String) + Send + Sync;
+
+#[derive(Debug, Clone)]
 pub struct RunSpecsOptions {
   /// Set to true to overwrite the failing tests with the actual result.
   pub fix_failures: bool,
@@ -52,96 +60,137 @@ pub fn run_specs(
   directory_path: &Path,
   parse_spec_options: &ParseSpecOptions,
   run_spec_options: &RunSpecsOptions,
-  format_text: impl Fn(&Path, &str, &SpecConfigMap) -> Result<Option<String>>,
-  get_trace_json: impl Fn(&Path, &str, &SpecConfigMap) -> String,
+  format_text: Arc<FormatTextFunc>,
+  get_trace_json: Arc<GetTraceJsonFunc>,
 ) {
   #[cfg(not(debug_assertions))]
   assert_not_fix_failures(run_spec_options);
 
-  let specs = get_specs_in_dir(directory_path, parse_spec_options);
-  let test_count = specs.len();
-  let mut failed_tests = Vec::new();
+  let parse_spec_options = parse_spec_options.clone();
+  let run_spec_options = run_spec_options.clone();
+  file_test_runner::collect_and_run_tests(
+    CollectOptions {
+      base: directory_path.to_path_buf(),
+      filter_override: None,
+      strategy: Box::new(file_test_runner::collection::strategies::TestPerFileCollectionStrategy { file_pattern: None }),
+    },
+    RunOptions { parallel: true },
+    Arc::new(move |test| {
+      let file_text = test.read_to_string().unwrap();
+      let specs = parse_specs(file_text, &parse_spec_options);
+      let specs = if specs.iter().any(|s| s.is_only) {
+        specs.into_iter().filter(|s| s.is_only).collect()
+      } else {
+        specs
+      };
+      let mut sub_tests = Vec::new();
+      for spec in specs {
+        #[cfg(not(debug_assertions))]
+        assert_spec_not_only_or_trace(&spec);
 
-  for (file_path, spec) in specs.into_iter().filter(|(_, spec)| !spec.skip) {
-    #[cfg(not(debug_assertions))]
-    assert_spec_not_only_or_trace(&spec);
+        if spec.skip {
+          sub_tests.push(SubTestResult {
+            name: spec.message.clone(),
+            result: TestResult::Ignored,
+          });
+          continue;
+        }
 
-    let file_path_buf = PathBuf::from(&spec.file_name);
+        let test_file_path = &test.path;
+        let maybe_failed_result = run_spec(&spec, test_file_path, &run_spec_options, &format_text, &get_trace_json);
+
+        sub_tests.push(SubTestResult {
+          name: spec.message.clone(),
+          result: if let Some(failed_test) = maybe_failed_result {
+            let mut output = Vec::<u8>::new();
+            let mut failed_message = format!(
+              "Failed:   {} ({})\nExpected: `{:?}`,\nActual:   `{:?}`,`,\nDiff:\n{}",
+              failed_test.message,
+              test_file_path.display(),
+              failed_test.expected,
+              failed_test.actual,
+              DiffFailedMessage {
+                actual: &failed_test.actual,
+                expected: &failed_test.expected
+              }
+            );
+            if let Some(actual_second) = &failed_test.actual_second {
+              failed_message.push_str(&format!(
+                "\nTwice:    `{:?}`,\nTwice diff:\n{}",
+                actual_second,
+                DiffFailedMessage {
+                  actual: actual_second,
+                  expected: &failed_test.actual,
+                }
+              ));
+            }
+            output.extend(failed_message.as_bytes());
+            TestResult::Failed { output }
+          } else {
+            TestResult::Passed
+          },
+        });
+      }
+
+      TestResult::SubTests(sub_tests)
+    }),
+  );
+
+  fn run_spec(
+    spec: &Spec,
+    test_file_path: &Path,
+    run_spec_options: &RunSpecsOptions,
+    format_text: &Arc<FormatTextFunc>,
+    get_trace_json: &Arc<GetTraceJsonFunc>,
+  ) -> Option<FailedTestResult> {
+    let spec_file_path_buf = PathBuf::from(&spec.file_name);
     let format = |file_text: &str| {
-      let result = catch_unwind(AssertUnwindSafe(|| format_text(&file_path_buf, file_text, &spec.config)));
+      let result = catch_unwind(AssertUnwindSafe(|| format_text(&spec_file_path_buf, file_text, &spec.config)));
       if result.is_err() {
-        eprintln!("Panic in spec '{}' in {}\n", spec.message, file_path.display());
+        eprintln!("Panic in spec '{}' in {}\n", spec.message, test_file_path.display());
       }
       let result = result.unwrap();
-      result.unwrap_or_else(|err| panic!("Could not parse spec '{}' in {}\nMessage: {:#}", spec.message, file_path.display(), err,))
+      result.unwrap_or_else(|err| panic!("Could not parse spec '{}' in {}\nMessage: {:#}", spec.message, test_file_path.display(), err,))
     };
 
     if spec.is_trace {
-      let trace_json = get_trace_json(&file_path_buf, &spec.file_text, &spec.config);
-      handle_trace(&spec, &trace_json);
+      let trace_json = get_trace_json(&spec_file_path_buf, &spec.file_text, &spec.config);
+      handle_trace(spec, &trace_json);
+      None
     } else {
       let result = format(&spec.file_text).unwrap_or_else(|| spec.file_text.to_string());
       if result != spec.expected_text {
         if run_spec_options.fix_failures {
           // very rough, but good enough
-          let file_path = PathBuf::from(&file_path);
-          let file_text = fs::read_to_string(&file_path).expect("Expected to read the file.");
+          let file_text = fs::read_to_string(test_file_path).expect("Expected to read the file.");
           let file_text = file_text.replace(&spec.expected_text, &result);
-          fs::write(&file_path, file_text).expect("Expected to write to file.");
+          fs::write(test_file_path, file_text).expect("Expected to write to file.");
+          None
         } else {
-          failed_tests.push(FailedTestResult {
-            file_path: file_path.clone(),
+          Some(FailedTestResult {
             expected: spec.expected_text.clone(),
             actual: result,
             actual_second: None,
             message: spec.message.clone(),
-          });
+          })
         }
       } else if run_spec_options.format_twice && !spec.skip_format_twice {
         // ensure no changes when formatting twice
         let twice_result = format(&result).unwrap_or_else(|| result.to_string());
         if twice_result != spec.expected_text {
-          failed_tests.push(FailedTestResult {
-            file_path: file_path.clone(),
+          Some(FailedTestResult {
             expected: spec.expected_text.clone(),
             actual: result,
             actual_second: Some(twice_result),
             message: spec.message.clone(),
-          });
+          })
+        } else {
+          None
         }
+      } else {
+        None
       }
     }
-  }
-
-  for failed_test in &failed_tests {
-    println!("---");
-    let mut failed_message = format!(
-      "Failed:   {} ({})\nExpected: `{:?}`,\nActual:   `{:?}`,`,\nDiff:\n{}",
-      failed_test.message,
-      failed_test.file_path.display(),
-      failed_test.expected,
-      failed_test.actual,
-      DiffFailedMessage {
-        actual: &failed_test.actual,
-        expected: &failed_test.expected
-      }
-    );
-    if let Some(actual_second) = &failed_test.actual_second {
-      failed_message.push_str(&format!(
-        "\nTwice:    `{:?}`,\nTwice diff:\n{}",
-        actual_second,
-        DiffFailedMessage {
-          actual: actual_second,
-          expected: &failed_test.actual,
-        }
-      ));
-    }
-    println!("{}", failed_message);
-  }
-
-  if !failed_tests.is_empty() {
-    println!("---");
-    panic!("{}/{} tests passed", test_count - failed_tests.len(), test_count);
   }
 
   fn handle_trace(spec: &Spec, trace_json: &str) {

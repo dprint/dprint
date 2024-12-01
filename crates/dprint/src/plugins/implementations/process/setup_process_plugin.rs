@@ -130,7 +130,9 @@ struct ProcessPluginFile {
   #[serde(rename = "darwin-aarch64")]
   darwin_aarch64: Option<ProcessPluginPath>,
   #[serde(rename = "windows-x86_64")]
-  windows: Option<ProcessPluginPath>,
+  windows_x64_64: Option<ProcessPluginPath>,
+  #[serde(rename = "windows-aarch64")]
+  windows_aarch64: Option<ProcessPluginPath>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -229,7 +231,8 @@ fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Enviro
       _ => None,
     },
     "windows" => match arch.as_str() {
-      "x86_64" => plugin_file.windows.as_ref(),
+      "x86_64" => plugin_file.windows_x64_64.as_ref(),
+      "aarch64" => plugin_file.windows_aarch64.as_ref().or(plugin_file.windows_x64_64.as_ref()),
       _ => None,
     },
     _ => bail!("Unsupported operating system: {}", os),

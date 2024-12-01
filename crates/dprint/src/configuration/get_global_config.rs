@@ -28,7 +28,7 @@ pub fn get_global_config(mut config_map: ConfigMap) -> GlobalConfigurationResult
   let mut diagnostics = Vec::new();
 
   // ignore this property
-  config_map.remove("$schema");
+  config_map.shift_remove("$schema");
 
   // now get and resolve the global config
   let mut global_config = get_global_config_from_config_map(&mut diagnostics, config_map);

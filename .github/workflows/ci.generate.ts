@@ -3,6 +3,7 @@ import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
+  MacX86 = "macos-13",
   Windows = "windows-latest",
   Linux = "ubuntu-20.04",
 }
@@ -16,12 +17,13 @@ interface ProfileData {
 }
 
 const profileDataItems: ProfileData[] = [{
-  os: OperatingSystem.Mac,
+  os: OperatingSystem.MacX86,
   target: "x86_64-apple-darwin",
   runTests: true,
 }, {
   os: OperatingSystem.Mac,
   target: "aarch64-apple-darwin",
+  runTests: true,
 }, {
   os: OperatingSystem.Windows,
   target: "x86_64-pc-windows-msvc",
@@ -50,16 +52,16 @@ const profiles = profileDataItems.map(profile => {
     ...profile,
     zipChecksumEnvVarName: `ZIP_CHECKSUM_${profile.target.toUpperCase().replaceAll("-", "_")}`,
     get installerChecksumEnvVarName() {
-      if (profile.os !== OperatingSystem.Windows) {
-        throw new Error("Check for windows before accessing.");
+      if (profile.target !== "x86_64-pc-windows-msvc") {
+        throw new Error("Check for windows x86_64 before accessing.");
       }
       return `INSTALLER_CHECKSUM_${profile.target.toUpperCase().replaceAll("-", "_")}`;
     },
     artifactsName: `${profile.target}-artifacts`,
     zipFileName: `dprint-${profile.target}.zip`,
     get installerFileName() {
-      if (profile.os !== OperatingSystem.Windows) {
-        throw new Error("Check for windows before accessing.");
+      if (profile.target !== "x86_64-pc-windows-msvc") {
+        throw new Error("Check for windows x86_64 before accessing.");
       }
       return `dprint-${profile.target}-installer.exe`;
     },
@@ -103,7 +105,7 @@ const ci = {
             profile.zipChecksumEnvVarName,
             "${{steps.pre_release_" + profile.target.replaceAll("-", "_") + ".outputs.ZIP_CHECKSUM}}",
           ]);
-          if (profile.os === OperatingSystem.Windows) {
+          if (profile.target === "x86_64-pc-windows-msvc") {
             entries.push([
               profile.installerChecksumEnvVarName,
               "${{steps.pre_release_" + profile.target.replaceAll("-", "_") + ".outputs.INSTALLER_CHECKSUM}}",
@@ -113,24 +115,14 @@ const ci = {
         }).flat(),
       ),
       steps: [
-        { name: "Checkout", uses: "actions/checkout@v2" },
+        { name: "Checkout", uses: "actions/checkout@v4" },
         { uses: "dsherret/rust-toolchain-file@v1" },
         { uses: "Swatinem/rust-cache@v2" },
-        { uses: "denoland/setup-deno@v1" },
+        { uses: "denoland/setup-deno@v2" },
         {
           name: "Verify wasmer-compiler version",
           if: "matrix.config.target == 'x86_64-unknown-linux-gnu'",
           run: "deno run --allow-env --allow-read --allow-net=deno.land .github/workflows/scripts/verify_wasmer_compiler_version.ts",
-        },
-        {
-          name: "Build test plugins (Debug)",
-          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}}",
-        },
-        {
-          name: "Build test plugins (Release)",
-          if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
-          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}} --release",
         },
         {
           name: "Setup (Linux x86_64-musl)",
@@ -158,9 +150,19 @@ const ci = {
           ].join("\n"),
         },
         {
-          name: "Setup (Mac aarch64)",
-          if: "matrix.config.target == 'aarch64-apple-darwin'",
-          run: "rustup target add aarch64-apple-darwin",
+          name: "Build test plugins (Debug)",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
+          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}}",
+        },
+        {
+          name: "Build test plugins (Release)",
+          if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
+          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}} --release",
+        },
+        {
+          name: "Clippy",
+          if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && !startsWith(github.ref, 'refs/tags/')",
+          run: "cargo clippy",
         },
         {
           name: "Build (Debug)",
@@ -214,7 +216,7 @@ const ci = {
         {
           name: "Create installer (Windows x86_64)",
           uses: "joncloud/makensis-action@v2.0",
-          if: "startsWith(matrix.config.os, 'windows') && startsWith(github.ref, 'refs/tags/')",
+          if: "matrix.config.target == 'x86_64-pc-windows-msvc' && startsWith(github.ref, 'refs/tags/')",
           with: { "script-file": "${{ github.workspace }}/deployment/installer/dprint-installer.nsi" },
         },
         // zip files
@@ -222,6 +224,7 @@ const ci = {
           function getRunSteps() {
             switch (profile.os) {
               case OperatingSystem.Mac:
+              case OperatingSystem.MacX86:
                 return [
                   `cd target/${profile.target}/release`,
                   `zip -r ${profile.zipFileName} dprint`,
@@ -234,12 +237,21 @@ const ci = {
                   `echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 ${profile.zipFileName} | awk '{print $1}')\"`,
                 ];
               case OperatingSystem.Windows:
+                const installerSteps = profile.target === "x86_64-pc-windows-msvc"
+                  ? [
+                    `mv deployment/installer/${profile.installerFileName} target/${profile.target}/release/${profile.installerFileName}`,
+                    `echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.installerFileName} | awk '{print $1}')"`,
+                  ]
+                  : [];
                 return [
                   `Compress-Archive -CompressionLevel Optimal -Force -Path target/${profile.target}/release/dprint.exe -DestinationPath target/${profile.target}/release/${profile.zipFileName}`,
-                  `mv deployment/installer/${profile.installerFileName} target/${profile.target}/release/${profile.installerFileName}`,
                   `echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.zipFileName} | awk '{print $1}')"`,
-                  `echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.installerFileName} | awk '{print $1}')"`,
+                  ...installerSteps,
                 ];
+              default: {
+                const _assertNever: never = profile.os;
+                throw new Error(`Unhandled OS: ${profile.os}`);
+              }
             }
           }
           return {
@@ -255,7 +267,7 @@ const ci = {
             const paths = [
               `target/${profile.target}/release/${profile.zipFileName}`,
             ];
-            if (profile.os === OperatingSystem.Windows) {
+            if (profile.target === "x86_64-pc-windows-msvc") {
               paths.push(
                 `target/${profile.target}/release/${profile.installerFileName}`,
               );
@@ -266,7 +278,7 @@ const ci = {
           return {
             name: `Upload artifacts (${profile.target})`,
             if: `matrix.config.target == '${profile.target}' && startsWith(github.ref, 'refs/tags/')`,
-            uses: "actions/upload-artifact@v2",
+            uses: "actions/upload-artifact@v4",
             with: {
               name: profile.artifactsName,
               path: getArtifactPaths().join("\n"),
@@ -284,7 +296,7 @@ const ci = {
         },
         {
           name: "Test powershell installer (Windows)",
-          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/') && startsWith(matrix.config.os, 'windows')",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/') && matrix.config.target == 'x86_64-pc-windows-msvc'",
           shell: "pwsh",
           run: ["cd website/src/assets", "./install.ps1"].join("\n"),
         },
@@ -294,7 +306,7 @@ const ci = {
         //   if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
         //   run: [
         //     "cd deployment/npm",
-        //     "deno run -A build.ts 0.42.5",
+        //     "deno run -A build.ts 0.45.1",
         //   ].join("\n"),
         // },
       ],
@@ -307,7 +319,7 @@ const ci = {
       steps: [
         {
           name: "Download artifacts",
-          uses: "actions/download-artifact@v2",
+          uses: "actions/download-artifact@v4",
         },
         {
           name: "Output checksums",
@@ -315,7 +327,7 @@ const ci = {
             const output = [
               `echo "${profile.zipFileName}: \${{needs.build.outputs.${profile.zipChecksumEnvVarName}}}"`,
             ];
-            if (profile.os === OperatingSystem.Windows) {
+            if (profile.target === "x86_64-pc-windows-msvc") {
               output.push(`echo "${profile.installerFileName}: \${{needs.build.outputs.${profile.installerChecksumEnvVarName}}}"`);
             }
             return output;
@@ -328,7 +340,7 @@ const ci = {
             const output = [
               `echo "\${{needs.build.outputs.${profile.zipChecksumEnvVarName}}} ${profile.zipFileName}" ${op} SHASUMS256.txt`,
             ];
-            if (profile.os === OperatingSystem.Windows) {
+            if (profile.target === "x86_64-pc-windows-msvc") {
               output.push(`echo "\${{needs.build.outputs.${profile.installerChecksumEnvVarName}}} ${profile.installerFileName}" >> SHASUMS256.txt`);
             }
             return output;
@@ -336,7 +348,7 @@ const ci = {
         },
         {
           name: "Draft release",
-          uses: "softprops/action-gh-release@v1",
+          uses: "softprops/action-gh-release@v2",
           env: {
             GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}",
           },
@@ -346,7 +358,7 @@ const ci = {
                 const output = [
                   `${profile.artifactsName}/${profile.zipFileName}`,
                 ];
-                if (profile.os === OperatingSystem.Windows) {
+                if (profile.target === "x86_64-pc-windows-msvc") {
                   output.push(
                     `${profile.artifactsName}/${profile.installerFileName}`,
                   );
@@ -372,7 +384,7 @@ ${
                 const output = [
                   [`${profile.zipFileName}`, profile.zipChecksumEnvVarName],
                 ];
-                if (profile.os === OperatingSystem.Windows) {
+                if (profile.target === "x86_64-pc-windows-msvc") {
                   output.push(
                     [`${profile.installerFileName}`, profile.installerChecksumEnvVarName],
                   );

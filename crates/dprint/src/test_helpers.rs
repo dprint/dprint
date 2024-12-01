@@ -10,7 +10,6 @@ use thiserror::Error;
 
 use crate::arg_parser::parse_args;
 use crate::environment::TestEnvironment;
-use crate::plugins::CompilationResult;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginResolver;
 use crate::run_cli::run_cli;
@@ -44,14 +43,15 @@ pub static TEST_PROCESS_PLUGIN_PATH: Lazy<PathBuf> = Lazy::new(|| {
 });
 
 // Regenerate this by running `./rebuild.sh` in /crates/test-plugin
-pub static WASM_PLUGIN_BYTES: &'static [u8] = include_bytes!("../../test-plugin/test_plugin.wasm");
+pub static WASM_PLUGIN_BYTES: &'static [u8] = include_bytes!("../../test-plugin/test_plugin.wasm"); // 0.2.0
+/// This is an old v3 interface Wasm plugin at 0.1.0
+pub static WASM_PLUGIN_0_1_0_BYTES: &'static [u8] = include_bytes!("../../test-plugin/test_plugin_0_1_0.wasm");
 // cache these so it only has to be done once across all tests
-static COMPILATION_RESULT: Lazy<CompilationResult> = Lazy::new(|| crate::plugins::compile_wasm(WASM_PLUGIN_BYTES).unwrap());
 pub static PROCESS_PLUGIN_ZIP_BYTES: Lazy<Vec<u8>> = Lazy::new(|| {
   let buf: Vec<u8> = Vec::new();
   let w = std::io::Cursor::new(buf);
   let mut zip = zip::ZipWriter::new(w);
-  let options = zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+  let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
   zip
     .start_file(
       if cfg!(target_os = "windows") {
@@ -119,7 +119,6 @@ pub fn run_test_cli(args: Vec<&str>, environment: &TestEnvironment) -> Result<()
 pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, stdin_reader: TestStdInReader) -> Result<(), TestAppError> {
   let mut args: Vec<String> = args.into_iter().map(String::from).collect();
   args.insert(0, String::from(""));
-  environment.set_wasm_compile_result(COMPILATION_RESULT.clone());
   let plugin_cache = PluginCache::new(environment.clone());
   let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
   let args = parse_args(args, stdin_reader).map_err(|err| Into::<AppError>::into(err))?;
@@ -199,6 +198,10 @@ impl TestProcessPluginFileBuilder {
       "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
       "checksum": "{3}"
   }},
+  "windows-aarch64": {{
+      "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
+      "checksum": "{3}"
+  }},
   "linux-aarch64": {{
       "reference": "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
       "checksum": "{3}"
@@ -274,12 +277,16 @@ OPTIONS:
   -L, --log-level <log-level>    Set log level [default: info] [possible values: debug, info, warn, error, silent]
 
 ENVIRONMENT VARIABLES:
-  DPRINT_CACHE_DIR    Directory to store the dprint cache. Note that this
-                      directory may be periodically deleted by the CLI.
-  DPRINT_MAX_THREADS  Limit the number of threads dprint uses for
-                      formatting (ex. DPRINT_MAX_THREADS=4).
-  HTTPS_PROXY         Proxy to use when downloading plugins or configuration
-                      files (set HTTP_PROXY for HTTP).
+  DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
+                       directory may be periodically deleted by the CLI.
+  DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
+                       formatting (ex. DPRINT_MAX_THREADS=4).
+  DPRINT_CERT          Load certificate authority from PEM encoded file.
+  DPRINT_TLS_CA_STORE  Comma-separated list of order dependent certificate stores.
+                       Possible values: "mozilla" and "system".
+                       Defaults to "mozilla,system".
+  HTTPS_PROXY          Proxy to use when downloading plugins or configuration
+                       files (set HTTP_PROXY for HTTP).
 
 GETTING STARTED:
   1. Navigate to the root directory of a code repository.

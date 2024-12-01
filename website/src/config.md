@@ -26,7 +26,6 @@ See [Setup](/setup).
     "indentWidth": 2
   },
   "excludes": [
-    "**/node_modules",
     "**/*-lock.json"
   ],
   "plugins": [
@@ -104,15 +103,27 @@ These should be file globs according to [`gitignore`'s extended glob syntax](htt
 {
   // ...omitted...
   "excludes": [
-    "**/node_modules",
     "**/*-lock.json"
+  ]
+}
+```
+
+### Un-excluding gitignored files
+
+Files that are gitignored will be excluded by default, but you can "un-exclude" them by specifying a negated glob:
+
+```json
+{
+  "excludes": [
+    // will format dist.js even though it's gitignored
+    "!dist.js"
   ]
 }
 ```
 
 ## Includes
 
-The `includes` property can be used to limit dprint to only formatting certain files. Generally, you shouldn't bother to provide this.
+The `includes` property can be used to limit dprint to only formatting certain files. Generally, you don't need to bother providing this.
 
 ```json
 {
@@ -332,6 +343,21 @@ But specifying properties in the `"typescript"` or `"json"` objects would cause 
   ]
 }
 ```
+
+## Configuration Variables
+
+Requires dprint >= 0.47.0
+
+dprint expands certain variables in the config:
+
+- `${configDir}` - The current configuration's directory.
+- `${originConfigDir}` - The original configuration's directory. Useful when the current config is being extended by another configuration file and you want the original directory.
+
+For example, in a JSON value you might do `"rustfmt --config-path ${configDir}/rustfmt.toml"`.
+
+This is useful to use in some scenarios like with [dprint-plugin-exec](https://github.com/dprint/dprint-plugin-exec) because the CLI will only launch a single plugin for many configs and when resolving configs, the plugins have no concept of where that config was resolved from. Additionally, configs may resolve other configs and perhaps you want to use the directory of a configuration file that was extended.
+
+Note: dprint will error for unknown configuration variables (ex. `"${unknown}"`). You can get around this by escaping the `$` sign (ex. `"\\${unknown}"`).
 
 ## Plugin/Language Specific Configuration
 

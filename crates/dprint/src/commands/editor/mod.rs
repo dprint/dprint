@@ -352,7 +352,7 @@ mod test {
     final_output.push_str(&environment.cli_version());
     final_output.push_str(r#"","configSchemaUrl":"https://dprint.dev/schemas/v0.json","plugins":["#);
     final_output
-      .push_str(r#"{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt"],"fileNames":[],"configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","helpUrl":"https://dprint.dev/plugins/test"},"#);
+      .push_str(r#"{"name":"test-plugin","version":"0.2.0","configKey":"test-plugin","fileExtensions":["txt"],"fileNames":[],"configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","helpUrl":"https://dprint.dev/plugins/test"},"#);
     final_output.push_str(r#"{"name":"test-process-plugin","version":"0.1.0","configKey":"testProcessPlugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"],"helpUrl":"https://dprint.dev/plugins/test-process"}]}"#);
     assert_eq!(environment.take_stdout_messages(), vec![final_output]);
     let mut stderr_messages = environment.take_stderr_messages();
@@ -734,7 +734,7 @@ mod test {
             result.unwrap();
           }
 
-          // test range formatting
+          // test process range formatting
           assert_eq!(
             bytes_to_string(
               communicator
@@ -751,33 +751,88 @@ mod test {
             ),
             "t_formatted_process_sting_formatted_process"
           );
+          // test process plugin host formatting with range
+          assert_eq!(
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &PathBuf::from("/file.txt_ps"),
+                  "plugin-range: testing".to_string().into_bytes(),
+                  Some(1..2),
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
+            "plugin-range: t_formatted_sting_formatted_formatted_process"
+          );
 
-          // test cancellation
-          let token = CancellationToken::new();
-          let handle = dprint_core::async_runtime::spawn({
-            let communicator = communicator.clone();
-            let token = token.clone();
-            async move {
-              assert_eq!(
-                communicator
-                  .format_text(
-                    &PathBuf::from("/file.txt_ps"),
-                    "wait_cancellation".to_string().into_bytes(),
-                    None,
-                    Default::default(),
-                    token
-                  )
-                  .await
-                  .unwrap(),
-                None
-              )
-            }
-          });
+          // test wasm range formatting
+          assert_eq!(
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &PathBuf::from("/file.txt"),
+                  "testing".to_string().into_bytes(),
+                  Some(1..2),
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
+            "t_formatted_sting_formatted"
+          );
 
-          // give some time for the message to be sent
-          tokio::time::sleep(Duration::from_millis(50)).await;
-          token.cancel();
-          handle.await.unwrap();
+          // test wasm plugin host formatting with range
+          assert_eq!(
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &PathBuf::from("/file.txt"),
+                  "plugin-range: testing".to_string().into_bytes(),
+                  Some(1..2),
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
+            "plugin-range: t_formatted_process_sting_formatted_process_formatted"
+          );
+
+          // test process and wasm plugin cancellation
+          for file_name in ["/file.txt_ps", "/file.txt"] {
+            let token = CancellationToken::new();
+            let handle = dprint_core::async_runtime::spawn({
+              let communicator = communicator.clone();
+              let token = token.clone();
+              async move {
+                assert_eq!(
+                  communicator
+                    .format_text(
+                      &PathBuf::from(file_name),
+                      "wait_cancellation".to_string().into_bytes(),
+                      None,
+                      Default::default(),
+                      token
+                    )
+                    .await
+                    .unwrap(),
+                  None
+                )
+              }
+            });
+
+            // give some time for the message to be sent
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            token.cancel();
+            handle.await.unwrap();
+          }
 
           // test override config
           assert_eq!(

@@ -1,4 +1,5 @@
 use anyhow::bail;
+use anyhow::Context;
 use anyhow::Result;
 use dprint_core::async_runtime::future;
 use dprint_core::communication::IdGenerator;
@@ -39,7 +40,7 @@ impl PluginWrapper {
   }
 
   pub async fn initialize(&self) -> Result<Rc<dyn InitializedPlugin>> {
-    self.initialized_plugin.get_or_try_init(|| self.plugin.initialize()).await.map(|x| x.clone())
+    self.initialized_plugin.get_or_try_init(|| self.plugin.initialize()).await.cloned()
   }
 
   pub async fn shutdown(&self) {
@@ -121,11 +122,11 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
                 )
               }
             }
-            bail!("Error resolving plugin {}: {:#}", plugin_reference.display(), err);
+            Err(err).with_context(|| format!("Error resolving plugin {}", plugin_reference.display()))
           }
         }
       })
       .await
-      .map(|p| p.clone())
+      .cloned()
   }
 }

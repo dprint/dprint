@@ -482,6 +482,7 @@ mod test {
       })
       .initialize()
       .build();
+    environment.write_file(".gitignore", "gitignored_file.txt\ngitignored_dir").unwrap();
 
     environment.clone().run_in_runtime(async move {
       let (backend, recv_task, test_client) = setup_backend(environment.clone());
@@ -499,6 +500,16 @@ mod test {
                     version: 0,
                     text: $text.to_string(),
                   },
+                })
+                .await;
+            };
+          }
+
+          macro_rules! did_close {
+            ($uri: ident) => {
+              backend
+                .did_close(DidCloseTextDocumentParams {
+                  text_document: TextDocumentIdentifier { uri: $uri.clone() },
                 })
                 .await;
             };
@@ -622,6 +633,16 @@ mod test {
 
           // ignores excluded files
           let file_uri = Url::parse("file:///ignored_file.txt").unwrap();
+          did_open!(file_uri, "testing");
+          assert_format!(file_uri, None);
+
+          // ignores gitignored files
+          let file_uri = Url::parse("file:///gitignored_file.txt").unwrap();
+          did_open!(file_uri, "testing");
+          assert_format!(file_uri, None);
+
+          // ignores file in gitignored dir
+          let file_uri = Url::parse("file:///gitignored_dir/file.txt").unwrap();
           did_open!(file_uri, "testing");
           assert_format!(file_uri, None);
 
@@ -799,6 +820,67 @@ mod test {
               new_text: "_wasm_ps".to_string()
             }])
           );
+
+          // now ensure formatting works with a sub folder config file that has different config
+          {
+            let mut config_file = TestConfigFileBuilder::new(environment.clone());
+            config_file.add_remote_wasm_plugin().add_remote_process_plugin();
+            environment.write_file("/other_config/dprint.json", &config_file.to_string()).unwrap();
+            let mut config_file = TestConfigFileBuilder::new(environment.clone());
+            config_file
+              .add_remote_wasm_plugin()
+              .add_remote_process_plugin()
+              .add_config_section("test-plugin", r#"{"ending": "asdf"}"#)
+              .add_config_section("testProcessPlugin", r#"{"ending": "asdf_ps"}"#);
+            environment.write_file("/other_config/sub/dprint.json", &config_file.to_string()).unwrap();
+          }
+
+          for _ in 0..2 {
+            let file_uri = Url::parse("file:///other_config/file.txt").unwrap();
+            did_open!(file_uri, "text");
+            assert_format!(
+              file_uri,
+              Some(vec![TextEdit {
+                range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+                new_text: "_formatted".to_string()
+              }])
+            );
+            did_close!(file_uri);
+            // switching to a different config should still work fine
+            let file_uri = Url::parse("file:///other_config/sub/file.txt").unwrap();
+            did_open!(file_uri, "text");
+            assert_format!(
+              file_uri,
+              Some(vec![TextEdit {
+                range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+                new_text: "_asdf".to_string()
+              }])
+            );
+            did_close!(file_uri);
+
+            // now try with a process plugin
+            let file_uri = Url::parse("file:///other_config/file.txt_ps").unwrap();
+            did_open!(file_uri, "text");
+            assert_format!(
+              file_uri,
+              Some(vec![TextEdit {
+                range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+                new_text: "_formatted_process".to_string()
+              }])
+            );
+            did_close!(file_uri);
+            // switching to a different config should work fine as well
+            let file_uri = Url::parse("file:///other_config/sub/file.txt_ps").unwrap();
+            did_open!(file_uri, "text");
+            assert_format!(
+              file_uri,
+              Some(vec![TextEdit {
+                range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+                new_text: "_asdf_ps".to_string()
+              }])
+            );
+            did_close!(file_uri);
+          }
 
           backend.shutdown().await.unwrap();
         }

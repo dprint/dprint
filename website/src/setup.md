@@ -49,11 +49,22 @@ dprint init --config path/to/dprint.json
 
 ## Custom Cache Directory
 
-By default, dprint stores information in the current system user's cache directory (`~/.cache/dprint` on Linux, `~/Library/Caches/dprint` on Mac, and `%APPLOCALDATA%/dprint` on Windows) such as cached plugins and incremental formatting information. If you would like to store the cache in a custom location, then specify a `DPRINT_CACHE_DIR` environment variable. Note that this directory may be periodically deleted by the CLI, so if you set it please make sure it's set correctly and you're ok with the custom directory being deleted.
+By default, dprint stores information in the current system user's cache directory (`~/.cache/dprint` on Linux, `~/Library/Caches/dprint` on Mac, and `%LOCALAPPDATA%/dprint` on Windows) such as cached plugins and incremental formatting information. If you would like to store the cache in a custom location, then specify a `DPRINT_CACHE_DIR` environment variable. Note that this directory may be periodically deleted by the CLI, so if you set it please make sure it's set correctly and you're ok with the custom directory being deleted.
 
 ## Proxy
 
 You may specify a proxy for dprint to use when downloading plugins or configuration files by setting the `HTTPS_PROXY` and `HTTP_PROXY` environment variables.
+
+## TLS Certificates
+
+dprint downloads plugins via HTTPS. In some cases you may wish to configure this. This is possible via the following environment variables:
+
+- `DPRINT_CERT` - Load certificate authority from PEM encoded file.
+- `DPRINT_TLS_CA_STORE` - Comma-separated list of order dependent certificate stores.
+  - Possible values: `mozilla` and `system`
+  - Defaults to `mozilla,system`
+
+Requires dprint >= 0.46.0
 
 ## Limiting Parallelism
 

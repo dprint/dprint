@@ -1,4 +1,4 @@
-# Creating a Wasm Plugin (Schema Version 3)
+# Creating a Wasm Plugin (Schema Version 4)
 
 Wasm plugins are the preferred way of developing plugins (as opposed to process plugins) because they are portable and run sandboxed in a Wasm runtime. They can be written in any language that supports compiling to a WebAssembly file (_.wasm_)—emscripten solutions do not work.
 
@@ -30,7 +30,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
    #[serde(rename_all = "camelCase")]
    pub struct Configuration {
      // add configuration properties here...
-     line_width: u32, // for example
+     pub line_width: u32, // for example
    }
    ```
 
@@ -42,21 +42,16 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
    use dprint_core::configuration::get_value;
    use dprint_core::configuration::ConfigKeyMap;
    use dprint_core::configuration::GlobalConfiguration;
-   use dprint_core::configuration::ResolveConfigurationResult;
    use dprint_core::generate_plugin_code;
-   use·dprint_core::plugins::PluginInfo;
+   use dprint_core::plugins::FileMatchingInfo;
+   use dprint_core::plugins::PluginInfo;
+   use dprint_core::plugins::PluginResolveConfigurationResult;
    use dprint_core::plugins::SyncPluginHandler;
-   use std::path::Path;
 
    use crate::configuration::Configuration; // import the Configuration from above
 
-   pub struct MyPluginHandler {}
-
-   impl MyPluginHandler {
-     const fn new() -> Self {
-       MyPluginHandler {}
-     }
-   }
+   #[derive(Default)]
+   pub struct MyPluginHandler;
 
    impl SyncPluginHandler<Configuration> for MyPluginHandler {
      fn plugin_info(&mut self) -> PluginInfo {
@@ -64,8 +59,6 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
          name: env!("CARGO_PKG_NAME").to_string(),
          version: env!("CARGO_PKG_VERSION").to_string(),
          config_key: "keyGoesHere".to_string(),
-         file_extensions: vec!["txt_ps".to_string()],
-         file_names: vec![],
          help_url: "".to_string(),          // fill this in
          config_schema_url: "".to_string(), // leave this empty for now
          update_url: None,                  // leave this empty for now
@@ -76,7 +69,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
        "License text goes here.".to_string()
      }
 
-     fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<Configuration> {
+     fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> PluginResolveConfigurationResult<Configuration> {
        // implement this... for example
        let mut config = config;
        let mut diagnostics = Vec::new();
@@ -84,19 +77,26 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
 
        diagnostics.extend(get_unknown_property_diagnostics(config));
 
-       ResolveConfigurationResult {
+       PluginResolveConfigurationResult {
          config: Configuration { line_width },
          diagnostics,
+         file_matching: FileMatchingInfo {
+           // these can be derived from the config
+           file_extensions: vec!["txt".to_string()],
+           file_names: vec![],
+         },
        }
+     }
+
+     fn check_config_updates(&self, message: dprint_core::plugins::CheckConfigUpdatesMessage) -> Result<Vec<dprint_core::plugins::ConfigChange>> {
+       // check config updates here
      }
 
      fn format(
        &mut self,
-       file_path: &Path,
-       file_text: &str,
-       config: &Configuration,
-       mut format_with_host: impl FnMut(&Path, String, &ConfigKeyMap) -> Result<Option<String>>,
-     ) -> Result<Option<String>> {
+       request: dprint_core::plugins::SyncFormatRequest<Configuration>,
+       format_with_host: impl FnMut(dprint_core::plugins::SyncHostFormatRequest) -> dprint_core::plugins::FormatResult,
+     ) -> dprint_core::plugins::FormatResult {
        // format here
      }
    }
@@ -106,7 +106,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
 
    ```rust
    // specify the plugin struct name and then an expression to create it
-   generate_plugin_code!(MyPluginHandler, MyPluginHandler::new());
+   generate_plugin_code!(MyPluginHandler, MyPluginHandler::default());
    ```
 
 6. Finally, compile with:
@@ -121,36 +121,26 @@ To format code using a different plugin, call the `format_with_host(file_path, f
 
 For example, this function is used by the markdown plugin to format code blocks.
 
-## Schema Version 3 Overview
+## Schema Version 4 Overview
 
 If you are not using `Rust`, then you must implement a lot of low level functionality.
-
-How it works:
-
-1. The Wasm plugin initializes a shared memory buffer. Data between the CLI and Wasm plugin is transferred in here.
-2. Generally, the Wasm plugin stores its own local byte array. The plugin should copy from the shared memory buffer into this byte array for composing the final received data or copy from this array into the shared memory buffer for sending back data. This is referred to as "shared bytes" below, but that could probably have used a better name like "local bytes" or something.
-3. The CLI/host will communicate by calling the Wasm exports.
-4. The plugin may get the CLI/host to format other text by using the provided Wasm imports.
 
 ## Wasm Exports
 
 Low level communication:
 
-- `get_wasm_memory_buffer_size() -> usize` - Called to get the size of the shared Wasm memory buffer.
-- `get_wasm_memory_buffer() -> *const u8` - Called to get a pointer to the Wasm memory buffer.
-- `clear_shared_bytes(capacity: usize)` - Called to get the plugin to clear its local byte array.
-- `set_buffer_with_shared_bytes(offset: usize, length: usize)` - Gets the plugin to set the Wasm memory buffer with the local byte array at the specified position and length.
-- `add_to_shared_bytes_from_buffer(length: usize)` - Gets the plugin to add to its shared bytes from the Wasm memory buffer. The plugin should keep track of the current index.
+- `get_shared_bytes_ptr() -> *const u8` - Called to get a pointer to the shared Wasm memory buffer.
+- `clear_shared_bytes(size: u32) -> *const u8` - Called to get the plugin to clear its shared byte array and return a pointer to it.
 
 Initialization functions:
 
-- `get_plugin_schema_version() -> u32` - Return `3`
-- `set_global_config()` - Called when the global configuration is done transferring over. Store it somewhere.
-- `set_plugin_config()` - Called when the plugin specific configuration is done transferring over. Store it somewhere.
-- `get_config_diagnostics() -> usize` - Called by the CLI to get the configuration diagnostics. Serialize the diagnostics as a JSON string, store it in the local bytes, and return the byte length.
-- `get_resolved_config() -> usize` - Called by the CLI to get the resolved configuration for display in the CLI. Serialize it as a JSON string, store it in the local bytes, and return the byte length.
-- `get_license_text() -> usize` - Store the plugin's license text in the local bytes and return the byte length.
-- `get_plugin_info() -> usize` - Store the plugin's JSON serialized information in the local bytes and return the byte length. The plugin info is a JSON object with the following properties:
+- `dprint_plugin_version_4() -> u32` - Return `4`, but the CLI never calls this function (it only checks for it in the exports)
+- `register_config(config_id: u32)` - Called when the plugin and global configuration is done transferring over. Store it somewhere.
+- `release_config(config_id: u32)` - Release the config from memory.
+- `get_config_diagnostics(config_id: u32) -> u32` - Called by the CLI to get the configuration diagnostics. Serialize the diagnostics as a JSON string, store it in the local bytes, and return the byte length.
+- `get_resolved_config(config_id: u32) -> u32` - Called by the CLI to get the resolved configuration for display in the CLI. Serialize it as a JSON string, store it in the local bytes, and return the byte length.
+- `get_license_text() -> u32` - Store the plugin's license text in the local bytes and return the byte length.
+- `get_plugin_info() -> u32` - Store the plugin's JSON serialized information in the local bytes and return the byte length. The plugin info is a JSON object with the following properties:
   - `name` - String saying the plugin name.
   - `version` - Version of the plugin (ex. `"0.1.0"`)
   - `configKey` - Configuration key to use for this plugin in the dprint configuration file.
@@ -162,12 +152,20 @@ Formatting functions:
 
 - `set_file_path()` - Called by the CLI for the plugin to take from its local byte array and store that data as the file path.
 - `set_override_config()` - Possibly called by the CLI for the plugin to take from its local byte array and store that data as the format specific configuration.
-- `format() -> u8`
+- `format(config_id: u32) -> u32`
   - Return `0` when there's no change.
   - `1` when there's a change.
   - `2` when there's an error.
-- `get_formatted_text() -> usize` - Plugin should put the formatted text into its local byte array and return the size of that data.
-- `get_error_text() -> usize` - Plugin should put the error text into its local byte array and return the size of that data.
+- `get_formatted_text() -> u32` - Plugin should put the formatted text into its local byte array and return the size of that data.
+- `get_error_text() -> u32` - Plugin should put the error text into its local byte array and return the size of that data.
+
+Optional functions:
+
+- `check_config_updates() -> u32` - Set the shared bytes with the input. Returns the length of the output which can be read from the shared bytes.
+  - Input: todo...
+  - Output: todo...
+- `format_range(config_id: u32, range_start: u32, range_end: u32) -> u32`
+  - Response is same as `format`
 
 ### Wasm Imports
 
@@ -177,19 +175,16 @@ Communication is done by using a shared Wasm buffer. Essentially, the plugin sto
 
 Low level communication:
 
-- `host_clear_bytes(length: u32)` - Tell the host to clear its local byte array and reinitialize it with the provided length.
-- `host_read_buffer(pointer: u32, length: u32)` - Tell the host to read from provided Wasm memory address and store it in its local byte array.
-- `host_write_buffer(pointer: u32, offset: u32, length: u32)` - Tell the host to write to the provided Wasm memory address using the provided offset and length of its local byte array.
+- `host_write_buffer(pointer: u32)` - Tell the host to write data to the provided Wasm memory address.
 
 High level functions:
 
-- `host_take_file_path()` - Tell the host to take the file path from its local byte array.
-- `host_take_override_config()` - Tell the host to take the override configuration from its local byte array.
-- `host_format() -> u8` - Tell the host to format using the file text in its local byte array.
+- `host_format(file_path_ptr: u32, file_path_len: u32, range_start: u32, range_end: u32, override_cfg_ptr: u32, override_cfg_len: u32, file_bytes_ptr: u32, file_bytes_len: u32) -> u32` - Tell the host to format using the file text in its local byte array. Provide `0` and `file_bytes_len` for no range formatting.
   - Returns `0` for no change (do nothing else, no transfer needed)
   - `1` for change (use `host_get_formatted_text()`)
   - `2` for error (use `host_get_error_text()`)
 - `host_get_formatted_text() -> u32` - Tell the host to store the formatted text in its local byte array and return back the byte length of that text.
 - `host_get_error_text() -> u32` - Tell the host to store the error text in its local byte array and return back the byte length of that error message.
+- `host_has_cancelled() -> u32` - Check if the host has cancelled the formatting request (`1`) or not (`0`).
 
 I recommend looking in the [`dprint-core` wasm module](https://github.com/dprint/dprint/blob/main/crates/core/src/plugins/wasm/mod.rs) for how to use these.

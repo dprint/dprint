@@ -15,7 +15,7 @@ pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap> {
 
   let root_object_node = match value {
     Some(JsonValue::Object(obj)) => obj,
-    _ => bail!("Expected a root object in the json"),
+    _ => return Ok(Default::default()),
   };
 
   let mut properties = ConfigMap::new();
@@ -50,7 +50,7 @@ pub fn deserialize_config_raw(config_file_text: &str) -> Result<ConfigKeyMap> {
   let value = jsonc_parser::parse_to_value(config_file_text, &Default::default())?;
   let root_object_node = match value {
     Some(JsonValue::Object(obj)) => obj,
-    _ => bail!("Expected a root object in the json"),
+    _ => return Ok(Default::default()),
   };
 
   object_to_config_key_map(root_object_node)
@@ -171,12 +171,13 @@ mod tests {
 
   #[test]
   fn should_error_when_there_is_a_parser_error() {
-    assert_error("{prop}", "Unexpected token on line 1 column 2.");
+    assert_error("{prop}", "Unexpected token on line 1 column 2");
   }
 
   #[test]
-  fn should_error_when_no_object_in_root() {
-    assert_error("[]", "Expected a root object in the json");
+  fn should_not_error_when_no_object_in_root() {
+    assert_deserializes("", ConfigMap::new());
+    assert_deserializes("[]", ConfigMap::new());
   }
 
   #[test]

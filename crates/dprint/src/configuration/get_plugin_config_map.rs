@@ -16,7 +16,7 @@ pub fn get_plugin_config_map(plugin: &PluginWrapper, config_map: &mut ConfigMap)
 fn get_plugin_config_map_inner(plugin: &PluginWrapper, config_map: &mut ConfigMap) -> Result<RawPluginConfig> {
   let config_key = &plugin.info().config_key;
 
-  if let Some(plugin_config) = config_map.remove(config_key) {
+  if let Some(plugin_config) = config_map.shift_remove(config_key) {
     if let ConfigMapValue::PluginConfig(plugin_config) = plugin_config {
       Ok(plugin_config)
     } else {

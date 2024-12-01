@@ -130,7 +130,7 @@ impl ProcessPluginCommunicator {
     let mut stdout_reader = MessageReader::new(child.stdout.take().unwrap());
     let mut stdin_writer = MessageWriter::new(child.stdin.take().unwrap());
 
-    let (mut stdout_reader, stdin_writer, schema_version) = tokio::task::spawn_blocking(move || {
+    let (mut stdout_reader, stdin_writer, schema_version) = crate::async_runtime::spawn_blocking(move || {
       let schema_version = get_plugin_schema_version(&mut stdout_reader, &mut stdin_writer)
         .context("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade")?;
       Ok::<_, anyhow::Error>((stdout_reader, stdin_writer, schema_version))
@@ -280,8 +280,7 @@ impl ProcessPluginCommunicator {
     self.send_receiving_data(MessageBody::GetConfigDiagnostics(config_id)).await
   }
 
-  pub async fn check_config_updates(&self, plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
-    let message = CheckConfigUpdatesMessageBody { config: plugin_config };
+  pub async fn check_config_updates(&self, message: &CheckConfigUpdatesMessageBody) -> Result<Vec<ConfigChange>> {
     let bytes = serde_json::to_vec(&message)?;
     let response: CheckConfigUpdatesResponseBody = self.send_receiving_data(MessageBody::CheckConfigUpdates(bytes)).await?;
     Ok(response.changes)

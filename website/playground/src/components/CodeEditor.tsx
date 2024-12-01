@@ -11,7 +11,7 @@ export interface CodeEditorProps {
   scrollTop?: number;
   jsonSchemaUrl?: string;
   onScrollTopChange?: (scrollTop: number) => void;
-  language: "typescript" | "json" | "markdown" | "toml" | "dockerfile" | "plaintext" | undefined;
+  language: "typescript" | "json" | "markdown" | "toml" | "dockerfile" | "plaintext" | "css" | "html" | "yaml" | undefined;
 }
 
 export interface CodeEditorState {

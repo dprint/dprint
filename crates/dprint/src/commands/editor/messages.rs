@@ -207,6 +207,7 @@ pub enum EditorMessageBody {
   Format(FormatEditorMessageBody),
   FormatResponse(u32, Option<Vec<u8>>),
   CancelFormat(u32),
+  #[allow(dead_code)]
   Unknown(u32, Vec<u8>),
 }
 

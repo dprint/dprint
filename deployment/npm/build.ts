@@ -1,5 +1,6 @@
 import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
-import { decompress } from "https://deno.land/x/zip@v1.2.5/decompress.ts";
+// @ts-types="npm:@types/decompress@4.2.7"
+import decompress from "npm:decompress@4.2.1";
 
 interface Package {
   zipFileName: string;
@@ -12,6 +13,11 @@ const packages: Package[] = [{
   zipFileName: "dprint-x86_64-pc-windows-msvc.zip",
   os: "win32",
   cpu: "x64",
+}, {
+  // use x64_64 until there's an arm64 build
+  zipFileName: "dprint-x86_64-pc-windows-msvc.zip",
+  os: "win32",
+  cpu: "arm64",
 }, {
   zipFileName: "dprint-x86_64-apple-darwin.zip",
   os: "darwin",
@@ -57,15 +63,12 @@ const rootDir = currentDir.parentOrThrow().parentOrThrow();
 const outputDir = currentDir.join("./dist");
 const scopeDir = outputDir.join("@dprint");
 const dprintDir = outputDir.join("dprint");
+const version = resolveVersion();
+
+$.logStep(`Publishing ${version}...`);
 
 await $`rm -rf ${outputDir}`;
 await $`mkdir -p ${dprintDir} ${scopeDir}`;
-
-const version = Deno.args[0];
-
-if (version == null) {
-  throw new Error("Please provide a version as the first argument.");
-}
 
 // setup dprint packages
 {
@@ -151,9 +154,9 @@ if (version == null) {
 {
   $.logStep("Verifying packages...");
   const testPlatform = Deno.build.os == "windows"
-    ? "@dprint/win32-x64"
+    ? (Deno.build.arch === "x86_64" ? "@dprint/win32-x64" : "@dprint/win32-arm64")
     : Deno.build.os === "darwin"
-    ? "@dprint/darwin-x64"
+    ? (Deno.build.arch === "x86_64" ? "@dprint/darwin-x64" : "@dprint/darwin-arm64")
     : "@dprint/linux-x64-glibc";
   outputDir.join("package.json").writeJsonPrettySync({
     workspaces: [
@@ -189,6 +192,10 @@ if (Deno.args.includes("--publish")) {
   for (const pkg of packages) {
     const pkgName = getPackageNameNoScope(pkg);
     $.logStep(`Publishing @dprint/${pkgName}...`);
+    if (await checkPackagePublished(`@dprint/${pkgName}`)) {
+      $.logLight("  Already published.");
+      continue;
+    }
     const pkgDir = scopeDir.join(pkgName);
     await $`cd ${pkgDir} && npm publish --access public`;
   }
@@ -200,4 +207,20 @@ if (Deno.args.includes("--publish")) {
 function getPackageNameNoScope(name: Package) {
   const libc = name.libc == null ? "" : `-${name.libc}`;
   return `${name.os}-${name.cpu}${libc}`;
+}
+
+function resolveVersion() {
+  if (Deno.args[0] != null && /^[0-9]+\.[0-9]+\.[0-9]+/.test(Deno.args[0])) {
+    return Deno.args[0];
+  }
+  const version = (rootDir.join("crates/dprint/Cargo.toml").readTextSync().match(/version = "(.*?)"/))?.[1];
+  if (version == null) {
+    throw new Error("Could not resolve version.");
+  }
+  return version;
+}
+
+async function checkPackagePublished(pkgName: string) {
+  const result = await $`npm info ${pkgName}@${version}`.quiet().noThrow();
+  return result.code === 0;
 }

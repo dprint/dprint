@@ -26,7 +26,6 @@ use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::resolution::PluginsScope;
 use crate::utils::get_difference;
 use crate::utils::AtomicCounter;
-use crate::utils::BOM_BYTES;
 
 pub async fn stdin_fmt<TEnvironment: Environment>(
   cmd: &StdInFmtSubCommand,
@@ -41,7 +40,7 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
 
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
-    let file_matcher = FileMatcher::new(plugins_scope.config.as_ref().unwrap(), &cmd.patterns, &environment.cwd())?;
+    let file_matcher = FileMatcher::new(environment.clone(), plugins_scope.config.as_ref().unwrap(), &cmd.patterns, &environment.cwd())?;
     // canonicalize the file path, then check if it's in the list of file paths.
     let resolved_file_path = environment.canonicalize(&cmd.file_name_or_path)?;
     // log the file text as-is since it's not in the list of files to format
@@ -141,12 +140,12 @@ pub async fn check<TEnvironment: Environment>(
       let not_formatted_files_count = not_formatted_files_count.clone();
       let incremental_file = incremental_file.clone();
       move |file_path, file_bytes, formatted_bytes, _, environment| {
-        if formatted_bytes != file_bytes.as_ref() {
+        if formatted_bytes != file_bytes {
           not_formatted_files_count.inc();
           if list_different {
             log_stdout_info!(environment, "{}", file_path.display());
           } else {
-            output_difference(&file_path, file_bytes.as_ref(), &formatted_bytes, &environment);
+            output_difference(&file_path, &file_bytes, &formatted_bytes, &environment);
           }
         } else {
           // update the incremental cache when the file is already formatted correctly
@@ -241,23 +240,13 @@ pub async fn format<TEnvironment: Environment>(
             incremental_file.update_file(&formatted_bytes);
           }
 
-          if formatted_bytes != file_bytes.as_ref() {
+          if formatted_bytes != file_bytes {
             if output_diff {
-              output_difference(&file_path, file_bytes.as_ref(), &formatted_bytes, &environment);
+              output_difference(&file_path, &file_bytes, &formatted_bytes, &environment);
             }
 
-            let new_text = if file_bytes.has_bom() {
-              // add back the BOM
-              let mut new_bytes = Vec::with_capacity(file_bytes.as_ref().len() + BOM_BYTES.len());
-              new_bytes.extend_from_slice(BOM_BYTES);
-              new_bytes.extend(formatted_bytes);
-              new_bytes
-            } else {
-              formatted_bytes
-            };
-
             formatted_files_count.inc();
-            environment.write_file_bytes(file_path, &new_text)?;
+            environment.write_file_bytes(file_path, &formatted_bytes)?;
           }
 
           Ok(())
@@ -338,6 +327,44 @@ mod test {
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted_process");
+  }
+
+  #[test]
+  fn should_format_only_staged_files() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/file.txt_ps";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .write_file(&file_path1, "text_1")
+      .write_file(&file_path2, "text_2")
+      .add_staged_file(file_path1)
+      .build();
+
+    environment.set_max_threads(1);
+    run_test_cli(vec!["fmt", "--staged"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_1_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text_2");
+  }
+
+  #[test]
+  fn should_format_only_staged_files_while_respecting_includes() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/file.txt_ps";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("./dprint.json", |c| {
+        c.add_includes("**/*.txt_ps").add_remote_wasm_plugin().add_remote_process_plugin();
+      })
+      .write_file(&file_path1, "text_1")
+      .write_file(&file_path2, "text_2")
+      .add_staged_file(file_path1)
+      .add_staged_file(file_path2)
+      .build();
+
+    environment.set_max_threads(1);
+    run_test_cli(vec!["fmt", "--staged"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_1");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text_2_formatted_process");
   }
 
   #[test]
@@ -852,6 +879,52 @@ mod test {
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_wasm");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2"); // ignored
+  }
+
+  #[test]
+  fn should_allow_using_config_to_get_file_matching_info() {
+    let file_path1 = "/file1.txt";
+    let file_path2 = "/file2.txt_ps";
+    let file_path3 = "/file1.other";
+    let file_path4 = "/file2.other_ps";
+    let file_path5 = "/format_wasm";
+    let file_path6 = "/format_ps";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "file_extensions": ["other"],
+              "file_names": ["format_wasm"]
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "file_extensions": ["other_ps"],
+              "file_names": ["format_ps"]
+            }"#,
+          );
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text2")
+      .write_file(&file_path3, "text3")
+      .write_file(&file_path4, "text4")
+      .write_file(&file_path5, "text5")
+      .write_file(&file_path6, "text6")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(4)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2");
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text3_formatted");
+    assert_eq!(environment.read_file(&file_path4).unwrap(), "text4_formatted_process");
+    assert_eq!(environment.read_file(&file_path5).unwrap(), "text5_formatted");
+    assert_eq!(environment.read_file(&file_path6).unwrap(), "text6_formatted_process");
   }
 
   #[test]
@@ -2217,6 +2290,30 @@ mod test {
         "prevented the plugin from formatting the file to an empty file. Please report this scenario."
       )
       .to_string()]
+    );
+  }
+
+  #[test]
+  fn wasm_log_stderr() {
+    let file_path1 = "/file1.txt";
+    let file_path2 = "/file2.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      // these will both go to stderr actually
+      .write_file(&file_path1, "stdout: hi stdout")
+      .write_file(&file_path2, "stderr: hi stderr")
+      .build();
+    run_test_cli(vec!["fmt", "*.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "stdout: hi stdout_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "stderr: hi stderr_formatted");
+    assert_eq!(
+      {
+        let mut messages = environment.take_stderr_messages();
+        messages.sort();
+        messages
+      },
+      // everything goes to stderr
+      vec![" hi stderr", " hi stderr_formatted", " hi stdout", " hi stdout_formatted"]
     );
   }
 }

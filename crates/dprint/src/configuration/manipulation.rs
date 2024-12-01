@@ -1,5 +1,3 @@
-use std::ops::Range;
-
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
@@ -8,17 +6,18 @@ use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::ConfigChangeKind;
 use dprint_core::plugins::ConfigChangePathItem;
-use jsonc_parser::ast::Array;
-use jsonc_parser::ast::Node;
-use jsonc_parser::ast::Object;
-use jsonc_parser::common::Ranged;
+use jsonc_parser::cst::CstContainerNode;
+use jsonc_parser::cst::CstInputValue;
+use jsonc_parser::cst::CstLeafNode;
+use jsonc_parser::cst::CstNode;
+use jsonc_parser::cst::CstObject;
+use jsonc_parser::cst::CstRootNode;
+use jsonc_parser::json;
 
 use crate::plugins::PluginSourceReference;
 use crate::utils::PluginKind;
 
-// This entire module is pretty bad. It would be better to add some manipulation
-// capabilities to jsonc-parser.
-
+#[derive(Debug)]
 pub struct PluginUpdateInfo {
   pub name: String,
   pub old_version: String,
@@ -43,51 +42,18 @@ impl PluginUpdateInfo {
   }
 }
 
-pub fn update_plugin_in_config(file_text: &str, info: PluginUpdateInfo) -> String {
+pub fn update_plugin_in_config(file_text: &str, info: &PluginUpdateInfo) -> String {
   let new_url = info.get_full_new_config_url();
   file_text.replace(&info.old_reference.to_string(), &new_url)
 }
 
 pub fn add_to_plugins_array(file_text: &str, url: &str) -> Result<String> {
-  let root_obj = JsonRootObject::parse(file_text)?.root;
-  let plugins = get_plugins_array(&root_obj)?;
-  let indentation_text = get_indentation_text(file_text, &root_obj);
-  let newline_char = get_newline_char(file_text);
-  // don't worry about comments or anything... too much to deal with
-  let start_pos = if let Some(last_element) = plugins.elements.last() {
-    last_element.end()
-  } else {
-    plugins.start() + 1
-  };
-  let end_pos = plugins.end() - 1;
-  let mut final_text = String::new();
-  final_text.push_str(&file_text[..start_pos]);
-  if !plugins.elements.is_empty() {
-    final_text.push(',');
-  }
-  final_text.push_str(&newline_char);
-  final_text.push_str(&indentation_text);
-  final_text.push_str(&indentation_text);
-  final_text.push_str(&format!("\"{}\"", url));
-  final_text.push_str(&newline_char);
-  final_text.push_str(&indentation_text);
-  final_text.push_str(&file_text[end_pos..]);
-  Ok(final_text)
-}
-
-pub struct JsonRootObject<'a> {
-  root: Object<'a>,
-}
-
-impl<'a> JsonRootObject<'a> {
-  pub fn parse(file_text: &'a str) -> Result<Self> {
-    let json_file =
-      jsonc_parser::parse_to_ast(file_text, &Default::default(), &Default::default()).with_context(|| "Error parsing config file.".to_string())?;
-    match json_file.value {
-      Some(jsonc_parser::ast::Value::Object(obj)) => Ok(Self { root: obj }),
-      _ => bail!("Please ensure your config file has an object in it to use this feature."),
-    }
-  }
+  let root_node = CstRootNode::parse(file_text, &Default::default()).context("Failed parsing config file.")?;
+  let root_obj = root_node.object_value_or_set();
+  let plugins = root_obj.array_value_or_set("plugins");
+  plugins.ensure_multiline();
+  plugins.append(json!(url));
+  Ok(root_node.to_string())
 }
 
 #[derive(Default)]
@@ -96,89 +62,45 @@ pub struct ApplyConfigChangesResult {
   pub diagnostics: Vec<String>,
 }
 
-#[derive(Clone)]
-struct IndentText<'a> {
-  text: &'a str,
-  level: usize,
-}
-
-impl<'a> IndentText<'a> {
-  pub fn inc(&self) -> Self {
-    Self {
-      text: self.text,
-      level: self.level + 1,
-    }
-  }
-
-  pub fn render(&self) -> String {
-    self.text.repeat(self.level)
-  }
-}
-
-#[derive(Clone, Debug)]
-struct TextChange {
-  pub range: Range<usize>,
-  pub new_text: String,
-}
-
-pub fn apply_config_changes(mut file_text: String, plugin_key: &str, changes: &[ConfigChange]) -> ApplyConfigChangesResult {
+pub fn apply_config_changes(file_text: &str, plugin_key: &str, changes: &[ConfigChange]) -> ApplyConfigChangesResult {
   let mut diagnostics = Vec::new();
+  let root_node = match CstRootNode::parse(file_text, &Default::default()) {
+    Ok(root_node) => root_node,
+    Err(err) => {
+      diagnostics.push(format!("Failed applying change since config file failed to parse: {:#}", err));
+      return ApplyConfigChangesResult {
+        new_text: file_text.to_string(),
+        diagnostics,
+      };
+    }
+  };
+  let root_obj = root_node.object_value_or_set();
 
-  // it's much more reliable to reparse between each change
   for change in changes {
-    let root_obj = match JsonRootObject::parse(&file_text) {
-      Ok(root_obj) => root_obj,
-      Err(err) => {
-        diagnostics.push(format!("Failed applying change since config file failed to parse: {:#}", err));
-        return ApplyConfigChangesResult {
-          new_text: file_text.to_string(),
-          diagnostics,
-        };
-      }
-    };
-    let Some(plugin_obj) = root_obj.root.get_object(plugin_key) else {
+    let Some(plugin_obj) = root_obj.object_value(plugin_key) else {
       return Default::default();
     };
-    let indent_text = get_indentation_text(&file_text, &root_obj.root);
-    let indent_text = IndentText { text: &indent_text, level: 1 };
-    let text_change = match &change.kind {
-      ConfigChangeKind::Add(value) => match apply_add(indent_text.clone(), plugin_obj, &change.path, value) {
-        Ok(text_change) => Some(text_change),
-        Err(err) => {
+    match &change.kind {
+      ConfigChangeKind::Add(value) => {
+        if let Err(err) = apply_add(plugin_obj, &change.path, value) {
           diagnostics.push(format!("Failed adding item at path '{}': {}", display_path(plugin_key, &change.path), err));
-          None
         }
-      },
-      ConfigChangeKind::Set(value) => match apply_set(plugin_obj, &change.path, value, indent_text.clone()) {
-        Ok(text_change) => Some(text_change),
-        Err(err) => {
+      }
+      ConfigChangeKind::Set(value) => {
+        if let Err(err) = apply_set(plugin_obj, &change.path, value) {
           diagnostics.push(format!("Failed setting item at path '{}': {}", display_path(plugin_key, &change.path), err));
-          None
         }
-      },
-      ConfigChangeKind::Remove => match apply_remove(&file_text, plugin_obj, &change.path) {
-        Ok(range) => Some(TextChange {
-          range,
-          new_text: String::new(),
-        }),
-        Err(err) => {
+      }
+      ConfigChangeKind::Remove => {
+        if let Err(err) = apply_remove(plugin_obj, &change.path) {
           diagnostics.push(format!("Failed removing item at path '{}': {}", display_path(plugin_key, &change.path), err));
-          None
         }
-      },
+      }
     };
-    if let Some(text_change) = text_change {
-      file_text = format!(
-        "{}{}{}",
-        &file_text[0..text_change.range.start],
-        text_change.new_text,
-        &file_text[text_change.range.end..]
-      );
-    }
   }
 
   ApplyConfigChangesResult {
-    new_text: file_text,
+    new_text: root_node.to_string(),
     diagnostics,
   }
 }
@@ -201,73 +123,48 @@ fn display_path(plugin_key: &str, path: &[ConfigChangePathItem]) -> String {
   text
 }
 
-fn apply_add(mut indent_text: IndentText, plugin_obj: &Object, path: &[ConfigChangePathItem], value: &ConfigKeyValue) -> Result<TextChange> {
-  let mut current_node = Node::Object(plugin_obj);
+fn apply_add(plugin_obj: CstObject, path: &[ConfigChangePathItem], value: &ConfigKeyValue) -> Result<()> {
+  let mut current_node: CstNode = plugin_obj.into();
   for (path_index, path_item) in path.iter().enumerate() {
-    indent_text = indent_text.inc();
     match path_item {
       ConfigChangePathItem::String(key) => {
         if path_index == path.len() - 1 {
-          let maybe_array_prop = current_node.as_object().and_then(|obj| obj.get_array(key));
+          let maybe_array_prop = current_node.as_object().and_then(|obj| obj.array_value(key));
           match maybe_array_prop {
             Some(array) => {
-              let indent_text = indent_text.inc();
-              match array.elements.last() {
-                Some(last_property) => {
-                  let prop_end = last_property.range().end();
-                  return Ok(TextChange {
-                    range: prop_end..prop_end,
-                    new_text: format!(",\n{}{}", indent_text.render(), config_value_to_json_text(value, &indent_text)),
-                  });
-                }
-                None => {
-                  let after_bracket_pos = array.start() + 1;
-                  return Ok(TextChange {
-                    range: after_bracket_pos..after_bracket_pos,
-                    new_text: format!("\n{}{}", indent_text.render(), config_value_to_json_text(value, &indent_text)),
-                  });
-                }
+              array.append(config_value_to_cst_json(value));
+              return Ok(());
+            }
+            None => {
+              if let Some(obj) = current_node.as_object() {
+                obj.append(key, config_value_to_cst_json(value));
+                return Ok(());
+              } else {
+                bail!("Unsupported. Could not add into {:?} with string key '{}'", current_node.to_string(), key)
               }
             }
-            None => match current_node {
-              Node::Object(obj) => match obj.properties.last() {
-                Some(last_property) => {
-                  let prop_end = last_property.range().end();
-                  return Ok(TextChange {
-                    range: prop_end..prop_end,
-                    new_text: format!(",\n{}\"{}\": {}", indent_text.render(), key, config_value_to_json_text(value, &indent_text)),
-                  });
-                }
-                None => {
-                  let after_brace_pos = obj.start() + 1;
-                  return Ok(TextChange {
-                    range: after_brace_pos..after_brace_pos,
-                    new_text: format!("\n{}\"{}\": {}", indent_text.render(), key, config_value_to_json_text(value, &indent_text)),
-                  });
-                }
-              },
-              _ => bail!("Unsupported. Could not add into {:?} with string key '{}'", current_node.kind(), key),
-            },
           }
         } else {
           let property = current_node
             .as_object()
             .and_then(|obj| obj.get(key))
-            .ok_or_else(|| anyhow!("Expected property '{}' in path.", key))?;
-          current_node = (&property.value).into();
+            .ok_or_else(|| anyhow!("Expected property '{}'.", key))?;
+          let value = property.value().ok_or_else(|| anyhow!("Expected value for property '{}'.", key))?;
+          current_node = value;
         }
       }
       ConfigChangePathItem::Number(array_index) => {
         let array_index = *array_index;
-        let array = current_node.as_array().ok_or_else(|| anyhow!("Expected array in path."))?;
-        if array_index >= array.elements.len() {
-          bail!("Expected array index '{}' to be less than the length of the array.", array_index);
-        }
-        let element = array.elements.get(array_index).unwrap();
+        let array = current_node.as_array().ok_or_else(|| anyhow!("Expected array."))?;
         if path_index == path.len() - 1 {
-          bail!("Adding into an array at an index is not currently supported.")
+          array.insert(array_index, config_value_to_cst_json(value));
+          return Ok(());
         } else {
-          current_node = element.into();
+          let mut elements = array.elements();
+          if array_index >= elements.len() {
+            bail!("Expected array index '{}' to be less than the length of the array.", array_index);
+          }
+          current_node = elements.remove(array_index);
         }
       }
     }
@@ -276,39 +173,70 @@ fn apply_add(mut indent_text: IndentText, plugin_obj: &Object, path: &[ConfigCha
   bail!("Failed to discover item to add to.")
 }
 
-fn apply_set(plugin_obj: &Object<'_>, path: &[ConfigChangePathItem], value: &ConfigKeyValue, mut indent_text: IndentText) -> Result<TextChange> {
-  let mut current_node = Node::Object(plugin_obj);
+fn apply_set(plugin_obj: CstObject, path: &[ConfigChangePathItem], value: &ConfigKeyValue) -> Result<()> {
+  fn replace_node(node: CstNode, value: CstInputValue) -> Result<()> {
+    match node {
+      CstNode::Container(n) => match n {
+        CstContainerNode::Root(_) => unreachable!(),
+        CstContainerNode::Array(n) => {
+          n.replace_with(value);
+        }
+        CstContainerNode::Object(n) => {
+          n.replace_with(value);
+        }
+        CstContainerNode::ObjectProp(_) => {
+          bail!("Cannot replace an object property.");
+        }
+      },
+      CstNode::Leaf(n) => match n {
+        CstLeafNode::BooleanLit(n) => {
+          n.replace_with(value);
+        }
+        CstLeafNode::NullKeyword(n) => {
+          n.replace_with(value);
+        }
+        CstLeafNode::NumberLit(n) => {
+          n.replace_with(value);
+        }
+        CstLeafNode::StringLit(n) => {
+          n.replace_with(value);
+        }
+        CstLeafNode::WordLit(n) => {
+          n.replace_with(value);
+        }
+        CstLeafNode::Token(_) | CstLeafNode::Whitespace(_) | CstLeafNode::Newline(_) | CstLeafNode::Comment(_) => unreachable!(),
+      },
+    }
+    Ok(())
+  }
+
+  let mut current_node: CstNode = plugin_obj.into();
   for (path_index, path_item) in path.iter().enumerate() {
-    indent_text = indent_text.inc();
     match path_item {
       ConfigChangePathItem::String(key) => {
         let property = current_node
           .as_object()
           .and_then(|obj| obj.get(key))
-          .ok_or_else(|| anyhow!("Expected property '{}' in path.", key))?;
+          .ok_or_else(|| anyhow!("Expected property '{}'.", key))?;
+        let property_value = property.value().ok_or_else(|| anyhow!("Expected value for property '{}'.", key))?;
         if path_index == path.len() - 1 {
-          return Ok(TextChange {
-            range: property.value.start()..property.value.end(),
-            new_text: config_value_to_json_text(value, &indent_text),
-          });
+          return replace_node(property_value, config_value_to_cst_json(value));
         } else {
-          current_node = (&property.value).into();
+          current_node = property_value;
         }
       }
       ConfigChangePathItem::Number(array_index) => {
         let array_index = *array_index;
-        let array = current_node.as_array().ok_or_else(|| anyhow!("Expected array in path."))?;
-        if array_index >= array.elements.len() {
+        let array = current_node.as_array().ok_or_else(|| anyhow!("Expected array."))?;
+        let mut elements = array.elements();
+        if array_index >= elements.len() {
           bail!("Expected array index '{}' to be less than the length of the array.", array_index);
         }
-        let element = array.elements.get(array_index).unwrap();
+        let element = elements.remove(array_index);
         if path_index == path.len() - 1 {
-          return Ok(TextChange {
-            range: element.start()..element.end(),
-            new_text: config_value_to_json_text(value, &indent_text),
-          });
+          return replace_node(element, config_value_to_cst_json(value));
         } else {
-          current_node = element.into();
+          current_node = element;
         }
       }
     }
@@ -317,56 +245,33 @@ fn apply_set(plugin_obj: &Object<'_>, path: &[ConfigChangePathItem], value: &Con
   bail!("Failed to discover item to set.")
 }
 
-fn apply_remove(file_text: &str, plugin_obj: &jsonc_parser::ast::Object, path: &[ConfigChangePathItem]) -> Result<Range<usize>> {
-  fn get_start_pos(file_text: &str, node: Node) -> usize {
-    let start_pos = node.start();
-    let start_text = &file_text[..start_pos];
-    let trimmed_text = start_text.trim_end_matches(|c| c == ' ' || c == '\t');
-    let trimmed_text = if let Some(text) = trimmed_text.strip_suffix("\r\n") {
-      text
-    } else if let Some(text) = trimmed_text.strip_suffix('\n') {
-      text
-    } else {
-      trimmed_text
-    };
-    let whitespace_width = start_text.len() - trimmed_text.len();
-    start_pos - whitespace_width
-  }
-
-  fn get_end_pos(file_text: &str, node: Node) -> usize {
-    let end_pos = node.end();
-    if file_text[end_pos..].starts_with(',') {
-      end_pos + 1
-    } else {
-      end_pos
-    }
-  }
-
-  let mut current_node = Node::Object(plugin_obj);
+fn apply_remove(plugin_obj: CstObject, path: &[ConfigChangePathItem]) -> Result<()> {
+  let mut current_node: CstNode = plugin_obj.into();
   for (path_index, path_item) in path.iter().enumerate() {
     match path_item {
       ConfigChangePathItem::String(key) => {
-        let obj = current_node
-          .as_object()
-          .ok_or_else(|| anyhow!("Expected object for property '{}' in path.", key))?;
-        let property = obj.get(key).ok_or_else(|| anyhow!("Expected property '{}' in path.", key))?;
+        let obj = current_node.as_object().ok_or_else(|| anyhow!("Expected object for property '{}'.", key))?;
+        let property = obj.get(key).ok_or_else(|| anyhow!("Expected property '{}'.", key))?;
         if path_index == path.len() - 1 {
-          return Ok(get_start_pos(file_text, property.into())..get_end_pos(file_text, property.into()));
+          property.remove();
+          return Ok(());
         } else {
-          current_node = (&property.value).into();
+          current_node = property.value().ok_or_else(|| anyhow!("Failed to find value for property '{}'.", key))?;
         }
       }
       ConfigChangePathItem::Number(array_index) => {
         let array_index = *array_index;
-        let array = current_node.as_array().ok_or_else(|| anyhow!("Expected array in path."))?;
-        if array_index >= array.elements.len() {
+        let array = current_node.as_array().ok_or_else(|| anyhow!("Expected array."))?;
+        let mut elements = array.elements();
+        if array_index >= elements.len() {
           bail!("Expected array index '{}' to be less than the length of the array.", array_index);
         }
-        let element = array.elements.get(array_index).unwrap();
+        let element = elements.remove(array_index);
         if path_index == path.len() - 1 {
-          return Ok(get_start_pos(file_text, element.into())..get_end_pos(file_text, element.into()));
+          element.remove();
+          return Ok(());
         } else {
-          current_node = element.into();
+          current_node = element;
         }
       }
     }
@@ -375,73 +280,15 @@ fn apply_remove(file_text: &str, plugin_obj: &jsonc_parser::ast::Object, path: &
   bail!("Failed to discover item to remove.")
 }
 
-fn config_value_to_json_text(value: &ConfigKeyValue, indent_text: &IndentText) -> String {
+fn config_value_to_cst_json(value: &ConfigKeyValue) -> CstInputValue {
   match value {
-    ConfigKeyValue::Bool(value) => value.to_string(),
-    ConfigKeyValue::Number(value) => value.to_string(),
-    ConfigKeyValue::String(value) => format!("\"{}\"", value.replace('\"', "\\\"")),
-    ConfigKeyValue::Array(values) => {
-      let mut text = String::new();
-      text.push('[');
-      for (i, value) in values.iter().enumerate() {
-        if i == 0 {
-          text.push('\n');
-        } else {
-          text.push_str(",\n");
-        }
-        let indent_text = indent_text.inc();
-        text.push_str(&indent_text.render());
-        text.push_str(&config_value_to_json_text(value, &indent_text));
-      }
-      text.push_str(&format!("\n{}]", indent_text.render()));
-      text
-    }
-    ConfigKeyValue::Object(values) => {
-      let mut text = String::new();
-      text.push('{');
-      for (i, (key, value)) in values.iter().enumerate() {
-        if i == 0 {
-          text.push('\n');
-        } else {
-          text.push_str(",\n");
-        }
-        let indent_text = indent_text.inc();
-        text.push_str(&indent_text.render());
-        text.push_str(&format!("\"{}\": {}", key, config_value_to_json_text(value, &indent_text)));
-      }
-      text.push_str(&format!("\n{}}}", indent_text.render()));
-      text
-    }
-    ConfigKeyValue::Null => "null".to_string(),
+    ConfigKeyValue::Bool(value) => CstInputValue::Bool(*value),
+    ConfigKeyValue::Number(value) => CstInputValue::Number(value.to_string()),
+    ConfigKeyValue::String(value) => CstInputValue::String(value.clone()),
+    ConfigKeyValue::Array(values) => CstInputValue::Array(values.iter().map(config_value_to_cst_json).collect()),
+    ConfigKeyValue::Object(values) => CstInputValue::Object(values.iter().map(|(key, value)| (key.clone(), config_value_to_cst_json(value))).collect()),
+    ConfigKeyValue::Null => CstInputValue::Null,
   }
-}
-
-fn get_plugins_array<'a>(root_obj: &'a Object<'a>) -> Result<&'a Array<'a>> {
-  root_obj
-    .get_array("plugins")
-    .ok_or_else(|| anyhow!("Please ensure your config file has an object with a plugins array in it to use this feature."))
-}
-
-fn get_newline_char(file_text: &str) -> String {
-  if file_text.contains("\r\n") {
-    "\r\n".to_string()
-  } else {
-    "\n".to_string()
-  }
-}
-
-fn get_indentation_text(file_text: &str, root_obj: &Object) -> String {
-  root_obj
-    .properties
-    .first()
-    .map(|first_property| {
-      let after_brace_position = root_obj.start() + 1;
-      let first_property_start = first_property.start();
-      let text = file_text[after_brace_position..first_property_start].replace('\r', "");
-      let last_line = text.split('\n').last().unwrap();
-      last_line.chars().take_while(|c| c.is_whitespace()).collect::<String>()
-    })
-    .unwrap_or_else(|| "  ".to_string())
 }
 
 #[cfg(test)]
@@ -483,11 +330,11 @@ mod test {
     )
     .unwrap();
 
-    // don't bother... just remove it
     assert_eq!(
       final_text,
       r#"{
   "plugins": [
+    // some comment
     "value"
   ]
 }"#
@@ -534,7 +381,7 @@ mod test {
       r#"{
   "plugins": [
     "some_value",
-    "value"
+    "value",
   ]
 }"#
     );
@@ -552,12 +399,11 @@ mod test {
     )
     .unwrap();
 
-    // just remove it... too much work
     assert_eq!(
       final_text,
       r#"{
   "plugins": [
-    "some_value",
+    "some_value", // comment
     "value"
   ]
 }"#
@@ -720,9 +566,7 @@ mod test {
     "array": [
       {
         "prop": {
-          "sub": [
-            "test"
-          ]
+          "sub": ["test"]
         }
       },
       true,
@@ -792,10 +636,7 @@ mod test {
     "next": {
       "asdf": [
         true,
-        [
-          true,
-          "value"
-        ]
+        [true, "value"]
       ]
     }
   }
@@ -880,7 +721,7 @@ mod test {
 
   #[track_caller]
   fn run_config_change_test(file_text: &str, changes: &[ConfigChange], expected_text: &str, diagnostics: &[&str]) {
-    let result = apply_config_changes(file_text.to_string(), "plugin", changes);
+    let result = apply_config_changes(file_text, "plugin", changes);
     assert_eq!(result.diagnostics, diagnostics);
     assert_eq!(result.new_text, expected_text);
   }

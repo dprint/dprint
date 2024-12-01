@@ -21,7 +21,6 @@ use crate::resolution::PluginWithConfig;
 use crate::resolution::PluginsScope;
 use crate::resolution::PluginsScopeAndPaths;
 use crate::utils::ErrorCountLogger;
-use crate::utils::FileText;
 use crate::utils::Semaphore;
 
 struct TaskWork {
@@ -41,7 +40,7 @@ pub async fn run_parallelized<F, TEnvironment: Environment>(
   f: F,
 ) -> Result<()>
 where
-  F: Fn(PathBuf, FileText, Vec<u8>, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
+  F: Fn(PathBuf, Vec<u8>, Vec<u8>, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
 {
   if let Some(config) = &scope_and_paths.scope.config {
     log_debug!(environment, "Running for config: {}", config.resolved_path.file_path.display());
@@ -189,14 +188,14 @@ where
     f: F,
   ) -> Result<()>
   where
-    F: Fn(PathBuf, FileText, Vec<u8>, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
+    F: Fn(PathBuf, Vec<u8>, Vec<u8>, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
   {
     // it's a big perf improvement to do this work on a blocking thread
     let result = dprint_core::async_runtime::spawn_blocking(move || {
-      let file_text = FileText::new(environment.read_file_bytes(&file_path)?);
+      let file_text = environment.read_file_bytes(&file_path)?;
 
       if let Some(incremental_file) = &incremental_file {
-        if incremental_file.is_file_known_formatted(file_text.as_ref()) {
+        if incremental_file.is_file_known_formatted(&file_text) {
           log_debug!(environment, "No change: {}", file_path.display());
           return Ok::<_, anyhow::Error>(None);
         }
@@ -211,9 +210,9 @@ where
     };
 
     let (start_instant, formatted_text) =
-      run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), file_text.as_ref()).await?;
+      run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), &file_text).await?;
 
-    let formatted_text = if ensure_stable_format.0 && formatted_text != file_text.as_ref() {
+    let formatted_text = if ensure_stable_format.0 && formatted_text != file_text {
       get_stabilized_format_text(environment.clone(), scope, plugins, file_path.clone(), formatted_text).await?
     } else {
       formatted_text
@@ -379,7 +378,7 @@ async fn run_cpu_throttling_task(environment: &impl Environment, number_threads:
     let cpu_usage = environment.cpu_usage().await;
     log_debug!(environment, "CPU usage: {}%", cpu_usage);
     if cpu_usage > decrease_bound {
-      if throttle_cpu(semaphores).await {
+      if throttle_cpu(semaphores) {
         log_debug!(environment, "High CPU. Reducing parallelism.");
         throttled_times += 1;
       }
@@ -404,7 +403,7 @@ async fn run_cpu_throttling_task(environment: &impl Environment, number_threads:
   }
 }
 
-async fn throttle_cpu(semaphores: &[Rc<Semaphore>]) -> bool {
+fn throttle_cpu(semaphores: &[Rc<Semaphore>]) -> bool {
   let mut best_match: Option<&Rc<Semaphore>> = None;
   let mut total_max_permits = 0;
   for semaphore in semaphores.iter() {
@@ -517,20 +516,20 @@ mod test {
     let permit2 = semaphore2.acquire().await;
     let permit3 = semaphore2.acquire().await;
     let semaphores = vec![semaphore1, semaphore2];
-    assert!(throttle_cpu(&semaphores).await);
+    assert!(throttle_cpu(&semaphores));
     assert_eq!(semaphores[1].max_permits(), 1);
     // still a pending removal
-    assert!(!throttle_cpu(&semaphores).await);
+    assert!(!throttle_cpu(&semaphores));
     drop(permit2);
-    assert!(throttle_cpu(&semaphores).await);
+    assert!(throttle_cpu(&semaphores));
     assert_eq!(semaphores[0].max_permits(), 0);
     assert_eq!(semaphores[1].max_permits(), 1);
     // still a pending removal
-    assert!(!throttle_cpu(&semaphores).await);
+    assert!(!throttle_cpu(&semaphores));
     drop(permit3);
     // only one permit remaining
-    assert!(!throttle_cpu(&semaphores).await);
+    assert!(!throttle_cpu(&semaphores));
     drop(permit1);
-    assert!(!throttle_cpu(&semaphores).await);
+    assert!(!throttle_cpu(&semaphores));
   }
 }

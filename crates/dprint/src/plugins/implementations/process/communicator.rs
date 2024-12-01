@@ -3,10 +3,10 @@ use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::utils::AsyncMutex;
 use anyhow::Result;
-use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::plugins::process::ProcessPluginCommunicatorFormatRequest;
+use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
@@ -84,8 +84,8 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     self.get_inner_ensure_config(config).await?.config_diagnostics(config.id).await
   }
 
-  pub async fn check_config_updates(&self, plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
-    self.get_inner().await.check_config_updates(plugin_config).await
+  pub async fn check_config_updates(&self, message: &CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+    self.get_inner().await.check_config_updates(message).await
   }
 
   pub async fn format_text(&self, request: InitializedPluginFormatRequest) -> FormatResult {
@@ -128,7 +128,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     let inner = self.inner.lock().await;
     let has_config = inner.registered_configs.borrow_mut().contains(&config.id);
     if !has_config {
-      inner.communicator.register_config(config.id, &config.global, &config.raw).await?;
+      inner.communicator.register_config(config.id, &config.global, &config.plugin).await?;
       inner.registered_configs.borrow_mut().insert(config.id);
     }
     Ok(inner.communicator.clone())
@@ -170,12 +170,11 @@ mod test {
     environment.run_in_runtime({
       let environment = environment.clone();
       async move {
-        //debug_here::debug_here!();
         // ensure that the config gets recreated as well
         let communicator = Rc::new(InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone()).await);
         let format_config = Arc::new(FormatConfig {
           id: FormatConfigId::from_raw(1),
-          raw: {
+          plugin: {
             let mut config = ConfigKeyMap::new();
             config.insert("ending".to_string(), "custom".to_string().into());
             config
@@ -270,7 +269,7 @@ mod test {
         let communicator = InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone()).await;
         let format_config = Arc::new(FormatConfig {
           id: FormatConfigId::from_raw(1),
-          raw: Default::default(),
+          plugin: Default::default(),
           global: Default::default(),
         });
 

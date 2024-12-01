@@ -4,6 +4,7 @@ use anyhow::bail;
 use anyhow::Result;
 use dprint_core::async_runtime::async_trait;
 use dprint_core::async_runtime::LocalBoxFuture;
+use dprint_core::configuration::get_nullable_vec;
 use dprint_core::configuration::get_unknown_property_diagnostics;
 use dprint_core::configuration::get_value;
 use dprint_core::configuration::ConfigKeyMap;
@@ -14,6 +15,7 @@ use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
 use dprint_core::plugins::process::handle_process_stdio_messages;
 use dprint_core::plugins::process::start_parent_process_checker_task;
 use dprint_core::plugins::AsyncPluginHandler;
+use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::ConfigChangeKind;
 use dprint_core::plugins::FileMatchingInfo;
@@ -58,7 +60,14 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
   fn plugin_info(&self) -> PluginInfo {
     PluginInfo {
       name: String::from(env!("CARGO_PKG_NAME")),
-      version: String::from(env!("CARGO_PKG_VERSION")),
+      version: {
+        let exe_path = std::env::current_exe().unwrap();
+        if exe_path.to_string_lossy().contains("temp-plugin-0.3.0") {
+          "0.3.0".to_string()
+        } else {
+          String::from(env!("CARGO_PKG_VERSION"))
+        }
+      },
       config_key: "testProcessPlugin".to_string(),
       help_url: "https://dprint.dev/plugins/test-process".to_string(),
       config_schema_url: "".to_string(),
@@ -71,37 +80,22 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
   }
 
   async fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> PluginResolveConfigurationResult<Configuration> {
-    // todo: way to do something like get_value in dprint-core, but with vectors
     fn get_string_vec(config: &mut ConfigKeyMap, key: &str, diagnostics: &mut Vec<ConfigurationDiagnostic>) -> Option<Vec<String>> {
-      match config.remove(key) {
-        Some(value) => match value {
-          ConfigKeyValue::Array(values) => {
-            let mut result = Vec::with_capacity(values.len());
-            for value in values {
-              match value {
-                ConfigKeyValue::String(value) => {
-                  result.push(value);
-                }
-                _ => {
-                  diagnostics.push(ConfigurationDiagnostic {
-                    property_name: key.to_string(),
-                    message: "Expected only string values.".to_string(),
-                  });
-                }
-              }
-            }
-            Some(result)
-          }
+      get_nullable_vec(
+        config,
+        key,
+        |value, _index, diagnostics| match value {
+          ConfigKeyValue::String(value) => Some(value),
           _ => {
             diagnostics.push(ConfigurationDiagnostic {
               property_name: key.to_string(),
-              message: "Expected an array.".to_string(),
+              message: "Expected only string values.".to_string(),
             });
             None
           }
         },
-        None => None,
-      }
+        diagnostics,
+      )
     }
 
     let mut config = config;
@@ -121,9 +115,9 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
     }
   }
 
-  async fn check_config_updates(&self, config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
+  async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
     let mut changes = Vec::new();
-    if config.contains_key("should_add") {
+    if message.config.contains_key("should_add") {
       changes.extend([
         ConfigChange {
           path: vec!["should_add".to_string().into()],
@@ -142,16 +136,22 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
         },
       ]);
     }
-    if config.contains_key("should_set") {
+    if message.config.contains_key("should_set") {
       changes.push(ConfigChange {
         path: vec!["should_set".to_string().into()],
         kind: ConfigChangeKind::Set(ConfigKeyValue::String("new_value".to_string())),
       });
     }
-    if config.contains_key("should_remove") {
+    if message.config.contains_key("should_remove") {
       changes.push(ConfigChange {
         path: vec!["should_remove".to_string().into()],
         kind: ConfigChangeKind::Remove,
+      });
+    }
+    if message.config.contains_key("should_set_past_version") {
+      changes.push(ConfigChange {
+        path: vec!["should_set_past_version".to_string().into()],
+        kind: ConfigChangeKind::Set(ConfigKeyValue::String(message.old_version.unwrap())),
       });
     }
     Ok(changes)
@@ -169,9 +169,23 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
       (false, file_text.to_string())
     };
 
-    let inner_format_text = if let Some(range) = &request.range {
-      let text = format!("{}_{}_{}", &file_text[0..range.start], request.config.ending, &file_text[range.end..]);
-      text
+    let inner_format_text = if let Some(range) = request.range {
+      if let Some(new_text) = file_text.strip_prefix("plugin-range: ") {
+        let result = (format_with_host)(HostFormatRequest {
+          file_path: PathBuf::from("./test.txt"),
+          file_bytes: new_text.to_string().into_bytes(),
+          range: Some(range),
+          override_config: Default::default(),
+          token: request.token.clone(),
+        })
+        .await?;
+        format!(
+          "plugin-range: {}",
+          result.map(|r| String::from_utf8(r).unwrap()).unwrap_or_else(|| new_text.to_string())
+        )
+      } else {
+        format!("{}_{}_{}", &file_text[0..range.start], request.config.ending, &file_text[range.end..])
+      }
     } else if file_text.starts_with("wait_cancellation") {
       request.token.wait_cancellation().await;
       return Ok(None);

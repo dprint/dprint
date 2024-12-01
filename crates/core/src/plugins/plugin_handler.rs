@@ -1,8 +1,6 @@
 use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
-use std::path::PathBuf;
-use std::sync::Arc;
 
 #[cfg(feature = "async_runtime")]
 use crate::async_runtime::FutureExt;
@@ -13,12 +11,11 @@ use crate::configuration::ConfigKeyMap;
 use crate::configuration::ConfigKeyValue;
 use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
-use crate::configuration::ResolveConfigurationResult;
 use crate::plugins::PluginInfo;
 
 use super::FileMatchingInfo;
 
-pub trait CancellationToken: Send + Sync {
+pub trait CancellationToken: Send + Sync + std::fmt::Debug {
   fn is_cancelled(&self) -> bool;
   #[cfg(feature = "async_runtime")]
   fn wait_cancellation(&self) -> LocalBoxFuture<'static, ()>;
@@ -37,6 +34,7 @@ impl CancellationToken for tokio_util::sync::CancellationToken {
 }
 
 /// A cancellation token that always says it's not cancelled.
+#[derive(Debug)]
 pub struct NullCancellationToken;
 
 impl CancellationToken for NullCancellationToken {
@@ -72,14 +70,34 @@ impl std::error::Error for CriticalFormatError {
   }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckConfigUpdatesMessage {
+  /// dprint versions < 0.47 won't have this set
+  #[serde(default)]
+  pub old_version: Option<String>,
+  pub config: ConfigKeyMap,
+}
+
 #[cfg(feature = "process")]
+#[derive(Debug)]
 pub struct HostFormatRequest {
-  pub file_path: PathBuf,
+  pub file_path: std::path::PathBuf,
   pub file_bytes: Vec<u8>,
   /// Range to format.
   pub range: FormatRange,
   pub override_config: ConfigKeyMap,
-  pub token: Arc<dyn CancellationToken>,
+  pub token: std::sync::Arc<dyn CancellationToken>,
+}
+
+#[cfg(feature = "wasm")]
+#[derive(Debug)]
+pub struct SyncHostFormatRequest<'a> {
+  pub file_path: &'a std::path::Path,
+  pub file_bytes: &'a [u8],
+  /// Range to format.
+  pub range: FormatRange,
+  pub override_config: &'a ConfigKeyMap,
 }
 
 /// `Ok(Some(text))` - Changes due to the format.
@@ -87,8 +105,14 @@ pub struct HostFormatRequest {
 /// `Err(err)` - Error formatting. Use a `CriticalError` to signal that the plugin can't recover.
 pub type FormatResult = Result<Option<Vec<u8>>>;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawFormatConfig {
+  pub plugin: ConfigKeyMap,
+  pub global: GlobalConfiguration,
+}
+
 /// A unique configuration id used for formatting.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FormatConfigId(u32);
 
 impl std::fmt::Display for FormatConfigId {
@@ -111,14 +135,26 @@ impl FormatConfigId {
   }
 }
 
+#[cfg(feature = "process")]
 pub struct FormatRequest<TConfiguration> {
-  pub file_path: PathBuf,
+  pub file_path: std::path::PathBuf,
   pub file_bytes: Vec<u8>,
   pub config_id: FormatConfigId,
-  pub config: Arc<TConfiguration>,
+  pub config: std::sync::Arc<TConfiguration>,
   /// Range to format.
   pub range: FormatRange,
-  pub token: Arc<dyn CancellationToken>,
+  pub token: std::sync::Arc<dyn CancellationToken>,
+}
+
+#[cfg(feature = "wasm")]
+pub struct SyncFormatRequest<'a, TConfiguration> {
+  pub file_path: &'a std::path::Path,
+  pub file_bytes: Vec<u8>,
+  pub config_id: FormatConfigId,
+  pub config: &'a TConfiguration,
+  /// Range to format.
+  pub range: FormatRange,
+  pub token: &'a dyn CancellationToken,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -193,7 +229,7 @@ pub trait AsyncPluginHandler: 'static {
   async fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> PluginResolveConfigurationResult<Self::Configuration>;
   /// Updates the config key map. This will be called after the CLI has upgraded the
   /// plugin in `dprint config update`.
-  async fn check_config_updates(&self, _plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
+  async fn check_config_updates(&self, _message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
     Ok(Vec::new())
   }
   /// Formats the provided file text based on the provided file path and configuration.
@@ -204,30 +240,18 @@ pub trait AsyncPluginHandler: 'static {
   ) -> FormatResult;
 }
 
-#[cfg(feature = "wasm")]
-#[derive(Clone, Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
-pub struct SyncPluginInfo {
-  #[serde(flatten)]
-  pub info: PluginInfo,
-  #[serde(flatten)]
-  pub file_matching: FileMatchingInfo,
-}
-
 /// Trait for implementing a Wasm plugin.
 #[cfg(feature = "wasm")]
 pub trait SyncPluginHandler<TConfiguration: Clone + serde::Serialize> {
   /// Resolves configuration based on the provided config map and global configuration.
-  fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> ResolveConfigurationResult<TConfiguration>;
+  fn resolve_config(&mut self, config: ConfigKeyMap, global_config: &GlobalConfiguration) -> PluginResolveConfigurationResult<TConfiguration>;
   /// Gets the plugin's plugin info.
-  fn plugin_info(&mut self) -> SyncPluginInfo;
+  fn plugin_info(&mut self) -> PluginInfo;
   /// Gets the plugin's license text.
   fn license_text(&mut self) -> String;
+  /// Updates the config key map. This will be called after the CLI has upgraded the
+  /// plugin in `dprint config update`.
+  fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>>;
   /// Formats the provided file text based on the provided file path and configuration.
-  fn format(
-    &mut self,
-    file_path: &std::path::Path,
-    file_bytes: Vec<u8>,
-    config: &TConfiguration,
-    format_with_host: impl FnMut(&std::path::Path, Vec<u8>, &ConfigKeyMap) -> FormatResult,
-  ) -> FormatResult;
+  fn format(&mut self, request: SyncFormatRequest<TConfiguration>, format_with_host: impl FnMut(SyncHostFormatRequest) -> FormatResult) -> FormatResult;
 }

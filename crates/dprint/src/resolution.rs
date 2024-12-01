@@ -13,6 +13,7 @@ use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::process::HostFormatCallback;
 use dprint_core::plugins::CancellationToken;
+use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
@@ -84,7 +85,7 @@ impl PluginWithConfig {
     hasher.write(self.info().version.as_bytes());
 
     // serialize the config keys in order to prevent the hash from changing
-    let sorted_config = self.format_config.raw.iter().collect::<BTreeMap<_, _>>();
+    let sorted_config = self.format_config.plugin.iter().collect::<BTreeMap<_, _>>();
     for (key, value) in sorted_config {
       hasher.write(key.as_bytes());
       value.hash(hasher);
@@ -179,8 +180,8 @@ impl InitializedPluginWithConfig {
     output_plugin_config_diagnostics(&self.info().name, &*self.instance, self.plugin.format_config.clone(), environment).await
   }
 
-  pub async fn check_config_updates(&self, plugin_config: ConfigKeyMap) -> Result<Vec<ConfigChange>> {
-    self.instance.check_config_updates(plugin_config).await
+  pub async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+    self.instance.check_config_updates(message).await
   }
 
   pub async fn format_text(&self, request: InitializedPluginWithConfigFormatRequest) -> FormatResult {
@@ -205,7 +206,7 @@ pub struct PluginsScope<TEnvironment: Environment> {
   pub plugins: IndexMap<String, Rc<PluginWithConfig>>,
   pub plugin_name_maps: PluginNameResolutionMaps,
   global_config_diagnostics: Vec<GlobalConfigDiagnostic>,
-  cached_editor_file_matcher: RefCell<Option<FileMatcher>>,
+  cached_editor_file_matcher: RefCell<Option<FileMatcher<TEnvironment>>>,
 }
 
 impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
@@ -326,7 +327,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       let Some(config) = &self.config else {
         return false;
       };
-      let matcher = match FileMatcher::new(config, &FilePatternArgs::default(), &config.base_path) {
+      let matcher = match FileMatcher::new(self.environment.clone(), config, &FilePatternArgs::default(), &config.base_path) {
         Ok(matcher) => matcher,
         Err(err) => {
           log_warn!(self.environment, "Error creating file matcher: {}", err);
@@ -335,7 +336,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       };
       file_matcher_borrow.replace(matcher);
     }
-    match file_matcher_borrow.as_ref() {
+    match file_matcher_borrow.as_mut() {
       Some(file_matcher) => file_matcher.matches_and_dir_not_ignored(file_path),
       None => false, // should never happen
     }
@@ -423,6 +424,10 @@ impl<TEnvironment: Environment> PluginsScopeAndPathsCollection<TEnvironment> {
     Ok(())
   }
 
+  pub fn len(&self) -> usize {
+    self.inner.len()
+  }
+
   pub fn iter(&self) -> impl Iterator<Item = &PluginsScopeAndPaths<TEnvironment>> {
     self.inner.iter()
   }
@@ -499,7 +504,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       };
       let mut config = resolve_config_from_path(&config_path, self.environment).await?;
       if !self.args.plugins.is_empty() {
-        config.plugins = parent_config.plugins.clone();
+        config.plugins.clone_from(&parent_config.plugins);
       }
       let config = Rc::new(config);
       let scope = resolve_plugins_scope(config.clone(), self.environment, self.plugin_resolver).await?;
@@ -573,7 +578,7 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
       let format_config = Arc::new(FormatConfig {
         id: next_config_id,
         global: global_config,
-        raw: plugin_config.properties,
+        plugin: plugin_config.properties,
       });
       let file_matching_info = instance.file_matching_info(format_config.clone()).await?;
       Ok::<_, anyhow::Error>(Rc::new(PluginWithConfig::new(

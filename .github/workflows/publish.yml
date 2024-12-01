@@ -3,19 +3,15 @@ name: Package Publish
 on:
   release:
     types: [published]
+  workflow_dispatch:
 jobs:
-  publish:
+  publish-cargo:
     runs-on: ubuntu-latest
     if: github.repository == 'dprint/dprint'
     steps:
-      - name: Get tag version
-        id: get_tag_version
-        run: echo ::set-output name=TAG_VERSION::${GITHUB_REF/refs\/tags\//}
-
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
-        # CARGO PUBLISH
       - uses: dsherret/rust-toolchain-file@v1
       - name: Cargo login
         run: cargo login ${{ secrets.CRATES_TOKEN }}
@@ -24,17 +20,22 @@ jobs:
         run: |
           cd crates/dprint
           cargo publish
+  publish-npm:
+    runs-on: ubuntu-latest
+    if: github.repository == 'dprint/dprint'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-        # NPM PUBLISH
-      - uses: actions/setup-node@v2
+      - uses: actions/setup-node@v4
         with:
-          node-version: "18.x"
+          node-version: "20.x"
           registry-url: "https://registry.npmjs.org"
-      - uses: denoland/setup-deno@v1
+      - uses: denoland/setup-deno@v2
 
       - name: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           cd deployment/npm
-          deno run -A build.ts ${{steps.get_tag_version.outputs.TAG_VERSION}} --publish
+          deno run -A build.ts --publish

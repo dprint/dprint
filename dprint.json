@@ -7,6 +7,9 @@
       "exts": ["rs"]
     }]
   },
+  "malva": {
+    "blockSelectorLinebreak": "always"
+  },
   "excludes": [
     "website/playground/build",
     "website/_site",
@@ -16,11 +19,13 @@
     "**/*-lock.json"
   ],
   "plugins": [
-    "https://plugins.dprint.dev/typescript-0.88.3.wasm",
-    "https://plugins.dprint.dev/json-0.19.0.wasm",
-    "https://plugins.dprint.dev/markdown-0.16.2.wasm",
-    "https://plugins.dprint.dev/toml-0.5.4.wasm",
-    "https://plugins.dprint.dev/prettier-0.27.0.json@3557a62b4507c55a47d8cde0683195b14d13c41dda66d0f0b0e111aed107e2fe",
-    "https://plugins.dprint.dev/exec-0.4.4.json@c207bf9b9a4ee1f0ecb75c594f774924baf62e8e53a2ce9d873816a408cecbf7"
+    "https://plugins.dprint.dev/typescript-0.91.6.wasm",
+    "https://plugins.dprint.dev/json-0.19.3.wasm",
+    "https://plugins.dprint.dev/markdown-0.17.2.wasm",
+    "https://plugins.dprint.dev/toml-0.6.2.wasm",
+    "https://plugins.dprint.dev/exec-0.5.0.json@8d9972eee71fa1590e04873540421f3eda7674d0f1aae3d7c788615e7b7413d0",
+    "https://plugins.dprint.dev/g-plane/malva-v0.9.0.wasm",
+    "https://plugins.dprint.dev/g-plane/markup_fmt-v0.11.0.wasm",
+    "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.4.0.wasm"
   ]
 }
