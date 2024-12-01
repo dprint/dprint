@@ -117,7 +117,10 @@ const ci = {
       steps: [
         { name: "Checkout", uses: "actions/checkout@v4" },
         { uses: "dsherret/rust-toolchain-file@v1" },
-        { uses: "Swatinem/rust-cache@v2" },
+        {
+          uses: "Swatinem/rust-cache@v2",
+          key: "${{ matrix.config.target }}",
+        },
         { uses: "denoland/setup-deno@v2" },
         {
           name: "Verify wasmer-compiler version",

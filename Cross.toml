@@ -1,3 +1,5 @@
 [target.riscv64gc-unknown-linux-gnu]
 # used for the "bindgen" feature of aws-lc-rs, which is necessary for cross compiling
-pre-build = "cargo install --force --locked bindgen-cli"
+pre-build = [
+  "cargo install --force --locked bindgen-cli",
+]
