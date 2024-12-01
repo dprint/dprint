@@ -150,6 +150,8 @@ const ci = {
           name: "Setup (Linux riscv64gc)",
           if: "matrix.config.target == 'riscv64gc-unknown-linux-gnu'",
           run: [
+            "sudo apt update",
+            "sudo apt-get install gcc-riscv64-linux-gnu g++-riscv64-linux-gnu libc6-dev-riscv64-cross",
             // necessary for cross compiling aws-lc-sys
             "cargo install --force --locked bindgen-cli",
             "rustup target add riscv64gc-unknown-linux-gnu",
@@ -182,6 +184,7 @@ const ci = {
           if: "matrix.config.cross != 'true' && !startsWith(github.ref, 'refs/tags/')",
           env: {
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
+            "CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER": "riscv64-unknown-linux-gnu-gcc",
           },
           run: [
             "cargo build -p dprint --locked --target ${{matrix.config.target}}",
@@ -192,6 +195,7 @@ const ci = {
           if: "matrix.config.cross != 'true' && startsWith(github.ref, 'refs/tags/')",
           env: {
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
+            "CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER": "riscv64-unknown-linux-gnu-gcc",
           },
           run: [
             "cargo build -p dprint --locked --target ${{matrix.config.target}} --release",
