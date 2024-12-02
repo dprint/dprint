@@ -22,6 +22,13 @@ else
 			else
 				target="aarch64-unknown-linux-musl"
 			fi ;;
+		"Linux riscv64")
+			is_musl=$(ldd /bin/sh | grep 'musl' || true)
+			if [ -z "$is_musl" ]; then
+				target="riscv64-unknown-linux-gnu"
+			else
+				target="riscv64-unknown-linux-musl"
+			fi ;;
 		*)
 			is_musl=$(ldd /bin/sh | grep 'musl' || true)
 			if [ -z "$is_musl" ]; then
