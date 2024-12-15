@@ -478,6 +478,10 @@ impl Environment for TestEnvironment {
     self.canonicalize("/cache").unwrap()
   }
 
+  fn get_home_dir(&self) -> Option<CanonicalizedPathBuf> {
+    self.canonicalize("/home").ok()
+  }
+
   fn cpu_arch(&self) -> String {
     self.cpu_arch.lock().clone()
   }
