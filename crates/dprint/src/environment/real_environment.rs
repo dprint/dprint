@@ -30,6 +30,7 @@ use crate::utils::FastInsecureHasher;
 use crate::utils::LogLevel;
 use crate::utils::Logger;
 use crate::utils::LoggerOptions;
+use crate::utils::NoProxy;
 use crate::utils::ProgressBars;
 use crate::utils::RealUrlDownloader;
 
@@ -57,7 +58,8 @@ impl RealEnvironment {
       log_level: options.log_level,
     }));
     let progress_bars = ProgressBars::new(&logger).map(Arc::new);
-    let url_downloader = Arc::new(RealUrlDownloader::new(progress_bars.clone(), logger.clone())?);
+    let no_proxy = NoProxy::from_env();
+    let url_downloader = Arc::new(RealUrlDownloader::new(progress_bars.clone(), logger.clone(), no_proxy)?);
     let environment = RealEnvironment {
       url_downloader,
       logger,
