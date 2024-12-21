@@ -64,7 +64,6 @@ impl<TProxyUrlProvider: ProxyProvider> AgentStore<TProxyUrlProvider> {
       None => true,
     });
     let key = (kind, proxy);
-    eprintln!("KEY: {:?}", key);
     let mut agents = self.agents.lock();
     let entry = agents.entry(key);
     Ok(match entry {
