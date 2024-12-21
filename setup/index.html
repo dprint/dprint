@@ -98,6 +98,7 @@ dprint init --config path/to/dprint.json
 <p>By default, dprint stores information in the current system user's cache directory (<code>~/.cache/dprint</code> on Linux, <code>~/Library/Caches/dprint</code> on Mac, and <code>%LOCALAPPDATA%/dprint</code> on Windows) such as cached plugins and incremental formatting information. If you would like to store the cache in a custom location, then specify a <code>DPRINT_CACHE_DIR</code> environment variable. Note that this directory may be periodically deleted by the CLI, so if you set it please make sure it's set correctly and you're ok with the custom directory being deleted.</p>
 <h2 id="proxy" tabindex="-1"><a class="header-anchor" href="#proxy">Proxy</a></h2>
 <p>You may specify a proxy for dprint to use when downloading plugins or configuration files by setting the <code>HTTPS_PROXY</code> and <code>HTTP_PROXY</code> environment variables.</p>
+<p>Additionally, dprint 0.48+ supports the <code>NO_PROXY</code> environment variable, which is a comma-separated list of hosts which should not use the proxy.</p>
 <h2 id="tls-certificates" tabindex="-1"><a class="header-anchor" href="#tls-certificates">TLS Certificates</a></h2>
 <p>dprint downloads plugins via HTTPS. In some cases you may wish to configure this. This is possible via the following environment variables:</p>
 <ul>
