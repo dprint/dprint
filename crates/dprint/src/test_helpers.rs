@@ -286,7 +286,7 @@ ENVIRONMENT VARIABLES:
                        Possible values: "mozilla" and "system".
                        Defaults to "mozilla,system".
   HTTPS_PROXY          Proxy to use when downloading plugins or configuration
-                       files (set HTTP_PROXY for HTTP).
+                       files (also supports HTTP_PROXY and NO_PROXY).
 
 GETTING STARTED:
   1. Navigate to the root directory of a code repository.
