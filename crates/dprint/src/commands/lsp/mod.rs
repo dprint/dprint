@@ -283,14 +283,14 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
 
   async fn send_format_request(&self, uri: &Url, request: EditorFormatRequest) -> LspResult<Option<Vec<TextEdit>>> {
     let start_time = std::time::Instant::now();
-    log_debug!(self.environment, "Received format request for '{}'", uri);
+    log_debug!(self.environment, "Received format request for {}", uri);
     let mut drop_token = DropToken::new(request.token.clone());
     let result = self.send_format_request_inner(request).await;
     drop_token.completed();
     let result = match result {
       Ok(value) => Ok(value),
       Err(err) => {
-        log_error!(self.environment, "Failed formatting {}: {:#}", uri, err);
+        log_error!(self.environment, "Failed formatting '{}': {:#}", uri, err);
         Ok(None)
       }
     };
