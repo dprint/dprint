@@ -40,11 +40,11 @@ jobs:
             run_tests: "false"
             target: x86_64-unknown-linux-musl
             cross: "false"
-          - os: ubuntu-20.04
-            run_tests: "false"
+          - os: "${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'buildjet-2vcpu-ubuntu-2204-arm' || 'ubuntu-20.04' }}"
+            run_tests: "true"
             target: aarch64-unknown-linux-gnu
             cross: "false"
-          - os: ubuntu-20.04
+          - os: "${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'buildjet-2vcpu-ubuntu-2204-arm' || 'ubuntu-20.04' }}"
             run_tests: "false"
             target: aarch64-unknown-linux-musl
             cross: "true"
@@ -68,85 +68,89 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        if: "matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')"
       - uses: dsherret/rust-toolchain-file@v1
+        if: "matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')"
       - uses: Swatinem/rust-cache@v2
         with:
           key: "${{ matrix.config.target }}"
+        if: "matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')"
       - uses: denoland/setup-deno@v2
+        if: "matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')"
       - name: Verify wasmer-compiler version
-        if: matrix.config.target == 'x86_64-unknown-linux-gnu'
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'x86_64-unknown-linux-gnu')"
         run: deno run --allow-env --allow-read --allow-net=deno.land .github/workflows/scripts/verify_wasmer_compiler_version.ts
       - name: Setup (Linux x86_64-musl)
-        if: matrix.config.target == 'x86_64-unknown-linux-musl'
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'x86_64-unknown-linux-musl')"
         run: |-
           sudo apt update
           sudo apt install musl musl-dev musl-tools
           rustup target add x86_64-unknown-linux-musl
       - name: Setup (Linux aarch64)
-        if: matrix.config.target == 'aarch64-unknown-linux-gnu'
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'aarch64-unknown-linux-gnu')"
         run: |-
           sudo apt update
           sudo apt install gcc-aarch64-linux-gnu
           rustup target add aarch64-unknown-linux-gnu
       - name: Setup cross
-        if: matrix.config.cross == 'true'
-        run: "cargo install cross --git https://github.com/cross-rs/cross --rev 88f49ff79e777bef6d3564531636ee4d3cc2f8d2"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.cross == 'true')"
+        run: "cargo install cross --git https://github.com/cross-rs/cross --rev 4090beca3cfffa44371a5bba524de3a578aa46c3"
       - name: Build test plugins (Debug)
-        if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/'))"
         run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}}"
       - name: Build test plugins (Release)
-        if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/'))"
         run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}} --release"
       - name: Clippy
-        if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && !startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'x86_64-unknown-linux-gnu' && !startsWith(github.ref, 'refs/tags/'))"
         run: cargo clippy
       - name: Build (Debug)
-        if: "matrix.config.cross != 'true' && !startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.cross != 'true' && !startsWith(github.ref, 'refs/tags/'))"
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: "cargo build -p dprint --locked --target ${{matrix.config.target}}"
       - name: Build (Release)
-        if: "matrix.config.cross != 'true' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.cross != 'true' && startsWith(github.ref, 'refs/tags/'))"
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: "cargo build -p dprint --locked --target ${{matrix.config.target}} --release"
       - name: Build cross (Debug)
-        if: "matrix.config.cross == 'true' && !startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.cross == 'true' && !startsWith(github.ref, 'refs/tags/'))"
         run: "cross build -p dprint --locked --target ${{matrix.config.target}}"
       - name: Build cross (Release)
-        if: "matrix.config.cross == 'true' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.cross == 'true' && startsWith(github.ref, 'refs/tags/'))"
         run: "cross build -p dprint --locked --target ${{matrix.config.target}} --release"
       - name: Test (Debug)
-        if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/'))"
         run: "cargo test --locked --target ${{matrix.config.target}} --all-features"
       - name: Test (Release)
-        if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/'))"
         run: "cargo test --locked --target ${{matrix.config.target}} --all-features --release"
       - name: Test integration
-        if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && !startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'x86_64-unknown-linux-gnu' && !startsWith(github.ref, 'refs/tags/'))"
         run: "cargo run -p dprint --locked --target ${{matrix.config.target}} -- check"
       - name: Create installer (Windows x86_64)
         uses: joncloud/makensis-action@v2.0
-        if: "matrix.config.target == 'x86_64-pc-windows-msvc' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'x86_64-pc-windows-msvc' && startsWith(github.ref, 'refs/tags/'))"
         with:
           script-file: "${{ github.workspace }}/deployment/installer/dprint-installer.nsi"
       - name: Pre-release (x86_64-apple-darwin)
         id: pre_release_x86_64_apple_darwin
-        if: "matrix.config.target == 'x86_64-apple-darwin' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'x86_64-apple-darwin' && startsWith(github.ref, 'refs/tags/'))"
         run: |-
           cd target/x86_64-apple-darwin/release
           zip -r dprint-x86_64-apple-darwin.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-apple-darwin.zip | awk '{print $1}')"
       - name: Pre-release (aarch64-apple-darwin)
         id: pre_release_aarch64_apple_darwin
-        if: "matrix.config.target == 'aarch64-apple-darwin' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'aarch64-apple-darwin' && startsWith(github.ref, 'refs/tags/'))"
         run: |-
           cd target/aarch64-apple-darwin/release
           zip -r dprint-aarch64-apple-darwin.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-aarch64-apple-darwin.zip | awk '{print $1}')"
       - name: Pre-release (x86_64-pc-windows-msvc)
         id: pre_release_x86_64_pc_windows_msvc
-        if: "matrix.config.target == 'x86_64-pc-windows-msvc' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'x86_64-pc-windows-msvc' && startsWith(github.ref, 'refs/tags/'))"
         run: |-
           Compress-Archive -CompressionLevel Optimal -Force -Path target/x86_64-pc-windows-msvc/release/dprint.exe -DestinationPath target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc.zip
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc.zip | awk '{print $1}')"
@@ -154,53 +158,53 @@ jobs:
           echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')"
       - name: Pre-release (x86_64-unknown-linux-gnu)
         id: pre_release_x86_64_unknown_linux_gnu
-        if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'x86_64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/'))"
         run: |-
           cd target/x86_64-unknown-linux-gnu/release
           zip -r dprint-x86_64-unknown-linux-gnu.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-unknown-linux-gnu.zip | awk '{print $1}')"
       - name: Pre-release (x86_64-unknown-linux-musl)
         id: pre_release_x86_64_unknown_linux_musl
-        if: "matrix.config.target == 'x86_64-unknown-linux-musl' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'x86_64-unknown-linux-musl' && startsWith(github.ref, 'refs/tags/'))"
         run: |-
           cd target/x86_64-unknown-linux-musl/release
           zip -r dprint-x86_64-unknown-linux-musl.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-x86_64-unknown-linux-musl.zip | awk '{print $1}')"
       - name: Pre-release (aarch64-unknown-linux-gnu)
         id: pre_release_aarch64_unknown_linux_gnu
-        if: "matrix.config.target == 'aarch64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'aarch64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/'))"
         run: |-
           cd target/aarch64-unknown-linux-gnu/release
           zip -r dprint-aarch64-unknown-linux-gnu.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-aarch64-unknown-linux-gnu.zip | awk '{print $1}')"
       - name: Pre-release (aarch64-unknown-linux-musl)
         id: pre_release_aarch64_unknown_linux_musl
-        if: "matrix.config.target == 'aarch64-unknown-linux-musl' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'aarch64-unknown-linux-musl' && startsWith(github.ref, 'refs/tags/'))"
         run: |-
           cd target/aarch64-unknown-linux-musl/release
           zip -r dprint-aarch64-unknown-linux-musl.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-aarch64-unknown-linux-musl.zip | awk '{print $1}')"
       - name: Pre-release (riscv64gc-unknown-linux-gnu)
         id: pre_release_riscv64gc_unknown_linux_gnu
-        if: "matrix.config.target == 'riscv64gc-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'riscv64gc-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/'))"
         run: |-
           cd target/riscv64gc-unknown-linux-gnu/release
           zip -r dprint-riscv64gc-unknown-linux-gnu.zip dprint
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 dprint-riscv64gc-unknown-linux-gnu.zip | awk '{print $1}')"
       - name: Upload artifacts (x86_64-apple-darwin)
-        if: "matrix.config.target == 'x86_64-apple-darwin' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'x86_64-apple-darwin' && startsWith(github.ref, 'refs/tags/'))"
         uses: actions/upload-artifact@v4
         with:
           name: x86_64-apple-darwin-artifacts
           path: target/x86_64-apple-darwin/release/dprint-x86_64-apple-darwin.zip
       - name: Upload artifacts (aarch64-apple-darwin)
-        if: "matrix.config.target == 'aarch64-apple-darwin' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'aarch64-apple-darwin' && startsWith(github.ref, 'refs/tags/'))"
         uses: actions/upload-artifact@v4
         with:
           name: aarch64-apple-darwin-artifacts
           path: target/aarch64-apple-darwin/release/dprint-aarch64-apple-darwin.zip
       - name: Upload artifacts (x86_64-pc-windows-msvc)
-        if: "matrix.config.target == 'x86_64-pc-windows-msvc' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'x86_64-pc-windows-msvc' && startsWith(github.ref, 'refs/tags/'))"
         uses: actions/upload-artifact@v4
         with:
           name: x86_64-pc-windows-msvc-artifacts
@@ -208,43 +212,43 @@ jobs:
             target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc.zip
             target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe
       - name: Upload artifacts (x86_64-unknown-linux-gnu)
-        if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'x86_64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/'))"
         uses: actions/upload-artifact@v4
         with:
           name: x86_64-unknown-linux-gnu-artifacts
           path: target/x86_64-unknown-linux-gnu/release/dprint-x86_64-unknown-linux-gnu.zip
       - name: Upload artifacts (x86_64-unknown-linux-musl)
-        if: "matrix.config.target == 'x86_64-unknown-linux-musl' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'x86_64-unknown-linux-musl' && startsWith(github.ref, 'refs/tags/'))"
         uses: actions/upload-artifact@v4
         with:
           name: x86_64-unknown-linux-musl-artifacts
           path: target/x86_64-unknown-linux-musl/release/dprint-x86_64-unknown-linux-musl.zip
       - name: Upload artifacts (aarch64-unknown-linux-gnu)
-        if: "matrix.config.target == 'aarch64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'aarch64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/'))"
         uses: actions/upload-artifact@v4
         with:
           name: aarch64-unknown-linux-gnu-artifacts
           path: target/aarch64-unknown-linux-gnu/release/dprint-aarch64-unknown-linux-gnu.zip
       - name: Upload artifacts (aarch64-unknown-linux-musl)
-        if: "matrix.config.target == 'aarch64-unknown-linux-musl' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'aarch64-unknown-linux-musl' && startsWith(github.ref, 'refs/tags/'))"
         uses: actions/upload-artifact@v4
         with:
           name: aarch64-unknown-linux-musl-artifacts
           path: target/aarch64-unknown-linux-musl/release/dprint-aarch64-unknown-linux-musl.zip
       - name: Upload artifacts (riscv64gc-unknown-linux-gnu)
-        if: "matrix.config.target == 'riscv64gc-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'riscv64gc-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/'))"
         uses: actions/upload-artifact@v4
         with:
           name: riscv64gc-unknown-linux-gnu-artifacts
           path: target/riscv64gc-unknown-linux-gnu/release/dprint-riscv64gc-unknown-linux-gnu.zip
       - name: Test shell installer
-        if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/'))"
         run: |-
           cd website/src/assets
           chmod +x install.sh
           ./install.sh
       - name: Test powershell installer (Windows)
-        if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/') && matrix.config.target == 'x86_64-pc-windows-msvc'"
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/') && matrix.config.target == 'x86_64-pc-windows-msvc')"
         shell: pwsh
         run: |-
           cd website/src/assets
