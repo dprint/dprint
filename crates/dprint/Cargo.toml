@@ -17,7 +17,7 @@ description = "Binary for dprint code formatter—a pluggable and configurable c
 anyhow = "=1.0.86"
 clap = "=4.5.4"
 clap_complete = "=4.5.2"
-console_static_text = "=0.8.2"
+console_static_text = "=0.8.3"
 crossterm = "=0.27.0" # manually retest everything when bumping this crate
 dirs = "=5.0.1"
 dissimilar = "=1.0.9"

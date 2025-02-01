@@ -165,7 +165,8 @@ fn inner_download(url: &Url, retry_count: u8, agent: &ureq::Agent, progress_bars
 }
 
 fn read_response(url: &Url, retry_count: u8, reader: &mut impl Read, total_size: usize, progress_bars: Option<&ProgressBars>) -> Result<Vec<u8>> {
-  let mut final_bytes = Vec::with_capacity(total_size);
+  let mut final_bytes = Vec::new();
+  final_bytes.try_reserve_exact(total_size)?;
   if let Some(progress_bars) = &progress_bars {
     let mut buf: [u8; 512] = [0; 512]; // ensure progress bars update often
     let mut message = format!("Downloading {}", url);
