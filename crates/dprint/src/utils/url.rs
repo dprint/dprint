@@ -351,6 +351,7 @@ mod test {
   use std::process::Command;
   use std::process::Stdio;
   use std::sync::Arc;
+  use std::time::Duration;
 
   use crate::utils::url::ProxyProvider;
   use crate::utils::LogLevel;
@@ -413,22 +414,35 @@ mod test {
       return; // ignore if the person running the test suite doesn't have Deno installed
     };
 
+    // wait for the server to start
+    {
+      let downloader = create_downloader(Some(vec![]));
+      for i in 1..=10 {
+        let result = downloader.download_no_retries_for_testing("https://localhost:8063");
+        if result.is_ok() {
+          break;
+        } else {
+          std::thread::sleep(Duration::from_millis(10 * i));
+        }
+      }
+    }
+
     // allow all
     {
       let downloader = create_downloader(Some(vec![]));
-      let value = downloader.download("https://localhost:8063").unwrap().unwrap();
+      let value = downloader.download_no_retries_for_testing("https://localhost:8063").unwrap().unwrap();
       assert_eq!(value, "Hi".as_bytes().to_vec());
     }
     // right host
     {
       let downloader = create_downloader(Some(vec!["localhost".to_string()]));
-      let value = downloader.download("https://localhost:8063").unwrap().unwrap();
+      let value = downloader.download_no_retries_for_testing("https://localhost:8063").unwrap().unwrap();
       assert_eq!(value, "Hi".as_bytes().to_vec());
     }
     // right ip
     {
       let downloader = create_downloader(Some(vec!["127.0.0.1".to_string()]));
-      let value = downloader.download("https://127.0.0.1:8063").unwrap().unwrap();
+      let value = downloader.download_no_retries_for_testing("https://127.0.0.1:8063").unwrap().unwrap();
       assert_eq!(value, "Hi".as_bytes().to_vec());
     }
     // not specified host
