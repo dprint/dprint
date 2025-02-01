@@ -416,19 +416,19 @@ mod test {
     // allow all
     {
       let downloader = create_downloader(Some(vec![]));
-      let value = downloader.download_no_retries_for_testing("https://localhost:8063").unwrap().unwrap();
+      let value = downloader.download("https://localhost:8063").unwrap().unwrap();
       assert_eq!(value, "Hi".as_bytes().to_vec());
     }
     // right host
     {
       let downloader = create_downloader(Some(vec!["localhost".to_string()]));
-      let value = downloader.download_no_retries_for_testing("https://localhost:8063").unwrap().unwrap();
+      let value = downloader.download("https://localhost:8063").unwrap().unwrap();
       assert_eq!(value, "Hi".as_bytes().to_vec());
     }
     // right ip
     {
       let downloader = create_downloader(Some(vec!["127.0.0.1".to_string()]));
-      let value = downloader.download_no_retries_for_testing("https://127.0.0.1:8063").unwrap().unwrap();
+      let value = downloader.download("https://127.0.0.1:8063").unwrap().unwrap();
       assert_eq!(value, "Hi".as_bytes().to_vec());
     }
     // not specified host
