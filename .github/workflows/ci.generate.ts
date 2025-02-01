@@ -6,6 +6,7 @@ enum OperatingSystem {
   MacX86 = "macos-13",
   Windows = "windows-latest",
   Linux = "ubuntu-20.04",
+  LinuxArm = "${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'buildjet-2vcpu-ubuntu-2204-arm' || 'ubuntu-20.04' }}",
 }
 
 interface ProfileData {
@@ -14,6 +15,16 @@ interface ProfileData {
   runTests?: boolean;
   /** Build using cross. */
   cross?: boolean;
+}
+
+function withCondition(
+  step: Record<string, unknown>,
+  condition: string,
+): Record<string, unknown> {
+  return {
+    ...step,
+    if: "if" in step ? `(${condition}) && (${step.if})` : condition,
+  };
 }
 
 const profileDataItems: ProfileData[] = [{
@@ -36,12 +47,12 @@ const profileDataItems: ProfileData[] = [{
   os: OperatingSystem.Linux,
   target: "x86_64-unknown-linux-musl",
 }, {
-  os: OperatingSystem.Linux,
+  os: OperatingSystem.LinuxArm,
   target: "aarch64-unknown-linux-gnu",
+  runTests: true,
 }, {
-  os: OperatingSystem.Linux,
+  os: OperatingSystem.LinuxArm,
   target: "aarch64-unknown-linux-musl",
-  cross: true,
 }, {
   os: OperatingSystem.Linux,
   target: "riscv64gc-unknown-linux-gnu",
@@ -148,10 +159,19 @@ const ci = {
           ].join("\n"),
         },
         {
+          name: "Setup (Linux aarch64-musl)",
+          if: "matrix.config.target == 'aarch64-unknown-linux-musl'",
+          run: [
+            "sudo apt update",
+            "sudo apt install musl musl-dev musl-tools",
+            "rustup target add aarch64-unknown-linux-musl",
+          ].join("\n"),
+        },
+        {
           name: "Setup cross",
           if: "matrix.config.cross == 'true'",
           run: [
-            "cargo install cross --git https://github.com/cross-rs/cross --rev 88f49ff79e777bef6d3564531636ee4d3cc2f8d2",
+            "cargo install cross --git https://github.com/cross-rs/cross --rev 4090beca3cfffa44371a5bba524de3a578aa46c3",
           ].join("\n"),
         },
         {
@@ -236,6 +256,7 @@ const ci = {
                   `echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 ${profile.zipFileName} | awk '{print $1}')\"`,
                 ];
               case OperatingSystem.Linux:
+              case OperatingSystem.LinuxArm:
                 return [
                   `cd target/${profile.target}/release`,
                   `zip -r ${profile.zipFileName} dprint`,
@@ -314,7 +335,13 @@ const ci = {
         //     "deno run -A build.ts 0.45.1",
         //   ].join("\n"),
         // },
-      ],
+      ].map((step) =>
+        withCondition(
+          step,
+          // only run arm64 linux on main or tags
+          "matrix.config.target != 'aarch64-unknown-linux-gnu' && matrix.config.target != 'aarch64-unknown-linux-musl' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')",
+        )
+      ),
     },
     draft_release: {
       name: "draft_release",
