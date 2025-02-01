@@ -331,7 +331,7 @@ const ci = {
         withCondition(
           step,
           // only run arm64 linux on main or tags
-          "matrix.config.target != 'aarch64-unknown-linux-gnu' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')",
+          "matrix.config.target != 'aarch64-unknown-linux-gnu' && matrix.config.target != 'aarch64-unknown-linux-musl' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')",
         )
       ),
     },
