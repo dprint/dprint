@@ -172,7 +172,7 @@ mod test {
       vec![
         get_expected_help_text(),
         "\nPLUGINS HELP:",
-        "    test-plugin         https://dprint.dev/plugins/test\n    test-process-plugin https://dprint.dev/plugins/test-process"
+        "    test-plugin         https://dprint.dev/plugins/test\r\n    test-process-plugin https://dprint.dev/plugins/test-process"
       ]
     );
   }

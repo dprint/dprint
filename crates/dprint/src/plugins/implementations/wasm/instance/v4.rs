@@ -408,7 +408,9 @@ impl InitializedWasmPluginInstanceV4 {
   }
 
   fn receive_bytes(&mut self, len: usize) -> Result<Vec<u8>> {
-    let mut bytes: Vec<u8> = vec![0; len];
+    let mut bytes = Vec::new();
+    bytes.try_reserve_exact(len)?;
+    bytes.resize(len, 0);
     self.read_bytes_from_shared_bytes(&mut bytes)?;
     Ok(bytes)
   }
