@@ -68,6 +68,15 @@ dprint downloads plugins via HTTPS. In some cases you may wish to configure this
 
 Requires dprint >= 0.46.0
 
+### Unsafely ignoring certificates
+
+Starting in dprint 0.48.0, you can unsafely ignore all or some TLS certificates via the `DPRINT_IGNORE_CERTS` environment variable:
+
+- `DPRINT_IGNORE_CERTS=1` - Ignore all TLS certificates.
+- `DPRINT_IGNORE_CERTS=dprint.dev,localhost,[::],127.0.0.1` - Ignore certs from the specified hosts.
+
+This is very unsafe to do and not recommended. A warning will be displayed on first download when this is done.
+
 ## Limiting Parallelism
 
 By default, dprint only runs for a short period of time and so it will try to take advantage of as many CPU cores as it can. This might be an issue in some scenarios, and so you can limit the amount of parallelism by setting the `DPRINT_MAX_THREADS` environment variable in version 0.32 and up (ex. `DPRINT_MAX_THREADS=4`).

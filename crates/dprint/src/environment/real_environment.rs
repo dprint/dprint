@@ -33,6 +33,7 @@ use crate::utils::LoggerOptions;
 use crate::utils::NoProxy;
 use crate::utils::ProgressBars;
 use crate::utils::RealUrlDownloader;
+use crate::utils::UnsafelyIgnoreCertificates;
 
 // cache the cwd because it's much faster than looking it up each time
 static CACHED_CWD: OnceCell<CanonicalizedPathBuf> = OnceCell::new();
@@ -59,7 +60,12 @@ impl RealEnvironment {
     }));
     let progress_bars = ProgressBars::new(&logger).map(Arc::new);
     let no_proxy = NoProxy::from_env();
-    let url_downloader = Arc::new(RealUrlDownloader::new(progress_bars.clone(), logger.clone(), no_proxy)?);
+    let url_downloader = Arc::new(RealUrlDownloader::new(
+      progress_bars.clone(),
+      logger.clone(),
+      no_proxy,
+      UnsafelyIgnoreCertificates::from_env(),
+    )?);
     let environment = RealEnvironment {
       url_downloader,
       logger,
