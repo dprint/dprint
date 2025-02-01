@@ -106,6 +106,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
     total_size: usize,
   ) -> TResult;
   fn get_cache_dir(&self) -> CanonicalizedPathBuf;
+  fn get_home_dir(&self) -> Option<CanonicalizedPathBuf>;
   /// Gets the CPU architecture.
   fn cpu_arch(&self) -> String;
   /// Gets the operating system.
