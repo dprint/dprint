@@ -101,14 +101,16 @@ pub fn resolve_url_or_file_path_to_path_source(url_or_file_path: &str, base: &Pa
       }
       return Ok(PathSource::new_remote(url));
     }
-  } else if url_or_file_path.starts_with("~/") {
+  } else if let Some(rest) = url_or_file_path.strip_prefix("~/") {
     // handle home directory
     match environment.get_home_dir() {
       Some(home_dir) => {
-        if url_or_file_path.len() < 4 {
-          return Ok(PathSource::new_local(environment.canonicalize(home_dir)?));
-        }
-        return Ok(PathSource::new_local(environment.canonicalize(home_dir.join(&url_or_file_path[2..]))?));
+        let path = if rest.is_empty() {
+          home_dir
+        } else {
+          environment.canonicalize(home_dir.join(rest))?
+        };
+        return Ok(PathSource::new_local(path));
       }
       None => bail!("Failed to get home directory path"),
     }
@@ -278,5 +280,19 @@ mod tests {
     assert!(is_absolute_windows_file_path("C:\\test"));
     assert!(!is_absolute_windows_file_path("C://test"));
     assert!(!is_absolute_windows_file_path("C:\\\\test"));
+  }
+
+  #[test]
+  fn should_resolve_home_dir() {
+    let environment = TestEnvironment::new();
+    environment.clone().run_in_runtime(async move {
+      let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/other"));
+      let cases = [("~/", "/home"), ("~/other", "/home/other"), ("~/a", "/home/a")];
+      for (input, expected) in cases {
+        let result = resolve_url_or_file_path(input, &base, &environment).await.unwrap();
+        assert_eq!(result.is_local(), true);
+        assert_eq!(result.file_path, CanonicalizedPathBuf::new_for_testing(expected));
+      }
+    });
   }
 }
