@@ -70,7 +70,7 @@ Requires dprint >= 0.46.0
 
 ### Unsafely ignoring certificates
 
-Starting in dprint 0.48.0, you can unsafely ignore all or some TLS certificates via the `DPRINT_IGNORE_CERTS` environment variable:
+Starting in dprint 0.49.0, you can unsafely ignore all or some TLS certificates via the `DPRINT_IGNORE_CERTS` environment variable:
 
 - `DPRINT_IGNORE_CERTS=1` - Ignore all TLS certificates.
 - `DPRINT_IGNORE_CERTS=dprint.dev,localhost,[::],127.0.0.1` - Ignore certs from the specified hosts.
