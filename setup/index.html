@@ -111,6 +111,13 @@ dprint init --config path/to/dprint.json
 </li>
 </ul>
 <p>Requires dprint &gt;= 0.46.0</p>
+<h3 id="unsafely-ignoring-certificates" tabindex="-1"><a class="header-anchor" href="#unsafely-ignoring-certificates">Unsafely ignoring certificates</a></h3>
+<p>Starting in dprint 0.48.0, you can unsafely ignore all or some TLS certificates via the <code>DPRINT_IGNORE_CERTS</code> environment variable:</p>
+<ul>
+<li><code>DPRINT_IGNORE_CERTS=1</code> - Ignore all TLS certificates.</li>
+<li><code>DPRINT_IGNORE_CERTS=dprint.dev,localhost,[::],127.0.0.1</code> - Ignore certs from the specified hosts.</li>
+</ul>
+<p>This is very unsafe to do and not recommended. A warning will be displayed on first download when this is done.</p>
 <h2 id="limiting-parallelism" tabindex="-1"><a class="header-anchor" href="#limiting-parallelism">Limiting Parallelism</a></h2>
 <p>By default, dprint only runs for a short period of time and so it will try to take advantage of as many CPU cores as it can. This might be an issue in some scenarios, and so you can limit the amount of parallelism by setting the <code>DPRINT_MAX_THREADS</code> environment variable in version 0.32 and up (ex. <code>DPRINT_MAX_THREADS=4</code>).</p>
 <p>Next step: <a href="/config">Configuration</a></p>
