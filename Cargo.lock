@@ -888,7 +888,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.67.2"
+version = "0.67.3"
 dependencies = [
  "anyhow",
  "async-trait",
