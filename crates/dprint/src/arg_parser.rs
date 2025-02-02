@@ -399,6 +399,9 @@ ENVIRONMENT VARIABLES:
   DPRINT_TLS_CA_STORE  Comma-separated list of order dependent certificate stores.
                        Possible values: "mozilla" and "system".
                        Defaults to "mozilla,system".
+  DPRINT_IGNORE_CERTS  Unsafe way to get dprint to ignore certificates. Specify 1
+                       to ignore all certificates or a comma separated list of specific
+                       hosts to ignore (ex. dprint.dev,localhost,[::],127.0.0.1)
   HTTPS_PROXY          Proxy to use when downloading plugins or configuration
                        files (also supports HTTP_PROXY and NO_PROXY).{after-help}"#)
     .after_help(
