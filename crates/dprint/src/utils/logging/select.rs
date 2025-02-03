@@ -29,20 +29,20 @@ pub fn show_select(logger: &Logger, context_name: &str, prompt: &str, item_hangi
 
     if let Event::Key(key_event) = read_terminal_key_press()? {
       match &key_event.code {
-        KeyCode::Up => {
+        KeyCode::Up | KeyCode::Char('k') => {
           if data.active_index == 0 {
             data.active_index = data.items.len() - 1;
           } else {
             data.active_index -= 1;
           }
         }
-        KeyCode::Down => {
+        KeyCode::Down | KeyCode::Char('j') => {
           data.active_index = (data.active_index + 1) % data.items.len();
         }
-        KeyCode::Enter => {
+        KeyCode::Enter | KeyCode::Char('l') => {
           break;
         }
-        KeyCode::Esc => {
+        KeyCode::Esc | KeyCode::Char('q') => {
           logger.remove_refresh_item(LoggerRefreshItemKind::Selection);
           bail!("Selection cancelled.");
         }
