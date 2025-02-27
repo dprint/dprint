@@ -21,11 +21,11 @@ console_static_text = "=0.8.3"
 crossterm = "=0.27.0" # manually retest everything when bumping this crate
 dirs = "=5.0.1"
 dissimilar = "=1.0.9"
-dprint-core = { path = "../core", version = "=0.67.3", features = ["process", "wasm"] }
+dprint-core = { path = "../core", version = "=0.67.4", features = ["process", "wasm"] }
 dunce = "=1.0.4"
 fs3 = "=0.5.0"
 ignore = "=0.4.22"
-indexmap = { version = "=2.2.6", features = ["serde"] }
+indexmap = { version = "=2.7.1", features = ["serde"] }
 ipnet = "2.10.1"
 jsonc-parser = { version = "=0.26.2", features = ["cst", "preserve_order"] }
 once_cell = "=1.19.0"
