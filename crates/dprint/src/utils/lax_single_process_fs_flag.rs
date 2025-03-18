@@ -142,7 +142,7 @@ impl<TEnvironment: Environment> Drop for LaxSingleProcessFsFlagInner<TEnvironmen
     // kill the poll thread
     self.finished_token.cancel();
     // release the file lock
-    if let Err(err) = self.fs_file.unlock() {
+    if let Err(err) = FileExt::unlock(&self.fs_file) {
       log_debug!(self.environment, "Failed releasing lock for {}. {:#}", self.file_path.display(), err);
     }
   }

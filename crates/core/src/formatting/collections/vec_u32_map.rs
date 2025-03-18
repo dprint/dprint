@@ -75,8 +75,12 @@ impl VecU32BoolMap {
     let option_bit_index = key % 4;
     let value_bit_index = option_bit_index + 4;
     let byte = self.0[byte_index];
-    let byte = byte | 1 << option_bit_index; // set on
-    let byte = if value { byte | 1 << value_bit_index } else { byte & !(1 << value_bit_index) };
+    let byte = byte | (1 << option_bit_index); // set on
+    let byte = if value {
+      byte | (1 << value_bit_index)
+    } else {
+      byte & !(1 << value_bit_index)
+    };
     self.0[byte_index] = byte;
   }
 
@@ -95,9 +99,9 @@ impl VecU32BoolMap {
     if byte_index < self.0.len() {
       let option_bit_index = key % 4;
       let byte = self.0[byte_index];
-      if (byte >> option_bit_index & 1) == 1 {
+      if ((byte >> option_bit_index) & 1) == 1 {
         let value_bit_index = option_bit_index + 4;
-        Some((byte >> value_bit_index & 1) == 1)
+        Some(((byte >> value_bit_index) & 1) == 1)
       } else {
         None
       }

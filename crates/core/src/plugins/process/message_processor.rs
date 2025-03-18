@@ -326,10 +326,10 @@ fn handle_message<TConfiguration: Serialize + Clone + Send + Sync>(
   };
 }
 
-async fn handle_async_message<'a, TConfiguration: Serialize + Clone + Send + Sync>(
+async fn handle_async_message<TConfiguration: Serialize + Clone + Send + Sync>(
   context: &ProcessContext<TConfiguration>,
   original_message_id: u32,
-  action: LocalBoxFuture<'a, Result<MessageBody>>,
+  action: LocalBoxFuture<'_, Result<MessageBody>>,
 ) {
   match action.await {
     Ok(body) => send_response_body(context, body),

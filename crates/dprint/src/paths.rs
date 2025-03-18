@@ -111,7 +111,7 @@ pub async fn get_and_resolve_file_paths<'a>(
   get_and_resolve_file_patterns(config, file_patterns, environment).await
 }
 
-async fn get_and_resolve_file_patterns<'a>(config: &ResolvedConfig, file_patterns: GlobPatterns, environment: &impl Environment) -> Result<GlobOutput> {
+async fn get_and_resolve_file_patterns(config: &ResolvedConfig, file_patterns: GlobPatterns, environment: &impl Environment) -> Result<GlobOutput> {
   let cwd = environment.cwd();
   let is_cwd_in_base = cwd.starts_with(&config.base_path);
   let is_in_sub_dir = cwd != config.base_path && is_cwd_in_base;
