@@ -45,7 +45,7 @@ tokio-util = { version = "=0.7.11" }
 tower-lsp = "=0.20.0"
 twox-hash = "=1.6.3"
 url = "=2.5.0"
-zip = "=2.2.1"
+zip = "=2.4.1"
 
 # keep these in sync
 rustls = { version = "=0.23.19", default-features = false, features = ["ring", "logging", "std", "tls12"] }
