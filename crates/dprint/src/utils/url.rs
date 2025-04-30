@@ -347,6 +347,7 @@ fn read_response(url: &Url, retry_count: u8, reader: &mut impl Read, total_size:
 
 #[cfg(test)]
 mod test {
+  use std::io::ErrorKind;
   use std::process::Child;
   use std::process::Command;
   use std::process::Stdio;
@@ -535,7 +536,7 @@ kGUMOx8j0U5fU8eSLECGi0FxBA==
     match result {
       Ok(child) => Some(ChildDrop { child }),
       Err(err) => {
-        if err.to_string().contains("Not found") {
+        if err.kind() == ErrorKind::NotFound {
           return None;
         } else {
           panic!("Failed running Deno: {:#}", err);
