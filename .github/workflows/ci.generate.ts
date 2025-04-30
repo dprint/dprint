@@ -5,8 +5,8 @@ enum OperatingSystem {
   Mac = "macOS-latest",
   MacX86 = "macos-13",
   Windows = "windows-latest",
-  Linux = "ubuntu-20.04",
-  LinuxArm = "${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'buildjet-2vcpu-ubuntu-2204-arm' || 'ubuntu-20.04' }}",
+  Linux = "ubuntu-22.04",
+  LinuxArm = "${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'buildjet-2vcpu-ubuntu-2204-arm' || 'ubuntu-22.04' }}",
 }
 
 interface ProfileData {
