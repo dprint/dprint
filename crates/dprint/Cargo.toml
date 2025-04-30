@@ -44,7 +44,7 @@ tokio = { version = "=1.37.0", features = ["rt", "time", "macros", "rt-multi-thr
 tokio-util = { version = "=0.7.11" }
 tower-lsp = "=0.20.0"
 twox-hash = "=1.6.3"
-url = "=2.5.0"
+url = "=2.5.4"
 zip = "=2.4.1"
 
 # keep these in sync
