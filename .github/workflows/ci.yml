@@ -32,23 +32,23 @@ jobs:
             run_tests: "true"
             target: x86_64-pc-windows-msvc
             cross: "false"
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             run_tests: "true"
             target: x86_64-unknown-linux-gnu
             cross: "false"
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             run_tests: "false"
             target: x86_64-unknown-linux-musl
             cross: "false"
-          - os: "${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'buildjet-2vcpu-ubuntu-2204-arm' || 'ubuntu-20.04' }}"
+          - os: "${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'buildjet-2vcpu-ubuntu-2204-arm' || 'ubuntu-22.04' }}"
             run_tests: "true"
             target: aarch64-unknown-linux-gnu
             cross: "false"
-          - os: "${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'buildjet-2vcpu-ubuntu-2204-arm' || 'ubuntu-20.04' }}"
+          - os: "${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'buildjet-2vcpu-ubuntu-2204-arm' || 'ubuntu-22.04' }}"
             run_tests: "false"
             target: aarch64-unknown-linux-musl
             cross: "false"
-          - os: ubuntu-20.04
+          - os: ubuntu-22.04
             run_tests: "false"
             target: riscv64gc-unknown-linux-gnu
             cross: "true"
