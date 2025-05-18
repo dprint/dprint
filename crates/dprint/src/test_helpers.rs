@@ -278,22 +278,18 @@ SUBCOMMANDS:
 More details at `dprint help <SUBCOMMAND>`
 
 OPTIONS:
-  -c, --config <config>
-          Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.
-      --no-config-discovery[=<BOOLEAN>]
-          Disables configuration discovery. [possible values: true, false]
-      --plugins <urls/files>...
-          List of urls or file paths of plugins to use. This overrides what is specified in the config file.
-  -L, --log-level <log-level>
-          Set log level [default: info] [possible values: debug, info, warn, error, silent]
+  -c, --config <config>             Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.
+      --config-discovery=<BOOLEAN>  Sets the config discovery mode. Set to `false` to completely disable.
+      --plugins <urls/files>...     List of urls or file paths of plugins to use. This overrides what is specified in the config file.
+  -L, --log-level <log-level>       Set log level [default: info] [possible values: debug, info, warn, error, silent]
 
 ENVIRONMENT VARIABLES:
   DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
                        directory may be periodically deleted by the CLI.
   DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
                        formatting (ex. DPRINT_MAX_THREADS=4).
-  DPRINT_NO_CONFIG_DISCOVERY
-                       Disables searching for configuration files when set to "1".
+  DPRINT_CONFIG_DISCOVERY
+                       Sets the config discovery mode. Set to "false"/"0" to disable.
   DPRINT_CERT          Load certificate authority from PEM encoded file.
   DPRINT_TLS_CA_STORE  Comma-separated list of order dependent certificate stores.
                        Possible values: "mozilla" and "system".

@@ -425,7 +425,7 @@ mod test {
       &environment,
       GlobOptions {
         start_dir: PathBuf::from("/"),
-        config_discovery: ConfigDiscovery::Enabled,
+        config_discovery: ConfigDiscovery::True,
         file_patterns: GlobPatterns {
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
@@ -451,7 +451,7 @@ mod test {
       &environment,
       GlobOptions {
         start_dir: PathBuf::from("/"),
-        config_discovery: ConfigDiscovery::Enabled,
+        config_discovery: ConfigDiscovery::True,
         file_patterns: GlobPatterns {
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
@@ -475,7 +475,7 @@ mod test {
       &environment,
       GlobOptions {
         start_dir: PathBuf::from("/"),
-        config_discovery: ConfigDiscovery::Enabled,
+        config_discovery: ConfigDiscovery::True,
         file_patterns: GlobPatterns {
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
@@ -501,7 +501,7 @@ mod test {
       &environment,
       GlobOptions {
         start_dir: PathBuf::from("/"),
-        config_discovery: ConfigDiscovery::Enabled,
+        config_discovery: ConfigDiscovery::True,
         file_patterns: GlobPatterns {
           arg_includes: None,
           config_includes: Some(vec![
@@ -532,7 +532,7 @@ mod test {
       &environment,
       GlobOptions {
         start_dir: PathBuf::from("/"),
-        config_discovery: ConfigDiscovery::Enabled,
+        config_discovery: ConfigDiscovery::True,
         file_patterns: GlobPatterns {
           arg_includes: None,
           config_includes: Some(vec![
@@ -565,7 +565,7 @@ mod test {
       &environment,
       GlobOptions {
         start_dir: PathBuf::from("/test/"),
-        config_discovery: ConfigDiscovery::Enabled,
+        config_discovery: ConfigDiscovery::True,
         file_patterns: GlobPatterns {
           arg_includes: None,
           config_includes: Some(vec![
@@ -597,7 +597,7 @@ mod test {
       &environment,
       GlobOptions {
         start_dir: PathBuf::from("/"),
-        config_discovery: ConfigDiscovery::Enabled,
+        config_discovery: ConfigDiscovery::True,
         file_patterns: GlobPatterns {
           arg_includes: None,
           config_includes: Some(vec![

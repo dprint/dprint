@@ -9,13 +9,25 @@ use crate::utils::StdInReader;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ConfigDiscovery {
-  Enabled,
-  Disabled,
+  True,
+  False,
+}
+
+impl std::str::FromStr for ConfigDiscovery {
+  type Err = String;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    match s.to_ascii_lowercase().as_str() {
+      "true" => Ok(ConfigDiscovery::True),
+      "false" => Ok(ConfigDiscovery::False),
+      _ => Err(format!("expected 'true' or 'false', got '{s}'")),
+    }
+  }
 }
 
 impl ConfigDiscovery {
   pub fn is_true(&self) -> bool {
-    matches!(self, Self::Enabled)
+    matches!(self, Self::True)
   }
 }
 
@@ -24,7 +36,7 @@ pub struct CliArgs {
   pub log_level: LogLevel,
   pub plugins: Vec<String>,
   pub config: Option<String>,
-  no_config_discovery: Option<bool>,
+  config_discovery: Option<ConfigDiscovery>,
 }
 
 impl CliArgs {
@@ -35,7 +47,7 @@ impl CliArgs {
       log_level: LogLevel::Info,
       plugins: vec![],
       config: None,
-      no_config_discovery: None,
+      config_discovery: None,
     }
   }
 
@@ -53,18 +65,18 @@ impl CliArgs {
       log_level: LogLevel::Info,
       config: None,
       plugins: Vec::new(),
-      no_config_discovery: None,
+      config_discovery: None,
     }
   }
 
   pub fn config_discovery(&self, env: &impl Environment) -> ConfigDiscovery {
-    let no_config_discovery = match self.no_config_discovery {
+    match self.config_discovery {
       Some(value) => value,
-      None => env.has_env_var_flag("DPRINT_NO_CONFIG_DISCOVERY"),
-    };
-    match no_config_discovery {
-      true => ConfigDiscovery::Disabled,
-      false => ConfigDiscovery::Enabled,
+      None => match env.env_var("DPRINT_CONFIG_DISCOVERY") {
+        Some(value) if value == "true" || value == "1" => ConfigDiscovery::True,
+        Some(value) if value == "false" || value == "0" => ConfigDiscovery::False,
+        _ => ConfigDiscovery::True,
+      },
     }
   }
 }
@@ -308,7 +320,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       LogLevel::Info
     },
     config: matches.get_one::<String>("config").map(String::from),
-    no_config_discovery: matches.get_one::<bool>("no-config-discovery").copied(),
+    config_discovery: matches.get_one::<ConfigDiscovery>("config-discovery").copied(),
     plugins: maybe_values_to_vec(matches.get_many("plugins")),
   })
 }
@@ -423,8 +435,8 @@ ENVIRONMENT VARIABLES:
                        directory may be periodically deleted by the CLI.
   DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
                        formatting (ex. DPRINT_MAX_THREADS=4).
-  DPRINT_NO_CONFIG_DISCOVERY
-                       Disables searching for configuration files when set to "1".
+  DPRINT_CONFIG_DISCOVERY
+                       Sets the config discovery mode. Set to "false"/"0" to disable.
   DPRINT_CERT          Load certificate authority from PEM encoded file.
   DPRINT_TLS_CA_STORE  Comma-separated list of order dependent certificate stores.
                        Possible values: "mozilla" and "system".
@@ -595,13 +607,13 @@ EXAMPLES:
         .num_args(1)
     )
     .arg(
-      Arg::new("no-config-discovery")
-        .long("no-config-discovery")
-        .help("Disables configuration discovery.")
+      Arg::new("config-discovery")
+        .long("config-discovery")
+        .help("Sets the config discovery mode. Set to `false` to completely disable.")
         .global(true)
-        .value_parser(clap::value_parser!(bool))
+        .value_parser(clap::value_parser!(ConfigDiscovery))
         .value_name("BOOLEAN")
-        .num_args(0..=1)
+        .num_args(1)
         .require_equals(true)
         .default_missing_value("true")
     )
