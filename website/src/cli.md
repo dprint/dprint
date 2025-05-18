@@ -109,7 +109,7 @@ This flag is more useful for one-off commands. It is recommended to use the defa
 
 dprint will discovery configuration files in the current directory, ancestor directories, and descendant directories while searching for files to format.
 
-Starting in dprint 0.50+, you can change this behaviour via the `--config-discovery` flag:
+Starting in dprint 0.50, you can change this behaviour via the `--config-discovery` flag:
 
 - `--config-discovery=true` - Default. Searches for configuration files everywhere.
 - `--config-discovery=false` - Disables configuration discovery.
