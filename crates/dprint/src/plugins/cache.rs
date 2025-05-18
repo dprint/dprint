@@ -252,7 +252,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":8,"wasmCacheVersion":"5.0.2","plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.2.0","configKey":"test-plugin","helpUrl":"https://dprint.dev/plugins/test","configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","updateUrl":"https://plugins.dprint.dev/dprint/test-plugin/latest.json"}}}}"#,
+      r#"{"schemaVersion":8,"wasmCacheVersion":"6.0.1","plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.2.0","configKey":"test-plugin","helpUrl":"https://dprint.dev/plugins/test","configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","updateUrl":"https://plugins.dprint.dev/dprint/test-plugin/latest.json"}}}}"#,
     );
 
     // should forget it afterwards
@@ -290,7 +290,7 @@ mod test {
     // should have saved the manifest
     let expected_text = serde_json::json!({
       "schemaVersion": 8,
-      "wasmCacheVersion": "5.0.2",
+      "wasmCacheVersion": "6.0.1",
       "plugins": {
         "local:/test.wasm": {
           "createdTime": 123456,

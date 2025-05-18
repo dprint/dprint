@@ -374,7 +374,7 @@ impl Environment for RealEnvironment {
     let Ok(system) = dprint_core::async_runtime::spawn_blocking(move || {
       {
         let mut system = system.lock();
-        system.refresh_cpu();
+        system.refresh_cpu_usage();
       }
       system
     })
@@ -388,7 +388,7 @@ impl Environment for RealEnvironment {
 
     dprint_core::async_runtime::spawn_blocking(move || {
       let mut system = system.lock();
-      system.refresh_cpu();
+      system.refresh_cpu_usage();
       let utilization = system.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / system.cpus().len() as f32;
       if utilization > 101f32 {
         0 // something wrong, so just return 0 for "cannot figure out cpu usage"
