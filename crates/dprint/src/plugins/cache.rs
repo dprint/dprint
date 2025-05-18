@@ -262,7 +262,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":8,"wasmCacheVersion":"5.0.2","plugins":{}}"#,
+      r#"{"schemaVersion":8,"wasmCacheVersion":"6.0.1","plugins":{}}"#,
     );
 
     Ok(())
@@ -317,7 +317,7 @@ mod test {
     environment.write_file_bytes(&original_file_path, &WASM_PLUGIN_0_1_0_BYTES).unwrap();
 
     // should update the cache with the new file
-    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.1.0-5.0.2-x86_64");
+    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.1.0-6.0.1-x86_64");
     let file_path = plugin_cache
       .get_plugin_cache_item(&PluginSourceReference::new_local(original_file_path.clone()))
       .await?
@@ -326,7 +326,7 @@ mod test {
 
     let expected_text = serde_json::json!({
       "schemaVersion": 8,
-      "wasmCacheVersion": "5.0.2",
+      "wasmCacheVersion": "6.0.1",
       "plugins": {
         "local:/test.wasm": {
           "createdTime": 123456,
@@ -356,7 +356,7 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":8,"wasmCacheVersion":"5.0.2","plugins":{}}"#,
+      r#"{"schemaVersion":8,"wasmCacheVersion":"6.0.1","plugins":{}}"#,
     );
 
     Ok(())
