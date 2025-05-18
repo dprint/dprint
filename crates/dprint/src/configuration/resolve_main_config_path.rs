@@ -19,33 +19,29 @@ pub struct ResolvedConfigPath {
   pub base_path: CanonicalizedPathBuf,
 }
 
-pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<ResolvedConfigPath> {
+pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<Option<ResolvedConfigPath>> {
   return Ok(if let Some(config) = &args.config {
     let base_path = environment.cwd();
     let resolved_path = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), environment).await?;
-    ResolvedConfigPath { resolved_path, base_path }
-  } else {
+    Some(ResolvedConfigPath { resolved_path, base_path })
+  } else if args.config_discovery(environment).traverse_ancestors() {
     get_default_paths(args, environment)?
+  } else {
+    None
   });
 
-  fn get_default_paths(args: &CliArgs, environment: &impl Environment) -> Result<ResolvedConfigPath> {
+  fn get_default_paths(args: &CliArgs, environment: &impl Environment) -> Result<Option<ResolvedConfigPath>> {
     let start_search_dir = get_start_search_directory(args, environment)?;
     let config_file_path = get_config_file_in_dir(&start_search_dir, environment);
 
-    Ok(if let Some(config_file_path) = config_file_path {
-      ResolvedConfigPath {
+    if let Some(config_file_path) = config_file_path {
+      Ok(Some(ResolvedConfigPath {
         resolved_path: ResolvedPath::local(environment.canonicalize(config_file_path)?),
         base_path: start_search_dir,
-      }
-    } else if let Some(resolved_config_path) = get_default_config_file_in_ancestor_directories(environment, environment.cwd().as_ref())? {
-      resolved_config_path
+      }))
     } else {
-      // just return this even though it doesn't exist
-      ResolvedConfigPath {
-        resolved_path: ResolvedPath::local(environment.cwd().join_panic_relative(DEFAULT_CONFIG_FILE_NAME)),
-        base_path: environment.cwd(),
-      }
-    })
+      get_default_config_file_in_ancestor_directories(environment, environment.cwd().as_ref())
+    }
   }
 
   fn get_start_search_directory(args: &CliArgs, environment: &impl Environment) -> Result<CanonicalizedPathBuf> {

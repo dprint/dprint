@@ -39,38 +39,49 @@ pub struct ResolvedConfig {
 #[derive(Debug, Error)]
 #[error(transparent)]
 pub enum ResolveConfigError {
-  #[error("No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?\n  Error: {inner:#}", .config_path.display())]
+  #[error(
+    "No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?{}",
+    .config_path.display(),
+    inner.as_ref().map(|inner| format!("\n  Error: {inner:#}")).unwrap_or_default(),
+  )]
   NotFound {
     config_path: CanonicalizedPathBuf,
-    inner: anyhow::Error,
+    inner: Option<anyhow::Error>,
   },
+  #[error("Config discovery was disabled and no plugins (--plugins <url/path>) and/or config (--config <path>) was specified.")]
+  ConfigDiscoveryDisabled,
   Other(#[from] anyhow::Error),
 }
 
 pub async fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<ResolvedConfig, ResolveConfigError> {
   let resolved_config_path = resolve_main_config_path(args, environment).await?;
-  let mut resolved_config = match resolve_config_from_path(&resolved_config_path, environment).await {
-    Ok(resolved_config) => resolved_config,
-    Err(err) => {
-      if !args.plugins.is_empty() && matches!(err, ResolveConfigError::NotFound { .. }) {
+  let mut resolved_config = match resolved_config_path {
+    Some(resolved_config_path) => resolve_config_from_path(&resolved_config_path, environment).await?,
+    None => {
+      if !args.plugins.is_empty() {
         // allow no config file when plugins are specified
         ResolvedConfig {
           config_map: ConfigMap::new(),
-          base_path: resolved_config_path.base_path.clone(),
-          resolved_path: resolved_config_path.resolved_path.clone(),
+          base_path: environment.cwd().clone(),
+          resolved_path: ResolvedPath::local(environment.cwd().join_panic_relative("dprint.json")),
           excludes: None,
           includes: None,
           incremental: None,
           plugins: Vec::new(),
         }
+      } else if args.config_discovery(environment).traverse_ancestors() {
+        return Err(ResolveConfigError::NotFound {
+          config_path: environment.cwd().join_panic_relative("dprint.json"),
+          inner: None,
+        });
       } else {
-        return Err(err);
+        return Err(ResolveConfigError::ConfigDiscoveryDisabled);
       }
     }
   };
 
   if !args.plugins.is_empty() {
-    let base_path = PathSource::new_local(resolved_config_path.base_path);
+    let base_path = PathSource::new_local(environment.cwd());
     let mut plugins = Vec::with_capacity(args.plugins.len());
     for url_or_file_path in args.plugins.iter() {
       plugins.push(parse_plugin_source_reference(url_or_file_path, &base_path, environment)?);
@@ -102,7 +113,7 @@ pub async fn resolve_config_from_path<TEnvironment: Environment>(
     Err(err) => {
       return Err(ResolveConfigError::NotFound {
         config_path: config_file_path.to_owned(),
-        inner: err,
+        inner: Some(err),
       });
     }
   };

@@ -39,7 +39,13 @@ pub static TEST_PROCESS_PLUGIN_PATH: Lazy<PathBuf> = Lazy::new(|| {
   } else {
     target_dir.join(profile_name).join(exe_name)
   };
-  std::fs::canonicalize(&file_path).unwrap_or_else(|err| panic!("Could not canonicalize {}: {:#}", file_path.display(), err))
+  std::fs::canonicalize(&file_path).unwrap_or_else(|err| {
+    panic!(
+      "Maybe run `cargo build` in the root of the repository?\n\nCould not canonicalize {}: {:#}",
+      file_path.display(),
+      err
+    )
+  })
 });
 
 // Regenerate this by running `./rebuild.sh` in /crates/test-plugin
@@ -248,7 +254,7 @@ pub fn get_expected_help_text() -> &'static str {
     "dprint ",
     env!("CARGO_PKG_VERSION"),
     r#"
-Copyright 2020-2023 by David Sherret
+Copyright 2019 by David Sherret
 
 Auto-formats source code based on the specified plugins.
 
@@ -272,15 +278,18 @@ SUBCOMMANDS:
 More details at `dprint help <SUBCOMMAND>`
 
 OPTIONS:
-  -c, --config <config>          Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.
-      --plugins <urls/files>...  List of urls or file paths of plugins to use. This overrides what is specified in the config file.
-  -L, --log-level <log-level>    Set log level [default: info] [possible values: debug, info, warn, error, silent]
+  -c, --config <config>             Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.
+      --config-discovery=<BOOLEAN>  Sets the config discovery mode. Set to `false` to completely disable.
+      --plugins <urls/files>...     List of urls or file paths of plugins to use. This overrides what is specified in the config file.
+  -L, --log-level <log-level>       Set log level [default: info] [possible values: debug, info, warn, error, silent]
 
 ENVIRONMENT VARIABLES:
   DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
                        directory may be periodically deleted by the CLI.
   DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
                        formatting (ex. DPRINT_MAX_THREADS=4).
+  DPRINT_CONFIG_DISCOVERY
+                       Sets the config discovery mode. Set to "false"/"0" to disable.
   DPRINT_CERT          Load certificate authority from PEM encoded file.
   DPRINT_TLS_CA_STORE  Comma-separated list of order dependent certificate stores.
                        Possible values: "mozilla" and "system".

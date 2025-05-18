@@ -1,16 +1,54 @@
+use std::str::FromStr;
+
 use anyhow::bail;
 use anyhow::Result;
 use clap::ArgMatches;
 use thiserror::Error;
 
+use crate::environment::Environment;
 use crate::utils::LogLevel;
 use crate::utils::StdInReader;
+
+#[derive(Debug, Clone, Copy)]
+pub enum ConfigDiscovery {
+  Default,
+  Disabled,
+}
+
+impl std::str::FromStr for ConfigDiscovery {
+  type Err = String;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    match s.to_ascii_lowercase().as_str() {
+      "default" | "true" | "1" => Ok(ConfigDiscovery::Default),
+      "false" | "0" => Ok(ConfigDiscovery::Disabled),
+      _ => Err(format!("expected 'default' or 'false', got '{s}'")),
+    }
+  }
+}
+
+impl ConfigDiscovery {
+  pub fn traverse_ancestors(&self) -> bool {
+    match self {
+      ConfigDiscovery::Default => true,
+      ConfigDiscovery::Disabled => false,
+    }
+  }
+
+  pub fn traverse_descendants(&self) -> bool {
+    match self {
+      ConfigDiscovery::Default => true,
+      ConfigDiscovery::Disabled => false,
+    }
+  }
+}
 
 pub struct CliArgs {
   pub sub_command: SubCommand,
   pub log_level: LogLevel,
   pub plugins: Vec<String>,
   pub config: Option<String>,
+  config_discovery: Option<ConfigDiscovery>,
 }
 
 impl CliArgs {
@@ -21,6 +59,7 @@ impl CliArgs {
       log_level: LogLevel::Info,
       plugins: vec![],
       config: None,
+      config_discovery: None,
     }
   }
 
@@ -38,6 +77,19 @@ impl CliArgs {
       log_level: LogLevel::Info,
       config: None,
       plugins: Vec::new(),
+      config_discovery: None,
+    }
+  }
+
+  pub fn config_discovery(&self, env: &impl Environment) -> ConfigDiscovery {
+    match self.config_discovery {
+      Some(value) => value,
+      None => env
+        .env_var("DPRINT_CONFIG_DISCOVERY")
+        .as_ref()
+        .and_then(|value| value.to_str())
+        .and_then(|value| ConfigDiscovery::from_str(value).ok())
+        .unwrap_or(ConfigDiscovery::Default),
     }
   }
 }
@@ -281,6 +333,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       LogLevel::Info
     },
     config: matches.get_one::<String>("config").map(String::from),
+    config_discovery: matches.get_one::<ConfigDiscovery>("config-discovery").copied(),
     plugins: maybe_values_to_vec(matches.get_many("plugins")),
   })
 }
@@ -371,7 +424,7 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
   app = app
     .bin_name("dprint")
     .version(env!("CARGO_PKG_VERSION"))
-    .author("Copyright 2020-2023 by David Sherret")
+    .author("Copyright 2019 by David Sherret")
     .about("Auto-formats source code based on the specified plugins.")
     .override_usage("dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...")
     .help_template(r#"{bin} {version}
@@ -395,6 +448,8 @@ ENVIRONMENT VARIABLES:
                        directory may be periodically deleted by the CLI.
   DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
                        formatting (ex. DPRINT_MAX_THREADS=4).
+  DPRINT_CONFIG_DISCOVERY
+                       Sets the config discovery mode. Set to "false"/"0" to disable.
   DPRINT_CERT          Load certificate authority from PEM encoded file.
   DPRINT_TLS_CA_STORE  Comma-separated list of order dependent certificate stores.
                        Possible values: "mozilla" and "system".
@@ -563,6 +618,17 @@ EXAMPLES:
         .help("Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.")
         .global(true)
         .num_args(1)
+    )
+    .arg(
+      Arg::new("config-discovery")
+        .long("config-discovery")
+        .help("Sets the config discovery mode. Set to `false` to completely disable.")
+        .global(true)
+        .value_parser(clap::value_parser!(ConfigDiscovery))
+        .value_name("BOOLEAN")
+        .num_args(1)
+        .require_equals(true)
+        .default_missing_value("true")
     )
     .arg(
       Arg::new("plugins")
