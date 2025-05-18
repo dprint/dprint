@@ -57,15 +57,15 @@ webpki-roots = "=0.26.7"
 # pin these to prevent them changing with `cargo install` because
 # patch version increases of rkyv may cause panics when deserializing
 # data serialized with older versions
-rkyv = "=0.8.9"
-wasmer = "=5.0.2"
-wasmer-compiler = "=5.0.2"
+rkyv = "=0.8.10"
+wasmer = "=6.0.1"
+wasmer-compiler = "=6.0.1"
 
 [target.'cfg(windows)'.dependencies]
-winreg = "=0.52.0"
+winreg = "=0.55.0"
 
 [dev-dependencies]
 # stay on this version because it's good enough and makes the output the same on all platforms
 path-clean = "0.1.0"
 pretty_assertions = "1.4.0"
-tempfile = "3.8"
+tempfile = "3.20"

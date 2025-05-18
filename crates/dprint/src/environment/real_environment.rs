@@ -356,7 +356,7 @@ impl Environment for RealEnvironment {
     // need to also hash on the CPU features
     // https://github.com/dprint/dprint/issues/735
     let mut hash = FastInsecureHasher::default();
-    let mut features = wasmer::CpuFeature::for_host().into_iter().map(|c| c.to_string()).collect::<Vec<_>>();
+    let mut features = wasmer::sys::CpuFeature::for_host().into_iter().map(|c| c.to_string()).collect::<Vec<_>>();
     features.sort(); // ensure this is stable
     for feature in features {
       feature.hash(&mut hash);
