@@ -23,8 +23,8 @@ impl std::str::FromStr for ConfigDiscovery {
     match s.to_ascii_lowercase().as_str() {
       "default" | "true" | "1" => Ok(ConfigDiscovery::Default),
       "false" | "0" => Ok(ConfigDiscovery::Disabled),
-      "no-descendants" => Ok(ConfigDiscovery::NoDescendants),
-      _ => Err(format!("expected 'default', 'no-descendants' or 'false', got '{s}'")),
+      "ignore-descendants" => Ok(ConfigDiscovery::NoDescendants),
+      _ => Err(format!("expected 'default', 'ignore-descendants' or 'false', got '{s}'")),
     }
   }
 }
