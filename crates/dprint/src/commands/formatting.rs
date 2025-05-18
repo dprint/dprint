@@ -2313,4 +2313,57 @@ mod test {
       vec![" hi stderr", " hi stderr_formatted", " hi stdout", " hi stdout_formatted"]
     );
   }
+
+  #[test]
+  fn should_disable_config_discovery() {
+    let file_path1 = "/file1.txt";
+    {
+      let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+        .write_file(&file_path1, "hello")
+        .build();
+      environment.set_env_var("DPRINT_CONFIG_DISCOVERY", Some("false"));
+      {
+        let err = run_test_cli(vec!["fmt"], &environment).unwrap_err();
+        err.assert_exit_code(11);
+        assert_eq!(
+          err.to_string(),
+          concat!("Config discovery was disabled and no plugins (--plugins <url>) and/or config (--config <path>) was specified.",)
+        );
+      }
+      // override env
+      {
+        run_test_cli(vec!["fmt", "--config-discovery=true"], &environment).unwrap();
+        assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+      }
+    }
+    // specified config
+    {
+      let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+        .write_file(&file_path1, "hello")
+        .build();
+      run_test_cli(vec!["fmt", "--config-discovery=false", "--config", "dprint.json"], &environment).unwrap();
+      assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    }
+    // specified plugins
+    {
+      let environment = TestEnvironmentBuilder::new()
+        .add_remote_wasm_plugin()
+        .with_default_config(|config_file| {
+          config_file
+            .add_remote_wasm_plugin()
+            .add_config_section("test-plugin", r#"{ "ending": "custom-formatted1" }"#);
+        })
+        .initialize()
+        .write_file(&file_path1, "hello")
+        .build();
+      run_test_cli(
+        vec!["fmt", "--config-discovery=false", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"],
+        &environment,
+      )
+      .unwrap();
+      assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+      // should ignore the test-plugin config
+      assert_eq!(environment.read_file(&file_path1).unwrap(), "hello_formatted");
+    }
+  }
 }

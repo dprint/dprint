@@ -48,6 +48,8 @@ pub enum ResolveConfigError {
     config_path: CanonicalizedPathBuf,
     inner: Option<anyhow::Error>,
   },
+  #[error("Config discovery was disabled and no plugins (--plugins <url>) and/or config (--config <path>) was specified.")]
+  ConfigDiscoveryDisabled,
   Other(#[from] anyhow::Error),
 }
 
@@ -67,11 +69,13 @@ pub async fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs,
           incremental: None,
           plugins: Vec::new(),
         }
-      } else {
+      } else if args.config_discovery(environment).is_true() {
         return Err(ResolveConfigError::NotFound {
           config_path: environment.cwd().join_panic_relative("dprint.json"),
           inner: None,
         });
+      } else {
+        return Err(ResolveConfigError::ConfigDiscoveryDisabled);
       }
     }
   };
