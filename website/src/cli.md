@@ -114,7 +114,7 @@ Starting in dprint 0.50, you can change this behaviour via the `--config-discove
 - `--config-discovery=default` - Default if none specified. Searches for configuration files everywhere.
 - `--config-discovery=false` - Disables all configuration discovery (specify either `--config=<path>` or `--plugins <url-or-path>`).
 
-Note this can also be set via the `DPRINT_CONFIG_DISCOVERY` environment variable (ex. `DPRINT_CONFIG_DISCOVERY=disabled`)
+Note this can also be set via the `DPRINT_CONFIG_DISCOVERY` environment variable (ex. `DPRINT_CONFIG_DISCOVERY=false`)
 
 ## Exit codes
 
