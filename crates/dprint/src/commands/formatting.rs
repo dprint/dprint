@@ -2366,4 +2366,39 @@ mod test {
       assert_eq!(environment.read_file(&file_path1).unwrap(), "hello_formatted");
     }
   }
+
+  #[test]
+  fn should_disable_discovering_descendants() {
+    let file_path1 = "/file1.txt";
+    let file_path2 = "/sub/file1.txt";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|config_file| {
+        config_file.add_remote_wasm_plugin();
+      })
+      .with_local_config("sub/dprint.json", |config_file| {
+        config_file
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "custom-formatted1" }"#);
+      })
+      .initialize()
+      .write_file(&file_path1, "hello")
+      .write_file(&file_path2, "hello2")
+      .build();
+    environment.set_env_var("DPRINT_CONFIG_DISCOVERY", Some("ignore-descendants"));
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "hello_formatted");
+    // should ignore the config in this sub folder
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "hello2_formatted");
+
+    // now try via cli flag
+    environment.set_env_var("DPRINT_CONFIG_DISCOVERY", None);
+    run_test_cli(vec!["fmt", "--config-discovery=ignore-descendants"], &environment).unwrap();
+
+    environment.write_file(&file_path2, "hello2").unwrap();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "hello2_custom-formatted1");
+  }
 }

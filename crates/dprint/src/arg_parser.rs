@@ -12,6 +12,7 @@ use crate::utils::StdInReader;
 #[derive(Debug, Clone, Copy)]
 pub enum ConfigDiscovery {
   Default,
+  IgnoreDescendants,
   Disabled,
 }
 
@@ -22,7 +23,8 @@ impl std::str::FromStr for ConfigDiscovery {
     match s.to_ascii_lowercase().as_str() {
       "default" | "true" | "1" => Ok(ConfigDiscovery::Default),
       "false" | "0" => Ok(ConfigDiscovery::Disabled),
-      _ => Err(format!("expected 'default' or 'false', got '{s}'")),
+      "ignore-descendants" => Ok(ConfigDiscovery::IgnoreDescendants),
+      _ => Err(format!("expected 'default', 'ignore-descendants' or 'false', got '{s}'")),
     }
   }
 }
@@ -31,6 +33,7 @@ impl ConfigDiscovery {
   pub fn traverse_ancestors(&self) -> bool {
     match self {
       ConfigDiscovery::Default => true,
+      ConfigDiscovery::IgnoreDescendants => true,
       ConfigDiscovery::Disabled => false,
     }
   }
@@ -38,6 +41,7 @@ impl ConfigDiscovery {
   pub fn traverse_descendants(&self) -> bool {
     match self {
       ConfigDiscovery::Default => true,
+      ConfigDiscovery::IgnoreDescendants => false,
       ConfigDiscovery::Disabled => false,
     }
   }
