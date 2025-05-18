@@ -25,6 +25,7 @@ use indexmap::IndexMap;
 use thiserror::Error;
 
 use crate::arg_parser::CliArgs;
+use crate::arg_parser::ConfigDiscovery;
 use crate::arg_parser::FilePatternArgs;
 use crate::configuration::get_global_config;
 use crate::configuration::get_plugin_config_map;
@@ -469,14 +470,26 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
   pub async fn resolve_for_config(&self) -> Result<PluginsScopeAndPathsCollection<TEnvironment>> {
     let config = Rc::new(resolve_config_from_args(self.args, self.environment).await?);
     let scope = resolve_plugins_scope(config.clone(), self.environment, self.plugin_resolver).await?;
-    let glob_output = get_and_resolve_file_paths(&config, self.patterns, scope.plugins.values().map(|p| p.as_ref()), self.environment).await?;
+    let config_discovery = self.args.config_discovery(self.environment);
+    let glob_output = get_and_resolve_file_paths(
+      &config,
+      self.patterns,
+      config_discovery,
+      scope.plugins.values().map(|p| p.as_ref()),
+      self.environment,
+    )
+    .await?;
     let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths)?;
 
     let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
     let root_config_path = config.resolved_path.source.maybe_local_path();
     // todo: parallelize?
     for config_file_path in glob_output.config_files {
-      result.extend(self.resolve_for_sub_config(config_file_path, &config, root_config_path).await?);
+      result.extend(
+        self
+          .resolve_for_sub_config(config_file_path, &config, config_discovery, root_config_path)
+          .await?,
+      );
     }
 
     Ok(PluginsScopeAndPathsCollection {
@@ -489,6 +502,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     &'a self,
     config_file_path: PathBuf,
     parent_config: &'a ResolvedConfig,
+    config_discovery: ConfigDiscovery,
     root_config_path: Option<&'a CanonicalizedPathBuf>,
   ) -> LocalBoxFuture<'a, Result<Vec<PluginsScopeAndPaths<TEnvironment>>>> {
     async move {
@@ -508,13 +522,24 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       }
       let config = Rc::new(config);
       let scope = resolve_plugins_scope(config.clone(), self.environment, self.plugin_resolver).await?;
-      let glob_output = get_and_resolve_file_paths(&config, self.patterns, scope.plugins.values().map(|p| p.as_ref()), self.environment).await?;
+      let glob_output = get_and_resolve_file_paths(
+        &config,
+        self.patterns,
+        config_discovery,
+        scope.plugins.values().map(|p| p.as_ref()),
+        self.environment,
+      )
+      .await?;
       let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths)?;
 
       let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
       // todo: parallelize?
       for config_file_path in glob_output.config_files {
-        result.extend(self.resolve_for_sub_config(config_file_path, &config, root_config_path).await?);
+        result.extend(
+          self
+            .resolve_for_sub_config(config_file_path, &config, config_discovery, root_config_path)
+            .await?,
+        );
       }
 
       Ok(result)

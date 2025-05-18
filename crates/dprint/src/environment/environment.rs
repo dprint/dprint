@@ -1,5 +1,6 @@
 use anyhow::bail;
 use anyhow::Result;
+use std::ffi::OsString;
 use std::fmt::Write as FmtWrite;
 use std::io::Read;
 use std::io::Write;
@@ -56,6 +57,15 @@ pub trait UrlDownloader {
 #[async_trait]
 pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn is_real(&self) -> bool;
+
+  fn env_var(&self, name: &str) -> Option<OsString>;
+  fn has_env_var_flag(&self, name: &str) -> bool {
+    match self.env_var(name) {
+      Some(value) => value == "1",
+      None => false,
+    }
+  }
+
   fn get_staged_files(&self) -> Result<Vec<PathBuf>>;
   fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String>;
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>>;

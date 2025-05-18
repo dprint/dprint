@@ -3,14 +3,28 @@ use anyhow::Result;
 use clap::ArgMatches;
 use thiserror::Error;
 
+use crate::environment::Environment;
 use crate::utils::LogLevel;
 use crate::utils::StdInReader;
+
+#[derive(Debug, Clone, Copy)]
+pub enum ConfigDiscovery {
+  Enabled,
+  Disabled,
+}
+
+impl ConfigDiscovery {
+  pub fn is_true(&self) -> bool {
+    matches!(self, Self::Enabled)
+  }
+}
 
 pub struct CliArgs {
   pub sub_command: SubCommand,
   pub log_level: LogLevel,
   pub plugins: Vec<String>,
   pub config: Option<String>,
+  no_config_discovery: Option<bool>,
 }
 
 impl CliArgs {
@@ -21,6 +35,7 @@ impl CliArgs {
       log_level: LogLevel::Info,
       plugins: vec![],
       config: None,
+      no_config_discovery: None,
     }
   }
 
@@ -38,6 +53,18 @@ impl CliArgs {
       log_level: LogLevel::Info,
       config: None,
       plugins: Vec::new(),
+      no_config_discovery: None,
+    }
+  }
+
+  pub fn config_discovery(&self, env: &impl Environment) -> ConfigDiscovery {
+    let no_config_discovery = match self.no_config_discovery {
+      Some(value) => value,
+      None => env.has_env_var_flag("DPRINT_NO_CONFIG_DISCOVERY"),
+    };
+    match no_config_discovery {
+      true => ConfigDiscovery::Disabled,
+      false => ConfigDiscovery::Enabled,
     }
   }
 }
@@ -281,6 +308,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       LogLevel::Info
     },
     config: matches.get_one::<String>("config").map(String::from),
+    no_config_discovery: matches.get_one::<bool>("no-config-discovery").copied(),
     plugins: maybe_values_to_vec(matches.get_many("plugins")),
   })
 }
@@ -371,7 +399,7 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
   app = app
     .bin_name("dprint")
     .version(env!("CARGO_PKG_VERSION"))
-    .author("Copyright 2020-2023 by David Sherret")
+    .author("Copyright 2019 by David Sherret")
     .about("Auto-formats source code based on the specified plugins.")
     .override_usage("dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...")
     .help_template(r#"{bin} {version}
@@ -395,6 +423,8 @@ ENVIRONMENT VARIABLES:
                        directory may be periodically deleted by the CLI.
   DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
                        formatting (ex. DPRINT_MAX_THREADS=4).
+  DPRINT_NO_CONFIG_DISCOVERY
+                       Disables searching for configuration files when set to "1".
   DPRINT_CERT          Load certificate authority from PEM encoded file.
   DPRINT_TLS_CA_STORE  Comma-separated list of order dependent certificate stores.
                        Possible values: "mozilla" and "system".
@@ -563,6 +593,17 @@ EXAMPLES:
         .help("Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.")
         .global(true)
         .num_args(1)
+    )
+    .arg(
+      Arg::new("no-config-discovery")
+        .long("no-config-discovery")
+        .help("Disables configuration discovery.")
+        .global(true)
+        .value_parser(clap::value_parser!(bool))
+        .value_name("BOOLEAN")
+        .num_args(0..=1)
+        .require_equals(true)
+        .default_missing_value("true")
     )
     .arg(
       Arg::new("plugins")

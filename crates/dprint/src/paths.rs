@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::str::Split;
 use thiserror::Error;
 
+use crate::arg_parser::ConfigDiscovery;
 use crate::arg_parser::FilePatternArgs;
 use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
@@ -87,6 +88,7 @@ pub fn get_file_paths_by_plugins(plugin_name_maps: &PluginNameResolutionMaps, fi
 pub async fn get_and_resolve_file_paths<'a>(
   config: &ResolvedConfig,
   args: &FilePatternArgs,
+  config_discovery: ConfigDiscovery,
   plugins: impl Iterator<Item = &'a PluginWithConfig>,
   environment: &impl Environment,
 ) -> Result<GlobOutput> {
@@ -108,10 +110,15 @@ pub async fn get_and_resolve_file_paths<'a>(
     file_patterns.config_includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), cwd.clone()));
   }
 
-  get_and_resolve_file_patterns(config, file_patterns, environment).await
+  get_and_resolve_file_patterns(config, file_patterns, config_discovery, environment).await
 }
 
-async fn get_and_resolve_file_patterns(config: &ResolvedConfig, file_patterns: GlobPatterns, environment: &impl Environment) -> Result<GlobOutput> {
+async fn get_and_resolve_file_patterns(
+  config: &ResolvedConfig,
+  file_patterns: GlobPatterns,
+  config_discovery: ConfigDiscovery,
+  environment: &impl Environment,
+) -> Result<GlobOutput> {
   let cwd = environment.cwd();
   let is_cwd_in_base = cwd.starts_with(&config.base_path);
   let is_in_sub_dir = cwd != config.base_path && is_cwd_in_base;
@@ -127,6 +134,7 @@ async fn get_and_resolve_file_patterns(config: &ResolvedConfig, file_patterns: G
         start_dir: start_dir.into_path_buf(),
         file_patterns,
         pattern_base,
+        config_discovery,
       },
     )
   })

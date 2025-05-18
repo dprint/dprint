@@ -7,6 +7,7 @@ use parking_lot::Mutex;
 use path_clean::PathClean;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::future::Future;
 use std::io::Read;
 use std::io::Write;
@@ -99,6 +100,7 @@ impl Write for TestPipeWriter {
 pub struct TestEnvironment {
   log_level: Arc<Mutex<LogLevel>>,
   cwd: Arc<Mutex<String>>,
+  env_vars: Arc<Mutex<HashMap<String, OsString>>>,
   files: Arc<Mutex<HashMap<PathBuf, Vec<u8>>>>,
   staged_files: Arc<Mutex<Vec<PathBuf>>>,
   file_permissions: Arc<Mutex<HashMap<PathBuf, FilePermissions>>>,
@@ -125,6 +127,7 @@ impl TestEnvironment {
     TestEnvironment {
       log_level: Arc::new(Mutex::new(LogLevel::Info)),
       cwd: Arc::new(Mutex::new(String::from("/"))),
+      env_vars: Default::default(),
       files: Default::default(),
       staged_files: Default::default(),
       file_permissions: Default::default(),
@@ -189,6 +192,18 @@ impl TestEnvironment {
 
   pub fn is_dir_deleted(&self, path: impl AsRef<Path>) -> bool {
     self.deleted_directories.lock().contains(&path.as_ref().to_path_buf())
+  }
+
+  pub fn set_env_var(&self, name: &str, value: Option<&str>) {
+    let mut env_vars = self.env_vars.lock();
+    match value {
+      Some(value) => {
+        env_vars.insert(name.to_string(), OsString::from(value));
+      }
+      None => {
+        env_vars.remove(name);
+      }
+    }
   }
 
   pub fn set_selection_result(&self, index: usize) {
@@ -297,6 +312,10 @@ impl UrlDownloader for TestEnvironment {
 impl Environment for TestEnvironment {
   fn is_real(&self) -> bool {
     false
+  }
+
+  fn env_var(&self, name: &str) -> Option<OsString> {
+    self.env_vars.lock().get(name).cloned()
   }
 
   fn get_staged_files(&self) -> Result<Vec<PathBuf>> {

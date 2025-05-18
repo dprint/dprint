@@ -4,6 +4,7 @@ use anyhow::Result;
 use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
+use std::ffi::OsString;
 use std::fs;
 use std::hash::Hash;
 use std::num::NonZeroUsize;
@@ -112,6 +113,10 @@ impl UrlDownloader for RealEnvironment {
 impl Environment for RealEnvironment {
   fn is_real(&self) -> bool {
     true
+  }
+
+  fn env_var(&self, name: &str) -> Option<OsString> {
+    std::env::var_os(name)
   }
 
   fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String> {

@@ -710,10 +710,7 @@ mod test {
 
     assert_eq!(
       err.to_string(),
-      concat!(
-        "No config file found at /dprint.json. Did you mean to create (dprint init) or specify one (--config <path>)?\n",
-        "  Error: Could not find file at path /dprint.json"
-      )
+      concat!("No config file found at /dprint.json. Did you mean to create (dprint init) or specify one (--config <path>)?",)
     );
   }
 
