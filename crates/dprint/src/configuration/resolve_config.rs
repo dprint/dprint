@@ -48,7 +48,7 @@ pub enum ResolveConfigError {
     config_path: CanonicalizedPathBuf,
     inner: Option<anyhow::Error>,
   },
-  #[error("Config discovery was disabled and no plugins (--plugins <url>) and/or config (--config <path>) was specified.")]
+  #[error("Config discovery was disabled and no plugins (--plugins <url/path>) and/or config (--config <path>) was specified.")]
   ConfigDiscoveryDisabled,
   Other(#[from] anyhow::Error),
 }

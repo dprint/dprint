@@ -105,14 +105,14 @@ dprint fmt --config https://dprint.dev/path/to/some/config.json
 
 This flag is more useful for one-off commands. It is recommended to use the default configuration file location and name as that will lead to a better user experience.
 
-## Disabling Config Discovery
+## Changing Config Discovery
 
 dprint will discovery configuration files in the current directory, ancestor directories, and descendant directories while searching for files to format.
 
 Starting in dprint 0.50, you can change this behaviour via the `--config-discovery` flag:
 
 - `--config-discovery=true` - Default. Searches for configuration files everywhere.
-- `--config-discovery=false` - Disables configuration discovery.
+- `--config-discovery=false` - Disables all configuration discovery (specify either `--config=<path>` or `--plugins <url-or-path>`).
 
 Note this can also be set via the `DPRINT_CONFIG_DISCOVERY` environment variable (ex. `DPRINT_CONFIG_DISCOVERY=false`)
 
