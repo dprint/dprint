@@ -24,7 +24,7 @@ pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs,
     let base_path = environment.cwd();
     let resolved_path = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), environment).await?;
     Some(ResolvedConfigPath { resolved_path, base_path })
-  } else if args.config_discovery(environment).is_true() {
+  } else if args.config_discovery(environment).traverse_ancestors() {
     get_default_paths(args, environment)?
   } else {
     None

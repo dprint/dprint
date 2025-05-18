@@ -2332,7 +2332,7 @@ mod test {
       }
       // override env
       {
-        run_test_cli(vec!["fmt", "--config-discovery=true"], &environment).unwrap();
+        run_test_cli(vec!["fmt", "--config-discovery=default"], &environment).unwrap();
         assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
       }
     }

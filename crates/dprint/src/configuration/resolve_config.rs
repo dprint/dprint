@@ -69,7 +69,7 @@ pub async fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs,
           incremental: None,
           plugins: Vec::new(),
         }
-      } else if args.config_discovery(environment).is_true() {
+      } else if args.config_discovery(environment).traverse_ancestors() {
         return Err(ResolveConfigError::NotFound {
           config_path: environment.cwd().join_panic_relative("dprint.json"),
           inner: None,

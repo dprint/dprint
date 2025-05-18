@@ -111,10 +111,10 @@ dprint will discovery configuration files in the current directory, ancestor dir
 
 Starting in dprint 0.50, you can change this behaviour via the `--config-discovery` flag:
 
-- `--config-discovery=true` - Default. Searches for configuration files everywhere.
+- `--config-discovery=default` - Default if none specified. Searches for configuration files everywhere.
 - `--config-discovery=false` - Disables all configuration discovery (specify either `--config=<path>` or `--plugins <url-or-path>`).
 
-Note this can also be set via the `DPRINT_CONFIG_DISCOVERY` environment variable (ex. `DPRINT_CONFIG_DISCOVERY=false`)
+Note this can also be set via the `DPRINT_CONFIG_DISCOVERY` environment variable (ex. `DPRINT_CONFIG_DISCOVERY=disabled`)
 
 ## Exit codes
 

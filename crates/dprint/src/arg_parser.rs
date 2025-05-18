@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use anyhow::bail;
 use anyhow::Result;
 use clap::ArgMatches;
@@ -9,8 +11,8 @@ use crate::utils::StdInReader;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ConfigDiscovery {
-  True,
-  False,
+  Default,
+  Disabled,
 }
 
 impl std::str::FromStr for ConfigDiscovery {
@@ -18,16 +20,26 @@ impl std::str::FromStr for ConfigDiscovery {
 
   fn from_str(s: &str) -> Result<Self, Self::Err> {
     match s.to_ascii_lowercase().as_str() {
-      "true" => Ok(ConfigDiscovery::True),
-      "false" => Ok(ConfigDiscovery::False),
-      _ => Err(format!("expected 'true' or 'false', got '{s}'")),
+      "default" | "true" | "1" => Ok(ConfigDiscovery::Default),
+      "false" | "0" => Ok(ConfigDiscovery::Disabled),
+      _ => Err(format!("expected 'default' or 'false', got '{s}'")),
     }
   }
 }
 
 impl ConfigDiscovery {
-  pub fn is_true(&self) -> bool {
-    matches!(self, Self::True)
+  pub fn traverse_ancestors(&self) -> bool {
+    match self {
+      ConfigDiscovery::Default => true,
+      ConfigDiscovery::Disabled => false,
+    }
+  }
+
+  pub fn traverse_descendants(&self) -> bool {
+    match self {
+      ConfigDiscovery::Default => true,
+      ConfigDiscovery::Disabled => false,
+    }
   }
 }
 
@@ -72,11 +84,12 @@ impl CliArgs {
   pub fn config_discovery(&self, env: &impl Environment) -> ConfigDiscovery {
     match self.config_discovery {
       Some(value) => value,
-      None => match env.env_var("DPRINT_CONFIG_DISCOVERY") {
-        Some(value) if value == "true" || value == "1" => ConfigDiscovery::True,
-        Some(value) if value == "false" || value == "0" => ConfigDiscovery::False,
-        _ => ConfigDiscovery::True,
-      },
+      None => env
+        .env_var("DPRINT_CONFIG_DISCOVERY")
+        .as_ref()
+        .and_then(|value| value.to_str())
+        .and_then(|value| ConfigDiscovery::from_str(value).ok())
+        .unwrap_or(ConfigDiscovery::Default),
     }
   }
 }
