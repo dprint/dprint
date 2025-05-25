@@ -357,8 +357,8 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     async move {
       let mut file_text = request.file_bytes;
       let mut had_change = false;
-      for plugin_name in plugin_names {
-        let plugin = scope.get_plugin(&plugin_name);
+      for plugin_name in &plugin_names {
+        let plugin = scope.get_plugin(plugin_name);
         match plugin.get_or_create_checking_config_diagnostics(&scope.environment).await {
           Ok(GetPluginResult::Success(initialized_plugin)) => {
             let result = initialized_plugin
@@ -381,9 +381,96 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
         }
       }
 
+      // todo: get the ensure_stable_format flag and use it here
+      let ensure_stable_format = true;
+      if had_change && ensure_stable_format {
+        match ensure_stable_format_text(
+          scope.clone(),
+          plugin_names.clone(),
+          request.file_path.clone(),
+          file_text.clone(),
+          request.range.clone(),
+          request.override_config.clone(),
+          request.token.clone(),
+        )
+        .await
+        {
+          Ok(stable_text) => file_text = stable_text,
+          Err(err) => {
+            log_warn!(scope.environment, "Error ensuring stable format for {}: {}", request.file_path.display(), err);
+          }
+        }
+      }
+
       Ok(if had_change { Some(file_text) } else { None })
     }
     .boxed_local()
+  }
+}
+
+async fn ensure_stable_format_text<TEnvironment: Environment>(
+  scope: Rc<PluginsScope<TEnvironment>>,
+  plugin_names: Vec<String>,
+  file_path: PathBuf,
+  formatted_text: Vec<u8>,
+  range: FormatRange,
+  override_config: ConfigKeyMap,
+  token: Arc<dyn CancellationToken>,
+) -> Result<Vec<u8>> {
+  let mut formatted_text = formatted_text;
+  log_debug!(scope.environment, "Ensuring stable format: {}", file_path.display());
+
+  let mut count = 0;
+  loop {
+    if token.is_cancelled() {
+      log_debug!(scope.environment, "Stable format cancelled: {}", file_path.display());
+      return Ok(formatted_text);
+    }
+    let mut next_formatted_text = formatted_text.clone();
+    let mut had_next_change = false;
+
+    for plugin_name in &plugin_names {
+      let plugin = scope.get_plugin(plugin_name);
+      match plugin.get_or_create_checking_config_diagnostics(&scope.environment).await {
+        Ok(GetPluginResult::Success(initialized_plugin)) => {
+          let result = initialized_plugin
+            .format_text(InitializedPluginWithConfigFormatRequest {
+              file_path: file_path.clone(),
+              file_bytes: next_formatted_text.clone(),
+              range: range.clone(),
+              override_config: override_config.clone(),
+              on_host_format: scope.create_host_format_callback(),
+              token: token.clone(),
+            })
+            .await;
+          if let Some(new_text) = result? {
+            next_formatted_text = new_text;
+            had_next_change = true;
+          }
+        }
+        Ok(GetPluginResult::HadDiagnostics(count)) => bail!("Had {} configuration errors.", count),
+        Err(err) => return Err(CriticalFormatError(err).into()),
+      }
+    }
+
+    // 前回と同じ結果になった場合は安定したと判断
+    if !had_next_change || next_formatted_text == formatted_text {
+      return Ok(formatted_text);
+    } else {
+      formatted_text = next_formatted_text;
+      log_debug!(scope.environment, "Ensuring stable format failed on try {}: {}", count + 1, file_path.display());
+    }
+
+    count += 1;
+    if count == 5 {
+      bail!(
+        concat!(
+          "Formatting not stable. Bailed after {} tries. This indicates a bug in the ",
+          "plugin where it formats the file differently each time."
+        ),
+        count
+      );
+    }
   }
 }
 
