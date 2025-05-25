@@ -453,7 +453,6 @@ async fn ensure_stable_format_text<TEnvironment: Environment>(
       }
     }
 
-    // 前回と同じ結果になった場合は安定したと判断
     if !had_next_change || next_formatted_text == formatted_text {
       return Ok(formatted_text);
     } else {
