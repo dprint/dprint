@@ -115,6 +115,13 @@ Starting in dprint 0.50, you can change the way dprint discovers configuration f
 
 Note this can also be set via the `DPRINT_CONFIG_DISCOVERY` environment variable (ex. `DPRINT_CONFIG_DISCOVERY=false`)
 
+## Changing Config Precedence
+
+you can change which config file should be evaluated first by dprint by using the `--config-precedence` flag:
+
+- `--config-precedence=prefer-cli` (default) - If you using `--config` in cli, then the `dprint.json` will be ignored.
+- `--config-precedence=prefer-file` - If you using this flag with `--config`, if there is an valid `dprint.json` in in the current working directory(or upper), the `--config` flag will be ignored.
+
 ## Exit codes
 
 - `0` - Success

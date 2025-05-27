@@ -10,6 +10,24 @@ use crate::utils::LogLevel;
 use crate::utils::StdInReader;
 
 #[derive(Debug, Clone, Copy)]
+pub enum ConfigPrecedence {
+  PreferCli,
+  PreferFile,
+}
+
+impl std::str::FromStr for ConfigPrecedence {
+  type Err = String;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    match s.to_ascii_lowercase().as_str() {
+      "prefer-file" => Ok(ConfigPrecedence::PreferFile),
+      "prefer-cli" => Ok(ConfigPrecedence::PreferCli),
+      _ => Err(format!("expected 'prefer-file' or 'prefer-cli', got '{s}'")),
+    }
+  }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum ConfigDiscovery {
   Default,
   IgnoreDescendants,
@@ -25,6 +43,15 @@ impl std::str::FromStr for ConfigDiscovery {
       "false" | "0" => Ok(ConfigDiscovery::Disabled),
       "ignore-descendants" => Ok(ConfigDiscovery::IgnoreDescendants),
       _ => Err(format!("expected 'default', 'ignore-descendants' or 'false', got '{s}'")),
+    }
+  }
+}
+
+impl ConfigPrecedence {
+  pub fn is_prefer_file(&self) -> bool {
+    match self {
+      ConfigPrecedence::PreferFile => true,
+      ConfigPrecedence::PreferCli => false,
     }
   }
 }
@@ -52,6 +79,7 @@ pub struct CliArgs {
   pub log_level: LogLevel,
   pub plugins: Vec<String>,
   pub config: Option<String>,
+  pub config_precedence: Option<ConfigPrecedence>,
   config_discovery: Option<ConfigDiscovery>,
 }
 
@@ -63,6 +91,7 @@ impl CliArgs {
       log_level: LogLevel::Info,
       plugins: vec![],
       config: None,
+      config_precedence: None,
       config_discovery: None,
     }
   }
@@ -82,6 +111,7 @@ impl CliArgs {
       config: None,
       plugins: Vec::new(),
       config_discovery: None,
+      config_precedence: None,
     }
   }
 
@@ -94,6 +124,13 @@ impl CliArgs {
         .and_then(|value| value.to_str())
         .and_then(|value| ConfigDiscovery::from_str(value).ok())
         .unwrap_or(ConfigDiscovery::Default),
+    }
+  }
+
+  pub fn config_precedence(&self) -> ConfigPrecedence {
+    match self.config_precedence {
+      Some(value) => value,
+      None => ConfigPrecedence::PreferFile,
     }
   }
 }
@@ -338,6 +375,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     },
     config: matches.get_one::<String>("config").map(String::from),
     config_discovery: matches.get_one::<ConfigDiscovery>("config-discovery").copied(),
+    config_precedence: matches.get_one::<ConfigPrecedence>("config-precedence").copied(),
     plugins: maybe_values_to_vec(matches.get_many("plugins")),
   })
 }
@@ -634,6 +672,19 @@ EXAMPLES:
         .require_equals(true)
         .default_missing_value("true")
     )
+        .arg(
+      Arg::new("config-precedence")
+        .long("config-precedence")
+        .help("Defines how config file should be evaluated in combination of CLI options.")
+        .global(true)
+        .value_parser(clap::value_parser!(ConfigPrecedence))
+        .value_name("prefer-file/prefer-cli")
+        .num_args(1)
+        .require_equals(true)
+        .default_value("prefer-cli")
+        .default_missing_value("prefer-cli")
+    )
+
     .arg(
       Arg::new("plugins")
         .long("plugins")
