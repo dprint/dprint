@@ -13,7 +13,7 @@ layout: layouts/documentation.njk
 
 # Markup_fmt Plugin
 
-Adapter plugin that formats HTML, Vue, Svelte, Astro, Angular, Jinja, Twig, Nunjucks, and Vento files via [markup_fmt](https://github.com/g-plane/markup_fmt).
+Adapter plugin that formats HTML, Vue, Svelte, Astro, Angular, Jinja, Twig, Nunjucks, Vento, Mustache, and XML files via [markup_fmt](https://github.com/g-plane/markup_fmt).
 
 ## Install and Setup
 
@@ -38,7 +38,7 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ## Configuration
 
-See [Configuration](/plugins/markup_fmt/config)
+See [Configuration](/plugins/markup_fmt/config) or read [full documentation site](https://markup-fmt.netlify.app/) with code examples.
 
 ## Playground
 

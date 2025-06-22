@@ -38,7 +38,7 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ## Configuration
 
-See [Configuration](/plugins/malva/config)
+See [Configuration](/plugins/malva/config) or read [full documentation site](https://malva.netlify.app/) with code examples.
 
 ## Playground
 
