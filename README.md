@@ -28,8 +28,8 @@ Repos:
 - [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - Roslyn (C#/VB) wrapper plugin.
 - [dprint-plugin-ruff](https://github.com/dprint/dprint-plugin-ruff) - Ruff (Python) wrapper plugin.
 - [dprint-plugin-exec](https://github.com/dprint/dprint-plugin-exec) - Formats code with any CLI executable.
-- [Malva](https://github.com/g-plane/malva) - CSS/SCSS/Sass/Less formatter
-- [markup_fmt](https://github.com/g-plane/markup_fmt) - HTML, Vue, Svelte, Astro, Angular, Jinja, Twig, Nunjucks, and Vento formatter.
+- [Malva](https://github.com/g-plane/malva) - CSS, SCSS, Sass, and Less formatter
+- [markup_fmt](https://github.com/g-plane/markup_fmt) - HTML, Vue, Svelte, Astro, Angular, Jinja, Twig, Nunjucks, Vento, Mustache and XML formatter.
 - [pretty_graphql](https://github.com/g-plane/pretty_graphql) - GraphQL formatter.
 - [pretty_yaml](https://github.com/g-plane/pretty_yaml) - YAML formatter.
 
