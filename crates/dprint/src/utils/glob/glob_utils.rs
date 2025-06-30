@@ -14,6 +14,22 @@ pub fn non_negated_glob(pattern: &str) -> &str {
   }
 }
 
+pub fn is_pattern(pattern: &str) -> bool {
+  if pattern.starts_with('!') {
+    return true;
+  }
+
+  let mut was_last_escape = false;
+  for c in pattern.chars() {
+    if !was_last_escape && matches!(c, '*' | '{' | '?') {
+      return true;
+    }
+
+    was_last_escape = matches!(c, '\\');
+  }
+  false
+}
+
 pub fn is_absolute_pattern(pattern: &str) -> bool {
   let pattern = if is_negated_glob(pattern) { &pattern[1..] } else { pattern };
   pattern.starts_with('/') || is_windows_absolute_pattern(pattern)
