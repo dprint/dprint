@@ -40,7 +40,7 @@ pub enum ExcludeMatchDetail {
 pub struct GlobMatcher {
   base_dir: CanonicalizedPathBuf,
   config_include_matcher: Option<Override>,
-  arg_include_matcher: Option<Override>,
+  arg_include_matcher: Option<IncludesAndOverride>,
   config_exclude_matcher: Gitignore,
   arg_exclude_matcher: Option<Gitignore>,
 }
@@ -84,7 +84,12 @@ impl GlobMatcher {
         None => None,
       },
       arg_include_matcher: match arg_includes {
-        Some(includes) => Some(build_override(&includes, opts, &base_dir)?),
+        Some(includes) => Some(IncludesAndOverride {
+          matcher: build_override(&includes, opts, &base_dir)?,
+          // change the arg includes to go to the deepest base in order to make it
+          // easier what directories should be ignored for traversal
+          includes: includes.into_iter().map(|p| p.into_deepest_base()).collect(),
+        }),
         None => None,
       },
       config_exclude_matcher: build_gitignore(&config_excludes, opts, &base_dir)?,
@@ -102,7 +107,8 @@ impl GlobMatcher {
 
   /// Gets if the matcher only has excludes patterns.
   pub fn has_only_excludes(&self) -> bool {
-    (self.config_include_matcher.as_ref().map(|m| m.is_empty()).unwrap_or(true) && self.arg_include_matcher.as_ref().map(|m| m.is_empty()).unwrap_or(true))
+    (self.config_include_matcher.as_ref().map(|m| m.is_empty()).unwrap_or(true)
+      && self.arg_include_matcher.as_ref().map(|m| m.matcher.is_empty()).unwrap_or(true))
       && (!self.config_exclude_matcher.is_empty() || !self.arg_exclude_matcher.as_ref().map(|m| m.is_empty()).unwrap_or(true))
   }
 
@@ -115,27 +121,15 @@ impl GlobMatcher {
 
   pub fn matches_detail(&self, path: impl AsRef<Path>) -> GlobMatchesDetail {
     let path = path.as_ref();
-    let path = if path.is_absolute() && path.starts_with(&self.base_dir) {
-      if let Ok(prefix) = path.strip_prefix(&self.base_dir) {
-        Cow::Borrowed(prefix)
-      } else {
-        // this is a very strange state that we want to know more about,
-        // so just always log directly to stderr in this scenario and maybe
-        // eventually remove this code.
-        #[allow(clippy::print_stderr)]
-        {
-          eprintln!(
-            "WARNING: Path prefix error for {} and {}. Please report this error in issue #540.",
-            &self.base_dir.display(),
-            path.display()
-          );
-        }
-        return GlobMatchesDetail::NotMatched;
-      }
-    } else if !path.is_absolute() {
-      Cow::Owned(self.base_dir.join(path))
-    } else {
+    let path = if path.is_absolute() {
       Cow::Borrowed(path)
+    } else {
+      Cow::Owned(self.base_dir.join(path))
+    };
+    let path = if let Ok(prefix) = path.strip_prefix(&self.base_dir) {
+      Cow::Borrowed(prefix)
+    } else {
+      path
     };
 
     let matched_result = match self.check_exclude(&path, false) {
@@ -147,7 +141,7 @@ impl GlobMatcher {
     if self
       .arg_include_matcher
       .as_ref()
-      .map(|m| matches!(m.matched(&path, false), Match::Whitelist(_)))
+      .map(|m| matches!(m.matcher.matched(&path, false), Match::Whitelist(_)))
       .unwrap_or(true)
       && self
         .config_include_matcher
@@ -184,8 +178,16 @@ impl GlobMatcher {
   }
 
   pub fn is_dir_ignored(&self, path: impl AsRef<Path>) -> ExcludeMatchDetail {
-    if path.as_ref().starts_with(&self.base_dir) {
-      let path = path.as_ref().strip_prefix(&self.base_dir).unwrap();
+    let path = path.as_ref();
+    if path.starts_with(&self.base_dir) {
+      if let Some(include) = &self.arg_include_matcher {
+        let has_any_dir = include.includes.iter().any(|base_pattern| base_pattern.matches_dir_for_traversal(path));
+        if !has_any_dir {
+          return ExcludeMatchDetail::Excluded;
+        }
+      }
+
+      let path = path.strip_prefix(&self.base_dir).unwrap();
       self.check_exclude(path, true)
     } else {
       ExcludeMatchDetail::Excluded
@@ -193,13 +195,30 @@ impl GlobMatcher {
   }
 }
 
+#[derive(Debug)]
+struct IncludesAndOverride {
+  includes: Vec<GlobPattern>,
+  matcher: Override,
+}
+
 fn build_override(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir: &CanonicalizedPathBuf) -> Result<Override> {
   let mut builder = OverrideBuilder::new(base_dir);
   let builder = builder.case_insensitive(!opts.case_sensitive)?;
 
   for pattern in patterns {
-    let pattern = normalize_pattern(pattern);
-    builder.add(&pattern)?;
+    if pattern.base_dir != *base_dir {
+      match pattern.clone().into_new_base(base_dir.clone()) {
+        Some(pattern) => {
+          builder.add(&normalize_pattern(&pattern))?;
+        }
+        None => {
+          let pattern = pattern.as_absolute_pattern_text();
+          builder.add(&pattern)?;
+        }
+      }
+    } else {
+      builder.add(&normalize_pattern(pattern))?;
+    }
   }
 
   Ok(builder.build()?)
@@ -292,6 +311,26 @@ mod test {
     assert_eq!(glob_matcher.matches_detail("/testing/dir/src/no-match2.ts"), GlobMatchesDetail::Excluded);
     assert_eq!(glob_matcher.matches_detail("/testing/dir/src/no-match3.ts"), GlobMatchesDetail::Matched);
     assert!(!glob_matcher.has_only_excludes());
+  }
+
+  #[test]
+  fn cli_args_is_dir_excluded() {
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        arg_includes: Some(vec![GlobPattern::new("src/*.ts".to_string(), cwd.clone())]),
+        config_includes: Some(vec![GlobPattern::new("*.ts".to_string(), cwd.clone())]),
+        arg_excludes: Some(vec![GlobPattern::new("no-match2.ts".to_string(), cwd.clone())]),
+        config_excludes: vec![GlobPattern::new("no-match.ts".to_string(), cwd.clone())],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    assert_eq!(glob_matcher.is_dir_ignored("/testing/dir/src/"), ExcludeMatchDetail::NotExcluded);
+    assert_eq!(glob_matcher.is_dir_ignored("/testing/dir/other/"), ExcludeMatchDetail::Excluded);
   }
 
   #[test]

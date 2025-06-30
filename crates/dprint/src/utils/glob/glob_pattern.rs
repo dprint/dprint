@@ -1,9 +1,11 @@
 use std::collections::VecDeque;
+use std::path::Path;
 use std::path::PathBuf;
 
 use crate::environment::CanonicalizedPathBuf;
 
 use super::is_negated_glob;
+use super::is_pattern;
 use super::non_negated_glob;
 
 #[derive(Debug)]
@@ -36,22 +38,6 @@ impl GlobPatterns {
   }
 }
 
-fn is_pattern(pattern: &str) -> bool {
-  if pattern.starts_with('!') {
-    return true;
-  }
-
-  let mut was_last_escape = false;
-  for c in pattern.chars() {
-    if !was_last_escape && matches!(c, '*' | '{' | '?') {
-      return true;
-    }
-
-    was_last_escape = matches!(c, '\\');
-  }
-  false
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GlobPattern {
   pub relative_pattern: String,
@@ -70,6 +56,19 @@ impl GlobPattern {
       .collect()
   }
 
+  pub fn matches_dir_for_traversal(&self, dir_path: &Path) -> bool {
+    if self.base_dir.as_ref().starts_with(dir_path) {
+      // we're in an ancestor directory, so yes
+      true
+    } else if dir_path.starts_with(&self.base_dir) {
+      // todo: this could further be improved to tell if the current
+      // directory's descendants would ever match this glob
+      true
+    } else {
+      false
+    }
+  }
+
   pub fn is_negated(&self) -> bool {
     is_negated_glob(&self.relative_pattern)
   }
@@ -85,6 +84,50 @@ impl GlobPattern {
         base_dir: self.base_dir,
         relative_pattern: format!("!{}", self.relative_pattern),
       }
+    }
+  }
+
+  /// Converts the pattern to have a base directory path that goes as
+  /// deep as it can until it hits a pattern component or the last component
+  /// which is a possible file name.
+  pub fn into_deepest_base(self) -> Self {
+    let is_negated = self.is_negated();
+    let pattern = non_negated_glob(&self.relative_pattern);
+    let stripped_dot_slash = pattern.starts_with("./");
+    let pattern = pattern.strip_prefix("./").unwrap_or(pattern);
+    let parts: Vec<&str> = pattern.split('/').collect();
+
+    let mut base_parts = Vec::new();
+    let mut remaining_parts = Vec::new();
+    let mut found_glob = false;
+
+    for part in &parts {
+      if !found_glob && !is_pattern(part) {
+        base_parts.push(*part);
+      } else {
+        found_glob = true;
+        remaining_parts.push(*part);
+      }
+    }
+
+    // handle case where there are no globs (treat last segment as pattern)
+    if !found_glob && !base_parts.is_empty() {
+      remaining_parts.push(base_parts.pop().unwrap());
+    }
+
+    let new_base_dir = if base_parts.is_empty() {
+      self.base_dir.clone()
+    } else {
+      self.base_dir.join_panic_relative(base_parts.join("/"))
+    };
+
+    let new_relative = remaining_parts.join("/");
+    let new_relative = if stripped_dot_slash { format!("./{}", new_relative) } else { new_relative };
+    let new_pattern = if is_negated { format!("!{}", new_relative) } else { new_relative };
+
+    GlobPattern {
+      base_dir: new_base_dir,
+      relative_pattern: new_pattern,
     }
   }
 
@@ -194,6 +237,24 @@ impl GlobPattern {
     } else {
       None
     }
+  }
+
+  pub fn as_absolute_pattern_text(&self) -> String {
+    let is_negated = self.is_negated();
+    let pattern = non_negated_glob(&self.relative_pattern);
+    let pattern = pattern.strip_prefix("./").unwrap_or(pattern);
+    let mut base = self.base_dir.to_string_lossy().to_string();
+    if cfg!(windows) {
+      base = base.replace("\\", "/");
+    }
+    if !base.ends_with("/") && !pattern.starts_with("/") {
+      base.push('/');
+    }
+    base.push_str(pattern);
+    if is_negated {
+      base = format!("!{}", base);
+    }
+    base
   }
 }
 
@@ -359,6 +420,81 @@ mod test {
       let new_pattern = pattern.clone().into_new_base(descendant_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, descendant_dir);
       assert_eq!(new_pattern.relative_pattern, "!dir/*.ts");
+    }
+  }
+
+  #[test]
+  fn into_deepest_base() {
+    let base_dir = CanonicalizedPathBuf::new_for_testing("/base");
+    {
+      let pattern = GlobPattern::new("!sub/*.ts".to_string(), base_dir.clone());
+      let new_pattern = pattern.into_deepest_base();
+      assert_eq!(new_pattern.base_dir, CanonicalizedPathBuf::new_for_testing("/base/sub"));
+      assert_eq!(new_pattern.relative_pattern, "!*.ts");
+    }
+    {
+      let pattern = GlobPattern::new("sub/testing/this/**/out/*.ts".to_string(), base_dir.clone());
+      let new_pattern = pattern.into_deepest_base();
+      assert_eq!(new_pattern.base_dir, CanonicalizedPathBuf::new_for_testing("/base/sub/testing/this"));
+      assert_eq!(new_pattern.relative_pattern, "**/out/*.ts");
+    }
+    {
+      let pattern = GlobPattern::new("testing".to_string(), base_dir.clone());
+      let new_pattern = pattern.into_deepest_base();
+      assert_eq!(new_pattern.base_dir, CanonicalizedPathBuf::new_for_testing("/base"));
+      assert_eq!(new_pattern.relative_pattern, "testing");
+    }
+    {
+      let pattern = GlobPattern::new("sub/testing".to_string(), base_dir.clone());
+      let new_pattern = pattern.into_deepest_base();
+      assert_eq!(new_pattern.base_dir, CanonicalizedPathBuf::new_for_testing("/base/sub"));
+      assert_eq!(new_pattern.relative_pattern, "testing");
+    }
+    {
+      let pattern = GlobPattern::new("testing.js".to_string(), base_dir.clone());
+      let new_pattern = pattern.into_deepest_base();
+      assert_eq!(new_pattern.base_dir, CanonicalizedPathBuf::new_for_testing("/base"));
+      assert_eq!(new_pattern.relative_pattern, "testing.js");
+    }
+    {
+      let pattern = GlobPattern::new("./testing.js".to_string(), base_dir.clone());
+      let new_pattern = pattern.into_deepest_base();
+      assert_eq!(new_pattern.base_dir, CanonicalizedPathBuf::new_for_testing("/base"));
+      assert_eq!(new_pattern.relative_pattern, "./testing.js");
+    }
+    {
+      let pattern = GlobPattern::new("./sub/**/testing.js".to_string(), base_dir.clone());
+      let new_pattern = pattern.into_deepest_base();
+      assert_eq!(new_pattern.base_dir, CanonicalizedPathBuf::new_for_testing("/base/sub"));
+      assert_eq!(new_pattern.relative_pattern, "./**/testing.js");
+    }
+    {
+      let pattern = GlobPattern::new("!./sub/**/testing.js".to_string(), base_dir.clone());
+      let new_pattern = pattern.into_deepest_base();
+      assert_eq!(new_pattern.base_dir, CanonicalizedPathBuf::new_for_testing("/base/sub"));
+      assert_eq!(new_pattern.relative_pattern, "!./**/testing.js");
+    }
+  }
+
+  #[test]
+  fn as_absolute_pattern_text() {
+    let base_dir = CanonicalizedPathBuf::new_for_testing("/base");
+    {
+      let pattern = GlobPattern::new("!sub/*.ts".to_string(), base_dir.clone());
+      assert_eq!(pattern.as_absolute_pattern_text(), "!/base/sub/*.ts");
+    }
+    {
+      let pattern = GlobPattern::new("testing/this/out/*.ts".to_string(), base_dir.clone());
+      assert_eq!(pattern.as_absolute_pattern_text(), "/base/testing/this/out/*.ts");
+    }
+    {
+      let base_dir = CanonicalizedPathBuf::new_for_testing("/base/");
+      let pattern = GlobPattern::new("asdf".to_string(), base_dir);
+      assert_eq!(pattern.as_absolute_pattern_text(), "/base/asdf");
+    }
+    {
+      let pattern = GlobPattern::new("/asdf".to_string(), base_dir.clone());
+      assert_eq!(pattern.as_absolute_pattern_text(), "/base/asdf");
     }
   }
 }
