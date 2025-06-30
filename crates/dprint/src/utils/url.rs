@@ -75,16 +75,17 @@ impl<TProxyUrlProvider: ProxyProvider> AgentStore<TProxyUrlProvider> {
       std::collections::hash_map::Entry::Vacant(vacant_entry) => {
         // blocking the lock isn't too bad here because generally
         // there will only ever be one of these created ever
-        let agent = self.build_agent(kind, proxy)?;
+        let config = self.build_config(kind, proxy)?;
+        let agent = config.new_agent();
         vacant_entry.insert(agent.clone());
         agent
       }
     })
   }
 
-  fn build_agent(&self, kind: AgentKind, proxy: Option<&str>) -> Result<ureq::Agent> {
+  fn build_config(&self, kind: AgentKind, proxy: Option<&str>) -> Result<ureq::config::Config> {
     static INSTALLED_PROVIDER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-    let mut agent = ureq::AgentBuilder::new();
+    let mut agent_config = ureq::Agent::config_builder();
     if kind == AgentKind::Https {
       INSTALLED_PROVIDER.get_or_init(|| {
         if let Some(ignored) = &self.unsafely_ignore_certificates {
@@ -103,18 +104,22 @@ impl<TProxyUrlProvider: ProxyProvider> AgentStore<TProxyUrlProvider> {
       let root_store = Arc::new(get_root_cert_store(&self.logger, &|env_var| std::env::var(env_var).ok(), &|file_path| {
         std::fs::read(file_path)
       })?);
-      let mut config = rustls::ClientConfig::builder().with_root_certificates(root_store.clone()).with_no_client_auth();
+      let mut tls_config = ureq::tls::TlsConfig::builder();
+      tls_config.root_certs(v)
+      let mut tls_config = rustls::ClientConfig::builder().with_root_certificates(root_store.clone()).with_no_client_auth();
       if let Some(unsafe_certificates) = &self.unsafely_ignore_certificates {
-        config
+        tls_config
           .dangerous()
           .set_certificate_verifier(Arc::new(NoCertificateVerification::new(unsafe_certificates.0.clone(), root_store)?));
       }
-      agent = agent.tls_config(Arc::new(config));
+      tls_config.crypto_provider()
+      .provider(tls_config)
+      agent_config = agent_config.tls_config(tls_config);
     }
     if let Some(proxy) = proxy {
-      agent = agent.proxy(ureq::Proxy::new(proxy)?);
+      agent_config = agent_config.proxy(Some(ureq::Proxy::new(proxy)?));
     }
-    Ok(agent.build())
+    Ok(agent_config.build())
   }
 }
 
