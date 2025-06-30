@@ -177,7 +177,8 @@ impl GlobMatcher {
     result
   }
 
-  pub fn is_dir_ignored(&self, path: &Path) -> ExcludeMatchDetail {
+  pub fn is_dir_ignored(&self, path: impl AsRef<Path>) -> ExcludeMatchDetail {
+    let path = path.as_ref();
     if path.starts_with(&self.base_dir) {
       if let Some(include) = &self.arg_include_matcher {
         let has_any_dir = include.includes.iter().any(|base_pattern| base_pattern.matches_dir_for_traversal(path));
@@ -310,6 +311,26 @@ mod test {
     assert_eq!(glob_matcher.matches_detail("/testing/dir/src/no-match2.ts"), GlobMatchesDetail::Excluded);
     assert_eq!(glob_matcher.matches_detail("/testing/dir/src/no-match3.ts"), GlobMatchesDetail::Matched);
     assert!(!glob_matcher.has_only_excludes());
+  }
+
+  #[test]
+  fn cli_args_is_dir_excluded() {
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        arg_includes: Some(vec![GlobPattern::new("src/*.ts".to_string(), cwd.clone())]),
+        config_includes: Some(vec![GlobPattern::new("*.ts".to_string(), cwd.clone())]),
+        arg_excludes: Some(vec![GlobPattern::new("no-match2.ts".to_string(), cwd.clone())]),
+        config_excludes: vec![GlobPattern::new("no-match.ts".to_string(), cwd.clone())],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    assert_eq!(glob_matcher.is_dir_ignored("/testing/dir/src/"), ExcludeMatchDetail::NotExcluded);
+    assert_eq!(glob_matcher.is_dir_ignored("/testing/dir/other/"), ExcludeMatchDetail::Excluded);
   }
 
   #[test]
