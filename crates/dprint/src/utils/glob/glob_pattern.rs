@@ -87,6 +87,9 @@ impl GlobPattern {
     }
   }
 
+  /// Converts the pattern to have a base directory path that goes as
+  /// deep as it can until it hits a pattern component or the last component
+  /// which is a possible file name.
   pub fn into_deepest_base(self) -> Self {
     let is_negated = self.is_negated();
     let pattern = non_negated_glob(&self.relative_pattern);
