@@ -215,7 +215,7 @@ fn build_override(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir:
         }
       }
     } else {
-      builder.add(&normalize_pattern(&pattern))?;
+      builder.add(&normalize_pattern(pattern))?;
     }
   }
 
