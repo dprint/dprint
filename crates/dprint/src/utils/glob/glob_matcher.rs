@@ -331,6 +331,7 @@ mod test {
     .unwrap();
     assert_eq!(glob_matcher.is_dir_ignored("/testing/dir/src/"), ExcludeMatchDetail::NotExcluded);
     assert_eq!(glob_matcher.is_dir_ignored("/testing/dir/other/"), ExcludeMatchDetail::Excluded);
+    assert_eq!(glob_matcher.is_dir_ignored("/testing/dir/src/sub"), ExcludeMatchDetail::Excluded);
   }
 
   #[test]
