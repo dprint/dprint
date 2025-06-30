@@ -57,13 +57,32 @@ impl GlobPattern {
   }
 
   pub fn matches_dir_for_traversal(&self, dir_path: &Path) -> bool {
+    if self.is_negated() {
+      return false;
+    }
+
     if self.base_dir.as_ref().starts_with(dir_path) {
       // we're in an ancestor directory, so yes
       true
-    } else if dir_path.starts_with(&self.base_dir) {
-      // todo: this could further be improved to tell if the current
-      // directory's descendants would ever match this glob
-      true
+    } else if let Ok(remaining) = dir_path.strip_prefix(&self.base_dir) {
+      // we're in a subdir, so start looking at the pattern
+      let pattern = self.relative_pattern.strip_prefix("./").unwrap_or(&self.relative_pattern);
+      let mut components = remaining.components().peekable();
+      let mut parts = pattern.split('/').peekable();
+      while let (Some(component), Some(part)) = (components.peek(), parts.peek()) {
+        // this is intended to be simple and quick... it will overmatch at the moment
+        // for patterns, which is fine
+        let part = *part;
+        let component = *component;
+        if part == "**" {
+          return true;
+        } else if !is_pattern(part) && !component.as_os_str().eq_ignore_ascii_case(part) {
+          return false;
+        }
+        components.next();
+        parts.next();
+      }
+      parts.next().is_some()
     } else {
       false
     }
@@ -495,6 +514,34 @@ mod test {
     {
       let pattern = GlobPattern::new("/asdf".to_string(), base_dir.clone());
       assert_eq!(pattern.as_absolute_pattern_text(), "/base/asdf");
+    }
+  }
+
+  #[test]
+  fn matches_dir_for_traversal() {
+    let base_dir = CanonicalizedPathBuf::new_for_testing("/base");
+    {
+      let pattern = GlobPattern::new("sub/*.ts".to_string(), base_dir.clone());
+      assert!(pattern.matches_dir_for_traversal(&base_dir.join("sub")));
+      assert!(!pattern.matches_dir_for_traversal(&base_dir.join("sub/test")));
+      assert!(!pattern.matches_dir_for_traversal(&base_dir.join("sub/test/no")));
+    }
+    {
+      let pattern = GlobPattern::new("sub/**/testing".to_string(), base_dir.clone());
+      assert!(pattern.matches_dir_for_traversal(base_dir.as_ref()));
+      assert!(!pattern.matches_dir_for_traversal(&base_dir.join("other")));
+      // once a ** is hit it will match regardless
+      assert!(pattern.matches_dir_for_traversal(&base_dir.join("sub/test")));
+      assert!(pattern.matches_dir_for_traversal(&base_dir.join("sub/test/yes")));
+      assert!(pattern.matches_dir_for_traversal(&base_dir.join("sub/test/yes/testing")));
+      assert!(pattern.matches_dir_for_traversal(&base_dir.join("sub/test/yes/testing/testing/asdf")));
+    }
+    {
+      let pattern = GlobPattern::new("sub/*/testing".to_string(), base_dir.clone());
+      assert!(pattern.matches_dir_for_traversal(&base_dir.join("sub/test")));
+      assert!(pattern.matches_dir_for_traversal(&base_dir.join("sub/other")));
+      assert!(!pattern.matches_dir_for_traversal(&base_dir.join("sub/test/testing")));
+      assert!(!pattern.matches_dir_for_traversal(&base_dir.join("sub/test/no")));
     }
   }
 }
