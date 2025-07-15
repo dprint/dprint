@@ -53,9 +53,9 @@ By default, dprint stores information in the current system user's cache directo
 
 ## Proxy
 
-You may specify a proxy for dprint to use when downloading plugins or configuration files by setting the `HTTPS_PROXY` and `HTTP_PROXY` environment variables.
+You may specify a proxy for dprint to use when downloading plugins or configuration files by setting the `HTTPS_PROXY`/`https_proxy` and `HTTP_PROXY`/`http_proxy` environment variables.
 
-Additionally, dprint 0.48+ supports the `NO_PROXY` environment variable, which is a comma-separated list of hosts which should not use the proxy.
+Additionally, dprint 0.48+ supports the `NO_PROXY`/`no_proxy` environment variable, which is a comma-separated list of hosts which should not use the proxy.
 
 ## TLS Certificates
 
