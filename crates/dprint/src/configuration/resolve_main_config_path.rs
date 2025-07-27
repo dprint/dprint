@@ -19,29 +19,34 @@ pub struct ResolvedConfigPath {
   pub base_path: CanonicalizedPathBuf,
 }
 
-pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<Option<ResolvedConfigPath>> {
+pub async fn resolve_main_config_path(args: &CliArgs, environment: &impl Environment) -> Result<Option<ResolvedConfigPath>> {
   let is_fallback = args.config_precedence();
   if is_fallback.is_prefer_file() {
-    // If passed the `--config-precedence=prefer-file` flag, we will first try to find local config, then maybe using the `--config` flag
+    // If passed the `--config-precedence=prefer-file` flag, we will first
+    // try to find local config, then maybe using the `--config` flag
     if args.config_discovery(environment).traverse_ancestors() {
       if let Some(local_path) = get_default_paths(args, environment)? {
         return Ok(Some(local_path));
       } else if let Some(config) = &args.config {
-        let base_path = environment.cwd();
-        let resolved_path = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), environment).await?;
-        return Ok(Some(ResolvedConfigPath { resolved_path, base_path }));
+        return resolve_config_arg(config, environment).await.map(Some);
+      } else {
+        return Ok(None);
       }
     }
   }
   return Ok(if let Some(config) = &args.config {
-    let base_path = environment.cwd();
-    let resolved_path = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), environment).await?;
-    Some(ResolvedConfigPath { resolved_path, base_path })
+    return resolve_config_arg(config, environment).await.map(Some);
   } else if args.config_discovery(environment).traverse_ancestors() {
     get_default_paths(args, environment)?
   } else {
     None
   });
+
+  async fn resolve_config_arg(specified_config: &str, environment: &impl Environment) -> Result<ResolvedConfigPath> {
+    let base_path = environment.cwd();
+    let resolved_path = resolve_url_or_file_path(specified_config, &PathSource::new_local(base_path.clone()), environment).await?;
+    Ok(ResolvedConfigPath { resolved_path, base_path })
+  }
 
   fn get_default_paths(args: &CliArgs, environment: &impl Environment) -> Result<Option<ResolvedConfigPath>> {
     let start_search_dir = get_start_search_directory(args, environment)?;
