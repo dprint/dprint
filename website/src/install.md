@@ -77,6 +77,13 @@ Install using one of the methods below.
   dprint help
   ```
 
+- python/[uv](https://docs.astral.sh/uv/)
+
+  ```sh
+  uv add dprint-py
+  uv run dprint help
+  ```
+
 - [asdf-vm](https://asdf-vm.com/) ([asdf-dprint](https://github.com/asdf-community/asdf-dprint)):
 
   ```sh
