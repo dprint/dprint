@@ -777,18 +777,18 @@ dependencies = [
 
 [[package]]
 name = "derive_more"
-version = "1.0.0"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a9b99b9cbbe49445b21764dc0625032a89b145a2642e67603e1c936f5458d05"
+checksum = "093242cf7570c207c83073cf82f79706fe7b8317e98620a47d5be7c3d8497678"
 dependencies = [
  "derive_more-impl",
 ]
 
 [[package]]
 name = "derive_more-impl"
-version = "1.0.0"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb7330aeadfbe296029522e6c40f315320aba36fc43a5b3632f3795348f3bd22"
+checksum = "bda628edc44c4bb645fbe0f758797143e4e07926f7ebf4e9bdfbd3d2ce621df3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3228,16 +3228,15 @@ dependencies = [
 
 [[package]]
 name = "wasmer"
-version = "6.0.1"
+version = "6.1.0-rc.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f25dccc6251837449135914ee1978731c2c3df9fc727088eb7e098736c0f15d1"
+checksum = "1e588d83a5ac7eb5e6af54ac4d34183442e4dd2a7358d2a11793b17c03b7df0b"
 dependencies = [
  "bindgen",
  "bytes",
  "cfg-if",
  "cmake",
- "derive_more 1.0.0",
- "idna_adapter",
+ "derive_more 2.0.1",
  "indexmap",
  "js-sys",
  "more-asserts",
@@ -3250,7 +3249,6 @@ dependencies = [
  "target-lexicon",
  "thiserror 1.0.69",
  "tracing",
- "ureq",
  "wasm-bindgen",
  "wasmer-compiler",
  "wasmer-compiler-cranelift",
@@ -3264,9 +3262,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-compiler"
-version = "6.0.1"
+version = "6.1.0-rc.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f35baeb0d5b20710b5b9c59477dbf813b1ac53da33ee46cb22f8c4190e3986e"
+checksum = "c9542eb21b9a0f7811101e26e40e360a9ac02d093e3089c8fa62dfa102478edb"
 dependencies = [
  "backtrace",
  "bytes",
@@ -3295,9 +3293,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-compiler-cranelift"
-version = "6.0.1"
+version = "6.1.0-rc.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d657a96003ce3f54a3cbbf681fcd782b983f9362c97cfbbe243cbf66790e004"
+checksum = "a69f548bcccd4791b2647e0d748eb8ddd4d0856233778867c8b0db3781a82ca1"
 dependencies = [
  "cranelift-codegen",
  "cranelift-entity",
@@ -3315,9 +3313,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-derive"
-version = "6.0.1"
+version = "6.1.0-rc.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62b57be80a67de03c2a02d697bfd763e097546b11f0020cf9930ebaa4f8cf965"
+checksum = "8db532c73814748214276f878b8382a8885769fdd86d0bee2792c438b0d28c62"
 dependencies = [
  "proc-macro-error2",
  "proc-macro2",
@@ -3327,9 +3325,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-types"
-version = "6.0.1"
+version = "6.1.0-rc.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b8424d15f5c19a8df972fc9367d75ba3b87af63b279208d50a32e9a298d944b"
+checksum = "81b900743ecb272e8e8a760a42e069f19d158d9fd03c6ac256026407bdc91833"
 dependencies = [
  "bytecheck 0.6.12",
  "enum-iterator",
@@ -3347,9 +3345,9 @@ dependencies = [
 
 [[package]]
 name = "wasmer-vm"
-version = "6.0.1"
+version = "6.1.0-rc.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faabfffefc6fc350bb5b07301f05ba604a18c3d2d97c6354183f15792577056d"
+checksum = "40956bcf167d5bed1a940649f638e2d610e5a066863b4ab6c1ab1341fef97a9a"
 dependencies = [
  "backtrace",
  "cc",
@@ -3366,6 +3364,7 @@ dependencies = [
  "memoffset",
  "more-asserts",
  "region",
+ "rustversion",
  "scopeguard",
  "thiserror 1.0.69",
  "wasmer-types",

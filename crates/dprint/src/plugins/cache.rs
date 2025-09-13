@@ -224,6 +224,7 @@ fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environmen
 mod test {
   use super::*;
   use crate::environment::TestEnvironment;
+  use crate::plugins::implementations::WASMER_COMPILER_VERSION;
   use crate::plugins::PluginSourceReference;
   use crate::test_helpers::WASM_PLUGIN_0_1_0_BYTES;
   use crate::test_helpers::WASM_PLUGIN_BYTES;
@@ -240,7 +241,10 @@ mod test {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_source = PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test.wasm");
     let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
-    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.2.0-6.0.1-aarch64");
+    let expected_file_path = PathBuf::from("/cache")
+      .join("plugins")
+      .join("test-plugin")
+      .join(format!("0.2.0-{WASMER_COMPILER_VERSION}-aarch64"));
 
     assert_eq!(file_path, expected_file_path);
     assert_eq!(environment.take_stderr_messages(), vec!["Compiling https://plugins.dprint.dev/test.wasm"]);
@@ -252,7 +256,24 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":8,"wasmCacheVersion":"6.0.1","plugins":{"remote:https://plugins.dprint.dev/test.wasm":{"createdTime":123456,"info":{"name":"test-plugin","version":"0.2.0","configKey":"test-plugin","helpUrl":"https://dprint.dev/plugins/test","configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","updateUrl":"https://plugins.dprint.dev/dprint/test-plugin/latest.json"}}}}"#,
+      serde_json::json!({
+        "schemaVersion": 8,
+        "wasmCacheVersion": WASMER_COMPILER_VERSION,
+        "plugins": {
+          "remote:https://plugins.dprint.dev/test.wasm": {
+            "createdTime": 123456,
+            "info": {
+              "name": "test-plugin",
+              "version": "0.2.0",
+              "configKey": "test-plugin",
+              "helpUrl": "https://dprint.dev/plugins/test",
+              "configSchemaUrl": "https://plugins.dprint.dev/test/schema.json",
+              "updateUrl": "https://plugins.dprint.dev/dprint/test-plugin/latest.json"
+            }
+          }
+        }
+      })
+      .to_string(),
     );
 
     // should forget it afterwards
@@ -262,7 +283,12 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":8,"wasmCacheVersion":"6.0.1","plugins":{}}"#,
+      serde_json::json!({
+        "schemaVersion": 8,
+        "wasmCacheVersion": WASMER_COMPILER_VERSION,
+        "plugins": {}
+      })
+      .to_string(),
     );
 
     Ok(())
@@ -277,7 +303,10 @@ mod test {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_source = PluginSourceReference::new_local(original_file_path.clone());
     let file_path = plugin_cache.get_plugin_cache_item(&plugin_source).await?.file_path;
-    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.2.0-6.0.1-x86_64");
+    let expected_file_path = PathBuf::from("/cache")
+      .join("plugins")
+      .join("test-plugin")
+      .join(format!("0.2.0-{WASMER_COMPILER_VERSION}-x86_64"));
 
     assert_eq!(file_path, expected_file_path);
 
@@ -290,7 +319,7 @@ mod test {
     // should have saved the manifest
     let expected_text = serde_json::json!({
       "schemaVersion": 8,
-      "wasmCacheVersion": "6.0.1",
+      "wasmCacheVersion": WASMER_COMPILER_VERSION,
       "plugins": {
         "local:/test.wasm": {
           "createdTime": 123456,
@@ -317,7 +346,10 @@ mod test {
     environment.write_file_bytes(&original_file_path, &WASM_PLUGIN_0_1_0_BYTES).unwrap();
 
     // should update the cache with the new file
-    let expected_file_path = PathBuf::from("/cache").join("plugins").join("test-plugin").join("0.1.0-6.0.1-x86_64");
+    let expected_file_path = PathBuf::from("/cache")
+      .join("plugins")
+      .join("test-plugin")
+      .join(format!("0.1.0-{WASMER_COMPILER_VERSION}-x86_64"));
     let file_path = plugin_cache
       .get_plugin_cache_item(&PluginSourceReference::new_local(original_file_path.clone()))
       .await?
@@ -326,7 +358,7 @@ mod test {
 
     let expected_text = serde_json::json!({
       "schemaVersion": 8,
-      "wasmCacheVersion": "6.0.1",
+      "wasmCacheVersion": WASMER_COMPILER_VERSION,
       "plugins": {
         "local:/test.wasm": {
           "createdTime": 123456,
@@ -356,7 +388,12 @@ mod test {
     // should have saved the manifest
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
-      r#"{"schemaVersion":8,"wasmCacheVersion":"6.0.1","plugins":{}}"#,
+      serde_json::json!({
+        "schemaVersion": 8,
+        "wasmCacheVersion": WASMER_COMPILER_VERSION,
+        "plugins": {}
+      })
+      .to_string(),
     );
 
     Ok(())

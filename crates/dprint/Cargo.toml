@@ -58,8 +58,8 @@ webpki-roots = "=0.26.7"
 # patch version increases of rkyv may cause panics when deserializing
 # data serialized with older versions
 rkyv = "=0.8.10"
-wasmer = "=6.0.1"
-wasmer-compiler = "=6.0.1"
+wasmer = "=6.1.0-rc.3"
+wasmer-compiler = "=6.1.0-rc.3"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "=0.55.0"

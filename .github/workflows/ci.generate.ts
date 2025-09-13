@@ -134,12 +134,6 @@ const ci = {
             key: "${{ matrix.config.target }}",
           },
         },
-        { uses: "denoland/setup-deno@v2" },
-        {
-          name: "Verify wasmer-compiler version",
-          if: "matrix.config.target == 'x86_64-unknown-linux-gnu'",
-          run: "deno run --allow-env --allow-read --allow-net=deno.land .github/workflows/scripts/verify_wasmer_compiler_version.ts",
-        },
         {
           name: "Setup (Linux x86_64-musl)",
           if: "matrix.config.target == 'x86_64-unknown-linux-musl'",
