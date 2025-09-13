@@ -77,7 +77,7 @@ Install using one of the methods below.
   dprint help
   ```
 
-- python/[uv](https://docs.astral.sh/uv/)
+- python/[uv](https://docs.astral.sh/uv/) via [https://github.com/trim21/dprint-py](https://github.com/trim21/dprint-py)
 
   ```sh
   uv add dprint-py
