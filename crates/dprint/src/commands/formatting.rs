@@ -2401,4 +2401,80 @@ mod test {
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path2).unwrap(), "hello2_custom-formatted1");
   }
+
+  #[test]
+  fn should_format_as_default_when_prefer_cli() {
+    let file_path1 = "/file1.txt";
+    let file_path2 = "/file2.txt";
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_remote_config("https://dprint.dev/test.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "config-cli-formatted" }"#);
+      })
+      .with_local_config("dprint.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "local-formatted" }"#);
+      })
+      .write_file(&file_path1, "text1")
+      .write_file(&file_path2, "text2")
+      .build();
+
+    run_test_cli(
+      vec![
+        "fmt",
+        "--config-precedence=prefer-cli",
+        "--config",
+        "https://dprint.dev/test.json",
+        "/file1.txt",
+        "/file2.txt",
+      ],
+      &environment,
+    )
+    .unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_config-cli-formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_config-cli-formatted");
+  }
+
+  #[test]
+  fn should_format_with_local_when_prefer_file() {
+    let file_path1 = "/file1.txt";
+    let file_path2 = "/file2.txt";
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_remote_config("https://dprint.dev/test.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "config-cli-formatted" }"#);
+      })
+      .with_local_config("dprint.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "local-formatted" }"#);
+      })
+      .write_file(&file_path1, "text1")
+      .write_file(&file_path2, "text2")
+      .build();
+
+    run_test_cli(
+      vec![
+        "fmt",
+        "--config-precedence=prefer-file",
+        "--config",
+        "https://dprint.dev/test.json",
+        "/file1.txt",
+        "/file2.txt",
+      ],
+      &environment,
+    )
+    .unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_local-formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_local-formatted");
+  }
 }
