@@ -27,7 +27,8 @@ Outputs something like:
         "config_key": "test",
         "fileExtensions": ["txt"],
         "fileNames": [],
-        "helpUrl": "https://dprint.dev/plugins/test-plugin"
+        "helpUrl": "https://dprint.dev/plugins/test-plugin",
+        "updateUrl": "https://plugins.dprint.dev/test/latest.json"
     }, {
         "name": "javascript-plugin",
         "version": "0.2.1",
@@ -35,7 +36,8 @@ Outputs something like:
         "fileExtensions": ["js"],
         "fileNames": [],
         "configSchemaUrl": "https://dprint.dev/schemas/javascript-plugin.json",
-        "helpUrl": "https://dprint.dev/plugins/javascript-plugin"
+        "helpUrl": "https://dprint.dev/plugins/javascript-plugin",
+        "updateUrl": "https://plugins.dprint.dev/javascript/latest.json"
     }]
 }
 ```
@@ -63,6 +65,8 @@ interface PluginInfo {
   // will be `undefined` when the plugin does not have a schema url
   configSchemaUrl?: string;
   helpUrl: string;
+  // will be `undefined` when the plugin does not have an update url
+  updateUrl?: string;
 }
 ```
 

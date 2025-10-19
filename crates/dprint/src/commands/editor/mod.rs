@@ -55,6 +55,8 @@ pub async fn output_editor_info<TEnvironment: Environment>(
     #[serde(skip_serializing_if = "Option::is_none")]
     config_schema_url: Option<String>,
     help_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    update_url: Option<String>,
   }
 
   let mut plugins = Vec::new();
@@ -77,6 +79,7 @@ pub async fn output_editor_info<TEnvironment: Environment>(
         Some(plugin.info().config_schema_url.trim().to_string())
       },
       help_url: plugin.info().help_url.trim().to_string(),
+      update_url: plugin.info().update_url.clone(),
     });
   }
 
@@ -352,8 +355,8 @@ mod test {
     final_output.push_str(&environment.cli_version());
     final_output.push_str(r#"","configSchemaUrl":"https://dprint.dev/schemas/v0.json","plugins":["#);
     final_output
-      .push_str(r#"{"name":"test-plugin","version":"0.2.0","configKey":"test-plugin","fileExtensions":["txt"],"fileNames":[],"configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","helpUrl":"https://dprint.dev/plugins/test"},"#);
-    final_output.push_str(r#"{"name":"test-process-plugin","version":"0.1.0","configKey":"testProcessPlugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"],"helpUrl":"https://dprint.dev/plugins/test-process"}]}"#);
+      .push_str(r#"{"name":"test-plugin","version":"0.2.0","configKey":"test-plugin","fileExtensions":["txt"],"fileNames":[],"configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","helpUrl":"https://dprint.dev/plugins/test","updateUrl":"https://plugins.dprint.dev/dprint/test-plugin/latest.json"},"#);
+    final_output.push_str(r#"{"name":"test-process-plugin","version":"0.1.0","configKey":"testProcessPlugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"],"helpUrl":"https://dprint.dev/plugins/test-process","updateUrl":"https://plugins.dprint.dev/dprint/test-process-plugin/latest.json"}]}"#);
     assert_eq!(environment.take_stdout_messages(), vec![final_output]);
     let mut stderr_messages = environment.take_stderr_messages();
     stderr_messages.sort();
