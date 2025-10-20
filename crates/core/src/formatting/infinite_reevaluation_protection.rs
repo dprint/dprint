@@ -5,47 +5,52 @@ use std::sync::atomic::Ordering;
 static LOGGED: AtomicBool = AtomicBool::new(false);
 
 /// This provides some protection if a condition re-evaluation keeps
-/// flipping back and forth over and over.
+/// happening indefinitely for any reason.
 pub struct InfiniteReevaluationProtector {
-  reevaluation_count: VecU32MapWithDefault<u16>,
+  total_count: VecU32MapWithDefault<u16>,
 }
 
 impl InfiniteReevaluationProtector {
   pub fn with_capacity(capacity: u32) -> Self {
     Self {
-      reevaluation_count: VecU32MapWithDefault::with_capacity(capacity),
+      total_count: VecU32MapWithDefault::with_capacity(capacity),
     }
   }
 
+  /// Checks if a condition should be re-evaluated by counting total re-evaluations.
+  /// Protects against infinite loops from any cause (flipping values, never-resolving
+  /// conditions, circular dependencies, etc.).
+  ///
+  /// Returns true if re-evaluation should continue, false if limit is exceeded.
   pub fn should_reevaluate(&mut self, reevaluation_id: u32, current_value: Option<bool>, last_value: bool) -> bool {
-    const MAX_COUNT: u16 = 1_000;
+    const MAX_REEVALUATIONS: u16 = 500;
+
     let current_value = current_value.unwrap_or(false);
     if current_value == last_value {
-      self.reevaluation_count.set(reevaluation_id, 0); // reset
-      true
-    } else {
-      // re-evaluation flipped
-      let next_count = self.reevaluation_count.get(reevaluation_id).unwrap() + 1;
-      if next_count == MAX_COUNT + 1 {
-        return false;
-      }
+      // Value stabilized, reset counter
+      self.total_count.set(reevaluation_id, 0);
+      return true;
+    }
 
-      self.reevaluation_count.set(reevaluation_id, next_count);
-      if next_count == MAX_COUNT {
-        // only ever log this once per execution
-        if !LOGGED.swap(true, Ordering::SeqCst) {
-          // todo: use awasm logging here instead
-          #[allow(clippy::print_stderr)]
-          {
-            eprintln!(
-              "[dprint-core] A file exceeded the re-evaluation count and formatting stabilized at a random condition value. Please report this as a bug."
-            );
-          }
+    // Increment total re-evaluation count
+    let count = self.total_count.get(reevaluation_id).unwrap() + 1;
+    self.total_count.set(reevaluation_id, count);
+
+    if count >= MAX_REEVALUATIONS {
+      // only ever log this once per execution
+      if !LOGGED.swap(true, Ordering::SeqCst) {
+        // todo: use awasm logging here instead
+        #[allow(clippy::print_stderr)]
+        {
+          eprintln!(
+            "[dprint-core] A condition was re-evaluated {} times without stabilizing. This indicates an infinite re-evaluation loop. Please report this as a bug.",
+            MAX_REEVALUATIONS
+          );
         }
-        false
-      } else {
-        true
       }
+      false
+    } else {
+      true
     }
   }
 }
@@ -57,7 +62,7 @@ mod test {
   #[test]
   fn should_keep_track_flipping_reevaluation() {
     let mut protector = InfiniteReevaluationProtector::with_capacity(1);
-    for _ in 0..999 {
+    for _ in 0..499 {
       assert!(protector.should_reevaluate(0, Some(true), false));
     }
 
@@ -69,14 +74,14 @@ mod test {
   #[test]
   fn should_reset_after_not_flipping() {
     let mut protector = InfiniteReevaluationProtector::with_capacity(10);
-    let mut value = false;
-    for _ in 0..998 {
-      value = !value;
+    for _ in 0..498 {
       assert!(protector.should_reevaluate(0, Some(true), false));
     }
-    assert!(protector.should_reevaluate(0, None, false));
+    // When value stabilizes, counter resets
+    assert!(protector.should_reevaluate(0, Some(false), false));
 
-    for _ in 0..999 {
+    // Can continue for another 499 re-evaluations
+    for _ in 0..499 {
       assert!(protector.should_reevaluate(0, Some(false), true));
     }
 
