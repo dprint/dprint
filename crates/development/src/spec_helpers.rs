@@ -144,13 +144,18 @@ pub fn run_specs(
     get_trace_json: &Arc<GetTraceJsonFunc>,
   ) -> Option<FailedTestResult> {
     let spec_file_path_buf = PathBuf::from(&spec.file_name);
-    let format = |file_text: &str| {
-      let result = catch_unwind(AssertUnwindSafe(|| format_text(&spec_file_path_buf, file_text, &spec.config)));
-      if result.is_err() {
-        eprintln!("Panic in spec '{}' in {}\n", spec.message, test_file_path.display());
+    let format = |file_text: &str| -> Result<Option<String>, String> {
+      match catch_unwind(AssertUnwindSafe(|| format_text(&spec_file_path_buf, file_text, &spec.config))) {
+        Ok(Ok(formatted)) => Ok(formatted),
+        Ok(Err(err)) => Err(format!("Formatter error: {:#}", err)),
+        Err(panic_info) => {
+          let panic_msg = panic_info.downcast_ref::<String>()
+            .map(|s| s.as_str())
+            .or_else(|| panic_info.downcast_ref::<&str>().copied())
+            .unwrap_or("unknown panic");
+          Err(format!("Formatter panicked: {}", panic_msg))
+        }
       }
-      let result = result.unwrap();
-      result.unwrap_or_else(|err| panic!("Could not parse spec '{}' in {}\nMessage: {:#}", spec.message, test_file_path.display(), err,))
     };
 
     if spec.is_trace {
@@ -158,7 +163,18 @@ pub fn run_specs(
       handle_trace(spec, &trace_json);
       None
     } else {
-      let result = format(&spec.file_text).unwrap_or_else(|| spec.file_text.to_string());
+      let result = match format(&spec.file_text) {
+        Ok(formatted) => formatted.unwrap_or_else(|| spec.file_text.to_string()),
+        Err(err_msg) => {
+          return Some(FailedTestResult {
+            expected: spec.expected_text.clone(),
+            actual: format!("{}\n\nInput:\n{}", err_msg, spec.file_text),
+            actual_second: None,
+            message: spec.message.clone(),
+          });
+        }
+      };
+
       if result != spec.expected_text {
         if run_spec_options.fix_failures {
           // very rough, but good enough
@@ -176,7 +192,17 @@ pub fn run_specs(
         }
       } else if run_spec_options.format_twice && !spec.skip_format_twice {
         // ensure no changes when formatting twice
-        let twice_result = format(&result).unwrap_or_else(|| result.to_string());
+        let twice_result = match format(&result) {
+          Ok(formatted) => formatted.unwrap_or_else(|| result.to_string()),
+          Err(err_msg) => {
+            return Some(FailedTestResult {
+              expected: spec.expected_text.clone(),
+              actual: result,
+              actual_second: Some(format!("ERROR on second format: {}", err_msg)),
+              message: spec.message.clone(),
+            });
+          }
+        };
         if twice_result != spec.expected_text {
           Some(FailedTestResult {
             expected: spec.expected_text.clone(),
