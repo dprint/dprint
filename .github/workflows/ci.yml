@@ -32,6 +32,10 @@ jobs:
             run_tests: "true"
             target: x86_64-pc-windows-msvc
             cross: "false"
+          - os: windows-11-arm
+            run_tests: "true"
+            target: aarch64-pc-windows-msvc
+            cross: "false"
           - os: ubuntu-22.04
             run_tests: "true"
             target: x86_64-unknown-linux-gnu
@@ -68,6 +72,7 @@ jobs:
       ZIP_CHECKSUM_AARCH64_APPLE_DARWIN: "${{steps.pre_release_aarch64_apple_darwin.outputs.ZIP_CHECKSUM}}"
       ZIP_CHECKSUM_X86_64_PC_WINDOWS_MSVC: "${{steps.pre_release_x86_64_pc_windows_msvc.outputs.ZIP_CHECKSUM}}"
       INSTALLER_CHECKSUM_X86_64_PC_WINDOWS_MSVC: "${{steps.pre_release_x86_64_pc_windows_msvc.outputs.INSTALLER_CHECKSUM}}"
+      ZIP_CHECKSUM_AARCH64_PC_WINDOWS_MSVC: "${{steps.pre_release_aarch64_pc_windows_msvc.outputs.ZIP_CHECKSUM}}"
       ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_GNU: "${{steps.pre_release_x86_64_unknown_linux_gnu.outputs.ZIP_CHECKSUM}}"
       ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_MUSL: "${{steps.pre_release_x86_64_unknown_linux_musl.outputs.ZIP_CHECKSUM}}"
       ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_GNU: "${{steps.pre_release_aarch64_unknown_linux_gnu.outputs.ZIP_CHECKSUM}}"
@@ -167,6 +172,12 @@ jobs:
           echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc.zip | awk '{print $1}')"
           mv deployment/installer/dprint-x86_64-pc-windows-msvc-installer.exe target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe
           echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')"
+      - name: Pre-release (aarch64-pc-windows-msvc)
+        id: pre_release_aarch64_pc_windows_msvc
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' && matrix.config.target != 'aarch64-unknown-linux-musl' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'aarch64-pc-windows-msvc' && startsWith(github.ref, 'refs/tags/'))"
+        run: |-
+          Compress-Archive -CompressionLevel Optimal -Force -Path target/aarch64-pc-windows-msvc/release/dprint.exe -DestinationPath target/aarch64-pc-windows-msvc/release/dprint-aarch64-pc-windows-msvc.zip
+          echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 target/aarch64-pc-windows-msvc/release/dprint-aarch64-pc-windows-msvc.zip | awk '{print $1}')"
       - name: Pre-release (x86_64-unknown-linux-gnu)
         id: pre_release_x86_64_unknown_linux_gnu
         if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' && matrix.config.target != 'aarch64-unknown-linux-musl' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'x86_64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/'))"
@@ -236,6 +247,12 @@ jobs:
           path: |-
             target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc.zip
             target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe
+      - name: Upload artifacts (aarch64-pc-windows-msvc)
+        if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' && matrix.config.target != 'aarch64-unknown-linux-musl' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'aarch64-pc-windows-msvc' && startsWith(github.ref, 'refs/tags/'))"
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarch64-pc-windows-msvc-artifacts
+          path: target/aarch64-pc-windows-msvc/release/dprint-aarch64-pc-windows-msvc.zip
       - name: Upload artifacts (x86_64-unknown-linux-gnu)
         if: "(matrix.config.target != 'aarch64-unknown-linux-gnu' && matrix.config.target != 'aarch64-unknown-linux-musl' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && (matrix.config.target == 'x86_64-unknown-linux-gnu' && startsWith(github.ref, 'refs/tags/'))"
         uses: actions/upload-artifact@v4
@@ -304,6 +321,7 @@ jobs:
           echo "dprint-aarch64-apple-darwin.zip: ${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_APPLE_DARWIN}}"
           echo "dprint-x86_64-pc-windows-msvc.zip: ${{needs.build.outputs.ZIP_CHECKSUM_X86_64_PC_WINDOWS_MSVC}}"
           echo "dprint-x86_64-pc-windows-msvc-installer.exe: ${{needs.build.outputs.INSTALLER_CHECKSUM_X86_64_PC_WINDOWS_MSVC}}"
+          echo "dprint-aarch64-pc-windows-msvc.zip: ${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_PC_WINDOWS_MSVC}}"
           echo "dprint-x86_64-unknown-linux-gnu.zip: ${{needs.build.outputs.ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_GNU}}"
           echo "dprint-x86_64-unknown-linux-musl.zip: ${{needs.build.outputs.ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_MUSL}}"
           echo "dprint-aarch64-unknown-linux-gnu.zip: ${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_GNU}}"
@@ -317,6 +335,7 @@ jobs:
           echo "${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_APPLE_DARWIN}} dprint-aarch64-apple-darwin.zip" >> SHASUMS256.txt
           echo "${{needs.build.outputs.ZIP_CHECKSUM_X86_64_PC_WINDOWS_MSVC}} dprint-x86_64-pc-windows-msvc.zip" >> SHASUMS256.txt
           echo "${{needs.build.outputs.INSTALLER_CHECKSUM_X86_64_PC_WINDOWS_MSVC}} dprint-x86_64-pc-windows-msvc-installer.exe" >> SHASUMS256.txt
+          echo "${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_PC_WINDOWS_MSVC}} dprint-aarch64-pc-windows-msvc.zip" >> SHASUMS256.txt
           echo "${{needs.build.outputs.ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_GNU}} dprint-x86_64-unknown-linux-gnu.zip" >> SHASUMS256.txt
           echo "${{needs.build.outputs.ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_MUSL}} dprint-x86_64-unknown-linux-musl.zip" >> SHASUMS256.txt
           echo "${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_GNU}} dprint-aarch64-unknown-linux-gnu.zip" >> SHASUMS256.txt
@@ -334,6 +353,7 @@ jobs:
             aarch64-apple-darwin-artifacts/dprint-aarch64-apple-darwin.zip
             x86_64-pc-windows-msvc-artifacts/dprint-x86_64-pc-windows-msvc.zip
             x86_64-pc-windows-msvc-artifacts/dprint-x86_64-pc-windows-msvc-installer.exe
+            aarch64-pc-windows-msvc-artifacts/dprint-aarch64-pc-windows-msvc.zip
             x86_64-unknown-linux-gnu-artifacts/dprint-x86_64-unknown-linux-gnu.zip
             x86_64-unknown-linux-musl-artifacts/dprint-x86_64-unknown-linux-musl.zip
             aarch64-unknown-linux-gnu-artifacts/dprint-aarch64-unknown-linux-gnu.zip
@@ -359,6 +379,7 @@ jobs:
             |dprint-aarch64-apple-darwin.zip|${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_APPLE_DARWIN}}|
             |dprint-x86_64-pc-windows-msvc.zip|${{needs.build.outputs.ZIP_CHECKSUM_X86_64_PC_WINDOWS_MSVC}}|
             |dprint-x86_64-pc-windows-msvc-installer.exe|${{needs.build.outputs.INSTALLER_CHECKSUM_X86_64_PC_WINDOWS_MSVC}}|
+            |dprint-aarch64-pc-windows-msvc.zip|${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_PC_WINDOWS_MSVC}}|
             |dprint-x86_64-unknown-linux-gnu.zip|${{needs.build.outputs.ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_GNU}}|
             |dprint-x86_64-unknown-linux-musl.zip|${{needs.build.outputs.ZIP_CHECKSUM_X86_64_UNKNOWN_LINUX_MUSL}}|
             |dprint-aarch64-unknown-linux-gnu.zip|${{needs.build.outputs.ZIP_CHECKSUM_AARCH64_UNKNOWN_LINUX_GNU}}|
