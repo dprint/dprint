@@ -14,8 +14,7 @@ const packages: Package[] = [{
   os: "win32",
   cpu: "x64",
 }, {
-  // use x64_64 until there's an arm64 build
-  zipFileName: "dprint-x86_64-pc-windows-msvc.zip",
+  zipFileName: "dprint-aarch64-pc-windows-msvc.zip",
   os: "win32",
   cpu: "arm64",
 }, {

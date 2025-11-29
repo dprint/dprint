@@ -4,7 +4,8 @@ import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
 enum OperatingSystem {
   Mac = "macOS-latest",
   MacX86 = "macos-13",
-  Windows = "windows-latest",
+  WindowsX86 = "windows-latest",
+  WindowsArm = "windows-11-arm",
   Linux = "ubuntu-22.04",
   LinuxArm = "${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'buildjet-2vcpu-ubuntu-2204-arm' || 'ubuntu-22.04' }}",
 }
@@ -36,8 +37,12 @@ const profileDataItems: ProfileData[] = [{
   target: "aarch64-apple-darwin",
   runTests: true,
 }, {
-  os: OperatingSystem.Windows,
+  os: OperatingSystem.WindowsX86,
   target: "x86_64-pc-windows-msvc",
+  runTests: true,
+}, {
+  os: OperatingSystem.WindowsArm,
+  target: "aarch64-pc-windows-msvc",
   runTests: true,
 }, {
   os: OperatingSystem.Linux,
@@ -264,7 +269,8 @@ const ci = {
                   `zip -r ${profile.zipFileName} dprint`,
                   `echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 ${profile.zipFileName} | awk '{print $1}')\"`,
                 ];
-              case OperatingSystem.Windows:
+              case OperatingSystem.WindowsX86:
+              case OperatingSystem.WindowsArm:
                 const installerSteps = profile.target === "x86_64-pc-windows-msvc"
                   ? [
                     `mv deployment/installer/${profile.installerFileName} target/${profile.target}/release/${profile.installerFileName}`,
@@ -328,7 +334,7 @@ const ci = {
           shell: "pwsh",
           run: ["cd website/src/assets", "./install.ps1"].join("\n"),
         },
-        // temporarily disable until release
+        // temporarily disable until release of windows arm
         // {
         //   name: "Test npm",
         //   if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
