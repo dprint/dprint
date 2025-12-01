@@ -1,10 +1,8 @@
 use std::sync::Arc;
 
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use dprint_core::plugins::CancellationToken;
-use wasmer::sys::Cranelift;
-use wasmer::sys::EngineBuilder;
 use wasmer::EngineRef;
 use wasmer::ExportError;
 use wasmer::Function;
@@ -13,10 +11,12 @@ use wasmer::Instance;
 use wasmer::Memory;
 use wasmer::Module;
 use wasmer::Store;
+use wasmer::sys::Cranelift;
+use wasmer::sys::EngineBuilder;
 
-use super::instance::get_current_plugin_schema_version;
 use super::ImportObjectEnvironment;
 use super::PluginSchemaVersion;
+use super::instance::get_current_plugin_schema_version;
 
 pub struct WasmInstance {
   inner: wasmer::Instance,

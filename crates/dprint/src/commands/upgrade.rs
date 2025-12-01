@@ -2,9 +2,9 @@ use std::path::Path;
 use std::process::Command;
 use std::process::Stdio;
 
-use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::bail;
 
 use crate::environment::Environment;
 use crate::environment::FilePermissions;

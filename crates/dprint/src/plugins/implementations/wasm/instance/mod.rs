@@ -1,11 +1,10 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
-use dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION;
 use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
@@ -14,6 +13,7 @@ use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION;
 use wasmer::ExportError;
 use wasmer::Instance;
 use wasmer::Store;

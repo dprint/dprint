@@ -16,16 +16,16 @@ use crate::arg_parser::OutputFormatTimesSubCommand;
 use crate::arg_parser::StdInFmtSubCommand;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
-use crate::format::run_parallelized;
 use crate::format::EnsureStableFormat;
+use crate::format::run_parallelized;
 use crate::incremental::get_incremental_file;
 use crate::patterns::FileMatcher;
 use crate::plugins::PluginResolver;
+use crate::resolution::PluginsScope;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
-use crate::resolution::PluginsScope;
-use crate::utils::get_difference;
 use crate::utils::AtomicCounter;
+use crate::utils::get_difference;
 
 pub async fn stdin_fmt<TEnvironment: Environment>(
   cmd: &StdInFmtSubCommand,
@@ -278,18 +278,18 @@ mod test {
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
   use crate::test_helpers;
+  use crate::test_helpers::PROCESS_PLUGIN_ZIP_CHECKSUM;
+  use crate::test_helpers::TestAppError;
+  use crate::test_helpers::TestProcessPluginFile;
+  use crate::test_helpers::TestProcessPluginFileBuilder;
   use crate::test_helpers::get_plural_check_text;
   use crate::test_helpers::get_plural_formatted_text;
   use crate::test_helpers::get_singular_check_text;
   use crate::test_helpers::get_singular_formatted_text;
   use crate::test_helpers::run_test_cli;
   use crate::test_helpers::run_test_cli_with_stdin;
-  use crate::test_helpers::TestAppError;
-  use crate::test_helpers::TestProcessPluginFile;
-  use crate::test_helpers::TestProcessPluginFileBuilder;
-  use crate::test_helpers::PROCESS_PLUGIN_ZIP_CHECKSUM;
-  use crate::utils::get_difference;
   use crate::utils::TestStdInReader;
+  use crate::utils::get_difference;
 
   #[test]
   fn should_output_format_times() {
@@ -1657,11 +1657,13 @@ mod test {
     assert_eq!(result.to_string(), "Had 1 error formatting.");
     assert_eq!(
       environment.take_stderr_messages(),
-      vec![concat!(
-        "Error formatting /file1.txt. Message: Formatting not stable. Bailed after 5 tries. ",
-        "This indicates a bug in the plugin where it formats the file differently each time."
-      )
-      .to_string()]
+      vec![
+        concat!(
+          "Error formatting /file1.txt. Message: Formatting not stable. Bailed after 5 tries. ",
+          "This indicates a bug in the plugin where it formats the file differently each time."
+        )
+        .to_string()
+      ]
     );
   }
 
@@ -1677,13 +1679,15 @@ mod test {
     assert_eq!(result.to_string(), "Had 1 error formatting.");
     assert_eq!(
       environment.take_stderr_messages(),
-      vec![concat!(
-        "Error formatting /file1.txt. Message: Formatting succeeded initially, but failed when ensuring a ",
-        "stable format. This is most likely a bug in the plugin where the text it produces is not ",
-        "syntatically correct. Please report this as a bug to the plugin that formatted this file.\n\n",
-        "Did error."
-      )
-      .to_string()]
+      vec![
+        concat!(
+          "Error formatting /file1.txt. Message: Formatting succeeded initially, but failed when ensuring a ",
+          "stable format. This is most likely a bug in the plugin where the text it produces is not ",
+          "syntatically correct. Please report this as a bug to the plugin that formatted this file.\n\n",
+          "Did error."
+        )
+        .to_string()
+      ]
     );
   }
 
@@ -2281,12 +2285,14 @@ mod test {
     err.assert_exit_code(1);
     assert_eq!(
       environment.take_stderr_messages(),
-      vec![concat!(
-        "Error formatting /file.txt. Message: The original file text was greater than 300 characters, ",
-        "but the formatted text was empty. Most likely this is a bug in the plugin and the dprint CLI has ",
-        "prevented the plugin from formatting the file to an empty file. Please report this scenario."
-      )
-      .to_string()]
+      vec![
+        concat!(
+          "Error formatting /file.txt. Message: The original file text was greater than 300 characters, ",
+          "but the formatted text was empty. Most likely this is a bug in the plugin and the dprint CLI has ",
+          "prevented the plugin from formatting the file to an empty file. Please report this scenario."
+        )
+        .to_string()
+      ]
     );
   }
 

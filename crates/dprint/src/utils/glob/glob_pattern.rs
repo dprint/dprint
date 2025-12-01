@@ -202,15 +202,7 @@ impl GlobPattern {
       let mut pattern = non_negated_glob(&self.relative_pattern);
       let prefix = prefix.to_string_lossy();
       let mut prefix = prefix
-        .split(if cfg!(windows) {
-          if prefix.contains('\\') {
-            '\\'
-          } else {
-            '/'
-          }
-        } else {
-          '/'
-        })
+        .split(if cfg!(windows) { if prefix.contains('\\') { '\\' } else { '/' } } else { '/' })
         .collect::<VecDeque<_>>();
 
       loop {

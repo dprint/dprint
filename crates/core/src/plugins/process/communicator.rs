@@ -1,7 +1,7 @@
-use anyhow::anyhow;
-use anyhow::bail;
 use anyhow::Context as AnyhowContext;
 use anyhow::Result;
+use anyhow::anyhow;
+use anyhow::bail;
 use serde::de::DeserializeOwned;
 use std::cell::RefCell;
 use std::io::BufRead;
@@ -20,6 +20,7 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
+use super::PLUGIN_SCHEMA_VERSION;
 use super::messages::CheckConfigUpdatesMessageBody;
 use super::messages::CheckConfigUpdatesResponseBody;
 use super::messages::FormatMessageBody;
@@ -28,7 +29,6 @@ use super::messages::MessageBody;
 use super::messages::ProcessPluginMessage;
 use super::messages::RegisterConfigMessageBody;
 use super::messages::ResponseBody;
-use super::PLUGIN_SCHEMA_VERSION;
 use crate::async_runtime::DropGuardAction;
 use crate::async_runtime::LocalBoxFuture;
 use crate::communication::AtomicFlag;

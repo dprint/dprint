@@ -1,8 +1,8 @@
+use anyhow::Result;
 use anyhow::anyhow;
 use anyhow::bail;
-use anyhow::Result;
-use jsonc_parser::parse_to_value;
 use jsonc_parser::JsonValue;
+use jsonc_parser::parse_to_value;
 use url::Url;
 
 use crate::environment::UrlDownloader;
@@ -31,11 +31,7 @@ impl PluginUpdateUrlInfo {
   }
 
   pub fn full_url_no_wasm_checksum(&self) -> String {
-    if self.is_wasm() {
-      self.url.to_string()
-    } else {
-      self.full_url()
-    }
+    if self.is_wasm() { self.url.to_string() } else { self.full_url() }
   }
 
   pub fn as_source_reference(&self) -> Result<PluginSourceReference> {

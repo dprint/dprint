@@ -1,9 +1,9 @@
-use anyhow::bail;
 use anyhow::Result;
-use jsonc_parser::parse_to_value;
+use anyhow::bail;
 use jsonc_parser::JsonArray;
 use jsonc_parser::JsonObject;
 use jsonc_parser::JsonValue;
+use jsonc_parser::parse_to_value;
 
 use crate::environment::Environment;
 
@@ -43,11 +43,7 @@ impl InfoFilePluginInfo {
   }
 
   pub fn full_url_no_wasm_checksum(&self) -> String {
-    if self.is_wasm() {
-      self.url.to_string()
-    } else {
-      self.full_url()
-    }
+    if self.is_wasm() { self.url.to_string() } else { self.full_url() }
   }
 }
 

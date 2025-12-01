@@ -1,5 +1,5 @@
-use crate::formatting::thread_state::BumpAllocator;
 use crate::formatting::PrintItemPath;
+use crate::formatting::thread_state::BumpAllocator;
 
 #[derive(Clone)]
 pub struct NodeStackNode<'a> {

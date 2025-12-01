@@ -1,5 +1,5 @@
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use std::ffi::OsString;
 use std::fmt::Write as FmtWrite;
 use std::io::Read;

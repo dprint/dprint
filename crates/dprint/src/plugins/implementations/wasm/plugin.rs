@@ -1,9 +1,8 @@
-use anyhow::anyhow;
 use anyhow::Result;
-use dprint_core::async_runtime::async_trait;
+use anyhow::anyhow;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
-use dprint_core::plugins::process::HostFormatCallback;
+use dprint_core::async_runtime::async_trait;
 use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
@@ -12,6 +11,7 @@ use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
+use dprint_core::plugins::process::HostFormatCallback;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -22,18 +22,18 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::PluginInfo;
 
+use super::WasmHostFormatSender;
+use super::WasmModuleCreator;
 use super::create_pools_import_object;
 use super::load_instance;
 use super::load_instance::WasmInstance;
 use super::load_instance::WasmModule;
-use super::WasmHostFormatSender;
-use super::WasmModuleCreator;
 use crate::environment::Environment;
-use crate::plugins::implementations::wasm::create_wasm_plugin_instance;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
+use crate::plugins::implementations::wasm::create_wasm_plugin_instance;
 
 pub struct WasmPlugin<TEnvironment: Environment> {
   module: WasmModule,

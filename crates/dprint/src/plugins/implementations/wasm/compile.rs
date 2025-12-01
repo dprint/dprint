@@ -1,17 +1,17 @@
 use std::sync::Arc;
 
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use dprint_core::plugins::CancellationToken;
 use wasmer::ExportError;
 use wasmer::Instance;
 use wasmer::Store;
 
+use super::ImportObjectEnvironment;
 use super::create_wasm_plugin_instance;
 use super::instance::create_identity_import_object;
-use super::load_instance::load_instance;
 use super::load_instance::WasmModuleCreator;
-use super::ImportObjectEnvironment;
+use super::load_instance::load_instance;
 use crate::plugins::CompilationResult;
 
 struct CompileImportObjectEnvironment;

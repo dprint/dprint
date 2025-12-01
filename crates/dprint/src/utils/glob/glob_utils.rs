@@ -7,11 +7,7 @@ pub fn is_negated_glob(pattern: &str) -> bool {
 }
 
 pub fn non_negated_glob(pattern: &str) -> &str {
-  if is_negated_glob(pattern) {
-    &pattern[1..]
-  } else {
-    pattern
-  }
+  if is_negated_glob(pattern) { &pattern[1..] } else { pattern }
 }
 
 pub fn is_pattern(pattern: &str) -> bool {

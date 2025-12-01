@@ -2,9 +2,9 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Result;
 use anyhow::anyhow;
 use anyhow::bail;
-use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
@@ -34,9 +34,9 @@ use wasmer::TypedFunction;
 use wasmer::WasmPtr;
 use wasmer::WasmTypeList;
 
+use crate::plugins::FormatConfig;
 use crate::plugins::implementations::wasm::WasmHostFormatSender;
 use crate::plugins::implementations::wasm::WasmInstance;
-use crate::plugins::FormatConfig;
 
 use super::ImportObjectEnvironment;
 use super::InitializedWasmPluginInstance;
@@ -541,7 +541,7 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn get_memory_view(&self) -> MemoryView {
+  pub fn get_memory_view(&self) -> MemoryView<'_> {
     self.memory.view(&self.store)
   }
 

@@ -1,6 +1,6 @@
 use crate::environment::Environment;
-use anyhow::anyhow;
 use anyhow::Result;
+use anyhow::anyhow;
 use serde_json::Value;
 
 pub async fn is_out_of_date(environment: &impl Environment) -> Option<String> {

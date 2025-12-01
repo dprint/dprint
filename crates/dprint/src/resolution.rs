@@ -6,12 +6,11 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigKeyMap;
-use dprint_core::plugins::process::HostFormatCallback;
 use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
@@ -21,28 +20,28 @@ use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::process::HostFormatCallback;
 use indexmap::IndexMap;
 use thiserror::Error;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::ConfigDiscovery;
 use crate::arg_parser::FilePatternArgs;
-use crate::configuration::get_global_config;
-use crate::configuration::get_plugin_config_map;
-use crate::configuration::resolve_config_from_args;
-use crate::configuration::resolve_config_from_path;
 use crate::configuration::GlobalConfigDiagnostic;
 use crate::configuration::ResolveConfigError;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPath;
+use crate::configuration::get_global_config;
+use crate::configuration::get_plugin_config_map;
+use crate::configuration::resolve_config_from_args;
+use crate::configuration::resolve_config_from_path;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
-use crate::paths::get_and_resolve_file_paths;
-use crate::paths::get_file_paths_by_plugins;
 use crate::paths::FilesPathsByPlugins;
 use crate::paths::NoFilesFoundError;
+use crate::paths::get_and_resolve_file_paths;
+use crate::paths::get_file_paths_by_plugins;
 use crate::patterns::FileMatcher;
-use crate::plugins::output_plugin_config_diagnostics;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
@@ -50,6 +49,7 @@ use crate::plugins::OutputPluginConfigDiagnosticsError;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginWrapper;
+use crate::plugins::output_plugin_config_diagnostics;
 use crate::utils::FastInsecureHasher;
 use crate::utils::ResolvedPath;
 
@@ -242,11 +242,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 
   pub fn ensure_plugins_found(&self) -> Result<(), NoPluginsFoundError> {
-    if self.plugins.is_empty() {
-      Err(NoPluginsFoundError)
-    } else {
-      Ok(())
-    }
+    if self.plugins.is_empty() { Err(NoPluginsFoundError) } else { Ok(()) }
   }
 
   pub fn ensure_no_global_config_diagnostics(&self) -> Result<(), ResolveConfigError> {

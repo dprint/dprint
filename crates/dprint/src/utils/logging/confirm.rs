@@ -1,5 +1,5 @@
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use crossterm::event::Event;
 use crossterm::event::KeyCode;
 

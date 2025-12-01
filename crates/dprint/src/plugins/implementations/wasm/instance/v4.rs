@@ -3,13 +3,12 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Result;
 use anyhow::anyhow;
 use anyhow::bail;
-use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
-use dprint_core::plugins::wasm::JsonResponse;
 use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
@@ -21,6 +20,7 @@ use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
 use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::wasm::JsonResponse;
 use parking_lot::Mutex;
 use wasmer::AsStoreRef;
 use wasmer::ExportError;
@@ -36,10 +36,10 @@ use wasmer::WasmPtr;
 use wasmer::WasmTypeList;
 
 use crate::environment::Environment;
+use crate::plugins::FormatConfig;
 use crate::plugins::implementations::wasm::ImportObjectEnvironment;
 use crate::plugins::implementations::wasm::WasmHostFormatSender;
 use crate::plugins::implementations::wasm::WasmInstance;
-use crate::plugins::FormatConfig;
 
 use super::InitializedWasmPluginInstance;
 
@@ -263,11 +263,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
   }
 
   fn host_has_cancelled<TEnvironment: Environment>(env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>) -> i32 {
-    if env.data().token.as_ref().is_cancelled() {
-      1
-    } else {
-      0
-    }
+    if env.data().token.as_ref().is_cancelled() { 1 } else { 0 }
   }
 
   let env = ImportObjectEnvironmentV4 {
@@ -595,7 +591,7 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn get_memory_view(&self) -> MemoryView {
+  pub fn get_memory_view(&self) -> MemoryView<'_> {
     self.memory.view(&self.store)
   }
 

@@ -1,7 +1,7 @@
-use anyhow::anyhow;
-use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::anyhow;
+use anyhow::bail;
 use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::ConfigChangeKind;

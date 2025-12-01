@@ -39,13 +39,13 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    use std::path::PathBuf;
 
    use anyhow::Result;
-   use dprint_core::async_runtime::async_trait;
    use dprint_core::async_runtime::LocalBoxFuture;
-   use dprint_core::configuration::get_unknown_property_diagnostics;
-   use dprint_core::configuration::get_value;
+   use dprint_core::async_runtime::async_trait;
    use dprint_core::configuration::ConfigKeyMap;
    use dprint_core::configuration::GlobalConfiguration;
    use dprint_core::configuration::ResolveConfigurationResult;
+   use dprint_core::configuration::get_unknown_property_diagnostics;
+   use dprint_core::configuration::get_value;
    use dprint_core::plugins::AsyncPluginHandler;
    use dprint_core::plugins::FileMatchingInfo;
    use dprint_core::plugins::FormatRequest;

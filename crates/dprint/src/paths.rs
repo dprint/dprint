@@ -15,12 +15,12 @@ use crate::patterns::get_all_file_patterns;
 use crate::patterns::process_config_patterns;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::resolution::PluginWithConfig;
-use crate::utils::glob;
-use crate::utils::is_negated_glob;
 use crate::utils::GlobOptions;
 use crate::utils::GlobOutput;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
+use crate::utils::glob;
+use crate::utils::is_negated_glob;
 
 /// Struct that allows using plugin names as a key
 /// in a hash map.

@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use clap::ArgMatches;
 use thiserror::Error;
 
@@ -547,6 +547,7 @@ EXAMPLES:
         )
         .subcommand(
           Command::new("update")
+            .alias("upgrade")
             .about("Updates the plugins in the configuration file.")
             .arg(Arg::new("yes").help("Upgrade process plugins without prompting to confirm checksums.").short('y').long("yes").action(clap::ArgAction::SetTrue))
         )
@@ -821,6 +822,15 @@ mod test {
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--staged"]).unwrap();
     assert_eq!(fmt_cmd.only_staged, true);
     assert_eq!(fmt_cmd.allow_no_files, true);
+  }
+
+  #[test]
+  fn config_upgrade_alias() {
+    let args = test_args(vec!["config", "upgrade"]).unwrap();
+    match args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Update { yes }) => assert!(!yes),
+      _ => unreachable!(),
+    }
   }
 
   fn parse_fmt_sub_command(args: Vec<&str>) -> Result<FmtSubCommand, ParseArgsError> {

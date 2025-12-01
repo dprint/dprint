@@ -1,10 +1,10 @@
 use anyhow::Result;
-use crossterm::event::read;
 use crossterm::event::Event;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyEventKind;
 use crossterm::event::KeyModifiers;
+use crossterm::event::read;
 use crossterm::terminal;
 
 #[derive(Debug, Copy, Clone)]
@@ -25,10 +25,10 @@ pub(crate) fn read_terminal_key_press() -> Result<Event> {
   fn read_until_key_press() -> Result<Event> {
     loop {
       let result = read();
-      if let Ok(Event::Key(e)) = &result {
-        if e.kind == KeyEventKind::Press {
-          return Ok(result?);
-        }
+      if let Ok(Event::Key(e)) = &result
+        && e.kind == KeyEventKind::Press
+      {
+        return Ok(result?);
       }
     }
   }

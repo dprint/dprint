@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use tower_lsp::lsp_types::MessageType;
 use tower_lsp::Client;
+use tower_lsp::lsp_types::MessageType;
 
 pub trait ClientTrait: std::fmt::Debug + Send + Sync {
   fn log(&self, message_type: MessageType, message: String);
