@@ -149,7 +149,8 @@ pub fn run_specs(
         Ok(Ok(formatted)) => Ok(formatted),
         Ok(Err(err)) => Err(format!("Formatter error: {:#}", err)),
         Err(panic_info) => {
-          let panic_msg = panic_info.downcast_ref::<String>()
+          let panic_msg = panic_info
+            .downcast_ref::<String>()
             .map(|s| s.as_str())
             .or_else(|| panic_info.downcast_ref::<&str>().copied())
             .unwrap_or("unknown panic");
