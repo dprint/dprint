@@ -134,11 +134,7 @@ impl<T: Clone + Copy + PartialEq + Display> VecU32MapWithValuedNone<T> {
 
   pub fn get(&self, key: u32) -> Option<T> {
     let value = *self.0.get(key)?;
-    if value == self.0.default {
-      None
-    } else {
-      Some(value)
-    }
+    if value == self.0.default { None } else { Some(value) }
   }
 }
 

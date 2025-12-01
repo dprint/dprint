@@ -1,12 +1,12 @@
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use std::path::PathBuf;
 
 use dprint_core::plugins::PluginInfo;
 
+use super::WasmModuleCreator;
 use super::process;
 use super::wasm;
-use super::WasmModuleCreator;
 use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;

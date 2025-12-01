@@ -2,13 +2,13 @@ use std::hash::BuildHasherDefault;
 
 type BumpHashMap<'a, K, V> = hashbrown::HashMap<K, V, BuildHasherDefault<rustc_hash::FxHasher>, &'a bumpalo::Bump>;
 
+use super::WriteItem;
 use super::collections::*;
 use super::infinite_reevaluation_protection::InfiniteReevaluationProtector;
 use super::print_items::*;
 use super::thread_state;
 use super::thread_state::BumpAllocator;
 use super::writer::*;
-use super::WriteItem;
 
 pub struct SavePoint<'a> {
   #[cfg(debug_assertions)]
@@ -334,9 +334,10 @@ impl<'a> Printer<'a> {
 
   fn mark_possible_new_line_if_able(&mut self) {
     if let Some(new_line_save_point) = &self.possible_new_line_save_point
-      && self.new_line_group_depth > new_line_save_point.new_line_group_depth {
-        return;
-      }
+      && self.new_line_group_depth > new_line_save_point.new_line_group_depth
+    {
+      return;
+    }
 
     let next_node = self.current_node.as_ref().unwrap().get_next();
     self.possible_new_line_save_point = Some(self.create_save_point("newline", next_node));
@@ -518,29 +519,29 @@ impl<'a> Printer<'a> {
   fn handle_condition_reevaluation(&mut self, condition_reevaluation: &ConditionReevaluation) {
     let condition_id = condition_reevaluation.condition_id;
     if let Some((condition, save_point)) = self.stored_condition_save_points.get(&condition_id).cloned()
-      && let Some(past_condition_value) = self.resolved_conditions.get(&condition_id).and_then(|x| x.to_owned()) {
-        self.resolving_save_point.replace(save_point);
-        let mut context = ConditionResolverContext::new(self, save_point.writer_state.writer_info(self.writer.indent_width()));
-        let latest_condition_value = condition.resolve(&mut context);
-        self.resolving_save_point.take();
+      && let Some(past_condition_value) = self.resolved_conditions.get(&condition_id).and_then(|x| x.to_owned())
+    {
+      self.resolving_save_point.replace(save_point);
+      let mut context = ConditionResolverContext::new(self, save_point.writer_state.writer_info(self.writer.indent_width()));
+      let latest_condition_value = condition.resolve(&mut context);
+      self.resolving_save_point.take();
 
-        // Do not re-evaluate the condition if it's flipped back and forth a decent number of times.
-        // If it hits the max number of times it can flip then an error will be logged.
-        let should_reevaluate = self.infinite_reevaluation_protector.should_reevaluate(
-          condition_reevaluation.condition_reevaluation_id,
-          latest_condition_value,
-          past_condition_value,
-        );
-        if should_reevaluate {
-          if let Some(latest_condition_value) = latest_condition_value {
-            if latest_condition_value != past_condition_value {
-              self.update_state_to_save_point(save_point, false);
-            }
-          } else {
-            self.resolved_conditions.remove(&condition_id);
+      // Do not re-evaluate the condition if it's flipped back and forth a decent number of times.
+      // If it hits the max number of times it can flip then an error will be logged.
+      let should_reevaluate =
+        self
+          .infinite_reevaluation_protector
+          .should_reevaluate(condition_reevaluation.condition_reevaluation_id, latest_condition_value, past_condition_value);
+      if should_reevaluate {
+        if let Some(latest_condition_value) = latest_condition_value {
+          if latest_condition_value != past_condition_value {
+            self.update_state_to_save_point(save_point, false);
           }
+        } else {
+          self.resolved_conditions.remove(&condition_id);
         }
       }
+    }
   }
 
   #[inline]
@@ -618,7 +619,10 @@ impl<'a> Printer<'a> {
       );
     }
     if text.contains('\n') {
-      panic!("Debug panic! Found a newline in the string. Before sending the string to the printer it needs to be broken up and the newline sent as a PrintItem::NewLine. {0}", text);
+      panic!(
+        "Debug panic! Found a newline in the string. Before sending the string to the printer it needs to be broken up and the newline sent as a PrintItem::NewLine. {0}",
+        text
+      );
     }
   }
 

@@ -1,5 +1,5 @@
-use anyhow::anyhow;
 use anyhow::Result;
+use anyhow::anyhow;
 use dprint_core::communication::IdGenerator;
 use dprint_core::communication::MessageReader;
 use dprint_core::communication::MessageWriter;
@@ -18,13 +18,13 @@ mod messages;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::EditorServiceSubCommand;
-use crate::configuration::resolve_config_from_args;
 use crate::configuration::ResolvedConfig;
+use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
+use crate::resolution::PluginsScope;
 use crate::resolution::get_plugins_scope_from_args;
 use crate::resolution::resolve_plugins_scope;
-use crate::resolution::PluginsScope;
 use crate::utils::Semaphore;
 
 use self::messages::EditorMessage;
@@ -308,10 +308,10 @@ fn send_response_body(context: &EditorContext, body: EditorMessageBody) {
 
 #[cfg(test)]
 mod test {
-  use anyhow::anyhow;
   use anyhow::Result;
-  use dprint_core::async_runtime::future;
+  use anyhow::anyhow;
   use dprint_core::async_runtime::DropGuardAction;
+  use dprint_core::async_runtime::future;
   use dprint_core::communication::IdGenerator;
   use dprint_core::communication::MessageReader;
   use dprint_core::communication::MessageWriter;

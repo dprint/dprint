@@ -9,9 +9,10 @@ pub fn get_lowercase_file_extension(file_path: &Path) -> Option<String> {
       if file_path.components().count() == 1 {
         let text = file_path.to_string_lossy();
         if let Some(index) = text.rfind('.')
-          && index == 0 {
-            return Some(text[1..].to_lowercase());
-          }
+          && index == 0
+        {
+          return Some(text[1..].to_lowercase());
+        }
       }
       None
     })

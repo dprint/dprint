@@ -396,9 +396,10 @@ impl PrintNode {
     let past_next = mem::replace(&mut self.next, new_next);
 
     if let Some(past_next) = past_next
-      && let Some(new_next) = new_next {
-        new_next.get_last_next().unwrap_or(new_next).set_next(Some(past_next));
-      }
+      && let Some(new_next) = new_next
+    {
+      new_next.get_last_next().unwrap_or(new_next).set_next(Some(past_next));
+    }
   }
 }
 
@@ -436,10 +437,11 @@ impl PrintNodeCell {
     let mut current = self.get_next();
     loop {
       if let Some(last) = &current
-        && let Some(next) = last.get_next() {
-          current.replace(next);
-          continue;
-        }
+        && let Some(next) = last.get_next()
+      {
+        current.replace(next);
+        continue;
+      }
       break;
     }
 

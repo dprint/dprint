@@ -13,10 +13,12 @@ pub fn start_parent_process_checker_task(parent_process_id: u32) {
     // in case the tokio runtime gets blocked. Also, DO NOT
     // use spawn_blocking from tokio here because it will keep
     // the process alive
-    std::thread::spawn(move || loop {
-      std::thread::sleep(Duration::from_secs(5));
-      if !is_process_active(parent_process_id) {
-        std::process::exit(1);
+    std::thread::spawn(move || {
+      loop {
+        std::thread::sleep(Duration::from_secs(5));
+        if !is_process_active(parent_process_id) {
+          std::process::exit(1);
+        }
       }
     });
   });
@@ -29,9 +31,10 @@ pub fn get_parent_process_id_from_cli_args() -> Option<u32> {
   let args: Vec<String> = std::env::args().collect();
   for i in 0..args.len() {
     if args[i] == "--parent-pid"
-      && let Some(parent_pid) = args.get(i + 1) {
-        return parent_pid.parse::<u32>().map(Some).unwrap_or(None);
-      }
+      && let Some(parent_pid) = args.get(i + 1)
+    {
+      return parent_pid.parse::<u32>().map(Some).unwrap_or(None);
+    }
   }
 
   None

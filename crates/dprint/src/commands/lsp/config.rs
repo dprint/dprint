@@ -10,8 +10,8 @@ use crate::configuration::resolve_config_from_path;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins;
-use crate::resolution::resolve_plugins_scope;
 use crate::resolution::PluginsScope;
+use crate::resolution::resolve_plugins_scope;
 use crate::utils::AsyncMutex;
 
 type ScopeCell<TEnvironment> = AsyncMutex<Option<Rc<PluginsScope<TEnvironment>>>>;

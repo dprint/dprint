@@ -1,5 +1,5 @@
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use dprint_core::async_runtime::future;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::plugins::CriticalFormatError;
@@ -195,10 +195,11 @@ where
       let file_text = environment.read_file_bytes(&file_path)?;
 
       if let Some(incremental_file) = &incremental_file
-        && incremental_file.is_file_known_formatted(&file_text) {
-          log_debug!(environment, "No change: {}", file_path.display());
-          return Ok::<_, anyhow::Error>(None);
-        }
+        && incremental_file.is_file_known_formatted(&file_text)
+      {
+        log_debug!(environment, "No change: {}", file_path.display());
+        return Ok::<_, anyhow::Error>(None);
+      }
       Ok(Some((file_path, file_text, environment)))
     })
     .await

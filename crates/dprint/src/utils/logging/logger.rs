@@ -1,15 +1,15 @@
 use console_static_text::ConsoleSize;
 use console_static_text::ConsoleStaticText;
+use crossterm::QueueableCommand;
 use crossterm::cursor;
 use crossterm::style;
-use crossterm::QueueableCommand;
 use parking_lot::Mutex;
 use std::borrow::Cow;
-use std::io::stderr;
-use std::io::stdout;
 use std::io::Stderr;
 use std::io::Stdout;
 use std::io::Write;
+use std::io::stderr;
+use std::io::stdout;
 
 use crate::utils::terminal::get_terminal_size;
 
@@ -168,9 +168,10 @@ impl Logger {
       Some(state.static_text.console_size())
     };
     if let Some(terminal_size) = terminal_size
-      && let Some(text) = state.static_text.render_clear_with_size(terminal_size) {
-        stderr_text = text;
-      }
+      && let Some(text) = state.static_text.render_clear_with_size(terminal_size)
+    {
+      stderr_text = text;
+    }
 
     let mut output_text = String::new();
     if state.last_context_name != context_name {
@@ -206,9 +207,10 @@ impl Logger {
 
     // finally render stderr
     if let Some(terminal_size) = terminal_size
-      && let Some(text) = self.render_draw_items(state, terminal_size) {
-        stderr_text.push_str(&text);
-      }
+      && let Some(text) = self.render_draw_items(state, terminal_size)
+    {
+      stderr_text.push_str(&text);
+    }
 
     if !stderr_text.is_empty() {
       write!(state.std_err, "{}", stderr_text).unwrap();

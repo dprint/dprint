@@ -2,10 +2,10 @@ use std::rc::Rc;
 
 use anyhow::Result;
 
-use crate::arg_parser::create_cli_parser;
 use crate::arg_parser::CliArgParserKind;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::OutputFilePathsSubCommand;
+use crate::arg_parser::create_cli_parser;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
 use crate::resolution::get_plugins_scope_from_args;

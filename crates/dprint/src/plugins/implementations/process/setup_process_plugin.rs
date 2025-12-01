@@ -1,7 +1,7 @@
-use anyhow::bail;
 use anyhow::Result;
-use dprint_core::plugins::process::ProcessPluginCommunicator;
+use anyhow::bail;
 use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::process::ProcessPluginCommunicator;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
@@ -11,11 +11,11 @@ use std::str;
 
 use crate::environment::Environment;
 use crate::plugins::implementations::SetupPluginResult;
+use crate::utils::PathSource;
 use crate::utils::extract_zip;
 use crate::utils::fetch_file_or_url_bytes;
 use crate::utils::resolve_url_or_file_path_to_path_source;
 use crate::utils::verify_sha256_checksum;
-use crate::utils::PathSource;
 
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> PathBuf {
   get_file_path_from_name_and_version(&plugin_info.name, &plugin_info.version, environment)
@@ -205,9 +205,10 @@ fn verify_plugin_file(plugin_file: &Value) -> Result<()> {
   let kind = plugin_file.as_object().and_then(|o| o.get("kind")).and_then(|v| v.as_str());
 
   if let Some(kind) = kind
-    && kind != "process" {
-      bail!("Unsupported plugin kind: {kind}\nOnly process plugins are supported by this version of dprint. Please upgrade your CLI.");
-    }
+    && kind != "process"
+  {
+    bail!("Unsupported plugin kind: {kind}\nOnly process plugins are supported by this version of dprint. Please upgrade your CLI.");
+  }
 
   Ok(())
 }

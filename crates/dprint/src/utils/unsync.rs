@@ -35,9 +35,10 @@ impl<T> AsyncCell<T> {
     let _permit = self.semaphore.acquire();
     unsafe {
       if let Ok(state) = self.state.try_borrow_unguarded()
-        && let Some(value) = state.as_ref() {
-          return Ok(value);
-        }
+        && let Some(value) = state.as_ref()
+      {
+        return Ok(value);
+      }
     }
     let value = create().await?;
     *self.state.borrow_mut() = Some(value);

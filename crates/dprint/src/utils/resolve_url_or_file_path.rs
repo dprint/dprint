@@ -1,9 +1,9 @@
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use url::Url;
 
-use super::get_bytes_hash;
 use super::PathSource;
+use super::get_bytes_hash;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 

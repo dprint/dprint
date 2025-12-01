@@ -6,8 +6,6 @@ use crate::arg_parser::FilePatternArgs;
 use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
-use crate::utils::is_absolute_pattern;
-use crate::utils::is_negated_glob;
 use crate::utils::ExcludeMatchDetail;
 use crate::utils::GitIgnoreTree;
 use crate::utils::GlobMatcher;
@@ -15,6 +13,8 @@ use crate::utils::GlobMatcherOptions;
 use crate::utils::GlobMatchesDetail;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
+use crate::utils::is_absolute_pattern;
+use crate::utils::is_negated_glob;
 
 pub struct FileMatcher<TEnvironment: Environment> {
   glob_matcher: GlobMatcher,

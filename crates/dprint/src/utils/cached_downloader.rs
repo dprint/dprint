@@ -1,5 +1,5 @@
-use anyhow::anyhow;
 use anyhow::Result;
+use anyhow::anyhow;
 use dprint_core::async_runtime::async_trait;
 use std::cell::RefCell;
 use std::collections::HashMap;

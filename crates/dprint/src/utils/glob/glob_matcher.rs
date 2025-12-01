@@ -2,11 +2,11 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use anyhow::Result;
+use ignore::Match;
 use ignore::gitignore::Gitignore;
 use ignore::gitignore::GitignoreBuilder;
 use ignore::overrides::Override;
 use ignore::overrides::OverrideBuilder;
-use ignore::Match;
 
 use crate::environment::CanonicalizedPathBuf;
 

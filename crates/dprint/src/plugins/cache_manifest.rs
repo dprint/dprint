@@ -55,15 +55,16 @@ fn version_gt(file: &str, current: &str) -> bool {
 
   for (file, current) in file.split('.').zip(current.split('.')) {
     if let Ok(file) = file.parse::<usize>()
-      && let Ok(current) = current.parse::<usize>() {
-        match current.cmp(&file) {
-          Ordering::Greater => return true,
-          Ordering::Less => return false,
-          Ordering::Equal => {
-            // keep searching
-          }
+      && let Ok(current) = current.parse::<usize>()
+    {
+      match current.cmp(&file) {
+        Ordering::Greater => return true,
+        Ordering::Less => return false,
+        Ordering::Equal => {
+          // keep searching
         }
       }
+    }
   }
   false // equal
 }

@@ -8,13 +8,13 @@ use crossterm::style::Stylize;
 use once_cell::sync::Lazy;
 use thiserror::Error;
 
+use crate::AppError;
 use crate::arg_parser::parse_args;
 use crate::environment::TestEnvironment;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginResolver;
 use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
-use crate::AppError;
 
 // macro lifted from Deno's codebase
 #[macro_export]

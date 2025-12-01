@@ -5,8 +5,8 @@ mod wasm;
 pub use public::*;
 pub use wasm::WASMER_COMPILER_VERSION;
 
-pub use wasm::compile as compile_wasm;
 pub use wasm::WasmModuleCreator;
+pub use wasm::compile as compile_wasm;
 
 #[cfg(test)]
 mod test {

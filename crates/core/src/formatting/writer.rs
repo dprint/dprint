@@ -1,11 +1,11 @@
 #[cfg(debug_assertions)]
 use std::collections::VecDeque;
 
+use super::StringContainer;
+use super::WriteItem;
 use super::collections::GraphNode;
 use super::print_items::WriterInfo;
 use super::thread_state::BumpAllocator;
-use super::StringContainer;
-use super::WriteItem;
 
 #[derive(Clone)]
 pub struct WriterState<'a> {

@@ -1,19 +1,16 @@
 use std::path::PathBuf;
 
-use anyhow::bail;
 use anyhow::Result;
-use dprint_core::async_runtime::async_trait;
+use anyhow::bail;
 use dprint_core::async_runtime::LocalBoxFuture;
-use dprint_core::configuration::get_nullable_vec;
-use dprint_core::configuration::get_unknown_property_diagnostics;
-use dprint_core::configuration::get_value;
+use dprint_core::async_runtime::async_trait;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
-use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
-use dprint_core::plugins::process::handle_process_stdio_messages;
-use dprint_core::plugins::process::start_parent_process_checker_task;
+use dprint_core::configuration::get_nullable_vec;
+use dprint_core::configuration::get_unknown_property_diagnostics;
+use dprint_core::configuration::get_value;
 use dprint_core::plugins::AsyncPluginHandler;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
@@ -24,6 +21,9 @@ use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::PluginResolveConfigurationResult;
+use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
+use dprint_core::plugins::process::handle_process_stdio_messages;
+use dprint_core::plugins::process::start_parent_process_checker_task;
 use serde::Deserialize;
 use serde::Serialize;
 
