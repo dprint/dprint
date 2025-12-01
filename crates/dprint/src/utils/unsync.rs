@@ -34,10 +34,10 @@ impl<T> AsyncCell<T> {
   pub async fn get_or_try_init<'a>(&self, create: impl FnOnce() -> LocalBoxFuture<'a, Result<T>>) -> Result<&T> {
     let _permit = self.semaphore.acquire();
     unsafe {
-      if let Ok(state) = self.state.try_borrow_unguarded() {
-        if let Some(value) = state.as_ref() {
-          return Ok(value);
-        }
+      if let Ok(state) = self.state.try_borrow_unguarded()
+        && let Some(value) = state.as_ref()
+      {
+        return Ok(value);
       }
     }
     let value = create().await?;

@@ -2,11 +2,11 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use anyhow::Result;
+use ignore::Match;
 use ignore::gitignore::Gitignore;
 use ignore::gitignore::GitignoreBuilder;
 use ignore::overrides::Override;
 use ignore::overrides::OverrideBuilder;
-use ignore::Match;
 
 use crate::environment::CanonicalizedPathBuf;
 
@@ -236,7 +236,7 @@ fn build_gitignore(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir
   Ok(builder.build()?)
 }
 
-fn normalize_pattern(pattern: &GlobPattern) -> Cow<str> {
+fn normalize_pattern(pattern: &GlobPattern) -> Cow<'_, str> {
   // change patterns that start with ./ to be at the "root" of the globbing
   if pattern.relative_pattern.starts_with("!./") {
     Cow::Owned(format!("!/{}", &pattern.relative_pattern[3..]))

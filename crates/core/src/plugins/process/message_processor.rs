@@ -1,7 +1,7 @@
-use anyhow::anyhow;
-use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::anyhow;
+use anyhow::bail;
 use serde::Serialize;
 use std::io::Read;
 use std::io::Write;
@@ -9,6 +9,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
+use super::PLUGIN_SCHEMA_VERSION;
 use super::context::ProcessContext;
 use super::context::StoredConfig;
 use super::messages::CheckConfigUpdatesMessageBody;
@@ -18,7 +19,6 @@ use super::messages::MessageBody;
 use super::messages::ProcessPluginMessage;
 use super::messages::ResponseBody;
 use super::utils::setup_exit_process_panic_hook;
-use super::PLUGIN_SCHEMA_VERSION;
 
 use crate::async_runtime::FutureExt;
 use crate::async_runtime::LocalBoxFuture;
@@ -49,14 +49,16 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
 
   // now start reading messages
   let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<std::io::Result<ProcessPluginMessage>>();
-  crate::async_runtime::spawn_blocking(move || loop {
-    let message_result = ProcessPluginMessage::read(&mut stdin_reader);
-    let is_err = message_result.is_err();
-    if tx.send(message_result).is_err() {
-      return; // disconnected
-    }
-    if is_err {
-      return; // shut down
+  crate::async_runtime::spawn_blocking(move || {
+    loop {
+      let message_result = ProcessPluginMessage::read(&mut stdin_reader);
+      let is_err = message_result.is_err();
+      if tx.send(message_result).is_err() {
+        return; // disconnected
+      }
+      if is_err {
+        return; // shut down
+      }
     }
   });
 

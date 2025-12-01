@@ -4,10 +4,10 @@ use anyhow::Result;
 use dprint_core::plugins::PluginInfo;
 
 use crate::environment::Environment;
-use crate::utils::parse_checksum_path_or_url;
-use crate::utils::resolve_url_or_file_path_to_path_source;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
+use crate::utils::parse_checksum_path_or_url;
+use crate::utils::resolve_url_or_file_path_to_path_source;
 
 #[derive(Clone)]
 pub struct CompilationResult {

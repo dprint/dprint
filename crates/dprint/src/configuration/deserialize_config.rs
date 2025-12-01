@@ -1,5 +1,5 @@
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigKeyValue;
 use jsonc_parser::JsonArray;
@@ -269,7 +269,7 @@ mod tests {
         r#"{
         "exec": {
           "commands": [{
-            "command": "rustfmt --edition 2021 --config imports_granularity=item",
+            "command": "rustfmt --edition 2024 --config imports_granularity=item",
             "exts": ["rs"]
           }]
         }

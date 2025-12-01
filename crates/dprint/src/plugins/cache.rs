@@ -1,5 +1,5 @@
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
 use parking_lot::RwLock;
@@ -7,21 +7,21 @@ use std::path::PathBuf;
 
 use dprint_core::plugins::PluginInfo;
 
+use super::PluginCacheManifest;
+use super::PluginCacheManifestItem;
 use super::cache_fs_locks::CacheFsLockPool;
 use super::implementations::cleanup_plugin;
 use super::implementations::get_file_path_from_plugin_info;
 use super::implementations::setup_plugin;
 use super::read_manifest;
 use super::write_manifest;
-use super::PluginCacheManifest;
-use super::PluginCacheManifestItem;
 use crate::environment::Environment;
 use crate::plugins::PluginSourceReference;
+use crate::utils::PathSource;
+use crate::utils::PluginKind;
 use crate::utils::get_bytes_hash;
 use crate::utils::get_sha256_checksum;
 use crate::utils::verify_sha256_checksum;
-use crate::utils::PathSource;
-use crate::utils::PluginKind;
 
 pub struct PluginCacheItem {
   pub file_path: PathBuf,
@@ -56,10 +56,10 @@ where
     let _setup_guard = self.fs_locks.lock(&source_reference.path_source).await;
     let removed_cache_item = self.manifest.remove(&source_reference.path_source)?;
 
-    if let Some(cache_item) = removed_cache_item {
-      if let Err(err) = cleanup_plugin(&source_reference.path_source, &cache_item.info, &self.environment) {
-        log_warn!(self.environment, "Error forgetting plugin: {:#}", err);
-      }
+    if let Some(cache_item) = removed_cache_item
+      && let Err(err) = cleanup_plugin(&source_reference.path_source, &cache_item.info, &self.environment)
+    {
+      log_warn!(self.environment, "Error forgetting plugin: {:#}", err);
     }
 
     Ok(())
@@ -224,8 +224,8 @@ fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environmen
 mod test {
   use super::*;
   use crate::environment::TestEnvironment;
-  use crate::plugins::implementations::WASMER_COMPILER_VERSION;
   use crate::plugins::PluginSourceReference;
+  use crate::plugins::implementations::WASMER_COMPILER_VERSION;
   use crate::test_helpers::WASM_PLUGIN_0_1_0_BYTES;
   use crate::test_helpers::WASM_PLUGIN_BYTES;
   use anyhow::Result;

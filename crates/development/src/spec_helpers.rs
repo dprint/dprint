@@ -1,15 +1,15 @@
 use anyhow::Result;
 use console::Style;
-use file_test_runner::collection::CollectOptions;
 use file_test_runner::RunOptions;
 use file_test_runner::SubTestResult;
 use file_test_runner::TestResult;
+use file_test_runner::collection::CollectOptions;
 use similar::ChangeTag;
 use similar::TextDiff;
 use std::fmt::Display;
 use std::fs;
-use std::panic::catch_unwind;
 use std::panic::AssertUnwindSafe;
+use std::panic::catch_unwind;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;

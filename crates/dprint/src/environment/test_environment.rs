@@ -1,6 +1,6 @@
+use anyhow::Result;
 use anyhow::anyhow;
 use anyhow::bail;
-use anyhow::Result;
 use once_cell::sync::Lazy;
 use parking_lot::Condvar;
 use parking_lot::Mutex;
@@ -23,8 +23,8 @@ use super::Environment;
 use super::FilePermissions;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
-use crate::utils::get_bytes_hash;
 use crate::utils::LogLevel;
+use crate::utils::get_bytes_hash;
 
 #[derive(Default)]
 struct BufferData {

@@ -3,10 +3,10 @@
 // The following code is lifted from Deno's codebase.
 // https://github.com/denoland/deno/blob/35f028daf27bb40e86829e7b7cc19aa72a62c0a0/cli/lsp/text.rs
 
-use anyhow::bail;
 use anyhow::Result;
-use dissimilar::diff;
+use anyhow::bail;
 use dissimilar::Chunk;
+use dissimilar::diff;
 use std::collections::HashMap;
 use text_size::TextRange;
 use text_size::TextSize;
@@ -25,11 +25,7 @@ impl Utf16Char {
   }
 
   fn len_utf16(&self) -> usize {
-    if self.len() == TextSize::from(4) {
-      2
-    } else {
-      1
-    }
+    if self.len() == TextSize::from(4) { 2 } else { 1 }
   }
 }
 

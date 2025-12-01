@@ -4,13 +4,13 @@ use crate::plugins::InitializedPluginFormatRequest;
 use crate::utils::AsyncMutex;
 use anyhow::Result;
 use dprint_core::configuration::ConfigurationDiagnostic;
-use dprint_core::plugins::process::ProcessPluginCommunicator;
-use dprint_core::plugins::process::ProcessPluginCommunicatorFormatRequest;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatResult;
+use dprint_core::plugins::process::ProcessPluginCommunicator;
+use dprint_core::plugins::process::ProcessPluginCommunicatorFormatRequest;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -155,8 +155,8 @@ mod test {
   use std::sync::Arc;
   use std::time::Duration;
 
-  use dprint_core::async_runtime::future;
   use dprint_core::async_runtime::FutureExt;
+  use dprint_core::async_runtime::future;
   use dprint_core::configuration::ConfigKeyMap;
   use dprint_core::plugins::NullCancellationToken;
   use tokio_util::sync::CancellationToken;

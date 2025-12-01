@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use crossterm::style::Stylize;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
@@ -9,20 +9,20 @@ use dprint_core::configuration::ConfigKeyValue;
 use thiserror::Error;
 
 use crate::arg_parser::CliArgs;
-use crate::configuration::deserialize_config;
 use crate::configuration::ConfigMap;
 use crate::configuration::ConfigMapValue;
+use crate::configuration::deserialize_config;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
-use crate::plugins::parse_plugin_source_reference;
 use crate::plugins::PluginSourceReference;
-use crate::utils::resolve_url_or_file_path;
+use crate::plugins::parse_plugin_source_reference;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::ResolvedPath;
+use crate::utils::resolve_url_or_file_path;
 
-use super::resolve_main_config_path::resolve_main_config_path;
 use super::resolve_main_config_path::ResolvedConfigPath;
+use super::resolve_main_config_path::resolve_main_config_path;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ResolvedConfig {

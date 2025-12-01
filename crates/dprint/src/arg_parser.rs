@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use clap::ArgMatches;
 use thiserror::Error;
 

@@ -152,8 +152,8 @@ mod test {
   use crate::formatting::LineNumber;
 
   use super::super::PrintItems;
-  use super::format;
   use super::PrintOptions;
+  use super::format;
 
   #[test]
   fn test_format_in_format() {

@@ -1,6 +1,6 @@
-use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::bail;
 use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
@@ -23,10 +23,6 @@ use super::Environment;
 use super::FilePermissions;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
-use crate::utils::log_action_with_progress;
-use crate::utils::show_confirm;
-use crate::utils::show_multi_select;
-use crate::utils::show_select;
 use crate::utils::FastInsecureHasher;
 use crate::utils::LogLevel;
 use crate::utils::Logger;
@@ -35,6 +31,10 @@ use crate::utils::NoProxy;
 use crate::utils::ProgressBars;
 use crate::utils::RealUrlDownloader;
 use crate::utils::UnsafelyIgnoreCertificates;
+use crate::utils::log_action_with_progress;
+use crate::utils::show_confirm;
+use crate::utils::show_multi_select;
+use crate::utils::show_select;
 
 // cache the cwd because it's much faster than looking it up each time
 static CACHED_CWD: OnceCell<CanonicalizedPathBuf> = OnceCell::new();
@@ -414,8 +414,8 @@ impl Environment for RealEnvironment {
 
   #[cfg(windows)]
   fn ensure_system_path(&self, directory_path: &str) -> Result<()> {
-    use winreg::enums::*;
     use winreg::RegKey;
+    use winreg::enums::*;
     log_debug!(self, "Ensuring '{}' is on the path.", directory_path);
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -435,8 +435,8 @@ impl Environment for RealEnvironment {
 
   #[cfg(windows)]
   fn remove_system_path(&self, directory_path: &str) -> Result<()> {
-    use winreg::enums::*;
     use winreg::RegKey;
+    use winreg::enums::*;
     log_debug!(self, "Ensuring '{}' is on the path.", directory_path);
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -458,11 +458,7 @@ impl Environment for RealEnvironment {
 fn resolve_max_threads(env_var: Option<String>, available_parallelism: Option<NonZeroUsize>) -> usize {
   fn maybe_specified_threads(env_var: Option<String>) -> Option<usize> {
     let value = env_var?.parse::<usize>().ok()?;
-    if value > 0 {
-      Some(value)
-    } else {
-      None
-    }
+    if value > 0 { Some(value) } else { None }
   }
 
   let maybe_actual_count = available_parallelism.map(|p| p.get());
@@ -494,16 +490,16 @@ static CACHE_DIR: Lazy<Result<CanonicalizedPathBuf>> = Lazy::new(|| {
 });
 
 fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> Result<PathBuf> {
-  if let Some(dir_path) = get_env_var(CACHE_DIR_ENV_VAR_NAME) {
-    if !dir_path.trim().is_empty() {
-      let dir_path = PathBuf::from(dir_path);
-      // seems dangerous to allow a relative path as this directory may be deleted
-      return if !dir_path.is_absolute() {
-        bail!("The {} environment variable must specify an absolute path.", CACHE_DIR_ENV_VAR_NAME)
-      } else {
-        Ok(dir_path)
-      };
-    }
+  if let Some(dir_path) = get_env_var(CACHE_DIR_ENV_VAR_NAME)
+    && !dir_path.trim().is_empty()
+  {
+    let dir_path = PathBuf::from(dir_path);
+    // seems dangerous to allow a relative path as this directory may be deleted
+    return if !dir_path.is_absolute() {
+      bail!("The {} environment variable must specify an absolute path.", CACHE_DIR_ENV_VAR_NAME)
+    } else {
+      Ok(dir_path)
+    };
   }
 
   match dirs::cache_dir() {

@@ -6,9 +6,9 @@ use crate::arg_parser::CliArgs;
 use crate::arg_parser::SubCommand;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
-use crate::utils::resolve_url_or_file_path;
 use crate::utils::PathSource;
 use crate::utils::ResolvedPath;
+use crate::utils::resolve_url_or_file_path;
 
 const DEFAULT_CONFIG_FILE_NAME: &str = "dprint.json";
 const POSSIBLE_CONFIG_FILE_NAMES: [&str; 4] = [DEFAULT_CONFIG_FILE_NAME, "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
@@ -49,10 +49,10 @@ pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs,
       // When formatting via stdin, resolve the config file based on the
       // file path provided to the command. This is done for people who
       // format files in their editor.
-      if environment.is_absolute_path(&command.file_name_or_path) {
-        if let Some(parent) = PathBuf::from(&command.file_name_or_path).parent() {
-          return environment.canonicalize(parent);
-        }
+      if environment.is_absolute_path(&command.file_name_or_path)
+        && let Some(parent) = PathBuf::from(&command.file_name_or_path).parent()
+      {
+        return environment.canonicalize(parent);
       }
     }
 

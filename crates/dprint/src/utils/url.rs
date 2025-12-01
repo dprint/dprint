@@ -3,19 +3,19 @@ use std::io::Read;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use crossterm::style::Stylize;
 use parking_lot::Mutex;
 use url::Url;
 
 use self::unsafe_certs::NoCertificateVerification;
 
+use super::Logger;
 use super::certs::get_root_cert_store;
 use super::logging::ProgressBarStyle;
 use super::logging::ProgressBars;
 use super::no_proxy::NoProxy;
-use super::Logger;
 
 const MAX_RETRIES: u8 = 2;
 
@@ -142,14 +142,14 @@ mod unsafe_certs {
   use std::net::IpAddr;
   use std::sync::Arc;
 
+  use rustls::DigitallySignedStruct;
+  use rustls::RootCertStore;
+  use rustls::client::WebPkiServerVerifier;
   use rustls::client::danger::HandshakeSignatureValid;
   use rustls::client::danger::ServerCertVerified;
   use rustls::client::danger::ServerCertVerifier;
-  use rustls::client::WebPkiServerVerifier;
   use rustls::pki_types::ServerName;
   use rustls::server::VerifierBuilderError;
-  use rustls::DigitallySignedStruct;
-  use rustls::RootCertStore;
 
   // Below code copied and adapted from https://github.com/denoland/deno/blob/540fe7d9e46d6e734af1ce737adf90e8fc00dff8/ext/tls/lib.rs#L68
   // Copyright 2018-2025 the Deno authors. MIT license.
@@ -355,11 +355,11 @@ mod test {
   use std::sync::Arc;
   use std::time::Duration;
 
-  use crate::utils::url::ProxyProvider;
   use crate::utils::LogLevel;
   use crate::utils::Logger;
   use crate::utils::LoggerOptions;
   use crate::utils::NoProxy;
+  use crate::utils::url::ProxyProvider;
 
   use super::AgentStore;
   use super::RealUrlDownloader;

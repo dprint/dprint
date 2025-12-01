@@ -4,7 +4,7 @@ version = "0.50.2"
 authors = ["dprint code formatting <david@dprint.dev>"]
 categories = ["development-tools"]
 default-run = "dprint"
-edition = "2021"
+edition = "2024"
 keywords = ["code-formatter", "formatter"]
 license = "MIT"
 repository = "https://github.com/dprint/dprint"
@@ -58,8 +58,8 @@ webpki-roots = "=0.26.7"
 # patch version increases of rkyv may cause panics when deserializing
 # data serialized with older versions
 rkyv = "=0.8.10"
-wasmer = "=6.1.0-rc.3"
-wasmer-compiler = "=6.1.0-rc.3"
+wasmer = "=6.1.0"
+wasmer-compiler = "=6.1.0"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "=0.55.0"

@@ -1,8 +1,8 @@
-use anyhow::anyhow;
-use anyhow::bail;
 use anyhow::Context;
 use anyhow::Error;
 use anyhow::Result;
+use anyhow::anyhow;
+use anyhow::bail;
 use dprint_core::async_runtime::future;
 use dprint_core::plugins;
 use std::collections::HashMap;
@@ -17,18 +17,18 @@ use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
-use crate::plugins::read_info_file;
-use crate::plugins::read_update_url;
 use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginWrapper;
+use crate::plugins::read_info_file;
+use crate::plugins::read_update_url;
+use crate::resolution::GetPluginResult;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
-use crate::resolution::GetPluginResult;
-use crate::utils::pretty_print_json_text;
 use crate::utils::CachedDownloader;
 use crate::utils::PathSource;
+use crate::utils::pretty_print_json_text;
 
 pub async fn init_config_file(environment: &impl Environment, config_arg: &Option<String>) -> Result<()> {
   let config_file_path = get_config_path(config_arg)?;
@@ -97,27 +97,26 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
           }
         };
         for (config_plugin_reference, config_plugin) in get_config_file_plugins(plugin_resolver, config.plugins).await {
-          if let Ok(config_plugin) = config_plugin {
-            if let Some(update_url) = &config_plugin.info().update_url {
-              if let Ok(Some(config_plugin_latest)) = read_update_url(&cached_downloader, update_url).await {
-                // if two plugins have the same URL to be updated to then they're the same plugin
-                if config_plugin_latest.url == plugin.url {
-                  let file_text = environment.read_file(&config_path)?;
-                  let new_reference = plugin.as_source_reference()?;
-                  let file_text = update_plugin_in_config(
-                    &file_text,
-                    &PluginUpdateInfo {
-                      name: config_plugin.info().name.to_string(),
-                      old_version: config_plugin.info().version.to_string(),
-                      old_reference: config_plugin_reference,
-                      new_version: plugin.version,
-                      new_reference,
-                    },
-                  );
-                  environment.write_file(&config_path, &file_text)?;
-                  return Ok(());
-                }
-              }
+          if let Ok(config_plugin) = config_plugin
+            && let Some(update_url) = &config_plugin.info().update_url
+            && let Ok(Some(config_plugin_latest)) = read_update_url(&cached_downloader, update_url).await
+          {
+            // if two plugins have the same URL to be updated to then they're the same plugin
+            if config_plugin_latest.url == plugin.url {
+              let file_text = environment.read_file(&config_path)?;
+              let new_reference = plugin.as_source_reference()?;
+              let file_text = update_plugin_in_config(
+                &file_text,
+                &PluginUpdateInfo {
+                  name: config_plugin.info().name.to_string(),
+                  old_version: config_plugin.info().version.to_string(),
+                  old_reference: config_plugin_reference,
+                  new_version: plugin.version,
+                  new_reference,
+                },
+              );
+              environment.write_file(&config_path, &file_text)?;
+              return Ok(());
             }
           }
         }
@@ -382,7 +381,7 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
         return Some(Err(PluginUpdateError {
           name: plugin_reference.path_source.display(),
           error,
-        }))
+        }));
       }
     };
 
@@ -422,10 +421,10 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
   let mut final_infos = Vec::with_capacity(config_file_plugins.len());
   for (plugin_reference, plugin_result) in config_file_plugins {
     let maybe_info = resolve_plugin_update_info(environment, plugin_reference, plugin_result).await;
-    if let Some(info) = maybe_info {
-      if info.as_ref().ok().map(|info| info.old_version != info.new_version).unwrap_or(true) {
-        final_infos.push(info);
-      }
+    if let Some(info) = maybe_info
+      && info.as_ref().ok().map(|info| info.old_version != info.new_version).unwrap_or(true)
+    {
+      final_infos.push(info);
     }
   }
   Ok(final_infos)
@@ -503,10 +502,10 @@ mod test {
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
   use crate::environment::TestInfoFilePlugin;
-  use crate::test_helpers::get_test_wasm_plugin_checksum;
-  use crate::test_helpers::run_test_cli;
   use crate::test_helpers::TestProcessPluginFile;
   use crate::test_helpers::TestProcessPluginFileBuilder;
+  use crate::test_helpers::get_test_wasm_plugin_checksum;
+  use crate::test_helpers::run_test_cli;
 
   #[test]
   fn should_initialize() {
@@ -845,7 +844,10 @@ mod test {
       expected_urls: vec![new_ps_url.clone()],
       always_update: true,
       on_error: Some(Box::new(|text| {
-        assert_contains!(text, "Error resolving plugin https://plugins.dprint.dev/test-plugin-3.json: The plugin must have a checksum specified for security reasons since it is not a Wasm plugin.");
+        assert_contains!(
+          text,
+          "Error resolving plugin https://plugins.dprint.dev/test-plugin-3.json: The plugin must have a checksum specified for security reasons since it is not a Wasm plugin."
+        );
       })),
       exit_code: 12,
     });
@@ -985,7 +987,10 @@ mod test {
       expected_urls: vec![new_ps_url.clone()],
       always_update: false,
       on_error: Some(Box::new(|text| {
-        assert_contains!(text, "Error resolving plugin https://plugins.dprint.dev/test-plugin-3.json: The plugin must have a checksum specified for security reasons since it is not a Wasm plugin.");
+        assert_contains!(
+          text,
+          "Error resolving plugin https://plugins.dprint.dev/test-plugin-3.json: The plugin must have a checksum specified for security reasons since it is not a Wasm plugin."
+        );
       })),
       exit_code: 12,
     });
