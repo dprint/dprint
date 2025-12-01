@@ -595,7 +595,7 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn get_memory_view(&self) -> MemoryView {
+  pub fn get_memory_view(&self) -> MemoryView<'_> {
     self.memory.view(&self.store)
   }
 

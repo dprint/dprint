@@ -54,7 +54,7 @@ pub enum LoggerTextItem {
 }
 
 impl LoggerTextItem {
-  pub fn as_static_text_item(&self) -> console_static_text::TextItem {
+  pub fn as_static_text_item(&self) -> console_static_text::TextItem<'_> {
     match self {
       LoggerTextItem::Text(text) => console_static_text::TextItem::Text(Cow::Borrowed(text.as_str())),
       LoggerTextItem::HangingText { text, indent } => console_static_text::TextItem::HangingText {

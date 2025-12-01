@@ -58,7 +58,7 @@ pub struct VecU32BoolMap(Vec<u8>);
 
 impl VecU32BoolMap {
   pub fn with_capacity(capacity: u32) -> Self {
-    let len = (capacity / 4 + if capacity % 4 == 0 { 0 } else { 1 }) as usize;
+    let len = (capacity / 4 + if capacity.is_multiple_of(4) { 0 } else { 1 }) as usize;
     Self(vec![0; len])
   }
 

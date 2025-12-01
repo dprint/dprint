@@ -1,3 +1,6 @@
+#[cfg(debug_assertions)]
+use std::collections::VecDeque;
+
 use super::collections::GraphNode;
 use super::print_items::WriterInfo;
 use super::thread_state::BumpAllocator;
@@ -287,12 +290,12 @@ impl<'a> Writer<'a> {
   }
 
   #[cfg(debug_assertions)]
-  fn items_cloned(&self) -> Vec<WriteItem> {
-    let mut items = Vec::new();
+  fn items_cloned(&self) -> VecDeque<WriteItem<'_>> {
+    let mut items = VecDeque::new();
     let mut current_item = self.state.items;
     while let Some(item) = current_item {
       // insert at the start since items are stored last to first
-      items.insert(0, item.item);
+      items.push_front(item.item);
       current_item = item.previous;
     }
     items
