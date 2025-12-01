@@ -13,11 +13,10 @@ pub fn get_incremental_file<TEnvironment: Environment>(
   scope: &PluginsScope<TEnvironment>,
   environment: &TEnvironment,
 ) -> Option<IncrementalFile<TEnvironment>> {
-  if let Some(incremental_arg) = incremental_cli_arg.or(config.incremental) {
-    if !incremental_arg {
+  if let Some(incremental_arg) = incremental_cli_arg.or(config.incremental)
+    && !incremental_arg {
       return None;
     }
-  }
 
   // the incremental file is stored in the cache with a key based on the root directory
   let incremental_dir = environment.get_cache_dir().join_panic_relative("incremental");

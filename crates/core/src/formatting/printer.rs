@@ -333,11 +333,10 @@ impl<'a> Printer<'a> {
   }
 
   fn mark_possible_new_line_if_able(&mut self) {
-    if let Some(new_line_save_point) = &self.possible_new_line_save_point {
-      if self.new_line_group_depth > new_line_save_point.new_line_group_depth {
+    if let Some(new_line_save_point) = &self.possible_new_line_save_point
+      && self.new_line_group_depth > new_line_save_point.new_line_group_depth {
         return;
       }
-    }
 
     let next_node = self.current_node.as_ref().unwrap().get_next();
     self.possible_new_line_save_point = Some(self.create_save_point("newline", next_node));
@@ -518,8 +517,8 @@ impl<'a> Printer<'a> {
   #[inline]
   fn handle_condition_reevaluation(&mut self, condition_reevaluation: &ConditionReevaluation) {
     let condition_id = condition_reevaluation.condition_id;
-    if let Some((condition, save_point)) = self.stored_condition_save_points.get(&condition_id).cloned() {
-      if let Some(past_condition_value) = self.resolved_conditions.get(&condition_id).and_then(|x| x.to_owned()) {
+    if let Some((condition, save_point)) = self.stored_condition_save_points.get(&condition_id).cloned()
+      && let Some(past_condition_value) = self.resolved_conditions.get(&condition_id).and_then(|x| x.to_owned()) {
         self.resolving_save_point.replace(save_point);
         let mut context = ConditionResolverContext::new(self, save_point.writer_state.writer_info(self.writer.indent_width()));
         let latest_condition_value = condition.resolve(&mut context);
@@ -542,7 +541,6 @@ impl<'a> Printer<'a> {
           }
         }
       }
-    }
   }
 
   #[inline]

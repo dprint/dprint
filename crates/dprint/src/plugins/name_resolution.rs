@@ -64,25 +64,23 @@ impl PluginNameResolutionMaps {
       return plugin_names;
     }
 
-    if let Some(file_name) = get_lowercase_file_name(file_path) {
-      if let Some(plugin_names) = self.file_name_to_plugin_names_map.get(&file_name) {
+    if let Some(file_name) = get_lowercase_file_name(file_path)
+      && let Some(plugin_names) = self.file_name_to_plugin_names_map.get(&file_name) {
         for plugin_name in plugin_names {
           if self.is_not_associations_excluded(plugin_name, file_path) {
             return vec![plugin_name.clone()];
           }
         }
       }
-    }
 
-    if let Some(ext) = get_lowercase_file_extension(file_path) {
-      if let Some(plugin_names) = self.extension_to_plugin_names_map.get(&ext) {
+    if let Some(ext) = get_lowercase_file_extension(file_path)
+      && let Some(plugin_names) = self.extension_to_plugin_names_map.get(&ext) {
         for plugin_name in plugin_names {
           if self.is_not_associations_excluded(plugin_name, file_path) {
             return vec![plugin_name.clone()];
           }
         }
       }
-    }
 
     plugin_names
   }

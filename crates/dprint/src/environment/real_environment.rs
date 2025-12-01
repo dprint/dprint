@@ -494,8 +494,8 @@ static CACHE_DIR: Lazy<Result<CanonicalizedPathBuf>> = Lazy::new(|| {
 });
 
 fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> Result<PathBuf> {
-  if let Some(dir_path) = get_env_var(CACHE_DIR_ENV_VAR_NAME) {
-    if !dir_path.trim().is_empty() {
+  if let Some(dir_path) = get_env_var(CACHE_DIR_ENV_VAR_NAME)
+    && !dir_path.trim().is_empty() {
       let dir_path = PathBuf::from(dir_path);
       // seems dangerous to allow a relative path as this directory may be deleted
       return if !dir_path.is_absolute() {
@@ -504,7 +504,6 @@ fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> Resul
         Ok(dir_path)
       };
     }
-  }
 
   match dirs::cache_dir() {
     Some(dir) => Ok(dir.join("dprint").join("cache")),

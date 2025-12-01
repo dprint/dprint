@@ -194,12 +194,11 @@ where
     let result = dprint_core::async_runtime::spawn_blocking(move || {
       let file_text = environment.read_file_bytes(&file_path)?;
 
-      if let Some(incremental_file) = &incremental_file {
-        if incremental_file.is_file_known_formatted(&file_text) {
+      if let Some(incremental_file) = &incremental_file
+        && incremental_file.is_file_known_formatted(&file_text) {
           log_debug!(environment, "No change: {}", file_path.display());
           return Ok::<_, anyhow::Error>(None);
         }
-      }
       Ok(Some((file_path, file_text, environment)))
     })
     .await

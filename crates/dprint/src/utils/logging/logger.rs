@@ -167,11 +167,10 @@ impl Logger {
     } else {
       Some(state.static_text.console_size())
     };
-    if let Some(terminal_size) = terminal_size {
-      if let Some(text) = state.static_text.render_clear_with_size(terminal_size) {
+    if let Some(terminal_size) = terminal_size
+      && let Some(text) = state.static_text.render_clear_with_size(terminal_size) {
         stderr_text = text;
       }
-    }
 
     let mut output_text = String::new();
     if state.last_context_name != context_name {
@@ -206,11 +205,10 @@ impl Logger {
     }
 
     // finally render stderr
-    if let Some(terminal_size) = terminal_size {
-      if let Some(text) = self.render_draw_items(state, terminal_size) {
+    if let Some(terminal_size) = terminal_size
+      && let Some(text) = self.render_draw_items(state, terminal_size) {
         stderr_text.push_str(&text);
       }
-    }
 
     if !stderr_text.is_empty() {
       write!(state.std_err, "{}", stderr_text).unwrap();

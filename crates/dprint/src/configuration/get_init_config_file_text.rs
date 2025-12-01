@@ -64,12 +64,11 @@ pub async fn get_init_config_file_text(environment: &impl Environment) -> Result
     for plugin in selected_plugins.iter() {
       // Put the brace on the next line so the user doesn't have to as soon as they
       // go to add options.
-      if let Some(config_key) = &plugin.config_key {
-        if !config_key.is_empty() {
+      if let Some(config_key) = &plugin.config_key
+        && !config_key.is_empty() {
           json_text.push_str(&format!("  \"{}\": {{\n", config_key));
           json_text.push_str("  },\n");
         }
-      }
     }
 
     json_text.push_str("  \"excludes\": [");

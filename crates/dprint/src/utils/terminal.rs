@@ -25,11 +25,10 @@ pub(crate) fn read_terminal_key_press() -> Result<Event> {
   fn read_until_key_press() -> Result<Event> {
     loop {
       let result = read();
-      if let Ok(Event::Key(e)) = &result {
-        if e.kind == KeyEventKind::Press {
+      if let Ok(Event::Key(e)) = &result
+        && e.kind == KeyEventKind::Press {
           return Ok(result?);
         }
-      }
     }
   }
 

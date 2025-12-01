@@ -56,11 +56,10 @@ where
     let _setup_guard = self.fs_locks.lock(&source_reference.path_source).await;
     let removed_cache_item = self.manifest.remove(&source_reference.path_source)?;
 
-    if let Some(cache_item) = removed_cache_item {
-      if let Err(err) = cleanup_plugin(&source_reference.path_source, &cache_item.info, &self.environment) {
+    if let Some(cache_item) = removed_cache_item
+      && let Err(err) = cleanup_plugin(&source_reference.path_source, &cache_item.info, &self.environment) {
         log_warn!(self.environment, "Error forgetting plugin: {:#}", err);
       }
-    }
 
     Ok(())
   }

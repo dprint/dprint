@@ -204,11 +204,10 @@ fn verify_plugin_file(plugin_file: &Value) -> Result<()> {
 
   let kind = plugin_file.as_object().and_then(|o| o.get("kind")).and_then(|v| v.as_str());
 
-  if let Some(kind) = kind {
-    if kind != "process" {
+  if let Some(kind) = kind
+    && kind != "process" {
       bail!("Unsupported plugin kind: {kind}\nOnly process plugins are supported by this version of dprint. Please upgrade your CLI.");
     }
-  }
 
   Ok(())
 }

@@ -28,11 +28,10 @@ pub fn start_parent_process_checker_task(parent_process_id: u32) {
 pub fn get_parent_process_id_from_cli_args() -> Option<u32> {
   let args: Vec<String> = std::env::args().collect();
   for i in 0..args.len() {
-    if args[i] == "--parent-pid" {
-      if let Some(parent_pid) = args.get(i + 1) {
+    if args[i] == "--parent-pid"
+      && let Some(parent_pid) = args.get(i + 1) {
         return parent_pid.parse::<u32>().map(Some).unwrap_or(None);
       }
-    }
   }
 
   None

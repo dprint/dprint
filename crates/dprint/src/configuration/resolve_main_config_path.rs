@@ -49,11 +49,10 @@ pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs,
       // When formatting via stdin, resolve the config file based on the
       // file path provided to the command. This is done for people who
       // format files in their editor.
-      if environment.is_absolute_path(&command.file_name_or_path) {
-        if let Some(parent) = PathBuf::from(&command.file_name_or_path).parent() {
+      if environment.is_absolute_path(&command.file_name_or_path)
+        && let Some(parent) = PathBuf::from(&command.file_name_or_path).parent() {
           return environment.canonicalize(parent);
         }
-      }
     }
 
     Ok(environment.cwd())

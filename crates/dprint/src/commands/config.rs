@@ -97,9 +97,9 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
           }
         };
         for (config_plugin_reference, config_plugin) in get_config_file_plugins(plugin_resolver, config.plugins).await {
-          if let Ok(config_plugin) = config_plugin {
-            if let Some(update_url) = &config_plugin.info().update_url {
-              if let Ok(Some(config_plugin_latest)) = read_update_url(&cached_downloader, update_url).await {
+          if let Ok(config_plugin) = config_plugin
+            && let Some(update_url) = &config_plugin.info().update_url
+              && let Ok(Some(config_plugin_latest)) = read_update_url(&cached_downloader, update_url).await {
                 // if two plugins have the same URL to be updated to then they're the same plugin
                 if config_plugin_latest.url == plugin.url {
                   let file_text = environment.read_file(&config_path)?;
@@ -118,8 +118,6 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
                   return Ok(());
                 }
               }
-            }
-          }
         }
         plugin.full_url_no_wasm_checksum()
       }
@@ -422,11 +420,10 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
   let mut final_infos = Vec::with_capacity(config_file_plugins.len());
   for (plugin_reference, plugin_result) in config_file_plugins {
     let maybe_info = resolve_plugin_update_info(environment, plugin_reference, plugin_result).await;
-    if let Some(info) = maybe_info {
-      if info.as_ref().ok().map(|info| info.old_version != info.new_version).unwrap_or(true) {
+    if let Some(info) = maybe_info
+      && info.as_ref().ok().map(|info| info.old_version != info.new_version).unwrap_or(true) {
         final_infos.push(info);
       }
-    }
   }
   Ok(final_infos)
 }
