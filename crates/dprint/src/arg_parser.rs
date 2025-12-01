@@ -296,9 +296,9 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       list_different: matches.get_flag("list-different"),
       allow_no_files: matches.get_flag("allow-no-files"),
     }),
-    ("init", _) => SubCommand::Config(parse_init(&matches)),
+    ("init", matches) => SubCommand::Config(parse_init(matches)),
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
-      ("init", _) => parse_init(&matches),
+      ("init", matches) => parse_init(matches),
       ("add", matches) => ConfigSubCommand::Add(matches.get_one::<String>("url-or-plugin-name").map(String::from)),
       ("update", matches) => ConfigSubCommand::Update {
         yes: *matches.get_one::<bool>("yes").unwrap(),
@@ -431,6 +431,7 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
     Command::new("init").about("Initializes a configuration file in the current directory.").arg(
       Arg::new("global")
         .long("global")
+        .short('g')
         .help("Initialize the global dprint configuration file.")
         .num_args(0)
         .required(false),

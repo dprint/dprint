@@ -100,8 +100,12 @@ pub fn resolve_dprint_global_config_dir(environment: &impl Environment) -> Optio
     match environment.canonicalize(path.as_ref()) {
       Ok(path) => Ok(path),
       Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-        _ = environment.mk_dir_all(path.as_ref());
-        Ok(environment.canonicalize(path)?)
+        if let Some(parent) = path.as_ref().parent() {
+          _ = environment.mk_dir_all(parent);
+          Ok(environment.canonicalize(path)?)
+        } else {
+          Err(err.into())
+        }
       }
       Err(err) => Err(err.into()),
     }

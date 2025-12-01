@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::future::Future;
+use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
@@ -59,11 +60,11 @@ impl Drop for TestPipeWriter {
 }
 
 impl Read for TestPipeReader {
-  fn read(&mut self, _: &mut [u8]) -> Result<usize, std::io::Error> {
+  fn read(&mut self, _: &mut [u8]) -> Result<usize, io::Error> {
     panic!("Not implemented");
   }
 
-  fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), std::io::Error> {
+  fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), io::Error> {
     let mut buffer_data = self.0.buffer_data.lock();
 
     while buffer_data.data.len() < buffer_data.read_pos + buf.len() && !buffer_data.closed {
@@ -71,7 +72,7 @@ impl Read for TestPipeReader {
     }
 
     if buffer_data.data.len() == buffer_data.read_pos && buffer_data.closed {
-      return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Broken pipe."));
+      return Err(io::Error::new(io::ErrorKind::BrokenPipe, "Broken pipe."));
     }
 
     buf.copy_from_slice(&buffer_data.data[buffer_data.read_pos..buffer_data.read_pos + buf.len()]);
@@ -82,7 +83,7 @@ impl Read for TestPipeReader {
 }
 
 impl Write for TestPipeWriter {
-  fn write(&mut self, data: &[u8]) -> Result<usize, std::io::Error> {
+  fn write(&mut self, data: &[u8]) -> Result<usize, io::Error> {
     let result = {
       let mut buffer_data = self.0.buffer_data.lock();
       buffer_data.data.write(data)
@@ -91,7 +92,7 @@ impl Write for TestPipeWriter {
     result
   }
 
-  fn flush(&mut self) -> Result<(), std::io::Error> {
+  fn flush(&mut self) -> Result<(), io::Error> {
     Ok(())
   }
 }
@@ -112,7 +113,7 @@ pub struct TestEnvironment {
   multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>>>>>,
   is_stdout_machine_readable: Arc<Mutex<bool>>,
-  dir_info_error: Arc<Mutex<Option<std::io::Error>>>,
+  dir_info_error: Arc<Mutex<Option<io::Error>>>,
   std_in_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
   std_out_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
   #[cfg(windows)]
@@ -253,7 +254,7 @@ impl TestEnvironment {
   pub fn set_staged_file(&self, file: impl AsRef<Path>) {
     self.staged_files.lock().push(file.as_ref().to_path_buf())
   }
-  pub fn set_dir_info_error(&self, err: std::io::Error) {
+  pub fn set_dir_info_error(&self, err: io::Error) {
     *self.dir_info_error.lock() = Some(err);
   }
 
@@ -342,14 +343,14 @@ impl Environment for TestEnvironment {
     }
   }
 
-  fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()> {
+  fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
     let file_path = self.clean_path(file_path);
     let mut files = self.files.lock();
     files.insert(file_path, Vec::from(bytes));
     Ok(())
   }
 
-  fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> Result<()> {
+  fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()> {
     let path_from = self.clean_path(path_from);
     let path_to = self.clean_path(path_to);
     {
@@ -367,14 +368,14 @@ impl Environment for TestEnvironment {
     Ok(())
   }
 
-  fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<()> {
+  fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()> {
     let file_path = self.clean_path(file_path);
     self.files.lock().remove(&file_path);
     self.file_permissions.lock().remove(&file_path);
     Ok(())
   }
 
-  fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<()> {
+  fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()> {
     let dir_path = self.clean_path(dir_path);
     {
       let mut deleted_directories = self.deleted_directories.lock();
@@ -393,7 +394,7 @@ impl Environment for TestEnvironment {
     Ok(())
   }
 
-  fn dir_info(&self, dir_path: impl AsRef<Path>) -> std::io::Result<Vec<DirEntry>> {
+  fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
     if let Some(err) = self.dir_info_error.lock().take() {
       return Err(err);
     }
@@ -434,10 +435,10 @@ impl Environment for TestEnvironment {
     files.contains_key(&self.clean_path(file_path))
   }
 
-  fn canonicalize(&self, path: impl AsRef<Path>) -> std::io::Result<CanonicalizedPathBuf> {
+  fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
     let path = self.clean_path(path);
     if !self.path_exists(&path) {
-      Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Path not found."))
+      Err(io::Error::new(io::ErrorKind::NotFound, "Path not found."))
     } else {
       Ok(CanonicalizedPathBuf::new(path))
     }
@@ -448,24 +449,24 @@ impl Environment for TestEnvironment {
     path.as_ref().to_string_lossy().starts_with("/") || path.as_ref().is_absolute()
   }
 
-  fn file_permissions(&self, path: impl AsRef<Path>) -> Result<FilePermissions> {
+  fn file_permissions(&self, path: impl AsRef<Path>) -> io::Result<FilePermissions> {
     let path = self.clean_path(path);
     if let Some(permissions) = self.file_permissions.lock().get(&path).cloned() {
       Ok(permissions)
     } else if self.files.lock().contains_key(&path) {
       Ok(FilePermissions::Test(Default::default()))
     } else {
-      bail!("File not found.")
+      Err(io::Error::new(io::ErrorKind::NotFound, "File not found."))
     }
   }
 
-  fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> Result<()> {
+  fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> io::Result<()> {
     let path = self.clean_path(path);
     self.file_permissions.lock().insert(path, permissions);
     Ok(())
   }
 
-  fn mk_dir_all(&self, _: impl AsRef<Path>) -> Result<()> {
+  fn mk_dir_all(&self, _: impl AsRef<Path>) -> io::Result<()> {
     Ok(())
   }
 
@@ -474,7 +475,7 @@ impl Environment for TestEnvironment {
     self.canonicalize(cwd.to_owned()).unwrap()
   }
 
-  fn current_exe(&self) -> Result<PathBuf> {
+  fn current_exe(&self) -> io::Result<PathBuf> {
     Ok(self.current_exe_path.lock().clone())
   }
 
@@ -617,7 +618,7 @@ impl Environment for TestEnvironment {
   }
 
   #[cfg(windows)]
-  fn ensure_system_path(&self, directory_path: &str) -> Result<()> {
+  fn ensure_system_path(&self, directory_path: &str) -> io::Result<()> {
     let mut path_dirs = self.path_dirs.lock();
     let directory_path = PathBuf::from(directory_path);
     if !path_dirs.contains(&directory_path) {
@@ -627,7 +628,7 @@ impl Environment for TestEnvironment {
   }
 
   #[cfg(windows)]
-  fn remove_system_path(&self, directory_path: &str) -> Result<()> {
+  fn remove_system_path(&self, directory_path: &str) -> io::Result<()> {
     let mut path_dirs = self.path_dirs.lock();
     let directory_path = PathBuf::from(directory_path);
     if let Some(pos) = path_dirs.iter().position(|p| p == &directory_path) {

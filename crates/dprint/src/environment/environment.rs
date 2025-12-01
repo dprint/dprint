@@ -2,6 +2,7 @@ use anyhow::Result;
 use anyhow::bail;
 use std::ffi::OsString;
 use std::fmt::Write as FmtWrite;
+use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
@@ -63,12 +64,12 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn get_staged_files(&self) -> Result<Vec<PathBuf>>;
   fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String>;
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>>;
-  fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> Result<()> {
+  fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> io::Result<()> {
     self.write_file_bytes(file_path, file_text.as_bytes())
   }
-  fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()>;
+  fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()>;
   /// An atomic write, which will write to a temporary file and then rename it to the destination.
-  fn atomic_write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()> {
+  fn atomic_write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
     // lifted from https://github.com/denoland/deno/blob/0f4051a37ad23377091043206e64126003caa480/cli/util/fs.rs#L29
     let rand: String = (0..4).fold(String::new(), |mut output, _| {
       let _ = write!(output, "{:02x}", rand::random::<u8>());
@@ -79,18 +80,18 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
     self.write_file_bytes(&tmp_file, bytes)?;
     self.rename(tmp_file, file_path)
   }
-  fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> Result<()>;
-  fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<()>;
-  fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<()>;
-  fn dir_info(&self, dir_path: impl AsRef<Path>) -> std::io::Result<Vec<DirEntry>>;
+  fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()>;
+  fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()>;
+  fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()>;
+  fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>>;
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool;
-  fn canonicalize(&self, path: impl AsRef<Path>) -> std::io::Result<CanonicalizedPathBuf>;
+  fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf>;
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool;
-  fn file_permissions(&self, path: impl AsRef<Path>) -> Result<FilePermissions>;
-  fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> Result<()>;
-  fn mk_dir_all(&self, path: impl AsRef<Path>) -> Result<()>;
+  fn file_permissions(&self, path: impl AsRef<Path>) -> io::Result<FilePermissions>;
+  fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> io::Result<()>;
+  fn mk_dir_all(&self, path: impl AsRef<Path>) -> io::Result<()>;
   fn cwd(&self) -> CanonicalizedPathBuf;
-  fn current_exe(&self) -> Result<PathBuf>;
+  fn current_exe(&self) -> io::Result<PathBuf>;
   /// Don't ever call this directly in the code. That's why this has this weird name.
   fn __log__(&self, text: &str);
   /// Don't ever call this directly in the code. That's why this has this weird name.
@@ -136,9 +137,9 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
     None
   }
   #[cfg(windows)]
-  fn ensure_system_path(&self, directory_path: &str) -> Result<()>;
+  fn ensure_system_path(&self, directory_path: &str) -> io::Result<()>;
   #[cfg(windows)]
-  fn remove_system_path(&self, directory_path: &str) -> Result<()>;
+  fn remove_system_path(&self, directory_path: &str) -> io::Result<()>;
 }
 
 // use a macro here so the expression provided is only evaluated when in debug mode

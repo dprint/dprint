@@ -36,10 +36,17 @@ pub struct InitConfigFileOptions<'a> {
 }
 
 pub async fn init_config_file(environment: &impl Environment, options: InitConfigFileOptions<'_>) -> Result<()> {
-  let config_file_path = get_config_path(environment, options)?;
+  let config_file_path = get_config_path(environment, &options)?;
   return if !environment.path_exists(&config_file_path) {
-    environment.write_file(&config_file_path, &get_init_config_file_text(environment).await?)?;
+    let text = get_init_config_file_text(environment).await?;
+    if let Some(parent) = config_file_path.parent() {
+      _ = environment.mk_dir_all(parent);
+    }
+    environment.write_file(&config_file_path, &text)?;
     log_stdout_info!(environment, "\nCreated {}", config_file_path.display());
+    if options.global {
+      log_stdout_info!(environment, "\nRun `dprint config edit --global` to modify this file in the future.");
+    }
     log_stdout_info!(
       environment,
       "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
@@ -49,7 +56,7 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
     bail!("Configuration file '{}' already exists.", config_file_path.display())
   };
 
-  fn get_config_path(environment: &impl Environment, options: InitConfigFileOptions<'_>) -> Result<PathBuf> {
+  fn get_config_path(environment: &impl Environment, options: &InitConfigFileOptions<'_>) -> Result<PathBuf> {
     if options.global {
       let directory = crate::configuration::resolve_dprint_global_config_dir(environment).ok_or_else(|| {
         anyhow::anyhow!(concat!(
@@ -60,9 +67,9 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
       })?;
       Ok(directory.join("dprint.json"))
     } else if let Some(config_arg) = options.config_arg {
-      Ok(PathBuf::from(config_arg))
+      Ok(environment.cwd().join(config_arg))
     } else {
-      Ok(PathBuf::from("./dprint.json"))
+      Ok(environment.cwd().join("dprint.json"))
     }
   }
 }
