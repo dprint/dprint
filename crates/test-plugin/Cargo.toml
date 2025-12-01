@@ -2,7 +2,7 @@
 name = "test-plugin"
 version = "0.2.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
-edition = "2021"
+edition = "2024"
 
 [lib]
 crate-type = ["lib", "cdylib"]

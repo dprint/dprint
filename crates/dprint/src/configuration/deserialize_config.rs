@@ -269,7 +269,7 @@ mod tests {
         r#"{
         "exec": {
           "commands": [{
-            "command": "rustfmt --edition 2021 --config imports_granularity=item",
+            "command": "rustfmt --edition 2024 --config imports_granularity=item",
             "exts": ["rs"]
           }]
         }
