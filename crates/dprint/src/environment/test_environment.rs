@@ -120,6 +120,7 @@ pub struct TestEnvironment {
   cpu_arch: Arc<Mutex<String>>,
   max_threads_count: Arc<Mutex<usize>>,
   current_exe_path: Arc<Mutex<PathBuf>>,
+  is_terminal_interactive: Arc<Mutex<bool>>,
 }
 
 impl TestEnvironment {
@@ -153,6 +154,7 @@ impl TestEnvironment {
       cpu_arch: Arc::new(Mutex::new("x86_64".to_string())),
       max_threads_count: Arc::new(Mutex::new(std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4))),
       current_exe_path: Arc::new(Mutex::new(PathBuf::from("/dprint"))),
+      is_terminal_interactive: Arc::new(Mutex::new(true)),
     }
   }
 
@@ -216,6 +218,10 @@ impl TestEnvironment {
 
   pub fn set_confirm_results(&self, values: Vec<Result<Option<bool>>>) {
     *self.confirm_results.lock() = values;
+  }
+
+  pub fn set_terminal_interactive(&self, value: bool) {
+    *self.is_terminal_interactive.lock() = value;
   }
 
   pub fn set_cwd(&self, new_path: &str) {
@@ -428,8 +434,13 @@ impl Environment for TestEnvironment {
     files.contains_key(&self.clean_path(file_path))
   }
 
-  fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
-    Ok(CanonicalizedPathBuf::new(self.clean_path(path)))
+  fn canonicalize(&self, path: impl AsRef<Path>) -> std::io::Result<CanonicalizedPathBuf> {
+    let path = self.clean_path(path);
+    if !self.path_exists(&path) {
+      Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Path not found."))
+    } else {
+      Ok(CanonicalizedPathBuf::new(path))
+    }
   }
 
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool {
@@ -497,6 +508,10 @@ impl Environment for TestEnvironment {
     self.canonicalize("/cache").unwrap()
   }
 
+  fn get_config_dir(&self) -> Option<CanonicalizedPathBuf> {
+    self.canonicalize("/config").ok()
+  }
+
   fn get_home_dir(&self) -> Option<CanonicalizedPathBuf> {
     self.canonicalize("/home").ok()
   }
@@ -553,6 +568,10 @@ impl Environment for TestEnvironment {
 
   fn is_ci(&self) -> bool {
     false
+  }
+
+  fn is_terminal_interactive(&self) -> bool {
+    *self.is_terminal_interactive.lock()
   }
 
   fn log_level(&self) -> LogLevel {

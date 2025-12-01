@@ -1,5 +1,4 @@
 use crossterm::style::Stylize;
-use crossterm::tty::IsTty;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -7,6 +6,7 @@ use std::time::Duration;
 use std::time::SystemTime;
 
 use crate::utils::get_terminal_size;
+use crate::utils::is_terminal_interactive;
 
 use super::Logger;
 use super::LoggerRefreshItemKind;
@@ -79,7 +79,7 @@ struct InternalState {
 impl ProgressBars {
   /// Checks if progress bars are supported
   pub fn are_supported() -> bool {
-    std::io::stderr().is_tty() && get_terminal_size().is_some()
+    is_terminal_interactive()
   }
 
   /// Creates a new ProgressBars or returns None when not supported.

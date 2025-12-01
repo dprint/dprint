@@ -84,7 +84,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<()>;
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> std::io::Result<Vec<DirEntry>>;
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool;
-  fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf>;
+  fn canonicalize(&self, path: impl AsRef<Path>) -> std::io::Result<CanonicalizedPathBuf>;
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool;
   fn file_permissions(&self, path: impl AsRef<Path>) -> Result<FilePermissions>;
   fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> Result<()>;
@@ -110,6 +110,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
     total_size: usize,
   ) -> TResult;
   fn get_cache_dir(&self) -> CanonicalizedPathBuf;
+  fn get_config_dir(&self) -> Option<CanonicalizedPathBuf>;
   fn get_home_dir(&self) -> Option<CanonicalizedPathBuf>;
   /// Gets the CPU architecture.
   fn cpu_arch(&self) -> String;
@@ -123,6 +124,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>>;
   fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool>;
   fn is_ci(&self) -> bool;
+  fn is_terminal_interactive(&self) -> bool;
   fn log_level(&self) -> LogLevel;
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult>;
   fn wasm_cache_key(&self) -> String;

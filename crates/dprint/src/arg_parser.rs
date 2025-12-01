@@ -12,6 +12,7 @@ use crate::utils::StdInReader;
 #[derive(Debug, Clone, Copy)]
 pub enum ConfigDiscovery {
   Default,
+  Global,
   IgnoreDescendants,
   Disabled,
 }
@@ -23,6 +24,7 @@ impl std::str::FromStr for ConfigDiscovery {
     match s.to_ascii_lowercase().as_str() {
       "default" | "true" | "1" => Ok(ConfigDiscovery::Default),
       "false" | "0" => Ok(ConfigDiscovery::Disabled),
+      "global" => Ok(ConfigDiscovery::Global),
       "ignore-descendants" => Ok(ConfigDiscovery::IgnoreDescendants),
       _ => Err(format!("expected 'default', 'ignore-descendants' or 'false', got '{s}'")),
     }
@@ -34,6 +36,7 @@ impl ConfigDiscovery {
     match self {
       ConfigDiscovery::Default => true,
       ConfigDiscovery::IgnoreDescendants => true,
+      ConfigDiscovery::Global => false,
       ConfigDiscovery::Disabled => false,
     }
   }
@@ -42,6 +45,7 @@ impl ConfigDiscovery {
     match self {
       ConfigDiscovery::Default => true,
       ConfigDiscovery::IgnoreDescendants => false,
+      ConfigDiscovery::Global => false,
       ConfigDiscovery::Disabled => false,
     }
   }
@@ -83,6 +87,10 @@ impl CliArgs {
       plugins: Vec::new(),
       config_discovery: None,
     }
+  }
+
+  pub fn config_discovery_arg_set(&self) -> bool {
+    self.config_discovery.is_some()
   }
 
   pub fn config_discovery(&self, env: &impl Environment) -> ConfigDiscovery {
@@ -174,7 +182,7 @@ pub struct FmtSubCommand {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ConfigSubCommand {
-  Init,
+  Init { global: bool },
   Update { yes: bool },
   Add(Option<String>),
 }
@@ -230,6 +238,12 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
 }
 
 fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: TStdInReader) -> Result<CliArgs> {
+  fn parse_init(matches: &ArgMatches) -> ConfigSubCommand {
+    ConfigSubCommand::Init {
+      global: matches.get_flag("global"),
+    }
+  }
+
   // this is all done because clap doesn't output exactly how I like
   if args.len() == 1 || (args.len() == 2 && (args[1] == "help" || args[1] == "--help")) {
     let mut cli_parser = create_cli_parser(CliArgParserKind::ForOutputtingMainHelp);
@@ -282,9 +296,9 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       list_different: matches.get_flag("list-different"),
       allow_no_files: matches.get_flag("allow-no-files"),
     }),
-    ("init", _) => SubCommand::Config(ConfigSubCommand::Init),
+    ("init", _) => SubCommand::Config(parse_init(&matches)),
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
-      ("init", _) => ConfigSubCommand::Init,
+      ("init", _) => parse_init(&matches),
       ("add", matches) => ConfigSubCommand::Add(matches.get_one::<String>("url-or-plugin-name").map(String::from)),
       ("update", matches) => ConfigSubCommand::Update {
         yes: *matches.get_one::<bool>("yes").unwrap(),
@@ -413,6 +427,16 @@ pub enum CliArgParserKind {
 }
 
 pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
+  fn init_command() -> Command {
+    Command::new("init").about("Initializes a configuration file in the current directory.").arg(
+      Arg::new("global")
+        .long("global")
+        .help("Initialize the global dprint configuration file.")
+        .num_args(0)
+        .required(false),
+    )
+  }
+
   use clap::Arg;
   use clap::Command;
 
@@ -448,12 +472,16 @@ OPTIONS:
 {options}
 
 ENVIRONMENT VARIABLES:
-  DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
-                       directory may be periodically deleted by the CLI.
   DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
                        formatting (ex. DPRINT_MAX_THREADS=4).
+  DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
+                       directory may be periodically deleted by the CLI.
+  DPRINT_CONFIG_DIR    Global config directory to store a global dprint.json file.
+                       Defaults to the dprint sub folder in the system configuration
+                       directory.
   DPRINT_CONFIG_DISCOVERY
-                       Sets the config discovery mode. Set to "false"/"0" to disable.
+                       Sets the config discovery mode. Set to "false"/"0" to disable
+                       or "global" to always use the global config file.
   DPRINT_CERT          Load certificate authority from PEM encoded file.
   DPRINT_TLS_CA_STORE  Comma-separated list of order dependent certificate stores.
                        Possible values: "mozilla" and "system".
@@ -487,10 +515,7 @@ EXAMPLES:
 
     dprint fmt "**/*.{ts,tsx,js,jsx,json}""#,
     )
-    .subcommand(
-      Command::new("init")
-        .about("Initializes a configuration file in the current directory.")
-    )
+    .subcommand(init_command())
     .subcommand(
       Command::new("fmt")
         .about("Formats the source files and writes the result to the file system.")
@@ -541,10 +566,7 @@ EXAMPLES:
       Command::new("config")
         .about("Functionality related to the configuration file.")
         .subcommand_required(true)
-        .subcommand(
-          Command::new("init")
-            .about("Initializes a configuration file in the current directory.")
-        )
+        .subcommand(init_command())
         .subcommand(
           Command::new("update")
             .alias("upgrade")
@@ -627,7 +649,7 @@ EXAMPLES:
     .arg(
       Arg::new("config-discovery")
         .long("config-discovery")
-        .help("Sets the config discovery mode. Set to `false` to completely disable.")
+        .help("Sets the config discovery mode. Set to `false` to completely disable, `ignore-descendants` to avoid finding config files in child directories, or `global` to only use the global config file.")
         .global(true)
         .value_parser(clap::value_parser!(ConfigDiscovery))
         .value_name("BOOLEAN")

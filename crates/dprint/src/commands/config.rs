@@ -30,8 +30,13 @@ use crate::utils::CachedDownloader;
 use crate::utils::PathSource;
 use crate::utils::pretty_print_json_text;
 
-pub async fn init_config_file(environment: &impl Environment, config_arg: &Option<String>) -> Result<()> {
-  let config_file_path = get_config_path(config_arg)?;
+pub struct InitConfigFileOptions<'a> {
+  pub global: bool,
+  pub config_arg: Option<&'a str>,
+}
+
+pub async fn init_config_file(environment: &impl Environment, options: InitConfigFileOptions<'_>) -> Result<()> {
+  let config_file_path = get_config_path(environment, options)?;
   return if !environment.path_exists(&config_file_path) {
     environment.write_file(&config_file_path, &get_init_config_file_text(environment).await?)?;
     log_stdout_info!(environment, "\nCreated {}", config_file_path.display());
@@ -44,12 +49,21 @@ pub async fn init_config_file(environment: &impl Environment, config_arg: &Optio
     bail!("Configuration file '{}' already exists.", config_file_path.display())
   };
 
-  fn get_config_path(config_arg: &Option<String>) -> Result<PathBuf> {
-    Ok(if let Some(config_arg) = config_arg.as_ref() {
-      PathBuf::from(config_arg)
+  fn get_config_path(environment: &impl Environment, options: InitConfigFileOptions<'_>) -> Result<PathBuf> {
+    if options.global {
+      let directory = crate::configuration::resolve_dprint_global_config_dir(environment).ok_or_else(|| {
+        anyhow::anyhow!(concat!(
+          "Could not find system config directory. ",
+          "Maybe specify the DPRINT_CONFIG_DIR environment ",
+          "variable to say where to store the global dprint configuration file."
+        ))
+      })?;
+      Ok(directory.join("dprint.json"))
+    } else if let Some(config_arg) = options.config_arg {
+      Ok(PathBuf::from(config_arg))
     } else {
-      PathBuf::from("./dprint.json")
-    })
+      Ok(PathBuf::from("./dprint.json"))
+    }
   }
 }
 

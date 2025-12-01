@@ -31,6 +31,7 @@ use crate::utils::NoProxy;
 use crate::utils::ProgressBars;
 use crate::utils::RealUrlDownloader;
 use crate::utils::UnsafelyIgnoreCertificates;
+use crate::utils::is_terminal_interactive;
 use crate::utils::log_action_with_progress;
 use crate::utils::show_confirm;
 use crate::utils::show_multi_select;
@@ -207,7 +208,7 @@ impl Environment for RealEnvironment {
     file_path.as_ref().exists()
   }
 
-  fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
+  fn canonicalize(&self, path: impl AsRef<Path>) -> std::io::Result<CanonicalizedPathBuf> {
     canonicalize_path(path)
   }
 
@@ -284,6 +285,10 @@ impl Environment for RealEnvironment {
     (*CACHE_DIR.as_ref().unwrap()).clone()
   }
 
+  fn get_config_dir(&self) -> Option<CanonicalizedPathBuf> {
+    dirs::config_dir().map(|path| self.canonicalize(path).unwrap())
+  }
+
   fn get_home_dir(&self) -> Option<CanonicalizedPathBuf> {
     dirs::home_dir().map(|path| self.canonicalize(path).unwrap())
   }
@@ -340,6 +345,10 @@ impl Environment for RealEnvironment {
       }
       None => false,
     }
+  }
+
+  fn is_terminal_interactive(&self) -> bool {
+    is_terminal_interactive()
   }
 
   #[inline]
@@ -471,17 +480,20 @@ fn resolve_max_threads(env_var: Option<String>, available_parallelism: Option<No
   }
 }
 
-fn canonicalize_path(path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
+fn canonicalize_path(path: impl AsRef<Path>) -> std::io::Result<CanonicalizedPathBuf> {
   // use this to avoid //?//C:/etc... like paths on windows (UNC)
   match dunce::canonicalize(path.as_ref()) {
     Ok(result) => Ok(CanonicalizedPathBuf::new(result)),
-    Err(err) => bail!("Error canonicalizing path {}: {:#}", path.as_ref().display(), err),
+    Err(err) => Err(std::io::Error::new(
+      err.kind(),
+      format!("Error canonicalizing path {}: {:#}", path.as_ref().display(), err),
+    )),
   }
 }
 
 const CACHE_DIR_ENV_VAR_NAME: &str = "DPRINT_CACHE_DIR";
 
-static CACHE_DIR: Lazy<Result<CanonicalizedPathBuf>> = Lazy::new(|| {
+static CACHE_DIR: Lazy<std::io::Result<CanonicalizedPathBuf>> = Lazy::new(|| {
   #[allow(clippy::disallowed_methods)]
   let cache_dir = get_cache_dir_internal(|var_name| std::env::var(var_name).ok())?;
   #[allow(clippy::disallowed_methods)]
@@ -489,14 +501,17 @@ static CACHE_DIR: Lazy<Result<CanonicalizedPathBuf>> = Lazy::new(|| {
   canonicalize_path(cache_dir)
 });
 
-fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> Result<PathBuf> {
+fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> std::io::Result<PathBuf> {
   if let Some(dir_path) = get_env_var(CACHE_DIR_ENV_VAR_NAME)
     && !dir_path.trim().is_empty()
   {
     let dir_path = PathBuf::from(dir_path);
     // seems dangerous to allow a relative path as this directory may be deleted
     return if !dir_path.is_absolute() {
-      bail!("The {} environment variable must specify an absolute path.", CACHE_DIR_ENV_VAR_NAME)
+      Err(std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        format!("The {} environment variable must specify an absolute path.", CACHE_DIR_ENV_VAR_NAME),
+      ))
     } else {
       Ok(dir_path)
     };
@@ -504,7 +519,7 @@ fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> Resul
 
   match dirs::cache_dir() {
     Some(dir) => Ok(dir.join("dprint").join("cache")),
-    None => bail!("Expected to find cache directory"),
+    None => Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Expected to find cache directory.")),
   }
 }
 

@@ -511,6 +511,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       let config_path = ResolvedConfigPath {
         base_path: config_file_path.parent().unwrap(),
         resolved_path: ResolvedPath::local(config_file_path),
+        is_global_config: false,
       };
       let mut config = resolve_config_from_path(&config_path, self.environment).await?;
       if !self.args.plugins.is_empty() {

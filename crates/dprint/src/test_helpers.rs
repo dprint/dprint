@@ -284,10 +284,13 @@ OPTIONS:
   -L, --log-level <log-level>       Set log level [default: info] [possible values: debug, info, warn, error, silent]
 
 ENVIRONMENT VARIABLES:
-  DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
-                       directory may be periodically deleted by the CLI.
   DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
                        formatting (ex. DPRINT_MAX_THREADS=4).
+  DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
+                       directory may be periodically deleted by the CLI.
+  DPRINT_CONFIG_DIR    Global config directory to store a global dprint.json file.
+                       Defaults to the dprint sub folder in the system configuration
+                       directory.
   DPRINT_CONFIG_DISCOVERY
                        Sets the config discovery mode. Set to "false"/"0" to disable.
   DPRINT_CERT          Load certificate authority from PEM encoded file.

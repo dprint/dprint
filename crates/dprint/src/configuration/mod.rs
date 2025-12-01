@@ -15,4 +15,5 @@ pub use manipulation::*;
 pub use resolve_config::*;
 pub use resolve_main_config_path::ResolvedConfigPath;
 pub use resolve_main_config_path::get_default_config_file_in_ancestor_directories;
+pub use resolve_main_config_path::resolve_dprint_global_config_dir;
 pub use types::*;
