@@ -127,7 +127,7 @@ pub struct TestEnvironment {
 
 impl TestEnvironment {
   pub fn new() -> TestEnvironment {
-    TestEnvironment {
+    let env = TestEnvironment {
       log_level: Arc::new(Mutex::new(LogLevel::Info)),
       cwd: Arc::new(Mutex::new(String::from("/"))),
       env_vars: Default::default(),
@@ -157,7 +157,9 @@ impl TestEnvironment {
       max_threads_count: Arc::new(Mutex::new(std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4))),
       current_exe_path: Arc::new(Mutex::new(PathBuf::from("/dprint"))),
       is_terminal_interactive: Arc::new(Mutex::new(true)),
-    }
+    };
+    env.mk_dir_all("/").unwrap();
+    env
   }
 
   pub fn take_stdout_messages(&self) -> Vec<String> {
@@ -432,8 +434,8 @@ impl Environment for TestEnvironment {
   }
 
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
-    let files = self.files.lock();
-    files.contains_key(&self.clean_path(file_path))
+    let path = self.clean_path(file_path);
+    self.files.lock().contains_key(&path)
   }
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
@@ -472,8 +474,8 @@ impl Environment for TestEnvironment {
   }
 
   fn cwd(&self) -> CanonicalizedPathBuf {
-    let cwd = self.cwd.lock();
-    self.canonicalize(cwd.to_owned()).unwrap()
+    let cwd = self.cwd.lock().to_owned();
+    self.canonicalize(cwd).unwrap()
   }
 
   fn current_exe(&self) -> io::Result<PathBuf> {
@@ -571,7 +573,7 @@ impl Environment for TestEnvironment {
     result
   }
 
-  fn run_command_get_status(&self, mut args: Vec<OsString>) -> io::Result<Option<i32>> {
+  fn run_command_get_status(&self, args: Vec<OsString>) -> io::Result<Option<i32>> {
     todo!();
   }
 
