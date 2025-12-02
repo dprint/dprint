@@ -559,18 +559,10 @@ impl Environment for TestEnvironment {
   fn confirm_with_strategy(&self, strategy: &dyn ShowConfirmStrategy) -> Result<bool> {
     let mut confirm_results = self.confirm_results.lock();
     let result = confirm_results.remove(0).map(|v| v.unwrap_or(strategy.default_value()));
-    self.__log_stderr__(&format!(
-      "{} {}",
-      strategy.render(match &result {
-        Ok(value) => Some(*value),
-        Err(_) => None,
-      }),
-      match &result {
-        Ok(true) => "Y".to_string(),
-        Ok(false) => "N".to_string(),
-        Err(err) => err.to_string(),
-      }
-    ));
+    self.__log_stderr__(&strategy.render(match &result {
+      Ok(value) => Some(*value),
+      Err(_) => None,
+    }));
     result
   }
 

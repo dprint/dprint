@@ -69,9 +69,9 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
       })?;
       Ok(directory.join("dprint.json"))
     } else if let Some(config_arg) = options.config_arg {
-      Ok(environment.cwd().join(config_arg))
+      Ok(PathBuf::from(config_arg))
     } else {
-      Ok(environment.cwd().join("dprint.json"))
+      Ok(PathBuf::from("dprint.json"))
     }
   }
 }
@@ -657,7 +657,7 @@ mod test {
     assert_eq!(
       environment.take_stdout_messages(),
       vec![
-        "\nCreated ./dprint.json",
+        "\nCreated dprint.json",
         "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
       ]
     );
@@ -728,7 +728,7 @@ mod test {
       })
       .build();
     let error_message = run_test_cli(vec!["init"], &environment).err().unwrap();
-    assert_eq!(error_message.to_string(), "Configuration file './dprint.json' already exists.");
+    assert_eq!(error_message.to_string(), "Configuration file 'dprint.json' already exists.");
   }
 
   #[test]

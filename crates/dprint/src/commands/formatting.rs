@@ -732,7 +732,18 @@ mod test {
 
     assert_eq!(
       err.to_string(),
-      concat!("No config file found at /dprint.json. Did you mean to create (dprint init) or specify one (--config <path>)?",)
+      format!(
+        concat!(
+          "No config file found at /dprint.json. ",
+          "Did you mean to create (dprint init) or specify one (--config <path>)?",
+          "\n\n{}",
+        ),
+        concat!(
+          "Note: dprint now supports global configuration. Set it up with ",
+          "`dprint init --global` then edit with `dprint config edit --global`",
+        )
+        .grey()
+      )
     );
   }
 
