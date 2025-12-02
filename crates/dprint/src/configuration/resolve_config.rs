@@ -44,8 +44,9 @@ pub struct ResolvedConfig {
 #[error(transparent)]
 pub enum ResolveConfigError {
   #[error(
-    "No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?",
+    "No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?\n\n{}",
     .config_path.display(),
+    "Note: dprint now supports global configuration. Set it up with `dprint init --global` then edit with `dprint config edit --global`".grey()
   )]
   NotFound {
     config_path: CanonicalizedPathBuf,

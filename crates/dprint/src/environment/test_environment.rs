@@ -440,11 +440,12 @@ impl Environment for TestEnvironment {
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
     let path = self.clean_path(path);
-    if !self.path_exists(&path) {
-      Err(io::Error::new(io::ErrorKind::NotFound, "Path not found."))
-    } else {
-      Ok(CanonicalizedPathBuf::new(path))
-    }
+    // todo: use sys_traits to implement this properly
+    // if !self.path_exists(&path) {
+    //   Err(io::Error::new(io::ErrorKind::NotFound, "Path not found."))
+    // } else {
+    Ok(CanonicalizedPathBuf::new(path))
+    // }
   }
 
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool {
