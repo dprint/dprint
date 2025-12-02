@@ -305,7 +305,10 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("init", matches) => SubCommand::Config(parse_init(matches)),
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
       ("init", matches) => parse_init(matches),
-      ("add", matches) => ConfigSubCommand::Add(matches.get_one::<String>("url-or-plugin-name").map(String::from)),
+      ("add", matches) => {
+        is_global_config = matches.get_flag("global");
+        ConfigSubCommand::Add(matches.get_one::<String>("url-or-plugin-name").map(String::from))
+      }
       ("update", matches) => {
         is_global_config = matches.get_flag("global");
         ConfigSubCommand::Update {
@@ -609,7 +612,16 @@ EXAMPLES:
               Arg::new("url-or-plugin-name")
                 .required(false)
                 .num_args(1)
-          )
+            )
+            .arg(
+              Arg::new("global")
+                .long("global")
+                .short('g')
+                .conflicts_with("config-discovery")
+                .help("Add to the global dprint configuration file.")
+                .num_args(0)
+                .required(false)
+            )
         )
         .subcommand(
           Command::new("edit")
