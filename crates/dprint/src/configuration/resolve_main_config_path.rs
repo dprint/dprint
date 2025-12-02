@@ -70,7 +70,7 @@ pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs,
     Ok(Some(path))
   } else if matches!(config_discovery, ConfigDiscovery::Default)
     && args.plugins.is_empty()
-    && let ResolveGlobalConfigPathResult::Found(path) = resolve_global_config_path(environment)
+    && let ResolveGlobalConfigPathResult::Found(path) = resolve_global_config_path_detail(environment)
   {
     Ok(Some(path))
   } else {
@@ -79,7 +79,7 @@ pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs,
 }
 
 fn resolve_global_config_path_or_error(environment: &impl Environment) -> Result<ResolvedConfigPath> {
-  match resolve_global_config_path(environment) {
+  match resolve_global_config_path_detail(environment) {
     ResolveGlobalConfigPathResult::Found(resolved_config_path) => Ok(resolved_config_path),
     ResolveGlobalConfigPathResult::NotFound => anyhow::bail!("Could not find global dprint.json file. Create one with `dprint init --global`"),
     ResolveGlobalConfigPathResult::FailedResolvingSystemDir => anyhow::bail!(concat!(
@@ -90,13 +90,20 @@ fn resolve_global_config_path_or_error(environment: &impl Environment) -> Result
   }
 }
 
+pub fn resolve_global_config_path(environment: &impl Environment) -> Option<ResolvedConfigPath> {
+  match resolve_global_config_path_detail(environment) {
+    ResolveGlobalConfigPathResult::Found(resolved_config_path) => Some(resolved_config_path),
+    ResolveGlobalConfigPathResult::NotFound | ResolveGlobalConfigPathResult::FailedResolvingSystemDir => None,
+  }
+}
+
 enum ResolveGlobalConfigPathResult {
   Found(ResolvedConfigPath),
   NotFound,
   FailedResolvingSystemDir,
 }
 
-fn resolve_global_config_path(environment: &impl Environment) -> ResolveGlobalConfigPathResult {
+fn resolve_global_config_path_detail(environment: &impl Environment) -> ResolveGlobalConfigPathResult {
   let Some(global_folder) = resolve_global_config_dir(environment) else {
     return ResolveGlobalConfigPathResult::FailedResolvingSystemDir;
   };
