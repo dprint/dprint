@@ -78,7 +78,7 @@ pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs,
   }
 }
 
-pub fn resolve_global_config_path_or_error(environment: &impl Environment) -> Result<ResolvedConfigPath> {
+fn resolve_global_config_path_or_error(environment: &impl Environment) -> Result<ResolvedConfigPath> {
   match resolve_global_config_path(environment) {
     ResolveGlobalConfigPathResult::Found(resolved_config_path) => Ok(resolved_config_path),
     ResolveGlobalConfigPathResult::NotFound => anyhow::bail!("Could not find global dprint.json file. Create one with `dprint init --global`"),

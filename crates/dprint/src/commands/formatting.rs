@@ -22,6 +22,7 @@ use crate::incremental::get_incremental_file;
 use crate::patterns::FileMatcher;
 use crate::plugins::PluginResolver;
 use crate::resolution::PluginsScope;
+use crate::resolution::ResolvePluginsScopeAndPathsOptions;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::utils::AtomicCounter;
@@ -80,7 +81,14 @@ pub async fn output_format_times<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
+  let scopes = resolve_plugins_scope_and_paths(
+    args,
+    &cmd.patterns,
+    environment,
+    plugin_resolver,
+    ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
+  )
+  .await?;
   scopes.ensure_valid_for_cli_args(args)?;
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -124,7 +132,14 @@ pub async fn check<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
+  let scopes = resolve_plugins_scope_and_paths(
+    args,
+    &cmd.patterns,
+    environment,
+    plugin_resolver,
+    ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
+  )
+  .await?;
   scopes.ensure_valid_for_cli_args(args)?;
   let not_formatted_files_count = Arc::new(AtomicCounter::default());
   let list_different = cmd.list_different;
@@ -214,7 +229,14 @@ pub async fn format<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
+  let scopes = resolve_plugins_scope_and_paths(
+    args,
+    &cmd.patterns,
+    environment,
+    plugin_resolver,
+    ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
+  )
+  .await?;
   scopes.ensure_valid_for_cli_args(args)?;
 
   let formatted_files_count = Arc::new(AtomicCounter::default());

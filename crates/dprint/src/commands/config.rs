@@ -25,6 +25,7 @@ use crate::plugins::PluginWrapper;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
 use crate::resolution::GetPluginResult;
+use crate::resolution::ResolvePluginsScopeAndPathsOptions;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::utils::CachedDownloader;
@@ -75,17 +76,14 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
   }
 }
 
-pub struct EditConfigFileOptions {
-  pub global: bool,
-}
-
-pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment, options: EditConfigFileOptions) -> Result<()> {
-  let config_path = if options.global {
-    resolve_global_config_path_or_error(environment)?
-  } else {
-    let config_result = resolve_main_config_path(args, environment).await?;
-    config_result.ok_or_else(|| anyhow::anyhow!("Could not find a configuration file. Create one with `dprint init`"))?
-  };
+pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<()> {
+  let config_path = resolve_main_config_path(args, environment).await?.ok_or_else(|| {
+    let is_global = args.config_discovery(environment).is_global();
+    anyhow::anyhow!(
+      "Could not find a configuration file. Create one with `dprint init{}`",
+      if is_global { " --global" } else { "" }
+    )
+  })?;
 
   let config_path = match config_path.resolved_path.source {
     PathSource::Local(source) => source.path,
@@ -96,7 +94,7 @@ pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environ
 
   let args = select_editor_args(environment)
     .into_iter()
-    .map(|v| OsString::from(v))
+    .map(OsString::from)
     .chain(std::iter::once(config_path.into_path_buf().into_os_string()))
     .collect::<Vec<OsString>>();
   let command_text_for_err = args
@@ -253,10 +251,20 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     allow_node_modules: false,
     only_staged: false,
   };
-  let scopes = resolve_plugins_scope_and_paths(args, &file_pattern_args, environment, plugin_resolver).await?;
+  let config_discovery = args.config_discovery(environment);
+  let scopes = resolve_plugins_scope_and_paths(
+    args,
+    &file_pattern_args,
+    environment,
+    plugin_resolver,
+    ResolvePluginsScopeAndPathsOptions {
+      skip_traversal: config_discovery.is_global(),
+    },
+  )
+  .await?;
   let mut plugin_responses = HashMap::new();
   let mut updates_per_scope = HashMap::with_capacity(scopes.len());
-  for (i, scope) in scopes.into_iter().enumerate() {
+  for (i, scope) in scopes.iter().enumerate() {
     let is_main_config = i == 0;
     let Some(config) = &scope.scope.config else {
       continue;
@@ -338,7 +346,17 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   updates_per_scope: &HashMap<CanonicalizedPathBuf, Vec<PluginUpdateInfo>>,
 ) -> Result<()> {
-  let scopes = resolve_plugins_scope_and_paths(args, file_pattern_args, environment, plugin_resolver).await?;
+  let config_discovery = args.config_discovery(environment);
+  let scopes = resolve_plugins_scope_and_paths(
+    args,
+    file_pattern_args,
+    environment,
+    plugin_resolver,
+    ResolvePluginsScopeAndPathsOptions {
+      skip_traversal: config_discovery.is_global(),
+    },
+  )
+  .await?;
   for scope in scopes.into_iter() {
     let Some(config) = &scope.scope.config else {
       continue;

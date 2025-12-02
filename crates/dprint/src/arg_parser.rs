@@ -32,6 +32,10 @@ impl std::str::FromStr for ConfigDiscovery {
 }
 
 impl ConfigDiscovery {
+  pub fn is_global(&self) -> bool {
+    matches!(self, ConfigDiscovery::Global)
+  }
+
   pub fn traverse_ancestors(&self) -> bool {
     match self {
       ConfigDiscovery::Default => true,
@@ -185,7 +189,7 @@ pub enum ConfigSubCommand {
   Init { global: bool },
   Update { yes: bool },
   Add(Option<String>),
-  Edit { global: bool },
+  Edit,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -261,6 +265,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     Err(err) => return Err(err.into()),
   };
 
+  let mut is_global_config = false;
   let sub_command = match matches.subcommand().unwrap() {
     ("fmt", matches) => {
       if let Some(file_name_path_or_extension) = matches.get_one::<String>("stdin").map(String::from) {
@@ -301,12 +306,16 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
       ("init", matches) => parse_init(matches),
       ("add", matches) => ConfigSubCommand::Add(matches.get_one::<String>("url-or-plugin-name").map(String::from)),
-      ("update", matches) => ConfigSubCommand::Update {
-        yes: *matches.get_one::<bool>("yes").unwrap(),
-      },
-      ("edit", matches) => ConfigSubCommand::Edit {
-        global: matches.get_flag("global"),
-      },
+      ("update", matches) => {
+        is_global_config = matches.get_flag("global");
+        ConfigSubCommand::Update {
+          yes: *matches.get_one::<bool>("yes").unwrap(),
+        }
+      }
+      ("edit", matches) => {
+        is_global_config = matches.get_flag("global");
+        ConfigSubCommand::Edit
+      }
       _ => unreachable!(),
     }),
     ("clear-cache", _) => SubCommand::ClearCache,
@@ -355,7 +364,11 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       LogLevel::Info
     },
     config: matches.get_one::<String>("config").map(String::from),
-    config_discovery: matches.get_one::<ConfigDiscovery>("config-discovery").copied(),
+    config_discovery: if is_global_config {
+      Some(ConfigDiscovery::Global)
+    } else {
+      matches.get_one::<ConfigDiscovery>("config-discovery").copied()
+    },
     plugins: maybe_values_to_vec(matches.get_many("plugins")),
   })
 }
@@ -436,6 +449,7 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
       Arg::new("global")
         .long("global")
         .short('g')
+        .conflicts_with("config-discovery")
         .help("Initialize the global dprint configuration file.")
         .num_args(0)
         .required(false),
@@ -578,6 +592,15 @@ EXAMPLES:
             .alias("upgrade")
             .about("Updates the plugins in the configuration file.")
             .arg(Arg::new("yes").help("Upgrade process plugins without prompting to confirm checksums.").short('y').long("yes").action(clap::ArgAction::SetTrue))
+            .arg(
+              Arg::new("global")
+                .long("global")
+                .short('g')
+                .conflicts_with("config-discovery")
+                .help("Update the global dprint configuration file.")
+                .num_args(0)
+                .required(false)
+            )
         )
         .subcommand(
           Command::new("add")
@@ -595,6 +618,7 @@ EXAMPLES:
               Arg::new("global")
                 .long("global")
                 .short('g')
+                .conflicts_with("config-discovery")
                 .help("Edit the global dprint configuration file.")
                 .num_args(0)
                 .required(false)
@@ -868,7 +892,9 @@ mod test {
   fn config_upgrade_alias() {
     let args = test_args(vec!["config", "upgrade"]).unwrap();
     match args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Update { yes }) => assert!(!yes),
+      SubCommand::Config(ConfigSubCommand::Update { yes }) => {
+        assert!(!yes);
+      }
       _ => unreachable!(),
     }
   }
