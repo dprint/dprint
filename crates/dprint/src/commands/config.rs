@@ -732,6 +732,103 @@ mod test {
   }
 
   #[test]
+  fn should_initialize_global_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info
+          .add_plugin(TestInfoFilePlugin {
+            name: "dprint-plugin-typescript".to_string(),
+            version: "0.17.2".to_string(),
+            url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
+            config_key: Some("typescript".to_string()),
+            file_extensions: vec!["ts".to_string()],
+            config_excludes: vec![],
+            ..Default::default()
+          })
+          .add_plugin(TestInfoFilePlugin {
+            name: "dprint-plugin-jsonc".to_string(),
+            version: "0.2.3".to_string(),
+            url: "https://plugins.dprint.dev/json-0.2.3.wasm".to_string(),
+            config_key: Some("json".to_string()),
+            file_extensions: vec!["json".to_string()],
+            config_excludes: vec![],
+            ..Default::default()
+          });
+      })
+      .build();
+    let expected_text = environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        environment.clear_logs();
+        expected_text
+      }
+    });
+    run_test_cli(vec!["init", "--global"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
+    );
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![
+        "\nCreated /config/dprint/dprint.json",
+        "\nRun `dprint config edit --global` to modify this file in the future.",
+        "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
+      ]
+    );
+    assert_eq!(environment.read_file("/config/dprint/dprint.json").unwrap(), expected_text);
+  }
+
+  #[test]
+  fn should_initialize_global_config_via_env_var() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "dprint-plugin-typescript".to_string(),
+          version: "0.17.2".to_string(),
+          url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
+          config_key: Some("typescript".to_string()),
+          file_extensions: vec!["ts".to_string()],
+          config_excludes: vec![],
+          ..Default::default()
+        });
+      })
+      .build();
+    environment.set_env_var("DPRINT_CONFIG_DIR", Some("/custom/config"));
+    let expected_text = environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        environment.clear_logs();
+        expected_text
+      }
+    });
+    run_test_cli(vec!["init", "--global"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
+    );
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![
+        "\nCreated /custom/config/dprint.json",
+        "\nRun `dprint config edit --global` to modify this file in the future.",
+        "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
+      ]
+    );
+    assert_eq!(environment.read_file("/custom/config/dprint.json").unwrap(), expected_text);
+  }
+
+  #[test]
+  fn should_error_when_global_config_file_already_exists() {
+    let environment = TestEnvironment::new();
+    environment.write_file("/config/dprint/dprint.json", "{}").unwrap();
+    let error_message = run_test_cli(vec!["config", "init", "--global"], &environment).err().unwrap();
+    assert_eq!(error_message.to_string(), "Configuration file '/config/dprint/dprint.json' already exists.");
+  }
+
+  #[test]
   fn config_add() {
     let old_wasm_url = "https://plugins.dprint.dev/test-plugin-0.1.0.wasm".to_string();
     let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
