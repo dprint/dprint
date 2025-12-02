@@ -571,6 +571,10 @@ impl Environment for TestEnvironment {
     result
   }
 
+  fn run_command_get_status(&self, mut args: Vec<OsString>) -> io::Result<Option<i32>> {
+    todo!();
+  }
+
   fn is_ci(&self) -> bool {
     false
   }

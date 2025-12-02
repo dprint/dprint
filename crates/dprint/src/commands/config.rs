@@ -7,6 +7,7 @@ use dprint_core::async_runtime::future;
 use dprint_core::plugins;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::rc::Rc;
 use url::Url;
@@ -58,7 +59,7 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
 
   fn get_config_path(environment: &impl Environment, options: &InitConfigFileOptions<'_>) -> Result<PathBuf> {
     if options.global {
-      let directory = crate::configuration::resolve_dprint_global_config_dir(environment).ok_or_else(|| {
+      let directory = crate::configuration::resolve_global_config_dir(environment).ok_or_else(|| {
         anyhow::anyhow!(concat!(
           "Could not find system config directory. ",
           "Maybe specify the DPRINT_CONFIG_DIR environment ",
@@ -72,6 +73,47 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
       Ok(environment.cwd().join("dprint.json"))
     }
   }
+}
+
+pub struct EditConfigFileOptions {
+  pub global: bool,
+}
+
+pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment, options: EditConfigFileOptions) -> Result<()> {
+  let config_path = if options.global {
+    resolve_global_config_path_or_error(environment)?
+  } else {
+    let config_result = resolve_main_config_path(args, environment).await?;
+    config_result.ok_or_else(|| anyhow::anyhow!("Could not find a configuration file. Create one with `dprint init`"))?
+  };
+
+  let config_path = match config_path.resolved_path.source {
+    PathSource::Local(source) => source.path,
+    PathSource::Remote(source) => {
+      bail!("Cannot edit a remote configuration file '{}'", source.url)
+    }
+  };
+
+  let args = select_editor_args(environment)
+    .into_iter()
+    .map(|v| OsString::from(v))
+    .chain(std::iter::once(config_path.into_path_buf().into_os_string()))
+    .collect::<Vec<OsString>>();
+  let command_text_for_err = args
+    .iter()
+    .map(|s| format!("\"{}\"", s.to_string_lossy().replace("\"", "\\\"")))
+    .collect::<Vec<_>>()
+    .join(" ");
+  let exit_code = environment
+    .run_command_get_status(args)
+    .with_context(|| format!("Failed to launch editor with command: {}", command_text_for_err))?;
+
+  if let Some(exit_code) = exit_code.filter(|c| *c != 0) {
+    // todo: use an exit code error
+    bail!("Editor exited with code: {}", exit_code);
+  }
+
+  Ok(())
 }
 
 pub async fn add_plugin_config_file<TEnvironment: Environment>(
@@ -508,6 +550,34 @@ async fn get_config_file_plugins<TEnvironment: Environment>(
     results.push(result.unwrap());
   }
   results
+}
+
+fn select_editor_args(env: &impl Environment) -> Vec<String> {
+  fn try_parse_env_var(env: &impl Environment, name: &str) -> Option<Vec<String>> {
+    let var = env.env_var(name).filter(|v| !v.is_empty()).and_then(|v| v.into_string().ok())?;
+    match crate::utils::parse_command_line(&var) {
+      Ok(value) => Some(value),
+      Err(err) => {
+        log_warn!(env, "Failed resolving '{}' env var: {:#}", name, err);
+        None
+      }
+    }
+  }
+  if let Some(value) = try_parse_env_var(env, "DPRINT_EDITOR") {
+    return value;
+  }
+  if let Some(value) = try_parse_env_var(env, "VISUAL") {
+    return value;
+  }
+  if let Some(value) = try_parse_env_var(env, "EDITOR") {
+    return value;
+  }
+  if cfg!(windows) {
+    Vec::from(["notepad".to_string()])
+  } else {
+    // I prefer vim, but this is probably more friendly for people
+    Vec::from(["nano".to_string()])
+  }
 }
 
 #[cfg(test)]

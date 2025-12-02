@@ -370,6 +370,12 @@ impl Environment for RealEnvironment {
     show_confirm(&self.logger, "dprint", strategy)
   }
 
+  fn run_command_get_status(&self, mut args: Vec<OsString>) -> io::Result<Option<i32>> {
+    let command_name = args.remove(0);
+    let command_path = which::which(command_name).map_err(|err| io::Error::new(io::ErrorKind::NotFound, err))?;
+    std::process::Command::new(command_path).args(args).status().map(|s| s.code())
+  }
+
   fn is_ci(&self) -> bool {
     match std::env::var_os("CI") {
       Some(value) => {

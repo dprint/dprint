@@ -132,6 +132,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
     })
   }
   fn confirm_with_strategy(&self, strategy: &dyn ShowConfirmStrategy) -> Result<bool>;
+  fn run_command_get_status(&self, args: Vec<OsString>) -> io::Result<Option<i32>>;
   fn is_ci(&self) -> bool;
   fn is_terminal_interactive(&self) -> bool;
   fn log_level(&self) -> LogLevel;

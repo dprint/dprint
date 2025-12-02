@@ -63,16 +63,14 @@ pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs,
       is_global_config: false,
     }))
   } else if matches!(config_discovery, ConfigDiscovery::Global) {
-    resolve_global_config_path(environment)
-      .ok_or_else(|| anyhow::anyhow!("Could not find global dprint.json file. Create one with `dprint init --global`"))
-      .map(Some)
+    resolve_global_config_path_or_error(environment).map(Some)
   } else if config_discovery.traverse_ancestors()
     && let Some(path) = get_default_paths(args, environment)?
   {
     Ok(Some(path))
   } else if matches!(config_discovery, ConfigDiscovery::Default)
     && args.plugins.is_empty()
-    && let Some(path) = resolve_global_config_path(environment)
+    && let ResolveGlobalConfigPathResult::Found(path) = resolve_global_config_path(environment)
   {
     Ok(Some(path))
   } else {
@@ -80,22 +78,42 @@ pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs,
   }
 }
 
-fn resolve_global_config_path(environment: &impl Environment) -> Option<ResolvedConfigPath> {
-  let global_folder = resolve_dprint_global_config_dir(environment)?;
+pub fn resolve_global_config_path_or_error(environment: &impl Environment) -> Result<ResolvedConfigPath> {
+  match resolve_global_config_path(environment) {
+    ResolveGlobalConfigPathResult::Found(resolved_config_path) => Ok(resolved_config_path),
+    ResolveGlobalConfigPathResult::NotFound => anyhow::bail!("Could not find global dprint.json file. Create one with `dprint init --global`"),
+    ResolveGlobalConfigPathResult::FailedResolvingSystemDir => anyhow::bail!(concat!(
+      "Could not find system config directory. ",
+      "Maybe specify the DPRINT_CONFIG_DIR environment ",
+      "variable to say where to store the global dprint configuration file."
+    )),
+  }
+}
+
+enum ResolveGlobalConfigPathResult {
+  Found(ResolvedConfigPath),
+  NotFound,
+  FailedResolvingSystemDir,
+}
+
+fn resolve_global_config_path(environment: &impl Environment) -> ResolveGlobalConfigPathResult {
+  let Some(global_folder) = resolve_global_config_dir(environment) else {
+    return ResolveGlobalConfigPathResult::FailedResolvingSystemDir;
+  };
   for name in ["dprint.jsonc", "dprint.json"] {
     let file_path = global_folder.join_panic_relative(name);
     if environment.path_exists(&file_path) {
-      return Some(ResolvedConfigPath {
+      return ResolveGlobalConfigPathResult::Found(ResolvedConfigPath {
         base_path: environment.cwd(),
         resolved_path: ResolvedPath::local(file_path),
         is_global_config: true,
       });
     }
   }
-  None
+  ResolveGlobalConfigPathResult::NotFound
 }
 
-pub fn resolve_dprint_global_config_dir(environment: &impl Environment) -> Option<CanonicalizedPathBuf> {
+pub fn resolve_global_config_dir(environment: &impl Environment) -> Option<CanonicalizedPathBuf> {
   fn resolve_or_create_folder(environment: &impl Environment, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
     match environment.canonicalize(path.as_ref()) {
       Ok(path) => Ok(path),

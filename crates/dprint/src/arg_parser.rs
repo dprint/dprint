@@ -185,6 +185,7 @@ pub enum ConfigSubCommand {
   Init { global: bool },
   Update { yes: bool },
   Add(Option<String>),
+  Edit { global: bool },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -302,6 +303,9 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       ("add", matches) => ConfigSubCommand::Add(matches.get_one::<String>("url-or-plugin-name").map(String::from)),
       ("update", matches) => ConfigSubCommand::Update {
         yes: *matches.get_one::<bool>("yes").unwrap(),
+      },
+      ("edit", matches) => ConfigSubCommand::Edit {
+        global: matches.get_flag("global"),
       },
       _ => unreachable!(),
     }),
@@ -490,6 +494,7 @@ ENVIRONMENT VARIABLES:
   DPRINT_IGNORE_CERTS  Unsafe way to get dprint to ignore certificates. Specify 1
                        to ignore all certificates or a comma separated list of specific
                        hosts to ignore (ex. dprint.dev,localhost,[::],127.0.0.1)
+  DPRINT_EDITOR        Editor used for editing config files.
   HTTPS_PROXY          Proxy to use when downloading plugins or configuration
                        files (also supports HTTP_PROXY and NO_PROXY).{after-help}"#)
     .after_help(
@@ -582,6 +587,18 @@ EXAMPLES:
                 .required(false)
                 .num_args(1)
           )
+        )
+        .subcommand(
+          Command::new("edit")
+            .about("Opens the configuration file in an editor.")
+            .arg(
+              Arg::new("global")
+                .long("global")
+                .short('g')
+                .help("Edit the global dprint configuration file.")
+                .num_args(0)
+                .required(false)
+            )
         )
     )
     .subcommand(
