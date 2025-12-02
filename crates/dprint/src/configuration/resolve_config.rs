@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::path::Path;
 
 use anyhow::Result;
 use anyhow::bail;
@@ -21,6 +22,7 @@ use crate::plugins::parse_plugin_source_reference;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::ResolvedPath;
+use crate::utils::ShowConfirmStrategy;
 use crate::utils::resolve_url_or_file_path;
 
 use super::resolve_main_config_path::ResolvedConfigPath;
@@ -56,6 +58,33 @@ pub enum ResolveConfigError {
 }
 
 pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environment) -> Result<ResolvedConfig, ResolveConfigError> {
+  struct ConfirmFormatGlobalConfigStrategy<'a> {
+    directory: &'a Path,
+  }
+
+  impl ShowConfirmStrategy for ConfirmFormatGlobalConfigStrategy<'_> {
+    fn render(&self, selected: Option<bool>) -> String {
+      format!(
+        "{} You're not in a dprint project. Format '{}' anyway? {}{}",
+        "Warning".yellow(),
+        self.directory.display(),
+        match selected {
+          Some(true) => "Y",
+          Some(false) => "N",
+          None => "(Y/n) \u{2588}",
+        },
+        match selected {
+          Some(_) => "".stylize(),
+          None => "\n\nHint: Specify the directory to bypass this prompt in the future (ex. `dprint fmt .`)".grey(),
+        },
+      )
+    }
+
+    fn default_value(&self) -> bool {
+      true
+    }
+  }
+
   let resolved_config_path = resolve_main_config_path(args, environment).await?;
   let mut resolved_config = match resolved_config_path {
     Some(resolved_config_path) => {
@@ -66,18 +95,14 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
         && fmt.patterns.include_pattern_overrides.is_none()
         && !(args.config_discovery_arg_set() && matches!(args.config_discovery(environment), ConfigDiscovery::Global))
       {
-        let prompt_message = format!(
-          "{} It looks like you're not in a dprint project. Are you sure you want to format the entire '{}' directory? {}",
-          "Warning".yellow(),
-          environment.cwd().display(),
-          "(Hint: Run `dprint fmt .` to bypass this prompt in the future)".grey()
-        );
         if !environment.is_terminal_interactive() {
           return Err(ResolveConfigError::Other(anyhow::anyhow!(
             "Did not format directory without configuration file. Run `dprint fmt .` or `dprint fmt --config-discovery=global` to bypass this error."
           )));
-        } else if environment.confirm(&prompt_message, true)? {
-          return Err(ResolveConfigError::Other(anyhow::anyhow!("Exiting.")));
+        } else if !environment.confirm_with_strategy(&ConfirmFormatGlobalConfigStrategy {
+          directory: resolved_config_path.base_path.as_ref(),
+        })? {
+          return Err(ResolveConfigError::Other(anyhow::anyhow!("Confirmation cancelled.")));
         }
       }
       resolve_config_from_path(&resolved_config_path, environment).await?

@@ -25,6 +25,7 @@ use super::FilePermissions;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
 use crate::utils::LogLevel;
+use crate::utils::ShowConfirmStrategy;
 use crate::utils::get_bytes_hash;
 
 #[derive(Default)]
@@ -552,12 +553,15 @@ impl Environment for TestEnvironment {
     Ok(self.multi_selection_result.lock().clone().unwrap_or(default_values))
   }
 
-  fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool> {
+  fn confirm_with_strategy(&self, strategy: &dyn ShowConfirmStrategy) -> Result<bool> {
     let mut confirm_results = self.confirm_results.lock();
-    let result = confirm_results.remove(0).map(|v| v.unwrap_or(default_value));
+    let result = confirm_results.remove(0).map(|v| v.unwrap_or(strategy.default_value()));
     self.__log_stderr__(&format!(
       "{} {}",
-      prompt_message,
+      strategy.render(match &result {
+        Ok(value) => Some(*value),
+        Err(_) => None,
+      }),
       match &result {
         Ok(true) => "Y".to_string(),
         Ok(false) => "N".to_string(),

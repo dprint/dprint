@@ -12,8 +12,10 @@ use std::sync::Arc;
 use dprint_core::async_runtime::async_trait;
 
 use crate::plugins::CompilationResult;
+use crate::utils::BasicShowConfirmStrategy;
 use crate::utils::LogLevel;
 use crate::utils::ProgressBars;
+use crate::utils::ShowConfirmStrategy;
 
 use super::CanonicalizedPathBuf;
 
@@ -123,7 +125,13 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn get_time_secs(&self) -> u64;
   fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize>;
   fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>>;
-  fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool>;
+  fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool> {
+    self.confirm_with_strategy(&BasicShowConfirmStrategy {
+      prompt: prompt_message,
+      default_value,
+    })
+  }
+  fn confirm_with_strategy(&self, strategy: &dyn ShowConfirmStrategy) -> Result<bool>;
   fn is_ci(&self) -> bool;
   fn is_terminal_interactive(&self) -> bool;
   fn log_level(&self) -> LogLevel;

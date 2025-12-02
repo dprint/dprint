@@ -30,6 +30,7 @@ use crate::utils::LoggerOptions;
 use crate::utils::NoProxy;
 use crate::utils::ProgressBars;
 use crate::utils::RealUrlDownloader;
+use crate::utils::ShowConfirmStrategy;
 use crate::utils::UnsafelyIgnoreCertificates;
 use crate::utils::is_terminal_interactive;
 use crate::utils::log_action_with_progress;
@@ -365,8 +366,8 @@ impl Environment for RealEnvironment {
     )
   }
 
-  fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool> {
-    show_confirm(&self.logger, "dprint", prompt_message, default_value)
+  fn confirm_with_strategy(&self, strategy: &dyn ShowConfirmStrategy) -> Result<bool> {
+    show_confirm(&self.logger, "dprint", strategy)
   }
 
   fn is_ci(&self) -> bool {
