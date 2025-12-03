@@ -278,10 +278,16 @@ SUBCOMMANDS:
 More details at `dprint help <SUBCOMMAND>`
 
 OPTIONS:
-  -c, --config <config>             Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.
-      --config-discovery=<BOOLEAN>  Sets the config discovery mode. Set to `false` to completely disable.
-      --plugins <urls/files>...     List of urls or file paths of plugins to use. This overrides what is specified in the config file.
-  -L, --log-level <log-level>       Set log level [default: info] [possible values: debug, info, warn, error, silent]
+  -c, --config <config>
+          Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.
+      --config-discovery=<BOOLEAN>
+          Sets the config discovery mode. Set to `false` to completely disable.
+      --config-precedence=<prefer-file/prefer-cli>
+          Defines how config file should be evaluated in combination of CLI options. [default: prefer-cli]
+      --plugins <urls/files>...
+          List of urls or file paths of plugins to use. This overrides what is specified in the config file.
+  -L, --log-level <log-level>
+          Set log level [default: info] [possible values: debug, info, warn, error, silent]
 
 ENVIRONMENT VARIABLES:
   DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
