@@ -123,6 +123,7 @@ pub struct TestEnvironment {
   max_threads_count: Arc<Mutex<usize>>,
   current_exe_path: Arc<Mutex<PathBuf>>,
   is_terminal_interactive: Arc<Mutex<bool>>,
+  run_command_results: Arc<Mutex<Vec<(Vec<OsString>, io::Result<Option<i32>>)>>>,
 }
 
 impl TestEnvironment {
@@ -157,6 +158,7 @@ impl TestEnvironment {
       max_threads_count: Arc::new(Mutex::new(std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4))),
       current_exe_path: Arc::new(Mutex::new(PathBuf::from("/dprint"))),
       is_terminal_interactive: Arc::new(Mutex::new(true)),
+      run_command_results: Default::default(),
     };
     env.mk_dir_all("/").unwrap();
     env
@@ -271,6 +273,14 @@ impl TestEnvironment {
 
   pub fn set_max_threads(&self, value: usize) {
     *self.max_threads_count.lock() = value;
+  }
+
+  pub fn set_run_command_result(&self, result: io::Result<Option<i32>>) {
+    self.run_command_results.lock().push((Vec::new(), result));
+  }
+
+  pub fn take_run_commands(&self) -> Vec<(Vec<OsString>, io::Result<Option<i32>>)> {
+    self.run_command_results.lock().drain(..).collect()
   }
 
   /// Remember to drop the plugins collection manually if using this with one.
@@ -567,7 +577,18 @@ impl Environment for TestEnvironment {
   }
 
   fn run_command_get_status(&self, args: Vec<OsString>) -> io::Result<Option<i32>> {
-    todo!();
+    let mut results = self.run_command_results.lock();
+    if results.is_empty() {
+      panic!("run_command_get_status called with args {:?} but no result was set. Use set_run_command_result to set expected results.", args);
+    }
+    let (expected_args, result) = results.remove(0);
+    // Verify the actual args match expected args if they were provided
+    if !expected_args.is_empty() && expected_args != args {
+      panic!("Expected command args {:?} but got {:?}", expected_args, args);
+    }
+    // Store the actual command that was run for later verification
+    results.push((args, Ok(Some(0))));
+    result
   }
 
   fn is_ci(&self) -> bool {

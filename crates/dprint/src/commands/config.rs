@@ -1585,4 +1585,211 @@ mod test {
     run_test_cli(vec!["output-resolved-config"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["{}"]);
   }
+
+  #[test]
+  fn config_edit_should_open_editor_with_local_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_default_config(|config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    assert_eq!(commands.len(), 1);
+    let (args, _) = &commands[0];
+
+    // Should use the default editor (nano on non-Windows)
+    #[cfg(not(windows))]
+    {
+      assert_eq!(args.len(), 2);
+      assert_eq!(args[0], "nano");
+      assert_eq!(args[1], "/dprint.json");
+    }
+
+    #[cfg(windows)]
+    {
+      assert_eq!(args.len(), 2);
+      assert_eq!(args[0], "notepad");
+      assert_eq!(args[1], "/dprint.json");
+    }
+  }
+
+  #[test]
+  fn config_edit_should_use_dprint_editor_env_var() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_default_config(|config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_env_var("DPRINT_EDITOR", Some("vim"));
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    assert_eq!(commands.len(), 1);
+    let (args, _) = &commands[0];
+    assert_eq!(args.len(), 2);
+    assert_eq!(args[0], "vim");
+    assert_eq!(args[1], "/dprint.json");
+  }
+
+  #[test]
+  fn config_edit_should_use_visual_env_var() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_default_config(|config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_env_var("VISUAL", Some("emacs"));
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    assert_eq!(commands.len(), 1);
+    let (args, _) = &commands[0];
+    assert_eq!(args.len(), 2);
+    assert_eq!(args[0], "emacs");
+    assert_eq!(args[1], "/dprint.json");
+  }
+
+  #[test]
+  fn config_edit_should_use_editor_env_var() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_default_config(|config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_env_var("EDITOR", Some("vi"));
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    assert_eq!(commands.len(), 1);
+    let (args, _) = &commands[0];
+    assert_eq!(args.len(), 2);
+    assert_eq!(args[0], "vi");
+    assert_eq!(args[1], "/dprint.json");
+  }
+
+  #[test]
+  fn config_edit_should_prioritize_dprint_editor_over_others() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_default_config(|config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_env_var("DPRINT_EDITOR", Some("vim"));
+    environment.set_env_var("VISUAL", Some("emacs"));
+    environment.set_env_var("EDITOR", Some("vi"));
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    let (args, _) = &commands[0];
+    assert_eq!(args[0], "vim");
+  }
+
+  #[test]
+  fn config_edit_should_handle_editor_with_args() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_default_config(|config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_env_var("DPRINT_EDITOR", Some("code --wait"));
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    let (args, _) = &commands[0];
+    assert_eq!(args.len(), 3);
+    assert_eq!(args[0], "code");
+    assert_eq!(args[1], "--wait");
+    assert_eq!(args[2], "/dprint.json");
+  }
+
+  #[test]
+  fn config_edit_should_open_global_config() {
+    let environment = TestEnvironment::new();
+    environment.write_file("/config/dprint/dprint.json", "{}").unwrap();
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit", "--global"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    let (args, _) = &commands[0];
+
+    #[cfg(not(windows))]
+    assert_eq!(args[args.len() - 1], "/config/dprint/dprint.json");
+
+    #[cfg(windows)]
+    assert_eq!(args[args.len() - 1], "/config/dprint/dprint.json");
+  }
+
+  #[test]
+  fn config_edit_should_error_when_no_config_found() {
+    let environment = TestEnvironment::new();
+
+    let error = run_test_cli(vec!["config", "edit"], &environment).err().unwrap();
+    assert_eq!(error.to_string(), "Could not find a configuration file. Create one with `dprint init`");
+  }
+
+  #[test]
+  fn config_edit_should_error_when_no_global_config_found() {
+    let environment = TestEnvironment::new();
+
+    let error = run_test_cli(vec!["config", "edit", "--global"], &environment).err().unwrap();
+    assert_eq!(error.to_string(), "Could not find global dprint.json file. Create one with `dprint init --global`");
+  }
+
+  #[test]
+  fn config_edit_should_error_on_remote_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_remote_config("https://example.com/dprint.json", |config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+
+    let error = run_test_cli(vec!["config", "edit", "-c", "https://example.com/dprint.json"], &environment)
+      .err()
+      .unwrap();
+    assert_eq!(error.to_string(), "Cannot edit a remote configuration file 'https://example.com/dprint.json'");
+  }
+
+  #[test]
+  fn config_edit_should_error_when_editor_exits_with_non_zero() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_default_config(|config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_run_command_result(Ok(Some(1)));
+
+    let error = run_test_cli(vec!["config", "edit"], &environment).err().unwrap();
+    assert_eq!(error.to_string(), "Editor exited with code: 1");
+  }
+
+  #[test]
+  fn config_edit_should_work_with_custom_config_path() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("custom.config.json", |config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit", "-c", "custom.config.json"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    let (args, _) = &commands[0];
+    assert_eq!(args[args.len() - 1], "/custom.config.json");
+  }
 }
