@@ -1,3 +1,5 @@
+use std::io::IsTerminal;
+
 use anyhow::Result;
 use crossterm::event::Event;
 use crossterm::event::KeyCode;
@@ -19,6 +21,11 @@ pub fn get_terminal_size() -> Option<TerminalSize> {
     Ok(size) => Some(TerminalSize { cols: size.0, rows: size.1 }),
     Err(_) => None,
   }
+}
+
+/// If the terminal is interactive.
+pub fn is_terminal_interactive() -> bool {
+  std::io::stderr().is_terminal() && get_terminal_size().is_some()
 }
 
 pub(crate) fn read_terminal_key_press() -> Result<Event> {

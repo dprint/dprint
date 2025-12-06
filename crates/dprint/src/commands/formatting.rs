@@ -22,6 +22,7 @@ use crate::incremental::get_incremental_file;
 use crate::patterns::FileMatcher;
 use crate::plugins::PluginResolver;
 use crate::resolution::PluginsScope;
+use crate::resolution::ResolvePluginsScopeAndPathsOptions;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::utils::AtomicCounter;
@@ -80,7 +81,14 @@ pub async fn output_format_times<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
+  let scopes = resolve_plugins_scope_and_paths(
+    args,
+    &cmd.patterns,
+    environment,
+    plugin_resolver,
+    ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
+  )
+  .await?;
   scopes.ensure_valid_for_cli_args(args)?;
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -124,7 +132,14 @@ pub async fn check<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
+  let scopes = resolve_plugins_scope_and_paths(
+    args,
+    &cmd.patterns,
+    environment,
+    plugin_resolver,
+    ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
+  )
+  .await?;
   scopes.ensure_valid_for_cli_args(args)?;
   let not_formatted_files_count = Arc::new(AtomicCounter::default());
   let list_different = cmd.list_different;
@@ -214,7 +229,14 @@ pub async fn format<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
+  let scopes = resolve_plugins_scope_and_paths(
+    args,
+    &cmd.patterns,
+    environment,
+    plugin_resolver,
+    ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
+  )
+  .await?;
   scopes.ensure_valid_for_cli_args(args)?;
 
   let formatted_files_count = Arc::new(AtomicCounter::default());
@@ -710,7 +732,18 @@ mod test {
 
     assert_eq!(
       err.to_string(),
-      concat!("No config file found at /dprint.json. Did you mean to create (dprint init) or specify one (--config <path>)?",)
+      format!(
+        concat!(
+          "No config file found at /dprint.json. ",
+          "Did you mean to create (dprint init) or specify one (--config <path>)?",
+          "\n\n{}",
+        ),
+        concat!(
+          "Note: dprint now supports global configuration. Set it up with ",
+          "`dprint init --global` then edit with `dprint config edit --global`",
+        )
+        .grey()
+      )
     );
   }
 
@@ -2406,5 +2439,37 @@ mod test {
     run_test_cli(vec!["fmt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path2).unwrap(), "hello2_custom-formatted1");
+  }
+
+  #[test]
+  fn should_format_with_global_config_discovery() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/config/dprint/dprint.json", |config_file| {
+        config_file.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .write_file(&file_path1, "hello")
+      .build();
+    run_test_cli(vec!["fmt", "--config-discovery=global"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "hello_formatted");
+  }
+
+  #[test]
+  fn should_error_when_global_config_not_found() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .initialize()
+      .write_file(&file_path1, "hello")
+      .build();
+    let err = run_test_cli(vec!["fmt", "--config-discovery=global"], &environment).unwrap_err();
+    err.assert_exit_code(11);
+    assert_eq!(
+      err.to_string(),
+      "Could not find global dprint.json file. Create one with `dprint init --global`"
+    );
   }
 }

@@ -2,6 +2,7 @@ use anyhow::Result;
 use anyhow::bail;
 use std::ffi::OsString;
 use std::fmt::Write as FmtWrite;
+use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
@@ -11,8 +12,10 @@ use std::sync::Arc;
 use dprint_core::async_runtime::async_trait;
 
 use crate::plugins::CompilationResult;
+use crate::utils::BasicShowConfirmStrategy;
 use crate::utils::LogLevel;
 use crate::utils::ProgressBars;
+use crate::utils::ShowConfirmStrategy;
 
 use super::CanonicalizedPathBuf;
 
@@ -63,12 +66,12 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn get_staged_files(&self) -> Result<Vec<PathBuf>>;
   fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String>;
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>>;
-  fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> Result<()> {
+  fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> io::Result<()> {
     self.write_file_bytes(file_path, file_text.as_bytes())
   }
-  fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()>;
+  fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()>;
   /// An atomic write, which will write to a temporary file and then rename it to the destination.
-  fn atomic_write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()> {
+  fn atomic_write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
     // lifted from https://github.com/denoland/deno/blob/0f4051a37ad23377091043206e64126003caa480/cli/util/fs.rs#L29
     let rand: String = (0..4).fold(String::new(), |mut output, _| {
       let _ = write!(output, "{:02x}", rand::random::<u8>());
@@ -79,18 +82,18 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
     self.write_file_bytes(&tmp_file, bytes)?;
     self.rename(tmp_file, file_path)
   }
-  fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> Result<()>;
-  fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<()>;
-  fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<()>;
-  fn dir_info(&self, dir_path: impl AsRef<Path>) -> std::io::Result<Vec<DirEntry>>;
+  fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()>;
+  fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()>;
+  fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()>;
+  fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>>;
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool;
-  fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf>;
+  fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf>;
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool;
-  fn file_permissions(&self, path: impl AsRef<Path>) -> Result<FilePermissions>;
-  fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> Result<()>;
-  fn mk_dir_all(&self, path: impl AsRef<Path>) -> Result<()>;
+  fn file_permissions(&self, path: impl AsRef<Path>) -> io::Result<FilePermissions>;
+  fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> io::Result<()>;
+  fn mk_dir_all(&self, path: impl AsRef<Path>) -> io::Result<()>;
   fn cwd(&self) -> CanonicalizedPathBuf;
-  fn current_exe(&self) -> Result<PathBuf>;
+  fn current_exe(&self) -> io::Result<PathBuf>;
   /// Don't ever call this directly in the code. That's why this has this weird name.
   fn __log__(&self, text: &str);
   /// Don't ever call this directly in the code. That's why this has this weird name.
@@ -110,6 +113,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
     total_size: usize,
   ) -> TResult;
   fn get_cache_dir(&self) -> CanonicalizedPathBuf;
+  fn get_config_dir(&self) -> Option<CanonicalizedPathBuf>;
   fn get_home_dir(&self) -> Option<CanonicalizedPathBuf>;
   /// Gets the CPU architecture.
   fn cpu_arch(&self) -> String;
@@ -121,8 +125,16 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn get_time_secs(&self) -> u64;
   fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize>;
   fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>>;
-  fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool>;
+  fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool> {
+    self.confirm_with_strategy(&BasicShowConfirmStrategy {
+      prompt: prompt_message,
+      default_value,
+    })
+  }
+  fn confirm_with_strategy(&self, strategy: &dyn ShowConfirmStrategy) -> Result<bool>;
+  fn run_command_get_status(&self, args: Vec<OsString>) -> io::Result<Option<i32>>;
   fn is_ci(&self) -> bool;
+  fn is_terminal_interactive(&self) -> bool;
   fn log_level(&self) -> LogLevel;
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult>;
   fn wasm_cache_key(&self) -> String;
@@ -134,9 +146,9 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
     None
   }
   #[cfg(windows)]
-  fn ensure_system_path(&self, directory_path: &str) -> Result<()>;
+  fn ensure_system_path(&self, directory_path: &str) -> io::Result<()>;
   #[cfg(windows)]
-  fn remove_system_path(&self, directory_path: &str) -> Result<()>;
+  fn remove_system_path(&self, directory_path: &str) -> io::Result<()>;
 }
 
 // use a macro here so the expression provided is only evaluated when in debug mode

@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::path::Path;
 
 use anyhow::Result;
 use anyhow::bail;
@@ -9,6 +10,8 @@ use dprint_core::configuration::ConfigKeyValue;
 use thiserror::Error;
 
 use crate::arg_parser::CliArgs;
+use crate::arg_parser::ConfigDiscovery;
+use crate::arg_parser::SubCommand;
 use crate::configuration::ConfigMap;
 use crate::configuration::ConfigMapValue;
 use crate::configuration::deserialize_config;
@@ -19,6 +22,7 @@ use crate::plugins::parse_plugin_source_reference;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::ResolvedPath;
+use crate::utils::ShowConfirmStrategy;
 use crate::utils::resolve_url_or_file_path;
 
 use super::resolve_main_config_path::ResolvedConfigPath;
@@ -40,12 +44,13 @@ pub struct ResolvedConfig {
 #[error(transparent)]
 pub enum ResolveConfigError {
   #[error(
-    "No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?{}",
+    "No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?\n\n{}",
     .config_path.display(),
-    inner.as_ref().map(|inner| format!("\n  Error: {inner:#}")).unwrap_or_default(),
+    "Note: dprint now supports global configuration. Set it up with `dprint init --global` then edit with `dprint config edit --global`".grey()
   )]
   NotFound {
     config_path: CanonicalizedPathBuf,
+    #[source]
     inner: Option<anyhow::Error>,
   },
   #[error("Config discovery was disabled and no plugins (--plugins <url/path>) and/or config (--config <path>) was specified.")]
@@ -53,10 +58,56 @@ pub enum ResolveConfigError {
   Other(#[from] anyhow::Error),
 }
 
-pub async fn resolve_config_from_args<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<ResolvedConfig, ResolveConfigError> {
+pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environment) -> Result<ResolvedConfig, ResolveConfigError> {
+  struct ConfirmFormatGlobalConfigStrategy<'a> {
+    directory: &'a Path,
+  }
+
+  impl ShowConfirmStrategy for ConfirmFormatGlobalConfigStrategy<'_> {
+    fn render(&self, selected: Option<bool>) -> String {
+      format!(
+        "{} You're not in a dprint project. Format '{}' anyway? {}{}",
+        "Warning".yellow(),
+        self.directory.display(),
+        match selected {
+          Some(true) => "Y",
+          Some(false) => "N",
+          None => "(Y/n) \u{2588}",
+        },
+        match selected {
+          Some(_) => "".stylize(),
+          None => "\n\nHint: Specify the directory to bypass this prompt in the future (ex. `dprint fmt .`)".grey(),
+        },
+      )
+    }
+
+    fn default_value(&self) -> bool {
+      true
+    }
+  }
+
   let resolved_config_path = resolve_main_config_path(args, environment).await?;
   let mut resolved_config = match resolved_config_path {
-    Some(resolved_config_path) => resolve_config_from_path(&resolved_config_path, environment).await?,
+    Some(resolved_config_path) => {
+      if resolved_config_path.is_global_config
+        && let SubCommand::Fmt(fmt) = &args.sub_command
+        && !fmt.allow_no_files
+        && fmt.patterns.include_patterns.is_empty()
+        && fmt.patterns.include_pattern_overrides.is_none()
+        && !(args.config_discovery_arg_set() && matches!(args.config_discovery(environment), ConfigDiscovery::Global))
+      {
+        if !environment.is_terminal_interactive() {
+          return Err(ResolveConfigError::Other(anyhow::anyhow!(
+            "Did not format directory without configuration file. Run `dprint fmt .` or `dprint fmt --config-discovery=global` to bypass this error."
+          )));
+        } else if !environment.confirm_with_strategy(&ConfirmFormatGlobalConfigStrategy {
+          directory: resolved_config_path.base_path.as_ref(),
+        })? {
+          return Err(ResolveConfigError::Other(anyhow::anyhow!("Confirmation cancelled.")));
+        }
+      }
+      resolve_config_from_path(&resolved_config_path, environment).await?
+    }
     None => {
       if !args.plugins.is_empty() {
         // allow no config file when plugins are specified

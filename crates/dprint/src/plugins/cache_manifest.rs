@@ -114,7 +114,7 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
 pub fn write_manifest(manifest: &PluginCacheManifest, environment: &impl Environment) -> Result<()> {
   let file_path = get_manifest_file_path(environment);
   let serialized_manifest = serde_json::to_string(&manifest)?;
-  environment.atomic_write_file_bytes(file_path, serialized_manifest.as_bytes())
+  Ok(environment.atomic_write_file_bytes(file_path, serialized_manifest.as_bytes())?)
 }
 
 fn get_manifest_file_path(environment: &impl Environment) -> PathBuf {
