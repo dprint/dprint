@@ -2440,4 +2440,36 @@ mod test {
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path2).unwrap(), "hello2_custom-formatted1");
   }
+
+  #[test]
+  fn should_format_with_global_config_discovery() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/config/dprint/dprint.json", |config_file| {
+        config_file.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .write_file(&file_path1, "hello")
+      .build();
+    run_test_cli(vec!["fmt", "--config-discovery=global"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "hello_formatted");
+  }
+
+  #[test]
+  fn should_error_when_global_config_not_found() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .initialize()
+      .write_file(&file_path1, "hello")
+      .build();
+    let err = run_test_cli(vec!["fmt", "--config-discovery=global"], &environment).unwrap_err();
+    err.assert_exit_code(11);
+    assert_eq!(
+      err.to_string(),
+      "Could not find global dprint.json file. Create one with `dprint init --global`"
+    );
+  }
 }
