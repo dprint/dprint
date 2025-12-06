@@ -579,7 +579,10 @@ impl Environment for TestEnvironment {
   fn run_command_get_status(&self, args: Vec<OsString>) -> io::Result<Option<i32>> {
     let mut results = self.run_command_results.lock();
     if results.is_empty() {
-      panic!("run_command_get_status called with args {:?} but no result was set. Use set_run_command_result to set expected results.", args);
+      panic!(
+        "run_command_get_status called with args {:?} but no result was set. Use set_run_command_result to set expected results.",
+        args
+      );
     }
     let (expected_args, result) = results.remove(0);
     // Verify the actual args match expected args if they were provided

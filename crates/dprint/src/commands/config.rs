@@ -1028,10 +1028,15 @@ mod test {
       remote_has_process_checksum: false,
     });
     // Create a global config file
-    environment.write_file("/config/dprint/dprint.json", r#"{
+    environment
+      .write_file(
+        "/config/dprint/dprint.json",
+        r#"{
   "plugins": [
   ]
-}"#).unwrap();
+}"#,
+      )
+      .unwrap();
 
     // Test adding a plugin by name to the global config
     run_test_cli(vec!["config", "add", "--global", "test-plugin"], &environment).unwrap();
@@ -1059,11 +1064,19 @@ mod test {
       remote_has_process_checksum: false,
     });
     // Create a global config file with an old plugin version
-    environment.write_file("/config/dprint/dprint.json", &format!(r#"{{
+    environment
+      .write_file(
+        "/config/dprint/dprint.json",
+        &format!(
+          r#"{{
   "plugins": [
     "{}"
   ]
-}}"#, old_wasm_url)).unwrap();
+}}"#,
+          old_wasm_url
+        ),
+      )
+      .unwrap();
 
     // Test updating the plugin in the global config
     run_test_cli(vec!["config", "update", "--global"], &environment).unwrap();
@@ -1817,7 +1830,10 @@ mod test {
     let environment = TestEnvironment::new();
 
     let error = run_test_cli(vec!["config", "edit", "--global"], &environment).err().unwrap();
-    assert_eq!(error.to_string(), "Could not find global dprint.json file. Create one with `dprint init --global`");
+    assert_eq!(
+      error.to_string(),
+      "Could not find global dprint.json file. Create one with `dprint init --global`"
+    );
   }
 
   #[test]
