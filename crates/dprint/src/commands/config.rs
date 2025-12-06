@@ -1048,6 +1048,46 @@ mod test {
   }
 
   #[test]
+  fn config_update_global() {
+    let old_wasm_url = "https://plugins.dprint.dev/test-plugin-0.1.0.wasm".to_string();
+    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: true,
+      config_has_wasm_checksum: false,
+      config_has_process: false,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: false,
+    });
+    // Create a global config file with an old plugin version
+    environment.write_file("/config/dprint/dprint.json", &format!(r#"{{
+  "plugins": [
+    "{}"
+  ]
+}}"#, old_wasm_url)).unwrap();
+
+    // Test updating the plugin in the global config
+    run_test_cli(vec!["config", "update", "--global"], &environment).unwrap();
+
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string(),
+      ]
+    );
+
+    let expected_text = format!(
+      r#"{{
+  "plugins": [
+    "{}"
+  ]
+}}"#,
+      new_wasm_url
+    );
+    assert_eq!(environment.read_file("/config/dprint/dprint.json").unwrap(), expected_text);
+  }
+
+  #[test]
   fn config_update_should_always_upgrade_to_latest_plugins() {
     let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
     // test all the process plugin combinations
