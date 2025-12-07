@@ -125,9 +125,9 @@ pub fn resolve_global_config_dir(environment: &impl Environment) -> Option<Canon
     match environment.canonicalize(path.as_ref()) {
       Ok(path) => Ok(path),
       Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-        if let Some(parent) = path.as_ref().parent() {
+        if let (Some(parent), Some(filename)) = (path.as_ref().parent(), path.as_ref().file_name()) {
           _ = environment.mk_dir_all(parent);
-          Ok(environment.canonicalize(path)?)
+          Ok(environment.canonicalize(parent)?.join_panic_relative(filename.to_string_lossy()))
         } else {
           Err(err.into())
         }

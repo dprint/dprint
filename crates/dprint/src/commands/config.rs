@@ -600,6 +600,8 @@ fn select_editor_args(env: &impl Environment) -> Vec<String> {
 
 #[cfg(test)]
 mod test {
+  use std::path::Path;
+
   use anyhow::Result;
   use once_cell::sync::Lazy;
   use pretty_assertions::assert_eq;
@@ -772,9 +774,9 @@ mod test {
     assert_eq!(
       environment.take_stdout_messages(),
       vec![
-        "\nCreated /config/dprint/dprint.json",
-        "\nRun `dprint config edit --global` to modify this file in the future.",
-        "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
+        format!("\nCreated {}", Path::new("/config").join("dprint").join("dprint.json").display()),
+        "\nRun `dprint config edit --global` to modify this file in the future.".to_string(),
+        "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor".to_string()
       ]
     );
     assert_eq!(environment.read_file("/config/dprint/dprint.json").unwrap(), expected_text);
@@ -812,9 +814,9 @@ mod test {
     assert_eq!(
       environment.take_stdout_messages(),
       vec![
-        "\nCreated /custom/config/dprint.json",
-        "\nRun `dprint config edit --global` to modify this file in the future.",
-        "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
+        format!("\nCreated {}", Path::new("/custom/config").join("dprint.json").display()),
+        "\nRun `dprint config edit --global` to modify this file in the future.".to_string(),
+        "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor".to_string()
       ]
     );
     assert_eq!(environment.read_file("/custom/config/dprint.json").unwrap(), expected_text);
@@ -825,7 +827,13 @@ mod test {
     let environment = TestEnvironment::new();
     environment.write_file("/config/dprint/dprint.json", "{}").unwrap();
     let error_message = run_test_cli(vec!["config", "init", "--global"], &environment).err().unwrap();
-    assert_eq!(error_message.to_string(), "Configuration file '/config/dprint/dprint.json' already exists.");
+    assert_eq!(
+      error_message.to_string(),
+      format!(
+        "Configuration file '{}' already exists.",
+        Path::new("/config").join("dprint").join("dprint.json").display()
+      )
+    );
   }
 
   #[test]
@@ -1810,11 +1818,10 @@ mod test {
     let commands = environment.take_run_commands();
     let (args, _) = &commands[0];
 
-    #[cfg(not(windows))]
-    assert_eq!(args[args.len() - 1], "/config/dprint/dprint.json");
-
-    #[cfg(windows)]
-    assert_eq!(args[args.len() - 1], "/config/dprint/dprint.json");
+    assert_eq!(
+      args[args.len() - 1].to_string_lossy(),
+      Path::new("/config").join("dprint").join("dprint.json").to_string_lossy()
+    );
   }
 
   #[test]

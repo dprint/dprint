@@ -111,7 +111,7 @@ Starting in dprint 0.50, you can change the way dprint discovers configuration f
 
 - `--config-discovery=default` (default) - Discovers configuration files in the current directory, ancestor directories, and descendant directories while searching for files to format.
 - `--config-discovery=ignore-descendants` - Discovers configuration files in the current directory and ancestor directories only.
-- `--config-discovery=global` - Use the global config file only.
+- `--config-discovery=global` - Use the global config file only (dprint 0.51+)
 - `--config-discovery=false` - Disables all configuration discovery (specify either `--config=<path>` or `--plugins <url-or-path>`).
 
 Note this can also be set via the `DPRINT_CONFIG_DISCOVERY` environment variable (ex. `DPRINT_CONFIG_DISCOVERY=false`)
