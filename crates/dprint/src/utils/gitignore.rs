@@ -120,6 +120,7 @@ mod test {
   fn git_ignore_tree() {
     let env = TestEnvironment::new();
     env.write_file("/.gitignore", "file.txt").unwrap();
+    env.mk_dir_all("/sub_dir/sub_dir").unwrap();
     env.write_file("/sub_dir/.gitignore", "data.txt").unwrap();
     env.write_file("/sub_dir/sub_dir/.gitignore", "!file.txt\nignore.txt").unwrap();
     let mut ignore_tree = GitIgnoreTree::new(env, Vec::new());

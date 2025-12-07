@@ -79,7 +79,7 @@ async fn resolve_url<TEnvironment: Environment>(url: &Url, environment: &TEnviro
 pub async fn fetch_file_or_url_bytes(url_or_file_path: &PathSource, environment: &impl Environment) -> Result<Vec<u8>> {
   match url_or_file_path {
     PathSource::Remote(path_source) => environment.download_file_err_404(path_source.url.as_str()).await,
-    PathSource::Local(path_source) => environment.read_file_bytes(&path_source.path),
+    PathSource::Local(path_source) => Ok(environment.read_file_bytes(&path_source.path)?),
   }
 }
 

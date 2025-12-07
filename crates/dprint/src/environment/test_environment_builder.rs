@@ -2,7 +2,6 @@ use indexmap::IndexMap;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
-use std::path::PathBuf;
 
 use super::Environment;
 use super::TestEnvironment;
@@ -315,8 +314,12 @@ impl TestEnvironmentBuilder {
     self
   }
 
-  pub fn write_file(&mut self, file_path: impl AsRef<Path>, text: &str) -> &mut Self {
-    self.environment.write_file(file_path, text).unwrap();
+  pub fn write_file(&mut self, file_path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> &mut Self {
+    let file_path = self.environment.clean_path(file_path);
+    if let Some(parent) = file_path.parent() {
+      self.environment.mk_dir_all(parent).unwrap();
+    }
+    self.environment.write_file_bytes(file_path, bytes.as_ref()).unwrap();
     self
   }
 
@@ -336,11 +339,7 @@ impl TestEnvironmentBuilder {
   }
 
   pub fn add_local_wasm_plugin(&mut self) -> &mut Self {
-    self
-      .environment
-      .write_file_bytes(&PathBuf::from("/plugins/test-plugin.wasm"), test_helpers::WASM_PLUGIN_BYTES)
-      .unwrap();
-    self
+    self.write_file("/plugins/test-plugin.wasm", test_helpers::WASM_PLUGIN_BYTES)
   }
 
   pub fn add_remote_process_plugin(&mut self) -> &mut Self {

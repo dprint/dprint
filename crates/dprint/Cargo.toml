@@ -14,7 +14,7 @@ description = "Binary for dprint code formatter—a pluggable and configurable c
 # all these deps are pinned because `cargo install dprint` doesn't lock deps
 # without the `--locked` flag so this helps reduce the chance of a dep being
 # released that breaks compiling dprint
-anyhow = "=1.0.98"
+anyhow.workspace = true
 clap = "=4.5.4"
 clap_complete = "=4.5.2"
 console_static_text = "=0.8.3"
@@ -25,22 +25,23 @@ dprint-core = { path = "../core", version = "=0.67.4", features = ["process", "w
 dunce = "=1.0.4"
 fs3 = "=0.5.0"
 ignore = "=0.4.23"
-indexmap = { version = "=2.9.0", features = ["serde"] }
+indexmap.workspace = true
 ipnet = "2.11.0"
 jsonc-parser = { version = "=0.26.2", features = ["cst", "preserve_order"] }
 once_cell = "=1.21.3"
 parking_lot = "=0.12.3"
 percent-encoding = "=2.3.1"
 rand = "=0.9.1"
-serde = { version = "=1.0.219", features = ["derive"] }
-serde_json = { version = "=1.0.140", features = ["preserve_order"] }
+serde.workspace = true
+serde_json.workspace = true
 sha2 = "=0.10.9"
-similar = { version = "=2.7.0", features = ["inline"] }
+similar = { workspace = true, features = ["inline"] }
+sys_traits.workspace = true
 # disable the multi-threading feature of this crate
 sysinfo = { version = "=0.35.1", features = ["system"], default-features = false }
 text-size = "=1.1.1"
 thiserror = "=2.0.12"
-tokio = { version = "=1.37.0", features = ["rt", "time", "macros", "rt-multi-thread", "io-std"] }
+tokio = { workspace = true, features = ["io-std"] }
 tokio-util = { version = "=0.7.11" }
 tower-lsp = "=0.20.0"
 twox-hash = "=2.1.0"
@@ -69,4 +70,5 @@ winreg = "=0.55.0"
 # stay on this version because it's good enough and makes the output the same on all platforms
 path-clean = "0.1.0"
 pretty_assertions = "1.4.0"
+sys_traits = { workspace = true, features = ["memory"] }
 tempfile = "3.20"
