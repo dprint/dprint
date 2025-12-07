@@ -2521,6 +2521,22 @@ mod test {
   }
 
   #[test]
+  fn should_not_prompt_when_fmt_with_dot_directory_arg_and_global_config() {
+    let file_path1 = "/dir/file1.txt";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/config/dprint/dprint.json", |config_file| {
+        config_file.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .write_file(&file_path1, "hello")
+      .build();
+    run_test_cli(vec!["fmt", "."], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "hello_formatted");
+  }
+
+  #[test]
   fn should_not_prompt_when_fmt_with_directory_arg_and_global_config() {
     let file_path1 = "/dir/file1.txt";
     let environment = TestEnvironmentBuilder::new()
@@ -2531,7 +2547,7 @@ mod test {
       .initialize()
       .write_file(&file_path1, "hello")
       .build();
-    run_test_cli(vec!["fmt", "**"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "dir"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "hello_formatted");
   }

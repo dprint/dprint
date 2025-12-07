@@ -225,6 +225,9 @@ fn process_cli_pattern(environment: &impl Environment, file_pattern: &str, cwd: 
     )
   } else if file_pattern.starts_with("./") || file_pattern.starts_with("!./") {
     file_pattern
+  } else if file_pattern == "." {
+    // format everything in the current directory
+    return "**".to_string();
   } else {
     // make all cli specified patterns relative
     if is_negated_glob(&file_pattern) {
@@ -233,7 +236,7 @@ fn process_cli_pattern(environment: &impl Environment, file_pattern: &str, cwd: 
       format!("./{}", file_pattern)
     }
   };
-  if !is_pattern(&pattern) && environment.is_directory(cwd.join(pattern)) {
+  if !is_pattern(&pattern) && environment.directory_exists(cwd.join(&pattern)) {
     format!("{}/**", pattern.trim_end_matches(['/', '\\']))
   } else {
     pattern
@@ -289,7 +292,7 @@ mod test {
   }
 
   fn do_process_cli_pattern(file_pattern: &str, cwd: &str) -> String {
-    process_cli_pattern(file_pattern, &CanonicalizedPathBuf::new_for_testing(cwd))
+    process_cli_pattern(&TestEnvironment::new(), file_pattern, &CanonicalizedPathBuf::new_for_testing(cwd))
   }
 
   #[test]

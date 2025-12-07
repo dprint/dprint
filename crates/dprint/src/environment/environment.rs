@@ -86,7 +86,8 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()>;
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()>;
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>>;
-  fn path_exists(&self, file_path: impl AsRef<Path>) -> bool;
+  fn path_exists(&self, path: impl AsRef<Path>) -> bool;
+  fn directory_exists(&self, path: impl AsRef<Path>) -> bool;
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf>;
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool;
   fn file_permissions(&self, path: impl AsRef<Path>) -> io::Result<FilePermissions>;
