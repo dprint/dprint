@@ -289,12 +289,13 @@ impl TestEnvironment {
   pub fn clean_path(&self, path: impl AsRef<Path>) -> PathBuf {
     // temporary until https://github.com/danreeves/path-clean/issues/4 is fixed in path-clean
     let file_path = PathBuf::from(path.as_ref().to_string_lossy().replace("\\", "/"));
-    if !path.as_ref().is_absolute() && !file_path.starts_with("/") {
+    let path = if !path.as_ref().is_absolute() && !file_path.starts_with("/") {
       self.cwd().join(file_path)
     } else {
       file_path
     }
-    .clean()
+    .clean();
+    PathBuf::from(path.to_string_lossy().replace("\\", "/"))
   }
 }
 
@@ -381,11 +382,11 @@ impl Environment for TestEnvironment {
       let entry = entry?;
       let file_type = entry.file_type()?;
       if file_type.is_dir() {
-        entries.push(DirEntry::Directory(entry.path().into_owned()));
+        entries.push(DirEntry::Directory(self.clean_path(entry.path())));
       } else if file_type.is_file() {
         entries.push(DirEntry::File {
           name: entry.file_name().into_owned(),
-          path: entry.path().into_owned(),
+          path: self.clean_path(entry.path()),
         });
       }
     }
@@ -417,16 +418,9 @@ impl Environment for TestEnvironment {
     let path = self.clean_path(path);
     let metadata = self.sys.fs_metadata(path)?;
 
-    #[cfg(unix)]
     let readonly = {
       let mode = metadata.mode()?;
       mode & 0o222 == 0
-    };
-
-    #[cfg(not(unix))]
-    let readonly = {
-      let permissions = metadata.permissions()?;
-      permissions.readonly()
     };
 
     Ok(FilePermissions::Test(super::TestFilePermissions { readonly }))
