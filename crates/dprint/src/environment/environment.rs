@@ -64,8 +64,8 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn env_var(&self, name: &str) -> Option<OsString>;
 
   fn get_staged_files(&self) -> Result<Vec<PathBuf>>;
-  fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String>;
-  fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>>;
+  fn read_file(&self, file_path: impl AsRef<Path>) -> io::Result<String>;
+  fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> io::Result<Vec<u8>>;
   fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> io::Result<()> {
     self.write_file_bytes(file_path, file_text.as_bytes())
   }

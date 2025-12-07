@@ -217,7 +217,7 @@ fn download_url<TEnvironment: Environment>(path_source: PathSource, environment:
 }
 
 fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> LocalBoxFuture<'static, Result<Vec<u8>>> {
-  async move { environment.read_file_bytes(path_source.unwrap_local().path) }.boxed_local()
+  async move { Ok(environment.read_file_bytes(path_source.unwrap_local().path)?) }.boxed_local()
 }
 
 #[cfg(test)]

@@ -121,16 +121,25 @@ impl Environment for RealEnvironment {
     std::env::var_os(name)
   }
 
-  fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String> {
-    Ok(String::from_utf8(self.read_file_bytes(file_path)?)?)
+  fn read_file(&self, file_path: impl AsRef<Path>) -> io::Result<String> {
+    let bytes = self.read_file_bytes(file_path.as_ref())?;
+    String::from_utf8(bytes).map_err(|err| {
+      io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("Error converting file to utf8 {}: {:#}", file_path.as_ref().display(), err),
+      )
+    })
   }
 
-  fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>> {
+  fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
     log_debug!(self, "Reading file: {}", file_path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     match fs::read(&file_path) {
       Ok(bytes) => Ok(bytes),
-      Err(err) => bail!("Error reading file {}: {:#}", file_path.as_ref().display(), err),
+      Err(err) => Err(io::Error::new(
+        err.kind(),
+        format!("Error reading file {}: {:#}", file_path.as_ref().display(), err),
+      )),
     }
   }
 

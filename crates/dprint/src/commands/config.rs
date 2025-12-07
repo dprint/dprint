@@ -824,8 +824,7 @@ mod test {
 
   #[test]
   fn should_error_when_global_config_file_already_exists() {
-    let environment = TestEnvironment::new();
-    environment.write_file("/config/dprint/dprint.json", "{}").unwrap();
+    let environment = TestEnvironmentBuilder::new().write_file("/config/dprint/dprint.json", "{}").build();
     let error_message = run_test_cli(vec!["config", "init", "--global"], &environment).err().unwrap();
     assert_eq!(
       error_message.to_string(),
@@ -1036,6 +1035,7 @@ mod test {
       remote_has_process_checksum: false,
     });
     // Create a global config file
+    environment.mk_dir_all("/config/dprint").unwrap();
     environment
       .write_file(
         "/config/dprint/dprint.json",
@@ -1072,6 +1072,7 @@ mod test {
       remote_has_process_checksum: false,
     });
     // Create a global config file with an old plugin version
+    environment.mk_dir_all("/config/dprint").unwrap();
     environment
       .write_file(
         "/config/dprint/dprint.json",
@@ -1809,8 +1810,7 @@ mod test {
 
   #[test]
   fn config_edit_should_open_global_config() {
-    let environment = TestEnvironment::new();
-    environment.write_file("/config/dprint/dprint.json", "{}").unwrap();
+    let environment = TestEnvironmentBuilder::new().write_file("/config/dprint/dprint.json", "{}").build();
     environment.set_run_command_result(Ok(Some(0)));
 
     run_test_cli(vec!["config", "edit", "--global"], &environment).unwrap();

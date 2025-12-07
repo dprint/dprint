@@ -1540,8 +1540,8 @@ mod test {
       .with_local_config("/.dprint.json", |c| {
         c.add_remote_wasm_plugin();
       })
-      .set_cwd("/test/other/")
       .write_file(file_path, "text")
+      .set_cwd("/test/other/")
       .build();
 
     run_test_cli(vec!["fmt"], &environment).unwrap();

@@ -131,6 +131,7 @@ mod test {
   #[test]
   fn should_read_ok_manifest() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
     environment
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
@@ -231,6 +232,7 @@ mod test {
   #[test]
   fn should_cache_bust_for_old_wasm_cache_version() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
     environment
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
@@ -261,6 +263,7 @@ mod test {
   #[test]
   fn should_not_error_for_old_manifest() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
     environment
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
@@ -289,6 +292,7 @@ mod test {
   #[test]
   fn should_have_empty_manifest_for_deserialization_error() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
     environment
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
@@ -310,6 +314,7 @@ mod test {
   #[test]
   fn it_save_manifest() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
     let mut manifest = PluginCacheManifest::new();
     manifest.add_item(
       String::from("a"),

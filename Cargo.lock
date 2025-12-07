@@ -883,6 +883,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "similar",
+ "sys_traits",
  "sysinfo",
  "tempfile",
  "text-size",
@@ -2714,6 +2715,27 @@ name = "synstructure"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "728a70f3dbaf5bab7f0c4b1ac8d7ae5ea60a4b5549c8a5914361c99147a709d2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.104",
+]
+
+[[package]]
+name = "sys_traits"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "183d93d3ab1a9c33f022d9b3d8416e02a4ef520535fd94b4a8326d5121f2b067"
+dependencies = [
+ "parking_lot",
+ "sys_traits_macros",
+]
+
+[[package]]
+name = "sys_traits_macros"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "181f22127402abcf8ee5c83ccd5b408933fec36a6095cf82cda545634692657e"
 dependencies = [
  "proc-macro2",
  "quote",
