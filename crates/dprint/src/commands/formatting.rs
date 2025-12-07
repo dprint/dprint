@@ -2472,4 +2472,104 @@ mod test {
       "Could not find global dprint.json file. Create one with `dprint init --global`"
     );
   }
+
+  #[test]
+  fn should_prompt_when_fmt_no_args_with_global_config_and_user_accepts() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/config/dprint/dprint.json", |config_file| {
+        config_file.add_remote_wasm_plugin().add_includes("**/*.txt");
+      })
+      .initialize()
+      .write_file(&file_path1, "hello")
+      .build();
+    environment.set_confirm_results(vec![Ok(Some(true))]);
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "hello_formatted");
+    let stderr_messages = environment.take_stderr_messages();
+    let prompt_message = stderr_messages.iter().find(|msg| msg.contains("You're not in a dprint project"));
+    assert!(prompt_message.is_some(), "Expected prompt message not found in stderr");
+    let prompt = prompt_message.unwrap();
+    assert!(prompt.contains("Format '/' anyway?"));
+    assert!(prompt.contains(" Y"));
+  }
+
+  #[test]
+  fn should_prompt_when_fmt_no_args_with_global_config_and_user_rejects() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/config/dprint/dprint.json", |config_file| {
+        config_file.add_remote_wasm_plugin().add_includes("**/*.txt");
+      })
+      .initialize()
+      .write_file(&file_path1, "hello")
+      .build();
+    environment.set_confirm_results(vec![Ok(Some(false))]);
+    let err = run_test_cli(vec!["fmt"], &environment).unwrap_err();
+    err.assert_exit_code(11);
+    assert_eq!(err.to_string(), "Confirmation cancelled.");
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "hello");
+    let stderr_messages = environment.take_stderr_messages();
+    let prompt_message = stderr_messages.iter().find(|msg| msg.contains("You're not in a dprint project"));
+    assert!(prompt_message.is_some(), "Expected prompt message not found in stderr");
+    let prompt = prompt_message.unwrap();
+    assert!(prompt.contains("Format '/' anyway?"));
+    assert!(prompt.contains(" N"));
+  }
+
+  #[test]
+  fn should_not_prompt_when_fmt_with_directory_arg_and_global_config() {
+    let file_path1 = "/dir/file1.txt";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/config/dprint/dprint.json", |config_file| {
+        config_file.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .write_file(&file_path1, "hello")
+      .build();
+    run_test_cli(vec!["fmt", "**"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "hello_formatted");
+  }
+
+  #[test]
+  fn should_error_when_fmt_no_args_with_global_config_in_non_interactive_terminal() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/config/dprint/dprint.json", |config_file| {
+        config_file.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .write_file(&file_path1, "hello")
+      .build();
+    environment.set_terminal_interactive(false);
+    let err = run_test_cli(vec!["fmt"], &environment).unwrap_err();
+    err.assert_exit_code(11);
+    assert_eq!(
+      err.to_string(),
+      "Did not format directory without configuration file. Run `dprint fmt .` or `dprint fmt --config-discovery=global` to bypass this error."
+    );
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "hello");
+  }
+
+  #[test]
+  fn should_not_prompt_when_fmt_no_args_with_global_config_and_config_discovery_flag() {
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/config/dprint/dprint.json", |config_file| {
+        config_file.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .write_file(&file_path1, "hello")
+      .build();
+    run_test_cli(vec!["fmt", "--config-discovery=global"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "hello_formatted");
+  }
 }
