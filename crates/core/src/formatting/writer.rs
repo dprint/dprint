@@ -388,7 +388,7 @@ mod test {
     writer.write(string_container);
   }
 
-  fn create_writer(bump: &BumpAllocator) -> Writer {
+  fn create_writer(bump: &BumpAllocator) -> Writer<'_> {
     Writer::new(
       bump,
       WriterOptions {

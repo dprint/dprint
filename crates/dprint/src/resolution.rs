@@ -51,6 +51,7 @@ use crate::plugins::PluginResolver;
 use crate::plugins::PluginWrapper;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::utils::FastInsecureHasher;
+use crate::utils::GlobOutput;
 use crate::utils::ResolvedPath;
 
 pub enum GetPluginResult {
@@ -439,17 +440,23 @@ pub struct PluginsScopeAndPaths<TEnvironment: Environment> {
   pub file_paths_by_plugins: FilesPathsByPlugins,
 }
 
+pub struct ResolvePluginsScopeAndPathsOptions {
+  pub skip_traversal: bool,
+}
+
 pub async fn resolve_plugins_scope_and_paths<TEnvironment: Environment>(
   args: &CliArgs,
   patterns: &FilePatternArgs,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  options: ResolvePluginsScopeAndPathsOptions,
 ) -> Result<PluginsScopeAndPathsCollection<TEnvironment>> {
   let resolver = PluginsAndPathsResolver {
     args,
     patterns,
     environment,
     plugin_resolver,
+    skip_traversal: options.skip_traversal,
   };
 
   resolver.resolve_for_config().await
@@ -460,6 +467,7 @@ struct PluginsAndPathsResolver<'a, TEnvironment: Environment> {
   patterns: &'a FilePatternArgs,
   environment: &'a TEnvironment,
   plugin_resolver: &'a Rc<PluginResolver<TEnvironment>>,
+  skip_traversal: bool,
 }
 
 impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
@@ -467,14 +475,18 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     let config = Rc::new(resolve_config_from_args(self.args, self.environment).await?);
     let scope = resolve_plugins_scope(config.clone(), self.environment, self.plugin_resolver).await?;
     let config_discovery = self.args.config_discovery(self.environment);
-    let glob_output = get_and_resolve_file_paths(
-      &config,
-      self.patterns,
-      config_discovery,
-      scope.plugins.values().map(|p| p.as_ref()),
-      self.environment,
-    )
-    .await?;
+    let glob_output = if self.skip_traversal {
+      GlobOutput::default()
+    } else {
+      get_and_resolve_file_paths(
+        &config,
+        self.patterns,
+        config_discovery,
+        scope.plugins.values().map(|p| p.as_ref()),
+        self.environment,
+      )
+      .await?
+    };
     let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths)?;
 
     let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
@@ -511,6 +523,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       let config_path = ResolvedConfigPath {
         base_path: config_file_path.parent().unwrap(),
         resolved_path: ResolvedPath::local(config_file_path),
+        is_global_config: false,
       };
       let mut config = resolve_config_from_path(&config_path, self.environment).await?;
       if !self.args.plugins.is_empty() {

@@ -8,6 +8,7 @@ use crate::arg_parser::OutputFilePathsSubCommand;
 use crate::arg_parser::create_cli_parser;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
+use crate::resolution::ResolvePluginsScopeAndPathsOptions;
 use crate::resolution::get_plugins_scope_from_args;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::utils::get_table_text;
@@ -94,7 +95,14 @@ pub async fn output_file_paths<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let scopes = resolve_plugins_scope_and_paths(args, &cmd.patterns, environment, plugin_resolver).await?;
+  let scopes = resolve_plugins_scope_and_paths(
+    args,
+    &cmd.patterns,
+    environment,
+    plugin_resolver,
+    ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
+  )
+  .await?;
   let file_paths = scopes.iter().flat_map(|x| x.file_paths_by_plugins.all_file_paths());
   for file_path in file_paths {
     log_stdout_info!(environment, "{}", file_path.display())
