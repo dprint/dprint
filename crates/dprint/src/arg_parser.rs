@@ -12,6 +12,7 @@ use crate::utils::StdInReader;
 #[derive(Debug, Clone, Copy)]
 pub enum ConfigDiscovery {
   Default,
+  Global,
   IgnoreDescendants,
   Disabled,
 }
@@ -23,6 +24,7 @@ impl std::str::FromStr for ConfigDiscovery {
     match s.to_ascii_lowercase().as_str() {
       "default" | "true" | "1" => Ok(ConfigDiscovery::Default),
       "false" | "0" => Ok(ConfigDiscovery::Disabled),
+      "global" => Ok(ConfigDiscovery::Global),
       "ignore-descendants" => Ok(ConfigDiscovery::IgnoreDescendants),
       _ => Err(format!("expected 'default', 'ignore-descendants' or 'false', got '{s}'")),
     }
@@ -30,10 +32,15 @@ impl std::str::FromStr for ConfigDiscovery {
 }
 
 impl ConfigDiscovery {
+  pub fn is_global(&self) -> bool {
+    matches!(self, ConfigDiscovery::Global)
+  }
+
   pub fn traverse_ancestors(&self) -> bool {
     match self {
       ConfigDiscovery::Default => true,
       ConfigDiscovery::IgnoreDescendants => true,
+      ConfigDiscovery::Global => false,
       ConfigDiscovery::Disabled => false,
     }
   }
@@ -42,6 +49,7 @@ impl ConfigDiscovery {
     match self {
       ConfigDiscovery::Default => true,
       ConfigDiscovery::IgnoreDescendants => false,
+      ConfigDiscovery::Global => false,
       ConfigDiscovery::Disabled => false,
     }
   }
@@ -83,6 +91,10 @@ impl CliArgs {
       plugins: Vec::new(),
       config_discovery: None,
     }
+  }
+
+  pub fn config_discovery_arg_set(&self) -> bool {
+    self.config_discovery.is_some()
   }
 
   pub fn config_discovery(&self, env: &impl Environment) -> ConfigDiscovery {
@@ -174,9 +186,10 @@ pub struct FmtSubCommand {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ConfigSubCommand {
-  Init,
+  Init { global: bool },
   Update { yes: bool },
   Add(Option<String>),
+  Edit,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -230,6 +243,12 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
 }
 
 fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: TStdInReader) -> Result<CliArgs> {
+  fn parse_init(matches: &ArgMatches) -> ConfigSubCommand {
+    ConfigSubCommand::Init {
+      global: matches.get_flag("global"),
+    }
+  }
+
   // this is all done because clap doesn't output exactly how I like
   if args.len() == 1 || (args.len() == 2 && (args[1] == "help" || args[1] == "--help")) {
     let mut cli_parser = create_cli_parser(CliArgParserKind::ForOutputtingMainHelp);
@@ -246,6 +265,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     Err(err) => return Err(err.into()),
   };
 
+  let mut is_global_config = false;
   let sub_command = match matches.subcommand().unwrap() {
     ("fmt", matches) => {
       if let Some(file_name_path_or_extension) = matches.get_one::<String>("stdin").map(String::from) {
@@ -282,13 +302,23 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       list_different: matches.get_flag("list-different"),
       allow_no_files: matches.get_flag("allow-no-files"),
     }),
-    ("init", _) => SubCommand::Config(ConfigSubCommand::Init),
+    ("init", matches) => SubCommand::Config(parse_init(matches)),
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
-      ("init", _) => ConfigSubCommand::Init,
-      ("add", matches) => ConfigSubCommand::Add(matches.get_one::<String>("url-or-plugin-name").map(String::from)),
-      ("update", matches) => ConfigSubCommand::Update {
-        yes: *matches.get_one::<bool>("yes").unwrap(),
-      },
+      ("init", matches) => parse_init(matches),
+      ("add", matches) => {
+        is_global_config = matches.get_flag("global");
+        ConfigSubCommand::Add(matches.get_one::<String>("url-or-plugin-name").map(String::from))
+      }
+      ("update", matches) => {
+        is_global_config = matches.get_flag("global");
+        ConfigSubCommand::Update {
+          yes: *matches.get_one::<bool>("yes").unwrap(),
+        }
+      }
+      ("edit", matches) => {
+        is_global_config = matches.get_flag("global");
+        ConfigSubCommand::Edit
+      }
       _ => unreachable!(),
     }),
     ("clear-cache", _) => SubCommand::ClearCache,
@@ -337,7 +367,11 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       LogLevel::Info
     },
     config: matches.get_one::<String>("config").map(String::from),
-    config_discovery: matches.get_one::<ConfigDiscovery>("config-discovery").copied(),
+    config_discovery: if is_global_config {
+      Some(ConfigDiscovery::Global)
+    } else {
+      matches.get_one::<ConfigDiscovery>("config-discovery").copied()
+    },
     plugins: maybe_values_to_vec(matches.get_many("plugins")),
   })
 }
@@ -413,6 +447,18 @@ pub enum CliArgParserKind {
 }
 
 pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
+  fn init_command() -> Command {
+    Command::new("init").about("Initializes a configuration file in the current directory.").arg(
+      Arg::new("global")
+        .long("global")
+        .short('g')
+        .conflicts_with("config-discovery")
+        .help("Initialize the global dprint configuration file.")
+        .num_args(0)
+        .required(false),
+    )
+  }
+
   use clap::Arg;
   use clap::Command;
 
@@ -448,12 +494,16 @@ OPTIONS:
 {options}
 
 ENVIRONMENT VARIABLES:
-  DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
-                       directory may be periodically deleted by the CLI.
   DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
                        formatting (ex. DPRINT_MAX_THREADS=4).
+  DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
+                       directory may be periodically deleted by the CLI.
+  DPRINT_CONFIG_DIR    Global config directory to store a global dprint.json file.
+                       Defaults to the dprint sub folder in the system configuration
+                       directory.
   DPRINT_CONFIG_DISCOVERY
-                       Sets the config discovery mode. Set to "false"/"0" to disable.
+                       Sets the config discovery mode. Set to "false"/"0" to disable
+                       or "global" to always use the global config file.
   DPRINT_CERT          Load certificate authority from PEM encoded file.
   DPRINT_TLS_CA_STORE  Comma-separated list of order dependent certificate stores.
                        Possible values: "mozilla" and "system".
@@ -461,6 +511,7 @@ ENVIRONMENT VARIABLES:
   DPRINT_IGNORE_CERTS  Unsafe way to get dprint to ignore certificates. Specify 1
                        to ignore all certificates or a comma separated list of specific
                        hosts to ignore (ex. dprint.dev,localhost,[::],127.0.0.1)
+  DPRINT_EDITOR        Editor used for editing config files.
   HTTPS_PROXY          Proxy to use when downloading plugins or configuration
                        files (also supports HTTP_PROXY and NO_PROXY).{after-help}"#)
     .after_help(
@@ -487,10 +538,7 @@ EXAMPLES:
 
     dprint fmt "**/*.{ts,tsx,js,jsx,json}""#,
     )
-    .subcommand(
-      Command::new("init")
-        .about("Initializes a configuration file in the current directory.")
-    )
+    .subcommand(init_command())
     .subcommand(
       Command::new("fmt")
         .about("Formats the source files and writes the result to the file system.")
@@ -541,15 +589,21 @@ EXAMPLES:
       Command::new("config")
         .about("Functionality related to the configuration file.")
         .subcommand_required(true)
-        .subcommand(
-          Command::new("init")
-            .about("Initializes a configuration file in the current directory.")
-        )
+        .subcommand(init_command())
         .subcommand(
           Command::new("update")
             .alias("upgrade")
             .about("Updates the plugins in the configuration file.")
             .arg(Arg::new("yes").help("Upgrade process plugins without prompting to confirm checksums.").short('y').long("yes").action(clap::ArgAction::SetTrue))
+            .arg(
+              Arg::new("global")
+                .long("global")
+                .short('g')
+                .conflicts_with("config-discovery")
+                .help("Update the global dprint configuration file.")
+                .num_args(0)
+                .required(false)
+            )
         )
         .subcommand(
           Command::new("add")
@@ -558,7 +612,29 @@ EXAMPLES:
               Arg::new("url-or-plugin-name")
                 .required(false)
                 .num_args(1)
-          )
+            )
+            .arg(
+              Arg::new("global")
+                .long("global")
+                .short('g')
+                .conflicts_with("config-discovery")
+                .help("Add to the global dprint configuration file.")
+                .num_args(0)
+                .required(false)
+            )
+        )
+        .subcommand(
+          Command::new("edit")
+            .about("Opens the configuration file in an editor.")
+            .arg(
+              Arg::new("global")
+                .long("global")
+                .short('g')
+                .conflicts_with("config-discovery")
+                .help("Edit the global dprint configuration file.")
+                .num_args(0)
+                .required(false)
+            )
         )
     )
     .subcommand(
@@ -627,7 +703,7 @@ EXAMPLES:
     .arg(
       Arg::new("config-discovery")
         .long("config-discovery")
-        .help("Sets the config discovery mode. Set to `false` to completely disable.")
+        .help("Sets the config discovery mode. Set to `false` to completely disable, `ignore-descendants` to avoid finding config files in child directories, or `global` to only use the global config file.")
         .global(true)
         .value_parser(clap::value_parser!(ConfigDiscovery))
         .value_name("BOOLEAN")
@@ -828,7 +904,9 @@ mod test {
   fn config_upgrade_alias() {
     let args = test_args(vec!["config", "upgrade"]).unwrap();
     match args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Update { yes }) => assert!(!yes),
+      SubCommand::Config(ConfigSubCommand::Update { yes }) => {
+        assert!(!yes);
+      }
       _ => unreachable!(),
     }
   }

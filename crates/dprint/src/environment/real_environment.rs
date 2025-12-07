@@ -1,4 +1,3 @@
-use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use once_cell::sync::Lazy;
@@ -7,6 +6,7 @@ use parking_lot::Mutex;
 use std::ffi::OsString;
 use std::fs;
 use std::hash::Hash;
+use std::io;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
@@ -30,7 +30,9 @@ use crate::utils::LoggerOptions;
 use crate::utils::NoProxy;
 use crate::utils::ProgressBars;
 use crate::utils::RealUrlDownloader;
+use crate::utils::ShowConfirmStrategy;
 use crate::utils::UnsafelyIgnoreCertificates;
+use crate::utils::is_terminal_interactive;
 use crate::utils::log_action_with_progress;
 use crate::utils::show_confirm;
 use crate::utils::show_multi_select;
@@ -144,42 +146,61 @@ impl Environment for RealEnvironment {
     Ok(String::from_utf8_lossy(&output.stdout).lines().map(PathBuf::from).collect())
   }
 
-  fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()> {
+  fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
     log_debug!(self, "Writing file: {}", file_path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     match fs::write(&file_path, bytes) {
       Ok(_) => Ok(()),
-      Err(err) => bail!("Error writing file {}: {:#}", file_path.as_ref().display(), err),
+      Err(err) => Err(io::Error::new(
+        err.kind(),
+        format!("Error writing file '{}': {:#}", file_path.as_ref().display(), err),
+      )),
     }
   }
 
-  fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> Result<()> {
+  fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()> {
     log_debug!(self, "Renaming {} -> {}", path_from.as_ref().display(), path_to.as_ref().display());
     #[allow(clippy::disallowed_methods)]
-    fs::rename(&path_from, &path_to).with_context(|| format!("Error renaming {} to {}", path_from.as_ref().display(), path_to.as_ref().display()))
+    fs::rename(&path_from, &path_to).map_err(|err| {
+      io::Error::new(
+        err.kind(),
+        format!(
+          "Error renaming '{}' to '{}': {:#}",
+          path_from.as_ref().display(),
+          path_to.as_ref().display(),
+          err
+        ),
+      )
+    })
   }
 
-  fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<()> {
+  fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()> {
     log_debug!(self, "Deleting file: {}", file_path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     match fs::remove_file(&file_path) {
       Ok(_) => Ok(()),
-      Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-      Err(err) => bail!("Error deleting file {}: {:#}", file_path.as_ref().display(), err),
+      Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+      Err(err) => Err(io::Error::new(
+        err.kind(),
+        format!("Error deleting file '{}': {:#}", file_path.as_ref().display(), err),
+      )),
     }
   }
 
-  fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<()> {
+  fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()> {
     log_debug!(self, "Deleting directory: {}", dir_path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     match fs::remove_dir_all(&dir_path) {
       Ok(_) => Ok(()),
-      Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-      Err(err) => bail!("Error removing directory {}: {:#}", dir_path.as_ref().display(), err),
+      Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+      Err(err) => Err(io::Error::new(
+        err.kind(),
+        format!("Error deleting directory '{}': {:#}", dir_path.as_ref().display(), err),
+      )),
     }
   }
 
-  fn dir_info(&self, dir_path: impl AsRef<Path>) -> std::io::Result<Vec<DirEntry>> {
+  fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
     let mut entries = Vec::new();
 
     #[allow(clippy::disallowed_methods)]
@@ -207,7 +228,7 @@ impl Environment for RealEnvironment {
     file_path.as_ref().exists()
   }
 
-  fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
+  fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
     canonicalize_path(path)
   }
 
@@ -215,31 +236,44 @@ impl Environment for RealEnvironment {
     path.as_ref().is_absolute()
   }
 
-  fn file_permissions(&self, path: impl AsRef<Path>) -> Result<FilePermissions> {
+  fn file_permissions(&self, path: impl AsRef<Path>) -> io::Result<FilePermissions> {
     Ok(FilePermissions::Std(
       #[allow(clippy::disallowed_methods)]
       fs::metadata(&path)
-        .with_context(|| format!("Error getting file permissions for: {}", path.as_ref().display()))?
+        .map_err(|err| {
+          io::Error::new(
+            err.kind(),
+            format!("Error getting file permissions for '{}': {:#}", path.as_ref().display(), err),
+          )
+        })?
         .permissions(),
     ))
   }
 
-  fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> Result<()> {
+  fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> io::Result<()> {
     let permissions = match permissions {
       FilePermissions::Std(p) => p,
       _ => panic!("Programming error. Permissions did not contain an std permission."),
     };
     #[allow(clippy::disallowed_methods)]
-    fs::set_permissions(&path, permissions).with_context(|| format!("Error setting file permissions for: {}", path.as_ref().display()))?;
+    fs::set_permissions(&path, permissions).map_err(|err| {
+      io::Error::new(
+        err.kind(),
+        format!("Error setting file permissions for '{}': {:#}", path.as_ref().display(), err),
+      )
+    })?;
     Ok(())
   }
 
-  fn mk_dir_all(&self, path: impl AsRef<Path>) -> Result<()> {
+  fn mk_dir_all(&self, path: impl AsRef<Path>) -> io::Result<()> {
     log_debug!(self, "Creating directory: {}", path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     match fs::create_dir_all(&path) {
       Ok(_) => Ok(()),
-      Err(err) => bail!("Error creating directory {}: {:#}", path.as_ref().display(), err),
+      Err(err) => Err(io::Error::new(
+        err.kind(),
+        format!("Error creating directory '{}': {:#}", path.as_ref().display(), err),
+      )),
     }
   }
 
@@ -254,8 +288,8 @@ impl Environment for RealEnvironment {
       .clone()
   }
 
-  fn current_exe(&self) -> Result<PathBuf> {
-    std::env::current_exe().context("Error getting current executable.")
+  fn current_exe(&self) -> io::Result<PathBuf> {
+    std::env::current_exe().map_err(|err| io::Error::new(err.kind(), format!("Error getting current executable: {:#}", err)))
   }
 
   fn __log__(&self, text: &str) {
@@ -282,6 +316,10 @@ impl Environment for RealEnvironment {
   fn get_cache_dir(&self) -> CanonicalizedPathBuf {
     // ok to unwrap because this would have errored in the constructor
     (*CACHE_DIR.as_ref().unwrap()).clone()
+  }
+
+  fn get_config_dir(&self) -> Option<CanonicalizedPathBuf> {
+    dirs::config_dir().map(|path| self.canonicalize(path).unwrap())
   }
 
   fn get_home_dir(&self) -> Option<CanonicalizedPathBuf> {
@@ -328,8 +366,14 @@ impl Environment for RealEnvironment {
     )
   }
 
-  fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool> {
-    show_confirm(&self.logger, "dprint", prompt_message, default_value)
+  fn confirm_with_strategy(&self, strategy: &dyn ShowConfirmStrategy) -> Result<bool> {
+    show_confirm(&self.logger, "dprint", strategy)
+  }
+
+  fn run_command_get_status(&self, mut args: Vec<OsString>) -> io::Result<Option<i32>> {
+    let command_name = args.remove(0);
+    let command_path = which::which(command_name).map_err(|err| io::Error::new(io::ErrorKind::NotFound, err))?;
+    std::process::Command::new(command_path).args(args).status().map(|s| s.code())
   }
 
   fn is_ci(&self) -> bool {
@@ -340,6 +384,10 @@ impl Environment for RealEnvironment {
       }
       None => false,
     }
+  }
+
+  fn is_terminal_interactive(&self) -> bool {
+    is_terminal_interactive()
   }
 
   #[inline]
@@ -400,12 +448,12 @@ impl Environment for RealEnvironment {
     .unwrap_or(0)
   }
 
-  fn stdout(&self) -> Box<dyn std::io::Write + Send> {
-    Box::new(std::io::stdout())
+  fn stdout(&self) -> Box<dyn io::Write + Send> {
+    Box::new(io::stdout())
   }
 
-  fn stdin(&self) -> Box<dyn std::io::Read + Send> {
-    Box::new(std::io::stdin())
+  fn stdin(&self) -> Box<dyn io::Read + Send> {
+    Box::new(io::stdin())
   }
 
   fn progress_bars(&self) -> Option<&Arc<ProgressBars>> {
@@ -413,7 +461,7 @@ impl Environment for RealEnvironment {
   }
 
   #[cfg(windows)]
-  fn ensure_system_path(&self, directory_path: &str) -> Result<()> {
+  fn ensure_system_path(&self, directory_path: &str) -> io::Result<()> {
     use winreg::RegKey;
     use winreg::enums::*;
     log_debug!(self, "Ensuring '{}' is on the path.", directory_path);
@@ -434,7 +482,7 @@ impl Environment for RealEnvironment {
   }
 
   #[cfg(windows)]
-  fn remove_system_path(&self, directory_path: &str) -> Result<()> {
+  fn remove_system_path(&self, directory_path: &str) -> io::Result<()> {
     use winreg::RegKey;
     use winreg::enums::*;
     log_debug!(self, "Ensuring '{}' is on the path.", directory_path);
@@ -471,17 +519,20 @@ fn resolve_max_threads(env_var: Option<String>, available_parallelism: Option<No
   }
 }
 
-fn canonicalize_path(path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
+fn canonicalize_path(path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
   // use this to avoid //?//C:/etc... like paths on windows (UNC)
   match dunce::canonicalize(path.as_ref()) {
     Ok(result) => Ok(CanonicalizedPathBuf::new(result)),
-    Err(err) => bail!("Error canonicalizing path {}: {:#}", path.as_ref().display(), err),
+    Err(err) => Err(io::Error::new(
+      err.kind(),
+      format!("Error canonicalizing path '{}': {:#}", path.as_ref().display(), err),
+    )),
   }
 }
 
 const CACHE_DIR_ENV_VAR_NAME: &str = "DPRINT_CACHE_DIR";
 
-static CACHE_DIR: Lazy<Result<CanonicalizedPathBuf>> = Lazy::new(|| {
+static CACHE_DIR: Lazy<io::Result<CanonicalizedPathBuf>> = Lazy::new(|| {
   #[allow(clippy::disallowed_methods)]
   let cache_dir = get_cache_dir_internal(|var_name| std::env::var(var_name).ok())?;
   #[allow(clippy::disallowed_methods)]
@@ -489,14 +540,17 @@ static CACHE_DIR: Lazy<Result<CanonicalizedPathBuf>> = Lazy::new(|| {
   canonicalize_path(cache_dir)
 });
 
-fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> Result<PathBuf> {
+fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> io::Result<PathBuf> {
   if let Some(dir_path) = get_env_var(CACHE_DIR_ENV_VAR_NAME)
     && !dir_path.trim().is_empty()
   {
     let dir_path = PathBuf::from(dir_path);
     // seems dangerous to allow a relative path as this directory may be deleted
     return if !dir_path.is_absolute() {
-      bail!("The {} environment variable must specify an absolute path.", CACHE_DIR_ENV_VAR_NAME)
+      Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("The {} environment variable must specify an absolute path.", CACHE_DIR_ENV_VAR_NAME),
+      ))
     } else {
       Ok(dir_path)
     };
@@ -504,7 +558,7 @@ fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> Resul
 
   match dirs::cache_dir() {
     Some(dir) => Ok(dir.join("dprint").join("cache")),
-    None => bail!("Expected to find cache directory"),
+    None => Err(io::Error::new(io::ErrorKind::NotFound, "Expected to find cache directory.")),
   }
 }
 

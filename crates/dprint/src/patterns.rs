@@ -315,6 +315,7 @@ mod test {
     let environment = TestEnvironment::new();
     let base_dir = CanonicalizedPathBuf::new_for_testing("/");
     let cwd = CanonicalizedPathBuf::new_for_testing("/sub-dir");
+    environment.mk_dir_all(&cwd).unwrap();
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
         arg_includes: None,

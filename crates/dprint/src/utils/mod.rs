@@ -1,6 +1,7 @@
 mod cached_downloader;
 mod certs;
 mod checksums;
+mod command;
 mod error_count_logger;
 mod extract_zip;
 mod file_path_utils;
@@ -26,6 +27,7 @@ mod url;
 pub use self::url::*;
 pub use cached_downloader::*;
 pub use checksums::*;
+pub use command::*;
 pub use error_count_logger::*;
 pub use extract_zip::*;
 pub use file_path_utils::*;

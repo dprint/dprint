@@ -279,17 +279,21 @@ More details at `dprint help <SUBCOMMAND>`
 
 OPTIONS:
   -c, --config <config>             Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.
-      --config-discovery=<BOOLEAN>  Sets the config discovery mode. Set to `false` to completely disable.
+      --config-discovery=<BOOLEAN>  Sets the config discovery mode. Set to `false` to completely disable, `ignore-descendants` to avoid finding config files in child directories, or `global` to only use the global config file.
       --plugins <urls/files>...     List of urls or file paths of plugins to use. This overrides what is specified in the config file.
   -L, --log-level <log-level>       Set log level [default: info] [possible values: debug, info, warn, error, silent]
 
 ENVIRONMENT VARIABLES:
-  DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
-                       directory may be periodically deleted by the CLI.
   DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
                        formatting (ex. DPRINT_MAX_THREADS=4).
+  DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
+                       directory may be periodically deleted by the CLI.
+  DPRINT_CONFIG_DIR    Global config directory to store a global dprint.json file.
+                       Defaults to the dprint sub folder in the system configuration
+                       directory.
   DPRINT_CONFIG_DISCOVERY
-                       Sets the config discovery mode. Set to "false"/"0" to disable.
+                       Sets the config discovery mode. Set to "false"/"0" to disable
+                       or "global" to always use the global config file.
   DPRINT_CERT          Load certificate authority from PEM encoded file.
   DPRINT_TLS_CA_STORE  Comma-separated list of order dependent certificate stores.
                        Possible values: "mozilla" and "system".
@@ -297,6 +301,7 @@ ENVIRONMENT VARIABLES:
   DPRINT_IGNORE_CERTS  Unsafe way to get dprint to ignore certificates. Specify 1
                        to ignore all certificates or a comma separated list of specific
                        hosts to ignore (ex. dprint.dev,localhost,[::],127.0.0.1)
+  DPRINT_EDITOR        Editor used for editing config files.
   HTTPS_PROXY          Proxy to use when downloading plugins or configuration
                        files (also supports HTTP_PROXY and NO_PROXY).
 

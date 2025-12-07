@@ -7,6 +7,7 @@ use dprint_core::async_runtime::future;
 use dprint_core::plugins;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::rc::Rc;
 use url::Url;
@@ -24,17 +25,30 @@ use crate::plugins::PluginWrapper;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
 use crate::resolution::GetPluginResult;
+use crate::resolution::ResolvePluginsScopeAndPathsOptions;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::utils::CachedDownloader;
 use crate::utils::PathSource;
 use crate::utils::pretty_print_json_text;
 
-pub async fn init_config_file(environment: &impl Environment, config_arg: &Option<String>) -> Result<()> {
-  let config_file_path = get_config_path(config_arg)?;
+pub struct InitConfigFileOptions<'a> {
+  pub global: bool,
+  pub config_arg: Option<&'a str>,
+}
+
+pub async fn init_config_file(environment: &impl Environment, options: InitConfigFileOptions<'_>) -> Result<()> {
+  let config_file_path = get_config_path(environment, &options)?;
   return if !environment.path_exists(&config_file_path) {
-    environment.write_file(&config_file_path, &get_init_config_file_text(environment).await?)?;
+    let text = get_init_config_file_text(environment).await?;
+    if let Some(parent) = config_file_path.parent() {
+      _ = environment.mk_dir_all(parent);
+    }
+    environment.write_file(&config_file_path, &text)?;
     log_stdout_info!(environment, "\nCreated {}", config_file_path.display());
+    if options.global {
+      log_stdout_info!(environment, "\nRun `dprint config edit --global` to modify this file in the future.");
+    }
     log_stdout_info!(
       environment,
       "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
@@ -44,13 +58,60 @@ pub async fn init_config_file(environment: &impl Environment, config_arg: &Optio
     bail!("Configuration file '{}' already exists.", config_file_path.display())
   };
 
-  fn get_config_path(config_arg: &Option<String>) -> Result<PathBuf> {
-    Ok(if let Some(config_arg) = config_arg.as_ref() {
-      PathBuf::from(config_arg)
+  fn get_config_path(environment: &impl Environment, options: &InitConfigFileOptions<'_>) -> Result<PathBuf> {
+    if options.global {
+      let directory = crate::configuration::resolve_global_config_dir(environment).ok_or_else(|| {
+        anyhow::anyhow!(concat!(
+          "Could not find system config directory. ",
+          "Maybe specify the DPRINT_CONFIG_DIR environment ",
+          "variable to say where to store the global dprint configuration file."
+        ))
+      })?;
+      Ok(directory.join("dprint.json"))
+    } else if let Some(config_arg) = options.config_arg {
+      Ok(PathBuf::from(config_arg))
     } else {
-      PathBuf::from("./dprint.json")
-    })
+      Ok(PathBuf::from("dprint.json"))
+    }
   }
+}
+
+pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<()> {
+  let config_path = resolve_main_config_path(args, environment).await?.ok_or_else(|| {
+    let is_global = args.config_discovery(environment).is_global();
+    anyhow::anyhow!(
+      "Could not find a configuration file. Create one with `dprint init{}`",
+      if is_global { " --global" } else { "" }
+    )
+  })?;
+
+  let config_path = match config_path.resolved_path.source {
+    PathSource::Local(source) => source.path,
+    PathSource::Remote(source) => {
+      bail!("Cannot edit a remote configuration file '{}'", source.url)
+    }
+  };
+
+  let args = select_editor_args(environment)
+    .into_iter()
+    .map(OsString::from)
+    .chain(std::iter::once(config_path.into_path_buf().into_os_string()))
+    .collect::<Vec<OsString>>();
+  let command_text_for_err = args
+    .iter()
+    .map(|s| format!("\"{}\"", s.to_string_lossy().replace("\"", "\\\"")))
+    .collect::<Vec<_>>()
+    .join(" ");
+  let exit_code = environment
+    .run_command_get_status(args)
+    .with_context(|| format!("Failed to launch editor with command: {}", command_text_for_err))?;
+
+  if let Some(exit_code) = exit_code.filter(|c| *c != 0) {
+    // todo: use an exit code error
+    bail!("Editor exited with code: {}", exit_code);
+  }
+
+  Ok(())
 }
 
 pub async fn add_plugin_config_file<TEnvironment: Environment>(
@@ -190,10 +251,20 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     allow_node_modules: false,
     only_staged: false,
   };
-  let scopes = resolve_plugins_scope_and_paths(args, &file_pattern_args, environment, plugin_resolver).await?;
+  let config_discovery = args.config_discovery(environment);
+  let scopes = resolve_plugins_scope_and_paths(
+    args,
+    &file_pattern_args,
+    environment,
+    plugin_resolver,
+    ResolvePluginsScopeAndPathsOptions {
+      skip_traversal: config_discovery.is_global(),
+    },
+  )
+  .await?;
   let mut plugin_responses = HashMap::new();
   let mut updates_per_scope = HashMap::with_capacity(scopes.len());
-  for (i, scope) in scopes.into_iter().enumerate() {
+  for (i, scope) in scopes.iter().enumerate() {
     let is_main_config = i == 0;
     let Some(config) = &scope.scope.config else {
       continue;
@@ -275,7 +346,17 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   updates_per_scope: &HashMap<CanonicalizedPathBuf, Vec<PluginUpdateInfo>>,
 ) -> Result<()> {
-  let scopes = resolve_plugins_scope_and_paths(args, file_pattern_args, environment, plugin_resolver).await?;
+  let config_discovery = args.config_discovery(environment);
+  let scopes = resolve_plugins_scope_and_paths(
+    args,
+    file_pattern_args,
+    environment,
+    plugin_resolver,
+    ResolvePluginsScopeAndPathsOptions {
+      skip_traversal: config_discovery.is_global(),
+    },
+  )
+  .await?;
   for scope in scopes.into_iter() {
     let Some(config) = &scope.scope.config else {
       continue;
@@ -489,8 +570,38 @@ async fn get_config_file_plugins<TEnvironment: Environment>(
   results
 }
 
+fn select_editor_args(env: &impl Environment) -> Vec<String> {
+  fn try_parse_env_var(env: &impl Environment, name: &str) -> Option<Vec<String>> {
+    let var = env.env_var(name).filter(|v| !v.is_empty()).and_then(|v| v.into_string().ok())?;
+    match crate::utils::parse_command_line(&var) {
+      Ok(value) => Some(value),
+      Err(err) => {
+        log_warn!(env, "Failed resolving '{}' env var: {:#}", name, err);
+        None
+      }
+    }
+  }
+  if let Some(value) = try_parse_env_var(env, "DPRINT_EDITOR") {
+    return value;
+  }
+  if let Some(value) = try_parse_env_var(env, "VISUAL") {
+    return value;
+  }
+  if let Some(value) = try_parse_env_var(env, "EDITOR") {
+    return value;
+  }
+  if cfg!(windows) {
+    Vec::from(["notepad".to_string()])
+  } else {
+    // I prefer vim, but this is probably more friendly for people
+    Vec::from(["nano".to_string()])
+  }
+}
+
 #[cfg(test)]
 mod test {
+  use std::path::Path;
+
   use anyhow::Result;
   use once_cell::sync::Lazy;
   use pretty_assertions::assert_eq;
@@ -548,7 +659,7 @@ mod test {
     assert_eq!(
       environment.take_stdout_messages(),
       vec![
-        "\nCreated ./dprint.json",
+        "\nCreated dprint.json",
         "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
       ]
     );
@@ -619,7 +730,110 @@ mod test {
       })
       .build();
     let error_message = run_test_cli(vec!["init"], &environment).err().unwrap();
-    assert_eq!(error_message.to_string(), "Configuration file './dprint.json' already exists.");
+    assert_eq!(error_message.to_string(), "Configuration file 'dprint.json' already exists.");
+  }
+
+  #[test]
+  fn should_initialize_global_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info
+          .add_plugin(TestInfoFilePlugin {
+            name: "dprint-plugin-typescript".to_string(),
+            version: "0.17.2".to_string(),
+            url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
+            config_key: Some("typescript".to_string()),
+            file_extensions: vec!["ts".to_string()],
+            config_excludes: vec![],
+            ..Default::default()
+          })
+          .add_plugin(TestInfoFilePlugin {
+            name: "dprint-plugin-jsonc".to_string(),
+            version: "0.2.3".to_string(),
+            url: "https://plugins.dprint.dev/json-0.2.3.wasm".to_string(),
+            config_key: Some("json".to_string()),
+            file_extensions: vec!["json".to_string()],
+            config_excludes: vec![],
+            ..Default::default()
+          });
+      })
+      .build();
+    let expected_text = environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        environment.clear_logs();
+        expected_text
+      }
+    });
+    run_test_cli(vec!["init", "--global"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
+    );
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![
+        format!("\nCreated {}", Path::new("/config").join("dprint").join("dprint.json").display()),
+        "\nRun `dprint config edit --global` to modify this file in the future.".to_string(),
+        "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor".to_string()
+      ]
+    );
+    assert_eq!(environment.read_file("/config/dprint/dprint.json").unwrap(), expected_text);
+  }
+
+  #[test]
+  fn should_initialize_global_config_via_env_var() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "dprint-plugin-typescript".to_string(),
+          version: "0.17.2".to_string(),
+          url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
+          config_key: Some("typescript".to_string()),
+          file_extensions: vec!["ts".to_string()],
+          config_excludes: vec![],
+          ..Default::default()
+        });
+      })
+      .build();
+    environment.set_env_var("DPRINT_CONFIG_DIR", Some("/custom/config"));
+    let expected_text = environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        environment.clear_logs();
+        expected_text
+      }
+    });
+    run_test_cli(vec!["init", "--global"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
+    );
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![
+        format!("\nCreated {}", Path::new("/custom/config").join("dprint.json").display()),
+        "\nRun `dprint config edit --global` to modify this file in the future.".to_string(),
+        "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor".to_string()
+      ]
+    );
+    assert_eq!(environment.read_file("/custom/config/dprint.json").unwrap(), expected_text);
+  }
+
+  #[test]
+  fn should_error_when_global_config_file_already_exists() {
+    let environment = TestEnvironment::new();
+    environment.write_file("/config/dprint/dprint.json", "{}").unwrap();
+    let error_message = run_test_cli(vec!["config", "init", "--global"], &environment).err().unwrap();
+    assert_eq!(
+      error_message.to_string(),
+      format!(
+        "Configuration file '{}' already exists.",
+        Path::new("/config").join("dprint").join("dprint.json").display()
+      )
+    );
   }
 
   #[test]
@@ -809,6 +1023,89 @@ mod test {
       );
       assert_eq!(environment.read_file("./dprint.json").unwrap(), expected_text);
     }
+  }
+
+  #[test]
+  fn config_add_global() {
+    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: false,
+      config_has_wasm_checksum: false,
+      config_has_process: false,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: false,
+    });
+    // Create a global config file
+    environment
+      .write_file(
+        "/config/dprint/dprint.json",
+        r#"{
+  "plugins": [
+  ]
+}"#,
+      )
+      .unwrap();
+
+    // Test adding a plugin by name to the global config
+    run_test_cli(vec!["config", "add", "--global", "test-plugin"], &environment).unwrap();
+
+    let expected_text = format!(
+      r#"{{
+  "plugins": [
+    "{}"
+  ]
+}}"#,
+      new_wasm_url
+    );
+    assert_eq!(environment.read_file("/config/dprint/dprint.json").unwrap(), expected_text);
+  }
+
+  #[test]
+  fn config_update_global() {
+    let old_wasm_url = "https://plugins.dprint.dev/test-plugin-0.1.0.wasm".to_string();
+    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: true,
+      config_has_wasm_checksum: false,
+      config_has_process: false,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: false,
+    });
+    // Create a global config file with an old plugin version
+    environment
+      .write_file(
+        "/config/dprint/dprint.json",
+        &format!(
+          r#"{{
+  "plugins": [
+    "{}"
+  ]
+}}"#,
+          old_wasm_url
+        ),
+      )
+      .unwrap();
+
+    // Test updating the plugin in the global config
+    run_test_cli(vec!["config", "update", "--global"], &environment).unwrap();
+
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string(),
+      ]
+    );
+
+    let expected_text = format!(
+      r#"{{
+  "plugins": [
+    "{}"
+  ]
+}}"#,
+      new_wasm_url
+    );
+    assert_eq!(environment.read_file("/config/dprint/dprint.json").unwrap(), expected_text);
   }
 
   #[test]
@@ -1378,5 +1675,214 @@ mod test {
     let environment = TestEnvironmentBuilder::new().with_default_config(|_| {}).build();
     run_test_cli(vec!["output-resolved-config"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["{}"]);
+  }
+
+  #[test]
+  fn config_edit_should_open_editor_with_local_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_default_config(|config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    assert_eq!(commands.len(), 1);
+    let (args, _) = &commands[0];
+
+    // Should use the default editor (nano on non-Windows)
+    #[cfg(not(windows))]
+    {
+      assert_eq!(args.len(), 2);
+      assert_eq!(args[0], "nano");
+      assert_eq!(args[1], "/dprint.json");
+    }
+
+    #[cfg(windows)]
+    {
+      assert_eq!(args.len(), 2);
+      assert_eq!(args[0], "notepad");
+      assert_eq!(args[1], "/dprint.json");
+    }
+  }
+
+  #[test]
+  fn config_edit_should_use_dprint_editor_env_var() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_default_config(|config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_env_var("DPRINT_EDITOR", Some("vim"));
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    assert_eq!(commands.len(), 1);
+    let (args, _) = &commands[0];
+    assert_eq!(args.len(), 2);
+    assert_eq!(args[0], "vim");
+    assert_eq!(args[1], "/dprint.json");
+  }
+
+  #[test]
+  fn config_edit_should_use_visual_env_var() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_default_config(|config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_env_var("VISUAL", Some("emacs"));
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    assert_eq!(commands.len(), 1);
+    let (args, _) = &commands[0];
+    assert_eq!(args.len(), 2);
+    assert_eq!(args[0], "emacs");
+    assert_eq!(args[1], "/dprint.json");
+  }
+
+  #[test]
+  fn config_edit_should_use_editor_env_var() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_default_config(|config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_env_var("EDITOR", Some("vi"));
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    assert_eq!(commands.len(), 1);
+    let (args, _) = &commands[0];
+    assert_eq!(args.len(), 2);
+    assert_eq!(args[0], "vi");
+    assert_eq!(args[1], "/dprint.json");
+  }
+
+  #[test]
+  fn config_edit_should_prioritize_dprint_editor_over_others() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_default_config(|config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_env_var("DPRINT_EDITOR", Some("vim"));
+    environment.set_env_var("VISUAL", Some("emacs"));
+    environment.set_env_var("EDITOR", Some("vi"));
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    let (args, _) = &commands[0];
+    assert_eq!(args[0], "vim");
+  }
+
+  #[test]
+  fn config_edit_should_handle_editor_with_args() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_default_config(|config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_env_var("DPRINT_EDITOR", Some("code --wait"));
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    let (args, _) = &commands[0];
+    assert_eq!(args.len(), 3);
+    assert_eq!(args[0], "code");
+    assert_eq!(args[1], "--wait");
+    assert_eq!(args[2], "/dprint.json");
+  }
+
+  #[test]
+  fn config_edit_should_open_global_config() {
+    let environment = TestEnvironment::new();
+    environment.write_file("/config/dprint/dprint.json", "{}").unwrap();
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit", "--global"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    let (args, _) = &commands[0];
+
+    assert_eq!(
+      args[args.len() - 1].to_string_lossy(),
+      Path::new("/config").join("dprint").join("dprint.json").to_string_lossy()
+    );
+  }
+
+  #[test]
+  fn config_edit_should_error_when_no_config_found() {
+    let environment = TestEnvironment::new();
+
+    let error = run_test_cli(vec!["config", "edit"], &environment).err().unwrap();
+    assert_eq!(error.to_string(), "Could not find a configuration file. Create one with `dprint init`");
+  }
+
+  #[test]
+  fn config_edit_should_error_when_no_global_config_found() {
+    let environment = TestEnvironment::new();
+
+    let error = run_test_cli(vec!["config", "edit", "--global"], &environment).err().unwrap();
+    assert_eq!(
+      error.to_string(),
+      "Could not find global dprint.json file. Create one with `dprint init --global`"
+    );
+  }
+
+  #[test]
+  fn config_edit_should_error_on_remote_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_remote_config("https://example.com/dprint.json", |config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+
+    let error = run_test_cli(vec!["config", "edit", "-c", "https://example.com/dprint.json"], &environment)
+      .err()
+      .unwrap();
+    assert_eq!(error.to_string(), "Cannot edit a remote configuration file 'https://example.com/dprint.json'");
+  }
+
+  #[test]
+  fn config_edit_should_error_when_editor_exits_with_non_zero() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_default_config(|config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_run_command_result(Ok(Some(1)));
+
+    let error = run_test_cli(vec!["config", "edit"], &environment).err().unwrap();
+    assert_eq!(error.to_string(), "Editor exited with code: 1");
+  }
+
+  #[test]
+  fn config_edit_should_work_with_custom_config_path() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("custom.config.json", |config| {
+        config.add_includes("**/*.txt");
+      })
+      .build();
+    environment.set_run_command_result(Ok(Some(0)));
+
+    run_test_cli(vec!["config", "edit", "-c", "custom.config.json"], &environment).unwrap();
+
+    let commands = environment.take_run_commands();
+    let (args, _) = &commands[0];
+    assert_eq!(args[args.len() - 1], "/custom.config.json");
   }
 }

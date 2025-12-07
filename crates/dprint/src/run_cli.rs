@@ -4,6 +4,7 @@ use thiserror::Error;
 
 use crate::arg_parser::ParseArgsError;
 use crate::commands::CheckError;
+use crate::commands::InitConfigFileOptions;
 use crate::configuration::ResolveConfigError;
 use crate::environment::Environment;
 use crate::paths::NoFilesFoundError;
@@ -116,9 +117,19 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
     SubCommand::Lsp => commands::run_language_server(args, environment, plugin_resolver).await,
     SubCommand::ClearCache => commands::clear_cache(environment),
     SubCommand::Config(cmd) => match cmd {
-      ConfigSubCommand::Init => commands::init_config_file(environment, &args.config).await,
+      ConfigSubCommand::Init { global } => {
+        commands::init_config_file(
+          environment,
+          InitConfigFileOptions {
+            global: *global,
+            config_arg: args.config.as_deref(),
+          },
+        )
+        .await
+      }
       ConfigSubCommand::Add(plugin_name_or_url) => commands::add_plugin_config_file(args, plugin_name_or_url.as_ref(), environment, plugin_resolver).await,
       ConfigSubCommand::Update { yes } => commands::update_plugins_config_file(args, environment, plugin_resolver, *yes).await,
+      ConfigSubCommand::Edit => commands::edit_config_file(args, environment).await,
     },
     SubCommand::Version => commands::output_version(environment),
     SubCommand::StdInFmt(cmd) => commands::stdin_fmt(cmd, args, environment, plugin_resolver).await,

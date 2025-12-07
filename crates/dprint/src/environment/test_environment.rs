@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::future::Future;
+use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
@@ -24,6 +25,7 @@ use super::FilePermissions;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
 use crate::utils::LogLevel;
+use crate::utils::ShowConfirmStrategy;
 use crate::utils::get_bytes_hash;
 
 #[derive(Default)]
@@ -59,11 +61,11 @@ impl Drop for TestPipeWriter {
 }
 
 impl Read for TestPipeReader {
-  fn read(&mut self, _: &mut [u8]) -> Result<usize, std::io::Error> {
+  fn read(&mut self, _: &mut [u8]) -> Result<usize, io::Error> {
     panic!("Not implemented");
   }
 
-  fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), std::io::Error> {
+  fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), io::Error> {
     let mut buffer_data = self.0.buffer_data.lock();
 
     while buffer_data.data.len() < buffer_data.read_pos + buf.len() && !buffer_data.closed {
@@ -71,7 +73,7 @@ impl Read for TestPipeReader {
     }
 
     if buffer_data.data.len() == buffer_data.read_pos && buffer_data.closed {
-      return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Broken pipe."));
+      return Err(io::Error::new(io::ErrorKind::BrokenPipe, "Broken pipe."));
     }
 
     buf.copy_from_slice(&buffer_data.data[buffer_data.read_pos..buffer_data.read_pos + buf.len()]);
@@ -82,7 +84,7 @@ impl Read for TestPipeReader {
 }
 
 impl Write for TestPipeWriter {
-  fn write(&mut self, data: &[u8]) -> Result<usize, std::io::Error> {
+  fn write(&mut self, data: &[u8]) -> Result<usize, io::Error> {
     let result = {
       let mut buffer_data = self.0.buffer_data.lock();
       buffer_data.data.write(data)
@@ -91,7 +93,7 @@ impl Write for TestPipeWriter {
     result
   }
 
-  fn flush(&mut self) -> Result<(), std::io::Error> {
+  fn flush(&mut self) -> Result<(), io::Error> {
     Ok(())
   }
 }
@@ -112,7 +114,7 @@ pub struct TestEnvironment {
   multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>>>>>,
   is_stdout_machine_readable: Arc<Mutex<bool>>,
-  dir_info_error: Arc<Mutex<Option<std::io::Error>>>,
+  dir_info_error: Arc<Mutex<Option<io::Error>>>,
   std_in_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
   std_out_pipe: Arc<Mutex<(Option<TestPipeWriter>, TestPipeReader)>>,
   #[cfg(windows)]
@@ -120,11 +122,13 @@ pub struct TestEnvironment {
   cpu_arch: Arc<Mutex<String>>,
   max_threads_count: Arc<Mutex<usize>>,
   current_exe_path: Arc<Mutex<PathBuf>>,
+  is_terminal_interactive: Arc<Mutex<bool>>,
+  run_command_results: Arc<Mutex<Vec<(Vec<OsString>, io::Result<Option<i32>>)>>>,
 }
 
 impl TestEnvironment {
   pub fn new() -> TestEnvironment {
-    TestEnvironment {
+    let env = TestEnvironment {
       log_level: Arc::new(Mutex::new(LogLevel::Info)),
       cwd: Arc::new(Mutex::new(String::from("/"))),
       env_vars: Default::default(),
@@ -153,7 +157,11 @@ impl TestEnvironment {
       cpu_arch: Arc::new(Mutex::new("x86_64".to_string())),
       max_threads_count: Arc::new(Mutex::new(std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4))),
       current_exe_path: Arc::new(Mutex::new(PathBuf::from("/dprint"))),
-    }
+      is_terminal_interactive: Arc::new(Mutex::new(true)),
+      run_command_results: Default::default(),
+    };
+    env.mk_dir_all("/").unwrap();
+    env
   }
 
   pub fn take_stdout_messages(&self) -> Vec<String> {
@@ -218,6 +226,10 @@ impl TestEnvironment {
     *self.confirm_results.lock() = values;
   }
 
+  pub fn set_terminal_interactive(&self, value: bool) {
+    *self.is_terminal_interactive.lock() = value;
+  }
+
   pub fn set_cwd(&self, new_path: &str) {
     let mut cwd = self.cwd.lock();
     *cwd = String::from(new_path);
@@ -247,7 +259,7 @@ impl TestEnvironment {
   pub fn set_staged_file(&self, file: impl AsRef<Path>) {
     self.staged_files.lock().push(file.as_ref().to_path_buf())
   }
-  pub fn set_dir_info_error(&self, err: std::io::Error) {
+  pub fn set_dir_info_error(&self, err: io::Error) {
     *self.dir_info_error.lock() = Some(err);
   }
 
@@ -261,6 +273,14 @@ impl TestEnvironment {
 
   pub fn set_max_threads(&self, value: usize) {
     *self.max_threads_count.lock() = value;
+  }
+
+  pub fn set_run_command_result(&self, result: io::Result<Option<i32>>) {
+    self.run_command_results.lock().push((Vec::new(), result));
+  }
+
+  pub fn take_run_commands(&self) -> Vec<(Vec<OsString>, io::Result<Option<i32>>)> {
+    self.run_command_results.lock().drain(..).collect()
   }
 
   /// Remember to drop the plugins collection manually if using this with one.
@@ -336,14 +356,14 @@ impl Environment for TestEnvironment {
     }
   }
 
-  fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> Result<()> {
+  fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
     let file_path = self.clean_path(file_path);
     let mut files = self.files.lock();
     files.insert(file_path, Vec::from(bytes));
     Ok(())
   }
 
-  fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> Result<()> {
+  fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()> {
     let path_from = self.clean_path(path_from);
     let path_to = self.clean_path(path_to);
     {
@@ -361,14 +381,14 @@ impl Environment for TestEnvironment {
     Ok(())
   }
 
-  fn remove_file(&self, file_path: impl AsRef<Path>) -> Result<()> {
+  fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()> {
     let file_path = self.clean_path(file_path);
     self.files.lock().remove(&file_path);
     self.file_permissions.lock().remove(&file_path);
     Ok(())
   }
 
-  fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> Result<()> {
+  fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()> {
     let dir_path = self.clean_path(dir_path);
     {
       let mut deleted_directories = self.deleted_directories.lock();
@@ -387,7 +407,7 @@ impl Environment for TestEnvironment {
     Ok(())
   }
 
-  fn dir_info(&self, dir_path: impl AsRef<Path>) -> std::io::Result<Vec<DirEntry>> {
+  fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
     if let Some(err) = self.dir_info_error.lock().take() {
       return Err(err);
     }
@@ -424,12 +444,18 @@ impl Environment for TestEnvironment {
   }
 
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
-    let files = self.files.lock();
-    files.contains_key(&self.clean_path(file_path))
+    let path = self.clean_path(file_path);
+    self.files.lock().contains_key(&path)
   }
 
-  fn canonicalize(&self, path: impl AsRef<Path>) -> Result<CanonicalizedPathBuf> {
-    Ok(CanonicalizedPathBuf::new(self.clean_path(path)))
+  fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
+    let path = self.clean_path(path);
+    // todo: use sys_traits to implement this properly
+    // if !self.path_exists(&path) {
+    //   Err(io::Error::new(io::ErrorKind::NotFound, "Path not found."))
+    // } else {
+    Ok(CanonicalizedPathBuf::new(path))
+    // }
   }
 
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool {
@@ -437,33 +463,33 @@ impl Environment for TestEnvironment {
     path.as_ref().to_string_lossy().starts_with("/") || path.as_ref().is_absolute()
   }
 
-  fn file_permissions(&self, path: impl AsRef<Path>) -> Result<FilePermissions> {
+  fn file_permissions(&self, path: impl AsRef<Path>) -> io::Result<FilePermissions> {
     let path = self.clean_path(path);
     if let Some(permissions) = self.file_permissions.lock().get(&path).cloned() {
       Ok(permissions)
     } else if self.files.lock().contains_key(&path) {
       Ok(FilePermissions::Test(Default::default()))
     } else {
-      bail!("File not found.")
+      Err(io::Error::new(io::ErrorKind::NotFound, "File not found."))
     }
   }
 
-  fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> Result<()> {
+  fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> io::Result<()> {
     let path = self.clean_path(path);
     self.file_permissions.lock().insert(path, permissions);
     Ok(())
   }
 
-  fn mk_dir_all(&self, _: impl AsRef<Path>) -> Result<()> {
+  fn mk_dir_all(&self, _: impl AsRef<Path>) -> io::Result<()> {
     Ok(())
   }
 
   fn cwd(&self) -> CanonicalizedPathBuf {
-    let cwd = self.cwd.lock();
-    self.canonicalize(cwd.to_owned()).unwrap()
+    let cwd = self.cwd.lock().to_owned();
+    self.canonicalize(cwd).unwrap()
   }
 
-  fn current_exe(&self) -> Result<PathBuf> {
+  fn current_exe(&self) -> io::Result<PathBuf> {
     Ok(self.current_exe_path.lock().clone())
   }
 
@@ -495,6 +521,10 @@ impl Environment for TestEnvironment {
 
   fn get_cache_dir(&self) -> CanonicalizedPathBuf {
     self.canonicalize("/cache").unwrap()
+  }
+
+  fn get_config_dir(&self) -> Option<CanonicalizedPathBuf> {
+    self.canonicalize("/config").ok()
   }
 
   fn get_home_dir(&self) -> Option<CanonicalizedPathBuf> {
@@ -536,23 +566,40 @@ impl Environment for TestEnvironment {
     Ok(self.multi_selection_result.lock().clone().unwrap_or(default_values))
   }
 
-  fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool> {
+  fn confirm_with_strategy(&self, strategy: &dyn ShowConfirmStrategy) -> Result<bool> {
     let mut confirm_results = self.confirm_results.lock();
-    let result = confirm_results.remove(0).map(|v| v.unwrap_or(default_value));
-    self.__log_stderr__(&format!(
-      "{} {}",
-      prompt_message,
-      match &result {
-        Ok(true) => "Y".to_string(),
-        Ok(false) => "N".to_string(),
-        Err(err) => err.to_string(),
-      }
-    ));
+    let result = confirm_results.remove(0).map(|v| v.unwrap_or(strategy.default_value()));
+    self.__log_stderr__(&strategy.render(match &result {
+      Ok(value) => Some(*value),
+      Err(_) => None,
+    }));
+    result
+  }
+
+  fn run_command_get_status(&self, args: Vec<OsString>) -> io::Result<Option<i32>> {
+    let mut results = self.run_command_results.lock();
+    if results.is_empty() {
+      panic!(
+        "run_command_get_status called with args {:?} but no result was set. Use set_run_command_result to set expected results.",
+        args
+      );
+    }
+    let (expected_args, result) = results.remove(0);
+    // Verify the actual args match expected args if they were provided
+    if !expected_args.is_empty() && expected_args != args {
+      panic!("Expected command args {:?} but got {:?}", expected_args, args);
+    }
+    // Store the actual command that was run for later verification
+    results.push((args, Ok(Some(0))));
     result
   }
 
   fn is_ci(&self) -> bool {
     false
+  }
+
+  fn is_terminal_interactive(&self) -> bool {
+    *self.is_terminal_interactive.lock()
   }
 
   fn log_level(&self) -> LogLevel {
@@ -598,7 +645,7 @@ impl Environment for TestEnvironment {
   }
 
   #[cfg(windows)]
-  fn ensure_system_path(&self, directory_path: &str) -> Result<()> {
+  fn ensure_system_path(&self, directory_path: &str) -> io::Result<()> {
     let mut path_dirs = self.path_dirs.lock();
     let directory_path = PathBuf::from(directory_path);
     if !path_dirs.contains(&directory_path) {
@@ -608,7 +655,7 @@ impl Environment for TestEnvironment {
   }
 
   #[cfg(windows)]
-  fn remove_system_path(&self, directory_path: &str) -> Result<()> {
+  fn remove_system_path(&self, directory_path: &str) -> io::Result<()> {
     let mut path_dirs = self.path_dirs.lock();
     let directory_path = PathBuf::from(directory_path);
     if let Some(pos) = path_dirs.iter().position(|p| p == &directory_path) {
