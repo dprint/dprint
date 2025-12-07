@@ -84,12 +84,14 @@ impl GlobMatcher {
         None => None,
       },
       arg_include_matcher: match arg_includes {
-        Some(includes) => Some(IncludesAndOverride {
-          matcher: build_override(&includes, opts, &base_dir)?,
-          // change the arg includes to go to the deepest base in order to make it
-          // easier what directories should be ignored for traversal
-          includes: includes.into_iter().map(|p| p.into_deepest_base()).collect(),
-        }),
+        Some(includes) => {
+          Some(IncludesAndOverride {
+            matcher: build_override(&includes, opts, &base_dir)?,
+            // change the arg includes to go to the deepest base in order to make it
+            // easier what directories should be ignored for traversal
+            includes: includes.into_iter().map(|p| p.into_deepest_base()).collect(),
+          })
+        }
         None => None,
       },
       config_exclude_matcher: build_gitignore(&config_excludes, opts, &base_dir)?,

@@ -15,6 +15,7 @@ use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
 use crate::utils::is_absolute_pattern;
 use crate::utils::is_negated_glob;
+use crate::utils::is_pattern;
 
 pub struct FileMatcher<TEnvironment: Environment> {
   glob_matcher: GlobMatcher,
@@ -23,7 +24,7 @@ pub struct FileMatcher<TEnvironment: Environment> {
 
 impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
   pub fn new(environment: TEnvironment, config: &ResolvedConfig, args: &FilePatternArgs, root_dir: &CanonicalizedPathBuf) -> Result<Self> {
-    let patterns = get_all_file_patterns(config, args, root_dir);
+    let patterns = get_all_file_patterns(&environment, config, args, root_dir);
     let gitignores = GitIgnoreTree::new(
       environment,
       // explicitly specified paths should override what's in the gitignore
@@ -108,38 +109,46 @@ pub fn get_patterns_as_glob_matcher(patterns: &[String], config_base_path: &Cano
   )
 }
 
-pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> GlobPatterns {
+pub fn get_all_file_patterns(environment: &impl Environment, config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> GlobPatterns {
   GlobPatterns {
-    config_includes: get_config_includes_file_patterns(config, args, cwd),
+    config_includes: get_config_includes_file_patterns(environment, config, args, cwd),
     arg_includes: if args.include_patterns.is_empty() {
       None
     } else {
       // resolve CLI patterns based on the current working directory
       Some(GlobPattern::new_vec(
-        args.include_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect(),
+        args.include_patterns.iter().map(|p| process_cli_pattern(environment, p, cwd)).collect(),
         cwd.clone(),
       ))
     },
-    config_excludes: get_config_exclude_file_patterns(config, args, cwd),
+    config_excludes: get_config_exclude_file_patterns(environment, config, args, cwd),
     arg_excludes: if args.exclude_patterns.is_empty() {
       None
     } else {
       // resolve CLI patterns based on the current working directory
       Some(GlobPattern::new_vec(
-        args.exclude_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect(),
+        args.exclude_patterns.iter().map(|p| process_cli_pattern(environment, p, cwd)).collect(),
         cwd.clone(),
       ))
     },
   }
 }
 
-fn get_config_includes_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> Option<Vec<GlobPattern>> {
+fn get_config_includes_file_patterns(
+  environment: &impl Environment,
+  config: &ResolvedConfig,
+  args: &FilePatternArgs,
+  cwd: &CanonicalizedPathBuf,
+) -> Option<Vec<GlobPattern>> {
   let mut file_patterns = Vec::new();
 
   file_patterns.extend(match &args.include_pattern_overrides {
     Some(includes_overrides) => {
       // resolve CLI patterns based on the current working directory
-      GlobPattern::new_vec(includes_overrides.iter().map(|p| process_cli_pattern(p, cwd)).collect(), cwd.clone())
+      GlobPattern::new_vec(
+        includes_overrides.iter().map(|p| process_cli_pattern(environment, p, cwd)).collect(),
+        cwd.clone(),
+      )
     }
     None => GlobPattern::new_vec(process_config_patterns(config.includes.as_ref()?).collect(), config.base_path.clone()),
   });
@@ -147,13 +156,21 @@ fn get_config_includes_file_patterns(config: &ResolvedConfig, args: &FilePattern
   Some(file_patterns)
 }
 
-fn get_config_exclude_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
+fn get_config_exclude_file_patterns(
+  environment: &impl Environment,
+  config: &ResolvedConfig,
+  args: &FilePatternArgs,
+  cwd: &CanonicalizedPathBuf,
+) -> Vec<GlobPattern> {
   let mut file_patterns = Vec::new();
 
   file_patterns.extend(match &args.exclude_pattern_overrides {
     Some(exclude_overrides) => {
       // resolve CLI patterns based on the current working directory
-      GlobPattern::new_vec(exclude_overrides.iter().map(|p| process_cli_pattern(p, cwd)).collect(), cwd.clone())
+      GlobPattern::new_vec(
+        exclude_overrides.iter().map(|p| process_cli_pattern(environment, p, cwd)).collect(),
+        cwd.clone(),
+      )
     }
     None => config
       .excludes
@@ -191,9 +208,9 @@ fn process_file_pattern_slashes(file_pattern: &str) -> String {
   file_pattern.replace('\\', "/")
 }
 
-fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf) -> String {
+fn process_cli_pattern(environment: &impl Environment, file_pattern: &str, cwd: &CanonicalizedPathBuf) -> String {
   let file_pattern = process_file_pattern_slashes(file_pattern);
-  if is_absolute_pattern(&file_pattern) {
+  let pattern = if is_absolute_pattern(&file_pattern) {
     let is_negated = is_negated_glob(&file_pattern);
     let cwd = process_file_pattern_slashes(&cwd.to_string_lossy());
     let file_pattern = if is_negated { &file_pattern[1..] } else { &file_pattern };
@@ -215,6 +232,11 @@ fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf) -> String
     } else {
       format!("./{}", file_pattern)
     }
+  };
+  if !is_pattern(&pattern) && environment.is_directory(cwd.join(pattern)) {
+    format!("{}/**", pattern.trim_end_matches(['/', '\\']))
+  } else {
+    pattern
   }
 }
 
