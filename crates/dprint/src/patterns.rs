@@ -208,6 +208,9 @@ fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf) -> String
     )
   } else if file_pattern.starts_with("./") || file_pattern.starts_with("!./") {
     file_pattern
+  } else if file_pattern == "." {
+    // format everything in the current directory
+    "**".to_string()
   } else {
     // make all cli specified patterns relative
     if is_negated_glob(&file_pattern) {
