@@ -237,12 +237,6 @@ impl Environment for RealEnvironment {
     file_path.as_ref().exists()
   }
 
-  fn directory_exists(&self, path: impl AsRef<Path>) -> bool {
-    log_debug!(self, "Checking directory exists: {}", path.as_ref().display());
-    #[allow(clippy::disallowed_methods)]
-    path.as_ref().is_dir()
-  }
-
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
     canonicalize_path(path)
   }

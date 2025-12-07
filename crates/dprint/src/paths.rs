@@ -93,7 +93,7 @@ pub async fn get_and_resolve_file_paths<'a>(
   environment: &impl Environment,
 ) -> Result<GlobOutput> {
   let cwd = environment.cwd();
-  let mut file_patterns = get_all_file_patterns(environment, config, args, &cwd);
+  let mut file_patterns = get_all_file_patterns(config, args, &cwd);
 
   if args.only_staged {
     let staged_files = environment.get_staged_files().context("Failed running git staged.")?;
