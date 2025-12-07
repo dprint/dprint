@@ -12,6 +12,15 @@ exclude = [
   "crates/test-plugin",
 ]
 
+[workspace.dependencies]
+anyhow = "1.0.98"
+indexmap = { version = "2.9.0", features = ["serde"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = { version = "1.0.140", features = ["preserve_order"] }
+similar = "2.7.0"
+sys_traits = "=0.1.20"
+tokio = { version = "1.37.0", features = ["rt", "time", "macros", "rt-multi-thread"] }
+
 # Build release with debug symbols: cargo build --profile=release-with-debug
 [profile.release-with-debug]
 inherits = "release"

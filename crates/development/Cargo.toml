@@ -8,8 +8,8 @@ repository = "https://github.com/dprint/dprint"
 description = "Helper functions for testing dprint plugins."
 
 [dependencies]
-anyhow = "1.0.66"
+anyhow.workspace = true
 console = "0.15.2"
 file_test_runner = "0.5.1"
-serde_json = { version = "1.0.104", features = ["preserve_order"] }
-similar = "2.2.1"
+serde_json.workspace = true
+similar.workspace = true

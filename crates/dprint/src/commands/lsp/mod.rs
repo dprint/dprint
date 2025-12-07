@@ -834,6 +834,7 @@ mod test {
           {
             let mut config_file = TestConfigFileBuilder::new(environment.clone());
             config_file.add_remote_wasm_plugin().add_remote_process_plugin();
+            environment.mk_dir_all("/other_config").unwrap();
             environment.write_file("/other_config/dprint.json", &config_file.to_string()).unwrap();
             let mut config_file = TestConfigFileBuilder::new(environment.clone());
             config_file
@@ -841,6 +842,7 @@ mod test {
               .add_remote_process_plugin()
               .add_config_section("test-plugin", r#"{"ending": "asdf"}"#)
               .add_config_section("testProcessPlugin", r#"{"ending": "asdf_ps"}"#);
+            environment.mk_dir_all("/other_config/sub").unwrap();
             environment.write_file("/other_config/sub/dprint.json", &config_file.to_string()).unwrap();
           }
 

@@ -354,7 +354,7 @@ struct ConfigPathContext<'a> {
 fn get_config_map_from_path(path: ConfigPathContext, environment: &impl Environment) -> Result<Result<ConfigMap>> {
   let config_file_text = match environment.read_file(&path.current.file_path) {
     Ok(file_text) => file_text,
-    Err(err) => return Ok(Err(err)),
+    Err(err) => return Ok(Err(err.into())),
   };
 
   let mut result = match deserialize_config(&config_file_text) {
@@ -544,6 +544,7 @@ mod tests {
   use crate::configuration::RawPluginConfig;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
+  use crate::environment::TestEnvironmentBuilder;
   use crate::utils::TestStdInReader;
   use anyhow::Result;
   use dprint_core::configuration::ConfigKeyMap;
@@ -1061,8 +1062,7 @@ mod tests {
 
   #[test]
   fn should_handle_relative_local_extends() {
-    let environment = TestEnvironment::new();
-    environment
+    let environment = TestEnvironmentBuilder::new()
       .write_file(
         &PathBuf::from("/test.json"),
         r#"{
@@ -1070,8 +1070,6 @@ mod tests {
             "prop1": 1
         }"#,
       )
-      .unwrap();
-    environment
       .write_file(
         &PathBuf::from("/dir/test.json"),
         r#"{
@@ -1079,15 +1077,13 @@ mod tests {
             "prop2": 2
         }"#,
       )
-      .unwrap();
-    environment
       .write_file(
         &PathBuf::from("/otherDir/test.json"),
         r#"{
             "prop3": 3
         }"#,
       )
-      .unwrap();
+      .build();
 
     environment.clone().run_in_runtime(async move {
       let result = get_result("/test.json", &environment).await.unwrap();
@@ -1459,16 +1455,13 @@ mod tests {
 
   #[test]
   fn should_handle_relative_local_plugins_in_extends() {
-    let environment = TestEnvironment::new();
-    environment
+    let environment = TestEnvironmentBuilder::new()
       .write_file(
         &PathBuf::from("/test.json"),
         r#"{
             "extends": "./other/test.json",
         }"#,
       )
-      .unwrap();
-    environment
       .write_file(
         &PathBuf::from("/other/test.json"),
         r#"{
@@ -1476,7 +1469,7 @@ mod tests {
             "plugins": ["./testing/asdf.wasm"],
         }"#,
       )
-      .unwrap();
+      .build();
 
     environment.clone().run_in_runtime(async move {
       let result = get_result("/test.json", &environment).await.unwrap();
@@ -1591,8 +1584,7 @@ mod tests {
 
   #[test]
   fn should_not_allow_non_wasm_plugins_in_local_extends() {
-    let environment = TestEnvironment::new();
-    environment
+    let environment = TestEnvironmentBuilder::new()
       .write_file(
         &PathBuf::from("/test.json"),
         r#"{
@@ -1600,15 +1592,13 @@ mod tests {
             "prop1": 1
         }"#,
       )
-      .unwrap();
-    environment
       .write_file(
         &PathBuf::from("/dir/test.json"),
         r#"{
             "plugins": ["./test-plugin.json@checksum"]
         }"#,
       )
-      .unwrap();
+      .build();
 
     environment.clone().run_in_runtime(async move {
       let result = get_result("/test.json", &environment).await.unwrap();
@@ -1648,27 +1638,24 @@ mod tests {
 
   #[test]
   fn should_resolve_config_dir_local_file() {
-    let environment = TestEnvironment::new();
-    environment.add_remote_file(
-      "https://dprint.dev/test.json",
-      r#"{
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_file(
+        "https://dprint.dev/test.json",
+        r#"{
       "extends": "./next.json",
       "otherPlugin": {
         "value": "${originConfigDir}/origin"
       }
-}"#
-        .as_bytes(),
-    );
-    environment.add_remote_file(
-      "https://dprint.dev/next.json",
-      r#"{
+}"#,
+      )
+      .add_remote_file(
+        "https://dprint.dev/next.json",
+        r#"{
       "final": {
         "value": "${originConfigDir}/final && \\${configDir}/escaped"
       }
-}"#
-        .as_bytes(),
-    );
-    environment
+}"#,
+      )
       .write_file(
         "/dir/dprint.json",
         r#"{
@@ -1678,7 +1665,7 @@ mod tests {
       }
 }"#,
       )
-      .unwrap();
+      .build();
 
     environment.clone().run_in_runtime(async move {
       let config = get_result("/dir/dprint.json", &environment).await.unwrap();

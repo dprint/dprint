@@ -534,9 +534,11 @@ mod test {
   #[test]
   fn should_clear_cache_directory() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all("/cache").unwrap();
+    assert_eq!(environment.path_exists("/cache"), true);
     run_test_cli(vec!["clear-cache"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
-    assert_eq!(environment.is_dir_deleted("/cache"), true);
+    assert_eq!(environment.path_exists("/cache"), false);
   }
 
   #[test]

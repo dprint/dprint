@@ -1,12 +1,10 @@
 use anyhow::Result;
 use anyhow::anyhow;
-use anyhow::bail;
 use once_cell::sync::Lazy;
 use parking_lot::Condvar;
 use parking_lot::Mutex;
 use path_clean::PathClean;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::ffi::OsString;
 use std::future::Future;
 use std::io;
@@ -15,6 +13,23 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use sys_traits::EnvCurrentDir;
+use sys_traits::EnvRemoveVar;
+use sys_traits::EnvSetCurrentDir;
+use sys_traits::EnvSetVar;
+use sys_traits::EnvVar;
+use sys_traits::FsCreateDirAll;
+use sys_traits::FsDirEntry;
+use sys_traits::FsMetadata;
+use sys_traits::FsMetadataValue;
+use sys_traits::FsRead;
+use sys_traits::FsReadDir;
+use sys_traits::FsRemoveDirAll;
+use sys_traits::FsRemoveFile;
+use sys_traits::FsRename;
+use sys_traits::FsSetPermissions;
+use sys_traits::FsWrite;
+use sys_traits::impls::InMemorySys;
 
 use dprint_core::async_runtime::async_trait;
 
@@ -101,15 +116,11 @@ impl Write for TestPipeWriter {
 #[derive(Clone)]
 pub struct TestEnvironment {
   log_level: Arc<Mutex<LogLevel>>,
-  cwd: Arc<Mutex<String>>,
-  env_vars: Arc<Mutex<HashMap<String, OsString>>>,
-  files: Arc<Mutex<HashMap<PathBuf, Vec<u8>>>>,
+  sys: Arc<InMemorySys>,
   staged_files: Arc<Mutex<Vec<PathBuf>>>,
-  file_permissions: Arc<Mutex<HashMap<PathBuf, FilePermissions>>>,
   stdout_messages: Arc<Mutex<Vec<String>>>,
   stderr_messages: Arc<Mutex<Vec<String>>>,
   remote_files: Arc<Mutex<HashMap<String, Result<Vec<u8>>>>>,
-  deleted_directories: Arc<Mutex<Vec<PathBuf>>>,
   selection_result: Arc<Mutex<usize>>,
   multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>>>>>,
@@ -130,15 +141,11 @@ impl TestEnvironment {
   pub fn new() -> TestEnvironment {
     let env = TestEnvironment {
       log_level: Arc::new(Mutex::new(LogLevel::Info)),
-      cwd: Arc::new(Mutex::new(String::from("/"))),
-      env_vars: Default::default(),
-      files: Default::default(),
+      sys: Default::default(),
       staged_files: Default::default(),
-      file_permissions: Default::default(),
       stdout_messages: Default::default(),
       stderr_messages: Default::default(),
       remote_files: Default::default(),
-      deleted_directories: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
       multi_selection_result: Arc::new(Mutex::new(None)),
       confirm_results: Default::default(),
@@ -198,19 +205,10 @@ impl TestEnvironment {
     }
   }
 
-  pub fn is_dir_deleted(&self, path: impl AsRef<Path>) -> bool {
-    self.deleted_directories.lock().contains(&path.as_ref().to_path_buf())
-  }
-
   pub fn set_env_var(&self, name: &str, value: Option<&str>) {
-    let mut env_vars = self.env_vars.lock();
     match value {
-      Some(value) => {
-        env_vars.insert(name.to_string(), OsString::from(value));
-      }
-      None => {
-        env_vars.remove(name);
-      }
+      Some(value) => self.sys.env_set_var(name, value),
+      None => self.sys.env_remove_var(name),
     }
   }
 
@@ -231,8 +229,7 @@ impl TestEnvironment {
   }
 
   pub fn set_cwd(&self, new_path: &str) {
-    let mut cwd = self.cwd.lock();
-    *cwd = String::from(new_path);
+    self.sys.env_set_current_dir(new_path).unwrap();
   }
 
   pub fn set_stdout_machine_readable(&self, value: bool) {
@@ -289,15 +286,16 @@ impl TestEnvironment {
     rt.block_on(future)
   }
 
-  fn clean_path(&self, path: impl AsRef<Path>) -> PathBuf {
+  pub fn clean_path(&self, path: impl AsRef<Path>) -> PathBuf {
     // temporary until https://github.com/danreeves/path-clean/issues/4 is fixed in path-clean
     let file_path = PathBuf::from(path.as_ref().to_string_lossy().replace("\\", "/"));
-    if !path.as_ref().is_absolute() && !file_path.starts_with("/") {
+    let path = if !path.as_ref().is_absolute() && !file_path.starts_with("/") {
       self.cwd().join(file_path)
     } else {
       file_path
     }
-    .clean()
+    .clean();
+    PathBuf::from(path.to_string_lossy().replace("\\", "/"))
   }
 }
 
@@ -335,76 +333,42 @@ impl Environment for TestEnvironment {
   }
 
   fn env_var(&self, name: &str) -> Option<OsString> {
-    self.env_vars.lock().get(name).cloned()
+    self.sys.env_var_os(name)
   }
 
   fn get_staged_files(&self) -> Result<Vec<PathBuf>> {
     Ok(self.staged_files.lock().clone())
   }
 
-  fn read_file(&self, file_path: impl AsRef<Path>) -> Result<String> {
+  fn read_file(&self, file_path: impl AsRef<Path>) -> io::Result<String> {
     let file_bytes = self.read_file_bytes(file_path)?;
     Ok(String::from_utf8(file_bytes.to_vec()).unwrap())
   }
 
-  fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> Result<Vec<u8>> {
+  fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
     let file_path = self.clean_path(file_path);
-    let files = self.files.lock();
-    match files.get(&file_path) {
-      Some(text) => Ok(text.clone()),
-      None => bail!("Could not find file at path {}", file_path.display()),
-    }
+    self.sys.fs_read(file_path).map(|b| b.into_owned())
   }
 
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
     let file_path = self.clean_path(file_path);
-    let mut files = self.files.lock();
-    files.insert(file_path, Vec::from(bytes));
-    Ok(())
+    self.sys.fs_write(file_path, bytes)
   }
 
   fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()> {
     let path_from = self.clean_path(path_from);
     let path_to = self.clean_path(path_to);
-    {
-      let mut files = self.files.lock();
-      if let Some(file) = files.remove(&path_from) {
-        files.insert(path_to.clone(), file);
-      }
-    }
-    {
-      let mut file_permissions = self.file_permissions.lock();
-      if let Some(perms) = file_permissions.remove(&path_from) {
-        file_permissions.insert(path_to.clone(), perms);
-      }
-    }
-    Ok(())
+    self.sys.fs_rename(&path_from, &path_to)
   }
 
   fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()> {
     let file_path = self.clean_path(file_path);
-    self.files.lock().remove(&file_path);
-    self.file_permissions.lock().remove(&file_path);
-    Ok(())
+    self.sys.fs_remove_file(file_path)
   }
 
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()> {
     let dir_path = self.clean_path(dir_path);
-    {
-      let mut deleted_directories = self.deleted_directories.lock();
-      deleted_directories.push(dir_path.clone());
-    }
-    let mut files = self.files.lock();
-    let mut delete_paths = Vec::new();
-    for (file_path, _) in files.iter() {
-      if file_path.starts_with(&dir_path) {
-        delete_paths.push(file_path.clone());
-      }
-    }
-    for path in delete_paths {
-      files.remove(&path);
-    }
-    Ok(())
+    self.sys.fs_remove_dir_all(dir_path)
   }
 
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
@@ -412,31 +376,18 @@ impl Environment for TestEnvironment {
       return Err(err);
     }
 
-    let mut entries = Vec::new();
-    let mut found_directories = HashSet::new();
     let dir_path = self.clean_path(dir_path);
-
-    let files = self.files.lock();
-    for key in files.keys() {
-      if key.parent().unwrap() == dir_path {
+    let mut entries = Vec::new();
+    for entry in self.sys.fs_read_dir(&dir_path)? {
+      let entry = entry?;
+      let file_type = entry.file_type()?;
+      if file_type.is_dir() {
+        entries.push(DirEntry::Directory(self.clean_path(entry.path())));
+      } else if file_type.is_file() {
         entries.push(DirEntry::File {
-          name: key.file_name().unwrap().to_os_string(),
-          path: key.clone(),
+          name: entry.file_name().into_owned(),
+          path: self.clean_path(entry.path()),
         });
-      } else {
-        let mut current_dir = key.parent();
-        while let Some(ancestor_dir) = current_dir {
-          let ancestor_parent_dir = match ancestor_dir.parent() {
-            Some(dir) => dir.to_path_buf(),
-            None => break,
-          };
-
-          if ancestor_parent_dir == dir_path && found_directories.insert(ancestor_dir) {
-            entries.push(DirEntry::Directory(ancestor_dir.to_path_buf()));
-            break;
-          }
-          current_dir = ancestor_dir.parent();
-        }
       }
     }
 
@@ -445,7 +396,7 @@ impl Environment for TestEnvironment {
 
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
     let path = self.clean_path(file_path);
-    self.files.lock().contains_key(&path)
+    self.sys.fs_exists_no_err(path)
   }
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
@@ -465,27 +416,40 @@ impl Environment for TestEnvironment {
 
   fn file_permissions(&self, path: impl AsRef<Path>) -> io::Result<FilePermissions> {
     let path = self.clean_path(path);
-    if let Some(permissions) = self.file_permissions.lock().get(&path).cloned() {
-      Ok(permissions)
-    } else if self.files.lock().contains_key(&path) {
-      Ok(FilePermissions::Test(Default::default()))
-    } else {
-      Err(io::Error::new(io::ErrorKind::NotFound, "File not found."))
-    }
+    let metadata = self.sys.fs_metadata(path)?;
+
+    let readonly = {
+      let mode = metadata.mode()?;
+      mode & 0o222 == 0
+    };
+
+    Ok(FilePermissions::Test(super::TestFilePermissions { readonly }))
   }
 
   fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> io::Result<()> {
     let path = self.clean_path(path);
-    self.file_permissions.lock().insert(path, permissions);
-    Ok(())
+    let readonly = match permissions {
+      FilePermissions::Std(_) => unreachable!(),
+      FilePermissions::Test(permissions) => permissions.readonly,
+    };
+
+    let mode = if readonly {
+      // Read-only: no write bits set (0o444 = r--r--r--)
+      0o444
+    } else {
+      // Writable: read and write for all (0o666 = rw-rw-rw-)
+      0o666
+    };
+
+    self.sys.fs_set_permissions(path, mode)
   }
 
-  fn mk_dir_all(&self, _: impl AsRef<Path>) -> io::Result<()> {
-    Ok(())
+  fn mk_dir_all(&self, path: impl AsRef<Path>) -> io::Result<()> {
+    self.sys.fs_create_dir_all(path)
   }
 
   fn cwd(&self) -> CanonicalizedPathBuf {
-    let cwd = self.cwd.lock().to_owned();
+    let cwd = self.sys.env_current_dir().unwrap();
     self.canonicalize(cwd).unwrap()
   }
 

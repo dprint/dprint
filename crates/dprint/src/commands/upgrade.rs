@@ -155,6 +155,8 @@ mod test {
   #[test]
   fn should_upgrade_and_fail_readonly() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.current_exe().unwrap().parent().unwrap()).unwrap();
+    environment.write_file(environment.current_exe().unwrap(), "").unwrap();
     environment
       .set_file_permissions(
         environment.current_exe().unwrap(),
@@ -228,6 +230,8 @@ mod test {
   #[test]
   fn should_upgrade_and_fail_different_version_no_remote_zip() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.current_exe().unwrap().parent().unwrap()).unwrap();
+    environment.write_file(environment.current_exe().unwrap(), "").unwrap();
     environment
       .set_file_permissions(environment.current_exe().unwrap(), FilePermissions::Test(Default::default()))
       .unwrap();
