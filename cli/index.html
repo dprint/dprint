@@ -127,6 +127,7 @@ dprint <span class="hljs-built_in">fmt</span> --config https://dprint.dev/path/t
 <ul>
 <li><code>--config-discovery=default</code> (default) - Discovers configuration files in the current directory, ancestor directories, and descendant directories while searching for files to format.</li>
 <li><code>--config-discovery=ignore-descendants</code> - Discovers configuration files in the current directory and ancestor directories only.</li>
+<li><code>--config-discovery=global</code> - Use the global config file only (dprint 0.51+)</li>
 <li><code>--config-discovery=false</code> - Disables all configuration discovery (specify either <code>--config=&lt;path&gt;</code> or <code>--plugins &lt;url-or-path&gt;</code>).</li>
 </ul>
 <p>Note this can also be set via the <code>DPRINT_CONFIG_DISCOVERY</code> environment variable (ex. <code>DPRINT_CONFIG_DISCOVERY=false</code>)</p>
