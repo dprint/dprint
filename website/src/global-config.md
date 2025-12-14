@@ -43,7 +43,7 @@ Edit your global configuration file:
 dprint config edit --global
 ```
 
-This last command will use the editor configured in the `DPRINT_EDITOR` environment variable, then `VISUAL`, then `EDITOR`. If none of these environment variables are set, it will launch the file in vscode if `code` exists, or default to `notepad` on Windows and `nano` elsewhere.
+The editor to use for the global config follows the same rules as [Editing Config via CLI](config/#updating-config-via-cli) (set the `DPRINT_EDITOR` environment variable to customize it)
 
 ## Using the Global Configuration
 
