@@ -928,9 +928,7 @@ mod test {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
       .with_global_config(|c| {
-        c.add_remote_wasm_plugin()
-          .add_includes("**/*.txt")
-          .add_excludes("ignored_file.txt");
+        c.add_remote_wasm_plugin().add_includes("**/*.txt").add_excludes("ignored_file.txt");
       })
       .initialize()
       .build();
