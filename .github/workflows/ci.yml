@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         config:
-          - os: macos-15
+          - os: macos-15-intel
             run_tests: "true"
             target: x86_64-apple-darwin
             cross: "false"
