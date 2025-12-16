@@ -3,6 +3,7 @@ scripts/node_modules
 /.rpt2_cache
 *.js.map
 target
+.claude
 .vscode
 .vs
 /crates/development/target

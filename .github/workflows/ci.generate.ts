@@ -3,7 +3,7 @@ import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
-  MacX86 = "macos-13",
+  MacX86 = "macos-15-intel",
   Windows = "windows-latest",
   Linux = "ubuntu-22.04",
   LinuxArm = "${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'buildjet-2vcpu-ubuntu-2204-arm' || 'ubuntu-22.04' }}",

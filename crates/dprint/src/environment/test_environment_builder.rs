@@ -293,6 +293,17 @@ impl TestEnvironmentBuilder {
     self.add_remote_file(url, &config_file_text)
   }
 
+  pub fn with_global_config(&mut self, func: impl FnMut(&mut TestConfigFileBuilder)) -> &mut Self {
+    // Set up the global config directory
+    let global_config_dir = "/global-config";
+    self.environment.set_env_var("DPRINT_CONFIG_DIR", Some(global_config_dir));
+
+    // Create the global config file
+    let config_file_text = self.with_config_get_text("__global_config__", func);
+    let global_config_path = format!("{}/dprint.json", global_config_dir);
+    self.write_file(&global_config_path, &config_file_text)
+  }
+
   fn with_config_get_text(&mut self, key: &str, mut func: impl FnMut(&mut TestConfigFileBuilder)) -> String {
     let config_file = self.config_files.entry(key.to_string()).or_insert_with({
       let environment = self.environment.clone();
