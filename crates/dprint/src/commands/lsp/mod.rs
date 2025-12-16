@@ -477,6 +477,44 @@ mod test {
   use super::client::ClientTrait;
   use super::*;
 
+  macro_rules! did_open {
+    ($backend:expr, $uri:expr, $text:expr) => {
+      $backend
+        .did_open(DidOpenTextDocumentParams {
+          text_document: TextDocumentItem {
+            uri: $uri.clone(),
+            language_id: "txt".to_string(),
+            version: 0,
+            text: $text.to_string(),
+          },
+        })
+        .await;
+    };
+  }
+
+  macro_rules! did_close {
+    ($backend:expr, $uri:expr) => {
+      $backend
+        .did_close(DidCloseTextDocumentParams {
+          text_document: TextDocumentIdentifier { uri: $uri.clone() },
+        })
+        .await;
+    };
+  }
+
+  macro_rules! assert_format {
+    ($backend:expr, $uri:expr, $expected:expr) => {
+      let result = $backend
+        .formatting(DocumentFormattingParams {
+          text_document: TextDocumentIdentifier { uri: $uri.clone() },
+          options: Default::default(),
+          work_done_progress_params: Default::default(),
+        })
+        .await;
+      assert_eq!(result.unwrap(), $expected);
+    };
+  }
+
   #[test]
   fn should_format_with_lsp() {
     let environment = TestEnvironmentBuilder::new()
@@ -499,44 +537,6 @@ mod test {
       let run_test_task = dprint_core::async_runtime::spawn({
         let environment = environment.clone();
         async move {
-          macro_rules! did_open {
-            ($uri: ident, $text: expr) => {
-              backend
-                .did_open(DidOpenTextDocumentParams {
-                  text_document: TextDocumentItem {
-                    uri: $uri.clone(),
-                    language_id: "txt".to_string(),
-                    version: 0,
-                    text: $text.to_string(),
-                  },
-                })
-                .await;
-            };
-          }
-
-          macro_rules! did_close {
-            ($uri: ident) => {
-              backend
-                .did_close(DidCloseTextDocumentParams {
-                  text_document: TextDocumentIdentifier { uri: $uri.clone() },
-                })
-                .await;
-            };
-          }
-
-          macro_rules! assert_format {
-            ($uri: ident, $expected: expr) => {
-              let result = backend
-                .formatting(DocumentFormattingParams {
-                  text_document: TextDocumentIdentifier { uri: $uri.clone() },
-                  options: Default::default(),
-                  work_done_progress_params: Default::default(),
-                })
-                .await;
-              assert_eq!(result.unwrap(), $expected);
-            };
-          }
-
           backend
             .initialize(InitializeParams {
               process_id: Some(std::process::id()),
@@ -547,8 +547,9 @@ mod test {
           backend.initialized(InitializedParams {}).await;
 
           let file_uri = Url::parse("file:///file.txt").unwrap();
-          did_open!(file_uri, "testing");
+          did_open!(backend, file_uri, "testing");
           assert_format!(
+            backend,
             file_uri,
             Some(vec![TextEdit {
               range: Range::new(Position::new(0, 7), Position::new(0, 7)),
@@ -572,7 +573,7 @@ mod test {
             .await;
 
           // format again, but it should be formatted now
-          assert_format!(file_uri, None);
+          assert_format!(backend, file_uri, None);
 
           // change the text to an error
           backend
@@ -588,7 +589,7 @@ mod test {
               }],
             })
             .await;
-          assert_format!(file_uri, None);
+          assert_format!(backend, file_uri, None);
           assert_eq!(
             environment.take_stderr_messages(),
             vec!["Failed formatting 'file:///file.txt': Did error.".to_string()],
@@ -642,28 +643,28 @@ mod test {
 
           // ignores excluded files
           let file_uri = Url::parse("file:///ignored_file.txt").unwrap();
-          did_open!(file_uri, "testing");
-          assert_format!(file_uri, None);
+          did_open!(backend, file_uri, "testing");
+          assert_format!(backend, file_uri, None);
 
           // ignores gitignored files
           let file_uri = Url::parse("file:///gitignored_file.txt").unwrap();
-          did_open!(file_uri, "testing");
-          assert_format!(file_uri, None);
+          did_open!(backend, file_uri, "testing");
+          assert_format!(backend, file_uri, None);
 
           // ignores file in gitignored dir
           let file_uri = Url::parse("file:///gitignored_dir/file.txt").unwrap();
-          did_open!(file_uri, "testing");
-          assert_format!(file_uri, None);
+          did_open!(backend, file_uri, "testing");
+          assert_format!(backend, file_uri, None);
 
           // ignores excluded directory files
           let file_uri = Url::parse("file:///ignored-dir/file.txt").unwrap();
-          did_open!(file_uri, "testing");
-          assert_format!(file_uri, None);
+          did_open!(backend, file_uri, "testing");
+          assert_format!(backend, file_uri, None);
 
           // ignores non-included files
           let file_uri = Url::parse("file:///file.txt_ps").unwrap();
-          did_open!(file_uri, "testing");
-          assert_format!(file_uri, None);
+          did_open!(backend, file_uri, "testing");
+          assert_format!(backend, file_uri, None);
 
           // now update the config file to include it by removing the includes,
           // which it should in the range formatting
@@ -695,7 +696,7 @@ mod test {
 
           // cancellation via a drop
           let file_uri = Url::parse("file:///file_cancellation.txt_ps").unwrap();
-          did_open!(file_uri, "wait_cancellation");
+          did_open!(backend, file_uri, "wait_cancellation");
 
           let token = Arc::new(CancellationToken::new());
           dprint_core::async_runtime::spawn({
@@ -756,8 +757,9 @@ mod test {
 
           // format using it
           let file_uri = Url::parse("file:///associations1.txt").unwrap();
-          did_open!(file_uri, "text");
+          did_open!(backend, file_uri, "text");
           assert_format!(
+            backend,
             file_uri,
             Some(vec![TextEdit {
               range: Range::new(Position::new(0, 4), Position::new(0, 4)),
@@ -778,6 +780,7 @@ mod test {
             })
             .await;
           assert_format!(
+            backend,
             file_uri,
             Some(vec![TextEdit {
               range: Range::new(Position::new(0, 13), Position::new(0, 13)),
@@ -788,8 +791,9 @@ mod test {
           // try .txt_ps file, which should act the same as above because
           // of the associations
           let file_uri = Url::parse("file:///associations1.txt_ps").unwrap();
-          did_open!(file_uri, "text");
+          did_open!(backend, file_uri, "text");
           assert_format!(
+            backend,
             file_uri,
             Some(vec![TextEdit {
               range: Range::new(Position::new(0, 4), Position::new(0, 4)),
@@ -799,8 +803,9 @@ mod test {
 
           // try the .other extension
           let file_uri = Url::parse("file:///dir/file.other").unwrap();
-          did_open!(file_uri, "text");
+          did_open!(backend, file_uri, "text");
           assert_format!(
+            backend,
             file_uri,
             Some(vec![TextEdit {
               range: Range::new(Position::new(0, 4), Position::new(0, 4)),
@@ -810,8 +815,9 @@ mod test {
 
           // try the exact file with no extension
           let file_uri = Url::parse("file:///dir/some_file_name").unwrap();
-          did_open!(file_uri, "text");
+          did_open!(backend, file_uri, "text");
           assert_format!(
+            backend,
             file_uri,
             Some(vec![TextEdit {
               range: Range::new(Position::new(0, 4), Position::new(0, 4)),
@@ -821,8 +827,9 @@ mod test {
 
           // now try this special file name
           let file_uri = Url::parse("file:///dir/test-process-plugin-exact-file").unwrap();
-          did_open!(file_uri, "text");
+          did_open!(backend, file_uri, "text");
           assert_format!(
+            backend,
             file_uri,
             Some(vec![TextEdit {
               range: Range::new(Position::new(0, 4), Position::new(0, 4)),
@@ -848,49 +855,53 @@ mod test {
 
           for _ in 0..2 {
             let file_uri = Url::parse("file:///other_config/file.txt").unwrap();
-            did_open!(file_uri, "text");
+            did_open!(backend, file_uri, "text");
             assert_format!(
+              backend,
               file_uri,
               Some(vec![TextEdit {
                 range: Range::new(Position::new(0, 4), Position::new(0, 4)),
                 new_text: "_formatted".to_string()
               }])
             );
-            did_close!(file_uri);
+            did_close!(backend, file_uri);
             // switching to a different config should still work fine
             let file_uri = Url::parse("file:///other_config/sub/file.txt").unwrap();
-            did_open!(file_uri, "text");
+            did_open!(backend, file_uri, "text");
             assert_format!(
+              backend,
               file_uri,
               Some(vec![TextEdit {
                 range: Range::new(Position::new(0, 4), Position::new(0, 4)),
                 new_text: "_asdf".to_string()
               }])
             );
-            did_close!(file_uri);
+            did_close!(backend, file_uri);
 
             // now try with a process plugin
             let file_uri = Url::parse("file:///other_config/file.txt_ps").unwrap();
-            did_open!(file_uri, "text");
+            did_open!(backend, file_uri, "text");
             assert_format!(
+              backend,
               file_uri,
               Some(vec![TextEdit {
                 range: Range::new(Position::new(0, 4), Position::new(0, 4)),
                 new_text: "_formatted_process".to_string()
               }])
             );
-            did_close!(file_uri);
+            did_close!(backend, file_uri);
             // switching to a different config should work fine as well
             let file_uri = Url::parse("file:///other_config/sub/file.txt_ps").unwrap();
-            did_open!(file_uri, "text");
+            did_open!(backend, file_uri, "text");
             assert_format!(
+              backend,
               file_uri,
               Some(vec![TextEdit {
                 range: Range::new(Position::new(0, 4), Position::new(0, 4)),
                 new_text: "_asdf_ps".to_string()
               }])
             );
-            did_close!(file_uri);
+            did_close!(backend, file_uri);
           }
 
           backend.shutdown().await.unwrap();
@@ -929,34 +940,6 @@ mod test {
       let backend = Rc::new(backend);
       let run_test_task = dprint_core::async_runtime::spawn({
         async move {
-          macro_rules! did_open {
-            ($uri: ident, $text: expr) => {
-              backend
-                .did_open(DidOpenTextDocumentParams {
-                  text_document: TextDocumentItem {
-                    uri: $uri.clone(),
-                    language_id: "txt".to_string(),
-                    version: 0,
-                    text: $text.to_string(),
-                  },
-                })
-                .await;
-            };
-          }
-
-          macro_rules! assert_format {
-            ($uri: ident, $expected: expr) => {
-              let result = backend
-                .formatting(DocumentFormattingParams {
-                  text_document: TextDocumentIdentifier { uri: $uri.clone() },
-                  options: Default::default(),
-                  work_done_progress_params: Default::default(),
-                })
-                .await;
-              assert_eq!(result.unwrap(), $expected);
-            };
-          }
-
           backend
             .initialize(InitializeParams {
               process_id: Some(std::process::id()),
@@ -968,8 +951,9 @@ mod test {
 
           // Test that global config is being used
           let file_uri = Url::parse("file:///file.txt").unwrap();
-          did_open!(file_uri, "testing");
+          did_open!(backend, file_uri, "testing");
           assert_format!(
+            backend,
             file_uri,
             Some(vec![TextEdit {
               range: Range::new(Position::new(0, 7), Position::new(0, 7)),
@@ -979,13 +963,13 @@ mod test {
 
           // Test that excluded file is not formatted
           let ignored_uri = Url::parse("file:///ignored_file.txt").unwrap();
-          did_open!(ignored_uri, "testing");
-          assert_format!(ignored_uri, None);
+          did_open!(backend, ignored_uri, "testing");
+          assert_format!(backend, ignored_uri, None);
 
           // Test that non-matching file is not formatted
           let other_uri = Url::parse("file:///file.js").unwrap();
-          did_open!(other_uri, "testing");
-          assert_format!(other_uri, None);
+          did_open!(backend, other_uri, "testing");
+          assert_format!(backend, other_uri, None);
 
           backend.shutdown().await.unwrap();
         }
