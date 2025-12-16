@@ -93,6 +93,14 @@ Plugins can be updated to the latest version in the configuration file by runnin
 dprint config update
 ```
 
+### Editing Config via CLI
+
+```sh
+dprint config edit
+```
+
+Editing the configuration file will use the editor configured in the `DPRINT_EDITOR` environment variable, then `VISUAL`, then `EDITOR`. If none of these environment variables are set, it will launch `notepad` on Windows and `nano` elsewhere.
+
 ## Excludes
 
 The `excludes` property specifies the file paths exclude from formatting.
