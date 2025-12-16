@@ -93,6 +93,8 @@ Plugins can be updated to the latest version in the configuration file by runnin
 dprint config update
 ```
 
+To update configuration files in descendant directories, run `dprint config update --recursive`.
+
 ## Excludes
 
 The `excludes` property specifies the file paths exclude from formatting.

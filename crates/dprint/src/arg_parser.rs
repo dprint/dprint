@@ -266,6 +266,8 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
   };
 
   let mut is_global_config = false;
+  let mut config_update_recursive = false;
+  let mut is_config_update = false;
   let sub_command = match matches.subcommand().unwrap() {
     ("fmt", matches) => {
       if let Some(file_name_path_or_extension) = matches.get_one::<String>("stdin").map(String::from) {
@@ -311,6 +313,8 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       }
       ("update", matches) => {
         is_global_config = matches.get_flag("global");
+        config_update_recursive = matches.get_flag("recursive");
+        is_config_update = true;
         ConfigSubCommand::Update {
           yes: *matches.get_one::<bool>("yes").unwrap(),
         }
@@ -369,6 +373,16 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     config: matches.get_one::<String>("config").map(String::from),
     config_discovery: if is_global_config {
       Some(ConfigDiscovery::Global)
+    } else if is_config_update {
+      // For config update, default to ignore-descendants unless --recursive is provided
+      if config_update_recursive {
+        matches.get_one::<ConfigDiscovery>("config-discovery").copied()
+      } else {
+        matches
+          .get_one::<ConfigDiscovery>("config-discovery")
+          .copied()
+          .or(Some(ConfigDiscovery::IgnoreDescendants))
+      }
     } else {
       matches.get_one::<ConfigDiscovery>("config-discovery").copied()
     },
@@ -601,6 +615,16 @@ EXAMPLES:
                 .short('g')
                 .conflicts_with("config-discovery")
                 .help("Update the global dprint configuration file.")
+                .num_args(0)
+                .required(false)
+            )
+            .arg(
+              Arg::new("recursive")
+                .long("recursive")
+                .short('r')
+                .conflicts_with("config-discovery")
+                .conflicts_with("global")
+                .help("Update configuration files in the current directory and all descendant directories.")
                 .num_args(0)
                 .required(false)
             )
