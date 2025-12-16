@@ -912,6 +912,100 @@ mod test {
     });
   }
 
+  #[test]
+  fn should_format_with_lsp_using_global_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin()
+          .add_includes("**/*.txt")
+          .add_excludes("ignored_file.txt");
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        async move {
+          macro_rules! did_open {
+            ($uri: ident, $text: expr) => {
+              backend
+                .did_open(DidOpenTextDocumentParams {
+                  text_document: TextDocumentItem {
+                    uri: $uri.clone(),
+                    language_id: "txt".to_string(),
+                    version: 0,
+                    text: $text.to_string(),
+                  },
+                })
+                .await;
+            };
+          }
+
+          macro_rules! assert_format {
+            ($uri: ident, $expected: expr) => {
+              let result = backend
+                .formatting(DocumentFormattingParams {
+                  text_document: TextDocumentIdentifier { uri: $uri.clone() },
+                  options: Default::default(),
+                  work_done_progress_params: Default::default(),
+                })
+                .await;
+              assert_eq!(result.unwrap(), $expected);
+            };
+          }
+
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          // Test that global config is being used
+          let file_uri = Url::parse("file:///file.txt").unwrap();
+          did_open!(file_uri, "testing");
+          assert_format!(
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+              new_text: "_formatted".to_string()
+            }])
+          );
+
+          // Test that excluded file is not formatted
+          let ignored_uri = Url::parse("file:///ignored_file.txt").unwrap();
+          did_open!(ignored_uri, "testing");
+          assert_format!(ignored_uri, None);
+
+          // Test that non-matching file is not formatted
+          let other_uri = Url::parse("file:///file.js").unwrap();
+          did_open!(other_uri, "testing");
+          assert_format!(other_uri, None);
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
   fn setup_backend(environment: TestEnvironment) -> (Backend<TestEnvironment>, JoinHandle<()>, Arc<TestClient>) {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));

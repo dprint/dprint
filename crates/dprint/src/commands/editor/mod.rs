@@ -369,6 +369,34 @@ mod test {
     );
   }
 
+  #[test]
+  fn should_output_editor_plugin_info_with_global_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin().add_remote_process_plugin();
+      })
+      .build();
+    run_test_cli(vec!["editor-info", "--config-discovery=global"], &environment).unwrap();
+    let mut final_output = r#"{"schemaVersion":5,"cliVersion":""#.to_string();
+    final_output.push_str(&environment.cli_version());
+    final_output.push_str(r#"","configSchemaUrl":"https://dprint.dev/schemas/v0.json","plugins":["#);
+    final_output
+      .push_str(r#"{"name":"test-plugin","version":"0.2.0","configKey":"test-plugin","fileExtensions":["txt"],"fileNames":[],"configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","helpUrl":"https://dprint.dev/plugins/test","updateUrl":"https://plugins.dprint.dev/dprint/test-plugin/latest.json"},"#);
+    final_output.push_str(r#"{"name":"test-process-plugin","version":"0.1.0","configKey":"testProcessPlugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"],"helpUrl":"https://dprint.dev/plugins/test-process","updateUrl":"https://plugins.dprint.dev/dprint/test-process-plugin/latest.json"}]}"#);
+    assert_eq!(environment.take_stdout_messages(), vec![final_output]);
+    let mut stderr_messages = environment.take_stderr_messages();
+    stderr_messages.sort();
+    assert_eq!(
+      stderr_messages,
+      vec![
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm",
+        "Extracting zip for test-process-plugin"
+      ]
+    );
+  }
+
   enum MessageResponseChannel {
     Success(oneshot::Sender<Result<()>>),
     Format(oneshot::Sender<Result<Option<Vec<u8>>>>),
@@ -894,6 +922,54 @@ mod test {
     // usually this would be the editor's process id, but this is ok for testing purposes
     let pid = std::process::id().to_string();
     run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_format_for_editor_service_with_global_config() {
+    let txt_file_path = PathBuf::from("/file.txt");
+    let ignored_file_path = PathBuf::from("/ignored_file.txt");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin()
+          .add_includes("**/*.txt")
+          .add_excludes("ignored_file.txt");
+      })
+      .write_file(&txt_file_path, "")
+      .write_file(&ignored_file_path, "text")
+      .initialize()
+      .build();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+
+          // Verify that global config is being used
+          assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true);
+          assert_eq!(communicator.check_file(&ignored_file_path).await.unwrap(), false);
+
+          // Test formatting with global config
+          assert_eq!(
+            communicator
+              .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_formatted"
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid, "--config-discovery=global"], &environment).unwrap();
 
     result.join().unwrap();
   }
