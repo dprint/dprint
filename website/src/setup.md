@@ -55,7 +55,7 @@ By default, dprint stores information in the current system user's cache directo
 
 You may specify a proxy for dprint to use when downloading plugins or configuration files by setting the `HTTPS_PROXY`/`https_proxy` and `HTTP_PROXY`/`http_proxy` environment variables.
 
-Additionally, dprint 0.48+ supports the `NO_PROXY`/`no_proxy` environment variable, which is a comma-separated list of hosts which should not use the proxy.
+Additionally, the `NO_PROXY`/`no_proxy` environment variable can be set, which is a comma-separated list of hosts which should not use the proxy.
 
 ## TLS Certificates
 
@@ -70,7 +70,7 @@ Requires dprint >= 0.46.0
 
 ### Unsafely ignoring certificates
 
-Starting in dprint 0.49.0, you can unsafely ignore all or some TLS certificates via the `DPRINT_IGNORE_CERTS` environment variable:
+You can unsafely ignore all or some TLS certificates via the `DPRINT_IGNORE_CERTS` environment variable:
 
 - `DPRINT_IGNORE_CERTS=1` - Ignore all TLS certificates.
 - `DPRINT_IGNORE_CERTS=dprint.dev,localhost,[::],127.0.0.1` - Ignore certs from the specified hosts.

@@ -172,6 +172,7 @@ pub struct CheckSubCommand {
   pub list_different: bool,
   pub allow_no_files: bool,
   pub only_staged: bool,
+  pub fail_fast: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -268,6 +269,23 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
   let mut is_global_config = false;
   let mut config_update_recursive = false;
   let mut is_config_update = false;
+
+  // determine log level early so we can use it when parsing subcommands
+  let log_level = if matches.get_flag("verbose") {
+    LogLevel::Debug
+  } else if let Some(log_level) = matches.get_one::<String>("log-level") {
+    match log_level.as_str() {
+      "debug" => LogLevel::Debug,
+      "info" => LogLevel::Info,
+      "warn" => LogLevel::Warn,
+      "error" => LogLevel::Error,
+      "silent" => LogLevel::Silent,
+      _ => unreachable!(),
+    }
+  } else {
+    LogLevel::Info
+  };
+
   let sub_command = match matches.subcommand().unwrap() {
     ("fmt", matches) => {
       if let Some(file_name_path_or_extension) = matches.get_one::<String>("stdin").map(String::from) {
@@ -297,13 +315,25 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         })
       }
     }
-    ("check", matches) => SubCommand::Check(CheckSubCommand {
-      patterns: parse_file_patterns(matches)?,
-      incremental: parse_incremental(matches),
-      only_staged: matches.get_flag("staged"),
-      list_different: matches.get_flag("list-different"),
-      allow_no_files: matches.get_flag("allow-no-files"),
-    }),
+    ("check", matches) => {
+      // when log level is silent, default fail_fast to true unless explicitly provided by user
+      let fail_fast = if let Some(value) = matches.get_one::<String>("fail-fast") {
+        value != "false"
+      } else if matches.contains_id("fail-fast") {
+        true
+      } else {
+        log_level == LogLevel::Silent
+      };
+
+      SubCommand::Check(CheckSubCommand {
+        patterns: parse_file_patterns(matches)?,
+        incremental: parse_incremental(matches),
+        only_staged: matches.get_flag("staged"),
+        list_different: matches.get_flag("list-different"),
+        allow_no_files: matches.get_flag("allow-no-files"),
+        fail_fast,
+      })
+    }
     ("init", matches) => SubCommand::Config(parse_init(matches)),
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
       ("init", matches) => parse_init(matches),
@@ -356,20 +386,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
 
   Ok(CliArgs {
     sub_command,
-    log_level: if matches.get_flag("verbose") {
-      LogLevel::Debug
-    } else if let Some(log_level) = matches.get_one::<String>("log-level") {
-      match log_level.as_str() {
-        "debug" => LogLevel::Debug,
-        "info" => LogLevel::Info,
-        "warn" => LogLevel::Warn,
-        "error" => LogLevel::Error,
-        "silent" => LogLevel::Silent,
-        _ => unreachable!(),
-      }
-    } else {
-      LogLevel::Info
-    },
+    log_level,
     config: matches.get_one::<String>("config").map(String::from),
     config_discovery: if is_global_config {
       Some(ConfigDiscovery::Global)
@@ -597,6 +614,14 @@ EXAMPLES:
             .long("list-different")
             .help("Only outputs file paths that aren't formatted and doesn't output diffs.")
             .num_args(0)
+        )
+        .arg(
+          Arg::new("fail-fast")
+            .long("fail-fast")
+            .help("Stop checking files and exit on the first file that isn't formatted.")
+            .num_args(0..=1)
+            .value_parser(["true", "false"])
+            .require_equals(true)
         )
     )
     .subcommand(
@@ -931,6 +956,42 @@ mod test {
       SubCommand::Config(ConfigSubCommand::Update { yes }) => {
         assert!(!yes);
       }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn check_fail_fast_arg() {
+    let check_cmd = parse_check_sub_command(vec!["check"]).unwrap();
+    assert_eq!(check_cmd.fail_fast, false);
+    let check_cmd = parse_check_sub_command(vec!["check", "--fail-fast"]).unwrap();
+    assert_eq!(check_cmd.fail_fast, true);
+  }
+
+  #[test]
+  fn check_fail_fast_defaults_to_true_with_silent_log_level() {
+    {
+      let check_cmd = parse_check_sub_command(vec!["check"]).unwrap();
+      assert_eq!(check_cmd.fail_fast, false);
+    }
+    {
+      let check_cmd = parse_check_sub_command(vec!["check", "--log-level=silent"]).unwrap();
+      assert_eq!(check_cmd.fail_fast, true);
+    }
+    {
+      let check_cmd = parse_check_sub_command(vec!["check", "--log-level=silent", "--fail-fast"]).unwrap();
+      assert_eq!(check_cmd.fail_fast, true);
+    }
+    {
+      let check_cmd = parse_check_sub_command(vec!["check", "--log-level=silent", "--fail-fast=false"]).unwrap();
+      assert_eq!(check_cmd.fail_fast, false);
+    }
+  }
+
+  fn parse_check_sub_command(args: Vec<&str>) -> Result<CheckSubCommand, ParseArgsError> {
+    let args = test_args(args)?;
+    match args.sub_command {
+      SubCommand::Check(cmd) => Ok(cmd),
       _ => unreachable!(),
     }
   }
