@@ -172,6 +172,7 @@ pub struct CheckSubCommand {
   pub list_different: bool,
   pub allow_no_files: bool,
   pub only_staged: bool,
+  pub fail_fast: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -303,6 +304,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       only_staged: matches.get_flag("staged"),
       list_different: matches.get_flag("list-different"),
       allow_no_files: matches.get_flag("allow-no-files"),
+      fail_fast: matches.get_flag("fail-fast"),
     }),
     ("init", matches) => SubCommand::Config(parse_init(matches)),
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
@@ -596,6 +598,12 @@ EXAMPLES:
           Arg::new("list-different")
             .long("list-different")
             .help("Only outputs file paths that aren't formatted and doesn't output diffs.")
+            .num_args(0)
+        )
+        .arg(
+          Arg::new("fail-fast")
+            .long("fail-fast")
+            .help("Stop checking files and exit on the first file that isn't formatted.")
             .num_args(0)
         )
     )
@@ -931,6 +939,22 @@ mod test {
       SubCommand::Config(ConfigSubCommand::Update { yes }) => {
         assert!(!yes);
       }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn check_fail_fast_arg() {
+    let check_cmd = parse_check_sub_command(vec!["check"]).unwrap();
+    assert_eq!(check_cmd.fail_fast, false);
+    let check_cmd = parse_check_sub_command(vec!["check", "--fail-fast"]).unwrap();
+    assert_eq!(check_cmd.fail_fast, true);
+  }
+
+  fn parse_check_sub_command(args: Vec<&str>) -> Result<CheckSubCommand, ParseArgsError> {
+    let args = test_args(args)?;
+    match args.sub_command {
+      SubCommand::Check(cmd) => Ok(cmd),
       _ => unreachable!(),
     }
   }

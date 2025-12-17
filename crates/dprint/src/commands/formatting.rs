@@ -1,5 +1,6 @@
 use anyhow::Result;
 use crossterm::style::Stylize;
+use dprint_core::communication::AtomicFlag;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
@@ -17,6 +18,7 @@ use crate::arg_parser::StdInFmtSubCommand;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
+use crate::format::RunForFilePathError;
 use crate::format::run_parallelized;
 use crate::incremental::get_incremental_file;
 use crate::patterns::FileMatcher;
@@ -114,16 +116,17 @@ pub async fn output_format_times<TEnvironment: Environment>(
 }
 
 #[derive(Error, Debug)]
-#[error("{}", match files_count {
-  Some(files_count) => format!(
+#[error("{}", match self {
+  Self::Files { count } => format!(
     "Found {} not formatted {}.",
-    files_count.to_string().bold(),
-    if *files_count == 1 { "file" } else { "files" },
+    count.to_string().bold(),
+    if *count == 1 { "file" } else { "files" },
   ),
-  None => "".to_string(), // no output for list-different
+  Self::DisplayNone => "".to_string(), // no output
 })]
-pub struct CheckError {
-  pub files_count: Option<usize>,
+pub enum CheckError {
+  DisplayNone,
+  Files { count: usize },
 }
 
 pub async fn check<TEnvironment: Environment>(
@@ -143,6 +146,7 @@ pub async fn check<TEnvironment: Environment>(
   scopes.ensure_valid_for_cli_args(args)?;
   let not_formatted_files_count = Arc::new(AtomicCounter::default());
   let list_different = cmd.list_different;
+  let fail_fast_flag = cmd.fail_fast.then(|| Arc::new(AtomicFlag::default()));
 
   for scope_and_paths in scopes.into_iter() {
     let incremental_file = scope_and_paths
@@ -154,6 +158,7 @@ pub async fn check<TEnvironment: Environment>(
     run_parallelized(scope_and_paths, environment, incremental_file.clone(), EnsureStableFormat(false), {
       let not_formatted_files_count = not_formatted_files_count.clone();
       let incremental_file = incremental_file.clone();
+      let fail_fast_flag = fail_fast_flag.clone();
       move |file_path, file_bytes, formatted_bytes, _, environment| {
         if formatted_bytes != file_bytes {
           not_formatted_files_count.inc();
@@ -161,6 +166,10 @@ pub async fn check<TEnvironment: Environment>(
             log_stdout_info!(environment, "{}", file_path.display());
           } else {
             output_difference(&file_path, &file_bytes, &formatted_bytes, &environment);
+          }
+          if let Some(fail_fast_flag) = &fail_fast_flag {
+            fail_fast_flag.raise();
+            return Err(RunForFilePathError::Stop);
           }
         } else {
           // update the incremental cache when the file is already formatted correctly
@@ -176,6 +185,10 @@ pub async fn check<TEnvironment: Environment>(
     })
     .await?;
 
+    if fail_fast_flag.as_ref().map(|flag| flag.is_raised()).unwrap_or(false) {
+      return Err(CheckError::DisplayNone.into());
+    }
+
     if let Some(incremental_file) = &incremental_file {
       incremental_file.write();
     }
@@ -186,8 +199,12 @@ pub async fn check<TEnvironment: Environment>(
     Ok(())
   } else {
     Err(
-      CheckError {
-        files_count: if list_different { None } else { Some(not_formatted_files_count) },
+      if list_different {
+        CheckError::DisplayNone
+      } else {
+        CheckError::Files {
+          count: not_formatted_files_count,
+        }
       }
       .into(),
     )
@@ -1879,6 +1896,46 @@ mod test {
     let mut logged_messages = environment.take_stdout_messages();
     logged_messages.sort(); // the order is not deterministic
     assert_eq!(logged_messages, vec!["/file1.txt", "/file2.txt",]);
+  }
+
+  #[test]
+  fn should_exit_on_first_unformatted_file_with_fail_fast() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file("/file1.txt", "const t=4;")
+      .write_file("/file2.txt", "const t=5;")
+      .write_file("/file3.txt", "const t=6;")
+      .build();
+    environment.set_max_threads(1); // ensure files are checked sequentially
+
+    let err = run_test_cli(vec!["check", "--fail-fast", "/file1.txt", "/file2.txt", "/file3.txt"], &environment).unwrap_err();
+    err.assert_exit_code(20);
+    // With fail-fast, only one file should be output (the first unformatted one found)
+    let logged_messages = environment.take_stdout_messages();
+    assert_eq!(logged_messages.len(), 1);
+    // Verify the message contains the expected format
+    assert!(logged_messages[0].contains("from"));
+    assert!(logged_messages[0].contains("/file"));
+  }
+
+  #[test]
+  fn should_exit_on_first_unformatted_file_with_fail_fast_and_list_different() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file("/file1.txt", "const t=4;")
+      .write_file("/file2.txt", "const t=5;")
+      .write_file("/file3.txt", "const t=6;")
+      .build();
+    environment.set_max_threads(1); // ensure files are checked sequentially
+
+    let err = run_test_cli(
+      vec!["check", "--fail-fast", "--list-different", "/file1.txt", "/file2.txt", "/file3.txt"],
+      &environment,
+    )
+    .unwrap_err();
+    err.assert_exit_code(20);
+    // With fail-fast and list-different, only one file path should be output
+    let logged_messages = environment.take_stdout_messages();
+    assert_eq!(logged_messages.len(), 1);
+    assert!(logged_messages[0].contains("/file"));
   }
 
   #[test]
