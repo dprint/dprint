@@ -167,7 +167,7 @@ await $`mkdir -p ${dprintDir} ${scopeDir}`;
     ? (Deno.build.arch === "x86_64" ? "@dprint/win32-x64" : "@dprint/win32-arm64")
     : Deno.build.os === "darwin"
     ? (Deno.build.arch === "x86_64" ? "@dprint/darwin-x64" : "@dprint/darwin-arm64")
-    : "@dprint/linux-x64-glibc";
+    : (Deno.build.arch === "x86_64" ? "@dprint/linux-x64-glibc" : "@dprint/linux-arm64-glibc");
   $.logLight("Test platform:", testPlatform);
   outputDir.join("package.json").writeJsonPrettySync({
     workspaces: [
