@@ -18,7 +18,8 @@ dprint init --global
 
 This creates a `dprint.json` file in your system's configuration directory. The default location is:
 
-- **Linux/macOS**: `~/.config/dprint/dprint.json`
+- **Linux**: `~/.config/dprint/dprint.json` (or `$XDG_CONFIG_HOME/dprint/dprint.json`)
+- **macOS**: `$HOME/Library/Application Support/dprint/dprint.json`
 - **Windows**: `%APPDATA%\dprint\dprint.json`
 
 You can customize the global config directory by setting the `DPRINT_CONFIG_DIR` environment variable.
