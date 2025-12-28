@@ -327,8 +327,8 @@ impl Environment for RealEnvironment {
     (*CACHE_DIR.as_ref().unwrap()).clone()
   }
 
-  fn get_config_dir(&self) -> Option<CanonicalizedPathBuf> {
-    dirs::config_dir().map(|path| self.canonicalize(path).unwrap())
+  fn get_config_dir(&self) -> Option<PathBuf> {
+    dirs::config_dir()
   }
 
   fn get_home_dir(&self) -> Option<CanonicalizedPathBuf> {
