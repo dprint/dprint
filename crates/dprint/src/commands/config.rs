@@ -38,7 +38,6 @@ pub struct InitConfigFileOptions<'a> {
 }
 
 pub async fn init_config_file(environment: &impl Environment, options: InitConfigFileOptions<'_>) -> Result<()> {
-  
   fn get_config_paths(environment: &impl Environment, options: &InitConfigFileOptions<'_>) -> Result<Vec<PathBuf>> {
     if options.global {
       let directory = crate::configuration::resolve_global_config_dir(environment).with_context(|| {
@@ -58,7 +57,7 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
 
   let mut config_file_paths = get_config_paths(environment, &options)?;
   for config_path in &config_file_paths {
-    if environment.path_exists(&config_path) {
+    if environment.path_exists(config_path) {
       bail!("Configuration file '{}' already exists.", config_path.display())
     }
   }

@@ -138,9 +138,7 @@ pub fn resolve_global_config_dir(environment: &impl Environment) -> std::io::Res
   } else {
     match resolve_system_config_dir(environment) {
       Some(dir) => resolve_or_create_folder(environment, dir.join("dprint")),
-      None => {
-        Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Could not find system config directory."))
-      }
+      None => Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Could not find system config directory.")),
     }
   }
 }
@@ -158,7 +156,7 @@ fn resolve_system_config_dir(environment: &impl Environment) -> Option<PathBuf> 
 fn resolve_mac_system_config_dir(environment: &impl Environment) -> Option<PathBuf> {
   // first, try XDG_CONFIG_HOME
   if let Some(xdg_config_home) = resolve_env_var_folder(environment, "XDG_CONFIG_HOME") {
-    return Some(PathBuf::from(xdg_config_home))
+    return Some(PathBuf::from(xdg_config_home));
   }
 
   // second, check if the system config directory exists
@@ -179,24 +177,23 @@ fn resolve_mac_system_config_dir(environment: &impl Environment) -> Option<PathB
 }
 
 fn resolve_env_var_folder(environment: &impl Environment, name: &str) -> Option<OsString> {
-  environment.env_var(name)
-    .filter(|f| !f.is_empty())
+  environment.env_var(name).filter(|f| !f.is_empty())
 }
 
-  fn resolve_or_create_folder(environment: &impl Environment, path: impl AsRef<Path>) -> std::io::Result<CanonicalizedPathBuf> {
-    match environment.canonicalize(path.as_ref()) {
-      Ok(path) => Ok(path),
-      Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-        if let (Some(parent), Some(filename)) = (path.as_ref().parent(), path.as_ref().file_name()) {
-          _ = environment.mk_dir_all(parent);
-          Ok(environment.canonicalize(parent)?.join_panic_relative(filename.to_string_lossy()))
-        } else {
-          Err(err)
-        }
+fn resolve_or_create_folder(environment: &impl Environment, path: impl AsRef<Path>) -> std::io::Result<CanonicalizedPathBuf> {
+  match environment.canonicalize(path.as_ref()) {
+    Ok(path) => Ok(path),
+    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+      if let (Some(parent), Some(filename)) = (path.as_ref().parent(), path.as_ref().file_name()) {
+        _ = environment.mk_dir_all(parent);
+        Ok(environment.canonicalize(parent)?.join_panic_relative(filename.to_string_lossy()))
+      } else {
+        Err(err)
       }
-      Err(err) => Err(err),
     }
+    Err(err) => Err(err),
   }
+}
 
 pub fn get_default_config_file_in_ancestor_directories(environment: &impl Environment, start_dir: &Path) -> Result<Option<ResolvedConfigPath>> {
   for ancestor_dir in start_dir.ancestors() {
