@@ -773,15 +773,21 @@ mod test {
       environment.take_stderr_messages(),
       vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
     );
+    let config_path = if std::env::consts::OS == "macos" {
+      Path::new("/home/.config/dprint")
+    } else {
+      Path::new("/config/dprint")
+    }
+    .join("dprint.jsonc");
     assert_eq!(
       environment.take_stdout_messages(),
       vec![
-        format!("\nCreated {}", Path::new("/config/dprint").join("dprint.jsonc").display()),
+        format!("\nCreated {}", config_path.display()),
         "\nRun `dprint config edit --global` to modify this file in the future.".to_string(),
         "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor".to_string()
       ]
     );
-    assert_eq!(environment.read_file("/config/dprint/dprint.jsonc").unwrap(), expected_text);
+    assert_eq!(environment.read_file(config_path).unwrap(), expected_text);
   }
 
   #[test]
