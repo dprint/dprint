@@ -13,8 +13,7 @@ use crate::utils::PathSource;
 use crate::utils::ResolvedPath;
 use crate::utils::resolve_url_or_file_path;
 
-const DEFAULT_CONFIG_FILE_NAME: &str = "dprint.json";
-pub const POSSIBLE_CONFIG_FILE_NAMES: [&str; 4] = [DEFAULT_CONFIG_FILE_NAME, "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
+pub static POSSIBLE_CONFIG_FILE_NAMES: [&str; 4] = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
 
 #[derive(Debug)]
 pub struct ResolvedConfigPath {
