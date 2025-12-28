@@ -20,7 +20,7 @@ This creates a `dprint.jsonc` file in your system's configuration directory. The
 
 - **Linux/macOS**: `~/.config/dprint/dprint.jsonc` (or `$XDG_CONFIG_HOME/dprint/dprint.jsonc`)
   - Note: On macOS, it will use the config file in `$HOME/Library/Application Support/dprint` if that folder exists.
-- **Windows**: `%APPDATA%\dprint\dprint.json`
+- **Windows**: `%APPDATA%\dprint\dprint.jsonc`
 
 You can customize the global config directory by setting the `DPRINT_CONFIG_DIR` environment variable.
 
