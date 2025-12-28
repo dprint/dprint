@@ -77,7 +77,7 @@ jobs:
       ZIP_CHECKSUM_LOONGARCH64_UNKNOWN_LINUX_MUSL: "${{steps.pre_release_loongarch64_unknown_linux_musl.outputs.ZIP_CHECKSUM}}"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         if: 'matrix.config.target != ''aarch64-unknown-linux-gnu'' && matrix.config.target != ''aarch64-unknown-linux-musl'' || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')'
       - uses: dsherret/rust-toolchain-file@v1
         if: 'matrix.config.target != ''aarch64-unknown-linux-gnu'' && matrix.config.target != ''aarch64-unknown-linux-musl'' || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')'
@@ -290,6 +290,13 @@ jobs:
         run: |-
           cd website/src/assets
           ./install.ps1
+      - uses: denoland/setup-deno@v2
+        if: '(matrix.config.target != ''aarch64-unknown-linux-gnu'' && matrix.config.target != ''aarch64-unknown-linux-musl'' || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && (matrix.config.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/''))'
+      - name: Test npm
+        if: '(matrix.config.target != ''aarch64-unknown-linux-gnu'' && matrix.config.target != ''aarch64-unknown-linux-musl'' || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && (matrix.config.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/''))'
+        run: |-
+          cd deployment/npm
+          deno run -A build.ts 0.51.0
   draft_release:
     name: draft_release
     if: 'startsWith(github.ref, ''refs/tags/'')'

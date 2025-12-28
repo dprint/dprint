@@ -134,7 +134,7 @@ const ci = {
         }).flat(),
       ),
       steps: [
-        { name: "Checkout", uses: "actions/checkout@v4" },
+        { name: "Checkout", uses: "actions/checkout@v6" },
         { uses: "dsherret/rust-toolchain-file@v1" },
         {
           uses: "Swatinem/rust-cache@v2",
@@ -328,15 +328,18 @@ const ci = {
           shell: "pwsh",
           run: ["cd website/src/assets", "./install.ps1"].join("\n"),
         },
-        // temporarily disable until release
-        // {
-        //   name: "Test npm",
-        //   if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-        //   run: [
-        //     "cd deployment/npm",
-        //     "deno run -A build.ts 0.45.1",
-        //   ].join("\n"),
-        // },
+        {
+          uses: "denoland/setup-deno@v2",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
+        },
+        {
+          name: "Test npm",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
+          run: [
+            "cd deployment/npm",
+            "deno run -A build.ts 0.51.0",
+          ].join("\n"),
+        },
       ].map((step) =>
         withCondition(
           step,
