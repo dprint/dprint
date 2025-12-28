@@ -329,6 +329,10 @@ const ci = {
           run: ["cd website/src/assets", "./install.ps1"].join("\n"),
         },
         {
+          uses: "denoland/setup-deno@v2",
+          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
+        },
+        {
           name: "Test npm",
           if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
           run: [
