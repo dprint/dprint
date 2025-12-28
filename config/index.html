@@ -43,6 +43,7 @@
         <li><a href="/install">Install</a></li>
         <li><a href="/setup">Setup</a></li>
         <li><a href="/config">Configuration</a></li>
+        <li><a href="/global-config">Global Configuration</a></li>
         <li><a href="/cli">CLI</a></li>
         <li><a href="/ci">Continuous Integration</a></li>
       </ul>
@@ -128,6 +129,10 @@
 <pre><code class="language-sh hljs language-bash">dprint config update
 </code></pre>
 <p>To update configuration files in descendant directories, run <code>dprint config update --recursive</code>.</p>
+<h3 id="editing-config-via-cli" tabindex="-1"><a class="header-anchor" href="#editing-config-via-cli">Editing Config via CLI</a></h3>
+<pre><code class="language-sh hljs language-bash">dprint config edit
+</code></pre>
+<p>Editing the configuration file will use the editor configured in the <code>DPRINT_EDITOR</code> environment variable, then <code>VISUAL</code>, then <code>EDITOR</code>. If none of these environment variables are set, it will launch <code>notepad</code> on Windows and <code>nano</code> elsewhere.</p>
 <h2 id="excludes" tabindex="-1"><a class="header-anchor" href="#excludes">Excludes</a></h2>
 <p>The <code>excludes</code> property specifies the file paths exclude from formatting.</p>
 <p>These should be file globs according to <a href="https://git-scm.com/docs/gitignore#_pattern_format"><code>gitignore</code>'s extended glob syntax</a>:</p>

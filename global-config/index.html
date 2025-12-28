@@ -2,15 +2,15 @@
 <html lang="en"><head>
     <script async="" src="/scripts.js"></script>
     <meta charset="utf-8">
-    <title>Configuration - Ruff - dprint - Code Formatter</title>
+    <title>Global Configuration - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#000000">
-    <meta name="description" content="Documentation on the configuration file for the Ruff code formatting plugin for dprint.">
+    <meta name="description" content="Documentation on global configuration.">
     <meta name="author" content="Dprint Code Formatting">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:site" content="@dprintfmt">
-    <meta name="twitter:title" content="Configuration - Ruff">
-    <meta name="twitter:description" content="Documentation on the configuration file for the Ruff code formatting plugin for dprint.">
+    <meta name="twitter:title" content="Global Configuration">
+    <meta name="twitter:description" content="Documentation on global configuration.">
     
     <link rel="stylesheet" href="/style.css">
   </head>
@@ -70,17 +70,43 @@
       </ul>
     </aside>
     <div id="content-body" class="column documentation">
-      <nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/ruff">Ruff</a></li>
-    <li><a href="/plugins/ruff/config">Configuration</a></li>
-  </ul>
-</nav>
-<h1>Ruff - Configuration</h1>
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-ruff/latest/schema.json">
-  Loading...
-</div>
+      <h1>Global Configuration</h1>
+<p>Starting in dprint 0.51, you can maintain a global configuration file that applies formatting config when the current folder does not have a local dprint configuration file.</p>
+<h2 id="initializing-a-global-configuration" tabindex="-1"><a class="header-anchor" href="#initializing-a-global-configuration">Initializing a Global Configuration</a></h2>
+<p>Create a global configuration file by running:</p>
+<pre><code class="language-sh hljs language-bash">dprint init --global
+</code></pre>
+<p>This creates a <code>dprint.json</code> file in your system's configuration directory. The default location is:</p>
+<ul>
+<li><strong>Linux/macOS</strong>: <code>~/.config/dprint/dprint.json</code></li>
+<li><strong>Windows</strong>: <code>%APPDATA%\dprint\dprint.json</code></li>
+</ul>
+<p>You can customize the global config directory by setting the <code>DPRINT_CONFIG_DIR</code> environment variable.</p>
+<h2 id="managing-the-global-configuration" tabindex="-1"><a class="header-anchor" href="#managing-the-global-configuration">Managing the Global Configuration</a></h2>
+<p>Add plugins to your global configuration (alternatively use the <code>-g</code> alias instead of <code>--global</code>):</p>
+<pre><code class="language-sh hljs language-bash">dprint config add --global typescript
+</code></pre>
+<p>Update plugins in your global configuration:</p>
+<pre><code class="language-sh hljs language-bash">dprint config update --global
+</code></pre>
+<p>Edit your global configuration file:</p>
+<pre><code class="language-sh hljs language-bash">dprint config edit --global
+</code></pre>
+<p>The editor to use for the global config follows the same rules as <a href="config/#updating-config-via-cli">Editing Config via CLI</a> (set the <code>DPRINT_EDITOR</code> environment variable to customize it)</p>
+<h2 id="using-the-global-configuration" tabindex="-1"><a class="header-anchor" href="#using-the-global-configuration">Using the Global Configuration</a></h2>
+<p>Once setup, the global configuration will be used by default when there's no dprint configuration file in the current directory tree; however, to prevent accidentally formatting such directories, a prompt is shown when calling <code>dprint fmt</code>:</p>
+<pre><code>&gt; dprint fmt
+Warning You're not in a dprint project. Format '/home/david/dev/scratch' anyway? (Y/n) █
+
+Hint: Specify the directory to bypass this prompt in the future (ex. `dprint fmt .`)
+</code></pre>
+<p>As the hint states, you can bypass the confirmation prompt by providing the current directory:</p>
+<pre><code>&gt; dprint fmt .
+Formatted 1 file.
+</code></pre>
+<p>To format files using only the global configuration and ignore local configuration files use:</p>
+<pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --config-discovery=global
+</code></pre>
 
     </div>
   </div>
