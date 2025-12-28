@@ -242,11 +242,19 @@ pub fn get_plural_formatted_text(count: usize) -> String {
 }
 
 pub fn get_singular_check_text() -> String {
-  format!("Found {} not formatted file.", "1".bold().to_string())
+  format!(
+    "Found {} not formatted file. Run {} to fix.",
+    "1".bold().to_string(),
+    "dprint fmt".bold().to_string()
+  )
 }
 
 pub fn get_plural_check_text(count: usize) -> String {
-  format!("Found {} not formatted files.", count.to_string().bold().to_string())
+  format!(
+    "Found {} not formatted files. Run {} to fix.",
+    count.to_string().bold().to_string(),
+    "dprint fmt".bold().to_string()
+  )
 }
 
 pub fn get_expected_help_text() -> &'static str {

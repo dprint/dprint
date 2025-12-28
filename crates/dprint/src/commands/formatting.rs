@@ -118,9 +118,10 @@ pub async fn output_format_times<TEnvironment: Environment>(
 #[derive(Error, Debug)]
 #[error("{}", match self {
   Self::Files { count } => format!(
-    "Found {} not formatted {}.",
+    "Found {} not formatted {}. Run {} to fix.",
     count.to_string().bold(),
     if *count == 1 { "file" } else { "files" },
+    "dprint fmt".bold(),
   ),
   Self::DisplayNone => "".to_string(), // no output
 })]
