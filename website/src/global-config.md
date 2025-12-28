@@ -13,7 +13,7 @@ Starting in dprint 0.51, you can maintain a global configuration file that appli
 Create a global configuration file by running:
 
 ```sh
-dprint config init --global
+dprint init --global
 ```
 
 This creates a `dprint.json` file in your system's configuration directory. The default location is:
@@ -56,7 +56,7 @@ Warning You're not in a dprint project. Format '/home/david/dev/scratch' anyway?
 Hint: Specify the directory to bypass this prompt in the future (ex. `dprint fmt .`)
 ```
 
-As the hint states, you can bypass this by providing the current directory:
+As the hint states, you can bypass the confirmation prompt by providing the current directory:
 
 ```
 > dprint fmt .
