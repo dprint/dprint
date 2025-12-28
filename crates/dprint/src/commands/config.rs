@@ -1379,7 +1379,7 @@ mod test {
         );
     });
     let environment = builder.initialize().build();
-    run_test_cli(vec!["config", "update", "--yes"], &environment).unwrap();
+    run_test_cli(vec!["config", "update", "--yes", "--recursive"], &environment).unwrap();
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
@@ -1437,6 +1437,119 @@ mod test {
   ]
 }}"#,
         NEW_PROCESS_PLUGIN_FILE.checksum()
+      )
+    );
+  }
+
+  #[test]
+  fn config_update_default_non_recursive() {
+    let mut builder = get_setup_builder(SetupEnvOptions {
+      config_has_wasm: true,
+      config_has_wasm_checksum: false,
+      config_has_process: true,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: true,
+    });
+    builder.with_default_config(|config| {
+      config.add_config_section(
+        "testProcessPlugin",
+        r#"{
+  "should_add": {
+  },
+  "should_set": "other",
+  "should_remove": {},
+  "should_set_past_version": ""
+}"#,
+      );
+      config.add_config_section(
+        "test-plugin",
+        r#"{
+  "should_add": {
+  },
+  "should_set": "other",
+  "should_remove": {},
+  "should_set_past_version": ""
+}"#,
+      );
+    });
+    builder.with_local_config("/sub_folder/dprint.json", |config| {
+      config
+        .add_remote_process_plugin()
+        .add_remote_wasm_plugin_0_1_0()
+        .add_config_section(
+          "testProcessPlugin",
+          r#"{
+  "should_set": "asdf"
+}"#,
+        )
+        .add_config_section(
+          "test-plugin",
+          r#"{
+  "should_set": "asdf"
+}"#,
+        );
+    });
+    let environment = builder.initialize().build();
+    // Without --recursive, should only update the root config
+    run_test_cli(vec!["config", "update", "--yes"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "Updating test-plugin 0.1.0 to 0.2.0...".to_string(),
+        "Updating test-process-plugin 0.1.0 to 0.3.0...".to_string(),
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string(),
+        "Extracting zip for test-process-plugin".to_string()
+      ]
+    );
+    // Verify the root config was updated
+    assert_eq!(
+      environment.read_file("./dprint.json").unwrap(),
+      format!(
+        r#"{{
+  "testProcessPlugin": {{
+    "should_add": "new_value",
+    "should_set": "new_value",
+    "should_set_past_version": "0.1.0",
+    "new_prop1": ["new_value"],
+    "new_prop2": {{
+      "new_prop": "new_value"
+    }}
+  }},
+  "test-plugin": {{
+    "should_add": "new_value_wasm",
+    "should_set": "new_value_wasm",
+    "should_set_past_version": "0.1.0",
+    "new_prop1": ["new_value_wasm"],
+    "new_prop2": {{
+      "new_prop": "new_value_wasm"
+    }}
+  }},
+  "plugins": [
+    "https://plugins.dprint.dev/test-plugin.wasm",
+    "https://plugins.dprint.dev/test-plugin-3.json@{}"
+  ]
+}}"#,
+        NEW_PROCESS_PLUGIN_FILE.checksum()
+      )
+    );
+    // Verify the sub_folder config was NOT updated (should still have old URLs)
+    let old_ps_checksum = TestProcessPluginFile::default().checksum();
+    assert_eq!(
+      environment.read_file("./sub_folder/dprint.json").unwrap(),
+      format!(
+        r#"{{
+  "testProcessPlugin": {{
+    "should_set": "asdf"
+  }},
+  "test-plugin": {{
+    "should_set": "asdf"
+  }},
+  "plugins": [
+    "https://plugins.dprint.dev/test-process.json@{}",
+    "https://plugins.dprint.dev/test-plugin-0.1.0.wasm"
+  ]
+}}"#,
+        old_ps_checksum
       )
     );
   }
