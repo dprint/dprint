@@ -78,7 +78,8 @@
 </code></pre>
 <p>This creates a <code>dprint.json</code> file in your system's configuration directory. The default location is:</p>
 <ul>
-<li><strong>Linux/macOS</strong>: <code>~/.config/dprint/dprint.json</code></li>
+<li><strong>Linux</strong>: <code>~/.config/dprint/dprint.json</code> (or <code>$XDG_CONFIG_HOME/dprint/dprint.json</code>)</li>
+<li><strong>macOS</strong>: <code>$HOME/Library/Application Support/dprint/dprint.json</code></li>
 <li><strong>Windows</strong>: <code>%APPDATA%\dprint\dprint.json</code></li>
 </ul>
 <p>You can customize the global config directory by setting the <code>DPRINT_CONFIG_DIR</code> environment variable.</p>
