@@ -341,11 +341,7 @@ const ci = {
           ].join("\n"),
         },
       ].map((step) =>
-        withCondition(
-          step,
-          // only run arm64 linux on main or tags
-          "startsWith(github.ref, 'refs/tags/')",
-        )
+          step
       ),
     },
     draft_release: {
