@@ -19,7 +19,7 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-
-      - uses: denoland/setup-deno@v1
+      - uses: denoland/setup-deno@v2
       - name: Install playground dependencies
         run: (cd website/playground && npm ci --legacy-peer-deps)
 

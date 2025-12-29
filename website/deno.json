@@ -1,11 +1,11 @@
 {
   "tasks": {
-    "lume": "deno run -A --no-check https://deno.land/x/lume@v1.15.3/ci.ts",
+    "lume": "echo \"import 'lume/cli.ts'\" | deno run --unstable -A -",
     "build:ci": "deno task build && cp -r playground/build _site/playground",
-    "build": "deno run -A https://deno.land/x/lume@v1.15.3/ci.ts",
-    "serve": "deno task build -s"
+    "build": "deno task lume",
+    "serve": "deno task lume -s"
   },
   "imports": {
-    "lume/": "https://deno.land/x/lume@v1.15.3/"
+    "lume/": "https://deno.land/x/lume@v3.1.2/"
   }
 }
