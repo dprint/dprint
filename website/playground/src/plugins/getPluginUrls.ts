@@ -13,6 +13,7 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
   const tomlPlugin = json.latest.find((p: any) => p.configKey === "toml")!;
   const dockerfilePlugin = json.latest.find((p: any) => p.configKey === "dockerfile")!;
   const biomePlugin = json.latest.find((p: any) => p.configKey === "biome")!;
+  const oxcPlugin = json.latest.find((p: any) => p.configKey === "oxc")!;
   const ruffPlugin = json.latest.find((p: any) => p.configKey === "ruff")!;
   const malvaPlugin = json.latest.find((p: any) => p.configKey === "malva")!;
   const markupFmtPlugin = json.latest.find((p: any) => p.configKey === "markup")!;
@@ -26,6 +27,7 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
     tomlPlugin.url,
     dockerfilePlugin.url,
     biomePlugin.url,
+    oxcPlugin.url,
     ruffPlugin.url,
     malvaPlugin.url,
     markupFmtPlugin.url,
@@ -46,6 +48,7 @@ export function getPluginShortNameFromPluginUrl(url: string) {
     case "toml":
     case "dockerfile":
     case "biome":
+    case "oxc":
     case "ruff":
     case "malva":
     case "markup_fmt":
@@ -68,6 +71,8 @@ export function getLanguageFromPluginUrl(url: string) {
     case "dockerfile":
       return language;
     case "biome":
+      return "typescript";
+    case "oxc":
       return "typescript";
     case "ruff":
       // todo: specify python here eventually (probably need to upgrade the code editor)

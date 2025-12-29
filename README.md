@@ -23,7 +23,8 @@ Repos:
 - [dprint-plugin-toml](https://github.com/dprint/dprint-plugin-toml) - TOML code formatter.
 - [dprint-plugin-jupyter](https://github.com/dprint/dprint-plugin-jupyter) - Jupyter notebook code block formatter.
 - [dprint-plugin-dockerfile](https://github.com/dprint/dprint-plugin-dockerfile) - Dockerfile code formatter.
-- [dprint-plugin-biome](https://github.com/dprint/dprint-plugin-biome) - Biome (JS/TS) wrapper plugin.
+- [dprint-plugin-biome](https://github.com/dprint/dprint-plugin-biome) - Biome (JS/TS/JSON) wrapper plugin.
+- [dprint-plugin-oxc](https://github.com/dprint/dprint-plugin-oxc) - Oxc (JS/TS) wrapper plugin.
 - [dprint-plugin-prettier](https://github.com/dprint/dprint-plugin-prettier) - Prettier wrapper plugin.
 - [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - Roslyn (C#/VB) wrapper plugin.
 - [dprint-plugin-ruff](https://github.com/dprint/dprint-plugin-ruff) - Ruff (Python) wrapper plugin.

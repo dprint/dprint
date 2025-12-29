@@ -43,3 +43,7 @@ See [Configuration](/plugins/biome/config)
 ## Playground
 
 See [Playground](https://dprint.dev/playground#plugin/biome)
+
+## Source
+
+See https://github.com/dprint/dprint-plugin-biome
