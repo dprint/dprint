@@ -3,6 +3,7 @@ import lume from "lume/mod.ts";
 import codeHighlight from "lume/plugins/code_highlight.ts";
 import date from "lume/plugins/date.ts";
 import esbuild from "lume/plugins/esbuild.ts";
+import nunjucks from "lume/plugins/nunjucks.ts";
 import sass from "lume/plugins/sass.ts";
 import anchor from "npm:markdown-it-anchor@8.6.7";
 
@@ -24,9 +25,10 @@ const site = lume({
 });
 
 site
+  .use(nunjucks())
   .use(sass())
-  .use(codeHighlight())
   .use(date())
+  .use(codeHighlight())
   .use(esbuild({
     options: {
       bundle: true,
@@ -36,8 +38,8 @@ site
       entryPoints: ["scripts.js"],
     },
   }))
-  // need to ignore this for some reason
-  .ignore("scripts")
+  .add("scripts.js")
+  .add("style.scss")
   .copy("assets", ".");
 
 export default site;
