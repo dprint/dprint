@@ -38,42 +38,44 @@ pub struct InitConfigFileOptions<'a> {
 }
 
 pub async fn init_config_file(environment: &impl Environment, options: InitConfigFileOptions<'_>) -> Result<()> {
-  let config_file_path = get_config_path(environment, &options)?;
-  return if !environment.path_exists(&config_file_path) {
-    let text = get_init_config_file_text(environment).await?;
-    if let Some(parent) = config_file_path.parent() {
-      _ = environment.mk_dir_all(parent);
-    }
-    environment.write_file(&config_file_path, &text)?;
-    log_stdout_info!(environment, "\nCreated {}", config_file_path.display());
+  fn get_config_paths(environment: &impl Environment, options: &InitConfigFileOptions<'_>) -> Result<Vec<PathBuf>> {
     if options.global {
-      log_stdout_info!(environment, "\nRun `dprint config edit --global` to modify this file in the future.");
-    }
-    log_stdout_info!(
-      environment,
-      "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
-    );
-    Ok(())
-  } else {
-    bail!("Configuration file '{}' already exists.", config_file_path.display())
-  };
-
-  fn get_config_path(environment: &impl Environment, options: &InitConfigFileOptions<'_>) -> Result<PathBuf> {
-    if options.global {
-      let directory = crate::configuration::resolve_global_config_dir(environment).ok_or_else(|| {
-        anyhow::anyhow!(concat!(
+      let directory = crate::configuration::resolve_global_config_dir(environment).with_context(|| {
+        concat!(
           "Could not find system config directory. ",
           "Maybe specify the DPRINT_CONFIG_DIR environment ",
           "variable to say where to store the global dprint configuration file."
-        ))
+        )
       })?;
-      Ok(directory.join("dprint.json"))
+      Ok(Vec::from([directory.join("dprint.jsonc"), directory.join("dprint.json")]))
     } else if let Some(config_arg) = options.config_arg {
-      Ok(PathBuf::from(config_arg))
+      Ok(Vec::from([PathBuf::from(config_arg)]))
     } else {
-      Ok(PathBuf::from("dprint.json"))
+      Ok(POSSIBLE_CONFIG_FILE_NAMES.iter().map(PathBuf::from).collect::<Vec<_>>())
     }
   }
+
+  let mut config_file_paths = get_config_paths(environment, &options)?;
+  for config_path in &config_file_paths {
+    if environment.path_exists(config_path) {
+      bail!("Configuration file '{}' already exists.", config_path.display())
+    }
+  }
+  let config_file_path = config_file_paths.remove(0);
+  let text = get_init_config_file_text(environment).await?;
+  if let Some(parent) = config_file_path.parent() {
+    _ = environment.mk_dir_all(parent);
+  }
+  environment.write_file(&config_file_path, &text)?;
+  log_stdout_info!(environment, "\nCreated {}", config_file_path.display());
+  if options.global {
+    log_stdout_info!(environment, "\nRun `dprint config edit --global` to modify this file in the future.");
+  }
+  log_stdout_info!(
+    environment,
+    "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
+  );
+  Ok(())
 }
 
 pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<()> {
@@ -771,15 +773,21 @@ mod test {
       environment.take_stderr_messages(),
       vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
     );
+    let config_path = if std::env::consts::OS == "macos" {
+      Path::new("/home/.config/dprint")
+    } else {
+      Path::new("/config/dprint")
+    }
+    .join("dprint.jsonc");
     assert_eq!(
       environment.take_stdout_messages(),
       vec![
-        format!("\nCreated {}", Path::new("/config").join("dprint").join("dprint.json").display()),
+        format!("\nCreated {}", config_path.display()),
         "\nRun `dprint config edit --global` to modify this file in the future.".to_string(),
         "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor".to_string()
       ]
     );
-    assert_eq!(environment.read_file("/config/dprint/dprint.json").unwrap(), expected_text);
+    assert_eq!(environment.read_file(config_path).unwrap(), expected_text);
   }
 
   #[test]
@@ -814,12 +822,12 @@ mod test {
     assert_eq!(
       environment.take_stdout_messages(),
       vec![
-        format!("\nCreated {}", Path::new("/custom/config").join("dprint.json").display()),
+        format!("\nCreated {}", Path::new("/custom/config").join("dprint.jsonc").display()),
         "\nRun `dprint config edit --global` to modify this file in the future.".to_string(),
         "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor".to_string()
       ]
     );
-    assert_eq!(environment.read_file("/custom/config/dprint.json").unwrap(), expected_text);
+    assert_eq!(environment.read_file("/custom/config/dprint.jsonc").unwrap(), expected_text);
   }
 
   #[test]
@@ -830,7 +838,7 @@ mod test {
       error_message.to_string(),
       format!(
         "Configuration file '{}' already exists.",
-        Path::new("/config").join("dprint").join("dprint.json").display()
+        Path::new("/config/dprint").join("dprint.json").display()
       )
     );
   }
@@ -1933,7 +1941,7 @@ mod test {
 
     assert_eq!(
       args[args.len() - 1].to_string_lossy(),
-      Path::new("/config").join("dprint").join("dprint.json").to_string_lossy()
+      Path::new("/config/dprint").join("dprint.json").to_string_lossy()
     );
   }
 

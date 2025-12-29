@@ -131,6 +131,7 @@ pub struct TestEnvironment {
   #[cfg(windows)]
   path_dirs: Arc<Mutex<Vec<PathBuf>>>,
   cpu_arch: Arc<Mutex<String>>,
+  os: Arc<Mutex<String>>,
   max_threads_count: Arc<Mutex<usize>>,
   current_exe_path: Arc<Mutex<PathBuf>>,
   is_terminal_interactive: Arc<Mutex<bool>>,
@@ -162,6 +163,7 @@ impl TestEnvironment {
       #[cfg(windows)]
       path_dirs: Default::default(),
       cpu_arch: Arc::new(Mutex::new("x86_64".to_string())),
+      os: Arc::new(Mutex::new(std::env::consts::OS.to_string())),
       max_threads_count: Arc::new(Mutex::new(std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4))),
       current_exe_path: Arc::new(Mutex::new(PathBuf::from("/dprint"))),
       is_terminal_interactive: Arc::new(Mutex::new(true)),
@@ -266,6 +268,10 @@ impl TestEnvironment {
 
   pub fn set_cpu_arch(&self, value: &str) {
     *self.cpu_arch.lock() = value.to_string();
+  }
+
+  pub fn set_os(&self, value: &str) {
+    *self.os.lock() = value.to_string();
   }
 
   pub fn set_max_threads(&self, value: usize) {
@@ -487,8 +493,8 @@ impl Environment for TestEnvironment {
     self.canonicalize("/cache").unwrap()
   }
 
-  fn get_config_dir(&self) -> Option<CanonicalizedPathBuf> {
-    self.canonicalize("/config").ok()
+  fn get_config_dir(&self) -> Option<PathBuf> {
+    Some(PathBuf::from("/config"))
   }
 
   fn get_home_dir(&self) -> Option<CanonicalizedPathBuf> {
@@ -500,7 +506,7 @@ impl Environment for TestEnvironment {
   }
 
   fn os(&self) -> String {
-    std::env::consts::OS.to_string()
+    self.os.lock().clone()
   }
 
   fn max_threads(&self) -> usize {
