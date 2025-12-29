@@ -6,8 +6,7 @@ enum OperatingSystem {
   MacX86 = "macos-15-intel",
   Windows = "windows-latest",
   Linux = "ubuntu-22.04",
-  LinuxArm =
-    "${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'buildjet-2vcpu-ubuntu-2204-arm' || 'buildjet-2vcpu-ubuntu-2204-arm' }}",
+  LinuxArm = "${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'buildjet-2vcpu-ubuntu-2204-arm' || 'ubuntu-22.04' }}",
 }
 
 interface ProfileData {
@@ -341,7 +340,13 @@ const ci = {
             "deno run -A build.ts 0.51.0",
           ].join("\n"),
         },
-      ].map((step) => step),
+      ].map((step) =>
+        withCondition(
+          step,
+          // only run arm64 linux on main or tags
+          "matrix.config.target != 'aarch64-unknown-linux-gnu' && matrix.config.target != 'aarch64-unknown-linux-musl' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')",
+        )
+      ),
     },
     draft_release: {
       name: "draft_release",
