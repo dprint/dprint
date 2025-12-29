@@ -23,6 +23,7 @@ The setup for both is the same except process plugins require a checksum to be s
 - [TOML](/plugins/toml)
 - [Dockerfile](/plugins/dockerfile)
 - [Biome](/plugins/biome) (JS/TS/JSON)
+- [Oxc](/plugins/oxc) (JS/TS)
 - [Malva](/plugins/malva) (CSS/SCSS/Sass/Less)
 - [Markup_fmt](/plugins/markup_fmt) (HTML/Vue/Svelte/Astro/Angular/Jinja/Twig/Nunjucks/Vento)
 - [Pretty GraphQL](/plugins/pretty_graphql) (GraphQL)

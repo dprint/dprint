@@ -5,6 +5,7 @@ const markdownUrl = "https://plugins.dprint.dev/markdown-x.x.x.wasm";
 const tomlUrl = "https://plugins.dprint.dev/toml-x.x.x.wasm";
 const dockerfileUrl = "https://plugins.dprint.dev/dockerfile-x.x.x.wasm";
 const biomeUrl = "https://plugins.dprint.dev/biome-x.x.x.wasm";
+const oxcUrl = "https://plugins.dprint.dev/oxc-x.x.x.wasm";
 const ruffUrl = "https://plugins.dprint.dev/ruff-x.x.x.wasm";
 const jupyterUrl = "https://plugins.dprint.dev/jupyter-x.x.x.wasm";
 const malvaUrl = "https://plugins.dprint.dev/g-plane/malva-vx.x.x.wasm";
@@ -38,6 +39,9 @@ export function replacePluginUrls() {
             break;
           case getWithQuotes(biomeUrl):
             element.textContent = getWithQuotes(urls["biome"]);
+            break;
+          case getWithQuotes(oxcUrl):
+            element.textContent = getWithQuotes(urls["oxc"]);
             break;
           case getWithQuotes(ruffUrl):
             element.textContent = getWithQuotes(urls["ruff"]);
@@ -109,6 +113,7 @@ function getPluginInfo() {
         toml: getUrlForPlugin(data, "dprint-plugin-toml"),
         dockerfile: getUrlForPlugin(data, "dprint-plugin-dockerfile"),
         biome: getUrlForPlugin(data, "dprint-plugin-biome"),
+        oxc: getUrlForPlugin(data, "dprint-plugin-oxc"),
         ruff: getUrlForPlugin(data, "dprint-plugin-ruff"),
         jupyter: getUrlForPlugin(data, "dprint-plugin-jupyter"),
         malva: getUrlForPlugin(data, "g-plane/malva"),
