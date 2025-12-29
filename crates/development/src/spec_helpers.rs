@@ -74,8 +74,8 @@ pub fn run_specs(
       filter_override: None,
       strategy: Box::new(file_test_runner::collection::strategies::TestPerFileCollectionStrategy { file_pattern: None }),
     },
-    RunOptions { parallel: true },
-    Arc::new(move |test| {
+    RunOptions::default(),
+    move |test| {
       let file_text = test.read_to_string().unwrap();
       let specs = parse_specs(file_text, &parse_spec_options);
       let specs = if specs.iter().any(|s| s.is_only) {
@@ -125,15 +125,15 @@ pub fn run_specs(
               ));
             }
             output.extend(failed_message.as_bytes());
-            TestResult::Failed { output }
+            TestResult::Failed { duration: None, output }
           } else {
-            TestResult::Passed
+            TestResult::Passed { duration: None }
           },
         });
       }
 
-      TestResult::SubTests(sub_tests)
-    }),
+      TestResult::SubTests { duration: None, sub_tests }
+    },
   );
 
   fn run_spec(

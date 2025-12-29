@@ -1,6 +1,6 @@
 [package]
 name = "dprint-development"
-version = "0.10.1"
+version = "0.10.2"
 authors = ["David Sherret <dsherret@gmail.com>"]
 edition = "2024"
 license = "MIT"
@@ -10,6 +10,6 @@ description = "Helper functions for testing dprint plugins."
 [dependencies]
 anyhow.workspace = true
 console = "0.15.2"
-file_test_runner = "0.5.1"
+file_test_runner = "0.12.0"
 serde_json.workspace = true
 similar.workspace = true
