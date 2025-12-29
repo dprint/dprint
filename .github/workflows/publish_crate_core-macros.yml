@@ -3,6 +3,10 @@ name: cargo publish core-macros crate
 on:
   workflow_dispatch:
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   rust:
     name: cargo publish core-macros crate
