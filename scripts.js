@@ -202,6 +202,7 @@
   var tomlUrl = "https://plugins.dprint.dev/toml-x.x.x.wasm";
   var dockerfileUrl = "https://plugins.dprint.dev/dockerfile-x.x.x.wasm";
   var biomeUrl = "https://plugins.dprint.dev/biome-x.x.x.wasm";
+  var oxcUrl = "https://plugins.dprint.dev/oxc-x.x.x.wasm";
   var ruffUrl = "https://plugins.dprint.dev/ruff-x.x.x.wasm";
   var jupyterUrl = "https://plugins.dprint.dev/jupyter-x.x.x.wasm";
   var malvaUrl = "https://plugins.dprint.dev/g-plane/malva-vx.x.x.wasm";
@@ -234,6 +235,9 @@
               break;
             case getWithQuotes(biomeUrl):
               element.textContent = getWithQuotes(urls["biome"]);
+              break;
+            case getWithQuotes(oxcUrl):
+              element.textContent = getWithQuotes(urls["oxc"]);
               break;
             case getWithQuotes(ruffUrl):
               element.textContent = getWithQuotes(urls["ruff"]);
@@ -302,6 +306,7 @@
         toml: getUrlForPlugin(data, "dprint-plugin-toml"),
         dockerfile: getUrlForPlugin(data, "dprint-plugin-dockerfile"),
         biome: getUrlForPlugin(data, "dprint-plugin-biome"),
+        oxc: getUrlForPlugin(data, "dprint-plugin-oxc"),
         ruff: getUrlForPlugin(data, "dprint-plugin-ruff"),
         jupyter: getUrlForPlugin(data, "dprint-plugin-jupyter"),
         malva: getUrlForPlugin(data, "g-plane/malva"),
