@@ -2,6 +2,7 @@ scripts/build-website
 scripts/node_modules
 /.rpt2_cache
 *.js.map
+node_modules
 target
 .claude
 .vscode
@@ -9,5 +10,6 @@ target
 /crates/development/target
 /crates/test-plugin/target
 /website/playground/wasm/target
+/website/playground/dist
 /crates/test-plugin/Cargo.lock
 /deployment/npm/dist

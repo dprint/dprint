@@ -12,7 +12,7 @@
     "blockSelectorLinebreak": "always"
   },
   "excludes": [
-    "website/playground/build",
+    "website/playground/dist",
     "website/_site",
     "**/node_modules",
     "**/dist",

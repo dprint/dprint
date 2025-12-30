@@ -331,6 +331,9 @@ const ci = {
         {
           uses: "denoland/setup-deno@v2",
           if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
+          with: {
+            "deno-version": "canary",
+          },
         },
         {
           name: "Test npm",

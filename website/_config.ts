@@ -1,11 +1,11 @@
-import { tgz } from "https://deno.land/x/compress@v0.4.1/mod.ts";
+import { tgz } from "compress";
 import lume from "lume/mod.ts";
 import codeHighlight from "lume/plugins/code_highlight.ts";
 import date from "lume/plugins/date.ts";
 import esbuild from "lume/plugins/esbuild.ts";
 import nunjucks from "lume/plugins/nunjucks.ts";
 import sass from "lume/plugins/sass.ts";
-import anchor from "npm:markdown-it-anchor@8.6.7";
+import anchor from "markdown-it-anchor";
 
 await buildSass();
 

@@ -1,9 +1,7 @@
 import type { FileMatchingInfo, PluginInfo } from "@dprint/formatter";
-import React, { useEffect, useState } from "react";
-import ReactDOM from "react-dom";
+import { useEffect, useState } from "react";
 import { Spinner } from "./components";
 import * as formatterWorker from "./FormatterWorker";
-import "./index.css";
 import { Playground } from "./Playground";
 import { getPluginDefaultConfig, getPluginShortNameFromPluginUrl, getPluginUrls } from "./plugins";
 import { UrlSaver } from "./utils";
@@ -12,7 +10,7 @@ const urlSaver = new UrlSaver();
 const initialUrl = urlSaver.getUrlInfo();
 let isFirstLoad = true;
 
-function Loader() {
+export default function App() {
   const [pluginUrls, setPluginUrls] = useState<string[]>([]);
   const [pluginUrl, setPluginUrl] = useState(initialUrl.pluginUrl);
   const [pluginInfo, setPluginInfo] = useState<PluginInfo | undefined>();
@@ -153,5 +151,3 @@ function Loader() {
     />
   );
 }
-
-ReactDOM.render(<Loader />, document.getElementById("root"));
