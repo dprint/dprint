@@ -51,7 +51,7 @@ export function Playground({
 
   useEffect(() => {
     const timeout = setTimeout(() => {
-      formatterWorker.formatText("file." + fileExtension ?? "ts", text);
+      formatterWorker.formatText("file." + (fileExtension ?? "ts"), text);
     }, 250);
 
     return () => clearTimeout(timeout);

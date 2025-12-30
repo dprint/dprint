@@ -1,4 +1,8 @@
 {
+  "workspace": [
+    "./playground"
+  ],
+  "nodeModulesDir": "manual",
   "tasks": {
     "lume": "echo \"import 'lume/cli.ts'\" | deno run --unstable -A -",
     "build:ci": "deno task build && cp -r playground/build _site/playground",
@@ -6,6 +10,14 @@
     "serve": "deno task lume -s"
   },
   "imports": {
-    "lume/": "https://deno.land/x/lume@v3.1.2/"
-  }
+    "compress": "https://deno.land/x/compress@v0.4.1/mod.ts",
+    "lume/": "https://deno.land/x/lume@v3.1.2/",
+    "markdown-it-anchor": "npm:markdown-it-anchor@8.6.7"
+  },
+  "allowScripts": [
+    "npm:fsevents",
+    "npm:@parcel/watcher",
+    "npm:core-js-pure",
+    "npm:core-js"
+  ]
 }

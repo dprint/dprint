@@ -35,12 +35,12 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
     import("monaco-editor").then(monacoEditor => {
       this.monacoEditor = monacoEditor;
       if (this.props.language === "typescript") {
-        monacoEditor.languages.typescript.typescriptDefaults.setCompilerOptions({
+        monacoEditor.typescript.typescriptDefaults.setCompilerOptions({
           noLib: true,
-          target: monacoEditor.languages.typescript.ScriptTarget.ESNext,
+          target: monacoEditor.typescript.ScriptTarget.ESNext,
           allowNonTsExtensions: true,
         });
-        monacoEditor.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+        monacoEditor.typescript.typescriptDefaults.setDiagnosticsOptions({
           noSyntaxValidation: true,
           noSemanticValidation: true,
         });
@@ -90,7 +90,7 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
       return <Spinner backgroundColor="#1e1e1e" />;
     }
     if (this.state.editorComponent === false) {
-      return <div className={"errorMessage"}>Error loading code editor. Please refresh the page to try again.</div>;
+      return <div className="errorMessage">Error loading code editor. Please refresh the page to try again.</div>;
     }
 
     return (
@@ -172,8 +172,8 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
 
   private updateJsonSchema() {
     if (this.monacoEditor != null && this.props.jsonSchemaUrl != null) {
-      if (this.monacoEditor.languages.json.jsonDefaults.diagnosticsOptions.schemas?.[0]?.uri !== this.props.jsonSchemaUrl) {
-        this.monacoEditor.languages.json.jsonDefaults.setDiagnosticsOptions({
+      if (this.monacoEditor.json.jsonDefaults.diagnosticsOptions.schemas?.[0]?.uri !== this.props.jsonSchemaUrl) {
+        this.monacoEditor.json.jsonDefaults.setDiagnosticsOptions({
           validate: true,
           allowComments: true,
           enableSchemaRequest: true,
