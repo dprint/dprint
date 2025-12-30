@@ -5,7 +5,7 @@
   "nodeModulesDir": "manual",
   "tasks": {
     "lume": "echo \"import 'lume/cli.ts'\" | deno run --unstable -A -",
-    "build:ci": "deno task build && cp -r playground/build _site/playground",
+    "build:ci": "deno task build && cp -r playground/dist _site/playground",
     "build": "deno task lume",
     "serve": "deno task lume -s"
   },
