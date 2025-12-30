@@ -32,7 +32,6 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-monaco-editor": "^0.59.0",
-    "react-scripts": "5.0.1",
     "react-spinners": "^0.17.0"
   },
   "devDependencies": {
