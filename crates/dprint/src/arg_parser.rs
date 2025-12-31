@@ -182,6 +182,7 @@ pub struct FmtSubCommand {
   pub incremental: Option<bool>,
   pub enable_stable_format: bool,
   pub allow_no_files: bool,
+  pub fail_on_change: bool,
   pub only_staged: bool,
 }
 
@@ -311,6 +312,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
           } else {
             matches.get_flag("allow-no-files")
           },
+          fail_on_change: matches.get_flag("fail-on-change"),
           only_staged: matches.get_flag("staged"),
         })
       }
@@ -598,6 +600,13 @@ EXAMPLES:
             .help("Whether to skip formatting a file multiple times until the output is stable")
             // hidden because this needs more thought and probably shouldn't be allowed with incremental
             .hide(true)
+            .num_args(0)
+            .required(false)
+        )
+        .arg(
+          Arg::new("fail-on-change")
+            .long("fail-on-change")
+            .help("Exit with exit code 20 if files were formatted.")
             .num_args(0)
             .required(false)
         )

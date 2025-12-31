@@ -304,6 +304,9 @@ pub async fn format<TEnvironment: Environment>(
   if formatted_files_count > 0 {
     let suffix = if formatted_files_count == 1 { "file" } else { "files" };
     log_stdout_info!(environment, "Formatted {} {}.", formatted_files_count.to_string().bold(), suffix);
+    if cmd.fail_on_change {
+      return Err(CheckError::Files { count: formatted_files_count }.into());
+    }
   }
 
   Ok(())
