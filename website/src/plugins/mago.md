@@ -45,3 +45,7 @@ See [Configuration](/plugins/mago/config)
 ## Playground
 
 See [Playground](https://dprint.dev/playground#plugin/mago)
+
+## Source
+
+See https://github.com/dprint/dprint-plugin-mago
