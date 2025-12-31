@@ -2,15 +2,15 @@
 <html lang="en"><head>
     <script async="" src="/scripts.js"></script>
     <meta charset="utf-8">
-    <title>CI - dprint - Code Formatter</title>
+    <title>Configuration - Mago - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#000000">
-    <meta name="description" content="Documentation for running dprint on continuous integration.">
+    <meta name="description" content="Documentation on the configuration file for the Mago code formatting plugin for dprint.">
     <meta name="author" content="Dprint Code Formatting">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:site" content="@dprintfmt">
-    <meta name="twitter:title" content="CI">
-    <meta name="twitter:description" content="Documentation for running dprint on continuous integration.">
+    <meta name="twitter:title" content="Configuration - Mago">
+    <meta name="twitter:description" content="Documentation on the configuration file for the Mago code formatting plugin for dprint.">
     
     <link rel="stylesheet" href="/style.css">
   </head>
@@ -72,19 +72,17 @@
       </ul>
     </aside>
     <div id="content-body" class="column documentation">
-      <h1>Continuous Integration (CI)</h1>
-<p>You may desire to run <code>dprint check</code> as a step on your CI to ensure the code is formatted.</p>
-<h2 id="github-action" tabindex="-1"><a class="header-anchor" href="#github-action">GitHub Action</a></h2>
-<p>See <code>dprint/check</code>: <a href="https://github.com/marketplace/actions/dprint-check-action">https://github.com/marketplace/actions/dprint-check-action</a></p>
-<h2 id="gitlab" tabindex="-1"><a class="header-anchor" href="#gitlab">GitLab</a></h2>
-<p>See <code>dprint-ci</code>: <a href="https://gitlab.com/midnightexigent/dprint-ci">https://gitlab.com/midnightexigent/dprint-ci</a></p>
-<h2 id="others" tabindex="-1"><a class="header-anchor" href="#others">Others</a></h2>
-<p>It is easy to get dprint working on a CI by running the install script then <code>dprint check</code>.</p>
-<p>For example:</p>
-<pre><code class="language-sh hljs language-bash"><span class="hljs-comment"># replace X.X.X with the version of dprint to use</span>
-curl -fsSL https://dprint.dev/install.sh | sh -s X.X.X &gt; /dev/null 2&gt;&amp;1
-<span class="hljs-variable">$HOME</span>/.dprint/bin/dprint check
-</code></pre>
+      <nav class="breadcrumb" aria-label="breadcrumbs">
+  <ul>
+    <li><a href="/plugins">Plugins</a></li>
+    <li><a href="/plugins/mago">Mago</a></li>
+    <li><a href="/plugins/mago/config">Configuration</a></li>
+  </ul>
+</nav>
+<h1>Mago - Configuration</h1>
+<div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-mago/latest/schema.json">
+  Loading...
+</div>
 
     </div>
   </div>
