@@ -1943,6 +1943,30 @@ mod test {
   }
 
   #[test]
+  fn should_fail_on_change_when_files_formatted() {
+    let file_path = "/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(&file_path, "const t=4;")
+      .build();
+    let err = run_test_cli(vec!["fmt", "--fail-on-change", "/file.txt"], &environment).unwrap_err();
+    err.assert_exit_code(20);
+    assert_eq!(err.to_string(), get_singular_check_text());
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    // file should still be formatted
+    assert_eq!(environment.read_file(&file_path).unwrap(), "const t=4;_formatted");
+  }
+
+  #[test]
+  fn should_not_fail_on_change_when_no_files_formatted() {
+    let file_path = "/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(&file_path, "text_formatted")
+      .build();
+    run_test_cli(vec!["fmt", "--fail-on-change", "/file.txt"], &environment).unwrap();
+    assert!(environment.take_stdout_messages().is_empty());
+  }
+
+  #[test]
   fn should_handle_bom() {
     let file_path = "/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
