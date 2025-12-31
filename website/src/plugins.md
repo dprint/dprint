@@ -28,6 +28,7 @@ The setup for both is the same except process plugins require a checksum to be s
 - [Markup_fmt](/plugins/markup_fmt) (HTML/Vue/Svelte/Astro/Angular/Jinja/Twig/Nunjucks/Vento)
 - [Pretty GraphQL](/plugins/pretty_graphql) (GraphQL)
 - [Pretty YAML](/plugins/pretty_yaml) (YAML)
+- [Mago](/plugins/mago) (PHP)
 - [Ruff](/plugins/ruff) (Python)
 - [Jupyter](/plugins/jupyter)
 

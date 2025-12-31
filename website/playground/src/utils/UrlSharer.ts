@@ -8,6 +8,7 @@ export const knownPlugins = new Set([
   "dockerfile",
   "biome",
   "oxc",
+  "mago",
   "ruff",
   // third party plugins, but user name is removed because there can't be `/` in the url
   "malva",
