@@ -28,6 +28,11 @@
       </div>
 
       <div class="navbar-menu" id="navbarLinks">
+        {% if isDocumentation %}
+          <div class="navbar-start doc-menu-mobile">
+            {% include "partials/doc-menu.njk" %}
+          </div>
+        {% endif %}
         <div class="navbar-end">
           <a class="navbar-item" href="/overview">Overview</a>
           <a class="navbar-item" href="/playground">Playground</a>
