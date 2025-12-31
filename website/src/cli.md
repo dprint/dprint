@@ -139,7 +139,7 @@ Note this can also be set via the `DPRINT_CONFIG_DISCOVERY` environment variable
 - `12` - Plugin resolution error
 - `13` - No plugins found error
 - `14` - No files found error (or suppress to `0` with `--allow-no-files` in dprint >= 0.43)
-- `20` - `dprint check` found non-formatted files
+- `20` - `dprint check` found non-formatted files, or `dprint fmt --fail-on-change` formatted files
 
 ## Shell completions
 
