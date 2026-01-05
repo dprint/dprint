@@ -302,11 +302,12 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
           patterns: parse_file_patterns(matches)?,
         })
       } else {
+        let enable_stable_format = !matches.get_flag("skip-stable-format");
         SubCommand::Fmt(FmtSubCommand {
           diff: matches.get_flag("diff"),
           patterns: parse_file_patterns(matches)?,
-          incremental: parse_incremental(matches),
-          enable_stable_format: !matches.get_flag("skip-stable-format"),
+          incremental: if enable_stable_format { parse_incremental(matches) } else { Some(false) },
+          enable_stable_format,
           allow_no_files: if matches.get_flag("staged") {
             true
           } else {
@@ -598,8 +599,6 @@ EXAMPLES:
           Arg::new("skip-stable-format")
             .long("skip-stable-format")
             .help("Whether to skip formatting a file multiple times until the output is stable")
-            // hidden because this needs more thought and probably shouldn't be allowed with incremental
-            .hide(true)
             .num_args(0)
             .required(false)
         )
@@ -941,6 +940,32 @@ mod test {
     assert_eq!(fmt_cmd.incremental, Some(false));
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--incremental"]).unwrap();
     assert_eq!(fmt_cmd.incremental, Some(true));
+  }
+
+  #[test]
+  fn skip_stable_format_disables_incremental() {
+    // Without --skip-stable-format, incremental follows what's specified
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt"]).unwrap();
+    assert_eq!(fmt_cmd.enable_stable_format, true);
+    assert_eq!(fmt_cmd.incremental, None);
+
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--incremental"]).unwrap();
+    assert_eq!(fmt_cmd.enable_stable_format, true);
+    assert_eq!(fmt_cmd.incremental, Some(true));
+
+    // With --skip-stable-format, incremental is forced to false
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--skip-stable-format"]).unwrap();
+    assert_eq!(fmt_cmd.enable_stable_format, false);
+    assert_eq!(fmt_cmd.incremental, Some(false));
+
+    // Even if --incremental is explicitly set, --skip-stable-format forces it to false
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--skip-stable-format", "--incremental"]).unwrap();
+    assert_eq!(fmt_cmd.enable_stable_format, false);
+    assert_eq!(fmt_cmd.incremental, Some(false));
+
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--skip-stable-format", "--incremental=true"]).unwrap();
+    assert_eq!(fmt_cmd.enable_stable_format, false);
+    assert_eq!(fmt_cmd.incremental, Some(false));
   }
 
   #[test]
