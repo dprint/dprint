@@ -944,7 +944,7 @@ mod test {
 
   #[test]
   fn skip_stable_format_disables_incremental() {
-    // Without --skip-stable-format, incremental follows what's specified
+    // without --skip-stable-format, incremental follows what's specified
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt"]).unwrap();
     assert_eq!(fmt_cmd.enable_stable_format, true);
     assert_eq!(fmt_cmd.incremental, None);
@@ -953,12 +953,12 @@ mod test {
     assert_eq!(fmt_cmd.enable_stable_format, true);
     assert_eq!(fmt_cmd.incremental, Some(true));
 
-    // With --skip-stable-format, incremental is forced to false
+    // with --skip-stable-format, incremental is forced to false
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--skip-stable-format"]).unwrap();
     assert_eq!(fmt_cmd.enable_stable_format, false);
     assert_eq!(fmt_cmd.incremental, Some(false));
 
-    // Even if --incremental is explicitly set, --skip-stable-format forces it to false
+    // even if --incremental is explicitly set, --skip-stable-format forces it to false
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--skip-stable-format", "--incremental"]).unwrap();
     assert_eq!(fmt_cmd.enable_stable_format, false);
     assert_eq!(fmt_cmd.incremental, Some(false));
