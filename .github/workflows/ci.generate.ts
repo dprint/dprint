@@ -93,6 +93,11 @@ const ci = {
     pull_request: { branches: ["main"] },
     push: { branches: ["main"], tags: ["*"] },
   },
+  permissions: {
+    "id-token": "write",
+    attestations: "write",
+    contents: "write",
+  },
   concurrency: {
     // https://stackoverflow.com/a/72408109/188246
     group: "${{ github.workflow }}-${{ github.head_ref || github.run_id }}",
@@ -436,6 +441,13 @@ ${
             draft: true,
           },
         },
+        {
+          name: "Generate artifact attestations",
+          uses: "actions/attest-build-provenance@v3",
+          with: {
+            "subject-checksums": "SHASUMS256.txt",
+          }
+        }.join("\n"),
       ],
     },
   },
