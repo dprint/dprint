@@ -134,13 +134,13 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
        handle_process_stdio_messages(MyPluginHandler).await
      })
    }
-   ````
+   ```
 5. Finally, use your created plugin handler to start reading and writing to stdin and stdout (as also shown above):
 
    <!-- dprint-ignore -->
    ```rust
    handle_process_stdio_messages(MyPluginHandler).await
-   ````
+   ```
 
 ## Schema Version 5 Overview
 
