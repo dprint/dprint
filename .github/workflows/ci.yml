@@ -304,6 +304,10 @@ jobs:
     if: 'startsWith(github.ref, ''refs/tags/'')'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -376,3 +380,7 @@ jobs:
             |dprint-loongarch64-unknown-linux-gnu.zip|${{needs.build.outputs.ZIP_CHECKSUM_LOONGARCH64_UNKNOWN_LINUX_GNU}}|
             |dprint-loongarch64-unknown-linux-musl.zip|${{needs.build.outputs.ZIP_CHECKSUM_LOONGARCH64_UNKNOWN_LINUX_MUSL}}|
           draft: true
+      - name: Generate artifact attestations
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-checksums: SHASUMS256.txt
