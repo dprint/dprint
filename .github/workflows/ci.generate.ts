@@ -1,5 +1,5 @@
-import * as yaml from "https://deno.land/std@0.170.0/encoding/yaml.ts";
-import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
+import $ from "jsr:@david/dax@0.45.0";
+import { conditions, createWorkflow, defineMatrix, expr, type ExpressionValue, step, steps } from "../../../ci-yml-generator/mod.ts";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
@@ -15,16 +15,6 @@ interface ProfileData {
   runTests?: boolean;
   /** Build using cross. */
   cross?: boolean;
-}
-
-function withCondition(
-  step: Record<string, unknown>,
-  condition: string,
-): Record<string, unknown> {
-  return {
-    ...step,
-    if: "if" in step ? `(${condition}) && (${step.if})` : condition,
-  };
 }
 
 const profileDataItems: ProfileData[] = [{
@@ -66,6 +56,7 @@ const profileDataItems: ProfileData[] = [{
   target: "loongarch64-unknown-linux-musl",
   cross: true,
 }];
+
 const profiles = profileDataItems.map(profile => {
   return {
     ...profile,
@@ -87,7 +78,26 @@ const profiles = profileDataItems.map(profile => {
   };
 });
 
-const ci = {
+const isTag = conditions.isTag();
+const isNotTag = isTag.not();
+
+const matrix = defineMatrix({
+  include: profileDataItems.map(profile => ({
+    os: profile.os as string,
+    run_tests: (profile.runTests ?? false).toString(),
+    target: profile.target,
+    cross: (profile.cross ?? false).toString(),
+  })),
+});
+
+const runTests = matrix.run_tests.equals("true");
+const runDebugTests = runTests.and(isNotTag);
+const isCross = matrix.cross.equals("true");
+const isLinuxGnu = matrix.target.equals("x86_64-unknown-linux-gnu");
+
+// === workflow ===
+
+const workflow = createWorkflow({
   name: "CI",
   on: {
     pull_request: { branches: ["main"] },
@@ -96,318 +106,291 @@ const ci = {
   concurrency: {
     // https://stackoverflow.com/a/72408109/188246
     group: "${{ github.workflow }}-${{ github.head_ref || github.run_id }}",
-    "cancel-in-progress": true,
+    cancelInProgress: true,
   },
-  jobs: {
-    build: {
-      name: "${{ matrix.config.target }}",
-      "runs-on": "${{ matrix.config.os }}",
-      strategy: {
-        matrix: {
-          config: profiles.map(profile => ({
-            os: profile.os,
-            run_tests: (profile.runTests ?? false).toString(),
-            target: profile.target,
-            cross: (profile.cross ?? false).toString(),
-          })),
-        },
-      },
-      env: {
-        // disabled to reduce ./target size and generally it's slower enabled
-        CARGO_INCREMENTAL: 0,
-        RUST_BACKTRACE: "full",
-      },
-      outputs: Object.fromEntries(
-        profiles.map(profile => {
-          const entries: string[][] = [];
-          entries.push([
-            profile.zipChecksumEnvVarName,
-            "${{steps.pre_release_" + profile.target.replaceAll("-", "_") + ".outputs.ZIP_CHECKSUM}}",
-          ]);
-          if (profile.target === "x86_64-pc-windows-msvc") {
-            entries.push([
-              profile.installerChecksumEnvVarName,
-              "${{steps.pre_release_" + profile.target.replaceAll("-", "_") + ".outputs.INSTALLER_CHECKSUM}}",
-            ]);
-          }
-          return entries;
-        }).flat(),
-      ),
-      steps: [
-        { name: "Checkout", uses: "actions/checkout@v6" },
-        { uses: "dsherret/rust-toolchain-file@v1" },
-        {
-          uses: "Swatinem/rust-cache@v2",
-          with: {
-            key: "${{ matrix.config.target }}",
-          },
-        },
-        {
-          name: "Setup (Linux x86_64-musl)",
-          if: "matrix.config.target == 'x86_64-unknown-linux-musl'",
-          run: [
-            "sudo apt update",
-            "sudo apt install musl musl-dev musl-tools",
-            "rustup target add x86_64-unknown-linux-musl",
-          ].join("\n"),
-        },
-        {
-          name: "Setup (Linux aarch64)",
-          if: "matrix.config.target == 'aarch64-unknown-linux-gnu'",
-          run: [
-            "sudo apt update",
-            "sudo apt install gcc-aarch64-linux-gnu",
-            "rustup target add aarch64-unknown-linux-gnu",
-          ].join("\n"),
-        },
-        {
-          name: "Setup (Linux aarch64-musl)",
-          if: "matrix.config.target == 'aarch64-unknown-linux-musl'",
-          run: [
-            "sudo apt update",
-            "sudo apt install musl musl-dev musl-tools",
-            "rustup target add aarch64-unknown-linux-musl",
-          ].join("\n"),
-        },
-        {
-          name: "Setup cross",
-          if: "matrix.config.cross == 'true'",
-          run: [
-            "cargo install cross --git https://github.com/cross-rs/cross --rev 36c0d7810ddde073f603c82d896c2a6c886ff7a4",
-          ].join("\n"),
-        },
-        {
-          name: "Build test plugins (Debug)",
-          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}}",
-        },
-        {
-          name: "Build test plugins (Release)",
-          if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
-          run: "cargo build -p test-process-plugin --locked --target ${{matrix.config.target}} --release",
-        },
-        {
-          name: "Clippy",
-          if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && !startsWith(github.ref, 'refs/tags/')",
-          run: "cargo clippy",
-        },
-        {
-          name: "Build (Debug)",
-          if: "matrix.config.cross != 'true' && !startsWith(github.ref, 'refs/tags/')",
-          env: {
-            "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
-          },
-          run: [
-            "cargo build -p dprint --locked --target ${{matrix.config.target}}",
-          ].join("\n"),
-        },
-        {
-          name: "Build (Release)",
-          if: "matrix.config.cross != 'true' && startsWith(github.ref, 'refs/tags/')",
-          env: {
-            "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "aarch64-linux-gnu-gcc",
-          },
-          run: [
-            "cargo build -p dprint --locked --target ${{matrix.config.target}} --release",
-          ].join("\n"),
-        },
-        {
-          name: "Build cross (Debug)",
-          if: "matrix.config.cross == 'true' && !startsWith(github.ref, 'refs/tags/')",
-          run: [
-            "cross build -p dprint --locked --target ${{matrix.config.target}}",
-          ].join("\n"),
-        },
-        {
-          name: "Build cross (Release)",
-          if: "matrix.config.cross == 'true' && startsWith(github.ref, 'refs/tags/')",
-          run: [
-            "cross build -p dprint --locked --target ${{matrix.config.target}} --release",
-          ].join("\n"),
-        },
-        {
-          name: "Test (Debug)",
-          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-          run: "cargo test --locked --target ${{matrix.config.target}} --all-features",
-        },
-        {
-          name: "Test (Release)",
-          if: "matrix.config.run_tests == 'true' && startsWith(github.ref, 'refs/tags/')",
-          run: "cargo test --locked --target ${{matrix.config.target}} --all-features --release",
-        },
-        {
-          name: "Test integration",
-          if: "matrix.config.target == 'x86_64-unknown-linux-gnu' && !startsWith(github.ref, 'refs/tags/')",
-          run: "cargo run -p dprint --locked --target ${{matrix.config.target}} -- check",
-        },
-        {
-          name: "Create installer (Windows x86_64)",
-          uses: "joncloud/makensis-action@v2.0",
-          if: "matrix.config.target == 'x86_64-pc-windows-msvc' && startsWith(github.ref, 'refs/tags/')",
-          with: { "script-file": "${{ github.workspace }}/deployment/installer/dprint-installer.nsi" },
-        },
-        // zip files
-        ...profiles.map(profile => {
-          function getRunSteps() {
-            switch (profile.os) {
-              case OperatingSystem.Mac:
-              case OperatingSystem.MacX86:
-                return [
-                  `cd target/${profile.target}/release`,
-                  `zip -r ${profile.zipFileName} dprint`,
-                  `echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 ${profile.zipFileName} | awk '{print $1}')\"`,
-                ];
-              case OperatingSystem.Linux:
-              case OperatingSystem.LinuxArm:
-                return [
-                  `cd target/${profile.target}/release`,
-                  `zip -r ${profile.zipFileName} dprint`,
-                  `echo \"::set-output name=ZIP_CHECKSUM::$(shasum -a 256 ${profile.zipFileName} | awk '{print $1}')\"`,
-                ];
-              case OperatingSystem.Windows:
-                const installerSteps = profile.target === "x86_64-pc-windows-msvc"
-                  ? [
-                    `mv deployment/installer/${profile.installerFileName} target/${profile.target}/release/${profile.installerFileName}`,
-                    `echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.installerFileName} | awk '{print $1}')"`,
-                  ]
-                  : [];
-                return [
-                  `Compress-Archive -CompressionLevel Optimal -Force -Path target/${profile.target}/release/dprint.exe -DestinationPath target/${profile.target}/release/${profile.zipFileName}`,
-                  `echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.zipFileName} | awk '{print $1}')"`,
-                  ...installerSteps,
-                ];
-              default: {
-                const _assertNever: never = profile.os;
-                throw new Error(`Unhandled OS: ${profile.os}`);
-              }
-            }
-          }
-          return {
-            name: `Pre-release (${profile.target})`,
-            id: `pre_release_${profile.target.replaceAll("-", "_")}`,
-            if: `matrix.config.target == '${profile.target}' && startsWith(github.ref, 'refs/tags/')`,
-            run: getRunSteps().join("\n"),
-          };
-        }),
-        // upload artifacts
-        ...profiles.map(profile => {
-          function getArtifactPaths() {
-            const paths = [
-              `target/${profile.target}/release/${profile.zipFileName}`,
-            ];
-            if (profile.target === "x86_64-pc-windows-msvc") {
-              paths.push(
-                `target/${profile.target}/release/${profile.installerFileName}`,
-              );
-            }
-            return paths;
-          }
+});
 
-          return {
-            name: `Upload artifacts (${profile.target})`,
-            if: `matrix.config.target == '${profile.target}' && startsWith(github.ref, 'refs/tags/')`,
-            uses: "actions/upload-artifact@v4",
-            with: {
-              name: profile.artifactsName,
-              path: getArtifactPaths().join("\n"),
-            },
-          };
-        }),
-        {
-          name: "Test shell installer",
-          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-          run: [
-            "cd website/src/assets",
-            "chmod +x install.sh",
-            "./install.sh",
-          ].join("\n"),
-        },
-        {
-          name: "Test powershell installer (Windows)",
-          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/') && matrix.config.target == 'x86_64-pc-windows-msvc'",
-          shell: "pwsh",
-          run: ["cd website/src/assets", "./install.ps1"].join("\n"),
-        },
-        {
-          uses: "denoland/setup-deno@v2",
-          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-          with: {
-            "deno-version": "canary",
-          },
-        },
-        {
-          name: "Test npm",
-          if: "matrix.config.run_tests == 'true' && !startsWith(github.ref, 'refs/tags/')",
-          run: [
-            "cd deployment/npm",
-            "deno run -A build.ts 0.51.0",
-          ].join("\n"),
-        },
-      ].map((step) =>
-        withCondition(
-          step,
-          // only run arm64 linux on main or tags
-          "matrix.config.target != 'aarch64-unknown-linux-gnu' && matrix.config.target != 'aarch64-unknown-linux-musl' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')",
-        )
-      ),
+// === build job ===
+
+const checkout = step({ name: "Checkout", uses: "actions/checkout@v6" });
+const setupRust = steps({
+  uses: "dsherret/rust-toolchain-file@v1",
+}, {
+  uses: "Swatinem/rust-cache@v2",
+  with: { key: matrix.target },
+}, {
+  name: "Setup (Linux x86_64-musl)",
+  if: matrix.target.equals("x86_64-unknown-linux-musl"),
+  run: [
+    "sudo apt update",
+    "sudo apt install musl musl-dev musl-tools",
+    "rustup target add x86_64-unknown-linux-musl",
+  ],
+}, {
+  name: "Setup (Linux aarch64)",
+  if: matrix.target.equals("aarch64-unknown-linux-gnu"),
+  run: [
+    "sudo apt update",
+    "sudo apt install gcc-aarch64-linux-gnu",
+    "rustup target add aarch64-unknown-linux-gnu",
+  ],
+}, {
+  name: "Setup (Linux aarch64-musl)",
+  if: matrix.target.equals("aarch64-unknown-linux-musl"),
+  run: [
+    "sudo apt update",
+    "sudo apt install musl musl-dev musl-tools",
+    "rustup target add aarch64-unknown-linux-musl",
+  ],
+}, {
+  name: "Setup cross",
+  if: isCross,
+  run: "cargo install cross --git https://github.com/cross-rs/cross --rev 36c0d7810ddde073f603c82d896c2a6c886ff7a4",
+}).dependsOn(checkout);
+const setupDeno = step({
+  uses: "denoland/setup-deno@v2",
+  with: { "deno-version": "canary" },
+});
+
+const clippy = step({
+  name: "Clippy",
+  if: isLinuxGnu.and(isNotTag),
+  run: "cargo clippy",
+}).dependsOn(setupRust);
+
+const aarch64LinkerEnv = {
+  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc",
+};
+
+const buildDebug = steps({
+  name: "Build (Debug)",
+  if: isCross.not(),
+  env: aarch64LinkerEnv,
+  run: `cargo build -p dprint --locked --target ${matrix.target}`,
+}, {
+  name: "Build cross (Debug)",
+  if: isCross,
+  run: `cross build -p dprint --locked --target ${matrix.target}`,
+}).dependsOn(setupRust);
+const buildRelease = steps({
+  name: "Build (Release)",
+  if: isCross.not(),
+  env: aarch64LinkerEnv,
+  run: `cargo build -p dprint --locked --target ${matrix.target} --release`,
+}, {
+  name: "Build cross (Release)",
+  if: isCross,
+  run: `cross build -p dprint --locked --target ${matrix.target} --release`,
+}).if(isTag).dependsOn(setupRust);
+
+const buildTestPluginsDebug = step({
+  name: "Build test plugins (Debug)",
+  run: `cargo build -p test-process-plugin --locked --target ${matrix.target}`,
+}).dependsOn(setupRust);
+const buildTestPluginsRelease = step({
+  name: "Build test plugins (Release)",
+  run: `cargo build -p test-process-plugin --locked --target ${matrix.target} --release`,
+}).dependsOn(setupRust);
+const testDebug = step({
+  name: "Test (Debug)",
+  if: runDebugTests,
+  run: `cargo test --locked --target ${matrix.target} --all-features`,
+}).dependsOn(buildDebug, buildTestPluginsDebug);
+const testRelease = step({
+  name: "Test (Release)",
+  if: runTests.and(isTag),
+  run: `cargo test --locked --target ${matrix.target} --all-features --release`,
+}).dependsOn(buildRelease, buildTestPluginsRelease);
+const testIntegration = step({
+  name: "Test integration",
+  if: isLinuxGnu.and(isNotTag),
+  run: `cargo run -p dprint --locked --target ${matrix.target} -- check`,
+}).dependsOn(buildDebug);
+
+const createInstaller = step({
+  name: "Create installer (Windows x86_64)",
+  uses: "joncloud/makensis-action@v2.0",
+  if: matrix.target.equals("x86_64-pc-windows-msvc").and(isTag),
+  with: { "script-file": `${expr("github.workspace")}/deployment/installer/dprint-installer.nsi` },
+}).dependsOn(buildRelease);
+
+function getPreReleaseStepForProfile(profile: typeof profiles[0]) {
+  function getRunSteps(): string[] {
+    switch (profile.os) {
+      case OperatingSystem.Mac:
+      case OperatingSystem.MacX86:
+      case OperatingSystem.Linux:
+      case OperatingSystem.LinuxArm:
+        return [
+          `cd target/${profile.target}/release`,
+          `zip -r ${profile.zipFileName} dprint`,
+          `echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 ${profile.zipFileName} | awk '{print $1}')"`,
+        ];
+      case OperatingSystem.Windows: {
+        const installerSteps = profile.target === "x86_64-pc-windows-msvc"
+          ? [
+            `mv deployment/installer/${profile.installerFileName} target/${profile.target}/release/${profile.installerFileName}`,
+            `echo "::set-output name=INSTALLER_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.installerFileName} | awk '{print $1}')"`,
+          ]
+          : [];
+        return [
+          `Compress-Archive -CompressionLevel Optimal -Force -Path target/${profile.target}/release/dprint.exe -DestinationPath target/${profile.target}/release/${profile.zipFileName}`,
+          `echo "::set-output name=ZIP_CHECKSUM::$(shasum -a 256 target/${profile.target}/release/${profile.zipFileName} | awk '{print $1}')"`,
+          ...installerSteps,
+        ];
+      }
+      default: {
+        const _assertNever: never = profile.os;
+        throw new Error(`Unhandled OS: ${profile.os}`);
+      }
+    }
+  }
+
+  return step({
+    name: `Pre-release (${profile.target})`,
+    id: `pre_release_${profile.target.replaceAll("-", "_")}`,
+    run: getRunSteps(),
+    outputs: ["ZIP_CHECKSUM", "INSTALLER_CHECKSUM"] as const,
+  }).dependsOn(buildRelease);
+}
+
+const buildJobOutputs: Record<string, ExpressionValue> = {};
+const uploadArtifacts = steps(...profiles.map((profile) => {
+  const paths = [
+    `target/${profile.target}/release/${profile.zipFileName}`,
+  ];
+  if (profile.target === "x86_64-pc-windows-msvc") {
+    paths.push(
+      `target/${profile.target}/release/${profile.installerFileName}`,
+    );
+  }
+  const preReleaseStep = getPreReleaseStepForProfile(profile);
+  buildJobOutputs[profile.zipChecksumEnvVarName] = preReleaseStep.outputs.ZIP_CHECKSUM;
+  if (profile.target === "x86_64-pc-windows-msvc") {
+    buildJobOutputs[profile.installerChecksumEnvVarName] = preReleaseStep.outputs.INSTALLER_CHECKSUM;
+  }
+  return step({
+    name: `Upload artifacts (${profile.target})`,
+    if: matrix.target.equals(profile.target).and(isTag),
+    uses: "actions/upload-artifact@v4",
+    with: {
+      name: profile.artifactsName,
+      path: paths.join("\n"),
     },
-    draft_release: {
-      name: "draft_release",
-      if: "startsWith(github.ref, 'refs/tags/')",
-      needs: "build",
-      "runs-on": "ubuntu-latest",
-      steps: [
-        {
-          name: "Download artifacts",
-          uses: "actions/download-artifact@v4",
-        },
-        {
-          name: "Output checksums",
-          run: profiles.map(profile => {
-            const output = [
-              `echo "${profile.zipFileName}: \${{needs.build.outputs.${profile.zipChecksumEnvVarName}}}"`,
-            ];
-            if (profile.target === "x86_64-pc-windows-msvc") {
-              output.push(`echo "${profile.installerFileName}: \${{needs.build.outputs.${profile.installerChecksumEnvVarName}}}"`);
-            }
-            return output;
-          }).flat().join("\n"),
-        },
-        {
-          name: "Create SHASUMS256.txt file",
-          run: profiles.map((profile, i) => {
-            const op = i === 0 ? ">" : ">>";
-            const output = [
-              `echo "\${{needs.build.outputs.${profile.zipChecksumEnvVarName}}} ${profile.zipFileName}" ${op} SHASUMS256.txt`,
-            ];
-            if (profile.target === "x86_64-pc-windows-msvc") {
-              output.push(`echo "\${{needs.build.outputs.${profile.installerChecksumEnvVarName}}} ${profile.installerFileName}" >> SHASUMS256.txt`);
-            }
-            return output;
-          }).flat().join("\n"),
-        },
-        {
-          name: "Draft release",
-          uses: "softprops/action-gh-release@v2",
-          env: {
-            GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}",
-          },
-          with: {
-            files: [
-              ...profiles.map(profile => {
-                const output = [
-                  `${profile.artifactsName}/${profile.zipFileName}`,
-                ];
-                if (profile.target === "x86_64-pc-windows-msvc") {
-                  output.push(
-                    `${profile.artifactsName}/${profile.installerFileName}`,
-                  );
-                }
-                return output;
-              }).flat(),
-              "SHASUMS256.txt",
-            ].join("\n"),
-            body: `## Changes
+  }).dependsOn(preReleaseStep);
+}));
+
+const installerTests = steps(
+  {
+    name: "Test shell installer",
+    run: [
+      "cd website/src/assets",
+      "chmod +x install.sh",
+      "./install.sh",
+    ],
+  },
+  {
+    name: "Test powershell installer (Windows)",
+    if: matrix.target.equals("x86_64-pc-windows-msvc"),
+    shell: "pwsh",
+    run: ["cd website/src/assets", "./install.ps1"],
+  },
+  step({
+    name: "Test npm",
+    run: [
+      "cd deployment/npm",
+      "deno run -A build.ts 0.51.0",
+    ],
+  }).dependsOn(setupDeno),
+).if(runDebugTests);
+
+const buildJob = workflow.createJob("build", {
+  name: matrix.target,
+  runsOn: matrix.os,
+  strategy: { matrix },
+  env: {
+    // disabled to reduce ./target size and generally it's slower enabled
+    CARGO_INCREMENTAL: 0,
+    RUST_BACKTRACE: "full",
+  },
+})
+  // only run arm64 linux on main or tags
+  .withGlobalCondition(
+    matrix.target.notEquals("aarch64-unknown-linux-gnu")
+      .and(matrix.target.notEquals("aarch64-unknown-linux-musl"))
+      .or(conditions.isBranch("main"))
+      .or(isTag),
+  )
+  .withOutputs(buildJobOutputs)
+  .withSteps(
+    clippy,
+    testDebug,
+    testRelease,
+    testIntegration,
+    createInstaller,
+    uploadArtifacts,
+    installerTests,
+  );
+
+// === draft_release job ===
+
+workflow.createJob("draft_release", {
+  name: "draft_release",
+  runsOn: "ubuntu-latest",
+  if: isTag,
+  needs: [buildJob],
+}).withSteps(
+  step({
+    name: "Download artifacts",
+    uses: "actions/download-artifact@v4",
+  }),
+  step({
+    name: "Output checksums",
+    run: profiles.map(profile => {
+      const output = [
+        `echo "${profile.zipFileName}: ${buildJob.outputs[profile.zipChecksumEnvVarName]}"`,
+      ];
+      if (profile.target === "x86_64-pc-windows-msvc") {
+        output.push(`echo "${profile.installerFileName}: ${buildJob.outputs[profile.installerChecksumEnvVarName]}"`);
+      }
+      return output;
+    }).flat().join("\n"),
+  }),
+  step({
+    name: "Create SHASUMS256.txt file",
+    run: profiles.map((profile, i) => {
+      const op = i === 0 ? ">" : ">>";
+      const output = [
+        `echo "${buildJob.outputs[profile.zipChecksumEnvVarName]} ${profile.zipFileName}" ${op} SHASUMS256.txt`,
+      ];
+      if (profile.target === "x86_64-pc-windows-msvc") {
+        output.push(`echo "${buildJob.outputs[profile.installerChecksumEnvVarName]} ${profile.installerFileName}" >> SHASUMS256.txt`);
+      }
+      return output;
+    }).flat().join("\n"),
+  }),
+  step({
+    name: "Draft release",
+    uses: "softprops/action-gh-release@v2",
+    env: {
+      GITHUB_TOKEN: expr("secrets.GITHUB_TOKEN"),
+    },
+    with: {
+      files: [
+        ...profiles.map(profile => {
+          const output = [
+            `${profile.artifactsName}/${profile.zipFileName}`,
+          ];
+          if (profile.target === "x86_64-pc-windows-msvc") {
+            output.push(
+              `${profile.artifactsName}/${profile.installerFileName}`,
+            );
+          }
+          return output;
+        }).flat(),
+        "SHASUMS256.txt",
+      ].join("\n"),
+      body: `## Changes
 
 * TODO
 
@@ -420,34 +403,29 @@ Run \`dprint upgrade\` or see https://dprint.dev/install/
 |Artifact|SHA-256 Checksum|
 |:--|:--|
 ${
-              profiles.map(profile => {
-                const output = [
-                  [`${profile.zipFileName}`, profile.zipChecksumEnvVarName],
-                ];
-                if (profile.target === "x86_64-pc-windows-msvc") {
-                  output.push(
-                    [`${profile.installerFileName}`, profile.installerChecksumEnvVarName],
-                  );
-                }
-                return output.map(([name, envVar]) => `|${name}|\${{needs.build.outputs.${envVar}}}|`);
-              }).flat().join("\n")
-            }
+        profiles.map(profile => {
+          const output: [string, string][] = [
+            [profile.zipFileName, `${buildJob.outputs[profile.zipChecksumEnvVarName]}`],
+          ];
+          if (profile.target === "x86_64-pc-windows-msvc") {
+            output.push(
+              [profile.installerFileName, `${buildJob.outputs[profile.installerChecksumEnvVarName]}`],
+            );
+          }
+          return output.map(([name, checksum]) => `|${name}|${checksum}|`);
+        }).flat().join("\n")
+      }
 `,
-            draft: true,
-          },
-        },
-      ],
+      draft: true,
     },
-  },
-};
+  }),
+);
 
-let finalText = `# GENERATED BY ./ci.generate.ts -- DO NOT DIRECTLY EDIT\n\n`;
-finalText += yaml.stringify(ci, {
-  noRefs: true,
-  lineWidth: 10_000,
-  noCompatMode: true,
-});
+// === generate ===
 
-Deno.writeTextFileSync(new URL("./ci.yml", import.meta.url), finalText);
+workflow.writeToFile(
+  new URL("./ci.yml", import.meta.url),
+  { header: "# GENERATED BY ./ci.generate.ts -- DO NOT DIRECTLY EDIT" },
+);
 
 await $`dprint fmt --log-level=warn "**/*.yml"`;
