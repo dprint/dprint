@@ -181,31 +181,37 @@ const buildRelease = steps({
   name: "Build cross (Release)",
   if: isCross,
   run: `cross build -p dprint --locked --target ${matrix.target} --release`,
-}).if(isTag).dependsOn(setupRust);
+}).dependsOn(setupRust);
 
-const buildTestPluginsDebug = step({
-  name: "Build test plugins (Debug)",
-  run: `cargo build -p test-process-plugin --locked --target ${matrix.target}`,
-}).dependsOn(setupRust);
-const buildTestPluginsRelease = step({
-  name: "Build test plugins (Release)",
-  run: `cargo build -p test-process-plugin --locked --target ${matrix.target} --release`,
-}).dependsOn(setupRust);
-const testDebug = step({
-  name: "Test (Debug)",
-  if: runDebugTests,
-  run: `cargo test --locked --target ${matrix.target} --all-features`,
-}).dependsOn(buildDebug, buildTestPluginsDebug);
-const testRelease = step({
-  name: "Test (Release)",
-  if: runTests.and(isTag),
-  run: `cargo test --locked --target ${matrix.target} --all-features --release`,
-}).dependsOn(buildRelease, buildTestPluginsRelease);
-const testIntegration = step({
-  name: "Test integration",
-  if: isLinuxGnu.and(isNotTag),
-  run: `cargo run -p dprint --locked --target ${matrix.target} -- check`,
-}).dependsOn(buildDebug);
+const tests = steps(
+  // debug
+  steps(
+    step({
+      name: "Build test plugins (Debug)",
+      run: `cargo build -p test-process-plugin --locked --target ${matrix.target}`,
+    }),
+    step({
+      name: "Test (Debug)",
+      run: `cargo test --locked --target ${matrix.target} --all-features`,
+    }),
+    step({
+      name: "Test integration",
+      if: isLinuxGnu,
+      run: `cargo run -p dprint --locked --target ${matrix.target} -- check`,
+    }),
+  ).if(runDebugTests).dependsOn(buildDebug),
+  // release
+  steps(
+    step({
+      name: "Build test plugins (Release)",
+      run: `cargo build -p test-process-plugin --locked --target ${matrix.target} --release`,
+    }),
+    step({
+      name: "Test (Release)",
+      run: `cargo test --locked --target ${matrix.target} --all-features --release`,
+    }),
+  ).if(runTests.and(isTag)).dependsOn(buildRelease),
+);
 
 const createInstaller = step({
   name: "Create installer (Windows x86_64)",
@@ -246,12 +252,17 @@ function getPreReleaseStepForProfile(profile: typeof profiles[0]) {
     }
   }
 
-  return step({
+  const result = step({
     name: `Pre-release (${profile.target})`,
     id: `pre_release_${profile.target.replaceAll("-", "_")}`,
     run: getRunSteps(),
     outputs: ["ZIP_CHECKSUM", "INSTALLER_CHECKSUM"] as const,
   }).dependsOn(buildRelease);
+  if (profile.os === OperatingSystem.Windows) {
+    return result.dependsOn(createInstaller);
+  } else {
+    return result;
+  }
 }
 
 const buildJobOutputs: Record<string, ExpressionValue> = {};
@@ -324,10 +335,7 @@ const buildJob = workflow.createJob("build", {
   .withOutputs(buildJobOutputs)
   .withSteps(
     clippy,
-    testDebug,
-    testRelease,
-    testIntegration,
-    createInstaller,
+    tests,
     uploadArtifacts,
     installerTests,
   );
