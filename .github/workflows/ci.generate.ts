@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read=ci.yml --allow-write=ci.yml
+#!/usr/bin/env -S deno run -A
 import $ from "jsr:@david/dax@0.45.0";
 import { conditions, createWorkflow, defineMatrix, expr, type ExpressionValue, job, step, steps } from "jsr:@david/gagen@0.0.2";
 
