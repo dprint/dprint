@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run --allow-read=ci.yml --allow-write=ci.yml
 import $ from "jsr:@david/dax@0.45.0";
-import { conditions, createWorkflow, defineMatrix, expr, type ExpressionValue, step, steps } from "../../../ci-yml-generator/mod.ts";
+import { conditions, createWorkflow, defineMatrix, expr, type ExpressionValue, job, step, steps } from "jsr:@david/gagen@0.0.2";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
@@ -95,21 +95,6 @@ const runTests = matrix.run_tests.equals("true");
 const runDebugTests = runTests.and(isNotTag);
 const isCross = matrix.cross.equals("true");
 const isLinuxGnu = matrix.target.equals("x86_64-unknown-linux-gnu");
-
-// === workflow ===
-
-const workflow = createWorkflow({
-  name: "CI",
-  on: {
-    pull_request: { branches: ["main"] },
-    push: { branches: ["main"], tags: ["*"] },
-  },
-  concurrency: {
-    // https://stackoverflow.com/a/72408109/188246
-    group: "${{ github.workflow }}-${{ github.head_ref || github.run_id }}",
-    cancelInProgress: true,
-  },
-});
 
 // === build job ===
 
@@ -321,7 +306,7 @@ const installerTests = steps(
   }).dependsOn(setupDeno),
 ).if(runDebugTests);
 
-const buildJob = workflow.createJob("build", {
+const buildJob = job("build", {
   name: matrix.target,
   runsOn: matrix.os,
   strategy: { matrix },
@@ -330,80 +315,78 @@ const buildJob = workflow.createJob("build", {
     CARGO_INCREMENTAL: 0,
     RUST_BACKTRACE: "full",
   },
-})
-  // only run arm64 linux on main or tags
-  .withGlobalCondition(
-    matrix.target.notEquals("aarch64-unknown-linux-gnu")
-      .and(matrix.target.notEquals("aarch64-unknown-linux-musl"))
-      .or(conditions.isBranch("main"))
-      .or(isTag),
-  )
-  .withOutputs(buildJobOutputs)
-  .withSteps(
+  steps: steps(
     lint,
     tests,
     uploadArtifacts,
     installerTests,
-  );
+  ).if(
+    matrix.target.notEquals("aarch64-unknown-linux-gnu")
+      .and(matrix.target.notEquals("aarch64-unknown-linux-musl"))
+      .or(conditions.isBranch("main"))
+      .or(isTag),
+  ),
+  outputs: buildJobOutputs,
+});
 
 // === draft_release job ===
 
-workflow.createJob("draft_release", {
+const draftReleaseJob = job("draft_release", {
   name: "draft_release",
   runsOn: "ubuntu-latest",
   if: isTag,
-}).withSteps(
-  step({
-    name: "Download artifacts",
-    uses: "actions/download-artifact@v6",
-  }),
-  step({
-    name: "Output checksums",
-    run: profiles.map(profile => {
-      const output = [
-        `echo "${profile.zipFileName}: ${buildJob.outputs[profile.zipChecksumEnvVarName]}"`,
-      ];
-      if (profile.target === "x86_64-pc-windows-msvc") {
-        output.push(`echo "${profile.installerFileName}: ${buildJob.outputs[profile.installerChecksumEnvVarName]}"`);
-      }
-      return output;
-    }).flat().join("\n"),
-  }),
-  step({
-    name: "Create SHASUMS256.txt file",
-    run: profiles.map((profile, i) => {
-      const op = i === 0 ? ">" : ">>";
-      const output = [
-        `echo "${buildJob.outputs[profile.zipChecksumEnvVarName]} ${profile.zipFileName}" ${op} SHASUMS256.txt`,
-      ];
-      if (profile.target === "x86_64-pc-windows-msvc") {
-        output.push(`echo "${buildJob.outputs[profile.installerChecksumEnvVarName]} ${profile.installerFileName}" >> SHASUMS256.txt`);
-      }
-      return output;
-    }).flat().join("\n"),
-  }),
-  step({
-    name: "Draft release",
-    uses: "softprops/action-gh-release@v2",
-    env: {
-      GITHUB_TOKEN: expr("secrets.GITHUB_TOKEN"),
-    },
-    with: {
-      files: [
-        ...profiles.map(profile => {
-          const output = [
-            `${profile.artifactsName}/${profile.zipFileName}`,
-          ];
-          if (profile.target === "x86_64-pc-windows-msvc") {
-            output.push(
-              `${profile.artifactsName}/${profile.installerFileName}`,
-            );
-          }
-          return output;
-        }).flat(),
-        "SHASUMS256.txt",
-      ].join("\n"),
-      body: `## Changes
+  steps: [
+    step({
+      name: "Download artifacts",
+      uses: "actions/download-artifact@v6",
+    }),
+    step({
+      name: "Output checksums",
+      run: profiles.map(profile => {
+        const output = [
+          `echo "${profile.zipFileName}: ${buildJob.outputs[profile.zipChecksumEnvVarName]}"`,
+        ];
+        if (profile.target === "x86_64-pc-windows-msvc") {
+          output.push(`echo "${profile.installerFileName}: ${buildJob.outputs[profile.installerChecksumEnvVarName]}"`);
+        }
+        return output;
+      }).flat().join("\n"),
+    }),
+    step({
+      name: "Create SHASUMS256.txt file",
+      run: profiles.map((profile, i) => {
+        const op = i === 0 ? ">" : ">>";
+        const output = [
+          `echo "${buildJob.outputs[profile.zipChecksumEnvVarName]} ${profile.zipFileName}" ${op} SHASUMS256.txt`,
+        ];
+        if (profile.target === "x86_64-pc-windows-msvc") {
+          output.push(`echo "${buildJob.outputs[profile.installerChecksumEnvVarName]} ${profile.installerFileName}" >> SHASUMS256.txt`);
+        }
+        return output;
+      }).flat().join("\n"),
+    }),
+    step({
+      name: "Draft release",
+      uses: "softprops/action-gh-release@v2",
+      env: {
+        GITHUB_TOKEN: expr("secrets.GITHUB_TOKEN"),
+      },
+      with: {
+        files: [
+          ...profiles.map(profile => {
+            const output = [
+              `${profile.artifactsName}/${profile.zipFileName}`,
+            ];
+            if (profile.target === "x86_64-pc-windows-msvc") {
+              output.push(
+                `${profile.artifactsName}/${profile.installerFileName}`,
+              );
+            }
+            return output;
+          }).flat(),
+          "SHASUMS256.txt",
+        ].join("\n"),
+        body: `## Changes
 
 * TODO
 
@@ -416,27 +399,43 @@ Run \`dprint upgrade\` or see https://dprint.dev/install/
 |Artifact|SHA-256 Checksum|
 |:--|:--|
 ${
-        profiles.map(profile => {
-          const output: [string, string][] = [
-            [profile.zipFileName, `${buildJob.outputs[profile.zipChecksumEnvVarName]}`],
-          ];
-          if (profile.target === "x86_64-pc-windows-msvc") {
-            output.push(
-              [profile.installerFileName, `${buildJob.outputs[profile.installerChecksumEnvVarName]}`],
-            );
-          }
-          return output.map(([name, checksum]) => `|${name}|${checksum}|`);
-        }).flat().join("\n")
-      }
+          profiles.map(profile => {
+            const output: [string, string][] = [
+              [profile.zipFileName, `${buildJob.outputs[profile.zipChecksumEnvVarName]}`],
+            ];
+            if (profile.target === "x86_64-pc-windows-msvc") {
+              output.push(
+                [profile.installerFileName, `${buildJob.outputs[profile.installerChecksumEnvVarName]}`],
+              );
+            }
+            return output.map(([name, checksum]) => `|${name}|${checksum}|`);
+          }).flat().join("\n")
+        }
 `,
-      draft: true,
-    },
-  }),
-);
+        draft: true,
+      },
+    }),
+  ],
+});
 
 // === generate ===
 
-workflow.writeOrLint({
+createWorkflow({
+  name: "CI",
+  on: {
+    pull_request: { branches: ["main"] },
+    push: { branches: ["main"], tags: ["*"] },
+  },
+  concurrency: {
+    // https://stackoverflow.com/a/72408109/188246
+    group: "${{ github.workflow }}-${{ github.head_ref || github.run_id }}",
+    cancelInProgress: true,
+  },
+  jobs: [
+    buildJob,
+    draftReleaseJob,
+  ],
+}).writeOrLint({
   filePath: new URL("./ci.yml", import.meta.url),
   header: "# GENERATED BY ./ci.generate.ts -- DO NOT DIRECTLY EDIT",
 });
