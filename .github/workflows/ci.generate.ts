@@ -350,7 +350,7 @@ const draftReleaseJob = job("draft_release", {
           output.push(`echo "${profile.installerFileName}: ${buildJob.outputs[profile.installerChecksumEnvVarName]}"`);
         }
         return output;
-      }).flat().join("\n"),
+      }).flat(),
     }),
     step({
       name: "Create SHASUMS256.txt file",
@@ -363,7 +363,7 @@ const draftReleaseJob = job("draft_release", {
           output.push(`echo "${buildJob.outputs[profile.installerChecksumEnvVarName]} ${profile.installerFileName}" >> SHASUMS256.txt`);
         }
         return output;
-      }).flat().join("\n"),
+      }).flat(),
     }),
     step({
       name: "Draft release",
