@@ -40,11 +40,11 @@ jobs:
             run_tests: "false"
             target: x86_64-unknown-linux-musl
             cross: "false"
-          - os: '${{ (github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && ''buildjet-2vcpu-ubuntu-2204-arm'' || ''ubuntu-22.04'' }}'
+          - os: ubuntu-24.04-arm
             run_tests: "true"
             target: aarch64-unknown-linux-gnu
             cross: "false"
-          - os: '${{ (github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && ''buildjet-2vcpu-ubuntu-2204-arm'' || ''ubuntu-22.04'' }}'
+          - os: ubuntu-24.04-arm
             run_tests: "false"
             target: aarch64-unknown-linux-musl
             cross: "false"
