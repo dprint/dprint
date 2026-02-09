@@ -416,7 +416,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
       {
         Ok(changes) => changes,
         Err(err) => {
-          log_warn!(environment, "Failed updating {}. {:#}", plugin.name(), err);
+          log_warn!(environment, "Failed applying update config changes for {}. {:#}", plugin.name(), err);
           continue;
         }
       };
