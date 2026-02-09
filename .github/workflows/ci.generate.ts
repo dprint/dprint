@@ -142,12 +142,12 @@ const lint = steps(
   step({
     name: "Clippy",
     run: "cargo clippy",
-  }),
+  }).dependsOn(setupRust),
   step({
     name: "Lint CI Generation",
     run: `./.github/workflows/ci.generate.ts --lint`,
-  }),
-).if(isLinuxGnu.and(isNotTag)).dependsOn(setupRust);
+  }).dependsOn(setupDeno),
+).if(isLinuxGnu.and(isNotTag));
 
 const aarch64LinkerEnv = {
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc",
