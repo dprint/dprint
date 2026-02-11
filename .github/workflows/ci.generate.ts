@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 import $ from "jsr:@david/dax@0.45.0";
-import { conditions, createWorkflow, defineMatrix, expr, type ExpressionValue, isLinting, job, step, steps } from "jsr:@david/gagen@0.2.2";
+import { conditions, createWorkflow, defineMatrix, expr, type ExpressionValue, isLinting, job, step } from "jsr:@david/gagen@0.2.3";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
@@ -103,7 +103,7 @@ const setupDeno = step({
   uses: "denoland/setup-deno@v2",
   with: { "deno-version": "canary" },
 });
-const setupRust = steps({
+const setupRust = step({
   uses: "dsherret/rust-toolchain-file@v1",
 }, {
   uses: "Swatinem/rust-cache@v2",
@@ -138,7 +138,7 @@ const setupRust = steps({
   run: "cargo install cross --git https://github.com/cross-rs/cross --rev 36c0d7810ddde073f603c82d896c2a6c886ff7a4",
 }).dependsOn(checkout).comesAfter(setupDeno);
 
-const lint = steps(
+const lint = step(
   step({
     name: "Clippy",
     run: "cargo clippy",
@@ -156,7 +156,7 @@ const aarch64LinkerEnv = {
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc",
 };
 
-const buildDebug = steps({
+const buildDebug = step({
   name: "Build (Debug)",
   if: isCross.not(),
   env: aarch64LinkerEnv,
@@ -166,7 +166,7 @@ const buildDebug = steps({
   if: isCross,
   run: `cross build -p dprint --locked --target ${matrix.target}`,
 }).dependsOn(setupRust);
-const buildRelease = steps({
+const buildRelease = step({
   name: "Build (Release)",
   if: isCross.not(),
   env: aarch64LinkerEnv,
@@ -177,9 +177,9 @@ const buildRelease = steps({
   run: `cross build -p dprint --locked --target ${matrix.target} --release`,
 }).dependsOn(setupRust);
 
-const tests = steps(
+const tests = step(
   // debug
-  steps(
+  step(
     step({
       name: "Build test plugins (Debug)",
       run: `cargo build -p test-process-plugin --locked --target ${matrix.target}`,
@@ -195,7 +195,7 @@ const tests = steps(
     }),
   ).if(runDebugTests).dependsOn(buildDebug),
   // release
-  steps(
+  step(
     step({
       name: "Build test plugins (Release)",
       run: `cargo build -p test-process-plugin --locked --target ${matrix.target} --release`,
@@ -215,7 +215,7 @@ const createInstaller = step({
 }).dependsOn(buildRelease);
 
 function getPreReleaseStepForProfile(profile: typeof profiles[0]) {
-  function getRunSteps(): string[] {
+  function getRunstep(): string[] {
     switch (profile.os) {
       case OperatingSystem.Mac:
       case OperatingSystem.MacX86:
@@ -249,7 +249,7 @@ function getPreReleaseStepForProfile(profile: typeof profiles[0]) {
   const result = step({
     name: `Pre-release (${profile.target})`,
     id: `pre_release_${profile.target.replaceAll("-", "_")}`,
-    run: getRunSteps(),
+    run: getRunstep(),
     outputs: ["ZIP_CHECKSUM", "INSTALLER_CHECKSUM"] as const,
   }).dependsOn(buildRelease);
   if (profile.os === OperatingSystem.Windows) {
@@ -260,7 +260,7 @@ function getPreReleaseStepForProfile(profile: typeof profiles[0]) {
 }
 
 const buildJobOutputs: Record<string, ExpressionValue> = {};
-const uploadArtifacts = steps(...profiles.map((profile) => {
+const uploadArtifacts = step(...profiles.map((profile) => {
   const paths = [
     `target/${profile.target}/release/${profile.zipFileName}`,
   ];
@@ -285,7 +285,7 @@ const uploadArtifacts = steps(...profiles.map((profile) => {
   }).dependsOn(preReleaseStep);
 }));
 
-const installerTests = steps(
+const installerTests = step(
   {
     name: "Test shell installer",
     run: [
@@ -318,7 +318,7 @@ const buildJob = job("build", {
     CARGO_INCREMENTAL: 0,
     RUST_BACKTRACE: "full",
   },
-  steps: steps(
+  steps: step(
     lint,
     buildDebug,
     tests,
