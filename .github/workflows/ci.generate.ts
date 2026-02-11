@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 import $ from "jsr:@david/dax@0.45.0";
-import { conditions, createWorkflow, defineMatrix, expr, type ExpressionValue, isLinting, job, step, steps } from "jsr:@david/gagen@0.2.0";
+import { conditions, createWorkflow, defineMatrix, expr, type ExpressionValue, isLinting, job, step, steps } from "jsr:@david/gagen@0.2.1";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
@@ -320,6 +320,7 @@ const buildJob = job("build", {
   },
   steps: steps(
     lint,
+    buildDebug,
     tests,
     uploadArtifacts,
     installerTests,
@@ -337,6 +338,7 @@ const buildJob = job("build", {
 const draftReleaseJob = job("draft_release", {
   name: "draft_release",
   runsOn: "ubuntu-latest",
+  needs: [buildJob],
   if: isTag,
   steps: [
     step({
