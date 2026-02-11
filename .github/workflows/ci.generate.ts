@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 import $ from "jsr:@david/dax@0.45.0";
-import { conditions, createWorkflow, defineMatrix, expr, type ExpressionValue, isLinting, job, step } from "jsr:@david/gagen@0.2.3";
+import { conditions, createWorkflow, defineMatrix, expr, type ExpressionValue, isLinting, job, step } from "jsr:@david/gagen@0.2.4";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
