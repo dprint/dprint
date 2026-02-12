@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 import $ from "jsr:@david/dax@0.45.0";
-import { conditions, createWorkflow, defineMatrix, expr, type ExpressionValue, isLinting, job, step } from "jsr:@david/gagen@0.2.4";
+import { conditions, createWorkflow, defineMatrix, expr, type ExpressionValue, isLinting, job, step } from "jsr:@david/gagen@0.2.7";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
@@ -101,7 +101,9 @@ const isLinuxGnu = matrix.target.equals("x86_64-unknown-linux-gnu");
 const checkout = step({ name: "Checkout", uses: "actions/checkout@v6" });
 const setupDeno = step({
   uses: "denoland/setup-deno@v2",
-  with: { "deno-version": "canary" },
+  with: {
+    "deno-version": "canary",
+  },
 });
 const setupRust = step({
   uses: "dsherret/rust-toolchain-file@v1",
@@ -138,7 +140,7 @@ const setupRust = step({
   run: "cargo install cross --git https://github.com/cross-rs/cross --rev 36c0d7810ddde073f603c82d896c2a6c886ff7a4",
 }).dependsOn(checkout).comesAfter(setupDeno);
 
-const lint = step(
+const lint = step.if(isLinuxGnu.and(isNotTag))(
   step({
     name: "Clippy",
     run: "cargo clippy",
@@ -150,7 +152,7 @@ const lint = step(
     name: "Lint CI Generation",
     run: "./.github/workflows/ci.generate.ts --lint",
   }).dependsOn(setupDeno),
-).if(isLinuxGnu.and(isNotTag));
+);
 
 const aarch64LinkerEnv = {
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc",
@@ -179,7 +181,7 @@ const buildRelease = step({
 
 const tests = step(
   // debug
-  step(
+  step.if(runDebugTests).dependsOn(buildDebug)(
     step({
       name: "Build test plugins (Debug)",
       run: `cargo build -p test-process-plugin --locked --target ${matrix.target}`,
@@ -193,9 +195,9 @@ const tests = step(
       if: isLinuxGnu,
       run: `cargo run -p dprint --locked --target ${matrix.target} -- check`,
     }),
-  ).if(runDebugTests).dependsOn(buildDebug),
+  ),
   // release
-  step(
+  step.if(runTests.and(isTag)).dependsOn(buildRelease)(
     step({
       name: "Build test plugins (Release)",
       run: `cargo build -p test-process-plugin --locked --target ${matrix.target} --release`,
@@ -204,15 +206,15 @@ const tests = step(
       name: "Test (Release)",
       run: `cargo test --locked --target ${matrix.target} --all-features --release`,
     }),
-  ).if(runTests.and(isTag)).dependsOn(buildRelease),
+  ),
 );
 
-const createInstaller = step({
+const createInstaller = step.dependsOn(buildRelease)({
   name: "Create installer (Windows x86_64)",
   uses: "joncloud/makensis-action@v2.0",
   if: matrix.target.equals("x86_64-pc-windows-msvc").and(isTag),
   with: { "script-file": `${expr("github.workspace")}/deployment/installer/dprint-installer.nsi` },
-}).dependsOn(buildRelease);
+});
 
 function getPreReleaseStepForProfile(profile: typeof profiles[0]) {
   function getRunstep(): string[] {
@@ -274,7 +276,7 @@ const uploadArtifacts = step(...profiles.map((profile) => {
   if (profile.target === "x86_64-pc-windows-msvc") {
     buildJobOutputs[profile.installerChecksumEnvVarName] = preReleaseStep.outputs.INSTALLER_CHECKSUM;
   }
-  return step({
+  return step.dependsOn(preReleaseStep)({
     name: `Upload artifacts (${profile.target})`,
     if: matrix.target.equals(profile.target).and(isTag),
     uses: "actions/upload-artifact@v6",
@@ -282,10 +284,10 @@ const uploadArtifacts = step(...profiles.map((profile) => {
       name: profile.artifactsName,
       path: paths.join("\n"),
     },
-  }).dependsOn(preReleaseStep);
+  });
 }));
 
-const installerTests = step(
+const installerTests = step.if(runDebugTests)(
   {
     name: "Test shell installer",
     run: [
@@ -307,7 +309,7 @@ const installerTests = step(
       "deno run -A build.ts 0.51.0",
     ],
   }).dependsOn(setupDeno),
-).if(runDebugTests);
+);
 
 const buildJob = job("build", {
   name: matrix.target,
@@ -318,17 +320,17 @@ const buildJob = job("build", {
     CARGO_INCREMENTAL: 0,
     RUST_BACKTRACE: "full",
   },
-  steps: step(
+  steps: step.if(
+    matrix.target.notEquals("aarch64-unknown-linux-gnu")
+      .and(matrix.target.notEquals("aarch64-unknown-linux-musl"))
+      .or(conditions.isBranch("main"))
+      .or(isTag),
+  )(
     lint,
     buildDebug,
     tests,
     uploadArtifacts,
     installerTests,
-  ).if(
-    matrix.target.notEquals("aarch64-unknown-linux-gnu")
-      .and(matrix.target.notEquals("aarch64-unknown-linux-musl"))
-      .or(conditions.isBranch("main"))
-      .or(isTag),
   ),
   outputs: buildJobOutputs,
 });
