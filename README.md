@@ -34,6 +34,7 @@ Repos:
 - [markup_fmt](https://github.com/g-plane/markup_fmt) - HTML, Vue, Svelte, Astro, Angular, Jinja, Twig, Nunjucks, Vento, Mustache and XML formatter.
 - [pretty_graphql](https://github.com/g-plane/pretty_graphql) - GraphQL formatter.
 - [pretty_yaml](https://github.com/g-plane/pretty_yaml) - YAML formatter.
+- [dprint-plugin-shfmt](https://github.com/hrko/dprint-plugin-shfmt) - shfmt (Shell) wrapper plugin.
 
 ## Notes
 
