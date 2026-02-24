@@ -40,7 +40,7 @@ sys_traits.workspace = true
 # disable the multi-threading feature of this crate
 sysinfo = { version = "=0.35.1", features = ["system"], default-features = false }
 text-size = "=1.1.1"
-thiserror = "=2.0.12"
+thiserror = "=2.0.18"
 tokio = { workspace = true, features = ["io-std"] }
 tokio-util = { version = "=0.7.11" }
 tower-lsp = "=0.20.0"
@@ -59,9 +59,9 @@ webpki-roots = "=0.26.7"
 # pin these to prevent them changing with `cargo install` because
 # patch version increases of rkyv may cause panics when deserializing
 # data serialized with older versions
-rkyv = "=0.8.10"
-wasmer = "=6.1.0"
-wasmer-compiler = "=6.1.0"
+rkyv = "=0.8.15"
+wasmer = "=7.0.1"
+wasmer-compiler = "=7.0.1"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "=0.55.0"
