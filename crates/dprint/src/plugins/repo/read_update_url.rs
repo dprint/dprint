@@ -30,10 +30,6 @@ impl PluginUpdateUrlInfo {
     self.url.to_string()
   }
 
-  pub fn full_url_no_wasm_checksum(&self) -> String {
-    if self.is_wasm() { self.url.to_string() } else { self.full_url() }
-  }
-
   pub fn as_source_reference(&self) -> Result<PluginSourceReference> {
     Ok(PluginSourceReference {
       path_source: PathSource::new_remote(Url::parse(&self.url)?),

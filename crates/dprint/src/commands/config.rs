@@ -30,6 +30,8 @@ use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::utils::CachedDownloader;
 use crate::utils::PathSource;
+use crate::utils::PluginKind;
+use crate::utils::get_sha256_checksum;
 use crate::utils::pretty_print_json_text;
 
 pub struct InitConfigFileOptions<'a> {
@@ -167,7 +169,18 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
             // if two plugins have the same URL to be updated to then they're the same plugin
             if config_plugin_latest.url == plugin.url {
               let file_text = environment.read_file(&config_path)?;
-              let new_reference = plugin.as_source_reference()?;
+              let mut new_reference = plugin.as_source_reference()?;
+              if new_reference.plugin_kind() == Some(PluginKind::Wasm) && new_reference.checksum.is_none() {
+                let url = new_reference.path_source.display();
+                match environment.download_file_err_404(&url).await {
+                  Ok(bytes) => {
+                    new_reference.checksum = Some(get_sha256_checksum(&bytes));
+                  }
+                  Err(err) => {
+                    log_warn!(environment, "Failed downloading {} to compute checksum. {:#}", url, err);
+                  }
+                }
+              }
               let file_text = update_plugin_in_config(
                 &file_text,
                 &PluginUpdateInfo {
@@ -183,7 +196,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
             }
           }
         }
-        plugin.full_url_no_wasm_checksum()
+        compute_wasm_checksum_url(environment, &plugin).await
       }
     },
     None => {
@@ -196,7 +209,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
         0,
         &possible_plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
       )?;
-      possible_plugins.remove(index).full_url_no_wasm_checksum()
+      compute_wasm_checksum_url(environment, &possible_plugins.remove(index)).await
     }
   };
 
@@ -205,6 +218,58 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
   environment.write_file(&config_path, &new_text)?;
 
   Ok(())
+}
+
+/// Returns the full plugin URL, computing the SHA-256 checksum for wasm plugins if needed.
+async fn compute_wasm_checksum_url(environment: &impl Environment, plugin: &impl PluginInfoForChecksum) -> String {
+  if plugin.is_wasm() && plugin.checksum().is_none() {
+    match environment.download_file_err_404(plugin.url()).await {
+      Ok(bytes) => {
+        return format!("{}@{}", plugin.url(), get_sha256_checksum(&bytes));
+      }
+      Err(err) => {
+        log_warn!(environment, "Failed downloading {} to compute checksum. {:#}", plugin.url(), err);
+      }
+    }
+  }
+  plugin.full_url()
+}
+
+trait PluginInfoForChecksum {
+  fn is_wasm(&self) -> bool;
+  fn url(&self) -> &str;
+  fn checksum(&self) -> Option<&str>;
+  fn full_url(&self) -> String;
+}
+
+impl PluginInfoForChecksum for InfoFilePluginInfo {
+  fn is_wasm(&self) -> bool {
+    self.is_wasm()
+  }
+  fn url(&self) -> &str {
+    &self.url
+  }
+  fn checksum(&self) -> Option<&str> {
+    self.checksum.as_deref()
+  }
+  fn full_url(&self) -> String {
+    self.full_url()
+  }
+}
+
+impl PluginInfoForChecksum for crate::plugins::PluginUpdateUrlInfo {
+  fn is_wasm(&self) -> bool {
+    self.is_wasm()
+  }
+  fn url(&self) -> &str {
+    &self.url
+  }
+  fn checksum(&self) -> Option<&str> {
+    self.checksum.as_deref()
+  }
+  fn full_url(&self) -> String {
+    self.full_url()
+  }
 }
 
 async fn get_possible_plugins_to_add<TEnvironment: Environment>(
@@ -477,13 +542,26 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
         },
         None => Err(anyhow!("Failed downloading {} - 404 Not Found", plugin_update_url)),
       }) {
-        Ok((info, new_reference)) => Some(Ok(PluginUpdateInfo {
-          name: plugin.info().name.to_string(),
-          old_reference: plugin_reference,
-          old_version: plugin.info().version.to_string(),
-          new_version: info.version,
-          new_reference,
-        })),
+        Ok((info, mut new_reference)) => {
+          if new_reference.plugin_kind() == Some(PluginKind::Wasm) && new_reference.checksum.is_none() {
+            let url = new_reference.path_source.display();
+            match environment.download_file_err_404(&url).await {
+              Ok(bytes) => {
+                new_reference.checksum = Some(get_sha256_checksum(&bytes));
+              }
+              Err(err) => {
+                log_warn!(environment, "Failed downloading {} to compute checksum. {:#}", url, err);
+              }
+            }
+          }
+          Some(Ok(PluginUpdateInfo {
+            name: plugin.info().name.to_string(),
+            old_reference: plugin_reference,
+            old_version: plugin.info().version.to_string(),
+            new_version: info.version,
+            new_reference,
+          }))
+        }
         Err(err) => {
           // output and fallback to using the info file
           log_warn!(environment, "Failed reading plugin latest info. {:#}", err);
@@ -846,7 +924,7 @@ mod test {
   #[test]
   fn config_add() {
     let old_wasm_url = "https://plugins.dprint.dev/test-plugin-0.1.0.wasm".to_string();
-    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
+    let new_wasm_url_with_checksum = format!("https://plugins.dprint.dev/test-plugin.wasm@{}", get_test_wasm_plugin_checksum());
     let old_ps_checksum = OLD_PROCESS_PLUGIN_FILE.checksum();
     let old_ps_url = format!("https://plugins.dprint.dev/test-process.json@{}", old_ps_checksum);
     let new_ps_url = "https://plugins.dprint.dev/test-plugin-3.json".to_string();
@@ -861,7 +939,7 @@ mod test {
       remote_has_checksums: false,
       expected_error: None,
       expected_logs: vec![select_plugin_msg.clone()],
-      expected_urls: vec![new_wasm_url.clone()],
+      expected_urls: vec![new_wasm_url_with_checksum.clone()],
       selection_result: Some(0),
     });
 
@@ -909,7 +987,7 @@ mod test {
       remote_has_checksums: false,
       expected_error: None,
       expected_logs: vec![select_plugin_msg.clone()],
-      expected_urls: vec![old_ps_url.clone(), new_wasm_url.clone()],
+      expected_urls: vec![old_ps_url.clone(), new_wasm_url_with_checksum.clone()],
       selection_result: Some(0),
     });
 
@@ -933,7 +1011,7 @@ mod test {
       remote_has_checksums: false,
       expected_error: None,
       expected_logs: vec![],
-      expected_urls: vec![new_wasm_url.clone()],
+      expected_urls: vec![new_wasm_url_with_checksum.clone()],
       selection_result: None,
     });
 
@@ -961,7 +1039,7 @@ mod test {
       expected_logs: vec![],
       expected_urls: vec![
         // upgrades to the latest
-        new_wasm_url,
+        new_wasm_url_with_checksum,
       ],
       selection_result: None,
     });
@@ -1034,7 +1112,7 @@ mod test {
 
   #[test]
   fn config_add_global() {
-    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
+    let new_wasm_url_with_checksum = format!("https://plugins.dprint.dev/test-plugin.wasm@{}", get_test_wasm_plugin_checksum());
     let environment = get_setup_env(SetupEnvOptions {
       config_has_wasm: false,
       config_has_wasm_checksum: false,
@@ -1063,7 +1141,7 @@ mod test {
     "{}"
   ]
 }}"#,
-      new_wasm_url
+      new_wasm_url_with_checksum
     );
     assert_eq!(environment.read_file("/config/dprint/dprint.json").unwrap(), expected_text);
   }
@@ -1071,7 +1149,7 @@ mod test {
   #[test]
   fn config_update_global() {
     let old_wasm_url = "https://plugins.dprint.dev/test-plugin-0.1.0.wasm".to_string();
-    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
+    let new_wasm_url_with_checksum = format!("https://plugins.dprint.dev/test-plugin.wasm@{}", get_test_wasm_plugin_checksum());
     let environment = get_setup_env(SetupEnvOptions {
       config_has_wasm: true,
       config_has_wasm_checksum: false,
@@ -1112,14 +1190,14 @@ mod test {
     "{}"
   ]
 }}"#,
-      new_wasm_url
+      new_wasm_url_with_checksum
     );
     assert_eq!(environment.read_file("/config/dprint/dprint.json").unwrap(), expected_text);
   }
 
   #[test]
   fn config_update_should_always_upgrade_to_latest_plugins() {
-    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
+    let new_wasm_url_with_checksum = format!("https://plugins.dprint.dev/test-plugin.wasm@{}", get_test_wasm_plugin_checksum());
     // test all the process plugin combinations
     let new_ps_url = "https://plugins.dprint.dev/test-plugin-3.json".to_string();
     let new_ps_url_with_checksum = format!("{}@{}", new_ps_url, NEW_PROCESS_PLUGIN_FILE.checksum());
@@ -1187,7 +1265,7 @@ mod test {
         "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string(),
         "Extracting zip for test-process-plugin".to_string(),
       ],
-      expected_urls: vec![new_wasm_url.clone(), new_ps_url_with_checksum.clone()],
+      expected_urls: vec![new_wasm_url_with_checksum.clone(), new_ps_url_with_checksum.clone()],
       always_update: true,
       on_error: None,
       exit_code: 0,
@@ -1196,8 +1274,7 @@ mod test {
 
   #[test]
   fn config_update_should_upgrade_to_latest_plugins() {
-    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
-    let new_wasm_url_with_checksum = format!("{}@{}", new_wasm_url, get_test_wasm_plugin_checksum());
+    let new_wasm_url_with_checksum = format!("https://plugins.dprint.dev/test-plugin.wasm@{}", get_test_wasm_plugin_checksum());
     let updating_message = "Updating test-plugin 0.1.0 to 0.2.0...".to_string();
     let compiling_message = "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string();
 
@@ -1223,7 +1300,7 @@ mod test {
       remote_has_process_checksum: true,
       confirm_results: Vec::new(),
       expected_logs: vec![updating_message.clone(), compiling_message.clone()],
-      expected_urls: vec![new_wasm_url.clone()],
+      expected_urls: vec![new_wasm_url_with_checksum.clone()],
       always_update: false,
       on_error: None,
       exit_code: 0,
@@ -1236,7 +1313,7 @@ mod test {
       remote_has_process_checksum: true,
       confirm_results: Vec::new(),
       expected_logs: vec![updating_message.clone(), compiling_message.clone()],
-      expected_urls: vec![new_wasm_url.clone()],
+      expected_urls: vec![new_wasm_url_with_checksum.clone()],
       always_update: false,
       on_error: None,
       exit_code: 0,
@@ -1249,7 +1326,7 @@ mod test {
       remote_has_process_checksum: true,
       confirm_results: Vec::new(),
       expected_logs: vec![updating_message.clone(), compiling_message.clone()],
-      expected_urls: vec![new_wasm_url.clone()],
+      expected_urls: vec![new_wasm_url_with_checksum.clone()],
       always_update: false,
       on_error: None,
       exit_code: 0,
@@ -1331,7 +1408,7 @@ mod test {
         "Do you want to update it? N".to_string(),
         "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string(),
       ],
-      expected_urls: vec![new_wasm_url.clone(), old_ps_url.clone()],
+      expected_urls: vec![new_wasm_url_with_checksum.clone(), old_ps_url.clone()],
       always_update: false,
       on_error: None,
       exit_code: 0,
@@ -1422,11 +1499,12 @@ mod test {
     }}
   }},
   "plugins": [
-    "https://plugins.dprint.dev/test-plugin.wasm",
-    "https://plugins.dprint.dev/test-plugin-3.json@{}"
+    "https://plugins.dprint.dev/test-plugin.wasm@{wasm_checksum}",
+    "https://plugins.dprint.dev/test-plugin-3.json@{ps_checksum}"
   ]
 }}"#,
-        NEW_PROCESS_PLUGIN_FILE.checksum()
+        wasm_checksum = get_test_wasm_plugin_checksum(),
+        ps_checksum = NEW_PROCESS_PLUGIN_FILE.checksum()
       )
     );
     assert_eq!(
@@ -1440,11 +1518,12 @@ mod test {
     "should_set": "new_value_wasm"
   }},
   "plugins": [
-    "https://plugins.dprint.dev/test-plugin-3.json@{}",
-    "https://plugins.dprint.dev/test-plugin.wasm"
+    "https://plugins.dprint.dev/test-plugin-3.json@{ps_checksum}",
+    "https://plugins.dprint.dev/test-plugin.wasm@{wasm_checksum}"
   ]
 }}"#,
-        NEW_PROCESS_PLUGIN_FILE.checksum()
+        wasm_checksum = get_test_wasm_plugin_checksum(),
+        ps_checksum = NEW_PROCESS_PLUGIN_FILE.checksum()
       )
     );
   }
@@ -1533,11 +1612,12 @@ mod test {
     }}
   }},
   "plugins": [
-    "https://plugins.dprint.dev/test-plugin.wasm",
-    "https://plugins.dprint.dev/test-plugin-3.json@{}"
+    "https://plugins.dprint.dev/test-plugin.wasm@{wasm_checksum}",
+    "https://plugins.dprint.dev/test-plugin-3.json@{ps_checksum}"
   ]
 }}"#,
-        NEW_PROCESS_PLUGIN_FILE.checksum()
+        wasm_checksum = get_test_wasm_plugin_checksum(),
+        ps_checksum = NEW_PROCESS_PLUGIN_FILE.checksum()
       )
     );
     // Verify the sub_folder config was NOT updated (should still have old URLs)
@@ -1640,8 +1720,9 @@ mod test {
   fn get_setup_builder(opts: SetupEnvOptions) -> TestEnvironmentBuilder {
     let mut builder = TestEnvironmentBuilder::new();
 
+    // Always register wasm plugin files so checksum computation can download them
+    builder.add_remote_wasm_plugin();
     if opts.config_has_wasm {
-      builder.add_remote_wasm_plugin();
       builder.add_remote_wasm_0_1_0_plugin();
     }
     if opts.config_has_process {

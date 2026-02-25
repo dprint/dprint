@@ -32,8 +32,9 @@ impl PluginUpdateInfo {
   }
 
   pub fn get_full_new_config_url(&self) -> String {
-    // only add the checksum if not wasm or previously had a checksum
-    let should_add_checksum = !self.is_wasm() || self.old_reference.checksum.is_some();
+    // only add the checksum if not wasm or the new reference already has one
+    // (checksums on new_reference are always set upstream for wasm plugins)
+    let should_add_checksum = !self.is_wasm() || self.new_reference.checksum.is_some();
     if should_add_checksum {
       self.new_reference.to_full_string()
     } else {
