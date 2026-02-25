@@ -190,7 +190,7 @@ async fn handle_format_request<TEnvironment: Environment>(
 }
 
 pub async fn run_language_server<TEnvironment: Environment>(
-  _args: &CliArgs,
+  args: &CliArgs,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> anyhow::Result<()> {
@@ -198,7 +198,7 @@ pub async fn run_language_server<TEnvironment: Environment>(
   let stdout = tokio::io::stdout();
   let (tx, rx) = mpsc::unbounded_channel();
 
-  let recv_task = start_message_handler(environment, plugin_resolver, rx);
+  let recv_task = start_message_handler(environment, plugin_resolver, args.config.clone(), rx);
 
   let environment = environment.clone();
   let lsp_task = dprint_core::async_runtime::spawn(async move {
@@ -217,6 +217,7 @@ pub async fn run_language_server<TEnvironment: Environment>(
 fn start_message_handler<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  config_override: Option<String>,
   mut rx: mpsc::UnboundedReceiver<ChannelMessage>,
 ) -> JoinHandle<()> {
   // tower_lsp requires Backend to implement Send and Sync, but
@@ -225,7 +226,7 @@ fn start_message_handler<TEnvironment: Environment>(
   let max_cores = environment.max_threads();
   let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
   let environment = environment.clone();
-  let scope_container = Rc::new(LspPluginsScopeContainer::new(environment.clone(), plugin_resolver.clone()));
+  let scope_container = Rc::new(LspPluginsScopeContainer::new(environment.clone(), plugin_resolver.clone(), config_override));
   dprint_core::async_runtime::spawn(async move {
     let mut pending_tokens = PendingTokens::default();
     while let Some(message) = rx.recv().await {
@@ -992,7 +993,7 @@ mod test {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
     let (tx, rx) = mpsc::unbounded_channel();
-    let recv_task = start_message_handler(&environment, &plugin_resolver, rx);
+    let recv_task = start_message_handler(&environment, &plugin_resolver, None, rx);
     let test_client = Arc::new(TestClient::default());
     (Backend::new(ClientWrapper::new(test_client.clone()), environment, tx), recv_task, test_client)
   }
