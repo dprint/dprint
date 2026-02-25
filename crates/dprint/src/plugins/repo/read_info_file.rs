@@ -41,10 +41,6 @@ impl InfoFilePluginInfo {
     }
     self.url.to_string()
   }
-
-  pub fn full_url_no_wasm_checksum(&self) -> String {
-    if self.is_wasm() { self.url.to_string() } else { self.full_url() }
-  }
 }
 
 const SCHEMA_VERSION: u8 = 4;
