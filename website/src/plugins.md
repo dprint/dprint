@@ -31,6 +31,7 @@ The setup for both is the same except process plugins require a checksum to be s
 - [Mago](/plugins/mago) (PHP)
 - [Ruff](/plugins/ruff) (Python)
 - [Jupyter](/plugins/jupyter)
+- [shfmt](/plugins/shfmt) (Shell)
 
 ## Process Plugins
 

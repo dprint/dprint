@@ -15,6 +15,7 @@ export const knownPlugins = new Set([
   "markup_fmt",
   "pretty_yaml",
   "pretty_graphql",
+  "shfmt",
 ]);
 
 export class UrlSaver {
