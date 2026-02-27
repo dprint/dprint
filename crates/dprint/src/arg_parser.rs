@@ -733,10 +733,12 @@ EXAMPLES:
     )
     .subcommand(
       Command::new("editor-info")
+        .about("Deprecated. Use lsp subcommand instead.")
         .hide(true)
     )
     .subcommand(
       Command::new("editor-service")
+        .about("Deprecated. Use lsp subcommand instead.")
         .hide(true)
         .arg(
           Arg::new("parent-pid")
