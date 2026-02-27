@@ -67,8 +67,9 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
          version: env!("CARGO_PKG_VERSION").to_string(),
          config_key: "keyGoesHere".to_string(),
          help_url: "".to_string(),          // ex. https://dprint.dev/plugins/prettier
-         config_schema_url: "".to_string(), // the schema url for your config file
-         update_url: Some(None),            // ex. https://plugins.dprint.dev/dprint/dprint-plugin-prettier/latest.json
+         // for config_schema_url and update_url, see schema.json and latest.json helpers at https://github.com/dprint/plugins
+         config_schema_url: "https://plugins.dprint.dev/yourGitHubUser/yourGitHubProject/schema.json".to_string(), // the schema url for your config file, "".to_string() if no config
+         update_url: Some("https://plugins.dprint.dev/yourGitHubUser/yourGitHubProject/latest.json".to_string()),
        }
      }
 
