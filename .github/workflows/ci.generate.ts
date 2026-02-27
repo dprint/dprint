@@ -356,6 +356,11 @@ const ci = {
       if: "startsWith(github.ref, 'refs/tags/')",
       needs: "build",
       "runs-on": "ubuntu-latest",
+      permissions: {
+        "attestations": "write",
+        "contents": "write",
+        "id-token": "write",
+      },
       steps: [
         {
           name: "Download artifacts",
@@ -435,6 +440,13 @@ ${
 `,
             draft: true,
           },
+        },
+        {
+          name: "Generate artifact attestations",
+          uses: "actions/attest-build-provenance@v3",
+          with: {
+            "subject-checksums": "SHASUMS256.txt"
+          }
         },
       ],
     },
