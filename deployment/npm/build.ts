@@ -1,8 +1,8 @@
 #!/usr/bin/env -S deno run -A
 import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
 // @ts-types="npm:@types/decompress@4.2.7"
-import decompress from "npm:decompress@4.2.1";
 import { parseArgs } from "https://deno.land/std@0.208.0/cli/parse_args.ts";
+import decompress from "npm:decompress@4.2.1";
 
 interface Package {
   zipFileName: string;
@@ -93,7 +93,7 @@ if (!args["publish-only"]) {
       "name": "dprint",
       "version": version,
       "description": "Pluggable and configurable code formatting platform written in Rust.",
-      "bin": "bin.js",
+      "bin": "bin.cjs",
       "repository": {
         "type": "git",
         "url": "git+https://github.com/dprint/dprint.git",
@@ -111,15 +111,15 @@ if (!args["publish-only"]) {
       // for yarn berry (https://github.com/dprint/dprint/issues/686)
       "preferUnplugged": true,
       "scripts": {
-        "postinstall": "node ./install.js",
+        "postinstall": "node ./install.cjs",
       },
       optionalDependencies: packages
         .map(pkg => `@dprint/${getPackageNameNoScope(pkg)}`)
         .reduce((obj, pkgName) => ({ ...obj, [pkgName]: version }), {}),
     };
-    currentDir.join("bin.js").copyFileToDirSync(dprintDir);
-    currentDir.join("install_api.js").copyFileToDirSync(dprintDir);
-    currentDir.join("install.js").copyFileToDirSync(dprintDir);
+    currentDir.join("bin.cjs").copyFileToDirSync(dprintDir);
+    currentDir.join("install_api.cjs").copyFileToDirSync(dprintDir);
+    currentDir.join("install.cjs").copyFileToDirSync(dprintDir);
     dprintDir.join("package.json").writeJsonPrettySync(pkgJson);
     rootDir.join("LICENSE").copyFileSync(dprintDir.join("LICENSE"));
     dprintDir.join("README.md").writeTextSync(markdownText);
@@ -140,11 +140,6 @@ if (!args["publish-only"]) {
       await $.request(zipUrl).showProgress().pipeToPath(zipPath);
       await decompress(zipPath.toString(), pkgDir.toString());
       zipPath.removeSync();
-
-      // ensure the binary is executable
-      if (pkg.os !== "win32") {
-        await $`chmod +x ${pkgDir.join("dprint")}`;
-      }
 
       // create the package.json and readme
       pkgDir.join("README.md").writeTextSync(`# @dprint/${pkgName}\n\n${pkgName} distribution of dprint.\n`);
@@ -202,7 +197,7 @@ if (!args["publish-only"]) {
     }
 
     // run once after post install created dprint, once with a simulated readonly file system, once creating the cache and once with
-    await $`node bin.js -v && rm ${dprintExe} && DPRINT_SIMULATED_READONLY_FILE_SYSTEM=1 node bin.js -v && node bin.js -v && node bin.js -v`.cwd(dprintDir);
+    await $`node bin.cjs -v && rm ${dprintExe} && DPRINT_SIMULATED_READONLY_FILE_SYSTEM=1 node bin.cjs -v && node bin.cjs -v && node bin.cjs -v`.cwd(dprintDir);
 
     if (!dprintDir.join(dprintExe).existsSync()) {
       throw new Error("dprint executable did not exist when lazily initialized");
@@ -220,6 +215,10 @@ if (args.publish || args["publish-only"]) {
       continue;
     }
     const pkgDir = scopeDir.join(pkgName);
+    // ensure the binary is executable in the tarball
+    if (pkg.os !== "win32") {
+      await $`chmod +x ${pkgDir.join("dprint")}`;
+    }
     await $`cd ${pkgDir} && npm publish --provenance --access public`;
   }
 
@@ -235,9 +234,9 @@ function getPackageNameNoScope(name: Package) {
 function resolveVersion() {
   const firstArg = args._[0];
   if (
-    firstArg != null &&
-    typeof firstArg === "string" &&
-    firstArg.trim().length > 0
+    firstArg != null
+    && typeof firstArg === "string"
+    && firstArg.trim().length > 0
   ) {
     return firstArg;
   }

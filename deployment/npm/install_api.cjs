@@ -207,17 +207,17 @@ function findBinDir() {
 function isBinDirForThisPackage(binDir) {
   try {
     if (os.platform() === "win32") {
-      // verify the .cmd wrapper references our bin.js
+      // verify the .cmd wrapper references our bin.cjs
       const content = fs.readFileSync(
         path.join(binDir, "dprint.cmd"),
         "utf8",
       );
-      return content.includes("bin.js");
+      return content.includes("bin.cjs");
     } else {
       // verify the symlink points into our package directory
       const linkTarget = fs.readlinkSync(path.join(binDir, "dprint"));
       const resolved = path.resolve(binDir, linkTarget);
-      return resolved.endsWith("bin.js");
+      return resolved.endsWith("bin.cjs");
     }
   } catch (_err) {
     return false;

@@ -144,10 +144,10 @@ jobs:
           echo "$ACTUAL"
           [ "$ACTUAL" = "$EXPECTED_VERSION" ] || { echo "Version mismatch: expected '$EXPECTED_VERSION', got '$ACTUAL'"; exit 1; }
 
-      - name: Test dprint via bin.js fallback
+      - name: Test dprint via bin.cjs fallback
         run: |
           cd "${{ runner.temp }}/npm-test"
-          node node_modules/dprint/bin.js -v
+          node node_modules/dprint/bin.cjs -v
 
       - name: Test dprint via simulated readonly file system
         run: |
@@ -157,7 +157,7 @@ jobs:
           npm init -y
           npm install dprint@${{ steps.publish-verdaccio.outputs.version }}
           rm -f node_modules/dprint/dprint*
-          DPRINT_SIMULATED_READONLY_FILE_SYSTEM=1 node node_modules/dprint/bin.js -v
+          DPRINT_SIMULATED_READONLY_FILE_SYSTEM=1 node node_modules/dprint/bin.cjs -v
 
       - name: Test npm global install dprint
         run: |
@@ -166,16 +166,16 @@ jobs:
           ACTUAL="$(dprint -v)"
           echo "$ACTUAL"
           [ "$ACTUAL" = "$EXPECTED_VERSION" ] || { echo "Version mismatch: expected '$EXPECTED_VERSION', got '$ACTUAL'"; exit 1; }
-          # verify the global bin entry points directly at the native binary, not bin.js
+          # verify the global bin entry points directly at the native binary, not bin.cjs
           if [ "$RUNNER_OS" = "Windows" ]; then
             DPRINT_CMD="$(npm prefix -g)/dprint.cmd"
-            grep -q "bin.js" "$DPRINT_CMD" && { echo "ERROR: dprint.cmd still points to bin.js"; exit 1; }
+            grep -q "bin.cjs" "$DPRINT_CMD" && { echo "ERROR: dprint.cmd still points to bin.cjs"; exit 1; }
             echo "dprint.cmd correctly points to native binary"
           else
             DPRINT_LINK="$(which dprint)"
             LINK_TARGET="$(readlink "$DPRINT_LINK")"
             echo "dprint symlink target: $LINK_TARGET"
-            echo "$LINK_TARGET" | grep -q "bin.js" && { echo "ERROR: dprint symlink still points to bin.js"; exit 1; }
+            echo "$LINK_TARGET" | grep -q "bin.cjs" && { echo "ERROR: dprint symlink still points to bin.cjs"; exit 1; }
             echo "dprint symlink correctly points to native binary"
           fi
           npm uninstall -g dprint
