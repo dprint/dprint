@@ -1,4 +1,10 @@
 // @ts-check
 "use strict";
 
-require("./install_api").runInstall();
+const api = require("./install_api");
+const exePath = api.runInstall();
+try {
+  api.replaceBinEntry(exePath);
+} catch (_err) {
+  // ignore - falls back to bin.js
+}
