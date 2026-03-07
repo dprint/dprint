@@ -141,6 +141,11 @@ if (!args["publish-only"]) {
       await decompress(zipPath.toString(), pkgDir.toString());
       zipPath.removeSync();
 
+      // ensure the binary is executable
+      if (pkg.os !== "win32") {
+        await $`chmod +x ${pkgDir.join("dprint")}`;
+      }
+
       // create the package.json and readme
       pkgDir.join("README.md").writeTextSync(`# @dprint/${pkgName}\n\n${pkgName} distribution of dprint.\n`);
       pkgDir.join("package.json").writeJsonPrettySync({
