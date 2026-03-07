@@ -82,10 +82,6 @@ const version = resolveVersion();
 
 $.logStep(`Publishing ${version}...`);
 
-if (Deno.build.os === "windows") {
-  throw new Error("This script must be run on Linux or macOS because it needs to set executable permissions on binaries.");
-}
-
 if (!args["publish-only"]) {
   await $`rm -rf ${outputDir}`;
   await $`mkdir -p ${dprintDir} ${scopeDir}`;
