@@ -6,10 +6,10 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version'
+        description: "Version"
         type: string
       dry_run:
-        description: 'Dry run (build and test npm, but skip publishing)'
+        description: "Dry run (build and test npm, but skip publishing)"
         type: boolean
         default: true
 permissions:
@@ -58,7 +58,7 @@ jobs:
           retention-days: 1
 
   test-npm:
-    name: 'npm test (${{ matrix.runner }})'
+    name: "npm test (${{ matrix.runner }})"
     needs: build-npm
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
@@ -77,7 +77,7 @@ jobs:
       - name: Install Node
         uses: actions/setup-node@v6
         with:
-          node-version: '24.x'
+          node-version: "24.x"
 
       - name: Download npm dist artifact
         uses: actions/download-artifact@v6
@@ -213,8 +213,8 @@ jobs:
       - name: Install Node
         uses: actions/setup-node@v6
         with:
-          node-version: '24.x'
-          registry-url: 'https://registry.npmjs.org'
+          node-version: "24.x"
+          registry-url: "https://registry.npmjs.org"
 
       - name: Download npm dist artifact
         uses: actions/download-artifact@v6

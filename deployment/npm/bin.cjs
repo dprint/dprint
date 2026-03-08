@@ -34,8 +34,8 @@ function runDprintExe(exePath) {
   if (result.error) {
     if (!fs.existsSync(exePath)) {
       throw new Error(
-        "Could not find exe at path '" + exePath +
-          "'. Maybe try installing dprint again.",
+        "Could not find exe at path '" + exePath
+          + "'. Maybe try installing dprint again.",
       );
     }
     throw result.error;
