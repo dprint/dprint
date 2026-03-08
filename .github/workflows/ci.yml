@@ -136,53 +136,53 @@ jobs:
         if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'') && matrix.target == ''x86_64-unknown-linux-gnu'''
         run: "cargo run -p dprint --locked --target ${{ matrix.target }} -- check"
       - name: Build (Release)
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && startsWith(github.ref, ''refs/tags/'') && (matrix.run_tests == ''true'' || matrix.target == ''x86_64-apple-darwin'' || matrix.target == ''aarch64-apple-darwin'' || matrix.target == ''x86_64-pc-windows-msvc'' || matrix.target == ''x86_64-unknown-linux-gnu'' || matrix.target == ''x86_64-unknown-linux-musl'' || matrix.target == ''aarch64-unknown-linux-gnu'' || matrix.target == ''aarch64-unknown-linux-musl'' || matrix.target == ''riscv64gc-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-musl'') && matrix.cross != ''true'''
+        if: 'startsWith(github.ref, ''refs/tags/'') && (matrix.run_tests == ''true'' || matrix.target == ''x86_64-apple-darwin'' || matrix.target == ''aarch64-apple-darwin'' || matrix.target == ''x86_64-pc-windows-msvc'' || matrix.target == ''x86_64-unknown-linux-gnu'' || matrix.target == ''x86_64-unknown-linux-musl'' || matrix.target == ''aarch64-unknown-linux-gnu'' || matrix.target == ''aarch64-unknown-linux-musl'' || matrix.target == ''riscv64gc-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-musl'') && matrix.cross != ''true'''
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: "cargo build -p dprint --locked --target ${{ matrix.target }} --release"
       - name: Build cross (Release)
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && startsWith(github.ref, ''refs/tags/'') && (matrix.run_tests == ''true'' || matrix.target == ''x86_64-apple-darwin'' || matrix.target == ''aarch64-apple-darwin'' || matrix.target == ''x86_64-pc-windows-msvc'' || matrix.target == ''x86_64-unknown-linux-gnu'' || matrix.target == ''x86_64-unknown-linux-musl'' || matrix.target == ''aarch64-unknown-linux-gnu'' || matrix.target == ''aarch64-unknown-linux-musl'' || matrix.target == ''riscv64gc-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-musl'') && matrix.cross == ''true'''
+        if: 'startsWith(github.ref, ''refs/tags/'') && (matrix.run_tests == ''true'' || matrix.target == ''x86_64-apple-darwin'' || matrix.target == ''aarch64-apple-darwin'' || matrix.target == ''x86_64-pc-windows-msvc'' || matrix.target == ''x86_64-unknown-linux-gnu'' || matrix.target == ''x86_64-unknown-linux-musl'' || matrix.target == ''aarch64-unknown-linux-gnu'' || matrix.target == ''aarch64-unknown-linux-musl'' || matrix.target == ''riscv64gc-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-musl'') && matrix.cross == ''true'''
         run: "cross build -p dprint --locked --target ${{ matrix.target }} --release"
       - name: Build test plugins (Release)
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.run_tests == ''true'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.run_tests == ''true'' && startsWith(github.ref, ''refs/tags/'')'
         run: "cargo build -p test-process-plugin --locked --target ${{ matrix.target }} --release"
       - name: Test (Release)
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.run_tests == ''true'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.run_tests == ''true'' && startsWith(github.ref, ''refs/tags/'')'
         run: "cargo test --locked --target ${{ matrix.target }} --all-features --release"
       - name: Pre-release (x86_64-apple-darwin)
         id: pre_release_x86_64_apple_darwin
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''x86_64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''x86_64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
         run: |-
           cd target/x86_64-apple-darwin/release
           zip -r dprint-x86_64-apple-darwin.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-x86_64-apple-darwin.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (x86_64-apple-darwin)
         uses: actions/upload-artifact@v6
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''x86_64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''x86_64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: x86_64-apple-darwin-artifacts
           path: target/x86_64-apple-darwin/release/dprint-x86_64-apple-darwin.zip
       - name: Pre-release (aarch64-apple-darwin)
         id: pre_release_aarch64_apple_darwin
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''aarch64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''aarch64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
         run: |-
           cd target/aarch64-apple-darwin/release
           zip -r dprint-aarch64-apple-darwin.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-aarch64-apple-darwin.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (aarch64-apple-darwin)
         uses: actions/upload-artifact@v6
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''aarch64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''aarch64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: aarch64-apple-darwin-artifacts
           path: target/aarch64-apple-darwin/release/dprint-aarch64-apple-darwin.zip
       - name: Create installer (Windows x86_64)
         uses: joncloud/makensis-action@v2.0
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''x86_64-pc-windows-msvc'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''x86_64-pc-windows-msvc'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           script-file: "${{ github.workspace }}/deployment/installer/dprint-installer.nsi"
       - name: Pre-release (x86_64-pc-windows-msvc)
         id: pre_release_x86_64_pc_windows_msvc
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''x86_64-pc-windows-msvc'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''x86_64-pc-windows-msvc'' && startsWith(github.ref, ''refs/tags/'')'
         run: |-
           Compress-Archive -CompressionLevel Optimal -Force -Path target/x86_64-pc-windows-msvc/release/dprint.exe -DestinationPath target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc.zip
           echo "ZIP_CHECKSUM=$(shasum -a 256 target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
@@ -190,7 +190,7 @@ jobs:
           echo "INSTALLER_CHECKSUM=$(shasum -a 256 target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (x86_64-pc-windows-msvc)
         uses: actions/upload-artifact@v6
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''x86_64-pc-windows-msvc'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''x86_64-pc-windows-msvc'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: x86_64-pc-windows-msvc-artifacts
           path: |-
@@ -198,92 +198,92 @@ jobs:
             target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe
       - name: Pre-release (x86_64-unknown-linux-gnu)
         id: pre_release_x86_64_unknown_linux_gnu
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''x86_64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''x86_64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
         run: |-
           cd target/x86_64-unknown-linux-gnu/release
           zip -r dprint-x86_64-unknown-linux-gnu.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-x86_64-unknown-linux-gnu.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (x86_64-unknown-linux-gnu)
         uses: actions/upload-artifact@v6
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''x86_64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''x86_64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: x86_64-unknown-linux-gnu-artifacts
           path: target/x86_64-unknown-linux-gnu/release/dprint-x86_64-unknown-linux-gnu.zip
       - name: Pre-release (x86_64-unknown-linux-musl)
         id: pre_release_x86_64_unknown_linux_musl
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''x86_64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''x86_64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
         run: |-
           cd target/x86_64-unknown-linux-musl/release
           zip -r dprint-x86_64-unknown-linux-musl.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-x86_64-unknown-linux-musl.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (x86_64-unknown-linux-musl)
         uses: actions/upload-artifact@v6
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''x86_64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''x86_64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: x86_64-unknown-linux-musl-artifacts
           path: target/x86_64-unknown-linux-musl/release/dprint-x86_64-unknown-linux-musl.zip
       - name: Pre-release (aarch64-unknown-linux-gnu)
         id: pre_release_aarch64_unknown_linux_gnu
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''aarch64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''aarch64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
         run: |-
           cd target/aarch64-unknown-linux-gnu/release
           zip -r dprint-aarch64-unknown-linux-gnu.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-aarch64-unknown-linux-gnu.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (aarch64-unknown-linux-gnu)
         uses: actions/upload-artifact@v6
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''aarch64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''aarch64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: aarch64-unknown-linux-gnu-artifacts
           path: target/aarch64-unknown-linux-gnu/release/dprint-aarch64-unknown-linux-gnu.zip
       - name: Pre-release (aarch64-unknown-linux-musl)
         id: pre_release_aarch64_unknown_linux_musl
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''aarch64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''aarch64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
         run: |-
           cd target/aarch64-unknown-linux-musl/release
           zip -r dprint-aarch64-unknown-linux-musl.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-aarch64-unknown-linux-musl.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (aarch64-unknown-linux-musl)
         uses: actions/upload-artifact@v6
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''aarch64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''aarch64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: aarch64-unknown-linux-musl-artifacts
           path: target/aarch64-unknown-linux-musl/release/dprint-aarch64-unknown-linux-musl.zip
       - name: Pre-release (riscv64gc-unknown-linux-gnu)
         id: pre_release_riscv64gc_unknown_linux_gnu
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''riscv64gc-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''riscv64gc-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
         run: |-
           cd target/riscv64gc-unknown-linux-gnu/release
           zip -r dprint-riscv64gc-unknown-linux-gnu.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-riscv64gc-unknown-linux-gnu.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (riscv64gc-unknown-linux-gnu)
         uses: actions/upload-artifact@v6
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''riscv64gc-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''riscv64gc-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: riscv64gc-unknown-linux-gnu-artifacts
           path: target/riscv64gc-unknown-linux-gnu/release/dprint-riscv64gc-unknown-linux-gnu.zip
       - name: Pre-release (loongarch64-unknown-linux-gnu)
         id: pre_release_loongarch64_unknown_linux_gnu
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''loongarch64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''loongarch64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
         run: |-
           cd target/loongarch64-unknown-linux-gnu/release
           zip -r dprint-loongarch64-unknown-linux-gnu.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-loongarch64-unknown-linux-gnu.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (loongarch64-unknown-linux-gnu)
         uses: actions/upload-artifact@v6
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''loongarch64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''loongarch64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: loongarch64-unknown-linux-gnu-artifacts
           path: target/loongarch64-unknown-linux-gnu/release/dprint-loongarch64-unknown-linux-gnu.zip
       - name: Pre-release (loongarch64-unknown-linux-musl)
         id: pre_release_loongarch64_unknown_linux_musl
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''loongarch64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''loongarch64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
         run: |-
           cd target/loongarch64-unknown-linux-musl/release
           zip -r dprint-loongarch64-unknown-linux-musl.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-loongarch64-unknown-linux-musl.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (loongarch64-unknown-linux-musl)
         uses: actions/upload-artifact@v6
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''loongarch64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
+        if: 'matrix.target == ''loongarch64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: loongarch64-unknown-linux-musl-artifacts
           path: target/loongarch64-unknown-linux-musl/release/dprint-loongarch64-unknown-linux-musl.zip
