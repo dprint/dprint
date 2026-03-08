@@ -48,7 +48,7 @@ jobs:
         run: deno run -A deployment/npm/build.ts ${{ inputs.version || '' }}
 
       - name: Tar npm dist (preserves permissions)
-        run: tar cf deployment/npm/dist.tar -C deployment/npm dist
+        run: tar cf deployment/npm/dist.tar -C deployment/npm --exclude='node_modules' dist
 
       - name: Upload npm dist artifact
         uses: actions/upload-artifact@v6
