@@ -434,7 +434,9 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
   fn check_config_updates(&mut self, message: &CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
     let bytes = serde_json::to_vec(&message)?;
     self.send_bytes(&bytes)?;
-    let len = self.wasm_functions.check_config_updates()?;
+    let Some(len) = self.wasm_functions.check_config_updates()? else {
+      return Ok(Vec::new());
+    };
     let bytes = self.receive_bytes(len)?;
     let result: JsonResponse = serde_json::from_slice(&bytes)?;
     match result {
@@ -518,11 +520,11 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn check_config_updates(&mut self) -> Result<usize> {
+  pub fn check_config_updates(&mut self) -> Result<Option<usize>> {
     let maybe_func = self.get_maybe_export::<(), u32>("check_config_updates")?;
     match maybe_func {
-      Some(func) => Ok(func.call(&mut self.store).map(|value| value as usize)?),
-      None => Ok(0), // ignore, the plugin doesn't have this defined
+      Some(func) => Ok(Some(func.call(&mut self.store).map(|value| value as usize)?)),
+      None => Ok(None), // ignore, the plugin doesn't have this defined
     }
   }
 
