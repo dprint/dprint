@@ -47,11 +47,14 @@ jobs:
       - name: Build npm packages
         run: deno run -A deployment/npm/build.ts ${{ inputs.version || '' }}
 
+      - name: Tar npm dist (preserves permissions)
+        run: tar cf deployment/npm/dist.tar -C deployment/npm dist
+
       - name: Upload npm dist artifact
         uses: actions/upload-artifact@v6
         with:
           name: npm-dist
-          path: deployment/npm/dist
+          path: deployment/npm/dist.tar
           retention-days: 1
 
   test-npm:
@@ -80,7 +83,10 @@ jobs:
         uses: actions/download-artifact@v6
         with:
           name: npm-dist
-          path: deployment/npm/dist
+          path: deployment/npm
+
+      - name: Extract npm dist
+        run: tar xf deployment/npm/dist.tar -C deployment/npm
 
       - name: Write Verdaccio config
         run: |
@@ -214,7 +220,10 @@ jobs:
         uses: actions/download-artifact@v6
         with:
           name: npm-dist
-          path: deployment/npm/dist
+          path: deployment/npm
+
+      - name: Extract npm dist
+        run: tar xf deployment/npm/dist.tar -C deployment/npm
 
       - name: Publish to npm
         run: deno run -A deployment/npm/build.ts ${{ inputs.version || '' }} --publish-only

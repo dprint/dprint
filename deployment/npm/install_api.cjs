@@ -54,12 +54,6 @@ module.exports = {
           err,
         );
       }
-      // use the path found in the specific package
-      try {
-        chmodX(sourceExecutablePath);
-      } catch (_err) {
-        // ignore
-      }
       return sourceExecutablePath;
     }
   },
@@ -67,8 +61,13 @@ module.exports = {
 
 /** @filePath {string} */
 function chmodX(filePath) {
-  const perms = fs.statSync(filePath).mode;
-  fs.chmodSync(filePath, perms | 0o111);
+  const fd = fs.openSync(filePath, "r");
+  try {
+    const perms = fs.fstatSync(fd).mode;
+    fs.fchmodSync(fd, perms | 0o111);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 function getTarget() {
@@ -155,12 +154,12 @@ function replaceBinEntry(exePath) {
     // rewrite .cmd and .ps1 wrappers to invoke the native binary directly
     fs.writeFileSync(
       path.join(binDir, "dprint.cmd"),
-      '@"%~dp0' + relative + '" %*\r\n',
+      "@\"%~dp0" + relative + "\" %*\r\n",
     );
     fs.writeFileSync(
       path.join(binDir, "dprint.ps1"),
-      '& "$PSScriptRoot/' + relative.replace(/\\/g, "/") +
-        '" $args\r\nexit $LASTEXITCODE\r\n',
+      "& \"$PSScriptRoot/" + relative.replace(/\\/g, "/")
+        + "\" $args\r\nexit $LASTEXITCODE\r\n",
     );
   } else {
     // replace symlink to point directly at the native binary
