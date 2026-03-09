@@ -1,8 +1,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
+use std::path::PathBuf;
 use std::rc::Rc;
 
+use anyhow::Context;
 use anyhow::Result;
 
 use crate::configuration::ResolvedConfigPath;
@@ -15,8 +17,7 @@ use crate::plugins;
 use crate::resolution::PluginsScope;
 use crate::resolution::resolve_plugins_scope;
 use crate::utils::AsyncMutex;
-use crate::utils::PathSource;
-use crate::utils::resolve_url_or_file_path;
+use crate::utils::ResolvedPath;
 
 type ScopeCell<TEnvironment> = AsyncMutex<Option<Rc<PluginsScope<TEnvironment>>>>;
 
@@ -24,12 +25,11 @@ pub struct LspPluginsScopeContainer<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
   plugins_scope_by_config: RefCell<HashMap<CanonicalizedPathBuf, Rc<ScopeCell<TEnvironment>>>>,
-  // Config path override from --config CLI flag.
-  config_override: Option<String>,
+  config_override: Option<PathBuf>,
 }
 
 impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
-  pub fn new(environment: TEnvironment, plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>, config_override: Option<String>) -> Self {
+  pub fn new(environment: TEnvironment, plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>, config_override: Option<PathBuf>) -> Self {
     Self {
       environment,
       plugin_resolver,
@@ -43,22 +43,14 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     self.plugin_resolver.clear_and_shutdown_initialized().await;
   }
 
-  async fn resolve_config_path_override(&self) -> Result<Option<ResolvedConfigPath>> {
-    let Some(config) = &self.config_override else {
-      return Ok(None);
-    };
-    let base_path = self.environment.cwd();
-    let resolved_path = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), &self.environment).await?;
-    Ok(Some(ResolvedConfigPath {
-      resolved_path,
-      base_path,
-      is_global_config: false,
-    }))
-  }
-
   pub async fn resolve_by_path(&self, dir_path: &Path) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
-    let config_path = if self.config_override.is_some() {
-      self.resolve_config_path_override().await?
+    let config_path = if let Some(path) = &self.config_override {
+      let path = self.environment.canonicalize(path).context("failed resolving --config path")?;
+      Some(ResolvedConfigPath {
+        base_path: path.parent().unwrap_or_else(|| path.clone()),
+        resolved_path: ResolvedPath::local(path),
+        is_global_config: false,
+      })
     } else {
       get_default_config_file_in_ancestor_directories(&self.environment, dir_path)?.or_else(|| resolve_global_config_path(&self.environment))
     };
