@@ -16,6 +16,8 @@ export interface PlaygroundProps {
   onConfigTextChanged: (text: string) => void;
   text: string;
   onTextChanged: (text: string) => void;
+  fileExtension: string;
+  onFileExtensionChanged: (ext: string) => void;
   formattedText: string;
   selectedPluginInfo: PluginInfo;
   fileMatchingInfo: FileMatchingInfo;
@@ -30,6 +32,8 @@ export function Playground({
   onConfigTextChanged,
   text,
   onTextChanged,
+  fileExtension,
+  onFileExtensionChanged,
   formattedText,
   fileMatchingInfo,
   selectedPluginUrl,
@@ -39,15 +43,14 @@ export function Playground({
   isLoading,
 }: PlaygroundProps) {
   const [scrollTop, setScrollTop] = useState(0);
-  const [fileExtension, setFileExtension] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (fileMatchingInfo.fileExtensions.length > 0) {
       if (fileExtension == null || !fileMatchingInfo.fileExtensions.includes(fileExtension)) {
-        setFileExtension(fileMatchingInfo.fileExtensions[0]);
+        onFileExtensionChanged(fileMatchingInfo.fileExtensions[0]);
       }
     }
-  }, [fileMatchingInfo, fileExtension]);
+  }, [fileMatchingInfo, fileExtension, onFileExtensionChanged]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -86,8 +89,8 @@ export function Playground({
     return 80;
   }, [configText]);
   const onFileExtensionChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
-    setFileExtension(event.target.value);
-  }, [setFileExtension]);
+    onFileExtensionChanged(event.target.value);
+  }, [onFileExtensionChanged]);
 
   return (
     <div id="App">
