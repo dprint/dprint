@@ -1,10 +1,13 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
+use std::path::PathBuf;
 use std::rc::Rc;
 
+use anyhow::Context;
 use anyhow::Result;
 
+use crate::configuration::ResolvedConfigPath;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
 use crate::configuration::resolve_config_from_path;
 use crate::configuration::resolve_global_config_path;
@@ -14,6 +17,7 @@ use crate::plugins;
 use crate::resolution::PluginsScope;
 use crate::resolution::resolve_plugins_scope;
 use crate::utils::AsyncMutex;
+use crate::utils::ResolvedPath;
 
 type ScopeCell<TEnvironment> = AsyncMutex<Option<Rc<PluginsScope<TEnvironment>>>>;
 
@@ -21,14 +25,16 @@ pub struct LspPluginsScopeContainer<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
   plugins_scope_by_config: RefCell<HashMap<CanonicalizedPathBuf, Rc<ScopeCell<TEnvironment>>>>,
+  config_override: Option<PathBuf>,
 }
 
 impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
-  pub fn new(environment: TEnvironment, plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>) -> Self {
+  pub fn new(environment: TEnvironment, plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>, config_override: Option<PathBuf>) -> Self {
     Self {
       environment,
       plugin_resolver,
       plugins_scope_by_config: Default::default(),
+      config_override,
     }
   }
 
@@ -38,9 +44,17 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
   }
 
   pub async fn resolve_by_path(&self, dir_path: &Path) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
-    let Some(config_path) =
+    let config_path = if let Some(path) = &self.config_override {
+      let path = self.environment.canonicalize(path).context("failed resolving --config path")?;
+      Some(ResolvedConfigPath {
+        base_path: path.parent().unwrap_or_else(|| path.clone()),
+        resolved_path: ResolvedPath::local(path),
+        is_global_config: false,
+      })
+    } else {
       get_default_config_file_in_ancestor_directories(&self.environment, dir_path)?.or_else(|| resolve_global_config_path(&self.environment))
-    else {
+    };
+    let Some(config_path) = config_path else {
       return Ok(None);
     };
     let cell = {

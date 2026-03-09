@@ -190,7 +190,7 @@ async fn handle_format_request<TEnvironment: Environment>(
 }
 
 pub async fn run_language_server<TEnvironment: Environment>(
-  _args: &CliArgs,
+  args: &CliArgs,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> anyhow::Result<()> {
@@ -198,7 +198,8 @@ pub async fn run_language_server<TEnvironment: Environment>(
   let stdout = tokio::io::stdout();
   let (tx, rx) = mpsc::unbounded_channel();
 
-  let recv_task = start_message_handler(environment, plugin_resolver, rx);
+  let config_path = args.config.as_ref().map(|config| environment.cwd().join(config));
+  let recv_task = start_message_handler(environment, plugin_resolver, config_path, rx);
 
   let environment = environment.clone();
   let lsp_task = dprint_core::async_runtime::spawn(async move {
@@ -217,6 +218,7 @@ pub async fn run_language_server<TEnvironment: Environment>(
 fn start_message_handler<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  config_override: Option<PathBuf>,
   mut rx: mpsc::UnboundedReceiver<ChannelMessage>,
 ) -> JoinHandle<()> {
   // tower_lsp requires Backend to implement Send and Sync, but
@@ -225,7 +227,7 @@ fn start_message_handler<TEnvironment: Environment>(
   let max_cores = environment.max_threads();
   let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
   let environment = environment.clone();
-  let scope_container = Rc::new(LspPluginsScopeContainer::new(environment.clone(), plugin_resolver.clone()));
+  let scope_container = Rc::new(LspPluginsScopeContainer::new(environment.clone(), plugin_resolver.clone(), config_override));
   dprint_core::async_runtime::spawn(async move {
     let mut pending_tokens = PendingTokens::default();
     while let Some(message) = rx.recv().await {
@@ -988,11 +990,80 @@ mod test {
     });
   }
 
+  #[test]
+  fn should_format_with_lsp_using_config_override() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      // default config with a custom ending so we can tell which config is used
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin()
+          .add_includes("**/*.txt")
+          .add_config_section("test-plugin", r#"{"ending": "default"}"#);
+      })
+      // override config at a non-default path with a different ending
+      .with_local_config("/custom/dprint.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_includes("**/*.txt")
+          .add_config_section("test-plugin", r#"{"ending": "custom"}"#);
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      // pass the override config path
+      let (backend, recv_task, test_client) = setup_backend_with_config(environment.clone(), Some(PathBuf::from("/custom/dprint.json")));
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          // should format using the overridden config (ending "custom"), not the default (ending "default")
+          let file_uri = Url::parse("file:///custom/file.txt").unwrap();
+          did_open!(backend, file_uri, "testing");
+          assert_format!(
+            backend,
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+              new_text: "_custom".to_string()
+            }])
+          );
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
   fn setup_backend(environment: TestEnvironment) -> (Backend<TestEnvironment>, JoinHandle<()>, Arc<TestClient>) {
+    setup_backend_with_config(environment, None)
+  }
+
+  fn setup_backend_with_config(environment: TestEnvironment, config_override: Option<PathBuf>) -> (Backend<TestEnvironment>, JoinHandle<()>, Arc<TestClient>) {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
     let (tx, rx) = mpsc::unbounded_channel();
-    let recv_task = start_message_handler(&environment, &plugin_resolver, rx);
+    let recv_task = start_message_handler(&environment, &plugin_resolver, config_override, rx);
     let test_client = Arc::new(TestClient::default());
     (Backend::new(ClientWrapper::new(test_client.clone()), environment, tx), recv_task, test_client)
   }
