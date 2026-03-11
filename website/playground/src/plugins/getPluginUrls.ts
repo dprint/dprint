@@ -20,6 +20,7 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
   const markupFmtPlugin = json.latest.find((p: any) => p.configKey === "markup")!;
   const prettyYamlPlugin = json.latest.find((p: any) => p.configKey === "yaml")!;
   const prettyGraphqlPlugin = json.latest.find((p: any) => p.configKey === "graphql")!;
+  const shfmtPlugin = json.latest.find((p: any) => p.configKey === "shfmt")!;
 
   return [
     typescriptPlugin.url,
@@ -35,6 +36,7 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
     markupFmtPlugin.url,
     prettyYamlPlugin.url,
     prettyGraphqlPlugin.url,
+    shfmtPlugin.url,
   ];
 }
 
@@ -57,6 +59,7 @@ export function getPluginShortNameFromPluginUrl(url: string) {
     case "markup_fmt":
     case "pretty_yaml":
     case "pretty_graphql":
+    case "shfmt":
       return name;
     default:
       return undefined;
@@ -88,6 +91,8 @@ export function getLanguageFromPluginUrl(url: string) {
       return "html";
     case "pretty_yaml":
       return "yaml";
+    case "shfmt":
+      return "shell";
     default:
       return undefined;
   }
