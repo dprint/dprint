@@ -79,6 +79,12 @@ Or for the standard plugins, you can just do:
 dprint add typescript
 ```
 
+You can also add multiple plugins at once:
+
+```sh
+dprint add typescript json markdown
+```
+
 Or specify a plugin url:
 
 ```sh

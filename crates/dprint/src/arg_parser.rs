@@ -190,7 +190,7 @@ pub struct FmtSubCommand {
 pub enum ConfigSubCommand {
   Init { global: bool },
   Update { yes: bool },
-  Add(Option<String>),
+  Add(Vec<String>),
   Edit,
 }
 
@@ -249,6 +249,15 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ConfigSubCommand::Init {
       global: matches.get_flag("global"),
     }
+  }
+
+  fn parse_add(matches: &ArgMatches) -> ConfigSubCommand {
+    ConfigSubCommand::Add(
+      matches
+        .get_many::<String>("url-or-plugin-name")
+        .map(|v| v.cloned().collect())
+        .unwrap_or_default(),
+    )
   }
 
   // this is all done because clap doesn't output exactly how I like
@@ -340,13 +349,13 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("init", matches) => SubCommand::Config(parse_init(matches)),
     ("add", matches) => {
       is_global_config = matches.get_flag("global");
-      SubCommand::Config(ConfigSubCommand::Add(matches.get_one::<String>("url-or-plugin-name").map(String::from)))
+      SubCommand::Config(parse_add(matches))
     }
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
       ("init", matches) => parse_init(matches),
       ("add", matches) => {
         is_global_config = matches.get_flag("global");
-        ConfigSubCommand::Add(matches.get_one::<String>("url-or-plugin-name").map(String::from))
+        parse_add(matches)
       }
       ("update", matches) => {
         is_global_config = matches.get_flag("global");
@@ -500,7 +509,7 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
   fn add_command() -> Command {
     Command::new("add")
       .about("Adds a plugin to the configuration file.")
-      .arg(Arg::new("url-or-plugin-name").required(false).num_args(1))
+      .arg(Arg::new("url-or-plugin-name").required(false).num_args(1..))
       .arg(
         Arg::new("global")
           .long("global")
@@ -989,15 +998,25 @@ mod test {
   #[test]
   fn top_level_add_alias() {
     let args = test_args(vec!["add"]).unwrap();
-    match args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Add(None)) => {}
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add(names)) => {
+        assert!(names.is_empty());
+      }
       _ => unreachable!(),
     }
 
     let args = test_args(vec!["add", "typescript"]).unwrap();
-    match args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Add(Some(name))) => {
-        assert_eq!(name, "typescript");
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add(names)) => {
+        assert_eq!(names, &["typescript"]);
+      }
+      _ => unreachable!(),
+    }
+
+    let args = test_args(vec!["add", "typescript", "json", "markdown"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add(names)) => {
+        assert_eq!(names, &["typescript", "json", "markdown"]);
       }
       _ => unreachable!(),
     }
