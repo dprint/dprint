@@ -118,7 +118,7 @@ pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environ
 
 pub async fn add_plugin_config_file<TEnvironment: Environment>(
   args: &CliArgs,
-  plugin_name_or_url: Option<&String>,
+  plugin_names_or_urls: &[String],
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
@@ -127,84 +127,106 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
     PathSource::Local(source) => source.path,
     PathSource::Remote(_) => bail!("Cannot update plugins in a remote configuration."),
   };
-  let plugin_url_to_add = match plugin_name_or_url {
-    Some(plugin_name_or_url) => match Url::parse(plugin_name_or_url) {
-      Ok(url) => url.to_string(),
-      Err(_) => {
-        let cached_downloader = CachedDownloader::new(environment.clone());
-        let plugin_name = if plugin_name_or_url.contains('/') {
-          plugin_name_or_url.to_string()
-        } else {
-          format!("dprint/{}", plugin_name_or_url)
-        };
-        let plugin = match read_update_url(&cached_downloader, &format!("https://plugins.dprint.dev/{}/latest.json", plugin_name)).await? {
-          Some(result) => result,
-          None => {
-            let trailing_message = if let Ok(possible_plugins) = get_possible_plugins_to_add(environment, plugin_resolver, config.plugins).await {
-              if possible_plugins.is_empty() {
-                String::new()
-              } else {
-                format!(
-                  "\n\nPlugins:\n{}",
-                  possible_plugins.iter().map(|p| format!(" * {}", p.name)).collect::<Vec<_>>().join("\n")
-                )
-              }
-            } else {
-              String::new()
-            };
-            bail!(
-              "Could not find plugin with name '{}'. Please fix the name or try a url instead.{}",
-              plugin_name_or_url,
-              trailing_message,
-            )
-          }
-        };
-        for (config_plugin_reference, config_plugin) in get_config_file_plugins(plugin_resolver, config.plugins).await {
-          if let Ok(config_plugin) = config_plugin
-            && let Some(update_url) = &config_plugin.info().update_url
-            && let Ok(Some(config_plugin_latest)) = read_update_url(&cached_downloader, update_url).await
-          {
-            // if two plugins have the same URL to be updated to then they're the same plugin
-            if config_plugin_latest.url == plugin.url {
-              let file_text = environment.read_file(&config_path)?;
-              let new_reference = plugin.as_source_reference()?;
-              let file_text = update_plugin_in_config(
-                &file_text,
-                &PluginUpdateInfo {
-                  name: config_plugin.info().name.to_string(),
-                  old_version: config_plugin.info().version.to_string(),
-                  old_reference: config_plugin_reference,
-                  new_version: plugin.version,
-                  new_reference,
-                },
-              );
-              environment.write_file(&config_path, &file_text)?;
-              return Ok(());
-            }
-          }
-        }
-        plugin.full_url_no_wasm_checksum()
-      }
-    },
-    None => {
-      let mut possible_plugins = get_possible_plugins_to_add(environment, plugin_resolver, config.plugins).await?;
-      if possible_plugins.is_empty() {
-        bail!("Could not find any plugins to add. Please provide one by specifying `dprint config add <plugin-url>`.");
-      }
-      let index = environment.get_selection(
-        "Select a plugin to add:",
-        0,
-        &possible_plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
-      )?;
-      possible_plugins.remove(index).full_url_no_wasm_checksum()
+
+  let plugin_urls_to_add = if plugin_names_or_urls.is_empty() {
+    let mut possible_plugins = get_possible_plugins_to_add(environment, plugin_resolver, config.plugins).await?;
+    if possible_plugins.is_empty() {
+      bail!("Could not find any plugins to add. Please provide one by specifying `dprint add <plugin-url>`.");
     }
+    let index = environment.get_selection(
+      "Select a plugin to add:",
+      0,
+      &possible_plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
+    )?;
+    vec![possible_plugins.remove(index).full_url_no_wasm_checksum()]
+  } else {
+    let mut urls = Vec::with_capacity(plugin_names_or_urls.len());
+    for plugin_name_or_url in plugin_names_or_urls {
+      if let Some(url) = resolve_plugin_url_to_add(plugin_name_or_url, &config_path, &config.plugins, environment, plugin_resolver).await? {
+        urls.push(url);
+      }
+    }
+    urls
   };
 
-  let file_text = environment.read_file(&config_path)?;
-  let new_text = add_to_plugins_array(&file_text, &plugin_url_to_add)?;
-  environment.write_file(&config_path, &new_text)?;
+  let mut file_text = environment.read_file(&config_path)?;
+  for plugin_url in &plugin_urls_to_add {
+    file_text = add_to_plugins_array(&file_text, plugin_url)?;
+  }
+  environment.write_file(&config_path, &file_text)?;
 
   Ok(())
+}
+
+/// Resolves a plugin name or URL to a plugin URL to add to the config.
+///
+/// Returns `Some(url)` for new plugins, or `None` if the plugin was already
+/// present and was updated in-place.
+async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
+  plugin_name_or_url: &str,
+  config_path: &CanonicalizedPathBuf,
+  config_plugins: &[PluginSourceReference],
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+) -> Result<Option<String>> {
+  match Url::parse(plugin_name_or_url) {
+    Ok(url) => Ok(Some(url.to_string())),
+    Err(_) => {
+      let cached_downloader = CachedDownloader::new(environment.clone());
+      let plugin_name = if plugin_name_or_url.contains('/') {
+        plugin_name_or_url.to_string()
+      } else {
+        format!("dprint/{}", plugin_name_or_url)
+      };
+      let plugin = match read_update_url(&cached_downloader, &format!("https://plugins.dprint.dev/{}/latest.json", plugin_name)).await? {
+        Some(result) => result,
+        None => {
+          let trailing_message = if let Ok(possible_plugins) = get_possible_plugins_to_add(environment, plugin_resolver, config_plugins.to_vec()).await {
+            if possible_plugins.is_empty() {
+              String::new()
+            } else {
+              format!(
+                "\n\nPlugins:\n{}",
+                possible_plugins.iter().map(|p| format!(" * {}", p.name)).collect::<Vec<_>>().join("\n")
+              )
+            }
+          } else {
+            String::new()
+          };
+          bail!(
+            "Could not find plugin with name '{}'. Please fix the name or try a url instead.{}",
+            plugin_name_or_url,
+            trailing_message,
+          )
+        }
+      };
+      for (config_plugin_reference, config_plugin) in get_config_file_plugins(plugin_resolver, config_plugins.to_vec()).await {
+        if let Ok(config_plugin) = config_plugin
+          && let Some(update_url) = &config_plugin.info().update_url
+          && let Ok(Some(config_plugin_latest)) = read_update_url(&cached_downloader, update_url).await
+        {
+          // if two plugins have the same URL to be updated to then they're the same plugin
+          if config_plugin_latest.url == plugin.url {
+            let file_text = environment.read_file(config_path)?;
+            let new_reference = plugin.as_source_reference()?;
+            let file_text = update_plugin_in_config(
+              &file_text,
+              &PluginUpdateInfo {
+                name: config_plugin.info().name.to_string(),
+                old_version: config_plugin.info().version.to_string(),
+                old_reference: config_plugin_reference,
+                new_version: plugin.version,
+                new_reference,
+              },
+            );
+            environment.write_file(config_path, &file_text)?;
+            return Ok(None);
+          }
+        }
+      }
+      Ok(Some(plugin.full_url_no_wasm_checksum()))
+    }
+  }
 }
 
 async fn get_possible_plugins_to_add<TEnvironment: Environment>(
@@ -919,7 +941,7 @@ mod test {
       config_has_wasm: true,
       config_has_process: true,
       remote_has_checksums: false,
-      expected_error: Some("Could not find any plugins to add. Please provide one by specifying `dprint config add <plugin-url>`."),
+      expected_error: Some("Could not find any plugins to add. Please provide one by specifying `dprint add <plugin-url>`."),
       expected_logs: vec![],
       expected_urls: vec![],
       selection_result: Some(0),
@@ -1030,6 +1052,30 @@ mod test {
       );
       assert_eq!(environment.read_file("./dprint.json").unwrap(), expected_text);
     }
+  }
+
+  #[test]
+  fn config_add_multiple() {
+    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm";
+    let new_ps_url = "https://plugins.dprint.dev/test-plugin-3.json";
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: false,
+      config_has_wasm_checksum: false,
+      config_has_process: false,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: false,
+    });
+    run_test_cli(vec!["add", "test-plugin", "test-process-plugin"], &environment).unwrap();
+    let expected_text = format!(
+      r#"{{
+  "plugins": [
+    "{}",
+    "{}"
+  ]
+}}"#,
+      new_wasm_url, new_ps_url,
+    );
+    assert_eq!(environment.read_file("./dprint.json").unwrap(), expected_text);
   }
 
   #[test]

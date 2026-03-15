@@ -127,7 +127,7 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
         )
         .await
       }
-      ConfigSubCommand::Add(plugin_name_or_url) => commands::add_plugin_config_file(args, plugin_name_or_url.as_ref(), environment, plugin_resolver).await,
+      ConfigSubCommand::Add(plugin_names_or_urls) => commands::add_plugin_config_file(args, plugin_names_or_urls, environment, plugin_resolver).await,
       ConfigSubCommand::Update { yes } => commands::update_plugins_config_file(args, environment, plugin_resolver, *yes).await,
       ConfigSubCommand::Edit => commands::edit_config_file(args, environment).await,
     },
