@@ -18,7 +18,7 @@ layout: layouts/documentation.njk
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint config add markdown
+dprint add markdown
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"markdown"` property to add configuration:

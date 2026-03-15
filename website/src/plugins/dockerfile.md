@@ -20,7 +20,7 @@ Formats [Dockerfiles](https://docs.docker.com/engine/reference/builder).
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint config add dockerfile
+dprint add dockerfile
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"dockerfile"` property to add configuration:
