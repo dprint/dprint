@@ -1055,6 +1055,30 @@ mod test {
   }
 
   #[test]
+  fn config_add_multiple() {
+    let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm";
+    let new_ps_url = "https://plugins.dprint.dev/test-plugin-3.json";
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: false,
+      config_has_wasm_checksum: false,
+      config_has_process: false,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: false,
+    });
+    run_test_cli(vec!["add", "test-plugin", "test-process-plugin"], &environment).unwrap();
+    let expected_text = format!(
+      r#"{{
+  "plugins": [
+    "{}",
+    "{}"
+  ]
+}}"#,
+      new_wasm_url, new_ps_url,
+    );
+    assert_eq!(environment.read_file("./dprint.json").unwrap(), expected_text);
+  }
+
+  #[test]
   fn config_add_global() {
     let new_wasm_url = "https://plugins.dprint.dev/test-plugin.wasm".to_string();
     let environment = get_setup_env(SetupEnvOptions {
