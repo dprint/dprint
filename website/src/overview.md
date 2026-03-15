@@ -9,7 +9,17 @@ layout: layouts/documentation.njk
 dprint is a command line application that automatically formats code.
 
 ```sh
+# add a config file
+dprint init
+
+# add plugins to config
+dprint add typescript markdown json
+
+# format
 dprint fmt
+
+# check to ensure code is formatted (useful on CI)
+dprint check
 ```
 
 ## Editor Demo
