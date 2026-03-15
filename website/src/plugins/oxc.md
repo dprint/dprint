@@ -20,7 +20,7 @@ Adapter plugin that formats JavaScript and TypeScript files via [Oxc](https://ox
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint config add oxc
+dprint add oxc
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"oxc"` property to add configuration:

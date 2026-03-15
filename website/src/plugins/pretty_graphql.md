@@ -20,7 +20,7 @@ Adapter plugin that formats GraphQL files via [Pretty GraphQL](https://github.co
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint config add g-plane/pretty_graphql
+dprint add g-plane/pretty_graphql
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"graphql"` property to add configuration:

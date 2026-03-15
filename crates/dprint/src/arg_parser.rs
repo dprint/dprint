@@ -338,6 +338,10 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       })
     }
     ("init", matches) => SubCommand::Config(parse_init(matches)),
+    ("add", matches) => {
+      is_global_config = matches.get_flag("global");
+      SubCommand::Config(ConfigSubCommand::Add(matches.get_one::<String>("url-or-plugin-name").map(String::from)))
+    }
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
       ("init", matches) => parse_init(matches),
       ("add", matches) => {
@@ -493,6 +497,21 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
     )
   }
 
+  fn add_command() -> Command {
+    Command::new("add")
+      .about("Adds a plugin to the configuration file.")
+      .arg(Arg::new("url-or-plugin-name").required(false).num_args(1))
+      .arg(
+        Arg::new("global")
+          .long("global")
+          .short('g')
+          .conflicts_with("config-discovery")
+          .help("Add to the global dprint configuration file.")
+          .num_args(0)
+          .required(false),
+      )
+  }
+
   use clap::Arg;
   use clap::Command;
 
@@ -573,6 +592,7 @@ EXAMPLES:
     dprint fmt "**/*.{ts,tsx,js,jsx,json}""#,
     )
     .subcommand(init_command())
+    .subcommand(add_command())
     .subcommand(
       Command::new("fmt")
         .about("Formats the source files and writes the result to the file system.")
@@ -662,24 +682,7 @@ EXAMPLES:
                 .required(false)
             )
         )
-        .subcommand(
-          Command::new("add")
-            .about("Adds a plugin to the configuration file.")
-            .arg(
-              Arg::new("url-or-plugin-name")
-                .required(false)
-                .num_args(1)
-            )
-            .arg(
-              Arg::new("global")
-                .long("global")
-                .short('g')
-                .conflicts_with("config-discovery")
-                .help("Add to the global dprint configuration file.")
-                .num_args(0)
-                .required(false)
-            )
-        )
+        .subcommand(add_command())
         .subcommand(
           Command::new("edit")
             .about("Opens the configuration file in an editor.")
@@ -981,6 +984,23 @@ mod test {
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--staged"]).unwrap();
     assert_eq!(fmt_cmd.only_staged, true);
     assert_eq!(fmt_cmd.allow_no_files, true);
+  }
+
+  #[test]
+  fn top_level_add_alias() {
+    let args = test_args(vec!["add"]).unwrap();
+    match args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add(None)) => {}
+      _ => unreachable!(),
+    }
+
+    let args = test_args(vec!["add", "typescript"]).unwrap();
+    match args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add(Some(name))) => {
+        assert_eq!(name, "typescript");
+      }
+      _ => unreachable!(),
+    }
   }
 
   #[test]

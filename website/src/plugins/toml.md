@@ -20,7 +20,7 @@ Formats [TOML](https://toml.io) files.
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint config add toml
+dprint add toml
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"toml"` property to add configuration:

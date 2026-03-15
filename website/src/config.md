@@ -62,7 +62,7 @@ Note: The order of the plugins in this array defines the precedence. If two plug
 You may add a plugin via the CLI by running:
 
 ```sh
-dprint config add
+dprint add
 ```
 
 This will prompt asking you which of the standard plugins you want to add.
@@ -70,20 +70,22 @@ This will prompt asking you which of the standard plugins you want to add.
 Alternatively, specify the specific name of the plugin to add based on its GitHub repo:
 
 ```sh
-dprint config add dprint/dprint-plugin-typescript
+dprint add dprint/dprint-plugin-typescript
 ```
 
 Or for the standard plugins, you can just do:
 
 ```sh
-dprint config add typescript
+dprint add typescript
 ```
 
 Or specify a plugin url:
 
 ```sh
-dprint config add https://plugins.dprint.dev/json-x.x.x.wasm
+dprint add https://plugins.dprint.dev/json-x.x.x.wasm
 ```
+
+Note: `dprint config add` also works and is equivalent.
 
 ### Updating Plugins via CLI
 

@@ -24,7 +24,7 @@ Supports:
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint config add typescript
+dprint add typescript
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"typescript"` property to add configuration:

@@ -20,7 +20,7 @@ Adapter plugin that formats CSS, SCSS, Sass (indented syntax), and Less files vi
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint config add g-plane/malva
+dprint add g-plane/malva
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"malva"` property to add configuration:
