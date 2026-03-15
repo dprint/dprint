@@ -1,9 +1,5 @@
 name: Website
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+on: workflow_dispatch
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
