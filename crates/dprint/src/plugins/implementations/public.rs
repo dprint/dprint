@@ -18,7 +18,6 @@ use crate::utils::PluginKind;
 
 use super::process::deno::DenoPermissions;
 use super::process::deno::default_deno_permissions;
-use super::process::deno::permissions_to_deno_args;
 use super::process::deno::resolve_deno_executable;
 
 pub struct SetupPluginResult {
@@ -124,14 +123,11 @@ pub async fn create_plugin<TEnvironment: Environment>(
       // use manifest permissions or defaults for launch info;
       // user config permissions are validated later when config is available
       let effective_permissions = cache_item.permissions.clone().unwrap_or_else(default_deno_permissions);
-
-      let mut pre_args = vec!["run".to_string()];
-      pre_args.extend(permissions_to_deno_args(&effective_permissions));
-      pre_args.push(cache_item.file_path.to_string_lossy().to_string());
+      let plugin_dir = cache_item.file_path.parent().unwrap_or(&cache_item.file_path);
 
       let launch_info = ProcessPluginLaunchInfo {
         executable: deno_exe,
-        pre_args,
+        pre_args: process::deno::build_deno_pre_args(&effective_permissions, plugin_dir, &cache_item.file_path),
       };
       Ok(Box::new(process::ProcessPlugin::new(environment, launch_info, cache_item.info)))
     }

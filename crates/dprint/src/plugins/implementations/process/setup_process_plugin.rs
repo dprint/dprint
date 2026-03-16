@@ -200,12 +200,9 @@ async fn setup_deno_inner<TEnvironment: Environment>(
   // some plugins need them at import time, e.g. prettier needs --allow-sys)
   let plugin_name = deno_file.name.clone();
   let init_permissions = deno_file.permissions.as_ref().cloned().unwrap_or_else(super::deno::default_deno_permissions);
-  let mut init_pre_args = vec!["run".to_string()];
-  init_pre_args.extend(super::deno::permissions_to_deno_args(&init_permissions));
-  init_pre_args.push(main_ts_path.to_string_lossy().to_string());
   let launch_info = ProcessPluginLaunchInfo {
     executable: deno_exe,
-    pre_args: init_pre_args,
+    pre_args: super::deno::build_deno_pre_args(&init_permissions, plugin_cache_dir_path, &main_ts_path),
   };
   let communicator = ProcessPluginCommunicator::new_with_init_launch_info(&launch_info, {
     let environment = environment.clone();

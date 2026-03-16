@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -31,18 +32,32 @@ pub type DenoPermissions = BTreeMap<String, DenoPermissionValue>;
 const RUNTIME_PERMISSION_KEYS: &[&str] = &["env", "read", "write", "net", "run", "ffi", "sys"];
 
 /// Converts structured permissions to deno CLI args.
-pub fn permissions_to_deno_args(permissions: &DenoPermissions) -> Vec<String> {
+///
+/// The `plugin_dir` is always included in `--allow-read` and `--allow-write`
+/// scopes so the plugin can access its own directory.
+pub fn permissions_to_deno_args(permissions: &DenoPermissions, plugin_dir: &Path) -> Vec<String> {
+  let plugin_dir_str = plugin_dir.to_string_lossy();
   let mut args = Vec::new();
   for key in RUNTIME_PERMISSION_KEYS {
-    if let Some(value) = permissions.get(*key) {
-      match value {
-        DenoPermissionValue::Boolean(true) => {
-          args.push(format!("--allow-{}", key));
-        }
-        DenoPermissionValue::Scoped(scopes) if !scopes.is_empty() => {
+    let is_read_or_write = *key == "read" || *key == "write";
+    match permissions.get(*key) {
+      Some(DenoPermissionValue::Boolean(true)) => {
+        args.push(format!("--allow-{}", key));
+      }
+      Some(DenoPermissionValue::Scoped(scopes)) if !scopes.is_empty() => {
+        if is_read_or_write {
+          let mut all_scopes: Vec<&str> = scopes.iter().map(|s| s.as_str()).collect();
+          all_scopes.push(&plugin_dir_str);
+          args.push(format!("--allow-{}={}", key, all_scopes.join(",")));
+        } else {
           args.push(format!("--allow-{}={}", key, scopes.join(",")));
         }
-        _ => {}
+      }
+      _ => {
+        if is_read_or_write {
+          // always grant read/write access to the plugin's own directory
+          args.push(format!("--allow-{}={}", key, plugin_dir_str));
+        }
       }
     }
   }
@@ -148,6 +163,17 @@ pub fn resolve_deno_executable(environment: &impl Environment) -> Result<PathBuf
   Ok(PathBuf::from("deno"))
 }
 
+/// Builds the full list of pre_args for launching a deno plugin.
+///
+/// Includes `run`, `--config=<deno.json>`, permission flags, and the script path.
+pub fn build_deno_pre_args(permissions: &DenoPermissions, plugin_dir: &Path, main_ts_path: &Path) -> Vec<String> {
+  let deno_json_path = plugin_dir.join("deno.json");
+  let mut args = vec!["run".to_string(), format!("--config={}", deno_json_path.to_string_lossy())];
+  args.extend(permissions_to_deno_args(permissions, plugin_dir));
+  args.push(main_ts_path.to_string_lossy().to_string());
+  args
+}
+
 /// Extracts the `allowScripts` list from permissions (for running `deno install`).
 pub fn get_allow_scripts(permissions: &DenoPermissions) -> Option<Vec<String>> {
   match permissions.get("allowScripts")? {
@@ -162,21 +188,57 @@ mod test {
 
   #[test]
   fn test_permissions_to_deno_args() {
+    let plugin_dir = PathBuf::from("/cache/plugins/test/0.1.0");
     let mut perms = BTreeMap::new();
     perms.insert("env".to_string(), DenoPermissionValue::Boolean(true));
     perms.insert("read".to_string(), DenoPermissionValue::Scoped(vec![".".to_string()]));
     perms.insert("write".to_string(), DenoPermissionValue::Boolean(false));
     perms.insert("allowScripts".to_string(), DenoPermissionValue::Scoped(vec!["npm:esbuild".to_string()]));
 
-    let args = permissions_to_deno_args(&perms);
-    assert_eq!(args, vec!["--allow-env", "--allow-read=."]);
+    let args = permissions_to_deno_args(&perms, &plugin_dir);
+    assert_eq!(
+      args,
+      vec![
+        "--allow-env",
+        "--allow-read=.,/cache/plugins/test/0.1.0",
+        // write is explicitly false, but plugin dir still gets access
+        "--allow-write=/cache/plugins/test/0.1.0",
+      ]
+    );
+  }
+
+  #[test]
+  fn test_permissions_to_deno_args_full_access() {
+    let plugin_dir = PathBuf::from("/cache/plugins/test/0.1.0");
+    let mut perms = BTreeMap::new();
+    perms.insert("read".to_string(), DenoPermissionValue::Boolean(true));
+
+    let args = permissions_to_deno_args(&perms, &plugin_dir);
+    assert_eq!(
+      args,
+      vec![
+        "--allow-read",
+        // write not specified, but plugin dir still gets write access
+        "--allow-write=/cache/plugins/test/0.1.0",
+      ]
+    );
+  }
+
+  #[test]
+  fn test_permissions_to_deno_args_no_permissions() {
+    let plugin_dir = PathBuf::from("/cache/plugins/test/0.1.0");
+    let perms = BTreeMap::new();
+
+    let args = permissions_to_deno_args(&perms, &plugin_dir);
+    assert_eq!(args, vec!["--allow-read=/cache/plugins/test/0.1.0", "--allow-write=/cache/plugins/test/0.1.0",]);
   }
 
   #[test]
   fn test_default_permissions() {
+    let plugin_dir = PathBuf::from("/cache/plugins/test/0.1.0");
     let perms = default_deno_permissions();
-    let args = permissions_to_deno_args(&perms);
-    assert_eq!(args, vec!["--allow-env", "--allow-read"]);
+    let args = permissions_to_deno_args(&perms, &plugin_dir);
+    assert_eq!(args, vec!["--allow-env", "--allow-read", "--allow-write=/cache/plugins/test/0.1.0"]);
   }
 
   #[test]
