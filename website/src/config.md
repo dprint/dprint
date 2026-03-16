@@ -113,7 +113,7 @@ First, install the plugin's npm package:
 npm install @dprint/typescript
 ```
 
-Then reference the plugin by file path in your dprint configuration:
+Then reference the `.wasm` file within the plugin by file path in your dprint configuration:
 
 ```json
 {
