@@ -11,15 +11,15 @@ use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::plugins::process::ProcessPluginCommunicatorFormatRequest;
+use dprint_core::plugins::process::ProcessPluginLaunchInfo;
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::rc::Rc;
 
 struct ProcessRestartInfo<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_name: String,
-  executable_file_path: PathBuf,
+  launch_info: ProcessPluginLaunchInfo,
 }
 
 struct InnerState {
@@ -33,11 +33,11 @@ pub struct InitializedProcessPluginCommunicator<TEnvironment: Environment> {
 }
 
 impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironment> {
-  pub async fn new(plugin_name: String, executable_file_path: PathBuf, environment: TEnvironment) -> Result<Self> {
+  pub async fn new(plugin_name: String, launch_info: ProcessPluginLaunchInfo, environment: TEnvironment) -> Result<Self> {
     let restart_info = ProcessRestartInfo {
       environment,
       plugin_name,
-      executable_file_path,
+      launch_info,
     };
     let communicator = create_new_communicator(&restart_info).await?;
     let initialized_communicator = Self {
@@ -59,9 +59,13 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
     let plugin_file_path = get_file_path_from_name_and_version("test-process-plugin", "0.1.0", &environment);
     let test_plugin_file_path = get_test_safe_executable_path(plugin_file_path, &environment);
 
-    Self::new("test-process-plugin".to_string(), test_plugin_file_path, environment.clone())
-      .await
-      .unwrap()
+    Self::new(
+      "test-process-plugin".to_string(),
+      ProcessPluginLaunchInfo::from_executable(test_plugin_file_path),
+      environment.clone(),
+    )
+    .await
+    .unwrap()
   }
 
   pub async fn shutdown(&self) {
@@ -139,7 +143,7 @@ async fn create_new_communicator<TEnvironment: Environment>(restart_info: &Proce
   // ensure it's initialized each time
   let plugin_name = restart_info.plugin_name.to_string();
   let environment = restart_info.environment.clone();
-  let communicator = ProcessPluginCommunicator::new(&restart_info.executable_file_path, move |error_message| {
+  let communicator = ProcessPluginCommunicator::new_with_launch_info(&restart_info.launch_info, move |error_message| {
     // consider messages from process plugins as warnings
     if environment.log_level().is_warn() {
       environment.log_stderr_with_context(&error_message, &plugin_name);
@@ -151,6 +155,7 @@ async fn create_new_communicator<TEnvironment: Environment>(restart_info: &Proce
 
 #[cfg(test)]
 mod test {
+  use std::path::PathBuf;
   use std::rc::Rc;
   use std::sync::Arc;
   use std::time::Duration;

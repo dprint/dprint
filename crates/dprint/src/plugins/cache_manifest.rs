@@ -7,6 +7,7 @@ use anyhow::Result;
 use dprint_core::plugins::PluginInfo;
 
 use super::implementations::WASMER_COMPILER_VERSION;
+use super::implementations::process::deno::DenoPermissions;
 use crate::environment::Environment;
 
 const PLUGIN_CACHE_SCHEMA_VERSION: usize = 8;
@@ -69,6 +70,13 @@ fn version_gt(file: &str, current: &str) -> bool {
   false // equal
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CachePluginKind {
+  Process,
+  Deno,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginCacheManifestItem {
@@ -76,6 +84,10 @@ pub struct PluginCacheManifestItem {
   pub created_time: u64,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub file_hash: Option<u64>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub kind: Option<CachePluginKind>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub permissions: Option<DenoPermissions>,
   pub info: PluginInfo,
 }
 
@@ -185,6 +197,8 @@ mod test {
       PluginCacheManifestItem {
         created_time: 123,
         file_hash: None,
+        kind: None,
+        permissions: None,
         info: PluginInfo {
           name: "dprint-plugin-typescript".to_string(),
           version: "0.1.0".to_string(),
@@ -200,6 +214,8 @@ mod test {
       PluginCacheManifestItem {
         created_time: 456,
         file_hash: Some(10),
+        kind: None,
+        permissions: None,
         info: PluginInfo {
           name: "dprint-plugin-json".to_string(),
           version: "0.2.0".to_string(),
@@ -215,6 +231,8 @@ mod test {
       PluginCacheManifestItem {
         created_time: 210530,
         file_hash: Some(1226),
+        kind: None,
+        permissions: None,
         info: PluginInfo {
           name: "dprint-plugin-cargo".to_string(),
           version: "0.2.1".to_string(),
@@ -321,6 +339,8 @@ mod test {
       PluginCacheManifestItem {
         created_time: 456,
         file_hash: Some(256),
+        kind: None,
+        permissions: None,
         info: PluginInfo {
           name: "dprint-plugin-typescript".to_string(),
           version: "0.1.0".to_string(),
@@ -336,6 +356,8 @@ mod test {
       PluginCacheManifestItem {
         created_time: 456,
         file_hash: None,
+        kind: None,
+        permissions: None,
         info: PluginInfo {
           name: "dprint-plugin-json".to_string(),
           version: "0.2.0".to_string(),

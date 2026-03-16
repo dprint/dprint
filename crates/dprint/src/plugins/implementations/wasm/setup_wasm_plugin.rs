@@ -42,6 +42,8 @@ pub async fn setup_wasm_plugin<TEnvironment: Environment>(
   Ok(SetupPluginResult {
     plugin_info,
     file_path: plugin_cache_file_path,
+    cache_kind: None,
+    permissions: None,
   })
 }
 

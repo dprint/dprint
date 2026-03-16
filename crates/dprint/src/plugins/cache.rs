@@ -7,11 +7,13 @@ use std::path::PathBuf;
 
 use dprint_core::plugins::PluginInfo;
 
+use super::CachePluginKind;
 use super::PluginCacheManifest;
 use super::PluginCacheManifestItem;
 use super::cache_fs_locks::CacheFsLockPool;
 use super::implementations::cleanup_plugin;
 use super::implementations::get_file_path_from_plugin_info;
+use super::implementations::process::deno::DenoPermissions;
 use super::implementations::setup_plugin;
 use super::read_manifest;
 use super::write_manifest;
@@ -26,6 +28,8 @@ use crate::utils::verify_sha256_checksum;
 pub struct PluginCacheItem {
   pub file_path: PathBuf,
   pub info: PluginInfo,
+  pub kind: Option<CachePluginKind>,
+  pub permissions: Option<DenoPermissions>,
 }
 
 pub struct PluginCache<TEnvironment: Environment> {
@@ -57,7 +61,7 @@ where
     let removed_cache_item = self.manifest.remove(&source_reference.path_source)?;
 
     if let Some(cache_item) = removed_cache_item
-      && let Err(err) = cleanup_plugin(&source_reference.path_source, &cache_item.info, &self.environment)
+      && let Err(err) = cleanup_plugin(&source_reference.path_source, &cache_item.info, cache_item.kind, &self.environment)
     {
       log_warn!(self.environment, "Error forgetting plugin: {:#}", err);
     }
@@ -79,8 +83,10 @@ where
 
           if file_hash == cache_file_hash {
             return Ok(PluginCacheItem {
-              file_path: get_file_path_from_plugin_info(&source_reference.path_source, &manifest_item.info, &self.environment)?,
+              file_path: get_file_path_from_plugin_info(&source_reference.path_source, &manifest_item.info, manifest_item.kind, &self.environment)?,
               info: manifest_item.info,
+              kind: manifest_item.kind,
+              permissions: manifest_item.permissions,
             });
           } else {
             self.forget(source_reference).await?;
@@ -140,6 +146,8 @@ where
       info: setup_result.plugin_info.clone(),
       file_hash,
       created_time: self.environment.get_time_secs(),
+      kind: setup_result.cache_kind,
+      permissions: setup_result.permissions.clone(),
     };
 
     self.manifest.add(&source_reference.path_source, cache_item)?;
@@ -147,14 +155,18 @@ where
     Ok(PluginCacheItem {
       file_path: setup_result.file_path,
       info: setup_result.plugin_info,
+      kind: setup_result.cache_kind,
+      permissions: setup_result.permissions,
     })
   }
 
   fn get_plugin_cache_item_from_cache(&self, path_source: &PathSource) -> Result<Option<PluginCacheItem>> {
     if let Some(item) = self.manifest.get(path_source)? {
       Ok(Some(PluginCacheItem {
-        file_path: get_file_path_from_plugin_info(path_source, &item.info, &self.environment)?,
+        file_path: get_file_path_from_plugin_info(path_source, &item.info, item.kind, &self.environment)?,
         info: item.info,
+        kind: item.kind,
+        permissions: item.permissions,
       }))
     } else {
       Ok(None)

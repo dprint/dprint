@@ -10,6 +10,7 @@ mod resolver;
 mod types;
 
 pub use cache::*;
+pub use cache_manifest::CachePluginKind;
 use cache_manifest::*;
 pub use helpers::*;
 pub use plugin::*;

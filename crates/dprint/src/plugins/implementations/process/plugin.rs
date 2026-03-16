@@ -6,6 +6,7 @@ use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::process::ProcessPluginLaunchInfo;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -64,15 +65,15 @@ pub fn get_test_safe_executable_path(executable_file_path: PathBuf, environment:
 
 pub struct ProcessPlugin<TEnvironment: Environment> {
   environment: TEnvironment,
-  executable_file_path: PathBuf,
+  launch_info: ProcessPluginLaunchInfo,
   plugin_info: PluginInfo,
 }
 
 impl<TEnvironment: Environment> ProcessPlugin<TEnvironment> {
-  pub fn new(environment: TEnvironment, executable_file_path: PathBuf, plugin_info: PluginInfo) -> Self {
+  pub fn new(environment: TEnvironment, launch_info: ProcessPluginLaunchInfo, plugin_info: PluginInfo) -> Self {
     ProcessPlugin {
       environment,
-      executable_file_path,
+      launch_info,
       plugin_info,
     }
   }
@@ -92,7 +93,7 @@ impl<TEnvironment: Environment> Plugin for ProcessPlugin<TEnvironment> {
     let start_instant = Instant::now();
     let plugin_name = &self.info().name;
     log_debug!(self.environment, "Creating instance of {}", plugin_name);
-    let communicator = InitializedProcessPluginCommunicator::new(plugin_name.to_string(), self.executable_file_path.clone(), self.environment.clone()).await?;
+    let communicator = InitializedProcessPluginCommunicator::new(plugin_name.to_string(), self.launch_info.clone(), self.environment.clone()).await?;
     let process_plugin = InitializedProcessPlugin::new(communicator)?;
 
     let result: Rc<dyn InitializedPlugin> = Rc::new(process_plugin);
