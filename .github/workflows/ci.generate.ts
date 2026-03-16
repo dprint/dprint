@@ -314,6 +314,11 @@ const installerTests = step.if(runDebugTests)(
 const buildJob = job("build", {
   name: matrix.target,
   runsOn: matrix.os,
+  permissions: {
+    attestations: "write",
+    contents: "write",
+    id-token: "write",
+  },
   strategy: { matrix },
   env: {
     // disabled to reduce ./target size and generally it's slower enabled
@@ -421,7 +426,14 @@ ${
 `,
         draft: true,
       },
-    }),
+    },
+    {
+      name: "Generate artifact attestations",
+      uses: "actions/attest@v4",
+      with: {
+        "subject-checksums": "SHASUMS256.txt"
+      }
+    },
   ],
 });
 
