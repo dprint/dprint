@@ -103,6 +103,28 @@ dprint config update
 
 To update configuration files in descendant directories, run `dprint config update --recursive`.
 
+### Using Plugins from npm
+
+Plugins can be resolved from npm packages instead of URLs. This can be useful in environments where downloading from `plugins.dprint.dev` or GitHub releases is restricted or if you're using npm and want to get your dependencies from one place.
+
+First, install the plugin's npm package:
+
+```sh
+npm install @dprint/typescript
+```
+
+Then reference the plugin by file path in your dprint configuration:
+
+```json
+{
+  "plugins": [
+    "./node_modules/@dprint/typescript/plugin.wasm"
+  ]
+}
+```
+
+Available npm packages include `@dprint/typescript`, `@dprint/json`, `@dprint/markdown`, `@dprint/toml`, `@dprint/dockerfile`, `@dprint/biome`, `@dprint/oxc`, `@dprint/ruff`, `@dprint/sql`, and `@dprint/mago`.
+
 ### Editing Config via CLI
 
 ```sh
