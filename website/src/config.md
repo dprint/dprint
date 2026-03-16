@@ -105,7 +105,7 @@ To update configuration files in descendant directories, run `dprint config upda
 
 ### Using Plugins from npm
 
-Plugins can be resolved from npm packages instead of URLs. This can be useful in environments where downloading from `plugins.dprint.dev` or GitHub releases is restricted or if you're using npm and want to get your dependencies from one place.
+Plugins can be resolved from npm packages instead of URLs. This can be useful in environments where downloading from `plugins.dprint.dev`/GitHub releases is restricted or if you're using npm and want to get your dependencies from one place.
 
 First, install the plugin's npm package:
 
