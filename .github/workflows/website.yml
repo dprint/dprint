@@ -1,7 +1,17 @@
 name: Website
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy to GitHub Pages
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -22,7 +32,7 @@ jobs:
         run: (cd website && deno task build:ci)
 
       - name: Deploy
-        if: github.ref == 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy
         uses: JamesIves/github-pages-deploy-action@releases/v3
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
