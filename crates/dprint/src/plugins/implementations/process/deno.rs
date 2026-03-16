@@ -166,10 +166,7 @@ mod test {
     perms.insert("env".to_string(), DenoPermissionValue::Boolean(true));
     perms.insert("read".to_string(), DenoPermissionValue::Scoped(vec![".".to_string()]));
     perms.insert("write".to_string(), DenoPermissionValue::Boolean(false));
-    perms.insert(
-      "allowScripts".to_string(),
-      DenoPermissionValue::Scoped(vec!["npm:esbuild".to_string()]),
-    );
+    perms.insert("allowScripts".to_string(), DenoPermissionValue::Scoped(vec!["npm:esbuild".to_string()]));
 
     let args = permissions_to_deno_args(&perms);
     assert_eq!(args, vec!["--allow-env", "--allow-read=."]);
@@ -211,10 +208,7 @@ mod test {
   #[test]
   fn test_validate_allow_scripts_missing() {
     let mut required = BTreeMap::new();
-    required.insert(
-      "allowScripts".to_string(),
-      DenoPermissionValue::Scoped(vec!["npm:esbuild".to_string()]),
-    );
+    required.insert("allowScripts".to_string(), DenoPermissionValue::Scoped(vec!["npm:esbuild".to_string()]));
 
     let granted = BTreeMap::new();
     let err = validate_permissions(&required, &granted).unwrap_err();

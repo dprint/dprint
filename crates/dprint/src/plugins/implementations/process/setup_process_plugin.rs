@@ -168,7 +168,12 @@ async fn setup_deno_inner<TEnvironment: Environment>(
   // extract to cache directory
   let _ = environment.remove_dir_all(plugin_cache_dir_path);
   environment.mk_dir_all(plugin_cache_dir_path)?;
-  extract_zip(&format!("Extracting zip for {}", deno_file.name), &archive_bytes, plugin_cache_dir_path, environment)?;
+  extract_zip(
+    &format!("Extracting zip for {}", deno_file.name),
+    &archive_bytes,
+    plugin_cache_dir_path,
+    environment,
+  )?;
 
   // verify main.ts exists
   let main_ts_path = plugin_cache_dir_path.join("main.ts");
@@ -184,11 +189,7 @@ async fn setup_deno_inner<TEnvironment: Environment>(
     if let Some(scripts) = get_allow_scripts(permissions) {
       let allow_scripts_arg = format!("--allow-scripts={}", scripts.join(","));
       log_stderr_info!(environment, "Installing dependencies for {}", deno_file.name);
-      let status = environment.run_command_get_status(vec![
-        deno_exe.as_os_str().to_owned(),
-        "install".into(),
-        allow_scripts_arg.into(),
-      ])?;
+      let status = environment.run_command_get_status(vec![deno_exe.as_os_str().to_owned(), "install".into(), allow_scripts_arg.into()])?;
       if status != Some(0) {
         bail!("Failed to run 'deno install' for plugin {}. Exit code: {:?}", deno_file.name, status);
       }
