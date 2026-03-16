@@ -2,15 +2,15 @@
 <html lang="en"><head>
     <script async="" src="/scripts.js"></script>
     <meta charset="utf-8">
-    <title>Creating a Plugin - dprint - Code Formatter</title>
+    <title>Gofumpt Plugin - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#000000">
-    <meta name="description" content="Documentation on creating your own dprint formatting plugin.">
+    <meta name="description" content="Documentation on the gofumpt code formatting plugin for dprint.">
     <meta name="author" content="Dprint Code Formatting">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:site" content="@dprintfmt">
-    <meta name="twitter:title" content="Creating a Plugin">
-    <meta name="twitter:description" content="Documentation on creating your own dprint formatting plugin.">
+    <meta name="twitter:title" content="Gofumpt Plugin">
+    <meta name="twitter:description" content="Documentation on the gofumpt code formatting plugin for dprint.">
     
     <link rel="stylesheet" href="/style.css">
   </head>
@@ -112,18 +112,31 @@
 
     </aside>
     <div id="content-body" class="column documentation">
-      <h1>Creating a Plugin</h1>
-<p>As outlined in <a href="/plugins">plugins</a>, there are Wasm plugins and process plugins.</p>
-<ul>
-<li>Wasm plugins can be written in any language that supports compiling to a WebAssembly file (<em>.wasm</em>) (highly recommended)</li>
-<li>Process plugins can be written in any language that supports compiling to an executable.</li>
-</ul>
-<p>Links:</p>
-<ul>
-<li><a href="https://github.com/dprint/dprint/blob/main/docs/wasm-plugin-development.md">Wasm plugin development</a></li>
-<li><a href="https://github.com/dprint/dprint/blob/main/docs/process-plugin-development.md">Process plugin development</a></li>
-</ul>
-<p>Note that plugins only need to conform to a general interface that doesn't prescribe a certain way of implementing the formatter. In Rust, you may want to use the <code>dprint-core</code> crate's <a href="https://docs.rs/dprint-core/0.28.0/dprint_core/formatting/index.html"><code>formatting</code></a> feature as it provides a better starting point for implementing a formatter. See an overview <a href="https://github.com/dprint/dprint/blob/main/docs/overview.md">here</a></p>
+      <nav class="breadcrumb" aria-label="breadcrumbs">
+  <ul>
+    <li><a href="/plugins">Plugins</a></li>
+    <li><a href="/plugins/gofumpt">Gofumpt</a></li>
+  </ul>
+</nav>
+<h1>Gofumpt Plugin</h1>
+<p>Adapter plugin that formats Go code via <a href="https://github.com/mvdan/gofumpt">gofumpt</a>.</p>
+<p>Formats .go files.</p>
+<h2 id="install-and-setup" tabindex="-1"><a class="header-anchor" href="#install-and-setup">Install and Setup</a></h2>
+<p>In your project's directory with a dprint.json file, run:</p>
+<pre><code class="language-shellsession hljs language-shell">dprint add jakebailey/gofumpt
+</code></pre>
+<p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"gofumpt"</code> property to add configuration:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"gofumpt"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-comment">// gofumpt config goes here</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/jakebailey/gofumpt-vx.x.x.wasm"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<h2 id="configuration" tabindex="-1"><a class="header-anchor" href="#configuration">Configuration</a></h2>
+<p>See <a href="/plugins/gofumpt/config">Configuration</a></p>
 
     </div>
   </div>

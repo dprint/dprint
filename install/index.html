@@ -58,6 +58,7 @@
   <li><a href="/plugins/mago">Mago (PHP)</a></li>
   <li><a href="/plugins/ruff">Ruff (Python)</a></li>
   <li><a href="/plugins/jupyter">Jupyter</a></li>
+  <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
   <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
   <li><a href="/plugin-dev">Creating a Plugin</a></li>
 </ul>
@@ -104,6 +105,7 @@
   <li><a href="/plugins/mago">Mago (PHP)</a></li>
   <li><a href="/plugins/ruff">Ruff (Python)</a></li>
   <li><a href="/plugins/jupyter">Jupyter</a></li>
+  <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
   <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
   <li><a href="/plugin-dev">Creating a Plugin</a></li>
 </ul>
@@ -145,18 +147,17 @@ cargo install --locked dprint
 </li>
 <li>
 <p><a href="https://deno.land">Deno</a>:</p>
-<p>For just your project, add a <a href="https://deno.land/manual/tools/task_runner">deno task</a> to your deno.json file:</p>
+<p>For just your project, run <code>deno install npm:dprint</code> then you can configure a task like so:</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
   <span class="hljs-attr">"tasks"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
-    <span class="hljs-attr">"fmt"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"deno task dprint fmt"</span><span class="hljs-punctuation">,</span>
-    <span class="hljs-attr">"fmt:check"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"deno task dprint check"</span><span class="hljs-punctuation">,</span>
-    <span class="hljs-attr">"dprint"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"deno run -A npm:dprint"</span>
+    <span class="hljs-attr">"fmt"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"dprint fmt"</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">"fmt:check"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"dprint check"</span>
   <span class="hljs-punctuation">}</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
 <p>Then run <code>deno task dprint init</code> to initialize and format by running: <code>deno task fmt</code></p>
-<p>Also, you could install it globally via Deno, but like npm it has a startup and memory cost since it needs to run Deno then run dprint. It's recommended to install it globally via another method.</p>
-<pre><code class="language-sh hljs language-bash">deno install -A npm:dprint
+<p>Also, you could install it globally via Deno:</p>
+<pre><code class="language-sh hljs language-bash">deno install -g -A npm:dprint
 dprint <span class="hljs-built_in">help</span>
 </code></pre>
 </li>
@@ -166,7 +167,7 @@ dprint <span class="hljs-built_in">help</span>
 npm install dprint
 npx dprint <span class="hljs-built_in">help</span>
 
-<span class="hljs-comment"># or install globally (not recommended because it has a startup and memory cost)</span>
+<span class="hljs-comment"># or install globally</span>
 npm install -g dprint
 dprint <span class="hljs-built_in">help</span>
 </code></pre>

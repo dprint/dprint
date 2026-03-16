@@ -58,6 +58,7 @@
   <li><a href="/plugins/mago">Mago (PHP)</a></li>
   <li><a href="/plugins/ruff">Ruff (Python)</a></li>
   <li><a href="/plugins/jupyter">Jupyter</a></li>
+  <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
   <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
   <li><a href="/plugin-dev">Creating a Plugin</a></li>
 </ul>
@@ -104,6 +105,7 @@
   <li><a href="/plugins/mago">Mago (PHP)</a></li>
   <li><a href="/plugins/ruff">Ruff (Python)</a></li>
   <li><a href="/plugins/jupyter">Jupyter</a></li>
+  <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
   <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
   <li><a href="/plugin-dev">Creating a Plugin</a></li>
 </ul>
@@ -120,7 +122,7 @@
 <p>Formats code blocks in Jupyter Notebooks.</p>
 <h2 id="install-and-setup" tabindex="-1"><a class="header-anchor" href="#install-and-setup">Install and Setup</a></h2>
 <p>In your project's directory with a dprint.json file, run:</p>
-<pre><code class="language-shellsession hljs language-shell">dprint config add jupyter
+<pre><code class="language-shellsession hljs language-shell">dprint add jupyter
 </code></pre>
 <p>This will update your config file to have an entry for the plugin.</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
@@ -130,9 +132,9 @@
 <span class="hljs-punctuation">}</span>
 </code></pre>
 <p>Then add some additional formatting plugins to format the code blocks with. For example:</p>
-<pre><code class="language-shellsession hljs language-shell">dprint config add typescript
-dprint config add markdown
-dprint config add ruff
+<pre><code class="language-shellsession hljs language-shell">dprint add typescript
+dprint add markdown
+dprint add ruff
 </code></pre>
 <p>If you find a code block isn't being formatted with a plugin, please verify it's not a syntax error. After, open an <a href="https://github.com/dprint/dprint-plugin-jupyter/issues">issue</a> about adding support for that plugin (if you're interested in opening a PR, it's potentially an easy contribution).</p>
 <h2 id="configuration" tabindex="-1"><a class="header-anchor" href="#configuration">Configuration</a></h2>

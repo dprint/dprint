@@ -58,6 +58,7 @@
   <li><a href="/plugins/mago">Mago (PHP)</a></li>
   <li><a href="/plugins/ruff">Ruff (Python)</a></li>
   <li><a href="/plugins/jupyter">Jupyter</a></li>
+  <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
   <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
   <li><a href="/plugin-dev">Creating a Plugin</a></li>
 </ul>
@@ -104,6 +105,7 @@
   <li><a href="/plugins/mago">Mago (PHP)</a></li>
   <li><a href="/plugins/ruff">Ruff (Python)</a></li>
   <li><a href="/plugins/jupyter">Jupyter</a></li>
+  <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
   <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
   <li><a href="/plugin-dev">Creating a Plugin</a></li>
 </ul>
@@ -112,7 +114,17 @@
     <div id="content-body" class="column documentation">
       <h1>Overview</h1>
 <p>dprint is a command line application that automatically formats code.</p>
-<pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span>
+<pre><code class="language-sh hljs language-bash"><span class="hljs-comment"># add a config file</span>
+dprint init
+
+<span class="hljs-comment"># add plugins to config</span>
+dprint add typescript markdown json
+
+<span class="hljs-comment"># format</span>
+dprint <span class="hljs-built_in">fmt</span>
+
+<span class="hljs-comment"># check to ensure code is formatted (useful on CI)</span>
+dprint check
 </code></pre>
 <h2 id="editor-demo" tabindex="-1"><a class="header-anchor" href="#editor-demo">Editor Demo</a></h2>
 <p>With "format on save" enabled:</p>

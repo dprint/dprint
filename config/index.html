@@ -58,6 +58,7 @@
   <li><a href="/plugins/mago">Mago (PHP)</a></li>
   <li><a href="/plugins/ruff">Ruff (Python)</a></li>
   <li><a href="/plugins/jupyter">Jupyter</a></li>
+  <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
   <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
   <li><a href="/plugin-dev">Creating a Plugin</a></li>
 </ul>
@@ -104,6 +105,7 @@
   <li><a href="/plugins/mago">Mago (PHP)</a></li>
   <li><a href="/plugins/ruff">Ruff (Python)</a></li>
   <li><a href="/plugins/jupyter">Jupyter</a></li>
+  <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
   <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
   <li><a href="/plugin-dev">Creating a Plugin</a></li>
 </ul>
@@ -152,23 +154,40 @@
 <p>Note: The order of the plugins in this array defines the precedence. If two plugins support the same file extension then define the one you want to format that extension with first. For more fine grained control, see "associations" below.</p>
 <h3 id="adding-plugins-via-cli" tabindex="-1"><a class="header-anchor" href="#adding-plugins-via-cli">Adding Plugins via CLI</a></h3>
 <p>You may add a plugin via the CLI by running:</p>
-<pre><code class="language-sh hljs language-bash">dprint config add
+<pre><code class="language-sh hljs language-bash">dprint add
 </code></pre>
 <p>This will prompt asking you which of the standard plugins you want to add.</p>
 <p>Alternatively, specify the specific name of the plugin to add based on its GitHub repo:</p>
-<pre><code class="language-sh hljs language-bash">dprint config add dprint/dprint-plugin-typescript
+<pre><code class="language-sh hljs language-bash">dprint add dprint/dprint-plugin-typescript
 </code></pre>
 <p>Or for the standard plugins, you can just do:</p>
-<pre><code class="language-sh hljs language-bash">dprint config add typescript
+<pre><code class="language-sh hljs language-bash">dprint add typescript
+</code></pre>
+<p>You can also add multiple plugins at once:</p>
+<pre><code class="language-sh hljs language-bash">dprint add typescript json markdown
 </code></pre>
 <p>Or specify a plugin url:</p>
-<pre><code class="language-sh hljs language-bash">dprint config add https://plugins.dprint.dev/json-x.x.x.wasm
+<pre><code class="language-sh hljs language-bash">dprint add https://plugins.dprint.dev/json-x.x.x.wasm
 </code></pre>
+<p>Note: <code>dprint config add</code> also works and is equivalent.</p>
 <h3 id="updating-plugins-via-cli" tabindex="-1"><a class="header-anchor" href="#updating-plugins-via-cli">Updating Plugins via CLI</a></h3>
 <p>Plugins can be updated to the latest version in the configuration file by running:</p>
 <pre><code class="language-sh hljs language-bash">dprint config update
 </code></pre>
 <p>To update configuration files in descendant directories, run <code>dprint config update --recursive</code>.</p>
+<h3 id="using-plugins-from-npm" tabindex="-1"><a class="header-anchor" href="#using-plugins-from-npm">Using Plugins from npm</a></h3>
+<p>Plugins can be resolved from npm packages instead of URLs. This can be useful in environments where downloading from <code>plugins.dprint.dev</code>/GitHub releases is restricted or if you're using npm and want to get your dependencies from one place.</p>
+<p>First, install the plugin's npm package:</p>
+<pre><code class="language-sh hljs language-bash">npm install @dprint/typescript
+</code></pre>
+<p>Then reference the <code>.wasm</code> file within the plugin by file path in your dprint configuration:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"./node_modules/@dprint/typescript/plugin.wasm"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>Available npm packages include <code>@dprint/typescript</code>, <code>@dprint/json</code>, <code>@dprint/markdown</code>, <code>@dprint/toml</code>, <code>@dprint/dockerfile</code>, <code>@dprint/biome</code>, <code>@dprint/oxc</code>, <code>@dprint/ruff</code>, <code>@dprint/sql</code>, and <code>@dprint/mago</code>.</p>
 <h3 id="editing-config-via-cli" tabindex="-1"><a class="header-anchor" href="#editing-config-via-cli">Editing Config via CLI</a></h3>
 <pre><code class="language-sh hljs language-bash">dprint config edit
 </code></pre>
