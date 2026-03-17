@@ -32,7 +32,7 @@ impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
     let glob_matcher = GlobMatcher::new(
       patterns,
       &GlobMatcherOptions {
-        case_sensitive: !cfg!(windows),
+        case_sensitive: true,
         base_dir: config.base_path.clone(),
       },
     )?;
@@ -102,7 +102,7 @@ pub fn get_patterns_as_glob_matcher(patterns: &[String], config_base_path: &Cano
         .collect(),
     },
     &GlobMatcherOptions {
-      case_sensitive: !cfg!(windows),
+      case_sensitive: true,
       base_dir: config_base_path.clone(),
     },
   )

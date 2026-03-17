@@ -58,7 +58,7 @@ pub fn glob(environment: &impl Environment, opts: GlobOptions) -> Result<GlobOut
     opts.file_patterns,
     &GlobMatcherOptions {
       // make it work the same way on every operating system
-      case_sensitive: false,
+      case_sensitive: true,
       base_dir: opts.pattern_base,
     },
   )?;
@@ -584,6 +584,40 @@ mod test {
     let mut result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
     result.sort();
     assert_eq!(result, vec!["/test/a/b/b.json", "/test/test.json"]);
+  }
+
+  #[tokio::test]
+  async fn should_be_case_sensitive() {
+    // https://github.com/dprint/dprint/issues/1082
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/src/FooSamlService.java", "")
+      .write_file("/src/FooMlService.java", "")
+      .write_file("/src/Other.java", "")
+      .build();
+    let root_dir = environment.canonicalize("/").unwrap();
+    let result = glob(
+      &environment,
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        config_discovery: ConfigDiscovery::Default,
+        file_patterns: GlobPatterns {
+          arg_includes: None,
+          config_includes: Some(vec![
+            GlobPattern::new("**/*.java".to_string(), root_dir.clone()),
+            GlobPattern::new("!**/*MlService.java".to_string(), root_dir),
+          ]),
+          arg_excludes: None,
+          config_excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+      },
+    )
+    .unwrap();
+
+    let mut result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    result.sort();
+    // FooSamlService.java should NOT be excluded — the pattern is *MlService, not *mlservice
+    assert_eq!(result, vec!["/src/FooSamlService.java", "/src/Other.java"]);
   }
 
   #[tokio::test]
