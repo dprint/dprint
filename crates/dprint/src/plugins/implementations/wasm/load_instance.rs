@@ -11,8 +11,11 @@ use wasmer::Instance;
 use wasmer::Memory;
 use wasmer::Module;
 use wasmer::Store;
+#[cfg(not(target_arch = "loongarch64"))]
 use wasmer::sys::Cranelift;
 use wasmer::sys::EngineBuilder;
+#[cfg(target_arch = "loongarch64")]
+use wasmer::sys::LLVM;
 
 use super::ImportObjectEnvironment;
 use super::PluginSchemaVersion;
@@ -94,7 +97,10 @@ pub struct WasmModuleCreator {
 
 impl Default for WasmModuleCreator {
   fn default() -> Self {
+    #[cfg(not(target_arch = "loongarch64"))]
     let compiler = Cranelift::default();
+    #[cfg(target_arch = "loongarch64")]
+    let compiler = LLVM::default();
     let engine = EngineBuilder::new(compiler).engine();
     let engine: wasmer::Engine = engine.into();
     Self { engine }
