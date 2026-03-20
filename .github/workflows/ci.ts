@@ -166,6 +166,12 @@ const aarch64LinkerEnv = {
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc",
 };
 
+// llvm-sys uses cross-compiled llvm-config to detect LLVM
+const setupQemu = step({
+  uses: "docker/setup-qemu-action@v4",
+  if: matrix.target.startsWith("loongarch64").and(isCross),
+});
+
 const buildDebug = step({
   name: "Build (Debug)",
   if: isCross.not(),
@@ -175,7 +181,7 @@ const buildDebug = step({
   name: "Build cross (Debug)",
   if: isCross,
   run: `cross build -p dprint --locked --target ${matrix.target}`,
-}).dependsOn(setupRust);
+}).dependsOn(setupQemu, setupRust);
 const buildRelease = step({
   name: "Build (Release)",
   if: isCross.not(),
@@ -185,7 +191,7 @@ const buildRelease = step({
   name: "Build cross (Release)",
   if: isCross,
   run: `cross build -p dprint --locked --target ${matrix.target} --release`,
-}).dependsOn(setupRust);
+}).dependsOn(setupRust, setupQemu);
 
 const tests = step(
   // debug
