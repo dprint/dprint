@@ -19,6 +19,7 @@ use dprint_core::async_runtime::async_trait;
 
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
+use super::DownloadedFile;
 use super::Environment;
 use super::FilePermissions;
 use super::UrlDownloader;
@@ -102,7 +103,7 @@ impl RealEnvironment {
 
 #[async_trait(?Send)]
 impl UrlDownloader for RealEnvironment {
-  async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
+  async fn download_file(&self, url: &str) -> Result<Option<DownloadedFile>> {
     log_debug!(self, "Downloading url: {}", url);
 
     let downloader = self.url_downloader.clone();

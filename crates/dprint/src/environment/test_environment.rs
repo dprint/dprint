@@ -35,6 +35,7 @@ use dprint_core::async_runtime::async_trait;
 
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
+use super::DownloadedFile;
 use super::Environment;
 use super::FilePermissions;
 use super::UrlDownloader;
@@ -121,6 +122,7 @@ pub struct TestEnvironment {
   stdout_messages: Arc<Mutex<Vec<String>>>,
   stderr_messages: Arc<Mutex<Vec<String>>>,
   remote_files: Arc<Mutex<HashMap<String, Result<Vec<u8>>>>>,
+  remote_file_redirects: Arc<Mutex<HashMap<String, String>>>,
   selection_result: Arc<Mutex<usize>>,
   multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>>>>>,
@@ -147,6 +149,7 @@ impl TestEnvironment {
       stdout_messages: Default::default(),
       stderr_messages: Default::default(),
       remote_files: Default::default(),
+      remote_file_redirects: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
       multi_selection_result: Arc::new(Mutex::new(None)),
       confirm_results: Default::default(),
@@ -205,6 +208,21 @@ impl TestEnvironment {
       Some(Err(err)) => Err(anyhow!("{:#}", err)),
       None => Ok(None),
     }
+  }
+
+  pub fn add_remote_file_redirect(&self, from: &str, to: &str) {
+    self.remote_file_redirects.lock().insert(from.to_string(), to.to_string());
+  }
+
+  fn resolve_redirect(&self, url: &str) -> (String, bool) {
+    let redirects = self.remote_file_redirects.lock();
+    let mut current = url.to_string();
+    let mut redirected = false;
+    while let Some(target) = redirects.get(&current) {
+      current = target.clone();
+      redirected = true;
+    }
+    (current, redirected)
   }
 
   pub fn set_env_var(&self, name: &str, value: Option<&str>) {
@@ -327,8 +345,12 @@ impl Drop for TestEnvironment {
 
 #[async_trait(?Send)]
 impl UrlDownloader for TestEnvironment {
-  async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
-    self.get_remote_file(url)
+  async fn download_file(&self, url: &str) -> Result<Option<DownloadedFile>> {
+    let (resolved, redirected) = self.resolve_redirect(url);
+    Ok(self.get_remote_file(&resolved)?.map(|bytes| DownloadedFile {
+      bytes,
+      redirected_url: if redirected { Some(resolved) } else { None },
+    }))
   }
 }
 

@@ -16,6 +16,7 @@ use super::certs::get_root_cert_store;
 use super::logging::ProgressBarStyle;
 use super::logging::ProgressBars;
 use super::no_proxy::NoProxy;
+use crate::environment::DownloadedFile;
 
 const MAX_RETRIES: u8 = 2;
 
@@ -262,12 +263,15 @@ impl RealUrlDownloader {
     })
   }
 
-  pub fn download(&self, url: &str) -> Result<Option<Vec<u8>>> {
-    let (agent, url) = self.get_agent_and_url(url)?;
-    self.download_with_retries(&url, &agent)
+  pub fn download(&self, url: &str) -> Result<Option<DownloadedFile>> {
+    let (agent, parsed_url) = self.get_agent_and_url(url)?;
+    Ok(self.download_with_retries(&parsed_url, &agent)?.map(|(bytes, final_url)| {
+      let redirected_url = if final_url != url { Some(final_url) } else { None };
+      DownloadedFile { bytes, redirected_url }
+    }))
   }
 
-  fn download_with_retries(&self, url: &Url, agent: &ureq::Agent) -> Result<Option<Vec<u8>>> {
+  fn download_with_retries(&self, url: &Url, agent: &ureq::Agent) -> Result<Option<(Vec<u8>, String)>> {
     let mut last_error = None;
     for retry_count in 0..(MAX_RETRIES + 1) {
       match self.inner_download(url, retry_count, agent) {
@@ -286,7 +290,7 @@ impl RealUrlDownloader {
   #[cfg(test)]
   pub fn download_no_retries_for_testing(&self, url: &str) -> Result<Option<Vec<u8>>> {
     let (agent, url) = self.get_agent_and_url(url)?;
-    self.inner_download(&url, 0, &agent)
+    Ok(self.inner_download(&url, 0, &agent)?.map(|(bytes, _)| bytes))
   }
 
   fn get_agent_and_url(&self, url: &str) -> Result<(ureq::Agent, Url)> {
@@ -301,7 +305,7 @@ impl RealUrlDownloader {
     Ok((agent, url))
   }
 
-  fn inner_download(&self, url: &Url, retry_count: u8, agent: &ureq::Agent) -> Result<Option<Vec<u8>>> {
+  fn inner_download(&self, url: &Url, retry_count: u8, agent: &ureq::Agent) -> Result<Option<(Vec<u8>, String)>> {
     let resp = match agent.request_url("GET", url).call() {
       Ok(resp) => resp,
       Err(ureq::Error::Status(404, _)) => {
@@ -312,10 +316,11 @@ impl RealUrlDownloader {
       }
     };
 
+    let final_url = resp.get_url().to_string();
     let total_size = resp.header("Content-Length").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
     let mut reader = resp.into_reader();
     match read_response(url, retry_count, &mut reader, total_size, self.progress_bars.as_deref()) {
-      Ok(result) => Ok(Some(result)),
+      Ok(result) => Ok(Some((result, final_url))),
       Err(err) => bail!("Error downloading {} - {:#}", url, err),
     }
   }

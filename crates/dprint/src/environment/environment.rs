@@ -46,10 +46,16 @@ pub struct TestFilePermissions {
   pub readonly: bool,
 }
 
+pub struct DownloadedFile {
+  pub bytes: Vec<u8>,
+  /// The final URL after any redirects, if different from the requested URL.
+  pub redirected_url: Option<String>,
+}
+
 #[async_trait(?Send)]
 pub trait UrlDownloader {
-  async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>>;
-  async fn download_file_err_404(&self, url: &str) -> Result<Vec<u8>> {
+  async fn download_file(&self, url: &str) -> Result<Option<DownloadedFile>>;
+  async fn download_file_err_404(&self, url: &str) -> Result<DownloadedFile> {
     match self.download_file(url).await? {
       Some(result) => Ok(result),
       None => bail!("Error downloading {} - 404 Not Found", url),

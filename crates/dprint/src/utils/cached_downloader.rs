@@ -4,6 +4,7 @@ use dprint_core::async_runtime::async_trait;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use crate::environment::DownloadedFile;
 use crate::environment::UrlDownloader;
 
 type CachedDownloadResult = Result<Option<Vec<u8>>, String>;
@@ -24,11 +25,11 @@ impl<TInner: UrlDownloader> CachedDownloader<TInner> {
 
 #[async_trait(?Send)]
 impl<TInner: UrlDownloader> UrlDownloader for CachedDownloader<TInner> {
-  async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
+  async fn download_file(&self, url: &str) -> Result<Option<DownloadedFile>> {
     {
       if let Some(result) = self.results.borrow().get(url) {
         return match result {
-          Ok(result) => Ok(result.clone()),
+          Ok(result) => Ok(result.clone().map(|bytes| DownloadedFile { bytes, redirected_url: None })),
           Err(err) => Err(anyhow!("{:#}", err)),
         };
       }
@@ -37,7 +38,7 @@ impl<TInner: UrlDownloader> UrlDownloader for CachedDownloader<TInner> {
     self.results.borrow_mut().insert(
       url.to_string(),
       match &result {
-        Ok(result) => Ok(result.clone()),
+        Ok(result) => Ok(result.as_ref().map(|r| r.bytes.clone())),
         Err(err) => Err(format!("{:#}", err)),
       },
     );
@@ -65,9 +66,15 @@ mod test {
       assert!(downloader.download_file(not_exists_url).await.as_ref().unwrap().is_none());
 
       // should get data and have it cached
-      assert_eq!(downloader.download_file(exists_url).await.as_ref().unwrap().as_ref().unwrap(), "1".as_bytes());
+      assert_eq!(
+        downloader.download_file(exists_url).await.as_ref().unwrap().as_ref().unwrap().bytes,
+        "1".as_bytes()
+      );
       environment.add_remote_file_bytes(exists_url, Vec::new());
-      assert_eq!(downloader.download_file(exists_url).await.as_ref().unwrap().as_ref().unwrap(), "1".as_bytes());
+      assert_eq!(
+        downloader.download_file(exists_url).await.as_ref().unwrap().as_ref().unwrap().bytes,
+        "1".as_bytes()
+      );
     });
   }
 }

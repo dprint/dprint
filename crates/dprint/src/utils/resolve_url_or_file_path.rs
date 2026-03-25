@@ -56,6 +56,8 @@ pub async fn resolve_url_or_file_path<TEnvironment: Environment>(
 }
 
 async fn resolve_url<TEnvironment: Environment>(url: &Url, environment: &TEnvironment) -> Result<ResolvedPath> {
+  use std::borrow::Cow;
+
   let mut is_first_download = false;
 
   let cache_dir = environment.get_cache_dir().join_panic_relative("remote");
@@ -64,21 +66,27 @@ async fn resolve_url<TEnvironment: Environment>(url: &Url, environment: &TEnviro
   let url_hash = get_bytes_hash(url.as_str().as_bytes());
   let file_path = cache_dir.join_panic_relative(url_hash.to_string());
 
+  let mut resolved_url = Cow::Borrowed(url);
   if !environment.path_exists(&file_path) {
     is_first_download = true;
-    let file_bytes = environment.download_file_err_404(url.as_str()).await?;
+    let result = environment.download_file_err_404(url.as_str()).await?;
+    if let Some(final_url) = &result.redirected_url {
+      if let Ok(parsed) = Url::parse(final_url) {
+        resolved_url = Cow::Owned(parsed);
+      }
+    }
     let temp_path = file_path.as_ref().with_extension(".tmp");
     // atomic save
-    environment.write_file_bytes(&temp_path, &file_bytes)?;
+    environment.write_file_bytes(&temp_path, &result.bytes)?;
     environment.rename(&temp_path, &file_path)?;
   }
 
-  Ok(ResolvedPath::remote(file_path, url.clone(), is_first_download))
+  Ok(ResolvedPath::remote(file_path, resolved_url.into_owned(), is_first_download))
 }
 
 pub async fn fetch_file_or_url_bytes(url_or_file_path: &PathSource, environment: &impl Environment) -> Result<Vec<u8>> {
   match url_or_file_path {
-    PathSource::Remote(path_source) => environment.download_file_err_404(path_source.url.as_str()).await,
+    PathSource::Remote(path_source) => Ok(environment.download_file_err_404(path_source.url.as_str()).await?.bytes),
     PathSource::Local(path_source) => Ok(environment.read_file_bytes(&path_source.path)?),
   }
 }
@@ -271,6 +279,33 @@ mod tests {
         .err()
         .unwrap();
       assert_eq!(err.to_string(), "Error downloading https://dprint.dev/test.json - 404 Not Found");
+    });
+  }
+
+  #[test]
+  fn should_resolve_url_using_redirected_url() {
+    let environment = TestEnvironment::new();
+    // the file lives at the redirect target
+    environment.add_remote_file("https://cdn.example.com/v1/plugin.json", "content".as_bytes());
+    // set up a redirect from the original URL to the CDN
+    environment.add_remote_file_redirect("https://example.com/plugin.json", "https://cdn.example.com/v1/plugin.json");
+    environment.clone().run_in_runtime(async move {
+      let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
+      let result = resolve_url_or_file_path("https://example.com/plugin.json", &base, &environment).await.unwrap();
+      assert_eq!(result.is_remote(), true);
+      assert_eq!(result.is_first_download, true);
+      assert_eq!(environment.read_file(&result.file_path).unwrap(), "content");
+      // the resolved path source should use the redirected URL
+      assert_eq!(
+        result.source,
+        PathSource::new_remote(Url::parse("https://cdn.example.com/v1/plugin.json").unwrap())
+      );
+      // relative paths should resolve against the redirected URL
+      let relative_result = resolve_url_or_file_path_to_path_source("downloads/plugin.zip", &result.source.parent(), &environment).unwrap();
+      assert_eq!(
+        relative_result,
+        PathSource::new_remote(Url::parse("https://cdn.example.com/v1/downloads/plugin.zip").unwrap())
+      );
     });
   }
 
