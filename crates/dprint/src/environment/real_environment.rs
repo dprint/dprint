@@ -3,6 +3,7 @@ use anyhow::bail;
 use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
+use std::borrow::Cow;
 use std::ffi::OsString;
 use std::fs;
 use std::hash::Hash;
@@ -13,6 +14,17 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::SystemTime;
+use sys_traits::BaseFsCreateDir;
+use sys_traits::BaseFsMetadata;
+use sys_traits::BaseFsOpen;
+use sys_traits::BaseFsRead;
+use sys_traits::BaseFsRemoveFile;
+use sys_traits::BaseFsRename;
+use sys_traits::CreateDirOptions;
+use sys_traits::SystemRandom;
+use sys_traits::SystemTimeNow;
+use sys_traits::ThreadSleep;
+use sys_traits::impls::RealSys;
 use sysinfo::System;
 
 use dprint_core::async_runtime::async_trait;
@@ -98,6 +110,76 @@ impl RealEnvironment {
     .unwrap();
 
     rt.block_on(async move { run_with_env(env).await });
+  }
+}
+
+impl std::fmt::Debug for RealEnvironment {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("RealEnvironment").finish()
+  }
+}
+
+impl BaseFsCreateDir for RealEnvironment {
+  fn base_fs_create_dir(&self, path: &Path, options: &CreateDirOptions) -> io::Result<()> {
+    RealSys.base_fs_create_dir(path, options)
+  }
+}
+
+impl BaseFsMetadata for RealEnvironment {
+  type Metadata = sys_traits::impls::RealFsMetadata;
+
+  fn base_fs_metadata(&self, path: &Path) -> io::Result<Self::Metadata> {
+    RealSys.base_fs_metadata(path)
+  }
+
+  fn base_fs_symlink_metadata(&self, path: &Path) -> io::Result<Self::Metadata> {
+    RealSys.base_fs_symlink_metadata(path)
+  }
+}
+
+impl BaseFsOpen for RealEnvironment {
+  type File = sys_traits::impls::RealFsFile;
+
+  fn base_fs_open(&self, path: &Path, options: &sys_traits::OpenOptions) -> io::Result<Self::File> {
+    RealSys.base_fs_open(path, options)
+  }
+}
+
+impl BaseFsRead for RealEnvironment {
+  fn base_fs_read(&self, path: &Path) -> io::Result<Cow<'static, [u8]>> {
+    RealSys.base_fs_read(path)
+  }
+}
+
+impl BaseFsRemoveFile for RealEnvironment {
+  fn base_fs_remove_file(&self, path: &Path) -> io::Result<()> {
+    RealSys.base_fs_remove_file(path)
+  }
+}
+
+impl BaseFsRename for RealEnvironment {
+  fn base_fs_rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+    RealSys.base_fs_rename(from, to)
+  }
+}
+
+impl ThreadSleep for RealEnvironment {
+  fn thread_sleep(&self, duration: std::time::Duration) {
+    std::thread::sleep(duration);
+  }
+}
+
+impl SystemRandom for RealEnvironment {
+  fn sys_random(&self, buf: &mut [u8]) -> io::Result<()> {
+    use rand::RngCore;
+    rand::rng().fill_bytes(buf);
+    Ok(())
+  }
+}
+
+impl SystemTimeNow for RealEnvironment {
+  fn sys_time_now(&self) -> SystemTime {
+    SystemTime::now()
   }
 }
 

@@ -37,7 +37,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2 = "=0.10.9"
 similar = { workspace = true, features = ["inline"] }
-sys_traits.workspace = true
+sys_traits = { workspace = true, features = ["real"] }
 # disable the multi-threading feature of this crate
 sysinfo = { version = "=0.35.1", features = ["system"], default-features = false }
 text-size = "=1.1.1"

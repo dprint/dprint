@@ -4,6 +4,7 @@ use once_cell::sync::Lazy;
 use parking_lot::Condvar;
 use parking_lot::Mutex;
 use path_clean::PathClean;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::future::Future;
@@ -13,6 +14,13 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use sys_traits::BaseFsCreateDir;
+use sys_traits::BaseFsMetadata;
+use sys_traits::BaseFsOpen;
+use sys_traits::BaseFsRead;
+use sys_traits::BaseFsRemoveFile;
+use sys_traits::BaseFsRename;
+use sys_traits::CreateDirOptions;
 use sys_traits::EnvCurrentDir;
 use sys_traits::EnvRemoveVar;
 use sys_traits::EnvSetCurrentDir;
@@ -29,6 +37,9 @@ use sys_traits::FsRemoveFile;
 use sys_traits::FsRename;
 use sys_traits::FsSetPermissions;
 use sys_traits::FsWrite;
+use sys_traits::SystemRandom;
+use sys_traits::SystemTimeNow;
+use sys_traits::ThreadSleep;
 use sys_traits::impls::InMemorySys;
 
 use dprint_core::async_runtime::async_trait;
@@ -340,6 +351,74 @@ impl Drop for TestEnvironment {
       );
       assert!(self.confirm_results.lock().is_empty(), "should not have confirm results left on drop");
     }
+  }
+}
+
+impl std::fmt::Debug for TestEnvironment {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("TestEnvironment").finish()
+  }
+}
+
+impl BaseFsCreateDir for TestEnvironment {
+  fn base_fs_create_dir(&self, path: &Path, options: &CreateDirOptions) -> io::Result<()> {
+    (*self.sys).base_fs_create_dir(path, options)
+  }
+}
+
+impl BaseFsMetadata for TestEnvironment {
+  type Metadata = sys_traits::impls::InMemoryMetadata;
+
+  fn base_fs_metadata(&self, path: &Path) -> io::Result<Self::Metadata> {
+    (*self.sys).base_fs_metadata(path)
+  }
+
+  fn base_fs_symlink_metadata(&self, path: &Path) -> io::Result<Self::Metadata> {
+    (*self.sys).base_fs_symlink_metadata(path)
+  }
+}
+
+impl BaseFsOpen for TestEnvironment {
+  type File = sys_traits::impls::InMemoryFile;
+
+  fn base_fs_open(&self, path: &Path, options: &sys_traits::OpenOptions) -> io::Result<Self::File> {
+    (*self.sys).base_fs_open(path, options)
+  }
+}
+
+impl BaseFsRead for TestEnvironment {
+  fn base_fs_read(&self, path: &Path) -> io::Result<Cow<'static, [u8]>> {
+    (*self.sys).base_fs_read(path)
+  }
+}
+
+impl BaseFsRemoveFile for TestEnvironment {
+  fn base_fs_remove_file(&self, path: &Path) -> io::Result<()> {
+    (*self.sys).base_fs_remove_file(path)
+  }
+}
+
+impl BaseFsRename for TestEnvironment {
+  fn base_fs_rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+    (*self.sys).base_fs_rename(from, to)
+  }
+}
+
+impl ThreadSleep for TestEnvironment {
+  fn thread_sleep(&self, duration: std::time::Duration) {
+    (*self.sys).thread_sleep(duration);
+  }
+}
+
+impl SystemRandom for TestEnvironment {
+  fn sys_random(&self, buf: &mut [u8]) -> io::Result<()> {
+    (*self.sys).sys_random(buf)
+  }
+}
+
+impl SystemTimeNow for TestEnvironment {
+  fn sys_time_now(&self) -> std::time::SystemTime {
+    (*self.sys).sys_time_now()
   }
 }
 
