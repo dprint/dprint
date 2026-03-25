@@ -92,6 +92,9 @@ pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environ
     PathSource::Remote(source) => {
       bail!("Cannot edit a remote configuration file '{}'", source.url)
     }
+    PathSource::Npm(source) => {
+      bail!("Cannot edit an npm configuration '{}'", source.specifier.display())
+    }
   };
 
   let args = select_editor_args(environment)
@@ -125,7 +128,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
   let config = resolve_config_from_args(args, environment).await?;
   let config_path = match config.resolved_path.source {
     PathSource::Local(source) => source.path,
-    PathSource::Remote(_) => bail!("Cannot update plugins in a remote configuration."),
+    PathSource::Remote(_) | PathSource::Npm(_) => bail!("Cannot update plugins in a remote configuration."),
   };
 
   let plugin_urls_to_add = if plugin_names_or_urls.is_empty() {
@@ -295,8 +298,8 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     };
     let config_path = match &config.resolved_path.source {
       PathSource::Local(source) => &source.path,
-      PathSource::Remote(source) => {
-        log_warn!(environment, "Skipping remote configuration file: {}", source.url);
+      PathSource::Remote(_) | PathSource::Npm(_) => {
+        log_warn!(environment, "Skipping non-local configuration file: {}", config.resolved_path.source.display());
         continue;
       }
     };
@@ -387,7 +390,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
     };
     let config_path = match &config.resolved_path.source {
       PathSource::Local(source) => &source.path,
-      PathSource::Remote(_) => {
+      PathSource::Remote(_) | PathSource::Npm(_) => {
         continue;
       }
     };

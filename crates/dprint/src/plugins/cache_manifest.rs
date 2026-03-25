@@ -8,6 +8,7 @@ use dprint_core::plugins::PluginInfo;
 
 use super::implementations::WASMER_COMPILER_VERSION;
 use crate::environment::Environment;
+use crate::utils::PluginKind;
 
 const PLUGIN_CACHE_SCHEMA_VERSION: usize = 8;
 
@@ -76,6 +77,11 @@ pub struct PluginCacheManifestItem {
   pub created_time: u64,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub file_hash: Option<u64>,
+  /// The plugin kind. Optional for backwards compatibility with older cache entries
+  /// where the kind was inferred from the file extension.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default)]
+  pub plugin_kind: Option<PluginKind>,
   pub info: PluginInfo,
 }
 
@@ -185,6 +191,7 @@ mod test {
       PluginCacheManifestItem {
         created_time: 123,
         file_hash: None,
+        plugin_kind: None,
         info: PluginInfo {
           name: "dprint-plugin-typescript".to_string(),
           version: "0.1.0".to_string(),
@@ -200,6 +207,7 @@ mod test {
       PluginCacheManifestItem {
         created_time: 456,
         file_hash: Some(10),
+        plugin_kind: None,
         info: PluginInfo {
           name: "dprint-plugin-json".to_string(),
           version: "0.2.0".to_string(),
@@ -215,6 +223,7 @@ mod test {
       PluginCacheManifestItem {
         created_time: 210530,
         file_hash: Some(1226),
+        plugin_kind: None,
         info: PluginInfo {
           name: "dprint-plugin-cargo".to_string(),
           version: "0.2.1".to_string(),
@@ -321,6 +330,7 @@ mod test {
       PluginCacheManifestItem {
         created_time: 456,
         file_hash: Some(256),
+        plugin_kind: None,
         info: PluginInfo {
           name: "dprint-plugin-typescript".to_string(),
           version: "0.1.0".to_string(),
@@ -336,6 +346,7 @@ mod test {
       PluginCacheManifestItem {
         created_time: 456,
         file_hash: None,
+        plugin_kind: None,
         info: PluginInfo {
           name: "dprint-plugin-json".to_string(),
           version: "0.2.0".to_string(),
@@ -372,5 +383,80 @@ mod test {
     assert!(manifest.is_new_wasm_cache());
     manifest.wasm_cache_version = "100.0.1".to_string();
     assert!(!manifest.is_new_wasm_cache());
+  }
+
+  #[test]
+  fn should_roundtrip_plugin_kind() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
+    let mut manifest = PluginCacheManifest::new();
+    manifest.add_item(
+      String::from("npm:@dprint/typescript@0.23.0"),
+      PluginCacheManifestItem {
+        created_time: 100,
+        file_hash: None,
+        plugin_kind: Some(PluginKind::Wasm),
+        info: PluginInfo {
+          name: "dprint-plugin-typescript".to_string(),
+          version: "0.23.0".to_string(),
+          config_key: "typescript".to_string(),
+          help_url: "help url".to_string(),
+          config_schema_url: "schema url".to_string(),
+          update_url: None,
+        },
+      },
+    );
+    manifest.add_item(
+      String::from("npm:@dprint/prettier@1.0.0"),
+      PluginCacheManifestItem {
+        created_time: 200,
+        file_hash: None,
+        plugin_kind: Some(PluginKind::Process),
+        info: PluginInfo {
+          name: "dprint-plugin-prettier".to_string(),
+          version: "1.0.0".to_string(),
+          config_key: "prettier".to_string(),
+          help_url: "help url 2".to_string(),
+          config_schema_url: "schema url 2".to_string(),
+          update_url: None,
+        },
+      },
+    );
+    write_manifest(&manifest, &environment).unwrap();
+    assert_eq!(read_manifest(&environment), manifest);
+  }
+
+  #[test]
+  fn should_read_manifest_without_plugin_kind() {
+    // backwards compat: old cache entries won't have pluginKind
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
+    environment
+      .write_file(
+        &environment.get_cache_dir().join("plugin-cache-manifest.json"),
+        &serde_json::json!({
+          "schemaVersion": 8,
+          "wasmCacheVersion": WASMER_COMPILER_VERSION,
+          "plugins": {
+            "remote:https://example.com/test.wasm": {
+              "createdTime": 123,
+              "info": {
+                "name": "test-plugin",
+                "version": "0.1.0",
+                "configKey": "test",
+                "helpUrl": "help",
+                "configSchemaUrl": "schema"
+              }
+            }
+          }
+        })
+        .to_string(),
+      )
+      .unwrap();
+
+    let manifest = read_manifest(&environment);
+    let item = manifest.get_item("remote:https://example.com/test.wasm").unwrap();
+    assert_eq!(item.plugin_kind, None);
+    assert_eq!(item.info.name, "test-plugin");
   }
 }

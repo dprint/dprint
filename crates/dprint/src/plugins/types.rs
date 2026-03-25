@@ -7,6 +7,7 @@ use crate::environment::Environment;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::parse_checksum_path_or_url;
+use crate::utils::parse_npm_specifier;
 use crate::utils::resolve_url_or_file_path_to_path_source;
 
 #[derive(Clone)]
@@ -72,6 +73,17 @@ impl fmt::Display for PluginSourceReference {
 }
 
 pub fn parse_plugin_source_reference(text: &str, base: &PathSource, environment: &impl Environment) -> Result<PluginSourceReference> {
+  // intercept npm: specifiers before the general checksum/url parsing
+  if text.starts_with("npm:") {
+    let parsed = parse_npm_specifier(text)?;
+    // store the config file's directory for node_modules resolution
+    let base_dir = base.maybe_local_path().and_then(|p| p.parent());
+    return Ok(PluginSourceReference {
+      path_source: PathSource::new_npm(parsed.specifier, base_dir),
+      checksum: parsed.checksum,
+    });
+  }
+
   let checksum_reference = parse_checksum_path_or_url(text);
   let path_source = resolve_url_or_file_path_to_path_source(&checksum_reference.path_or_url, base, environment)?;
 
@@ -154,6 +166,49 @@ mod tests {
         checksum: Some(String::from("checksum")),
       }
     );
+  }
+
+  #[test]
+  fn should_parse_npm_specifier_with_version() {
+    let environment = TestEnvironment::new();
+    let result = parse_plugin_source_reference(
+      "npm:@dprint/typescript@0.23.0",
+      &PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")),
+      &environment,
+    )
+    .unwrap();
+    assert!(matches!(result.path_source, PathSource::Npm(_)));
+    assert_eq!(result.checksum, None);
+    assert_eq!(result.display(), "npm:@dprint/typescript@0.23.0");
+  }
+
+  #[test]
+  fn should_parse_npm_specifier_with_version_and_checksum() {
+    let environment = TestEnvironment::new();
+    let result = parse_plugin_source_reference(
+      "npm:@dprint/prettier@0.23.0@abc123",
+      &PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")),
+      &environment,
+    )
+    .unwrap();
+    assert!(matches!(result.path_source, PathSource::Npm(_)));
+    assert_eq!(result.checksum, Some("abc123".to_string()));
+    assert_eq!(result.display(), "npm:@dprint/prettier@0.23.0");
+    assert_eq!(result.to_full_string(), "npm:@dprint/prettier@0.23.0@abc123");
+  }
+
+  #[test]
+  fn should_parse_npm_specifier_without_version() {
+    let environment = TestEnvironment::new();
+    let result = parse_plugin_source_reference(
+      "npm:@dprint/typescript",
+      &PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/")),
+      &environment,
+    )
+    .unwrap();
+    assert!(matches!(result.path_source, PathSource::Npm(_)));
+    assert_eq!(result.checksum, None);
+    assert_eq!(result.display(), "npm:@dprint/typescript");
   }
 
   #[test]

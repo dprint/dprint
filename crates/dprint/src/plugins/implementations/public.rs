@@ -1,5 +1,4 @@
 use anyhow::Result;
-use anyhow::bail;
 use std::path::PathBuf;
 
 use dprint_core::plugins::PluginInfo;
@@ -22,39 +21,28 @@ pub struct SetupPluginResult {
 pub async fn setup_plugin<TEnvironment: Environment>(
   url_or_file_path: &PathSource,
   file_bytes: Vec<u8>,
+  plugin_kind: PluginKind,
+  pre_resolved_zip: Option<crate::plugins::npm_resolution::ProcessPluginZipBytes>,
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
-  match url_or_file_path.plugin_kind() {
-    Some(PluginKind::Wasm) => wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment).await,
-    Some(PluginKind::Process) => process::setup_process_plugin(url_or_file_path, &file_bytes, environment).await,
-    None => {
-      bail!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
-    }
+  match plugin_kind {
+    PluginKind::Wasm => wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment).await,
+    PluginKind::Process => process::setup_process_plugin(url_or_file_path, &file_bytes, pre_resolved_zip, environment).await,
   }
 }
 
-pub fn get_file_path_from_plugin_info<TEnvironment: Environment>(
-  url_or_file_path: &PathSource,
-  plugin_info: &PluginInfo,
-  environment: &TEnvironment,
-) -> Result<PathBuf> {
-  match url_or_file_path.plugin_kind() {
-    Some(PluginKind::Wasm) => Ok(wasm::get_file_path_from_plugin_info(plugin_info, environment)),
-    Some(PluginKind::Process) => Ok(process::get_file_path_from_plugin_info(plugin_info, environment)),
-    None => {
-      bail!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
-    }
+pub fn get_file_path_from_plugin_info<TEnvironment: Environment>(plugin_kind: PluginKind, plugin_info: &PluginInfo, environment: &TEnvironment) -> PathBuf {
+  match plugin_kind {
+    PluginKind::Wasm => wasm::get_file_path_from_plugin_info(plugin_info, environment),
+    PluginKind::Process => process::get_file_path_from_plugin_info(plugin_info, environment),
   }
 }
 
 /// Deletes the plugin from the cache.
-pub fn cleanup_plugin<TEnvironment: Environment>(url_or_file_path: &PathSource, plugin_info: &PluginInfo, environment: &TEnvironment) -> Result<()> {
-  match url_or_file_path.plugin_kind() {
-    Some(PluginKind::Wasm) => wasm::cleanup_wasm_plugin(plugin_info, environment),
-    Some(PluginKind::Process) => process::cleanup_process_plugin(plugin_info, environment),
-    None => {
-      bail!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
-    }
+pub fn cleanup_plugin<TEnvironment: Environment>(plugin_kind: PluginKind, plugin_info: &PluginInfo, environment: &TEnvironment) -> Result<()> {
+  match plugin_kind {
+    PluginKind::Wasm => wasm::cleanup_wasm_plugin(plugin_info, environment),
+    PluginKind::Process => process::cleanup_process_plugin(plugin_info, environment),
   }
 }
 
@@ -78,9 +66,9 @@ pub async fn create_plugin<TEnvironment: Environment>(
     }
   };
 
-  match plugin_reference.plugin_kind() {
-    Some(PluginKind::Wasm) => {
-      let file_bytes = match environment.read_file_bytes(cache_item.file_path) {
+  match cache_item.plugin_kind {
+    PluginKind::Wasm => {
+      let file_bytes = match environment.read_file_bytes(&cache_item.file_path) {
         Ok(file_bytes) => file_bytes,
         Err(err) => {
           log_debug!(
@@ -97,7 +85,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
 
       Ok(Box::new(wasm::WasmPlugin::new(&file_bytes, cache_item.info, wasm_module_creator, environment)?))
     }
-    Some(PluginKind::Process) => {
+    PluginKind::Process => {
       let cache_item = if !environment.path_exists(&cache_item.file_path) {
         log_debug!(
           environment,
@@ -113,9 +101,6 @@ pub async fn create_plugin<TEnvironment: Environment>(
 
       let executable_path = super::process::get_test_safe_executable_path(cache_item.file_path, &environment);
       Ok(Box::new(process::ProcessPlugin::new(environment, executable_path, cache_item.info)))
-    }
-    None => {
-      bail!("Could not resolve plugin type from url or file path: {}", plugin_reference.display());
     }
   }
 }

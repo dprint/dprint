@@ -13,6 +13,7 @@ use super::cache_fs_locks::CacheFsLockPool;
 use super::implementations::cleanup_plugin;
 use super::implementations::get_file_path_from_plugin_info;
 use super::implementations::setup_plugin;
+use super::npm_resolution;
 use super::read_manifest;
 use super::write_manifest;
 use crate::environment::Environment;
@@ -26,6 +27,7 @@ use crate::utils::verify_sha256_checksum;
 pub struct PluginCacheItem {
   pub file_path: PathBuf,
   pub info: PluginInfo,
+  pub plugin_kind: PluginKind,
 }
 
 pub struct PluginCache<TEnvironment: Environment> {
@@ -56,10 +58,11 @@ where
     let _setup_guard = self.fs_locks.lock(&source_reference.path_source).await;
     let removed_cache_item = self.manifest.remove(&source_reference.path_source)?;
 
-    if let Some(cache_item) = removed_cache_item
-      && let Err(err) = cleanup_plugin(&source_reference.path_source, &cache_item.info, &self.environment)
-    {
-      log_warn!(self.environment, "Error forgetting plugin: {:#}", err);
+    if let Some(cache_item) = removed_cache_item {
+      let plugin_kind = cache_item.plugin_kind.or_else(|| source_reference.plugin_kind()).unwrap_or(PluginKind::Wasm);
+      if let Err(err) = cleanup_plugin(plugin_kind, &cache_item.info, &self.environment) {
+        log_warn!(self.environment, "Error forgetting plugin: {:#}", err);
+      }
     }
 
     Ok(())
@@ -78,9 +81,14 @@ where
           };
 
           if file_hash == cache_file_hash {
+            let plugin_kind = manifest_item
+              .plugin_kind
+              .or_else(|| source_reference.plugin_kind())
+              .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for {}", source_reference.display()))?;
             return Ok(PluginCacheItem {
-              file_path: get_file_path_from_plugin_info(&source_reference.path_source, &manifest_item.info, &self.environment)?,
+              file_path: get_file_path_from_plugin_info(plugin_kind, &manifest_item.info, &self.environment),
               info: manifest_item.info,
+              plugin_kind,
             });
           } else {
             self.forget(source_reference).await?;
@@ -89,7 +97,128 @@ where
 
         self.get_plugin(source_reference, true, get_file_bytes).await
       }
+      PathSource::Npm(npm_source) => {
+        if npm_source.specifier.version.is_some() {
+          self.get_npm_registry_plugin(source_reference, npm_source).await
+        } else {
+          // resolve to a local path, then delegate to the local plugin caching
+          // so file_hash change detection works the same as any local plugin
+          let base_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
+          let fallback_dir = self.environment.cwd();
+          let config_dir = base_dir.unwrap_or(fallback_dir.as_ref());
+          let resolved = npm_resolution::resolve_npm_from_node_modules(&npm_source.specifier, config_dir, &self.environment)?;
+          let local_ref = PluginSourceReference {
+            path_source: resolved.local_path,
+            checksum: None,
+          };
+          self.get_local_plugin(&local_ref, resolved.pre_resolved_zip).await
+        }
+      }
     }
+  }
+
+  async fn get_npm_registry_plugin(&self, source_reference: &PluginSourceReference, npm_source: &crate::utils::NpmPathSource) -> Result<PluginCacheItem> {
+    // check cache first
+    if let Some(item) = self.get_plugin_cache_item_from_cache(&source_reference.path_source)? {
+      return Ok(item);
+    }
+
+    let _setup_guard = self.fs_locks.lock(&source_reference.path_source).await;
+
+    // reload and re-check after acquiring lock
+    self.manifest.reload_from_disk();
+    if let Some(item) = self.get_plugin_cache_item_from_cache(&source_reference.path_source)? {
+      return Ok(item);
+    }
+
+    let specifier = &npm_source.specifier;
+    let checksum = source_reference.checksum.as_deref();
+    let base_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
+    let resolved = npm_resolution::resolve_npm_from_registry(specifier, checksum, base_dir, &self.environment).await?;
+
+    let plugin_kind = resolved.plugin_kind;
+    // use the local extracted path so process plugin manifests can resolve relative URLs
+    let setup_result = setup_plugin(
+      &resolved.local_path,
+      resolved.plugin_bytes,
+      plugin_kind,
+      resolved.pre_resolved_zip,
+      &self.environment,
+    )
+    .await?;
+    let cache_item = PluginCacheManifestItem {
+      info: setup_result.plugin_info.clone(),
+      file_hash: None,
+      plugin_kind: Some(plugin_kind),
+      created_time: self.environment.get_time_secs(),
+    };
+
+    self.manifest.add(&source_reference.path_source, cache_item)?;
+
+    Ok(PluginCacheItem {
+      file_path: setup_result.file_path,
+      info: setup_result.plugin_info,
+      plugin_kind,
+    })
+  }
+
+  /// Gets a plugin from a local path (node_modules). No checksum required since it's a local file.
+  async fn get_local_plugin(
+    &self,
+    source_reference: &PluginSourceReference,
+    pre_resolved_zip: Option<npm_resolution::ProcessPluginZipBytes>,
+  ) -> Result<PluginCacheItem> {
+    // check file hash to see if we can reuse cached setup
+    if let Some(manifest_item) = self.manifest.get(&source_reference.path_source)? {
+      let file_bytes = get_file_bytes(source_reference.path_source.clone(), self.environment.clone()).await?;
+      let file_hash = get_bytes_hash(&file_bytes);
+      let cache_file_hash = match &manifest_item.file_hash {
+        Some(file_hash) => *file_hash,
+        None => bail!("Expected to have the plugin file hash stored in the cache."),
+      };
+
+      if file_hash == cache_file_hash {
+        let plugin_kind = manifest_item
+          .plugin_kind
+          .or_else(|| source_reference.plugin_kind())
+          .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for {}", source_reference.display()))?;
+        return Ok(PluginCacheItem {
+          file_path: get_file_path_from_plugin_info(plugin_kind, &manifest_item.info, &self.environment),
+          info: manifest_item.info,
+          plugin_kind,
+        });
+      } else {
+        self.forget(source_reference).await?;
+      }
+    }
+
+    let _setup_guard = self.fs_locks.lock(&source_reference.path_source).await;
+    self.manifest.reload_from_disk();
+    if let Some(item) = self.get_plugin_cache_item_from_cache(&source_reference.path_source)? {
+      return Ok(item);
+    }
+
+    let file_bytes = get_file_bytes(source_reference.path_source.clone(), self.environment.clone()).await?;
+    let plugin_kind = source_reference
+      .plugin_kind()
+      .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for {}", source_reference.display()))?;
+
+    let file_hash = Some(get_bytes_hash(&file_bytes));
+    let setup_result = setup_plugin(&source_reference.path_source, file_bytes, plugin_kind, pre_resolved_zip, &self.environment).await?;
+    let cache_item = PluginCacheManifestItem {
+      info: setup_result.plugin_info.clone(),
+      file_hash,
+      plugin_kind: Some(plugin_kind),
+      created_time: self.environment.get_time_secs(),
+    };
+
+    self.manifest.add(&source_reference.path_source, cache_item)?;
+
+    Ok(PluginCacheItem {
+      file_path: setup_result.file_path,
+      info: setup_result.plugin_info,
+      plugin_kind,
+    })
   }
 
   async fn get_plugin(
@@ -114,6 +243,10 @@ where
     // get bytes
     let file_bytes = read_bytes(source_reference.path_source.clone(), self.environment.clone()).await?;
 
+    let plugin_kind = source_reference
+      .plugin_kind()
+      .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for {}", source_reference.display()))?;
+
     // check checksum only if provided (not required for Wasm plugins)
     if let Some(checksum) = &source_reference.checksum {
       if let Err(err) = verify_sha256_checksum(&file_bytes, checksum) {
@@ -122,7 +255,7 @@ where
           err
         );
       }
-    } else if source_reference.plugin_kind() != Some(PluginKind::Wasm) {
+    } else if plugin_kind != PluginKind::Wasm {
       bail!(
         concat!(
           "The plugin must have a checksum specified for security reasons ",
@@ -135,10 +268,11 @@ where
     }
 
     let file_hash = if include_file_hash { Some(get_bytes_hash(&file_bytes)) } else { None };
-    let setup_result = setup_plugin(&source_reference.path_source, file_bytes, &self.environment).await?;
+    let setup_result = setup_plugin(&source_reference.path_source, file_bytes, plugin_kind, None, &self.environment).await?;
     let cache_item = PluginCacheManifestItem {
       info: setup_result.plugin_info.clone(),
       file_hash,
+      plugin_kind: Some(plugin_kind),
       created_time: self.environment.get_time_secs(),
     };
 
@@ -147,14 +281,20 @@ where
     Ok(PluginCacheItem {
       file_path: setup_result.file_path,
       info: setup_result.plugin_info,
+      plugin_kind,
     })
   }
 
   fn get_plugin_cache_item_from_cache(&self, path_source: &PathSource) -> Result<Option<PluginCacheItem>> {
     if let Some(item) = self.manifest.get(path_source)? {
+      let plugin_kind = item
+        .plugin_kind
+        .or_else(|| path_source.plugin_kind())
+        .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for cached plugin {}", path_source.display()))?;
       Ok(Some(PluginCacheItem {
-        file_path: get_file_path_from_plugin_info(path_source, &item.info, &self.environment)?,
+        file_path: get_file_path_from_plugin_info(plugin_kind, &item.info, &self.environment),
         info: item.info,
+        plugin_kind,
       }))
     } else {
       Ok(None)
@@ -194,9 +334,6 @@ impl<TEnvironment: Environment> ConcurrentPluginCacheManifest<TEnvironment> {
   }
 
   pub fn reload_from_disk(&self) {
-    // ensure the lock is held while reading from the file system
-    // in order to prevent another thread writing to the file system
-    // at the same time
     let mut manifest = self.manifest.write();
     *manifest = read_manifest(&self.environment);
   }
@@ -207,6 +344,15 @@ impl<TEnvironment: Environment> ConcurrentPluginCacheManifest<TEnvironment> {
       PathSource::Local(local_source) => {
         let absolute_path = self.environment.canonicalize(&local_source.path)?;
         format!("local:{}", absolute_path.to_string_lossy())
+      }
+      PathSource::Npm(npm_source) => {
+        // only versioned npm specifiers use the npm cache key —
+        // unversioned specifiers resolve to local paths and use local: keys
+        format!(
+          "npm:{}@{}",
+          npm_source.specifier.name,
+          npm_source.specifier.version.as_deref().unwrap_or("latest")
+        )
       }
     })
   }
@@ -262,6 +408,7 @@ mod test {
         "plugins": {
           "remote:https://plugins.dprint.dev/test.wasm": {
             "createdTime": 123456,
+            "pluginKind": "Wasm",
             "info": {
               "name": "test-plugin",
               "version": "0.2.0",
@@ -324,6 +471,7 @@ mod test {
         "local:/test.wasm": {
           "createdTime": 123456,
           "fileHash": get_bytes_hash(&WASM_PLUGIN_BYTES),
+          "pluginKind": "Wasm",
           "info": {
             "name": "test-plugin",
             "version": "0.2.0",
@@ -363,6 +511,7 @@ mod test {
         "local:/test.wasm": {
           "createdTime": 123456,
           "fileHash": get_bytes_hash(&WASM_PLUGIN_0_1_0_BYTES),
+          "pluginKind": "Wasm",
           "info": {
             "name": "test-plugin",
             "version": "0.1.0",

@@ -4,6 +4,7 @@ mod cache_manifest;
 mod helpers;
 mod implementations;
 mod name_resolution;
+mod npm_resolution;
 mod plugin;
 mod repo;
 mod resolver;

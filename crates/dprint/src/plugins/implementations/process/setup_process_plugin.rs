@@ -40,13 +40,23 @@ fn get_plugin_executable_file_path(dir_path: &Path, plugin_name: &str) -> PathBu
 }
 
 /// Takes a url or file path and extracts the plugin to a cache folder.
-/// Returns the executable file path once complete
+/// Returns the executable file path once complete.
+/// If `pre_resolved_zip` is provided, it's used directly instead of downloading
+/// the platform binary from the reference in the manifest.
 pub async fn setup_process_plugin<TEnvironment: Environment>(
   url_or_file_path: &PathSource,
   plugin_file_bytes: &[u8],
+  pre_resolved_zip: Option<crate::plugins::npm_resolution::ProcessPluginZipBytes>,
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
-  let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment).await?;
+  let plugin_zip_bytes = match pre_resolved_zip {
+    Some(zip) => ProcessPluginZipBytes {
+      name: zip.name,
+      version: zip.version,
+      zip_bytes: zip.zip_bytes,
+    },
+    None => get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment).await?,
+  };
   let plugin_cache_dir_path = get_plugin_dir_path(&plugin_zip_bytes.name, &plugin_zip_bytes.version, environment);
 
   let result = setup_inner(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment).await;
