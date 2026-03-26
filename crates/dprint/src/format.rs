@@ -72,7 +72,7 @@ where
   F: Fn(PathBuf, Vec<u8>, Vec<u8>, Instant, TEnvironment) -> Result<(), RunForFilePathError> + 'static + Clone + Send + Sync,
 {
   if let Some(config) = &scope_and_paths.scope.config {
-    log_debug!(environment, "Running for config: {}", config.resolved_path.file_path.display());
+    log_debug!(environment, "Running for config: {}", config.resolved_path.source.display());
   }
 
   let max_threads = environment.max_threads();

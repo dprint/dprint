@@ -21,16 +21,17 @@ use crate::plugins::PluginSourceReference;
 use crate::plugins::parse_plugin_source_reference;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
-use crate::utils::ResolvedPath;
+use crate::utils::ResolvedFilePathWithText;
+use crate::utils::ResolvedFilePathWithTextRef;
 use crate::utils::ShowConfirmStrategy;
 use crate::utils::resolve_url_or_file_path;
 
-use super::resolve_main_config_path::ResolvedConfigPath;
+use super::resolve_main_config_path::ResolvedConfigPathWithText;
 use super::resolve_main_config_path::resolve_main_config_path;
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedConfig {
-  pub resolved_path: ResolvedPath,
+  pub source: PathSource,
   /// The folder that should be considered the "root".
   pub base_path: CanonicalizedPathBuf,
   pub includes: Option<Vec<String>>,
@@ -106,7 +107,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
           return Err(ResolveConfigError::Other(anyhow::anyhow!("Confirmation cancelled.")));
         }
       }
-      resolve_config_from_path(&resolved_config_path, environment).await?
+      resolve_config_from_path_with_bytes(&resolved_config_path, environment).await?
     }
     None => {
       if !args.plugins.is_empty() {
@@ -114,7 +115,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
         ResolvedConfig {
           config_map: ConfigMap::new(),
           base_path: environment.cwd().clone(),
-          resolved_path: ResolvedPath::local(environment.cwd().join_panic_relative("dprint.json")),
+          source: PathSource::new_local(environment.cwd().join_panic_relative("dprint.json")),
           excludes: None,
           includes: None,
           incremental: None,
@@ -144,35 +145,20 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
   Ok(resolved_config)
 }
 
-pub async fn resolve_config_from_path<TEnvironment: Environment>(
-  resolved_config_path: &ResolvedConfigPath,
+pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
+  resolved_config_path_and_text: &ResolvedConfigPathWithText,
   environment: &TEnvironment,
 ) -> Result<ResolvedConfig, ResolveConfigError> {
-  let base_source = resolved_config_path.resolved_path.source.parent();
-  let config_file_path = &resolved_config_path.resolved_path.file_path;
-  let config_map = get_config_map_from_path(
-    ConfigPathContext {
-      current: &resolved_config_path.resolved_path,
-      origin: &resolved_config_path.resolved_path,
-    },
-    environment,
-  )
-  .map_err(|err| anyhow::anyhow!("{:#}\n    at {}", err, resolved_config_path.resolved_path.source.display()))?;
-
-  let mut config_map = match config_map {
-    Ok(main_config_map) => main_config_map,
-    Err(err) => {
-      return Err(ResolveConfigError::NotFound {
-        config_path: config_file_path.to_owned(),
-        inner: Some(err),
-      });
-    }
-  };
+  let base_source = resolved_config_path_and_text.source.parent();
+  let mut config_map = get_config_map_from_path(ConfigPathContext {
+    current: resolved_config_path_and_text.as_file_path_with_text_ref(),
+    origin: &resolved_config_path_and_text.source,
+  })?;
 
   let plugins_vec = take_plugins_array_from_config_map(&mut config_map, &base_source, environment)?; // always take this out of the config map
   let plugins = filter_duplicate_plugin_sources({
     // filter out any non-wasm plugins from remote config
-    if !resolved_config_path.resolved_path.is_local() {
+    if !resolved_config_path_and_text.source.is_local() {
       filter_non_wasm_plugins(plugins_vec, environment) // NEVER REMOVE THIS STATEMENT
     } else {
       plugins_vec
@@ -185,10 +171,10 @@ pub async fn resolve_config_from_path<TEnvironment: Environment>(
   // specifying something like system or some configuration
   // files that it could change. Basically, the end user should have 100%
   // control over what files get formatted.
-  if !resolved_config_path.resolved_path.is_local() {
+  if !resolved_config_path_and_text.source.is_local() {
     // Careful! Don't be fancy and ensure this is removed.
     let removed_includes = config_map.shift_remove("includes"); // NEVER REMOVE THIS STATEMENT
-    if removed_includes.is_some() && resolved_config_path.resolved_path.is_first_download {
+    if removed_includes.is_some() && resolved_config_path_and_text.is_first_download {
       log_warn!(environment, &get_warn_includes_message());
     }
   }
@@ -201,8 +187,8 @@ pub async fn resolve_config_from_path<TEnvironment: Environment>(
   config_map.shift_remove("projectType"); // this was an old config property that's no longer used
   let extends = take_extends(&mut config_map)?;
   let resolved_config = ResolvedConfig {
-    resolved_path: resolved_config_path.resolved_path.clone(),
-    base_path: resolved_config_path.base_path.clone(),
+    source: resolved_config_path_and_text.source.clone(),
+    base_path: resolved_config_path_and_text.base_path.clone(),
     config_map,
     includes,
     excludes,
@@ -223,10 +209,10 @@ fn resolve_extends<TEnvironment: Environment>(
   // boxed because of recursion
   async move {
     for url_or_file_path in extends {
-      let resolved_path = resolve_url_or_file_path(&url_or_file_path, &base_path, &environment).await?;
-      resolved_config = match handle_config_file(&resolved_path, resolved_config, &environment).await {
+      let resolved_file = resolve_url_or_file_path(&url_or_file_path, &base_path, &environment).await?.into_text()?;
+      resolved_config = match handle_config_file(&resolved_file, resolved_config, &environment).await {
         Ok(resolved_config) => resolved_config,
-        Err(err) => bail!("{:#}\n    at {}", err, resolved_path.source.display()),
+        Err(err) => bail!("{:#}\n    at {}", err, resolved_file.source.display()),
       }
     }
     Ok(resolved_config)
@@ -235,24 +221,18 @@ fn resolve_extends<TEnvironment: Environment>(
 }
 
 async fn handle_config_file<TEnvironment: Environment>(
-  resolved_path: &ResolvedPath,
+  resolved_config_path_and_text: &ResolvedFilePathWithText,
   mut resolved_config: ResolvedConfig,
   environment: &TEnvironment,
 ) -> Result<ResolvedConfig> {
-  let mut new_config_map = match get_config_map_from_path(
-    ConfigPathContext {
-      current: resolved_path,
-      origin: &resolved_config.resolved_path,
-    },
-    environment,
-  )? {
-    Ok(config_map) => config_map,
-    Err(err) => return Err(err),
-  };
+  let mut new_config_map = get_config_map_from_path(ConfigPathContext {
+    current: resolved_config_path_and_text.as_ref(),
+    origin: &resolved_config.source,
+  })?;
   let extends = take_extends(&mut new_config_map)?;
 
   // Discard any properties that shouldn't be inherited
-  if !resolved_path.is_local() {
+  if !resolved_config_path_and_text.source.is_local() {
     // IMPORTANT
     // =========
     // Remove the includes from all referenced remote configuration since
@@ -260,7 +240,7 @@ async fn handle_config_file<TEnvironment: Environment>(
     // files that it could change. Basically, the end user should have 100%
     // control over what files get formatted.
     let removed_includes = new_config_map.shift_remove("includes"); // NEVER REMOVE THIS STATEMENT
-    if removed_includes.is_some() && resolved_path.is_first_download {
+    if removed_includes.is_some() && resolved_config_path_and_text.is_first_download {
       log_warn!(environment, &get_warn_includes_message());
     }
   }
@@ -276,8 +256,8 @@ async fn handle_config_file<TEnvironment: Environment>(
 
   // Also remove any non-wasm plugins, but only for remote configurations.
   // The assumption here is that the user won't be malicious to themselves.
-  let plugins = take_plugins_array_from_config_map(&mut new_config_map, &resolved_path.source.parent(), environment)?;
-  let plugins = if !resolved_path.is_local() {
+  let plugins = take_plugins_array_from_config_map(&mut new_config_map, &resolved_config_path_and_text.source.parent(), environment)?;
+  let plugins = if !resolved_config_path_and_text.source.is_local() {
     filter_non_wasm_plugins(plugins, environment)
   } else {
     plugins
@@ -328,7 +308,7 @@ async fn handle_config_file<TEnvironment: Environment>(
     }
   }
 
-  resolve_extends(resolved_config, extends, resolved_path.source.parent(), environment.clone()).await
+  resolve_extends(resolved_config, extends, resolved_config_path_and_text.source.parent(), environment.clone()).await
 }
 
 fn take_extends(config_map: &mut ConfigMap) -> Result<Vec<String>> {
@@ -345,25 +325,24 @@ struct ConfigPathContext<'a> {
   /// The path of the configuration file being resolved.
   ///
   /// This could be a config being extended.
-  current: &'a ResolvedPath,
+  current: ResolvedFilePathWithTextRef<'a>,
   /// The original configuration file that may have extended
   /// the current configuration file.
-  origin: &'a ResolvedPath,
+  origin: &'a PathSource,
 }
 
-fn get_config_map_from_path(path: ConfigPathContext, environment: &impl Environment) -> Result<Result<ConfigMap>> {
-  let config_file_text = match environment.read_file(&path.current.file_path) {
-    Ok(file_text) => file_text,
-    Err(err) => return Ok(Err(err.into())),
-  };
+fn get_config_map_from_path(path: ConfigPathContext) -> Result<ConfigMap> {
+  fn inner(path: ConfigPathContext) -> Result<ConfigMap> {
+    let mut result = match deserialize_config(&path.current.content) {
+      Ok(map) => map,
+      Err(e) => bail!("Error deserializing. {}", e.to_string()),
+    };
+    template_expand(path, &mut result)?;
 
-  let mut result = match deserialize_config(&config_file_text) {
-    Ok(map) => map,
-    Err(e) => bail!("Error deserializing. {}", e.to_string()),
-  };
-  template_expand(path, &mut result)?;
+    Ok(result)
+  }
 
-  Ok(Ok(result))
+  inner(path).map_err(|err| anyhow::anyhow!("{:#}\n    at {}", err, path.current.source.display()))
 }
 
 fn template_expand(path_ctx: ConfigPathContext, config_map: &mut ConfigMap) -> Result<()> {
@@ -393,21 +372,25 @@ fn template_expand(path_ctx: ConfigPathContext, config_map: &mut ConfigMap) -> R
         }
 
         match template_name {
-          "configDir" => {
-            if path.current.is_remote() {
+          "configDir" => match &path.current.source {
+            PathSource::Local(source) => {
+              parts.push(Cow::Owned(source.path.parent().unwrap().to_string_lossy().to_string()));
+            }
+            PathSource::Remote(_) => {
               bail!("Cannot use ${{configDir}} template in remote configuration files. Maybe use ${{originConfigDir}} instead?");
             }
-            parts.push(Cow::Owned(path.current.file_path.parent().unwrap().to_string_lossy().to_string()));
-          }
-          "originConfigDir" => {
-            if path.origin.is_remote() {
+          },
+          "originConfigDir" => match &path.origin {
+            PathSource::Local(origin) => {
+              parts.push(Cow::Owned(origin.path.parent().unwrap().to_string_lossy().to_string()));
+            }
+            PathSource::Remote(origin) => {
               bail!(
                 "Cannot use ${{originConfigDir}} template when the origin configuration file ({}) is remote.",
-                path.origin.source.display(),
+                origin.url,
               );
             }
-            parts.push(Cow::Owned(path.origin.file_path.parent().unwrap().to_string_lossy().to_string()));
-          }
+          },
           "" => {
             // ignore
           }
@@ -579,7 +562,7 @@ mod tests {
       let result = get_result("/test.json", &environment).await.unwrap();
       assert_eq!(environment.take_stdout_messages().len(), 0);
       assert_eq!(result.base_path, CanonicalizedPathBuf::new_for_testing("/"));
-      assert_eq!(result.resolved_path.is_local(), true);
+      assert_eq!(result.source.is_local(), true);
       assert_eq!(result.config_map.contains_key("includes"), false);
       assert_eq!(result.config_map.contains_key("excludes"), false);
       assert_eq!(result.includes, Some(vec!["test".to_string()]));
@@ -602,7 +585,7 @@ mod tests {
       let result = get_result("https://dprint.dev/test.json", &environment).await.unwrap();
       assert_eq!(environment.take_stdout_messages().len(), 0);
       assert_eq!(result.base_path, CanonicalizedPathBuf::new_for_testing("/"));
-      assert_eq!(result.resolved_path.is_remote(), true);
+      assert_eq!(result.source.is_remote(), true);
     });
   }
 
@@ -716,7 +699,7 @@ mod tests {
       let result = get_result("/test.json", &environment).await.unwrap();
       assert_eq!(environment.take_stdout_messages().len(), 0);
       assert_eq!(result.base_path, CanonicalizedPathBuf::new_for_testing("/"));
-      assert_eq!(result.resolved_path.is_local(), true);
+      assert_eq!(result.source.is_local(), true);
       assert_eq!(result.includes, None);
       assert_eq!(result.excludes, Some(vec!["test-excludes".to_string()]));
       assert_eq!(

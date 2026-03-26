@@ -25,7 +25,7 @@ pub async fn is_out_of_date(environment: &impl Environment) -> Option<String> {
 
 // todo: make async
 pub async fn latest_cli_version(environment: &impl Environment) -> Result<String> {
-  let file_bytes = environment.download_file_err_404("https://plugins.dprint.dev/cli.json").await?.bytes;
+  let file_bytes = environment.download_file_err_404("https://plugins.dprint.dev/cli.json").await?;
   let data: Value = serde_json::from_slice(&file_bytes)?;
   let obj = data.as_object().ok_or_else(|| anyhow!("Root was not object."))?;
   let version = obj.get("version").ok_or_else(|| anyhow!("Could not find version."))?;

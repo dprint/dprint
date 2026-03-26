@@ -55,19 +55,35 @@ pub struct TestFilePermissions {
 }
 
 pub struct DownloadedFile {
-  pub bytes: Vec<u8>,
-  /// The final URL after any redirects, if different from the requested URL.
-  pub redirected_url: Option<String>,
+  pub headers: std::collections::HashMap<String, String>,
+  pub content: Vec<u8>,
 }
 
 #[async_trait(?Send)]
 pub trait UrlDownloader {
+  /// Downloads a file without following redirects. Returns the raw response
+  /// headers and content. A redirect response will have a `location` header
+  /// and empty content.
   async fn download_file(&self, url: &str) -> Result<Option<DownloadedFile>>;
-  async fn download_file_err_404(&self, url: &str) -> Result<DownloadedFile> {
-    match self.download_file(url).await? {
-      Some(result) => Ok(result),
-      None => bail!("Error downloading {} - 404 Not Found", url),
+
+  /// Downloads a file, following redirects, and returns just the content bytes.
+  async fn download_file_err_404(&self, url: &str) -> Result<Vec<u8>> {
+    let mut current_url = url.to_string();
+    for _ in 0..=10 {
+      let result = match self.download_file(&current_url).await? {
+        Some(r) => r,
+        None => bail!("Error downloading {} - 404 Not Found", url),
+      };
+      if let Some(location) = result.headers.get("location") {
+        current_url = url::Url::parse(&current_url)
+          .and_then(|u| u.join(location))
+          .map(|u| u.to_string())
+          .unwrap_or_else(|_| location.clone());
+        continue;
+      }
+      return Ok(result.content);
     }
+    bail!("Too many redirects for {}", url)
   }
 }
 
@@ -95,6 +111,15 @@ pub trait Environment:
 
   fn get_staged_files(&self) -> Result<Vec<PathBuf>>;
   fn read_file(&self, file_path: impl AsRef<Path>) -> io::Result<String>;
+  fn maybe_read_file(&self, file_path: impl AsRef<Path>) -> io::Result<Option<String>> {
+    match self.read_file(file_path) {
+      Ok(value) => Ok(Some(value)),
+      Err(err) => match err.kind() {
+        std::io::ErrorKind::NotFound => Ok(None),
+        _ => Err(err),
+      },
+    }
+  }
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> io::Result<Vec<u8>>;
   fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> io::Result<()> {
     self.write_file_bytes(file_path, file_text.as_bytes())

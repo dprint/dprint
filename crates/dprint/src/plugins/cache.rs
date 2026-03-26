@@ -213,7 +213,7 @@ impl<TEnvironment: Environment> ConcurrentPluginCacheManifest<TEnvironment> {
 }
 
 fn download_url<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> LocalBoxFuture<'static, Result<Vec<u8>>> {
-  async move { Ok(environment.download_file_err_404(path_source.unwrap_remote().url.as_str()).await?.bytes) }.boxed_local()
+  async move { environment.download_file_err_404(path_source.unwrap_remote().url.as_str()).await }.boxed_local()
 }
 
 fn get_file_bytes<TEnvironment: Environment>(path_source: PathSource, environment: TEnvironment) -> LocalBoxFuture<'static, Result<Vec<u8>>> {

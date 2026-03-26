@@ -60,7 +60,7 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
   let zip_filename = format!("dprint-{}-{}.zip", arch, zip_suffix);
   let zip_url = format!("https://github.com/dprint/dprint/releases/download/{}/{}", latest_version, zip_filename);
 
-  let zip_bytes = environment.download_file_err_404(&zip_url).await?.bytes;
+  let zip_bytes = environment.download_file_err_404(&zip_url).await?;
   let old_executable = exe_path.with_extension("old.exe");
 
   if !environment.is_real() {

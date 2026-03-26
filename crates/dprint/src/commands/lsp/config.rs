@@ -7,16 +7,17 @@ use std::rc::Rc;
 use anyhow::Context;
 use anyhow::Result;
 
-use crate::configuration::ResolvedConfigPath;
+use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
-use crate::configuration::resolve_config_from_path;
-use crate::configuration::resolve_global_config_path;
-use crate::environment::CanonicalizedPathBuf;
+use crate::configuration::resolve_config_from_path_with_bytes;
+use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::Environment;
 use crate::plugins;
 use crate::resolution::PluginsScope;
 use crate::resolution::resolve_plugins_scope;
 use crate::utils::AsyncMutex;
+use crate::utils::PathSource;
+use crate::utils::ResolvedFilePathWithBytes;
 use crate::utils::ResolvedPath;
 
 type ScopeCell<TEnvironment> = AsyncMutex<Option<Rc<PluginsScope<TEnvironment>>>>;
@@ -24,7 +25,7 @@ type ScopeCell<TEnvironment> = AsyncMutex<Option<Rc<PluginsScope<TEnvironment>>>
 pub struct LspPluginsScopeContainer<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
-  plugins_scope_by_config: RefCell<HashMap<CanonicalizedPathBuf, Rc<ScopeCell<TEnvironment>>>>,
+  plugins_scope_by_config: RefCell<HashMap<String, Rc<ScopeCell<TEnvironment>>>>,
   config_override: Option<PathBuf>,
 }
 
@@ -44,26 +45,34 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
   }
 
   pub async fn resolve_by_path(&self, dir_path: &Path) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
-    let config_path = if let Some(path) = &self.config_override {
+    let config_file_bytes = if let Some(path) = &self.config_override {
       let path = self.environment.canonicalize(path).context("failed resolving --config path")?;
-      Some(ResolvedConfigPath {
+      let content = self.environment.read_file_bytes(&path).context("failed resolving --config path")?;
+      Some(ResolvedConfigPathWithText {
         base_path: path.parent().unwrap_or_else(|| path.clone()),
-        resolved_path: ResolvedPath::local(path),
+        resolved_file: ResolvedFilePathWithBytes {
+          source: PathSource::new_local(path),
+          is_first_download: false,
+          content,
+        },
         is_global_config: false,
       })
     } else {
-      get_default_config_file_in_ancestor_directories(&self.environment, dir_path)?.or_else(|| resolve_global_config_path(&self.environment))
+      get_default_config_file_in_ancestor_directories(&self.environment, dir_path)?.or_else(|| resolve_global_config_path_and_text(&self.environment))
     };
-    let Some(config_path) = config_path else {
+    let Some(config_file_bytes) = config_file_bytes else {
       return Ok(None);
     };
     let cell = {
       let mut plugins_scope_by_config = self.plugins_scope_by_config.borrow_mut();
-      plugins_scope_by_config.entry(config_path.resolved_path.file_path.clone()).or_default().clone()
+      plugins_scope_by_config
+        .entry(config_file_bytes.resolved_file.source.display())
+        .or_default()
+        .clone()
     };
     // only allow one task in here per config
     let mut cell = cell.lock().await;
-    let config = resolve_config_from_path(&config_path, &self.environment).await?;
+    let config = resolve_config_from_path_with_bytes(&config_file_bytes, &self.environment).await?;
 
     if let Some(existing_scope) = cell.as_ref() {
       if existing_scope.config.as_deref() == Some(&config) {

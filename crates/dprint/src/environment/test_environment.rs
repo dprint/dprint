@@ -225,16 +225,6 @@ impl TestEnvironment {
     self.remote_file_redirects.lock().insert(from.to_string(), to.to_string());
   }
 
-  fn resolve_redirect(&self, url: &str) -> (String, bool) {
-    let redirects = self.remote_file_redirects.lock();
-    let mut current = url.to_string();
-    let mut redirected = false;
-    while let Some(target) = redirects.get(&current) {
-      current = target.clone();
-      redirected = true;
-    }
-    (current, redirected)
-  }
 
   pub fn set_env_var(&self, name: &str, value: Option<&str>) {
     match value {
@@ -425,10 +415,19 @@ impl SystemTimeNow for TestEnvironment {
 #[async_trait(?Send)]
 impl UrlDownloader for TestEnvironment {
   async fn download_file(&self, url: &str) -> Result<Option<DownloadedFile>> {
-    let (resolved, redirected) = self.resolve_redirect(url);
-    Ok(self.get_remote_file(&resolved)?.map(|bytes| DownloadedFile {
-      bytes,
-      redirected_url: if redirected { Some(resolved) } else { None },
+    // check for a redirect first
+    let redirects = self.remote_file_redirects.lock();
+    if let Some(target) = redirects.get(url) {
+      return Ok(Some(DownloadedFile {
+        headers: [("location".to_string(), target.clone())].into_iter().collect(),
+        content: vec![],
+      }));
+    }
+    drop(redirects);
+
+    Ok(self.get_remote_file(url)?.map(|content| DownloadedFile {
+      headers: Default::default(),
+      content,
     }))
   }
 }

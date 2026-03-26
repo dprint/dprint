@@ -30,11 +30,11 @@ use crate::arg_parser::FilePatternArgs;
 use crate::configuration::GlobalConfigDiagnostic;
 use crate::configuration::ResolveConfigError;
 use crate::configuration::ResolvedConfig;
-use crate::configuration::ResolvedConfigPath;
+use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_global_config;
 use crate::configuration::get_plugin_config_map;
 use crate::configuration::resolve_config_from_args;
-use crate::configuration::resolve_config_from_path;
+use crate::configuration::resolve_config_from_path_with_bytes;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::paths::FilesPathsByPlugins;
@@ -520,12 +520,12 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
         // config file specified via `--config` so ignore it
         return Ok(Vec::new());
       }
-      let config_path = ResolvedConfigPath {
+      let config_path = ResolvedConfigPathWithText {
         base_path: config_file_path.parent().unwrap(),
         resolved_path: ResolvedPath::local(config_file_path),
         is_global_config: false,
       };
-      let mut config = resolve_config_from_path(&config_path, self.environment).await?;
+      let mut config = resolve_config_from_path_with_bytes(&config_path, self.environment).await?;
       if !self.args.plugins.is_empty() {
         config.plugins.clone_from(&parent_config.plugins);
       }

@@ -29,7 +29,7 @@ impl<TInner: UrlDownloader> UrlDownloader for CachedDownloader<TInner> {
     {
       if let Some(result) = self.results.borrow().get(url) {
         return match result {
-          Ok(result) => Ok(result.clone().map(|bytes| DownloadedFile { bytes, redirected_url: None })),
+          Ok(result) => Ok(result.clone().map(|content| DownloadedFile { headers: Default::default(), content })),
           Err(err) => Err(anyhow!("{:#}", err)),
         };
       }
@@ -38,7 +38,7 @@ impl<TInner: UrlDownloader> UrlDownloader for CachedDownloader<TInner> {
     self.results.borrow_mut().insert(
       url.to_string(),
       match &result {
-        Ok(result) => Ok(result.as_ref().map(|r| r.bytes.clone())),
+        Ok(result) => Ok(result.as_ref().map(|r| r.content.clone())),
         Err(err) => Err(format!("{:#}", err)),
       },
     );
@@ -67,12 +67,12 @@ mod test {
 
       // should get data and have it cached
       assert_eq!(
-        downloader.download_file(exists_url).await.as_ref().unwrap().as_ref().unwrap().bytes,
+        downloader.download_file(exists_url).await.as_ref().unwrap().as_ref().unwrap().content,
         "1".as_bytes()
       );
       environment.add_remote_file_bytes(exists_url, Vec::new());
       assert_eq!(
-        downloader.download_file(exists_url).await.as_ref().unwrap().as_ref().unwrap().bytes,
+        downloader.download_file(exists_url).await.as_ref().unwrap().as_ref().unwrap().content,
         "1".as_bytes()
       );
     });

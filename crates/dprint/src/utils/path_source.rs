@@ -32,6 +32,20 @@ impl PathSource {
     PathSource::Remote(RemotePathSource { url: Url::parse(url).unwrap() })
   }
 
+  pub fn is_local(&self) -> bool {
+    match self {
+      PathSource::Local(_) => true,
+      PathSource::Remote(_) => false,
+    }
+  }
+
+  pub fn is_remote(&self) -> bool {
+    match self {
+      PathSource::Local(_) => false,
+      PathSource::Remote(_) => true,
+    }
+  }
+
   pub fn parent(&self) -> PathSource {
     match self {
       PathSource::Local(local) => {

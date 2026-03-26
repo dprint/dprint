@@ -79,7 +79,7 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
 }
 
 pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<()> {
-  let config_path = resolve_main_config_path(args, environment).await?.ok_or_else(|| {
+  let config_file_bytes = resolve_main_config_path(args, environment).await?.ok_or_else(|| {
     let is_global = args.config_discovery(environment).is_global();
     anyhow::anyhow!(
       "Could not find a configuration file. Create one with `dprint init{}`",
@@ -87,7 +87,7 @@ pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environ
     )
   })?;
 
-  let config_path = match config_path.resolved_path.source {
+  let config_path = match config_file_bytes.resolved_file.source {
     PathSource::Local(source) => source.path,
     PathSource::Remote(source) => {
       bail!("Cannot edit a remote configuration file '{}'", source.url)

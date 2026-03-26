@@ -44,7 +44,7 @@ impl PluginUpdateUrlInfo {
 
 pub async fn read_update_url(downloader: &impl UrlDownloader, url: &str) -> Result<Option<PluginUpdateUrlInfo>> {
   let info_bytes = match downloader.download_file(url).await? {
-    Some(result) => result.bytes,
+    Some(result) => result.content,
     None => return Ok(None),
   };
   let info_text = String::from_utf8(info_bytes.to_vec())?;
