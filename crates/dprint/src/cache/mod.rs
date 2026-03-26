@@ -75,10 +75,6 @@ impl<Sys: HttpCacheSys> HttpCache<Sys> {
     Self { path, sys }
   }
 
-  pub fn dir_path(&self) -> &PathBuf {
-    &self.path
-  }
-
   pub fn local_path_for_url(&self, url: &Url) -> std::io::Result<PathBuf> {
     Ok(self.path.join(url_to_filename(url)?))
   }
@@ -250,7 +246,7 @@ pub fn base_url_to_filename_parts<'a>(url: &'a Url, port_separator: &str) -> Opt
     "data" | "blob" => {
       out.push(Cow::Borrowed(scheme));
     }
-    scheme => {
+    _scheme => {
       return None;
     }
   };

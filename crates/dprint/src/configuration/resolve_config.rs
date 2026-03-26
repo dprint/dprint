@@ -146,19 +146,20 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
 }
 
 pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
-  resolved_config_path_and_text: &ResolvedConfigPathWithText,
+  config_path_and_text: &ResolvedConfigPathWithText,
   environment: &TEnvironment,
 ) -> Result<ResolvedConfig, ResolveConfigError> {
-  let base_source = resolved_config_path_and_text.source.parent();
+  let base_source = config_path_and_text.source.parent();
   let mut config_map = get_config_map_from_path(ConfigPathContext {
-    current: resolved_config_path_and_text.as_file_path_with_text_ref(),
-    origin: &resolved_config_path_and_text.source,
-  })?;
+    current: config_path_and_text.as_file_path_with_text_ref(),
+    origin: &config_path_and_text.source,
+  })
+  .map_err(|err| anyhow::anyhow!("{:#}\n    at {}", err, config_path_and_text.source.display()))?;
 
   let plugins_vec = take_plugins_array_from_config_map(&mut config_map, &base_source, environment)?; // always take this out of the config map
   let plugins = filter_duplicate_plugin_sources({
     // filter out any non-wasm plugins from remote config
-    if !resolved_config_path_and_text.source.is_local() {
+    if !config_path_and_text.source.is_local() {
       filter_non_wasm_plugins(plugins_vec, environment) // NEVER REMOVE THIS STATEMENT
     } else {
       plugins_vec
@@ -171,10 +172,10 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   // specifying something like system or some configuration
   // files that it could change. Basically, the end user should have 100%
   // control over what files get formatted.
-  if !resolved_config_path_and_text.source.is_local() {
+  if !config_path_and_text.source.is_local() {
     // Careful! Don't be fancy and ensure this is removed.
     let removed_includes = config_map.shift_remove("includes"); // NEVER REMOVE THIS STATEMENT
-    if removed_includes.is_some() && resolved_config_path_and_text.is_first_download {
+    if removed_includes.is_some() && config_path_and_text.is_first_download {
       log_warn!(environment, &get_warn_includes_message());
     }
   }
@@ -187,8 +188,8 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   config_map.shift_remove("projectType"); // this was an old config property that's no longer used
   let extends = take_extends(&mut config_map)?;
   let resolved_config = ResolvedConfig {
-    source: resolved_config_path_and_text.source.clone(),
-    base_path: resolved_config_path_and_text.base_path.clone(),
+    source: config_path_and_text.source.clone(),
+    base_path: config_path_and_text.base_path.clone(),
     config_map,
     includes,
     excludes,
@@ -332,17 +333,13 @@ struct ConfigPathContext<'a> {
 }
 
 fn get_config_map_from_path(path: ConfigPathContext) -> Result<ConfigMap> {
-  fn inner(path: ConfigPathContext) -> Result<ConfigMap> {
-    let mut result = match deserialize_config(&path.current.content) {
-      Ok(map) => map,
-      Err(e) => bail!("Error deserializing. {}", e.to_string()),
-    };
-    template_expand(path, &mut result)?;
+  let mut result = match deserialize_config(&path.current.content) {
+    Ok(map) => map,
+    Err(e) => bail!("Error deserializing. {}", e.to_string()),
+  };
+  template_expand(path, &mut result)?;
 
-    Ok(result)
-  }
-
-  inner(path).map_err(|err| anyhow::anyhow!("{:#}\n    at {}", err, path.current.source.display()))
+  Ok(result)
 }
 
 fn template_expand(path_ctx: ConfigPathContext, config_map: &mut ConfigMap) -> Result<()> {

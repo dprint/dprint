@@ -17,8 +17,6 @@ use crate::resolution::PluginsScope;
 use crate::resolution::resolve_plugins_scope;
 use crate::utils::AsyncMutex;
 use crate::utils::PathSource;
-use crate::utils::ResolvedFilePathWithBytes;
-use crate::utils::ResolvedPath;
 
 type ScopeCell<TEnvironment> = AsyncMutex<Option<Rc<PluginsScope<TEnvironment>>>>;
 

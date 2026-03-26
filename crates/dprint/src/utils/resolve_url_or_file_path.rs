@@ -8,61 +8,6 @@ use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::utils::RemotePathSource;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ResolvedPath {
-  pub source: PathSource,
-  pub is_first_download: bool,
-  content: ResolvedContent,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum ResolvedContent {
-  Local(CanonicalizedPathBuf),
-  Remote(Vec<u8>),
-}
-
-impl ResolvedPath {
-  pub fn is_local(&self) -> bool {
-    !self.is_remote()
-  }
-
-  pub fn is_remote(&self) -> bool {
-    matches!(&self.source, PathSource::Remote(_))
-  }
-
-  pub fn file_path(&self) -> Option<&CanonicalizedPathBuf> {
-    match &self.content {
-      ResolvedContent::Local(path) => Some(path),
-      ResolvedContent::Remote(_) => None,
-    }
-  }
-
-  /// Reads the content bytes, either from the in-memory cache (remote)
-  /// or from disk (local).
-  pub fn read_content(&self, environment: &impl Environment) -> std::io::Result<Vec<u8>> {
-    match &self.content {
-      ResolvedContent::Local(path) => environment.read_file_bytes(path),
-      ResolvedContent::Remote(bytes) => Ok(bytes.clone()),
-    }
-  }
-
-  pub fn local(file_path: CanonicalizedPathBuf) -> ResolvedPath {
-    ResolvedPath {
-      source: PathSource::new_local(file_path.clone()),
-      is_first_download: false,
-      content: ResolvedContent::Local(file_path),
-    }
-  }
-
-  pub fn remote(url: Url, is_first_download: bool, content: Vec<u8>) -> ResolvedPath {
-    ResolvedPath {
-      source: PathSource::new_remote(url),
-      is_first_download,
-      content: ResolvedContent::Remote(content),
-    }
-  }
-}
-
 #[derive(Debug, Clone)]
 pub struct ResolvedFilePathWithBytes {
   pub source: PathSource,
@@ -92,7 +37,6 @@ impl ResolvedFilePathWithText {
   pub fn as_ref(&self) -> ResolvedFilePathWithTextRef<'_> {
     ResolvedFilePathWithTextRef {
       source: &self.source,
-      is_first_download: self.is_first_download,
       content: &self.content,
     }
   }
@@ -101,7 +45,6 @@ impl ResolvedFilePathWithText {
 #[derive(Debug, Clone, Copy)]
 pub struct ResolvedFilePathWithTextRef<'a> {
   pub source: &'a PathSource,
-  pub is_first_download: bool,
   pub content: &'a str,
 }
 
@@ -263,15 +206,15 @@ mod tests {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
       let url = "https://dprint.dev/test.json";
       let result = resolve_url_or_file_path(url, &base, &environment).await.unwrap();
-      assert_eq!(result.is_remote(), true);
+      assert_eq!(result.source.is_remote(), true);
       assert_eq!(result.is_first_download, true);
-      assert_eq!(result.read_content(&environment).unwrap(), "t".as_bytes());
+      assert_eq!(result.content, "t".as_bytes());
 
       // should get a second time from the cache
       let result = resolve_url_or_file_path(url, &base, &environment).await.unwrap();
-      assert_eq!(result.is_remote(), true);
+      assert_eq!(result.source.is_remote(), true);
       assert_eq!(result.is_first_download, false);
-      assert_eq!(result.read_content(&environment).unwrap(), "t".as_bytes());
+      assert_eq!(result.content, "t".as_bytes());
     });
   }
 
@@ -282,8 +225,8 @@ mod tests {
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_remote(Url::parse("https://dprint.dev/asdf/").unwrap());
       let result = resolve_url_or_file_path("test/test.json", &base, &environment).await.unwrap();
-      assert_eq!(result.is_remote(), true);
-      assert_eq!(result.read_content(&environment).unwrap(), "t".as_bytes());
+      assert_eq!(result.source.is_remote(), true);
+      assert_eq!(result.content, "t".as_bytes());
     });
   }
 
@@ -294,8 +237,8 @@ mod tests {
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("V:\\"));
       let result = resolve_url_or_file_path("file://C:/test/test.json", &base, &environment).await.unwrap();
-      assert_eq!(result.is_local(), true);
-      assert_eq!(result.file_path().unwrap(), &CanonicalizedPathBuf::new_for_testing("C:\\test\\test.json"));
+      assert_eq!(result.source.is_local(), true);
+      assert_eq!(result.source.unwrap_local().path, CanonicalizedPathBuf::new_for_testing("C:\\test\\test.json"));
     });
   }
 
@@ -306,8 +249,8 @@ mod tests {
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
       let result = resolve_url_or_file_path("file:///test/test.json", &base, &environment).await.unwrap();
-      assert_eq!(result.is_local(), true);
-      assert_eq!(result.file_path().unwrap(), &CanonicalizedPathBuf::new_for_testing("/test/test.json"));
+      assert_eq!(result.source.is_local(), true);
+      assert_eq!(result.source.unwrap_local().path, CanonicalizedPathBuf::new_for_testing("/test/test.json"));
     });
   }
 
@@ -318,8 +261,8 @@ mod tests {
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("V:\\"));
       let result = resolve_url_or_file_path("C:\\test\\test.json", &base, &environment).await.unwrap();
-      assert_eq!(result.is_local(), true);
-      assert_eq!(result.file_path().unwrap(), &CanonicalizedPathBuf::new_for_testing("C:\\test\\test.json"));
+      assert_eq!(result.source.is_local(), true);
+      assert_eq!(result.source.unwrap_local().path, CanonicalizedPathBuf::new_for_testing("C:\\test\\test.json"));
     });
   }
 
@@ -330,8 +273,8 @@ mod tests {
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("V:\\"));
       let result = resolve_url_or_file_path("C:/test/test.json", &base, &environment).await.unwrap();
-      assert_eq!(result.is_local(), true);
-      assert_eq!(result.file_path().unwrap(), &CanonicalizedPathBuf::new_for_testing("C:\\test\\test.json"));
+      assert_eq!(result.source.is_local(), true);
+      assert_eq!(result.source.unwrap_local().path, CanonicalizedPathBuf::new_for_testing("C:\\test\\test.json"));
     });
   }
 
@@ -341,8 +284,8 @@ mod tests {
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
       let result = resolve_url_or_file_path("test/test.json", &base, &environment).await.unwrap();
-      assert_eq!(result.is_local(), true);
-      assert_eq!(result.file_path().unwrap(), &CanonicalizedPathBuf::new_for_testing("/test/test.json"));
+      assert_eq!(result.source.is_local(), true);
+      assert_eq!(result.source.unwrap_local().path, CanonicalizedPathBuf::new_for_testing("/test/test.json"));
     });
   }
 
@@ -352,8 +295,11 @@ mod tests {
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/other"));
       let result = resolve_url_or_file_path("test/test.json", &base, &environment).await.unwrap();
-      assert_eq!(result.is_local(), true);
-      assert_eq!(result.file_path().unwrap(), &CanonicalizedPathBuf::new_for_testing("/other/test/test.json"));
+      assert_eq!(result.source.is_local(), true);
+      assert_eq!(
+        result.source.unwrap_local().path,
+        CanonicalizedPathBuf::new_for_testing("/other/test/test.json")
+      );
     });
   }
 
@@ -378,9 +324,9 @@ mod tests {
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
       let result = resolve_url_or_file_path("https://example.com/plugin.json", &base, &environment).await.unwrap();
-      assert_eq!(result.is_remote(), true);
+      assert_eq!(result.source.is_remote(), true);
       assert_eq!(result.is_first_download, true);
-      assert_eq!(result.read_content(&environment).unwrap(), "content".as_bytes());
+      assert_eq!(result.content, "content".as_bytes());
       // the resolved path source should use the redirected URL
       assert_eq!(
         result.source,
@@ -419,8 +365,8 @@ mod tests {
       let cases = [("~/", "/home"), ("~/other", "/home/other"), ("~/a", "/home/a")];
       for (input, expected) in cases {
         let result = resolve_url_or_file_path(input, &base, &environment).await.unwrap();
-        assert_eq!(result.is_local(), true);
-        assert_eq!(result.file_path().unwrap(), &CanonicalizedPathBuf::new_for_testing(expected));
+        assert_eq!(result.source.is_local(), true);
+        assert_eq!(result.source.unwrap_local().path, CanonicalizedPathBuf::new_for_testing(expected));
       }
     });
   }

@@ -29,7 +29,6 @@ impl ResolvedConfigPathWithText {
   pub fn as_file_path_with_text_ref(&self) -> ResolvedFilePathWithTextRef<'_> {
     ResolvedFilePathWithTextRef {
       content: &self.content,
-      is_first_download: self.is_first_download,
       source: &self.source,
     }
   }
