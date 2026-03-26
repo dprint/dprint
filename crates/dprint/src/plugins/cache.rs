@@ -396,4 +396,47 @@ mod test {
 
     Ok(())
   }
+
+  #[tokio::test]
+  async fn should_resolve_redirected_process_plugin_with_relative_urls() -> Result<()> {
+    let environment = TestEnvironment::new();
+
+    // create a plugin.json that uses a relative path for the zip reference
+    let zip_bytes = &*crate::test_helpers::PROCESS_PLUGIN_ZIP_BYTES;
+    let zip_checksum = crate::test_helpers::PROCESS_PLUGIN_ZIP_CHECKSUM.as_str();
+    let plugin_json = format!(
+      r#"{{
+  "schemaVersion": 2,
+  "name": "test-process-plugin",
+  "version": "0.1.0",
+  "linux-x86_64": {{ "reference": "./test-process-plugin.zip", "checksum": "{zip_checksum}" }},
+  "linux-aarch64": {{ "reference": "./test-process-plugin.zip", "checksum": "{zip_checksum}" }},
+  "darwin-x86_64": {{ "reference": "./test-process-plugin.zip", "checksum": "{zip_checksum}" }},
+  "darwin-aarch64": {{ "reference": "./test-process-plugin.zip", "checksum": "{zip_checksum}" }},
+  "windows-x86_64": {{ "reference": "./test-process-plugin.zip", "checksum": "{zip_checksum}" }},
+  "windows-aarch64": {{ "reference": "./test-process-plugin.zip", "checksum": "{zip_checksum}" }}
+}}"#,
+    );
+
+    // host the plugin.json at the CDN (redirect target)
+    let cdn_plugin_url = "https://cdn.example.com/plugins/v1/test-process.json";
+    environment.add_remote_file_bytes(cdn_plugin_url, plugin_json.as_bytes().to_vec());
+    // host the zip relative to the plugin.json on the CDN
+    environment.add_remote_file_bytes("https://cdn.example.com/plugins/v1/test-process-plugin.zip", zip_bytes.to_vec());
+    // the original URL redirects to the CDN
+    let original_url = "https://plugins.example.com/test-process.json";
+    environment.add_remote_file_redirect(original_url, cdn_plugin_url);
+
+    let plugin_json_checksum = crate::utils::get_sha256_checksum(plugin_json.as_bytes());
+    let plugin_cache = PluginCache::new(environment.clone());
+    let plugin_source = PluginSourceReference {
+      path_source: PathSource::new_remote(url::Url::parse(original_url).unwrap()),
+      checksum: Some(plugin_json_checksum),
+    };
+    let cache_item = plugin_cache.get_plugin_cache_item(&plugin_source).await?;
+    assert_eq!(cache_item.info.name, "test-process-plugin");
+    assert_eq!(cache_item.info.version, "0.1.0");
+
+    Ok(())
+  }
 }
