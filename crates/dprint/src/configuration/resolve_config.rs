@@ -224,18 +224,18 @@ fn resolve_extends<TEnvironment: Environment>(
 }
 
 async fn handle_config_file<TEnvironment: Environment>(
-  resolved_config_path_and_text: &ResolvedFilePathWithText,
+  config_path_and_text: &ResolvedFilePathWithText,
   mut resolved_config: ResolvedConfig,
   environment: &TEnvironment,
 ) -> Result<ResolvedConfig> {
   let mut new_config_map = get_config_map_from_path(ConfigPathContext {
-    current: resolved_config_path_and_text.as_ref(),
+    current: config_path_and_text.as_ref(),
     origin: &resolved_config.source,
   })?;
   let extends = take_extends(&mut new_config_map)?;
 
   // Discard any properties that shouldn't be inherited
-  if !resolved_config_path_and_text.source.is_local() {
+  if !config_path_and_text.source.is_local() {
     // IMPORTANT
     // =========
     // Remove the includes from all referenced remote configuration since
@@ -243,7 +243,7 @@ async fn handle_config_file<TEnvironment: Environment>(
     // files that it could change. Basically, the end user should have 100%
     // control over what files get formatted.
     let removed_includes = new_config_map.shift_remove("includes"); // NEVER REMOVE THIS STATEMENT
-    if removed_includes.is_some() && resolved_config_path_and_text.is_first_download {
+    if removed_includes.is_some() && config_path_and_text.is_first_download {
       log_warn!(environment, &get_warn_includes_message());
     }
   }
@@ -259,8 +259,8 @@ async fn handle_config_file<TEnvironment: Environment>(
 
   // Also remove any non-wasm plugins, but only for remote configurations.
   // The assumption here is that the user won't be malicious to themselves.
-  let plugins = take_plugins_array_from_config_map(&mut new_config_map, &resolved_config_path_and_text.source.parent(), environment)?;
-  let plugins = if !resolved_config_path_and_text.source.is_local() {
+  let plugins = take_plugins_array_from_config_map(&mut new_config_map, &config_path_and_text.source.parent(), environment)?;
+  let plugins = if !config_path_and_text.source.is_local() {
     filter_non_wasm_plugins(plugins, environment)
   } else {
     plugins
@@ -311,7 +311,7 @@ async fn handle_config_file<TEnvironment: Environment>(
     }
   }
 
-  resolve_extends(resolved_config, extends, resolved_config_path_and_text.source.parent(), environment.clone()).await
+  resolve_extends(resolved_config, extends, config_path_and_text.source.parent(), environment.clone()).await
 }
 
 fn take_extends(config_map: &mut ConfigMap) -> Result<Vec<String>> {
