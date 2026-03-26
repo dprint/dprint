@@ -47,28 +47,26 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
   pub async fn resolve_by_path(&self, dir_path: &Path) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
     let config_file_bytes = if let Some(path) = &self.config_override {
       let path = self.environment.canonicalize(path).context("failed resolving --config path")?;
-      let content = self.environment.read_file_bytes(&path).context("failed resolving --config path")?;
+      let content = self.environment.read_file(&path).context("failed resolving --config path")?;
       Some(ResolvedConfigPathWithText {
         base_path: path.parent().unwrap_or_else(|| path.clone()),
-        resolved_file: ResolvedFilePathWithBytes {
-          source: PathSource::new_local(path),
-          is_first_download: false,
-          content,
-        },
+        source: PathSource::new_local(path),
+        is_first_download: false,
+        content,
         is_global_config: false,
       })
     } else {
-      get_default_config_file_in_ancestor_directories(&self.environment, dir_path)?.or_else(|| resolve_global_config_path_and_text(&self.environment))
+      match get_default_config_file_in_ancestor_directories(&self.environment, dir_path)? {
+        Some(config) => Some(config),
+        None => resolve_global_config_path_and_text(&self.environment)?,
+      }
     };
     let Some(config_file_bytes) = config_file_bytes else {
       return Ok(None);
     };
     let cell = {
       let mut plugins_scope_by_config = self.plugins_scope_by_config.borrow_mut();
-      plugins_scope_by_config
-        .entry(config_file_bytes.resolved_file.source.display())
-        .or_default()
-        .clone()
+      plugins_scope_by_config.entry(config_file_bytes.source.display()).or_default().clone()
     };
     // only allow one task in here per config
     let mut cell = cell.lock().await;

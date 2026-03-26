@@ -27,7 +27,7 @@ use crate::utils::ShowConfirmStrategy;
 use crate::utils::resolve_url_or_file_path;
 
 use super::resolve_main_config_path::ResolvedConfigPathWithText;
-use super::resolve_main_config_path::resolve_main_config_path;
+use super::resolve_main_config_path::resolve_main_config_path_and_bytes;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedConfig {
@@ -87,8 +87,8 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
     }
   }
 
-  let resolved_config_path = resolve_main_config_path(args, environment).await?;
-  let mut resolved_config = match resolved_config_path {
+  let config_path_and_bytes = resolve_main_config_path_and_bytes(args, environment).await?;
+  let mut resolved_config = match config_path_and_bytes {
     Some(resolved_config_path) => {
       if resolved_config_path.is_global_config
         && let SubCommand::Fmt(fmt) = &args.sub_command

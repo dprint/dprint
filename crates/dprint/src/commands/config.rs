@@ -79,7 +79,7 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
 }
 
 pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<()> {
-  let config_file_bytes = resolve_main_config_path(args, environment).await?.ok_or_else(|| {
+  let config_path_and_bytes = resolve_main_config_path_and_bytes(args, environment).await?.ok_or_else(|| {
     let is_global = args.config_discovery(environment).is_global();
     anyhow::anyhow!(
       "Could not find a configuration file. Create one with `dprint init{}`",
@@ -87,7 +87,7 @@ pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environ
     )
   })?;
 
-  let config_path = match config_file_bytes.resolved_file.source {
+  let config_path = match config_path_and_bytes.source {
     PathSource::Local(source) => source.path,
     PathSource::Remote(source) => {
       bail!("Cannot edit a remote configuration file '{}'", source.url)
@@ -123,7 +123,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment).await?;
-  let config_path = match config.resolved_path.source {
+  let config_path = match config.source {
     PathSource::Local(source) => source.path,
     PathSource::Remote(_) => bail!("Cannot update plugins in a remote configuration."),
   };
@@ -293,7 +293,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     let Some(config) = &scope.scope.config else {
       continue;
     };
-    let config_path = match &config.resolved_path.source {
+    let config_path = match &config.source {
       PathSource::Local(source) => &source.path,
       PathSource::Remote(source) => {
         log_warn!(environment, "Skipping remote configuration file: {}", source.url);
@@ -385,7 +385,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
     let Some(config) = &scope.scope.config else {
       continue;
     };
-    let config_path = match &config.resolved_path.source {
+    let config_path = match &config.source {
       PathSource::Local(source) => &source.path,
       PathSource::Remote(_) => {
         continue;

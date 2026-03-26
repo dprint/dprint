@@ -18,5 +18,5 @@ pub use resolve_main_config_path::ResolvedConfigPathWithText;
 pub use resolve_main_config_path::get_default_config_file_in_ancestor_directories;
 pub use resolve_main_config_path::resolve_global_config_dir;
 pub use resolve_main_config_path::resolve_global_config_path_and_text;
-pub use resolve_main_config_path::resolve_main_config_path;
+pub use resolve_main_config_path::resolve_main_config_path_and_bytes;
 pub use types::*;

@@ -35,7 +35,10 @@ impl ResolvedConfigPathWithText {
   }
 }
 
-pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<Option<ResolvedConfigPathWithText>> {
+pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
+  args: &CliArgs,
+  environment: &TEnvironment,
+) -> Result<Option<ResolvedConfigPathWithText>> {
   fn get_default_paths(args: &CliArgs, environment: &impl Environment) -> Result<Option<ResolvedConfigPathWithText>> {
     let start_search_dir = get_start_search_directory(args, environment)?;
     let maybe_config_file = get_config_file_in_dir(&start_search_dir, environment)?;
