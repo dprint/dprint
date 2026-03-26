@@ -257,6 +257,8 @@ mod tests {
   #[test]
   fn should_resolve_a_file_url_on_unix() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all("/test").unwrap();
+    environment.write_file("/test/test.json", "{}").unwrap();
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
       let result = resolve_url_or_file_path_to_file_with_cache("file:///test/test.json", &base, &environment)
