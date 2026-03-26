@@ -34,4 +34,4 @@ jobs:
         run: |
           git config user.email "${{ github.actor }}@users.noreply.github.com"
           git config user.name "${{ github.actor }}"
-          deno run -A jsr:@dprint/automation/0.10.2/tasks/publish-release --${{github.event.inputs.releaseKind}} ./crates/dprint/Cargo.toml
+          deno run -A jsr:@dprint/automation@0.10.2/tasks/publish-release --${{github.event.inputs.releaseKind}} ./crates/dprint/Cargo.toml
