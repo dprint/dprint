@@ -192,6 +192,8 @@ fn is_absolute_windows_file_path(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+  use std::path::Path;
+
   use crate::environment::TestEnvironment;
   use pretty_assertions::assert_eq;
 
@@ -234,6 +236,8 @@ mod tests {
   #[test]
   fn should_resolve_a_file_url_on_windows() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all("C:\\test").unwrap();
+    environment.write_file("C:\\test\\test.json", "{}").unwrap();
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("V:\\"));
       let result = resolve_url_or_file_path("file://C:/test/test.json", &base, &environment).await.unwrap();
@@ -258,6 +262,8 @@ mod tests {
   #[test]
   fn should_resolve_an_absolute_path_on_windows() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all("C:\\test").unwrap();
+    environment.write_file("C:\\test\\test.json", "{}").unwrap();
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("V:\\"));
       let result = resolve_url_or_file_path("C:\\test\\test.json", &base, &environment).await.unwrap();
@@ -270,6 +276,8 @@ mod tests {
   #[test]
   fn should_resolve_an_absolute_path_on_windows_using_forward_slashes() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all("C:\\test").unwrap();
+    environment.write_file("C:\\test\\test.json", "{}").unwrap();
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("V:\\"));
       let result = resolve_url_or_file_path("C:/test/test.json", &base, &environment).await.unwrap();
@@ -281,6 +289,8 @@ mod tests {
   #[test]
   fn should_resolve_a_relative_file_path() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all("/test").unwrap();
+    environment.write_file("/test/test.json", "{}").unwrap();
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
       let result = resolve_url_or_file_path("test/test.json", &base, &environment).await.unwrap();
@@ -292,6 +302,8 @@ mod tests {
   #[test]
   fn should_resolve_a_file_path_relative_to_base_path() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all("/other/test").unwrap();
+    environment.write_file("/other/test/test.json", "{}").unwrap();
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/other"));
       let result = resolve_url_or_file_path("test/test.json", &base, &environment).await.unwrap();
@@ -362,8 +374,14 @@ mod tests {
     let environment = TestEnvironment::new();
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/other"));
-      let cases = [("~/", "/home"), ("~/other", "/home/other"), ("~/a", "/home/a")];
+      let cases = [
+        ("~/file.json", "/home/file.json"),
+        ("~/other/file.json", "/home/other/file.json"),
+        ("~/a/file.json", "/home/a/file.json"),
+      ];
       for (input, expected) in cases {
+        environment.mk_dir_all(Path::new(expected).parent().unwrap()).unwrap();
+        environment.write_file(expected, "").unwrap();
         let result = resolve_url_or_file_path(input, &base, &environment).await.unwrap();
         assert_eq!(result.source.is_local(), true);
         assert_eq!(result.source.unwrap_local().path, CanonicalizedPathBuf::new_for_testing(expected));

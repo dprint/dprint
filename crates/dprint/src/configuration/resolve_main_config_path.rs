@@ -1,4 +1,3 @@
-use anyhow::Context;
 use anyhow::Result;
 use crossterm::style::Stylize;
 use std::ffi::OsString;
