@@ -137,7 +137,7 @@ where
       );
     }
 
-    let file_hash = match &source_reference.path_source {
+    let file_hash = match &resolved_source {
       PathSource::Local(_) => Some(get_bytes_hash(&file_bytes)),
       PathSource::Remote(_) => None,
     };
