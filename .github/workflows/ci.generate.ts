@@ -102,7 +102,7 @@ const checkout = step({ name: "Checkout", uses: "actions/checkout@v6" });
 const setupDeno = step({
   uses: "denoland/setup-deno@v2",
   with: {
-    "deno-version": "2.7.5",
+    "deno-version": "canary",
   },
 });
 const setupRust = step({
