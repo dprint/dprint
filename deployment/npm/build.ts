@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run -A
+import { parseArgs } from "https://deno.land/std@0.208.0/cli/parse_args.ts";
 import $ from "jsr:@david/dax@0.45.0";
 // @ts-types="npm:@types/decompress@4.2.7"
-import { parseArgs } from "https://deno.land/std@0.208.0/cli/parse_args.ts";
 import decompress from "npm:decompress@4.2.1";
 
 interface Package {
