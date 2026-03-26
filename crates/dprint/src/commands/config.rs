@@ -79,7 +79,7 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
 }
 
 pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<()> {
-  let config_path = resolve_main_config_path(args, environment).await?.ok_or_else(|| {
+  let config_path_and_bytes = resolve_main_config_path_and_bytes(args, environment).await?.ok_or_else(|| {
     let is_global = args.config_discovery(environment).is_global();
     anyhow::anyhow!(
       "Could not find a configuration file. Create one with `dprint init{}`",
@@ -87,7 +87,7 @@ pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environ
     )
   })?;
 
-  let config_path = match config_path.resolved_path.source {
+  let config_path = match config_path_and_bytes.source {
     PathSource::Local(source) => source.path,
     PathSource::Remote(source) => {
       bail!("Cannot edit a remote configuration file '{}'", source.url)
@@ -123,7 +123,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   let config = resolve_config_from_args(args, environment).await?;
-  let config_path = match config.resolved_path.source {
+  let config_path = match config.source {
     PathSource::Local(source) => source.path,
     PathSource::Remote(_) => bail!("Cannot update plugins in a remote configuration."),
   };
@@ -178,7 +178,12 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
       } else {
         format!("dprint/{}", plugin_name_or_url)
       };
-      let plugin = match read_update_url(&cached_downloader, &format!("https://plugins.dprint.dev/{}/latest.json", plugin_name)).await? {
+      let plugin = match read_update_url(
+        &cached_downloader,
+        &Url::parse(&format!("https://plugins.dprint.dev/{}/latest.json", plugin_name))?,
+      )
+      .await?
+      {
         Some(result) => result,
         None => {
           let trailing_message = if let Ok(possible_plugins) = get_possible_plugins_to_add(environment, plugin_resolver, config_plugins.to_vec()).await {
@@ -203,7 +208,8 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
       for (config_plugin_reference, config_plugin) in get_config_file_plugins(plugin_resolver, config_plugins.to_vec()).await {
         if let Ok(config_plugin) = config_plugin
           && let Some(update_url) = &config_plugin.info().update_url
-          && let Ok(Some(config_plugin_latest)) = read_update_url(&cached_downloader, update_url).await
+          && let Ok(update_url) = Url::parse(update_url)
+          && let Ok(Some(config_plugin_latest)) = read_update_url(&cached_downloader, &update_url).await
         {
           // if two plugins have the same URL to be updated to then they're the same plugin
           if config_plugin_latest.url == plugin.url {
@@ -293,7 +299,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     let Some(config) = &scope.scope.config else {
       continue;
     };
-    let config_path = match &config.resolved_path.source {
+    let config_path = match &config.source {
       PathSource::Local(source) => &source.path,
       PathSource::Remote(source) => {
         log_warn!(environment, "Skipping remote configuration file: {}", source.url);
@@ -385,7 +391,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
     let Some(config) = &scope.scope.config else {
       continue;
     };
-    let config_path = match &config.resolved_path.source {
+    let config_path = match &config.source {
       PathSource::Local(source) => &source.path,
       PathSource::Remote(_) => {
         continue;
@@ -492,22 +498,30 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
 
     // request
     if let Some(plugin_update_url) = &plugin.info().update_url {
-      match read_update_url(environment, plugin_update_url).await.and_then(|result| match result {
-        Some(info) => match info.as_source_reference() {
-          Ok(source_reference) => Ok((info, source_reference)),
-          Err(err) => Err(err),
-        },
-        None => Err(anyhow!("Failed downloading {} - 404 Not Found", plugin_update_url)),
-      }) {
-        Ok((info, new_reference)) => Some(Ok(PluginUpdateInfo {
-          name: plugin.info().name.to_string(),
-          old_reference: plugin_reference,
-          old_version: plugin.info().version.to_string(),
-          new_version: info.version,
-          new_reference,
-        })),
+      match Url::parse(plugin_update_url) {
+        Ok(update_url) => {
+          match read_update_url(environment, &update_url).await.and_then(|result| match result {
+            Some(info) => match info.as_source_reference() {
+              Ok(source_reference) => Ok((info, source_reference)),
+              Err(err) => Err(err),
+            },
+            None => Err(anyhow!("Failed downloading {} - 404 Not Found", update_url)),
+          }) {
+            Ok((info, new_reference)) => Some(Ok(PluginUpdateInfo {
+              name: plugin.info().name.to_string(),
+              old_reference: plugin_reference,
+              old_version: plugin.info().version.to_string(),
+              new_version: info.version,
+              new_reference,
+            })),
+            Err(err) => {
+              // output and fallback to using the info file
+              log_warn!(environment, "Failed reading plugin latest info. {:#}", err);
+              None
+            }
+          }
+        }
         Err(err) => {
-          // output and fallback to using the info file
           log_warn!(environment, "Failed reading plugin latest info. {:#}", err);
           None
         }

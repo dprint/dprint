@@ -42,9 +42,9 @@ impl PluginUpdateUrlInfo {
   }
 }
 
-pub async fn read_update_url(downloader: &impl UrlDownloader, url: &str) -> Result<Option<PluginUpdateUrlInfo>> {
-  let info_bytes = match downloader.download_file(url).await? {
-    Some(info_bytes) => info_bytes,
+pub async fn read_update_url(downloader: &impl UrlDownloader, url: &Url) -> Result<Option<PluginUpdateUrlInfo>> {
+  let info_bytes = match downloader.download_file(url).await?.1 {
+    Some(result) => result.content,
     None => return Ok(None),
   };
   let info_text = String::from_utf8(info_bytes.to_vec())?;
@@ -104,7 +104,9 @@ mod test {
     let environment = builder.build();
     environment.clone().run_in_runtime(async move {
       assert_eq!(
-        read_update_url(&environment, "https://plugins.dprint.dev/plugin/latest.json").await.unwrap(),
+        read_update_url(&environment, &Url::parse("https://plugins.dprint.dev/plugin/latest.json").unwrap())
+          .await
+          .unwrap(),
         Some(PluginUpdateUrlInfo {
           version: "version".to_string(),
           url: "url".to_string(),
@@ -112,7 +114,7 @@ mod test {
         })
       );
       assert_eq!(
-        read_update_url(&environment, "https://plugins.dprint.dev/plugin/latest-checksum.json")
+        read_update_url(&environment, &Url::parse("https://plugins.dprint.dev/plugin/latest-checksum.json").unwrap())
           .await
           .unwrap(),
         Some(PluginUpdateUrlInfo {
@@ -134,7 +136,7 @@ mod test {
     let environment = builder.build();
     environment.clone().run_in_runtime(async move {
       assert_eq!(
-        read_update_url(&environment, "https://plugins.dprint.dev/plugin/latest.json")
+        read_update_url(&environment, &Url::parse("https://plugins.dprint.dev/plugin/latest.json").unwrap())
           .await
           .err()
           .unwrap()
@@ -145,7 +147,7 @@ mod test {
         )
       );
       assert_eq!(
-        read_update_url(&environment, "https://plugins.dprint.dev/plugin/not-exists.json")
+        read_update_url(&environment, &Url::parse("https://plugins.dprint.dev/plugin/not-exists.json").unwrap())
           .await
           .unwrap(),
         None,

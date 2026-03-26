@@ -30,11 +30,11 @@ use crate::arg_parser::FilePatternArgs;
 use crate::configuration::GlobalConfigDiagnostic;
 use crate::configuration::ResolveConfigError;
 use crate::configuration::ResolvedConfig;
-use crate::configuration::ResolvedConfigPath;
+use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_global_config;
 use crate::configuration::get_plugin_config_map;
 use crate::configuration::resolve_config_from_args;
-use crate::configuration::resolve_config_from_path;
+use crate::configuration::resolve_config_from_path_with_bytes;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::paths::FilesPathsByPlugins;
@@ -52,7 +52,7 @@ use crate::plugins::PluginWrapper;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::utils::FastInsecureHasher;
 use crate::utils::GlobOutput;
-use crate::utils::ResolvedPath;
+use crate::utils::PathSource;
 
 pub enum GetPluginResult {
   HadDiagnostics(usize),
@@ -289,7 +289,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     }
     output_text.push_str(&format!("\nHad {} config diagnostic(s)", diagnostics_len));
     if let Some(config) = &self.config {
-      output_text.push_str(&format!(" in {}", config.resolved_path.source));
+      output_text.push_str(&format!(" in {}", config.source));
     }
     Err(ResolveConfigError::Other(anyhow::anyhow!("{}", output_text)))
   }
@@ -490,7 +490,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths)?;
 
     let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
-    let root_config_path = config.resolved_path.source.maybe_local_path();
+    let root_config_path = config.source.maybe_local_path();
     // todo: parallelize?
     for config_file_path in glob_output.config_files {
       result.extend(
@@ -520,12 +520,14 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
         // config file specified via `--config` so ignore it
         return Ok(Vec::new());
       }
-      let config_path = ResolvedConfigPath {
+      let config_path = ResolvedConfigPathWithText {
+        content: self.environment.read_file(&config_file_path)?,
         base_path: config_file_path.parent().unwrap(),
-        resolved_path: ResolvedPath::local(config_file_path),
+        source: PathSource::new_local(config_file_path),
         is_global_config: false,
+        is_first_download: false,
       };
-      let mut config = resolve_config_from_path(&config_path, self.environment).await?;
+      let mut config = resolve_config_from_path_with_bytes(&config_path, self.environment).await?;
       if !self.args.plugins.is_empty() {
         config.plugins.clone_from(&parent_config.plugins);
       }

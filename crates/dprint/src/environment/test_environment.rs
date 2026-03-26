@@ -4,6 +4,7 @@ use once_cell::sync::Lazy;
 use parking_lot::Condvar;
 use parking_lot::Mutex;
 use path_clean::PathClean;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::future::Future;
@@ -13,6 +14,13 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use sys_traits::BaseFsCreateDir;
+use sys_traits::BaseFsMetadata;
+use sys_traits::BaseFsOpen;
+use sys_traits::BaseFsRead;
+use sys_traits::BaseFsRemoveFile;
+use sys_traits::BaseFsRename;
+use sys_traits::CreateDirOptions;
 use sys_traits::EnvCurrentDir;
 use sys_traits::EnvRemoveVar;
 use sys_traits::EnvSetCurrentDir;
@@ -29,12 +37,17 @@ use sys_traits::FsRemoveFile;
 use sys_traits::FsRename;
 use sys_traits::FsSetPermissions;
 use sys_traits::FsWrite;
+use sys_traits::SystemRandom;
+use sys_traits::SystemTimeNow;
+use sys_traits::ThreadSleep;
 use sys_traits::impls::InMemorySys;
+use url::Url;
 
 use dprint_core::async_runtime::async_trait;
 
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
+use super::DownloadedFile;
 use super::Environment;
 use super::FilePermissions;
 use super::UrlDownloader;
@@ -121,6 +134,7 @@ pub struct TestEnvironment {
   stdout_messages: Arc<Mutex<Vec<String>>>,
   stderr_messages: Arc<Mutex<Vec<String>>>,
   remote_files: Arc<Mutex<HashMap<String, Result<Vec<u8>>>>>,
+  remote_file_redirects: Arc<Mutex<HashMap<String, String>>>,
   selection_result: Arc<Mutex<usize>>,
   multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>>>>>,
@@ -147,6 +161,7 @@ impl TestEnvironment {
       stdout_messages: Default::default(),
       stderr_messages: Default::default(),
       remote_files: Default::default(),
+      remote_file_redirects: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
       multi_selection_result: Arc::new(Mutex::new(None)),
       confirm_results: Default::default(),
@@ -205,6 +220,10 @@ impl TestEnvironment {
       Some(Err(err)) => Err(anyhow!("{:#}", err)),
       None => Ok(None),
     }
+  }
+
+  pub fn add_remote_file_redirect(&self, from: &str, to: &str) {
+    self.remote_file_redirects.lock().insert(from.to_string(), to.to_string());
   }
 
   pub fn set_env_var(&self, name: &str, value: Option<&str>) {
@@ -325,10 +344,91 @@ impl Drop for TestEnvironment {
   }
 }
 
+impl std::fmt::Debug for TestEnvironment {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("TestEnvironment").finish()
+  }
+}
+
+impl BaseFsCreateDir for TestEnvironment {
+  fn base_fs_create_dir(&self, path: &Path, options: &CreateDirOptions) -> io::Result<()> {
+    (*self.sys).base_fs_create_dir(path, options)
+  }
+}
+
+impl BaseFsMetadata for TestEnvironment {
+  type Metadata = sys_traits::impls::InMemoryMetadata;
+
+  fn base_fs_metadata(&self, path: &Path) -> io::Result<Self::Metadata> {
+    (*self.sys).base_fs_metadata(path)
+  }
+
+  fn base_fs_symlink_metadata(&self, path: &Path) -> io::Result<Self::Metadata> {
+    (*self.sys).base_fs_symlink_metadata(path)
+  }
+}
+
+impl BaseFsOpen for TestEnvironment {
+  type File = sys_traits::impls::InMemoryFile;
+
+  fn base_fs_open(&self, path: &Path, options: &sys_traits::OpenOptions) -> io::Result<Self::File> {
+    (*self.sys).base_fs_open(path, options)
+  }
+}
+
+impl BaseFsRead for TestEnvironment {
+  fn base_fs_read(&self, path: &Path) -> io::Result<Cow<'static, [u8]>> {
+    (*self.sys).base_fs_read(path)
+  }
+}
+
+impl BaseFsRemoveFile for TestEnvironment {
+  fn base_fs_remove_file(&self, path: &Path) -> io::Result<()> {
+    (*self.sys).base_fs_remove_file(path)
+  }
+}
+
+impl BaseFsRename for TestEnvironment {
+  fn base_fs_rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+    (*self.sys).base_fs_rename(from, to)
+  }
+}
+
+impl ThreadSleep for TestEnvironment {
+  fn thread_sleep(&self, duration: std::time::Duration) {
+    (*self.sys).thread_sleep(duration);
+  }
+}
+
+impl SystemRandom for TestEnvironment {
+  fn sys_random(&self, buf: &mut [u8]) -> io::Result<()> {
+    (*self.sys).sys_random(buf)
+  }
+}
+
+impl SystemTimeNow for TestEnvironment {
+  fn sys_time_now(&self) -> std::time::SystemTime {
+    (*self.sys).sys_time_now()
+  }
+}
+
 #[async_trait(?Send)]
 impl UrlDownloader for TestEnvironment {
-  async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
-    self.get_remote_file(url)
+  async fn download_file_no_redirects(&self, url: &Url) -> Result<Option<DownloadedFile>> {
+    // check for a redirect first
+    let redirects = self.remote_file_redirects.lock();
+    if let Some(target) = redirects.get(url.as_str()) {
+      return Ok(Some(DownloadedFile {
+        headers: [("location".to_string(), target.clone())].into_iter().collect(),
+        content: vec![],
+      }));
+    }
+    drop(redirects);
+
+    Ok(self.get_remote_file(url.as_str())?.map(|content| DownloadedFile {
+      headers: Default::default(),
+      content,
+    }))
   }
 }
 
