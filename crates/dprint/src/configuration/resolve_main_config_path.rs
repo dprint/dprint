@@ -11,7 +11,7 @@ use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::utils::PathSource;
 use crate::utils::ResolvedFilePathWithTextRef;
-use crate::utils::resolve_url_or_file_path;
+use crate::utils::resolve_url_or_file_path_to_file_with_cache;
 
 pub static POSSIBLE_CONFIG_FILE_NAMES: [&str; 4] = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
 
@@ -73,7 +73,7 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
   let config_discovery = args.config_discovery(environment);
   if let Some(config) = &args.config {
     let base_path = environment.cwd();
-    let resolved_file = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), environment)
+    let resolved_file = resolve_url_or_file_path_to_file_with_cache(config, &PathSource::new_local(base_path.clone()), environment)
       .await?
       .into_text()?;
     Ok(Some(ResolvedConfigPathWithText {

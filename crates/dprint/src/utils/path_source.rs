@@ -39,6 +39,7 @@ impl PathSource {
     }
   }
 
+  #[cfg(test)]
   pub fn is_remote(&self) -> bool {
     match self {
       PathSource::Local(_) => false,
@@ -70,6 +71,7 @@ impl PathSource {
     }
   }
 
+  #[cfg(test)]
   pub fn unwrap_local(&self) -> LocalPathSource {
     if let PathSource::Local(local_path_source) = self {
       local_path_source.clone()
@@ -78,6 +80,7 @@ impl PathSource {
     }
   }
 
+  #[cfg(test)]
   pub fn unwrap_remote(&self) -> RemotePathSource {
     if let PathSource::Remote(remote_path_source) = self {
       remote_path_source.clone()

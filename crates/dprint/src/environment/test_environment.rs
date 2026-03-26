@@ -41,6 +41,7 @@ use sys_traits::SystemRandom;
 use sys_traits::SystemTimeNow;
 use sys_traits::ThreadSleep;
 use sys_traits::impls::InMemorySys;
+use url::Url;
 
 use dprint_core::async_runtime::async_trait;
 
@@ -224,7 +225,6 @@ impl TestEnvironment {
   pub fn add_remote_file_redirect(&self, from: &str, to: &str) {
     self.remote_file_redirects.lock().insert(from.to_string(), to.to_string());
   }
-
 
   pub fn set_env_var(&self, name: &str, value: Option<&str>) {
     match value {
@@ -414,10 +414,10 @@ impl SystemTimeNow for TestEnvironment {
 
 #[async_trait(?Send)]
 impl UrlDownloader for TestEnvironment {
-  async fn download_file(&self, url: &str) -> Result<Option<DownloadedFile>> {
+  async fn download_file_no_redirects(&self, url: &Url) -> Result<Option<DownloadedFile>> {
     // check for a redirect first
     let redirects = self.remote_file_redirects.lock();
-    if let Some(target) = redirects.get(url) {
+    if let Some(target) = redirects.get(url.as_str()) {
       return Ok(Some(DownloadedFile {
         headers: [("location".to_string(), target.clone())].into_iter().collect(),
         content: vec![],
@@ -425,7 +425,7 @@ impl UrlDownloader for TestEnvironment {
     }
     drop(redirects);
 
-    Ok(self.get_remote_file(url)?.map(|content| DownloadedFile {
+    Ok(self.get_remote_file(url.as_str())?.map(|content| DownloadedFile {
       headers: Default::default(),
       content,
     }))

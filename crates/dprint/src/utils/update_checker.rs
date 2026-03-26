@@ -2,6 +2,7 @@ use crate::environment::Environment;
 use anyhow::Result;
 use anyhow::anyhow;
 use serde_json::Value;
+use url::Url;
 
 pub async fn is_out_of_date(environment: &impl Environment) -> Option<String> {
   log_debug!(environment, "Checking if CLI out of date...");
@@ -23,10 +24,9 @@ pub async fn is_out_of_date(environment: &impl Environment) -> Option<String> {
   }
 }
 
-// todo: make async
 pub async fn latest_cli_version(environment: &impl Environment) -> Result<String> {
-  let file_bytes = environment.download_file_err_404("https://plugins.dprint.dev/cli.json").await?;
-  let data: Value = serde_json::from_slice(&file_bytes)?;
+  let (_, file) = environment.download_file_err_404(&Url::parse("https://plugins.dprint.dev/cli.json")?).await?;
+  let data: Value = serde_json::from_slice(&file.content)?;
   let obj = data.as_object().ok_or_else(|| anyhow!("Root was not object."))?;
   let version = obj.get("version").ok_or_else(|| anyhow!("Could not find version."))?;
   Ok(version.as_str().ok_or_else(|| anyhow!("version was not a string."))?.to_string())

@@ -5,15 +5,12 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::path::PathBuf;
-use std::time::Duration;
-use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use serde::Deserialize;
 use serde::Serialize;
 use sys_traits::FsCreateDirAll;
 use sys_traits::FsMetadata;
-use sys_traits::FsMetadataValue;
 use sys_traits::FsOpen;
 use sys_traits::FsRead;
 use sys_traits::FsRemoveFile;
@@ -21,7 +18,6 @@ use sys_traits::FsRename;
 use sys_traits::SystemRandom;
 use sys_traits::SystemTimeNow;
 use sys_traits::ThreadSleep;
-use thiserror::Error;
 use url::Url;
 
 mod cache_file;
@@ -44,19 +40,33 @@ pub struct CacheEntry {
   pub content: Vec<u8>,
 }
 
-#[derive(Debug, Error)]
-pub enum CacheReadFileError {
-  #[error(transparent)]
-  Io(#[from] std::io::Error),
-  #[error(transparent)]
-  ChecksumIntegrity(Box<ChecksumIntegrityError>),
-}
-
 /// Computed cache key, which can help reduce the work of computing the cache key multiple times.
 pub struct HttpCacheItemKey<'a> {
   pub(super) url: &'a Url,
   pub(super) file_path: PathBuf,
 }
+
+#[derive(Debug)]
+struct MessagedError {
+  pub message: String,
+  /// The underlying I/O error.
+  pub err: std::io::Error,
+}
+
+impl MessagedError {
+  #[allow(clippy::new_ret_no_self)]
+  pub fn new(message: String, err: std::io::Error) -> std::io::Error {
+    std::io::Error::new(err.kind(), MessagedError { message, err })
+  }
+}
+
+impl std::fmt::Display for MessagedError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}: {}", self.message, self.err)
+  }
+}
+
+impl std::error::Error for MessagedError {}
 
 #[sys_traits::auto_impl]
 pub trait HttpCacheSys:
@@ -86,22 +96,12 @@ impl<Sys: HttpCacheSys> HttpCache<Sys> {
     })
   }
 
+  #[cfg(test)]
   pub fn contains(&self, url: &Url) -> bool {
     let Ok(cache_filepath) = self.local_path_for_url(url) else {
       return false;
     };
     self.sys.fs_is_file(&cache_filepath).unwrap_or(false)
-  }
-
-  pub fn read_modified_time(&self, key: &HttpCacheItemKey) -> std::io::Result<Option<SystemTime>> {
-    match self.sys.fs_metadata(&key.file_path) {
-      Ok(metadata) => match metadata.modified() {
-        Ok(time) => Ok(Some(time)),
-        Err(_) => Ok(Some(self.sys.sys_time_now())),
-      },
-      Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
-      Err(err) => Err(err),
-    }
   }
 
   pub fn set(&self, url: &Url, headers: HeadersMap, content: &[u8]) -> std::io::Result<()> {
@@ -115,77 +115,15 @@ impl<Sys: HttpCacheSys> HttpCache<Sys> {
         url: url.to_string(),
         headers,
       },
-    )?;
+    )
+    .map_err(|err| MessagedError::new(format!("failed to set '{}' in the cache (maybe run `dprint clear-cache`)", url), err))?;
 
     Ok(())
   }
 
-  pub fn get(&self, key: &HttpCacheItemKey, maybe_checksum: Option<Checksum>) -> Result<Option<CacheEntry>, CacheReadFileError> {
-    let maybe_file = cache_file::read(&self.sys, &key.file_path)?;
-
-    if let Some(file) = &maybe_file
-      && let Some(expected_checksum) = maybe_checksum
-    {
-      expected_checksum.check(key.url, &file.content).map_err(CacheReadFileError::ChecksumIntegrity)?;
-    }
-
-    Ok(maybe_file)
-  }
-
-  pub fn read_headers(&self, key: &HttpCacheItemKey) -> std::io::Result<Option<HeadersMap>> {
-    // targeted deserialize
-    #[derive(Deserialize)]
-    struct SerializedHeaders {
-      pub headers: HeadersMap,
-    }
-
-    let maybe_metadata = cache_file::read_metadata::<SerializedHeaders>(&self.sys, &key.file_path)?;
-    Ok(maybe_metadata.map(|m| m.headers))
-  }
-
-  pub fn read_download_time(&self, key: &HttpCacheItemKey) -> std::io::Result<Option<SystemTime>> {
-    // targeted deserialize
-    #[derive(Deserialize)]
-    struct SerializedTime {
-      pub time: Option<u64>,
-    }
-
-    let maybe_metadata = cache_file::read_metadata::<SerializedTime>(&self.sys, &key.file_path)?;
-    Ok(maybe_metadata.and_then(|m| Some(SystemTime::UNIX_EPOCH + Duration::from_secs(m.time?))))
-  }
-}
-
-#[derive(Debug, Error)]
-#[error("Integrity check failed for {}\n\nActual: {}\nExpected: {}", .url, .actual, .expected)]
-pub struct ChecksumIntegrityError {
-  pub url: Url,
-  pub actual: String,
-  pub expected: String,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Checksum<'a>(&'a str);
-
-impl<'a> Checksum<'a> {
-  pub fn new(checksum: &'a str) -> Self {
-    Self(checksum)
-  }
-
-  pub fn as_str(&self) -> &str {
-    self.0
-  }
-
-  pub fn check(&self, url: &Url, content: &[u8]) -> Result<(), Box<ChecksumIntegrityError>> {
-    let actual = checksum(content);
-    if self.as_str() != actual {
-      Err(Box::new(ChecksumIntegrityError {
-        url: url.clone(),
-        expected: self.as_str().to_string(),
-        actual,
-      }))
-    } else {
-      Ok(())
-    }
+  pub fn get(&self, key: &HttpCacheItemKey) -> std::io::Result<Option<CacheEntry>> {
+    cache_file::read(&self.sys, &key.file_path)
+      .map_err(|err| MessagedError::new(format!("failed to get '{}' from the cache (maybe run `dprint clear-cache`)", key.url), err))
   }
 }
 
@@ -369,7 +307,7 @@ mod test {
     cache.set(&url, headers.clone(), b"const x = 1;").unwrap();
 
     let key = cache.cache_item_key(&url).unwrap();
-    let entry = cache.get(&key, None).unwrap().unwrap();
+    let entry = cache.get(&key).unwrap().unwrap();
     assert_eq!(entry.content, b"const x = 1;");
     assert_eq!(entry.metadata.headers, headers);
     assert_eq!(entry.metadata.url, url.to_string());
@@ -380,7 +318,7 @@ mod test {
     let cache = create_cache();
     let url = test_url("missing.ts");
     let key = cache.cache_item_key(&url).unwrap();
-    let entry = cache.get(&key, None).unwrap();
+    let entry = cache.get(&key).unwrap();
     assert!(entry.is_none());
   }
 
@@ -394,49 +332,6 @@ mod test {
   }
 
   #[test]
-  fn read_headers() {
-    let cache = create_cache();
-    let url = test_url("headers.ts");
-    let headers = HeadersMap::from([
-      ("content-type".to_string(), "text/plain".to_string()),
-      ("x-custom".to_string(), "value".to_string()),
-    ]);
-    cache.set(&url, headers.clone(), b"body").unwrap();
-
-    let key = cache.cache_item_key(&url).unwrap();
-    let read = cache.read_headers(&key).unwrap().unwrap();
-    assert_eq!(read, headers);
-  }
-
-  #[test]
-  fn read_headers_missing_returns_none() {
-    let cache = create_cache();
-    let url = test_url("no-headers.ts");
-    let key = cache.cache_item_key(&url).unwrap();
-    assert!(cache.read_headers(&key).unwrap().is_none());
-  }
-
-  #[test]
-  fn read_download_time() {
-    let cache = create_cache();
-    let url = test_url("timed.ts");
-    cache.set(&url, HeadersMap::new(), b"data").unwrap();
-
-    let key = cache.cache_item_key(&url).unwrap();
-    let time = cache.read_download_time(&key).unwrap().unwrap();
-    // the time should be at or after the unix epoch
-    assert!(time >= SystemTime::UNIX_EPOCH);
-  }
-
-  #[test]
-  fn read_download_time_missing_returns_none() {
-    let cache = create_cache();
-    let url = test_url("no-time.ts");
-    let key = cache.cache_item_key(&url).unwrap();
-    assert!(cache.read_download_time(&key).unwrap().is_none());
-  }
-
-  #[test]
   fn overwrite_existing_entry() {
     let cache = create_cache();
     let url = test_url("overwrite.ts");
@@ -444,51 +339,8 @@ mod test {
     cache.set(&url, HeadersMap::new(), b"new").unwrap();
 
     let key = cache.cache_item_key(&url).unwrap();
-    let entry = cache.get(&key, None).unwrap().unwrap();
+    let entry = cache.get(&key).unwrap().unwrap();
     assert_eq!(entry.content, b"new");
-  }
-
-  #[test]
-  fn checksum_verification_passes() {
-    let cache = create_cache();
-    let url = test_url("checked.ts");
-    let content = b"hello world";
-    cache.set(&url, HeadersMap::new(), content).unwrap();
-
-    let expected = checksum(content);
-    let key = cache.cache_item_key(&url).unwrap();
-    let entry = cache.get(&key, Some(Checksum::new(&expected))).unwrap().unwrap();
-    assert_eq!(entry.content, content);
-  }
-
-  #[test]
-  fn checksum_verification_fails() {
-    let cache = create_cache();
-    let url = test_url("bad-checksum.ts");
-    cache.set(&url, HeadersMap::new(), b"content").unwrap();
-
-    let key = cache.cache_item_key(&url).unwrap();
-    let result = cache.get(&key, Some(Checksum::new("bad_checksum")));
-    assert!(matches!(result, Err(CacheReadFileError::ChecksumIntegrity(_))));
-  }
-
-  #[test]
-  fn read_modified_time_missing() {
-    let cache = create_cache();
-    let url = test_url("no-mod.ts");
-    let key = cache.cache_item_key(&url).unwrap();
-    assert!(cache.read_modified_time(&key).unwrap().is_none());
-  }
-
-  #[test]
-  fn read_modified_time_exists() {
-    let cache = create_cache();
-    let url = test_url("mod-time.ts");
-    cache.set(&url, HeadersMap::new(), b"data").unwrap();
-
-    let key = cache.cache_item_key(&url).unwrap();
-    let time = cache.read_modified_time(&key).unwrap();
-    assert!(time.is_some());
   }
 
   #[test]
@@ -501,8 +353,8 @@ mod test {
 
     let key_a = cache.cache_item_key(&url_a).unwrap();
     let key_b = cache.cache_item_key(&url_b).unwrap();
-    assert_eq!(cache.get(&key_a, None).unwrap().unwrap().content, b"aaa");
-    assert_eq!(cache.get(&key_b, None).unwrap().unwrap().content, b"bbb");
+    assert_eq!(cache.get(&key_a).unwrap().unwrap().content, b"aaa");
+    assert_eq!(cache.get(&key_b).unwrap().unwrap().content, b"bbb");
   }
 
   #[test]
@@ -513,7 +365,7 @@ mod test {
     cache.set(&url, HeadersMap::new(), &content).unwrap();
 
     let key = cache.cache_item_key(&url).unwrap();
-    let entry = cache.get(&key, None).unwrap().unwrap();
+    let entry = cache.get(&key).unwrap().unwrap();
     assert_eq!(entry.content, content);
   }
 }

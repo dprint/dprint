@@ -73,20 +73,6 @@ pub fn read(sys: &impl FsRead, path: &Path) -> std::io::Result<Option<CacheEntry
   }))
 }
 
-pub fn read_metadata<TMetadata: DeserializeOwned>(sys: &impl FsRead, path: &Path) -> std::io::Result<Option<TMetadata>> {
-  let file_bytes = match sys.fs_read(path) {
-    Ok(file) => file,
-    Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
-    Err(err) => return Err(err),
-  };
-
-  let Some((_content_bytes, metadata)) = read_content_and_metadata::<TMetadata>(&file_bytes) else {
-    return Ok(None);
-  };
-
-  Ok(Some(metadata))
-}
-
 fn read_content_and_metadata<TMetadata: DeserializeOwned>(file_bytes: &[u8]) -> Option<(&[u8], TMetadata)> {
   let (file_bytes, metadata_bytes) = split_content_metadata(file_bytes)?;
   let serialized_metadata = serde_json::from_slice::<TMetadata>(metadata_bytes).ok()?;

@@ -264,9 +264,9 @@ impl RealUrlDownloader {
     })
   }
 
-  pub fn download(&self, url: &str) -> Result<Option<DownloadedFile>> {
-    let (agent, parsed_url) = self.get_agent_and_url(url)?;
-    self.download_with_retries(&parsed_url, &agent)
+  pub fn download(&self, url: &Url) -> Result<Option<DownloadedFile>> {
+    let agent = self.get_agent(url)?;
+    self.download_with_retries(url, &agent)
   }
 
   fn download_with_retries(&self, url: &Url, agent: &ureq::Agent) -> Result<Option<DownloadedFile>> {
@@ -287,20 +287,19 @@ impl RealUrlDownloader {
 
   #[cfg(test)]
   pub fn download_no_retries_for_testing(&self, url: &str) -> Result<Option<Vec<u8>>> {
-    let (agent, url) = self.get_agent_and_url(url)?;
+    let url = Url::parse(url)?;
+    let agent = self.get_agent(&url)?;
     Ok(self.inner_download(&url, 0, &agent)?.map(|r| r.content))
   }
 
-  fn get_agent_and_url(&self, url: &str) -> Result<(ureq::Agent, Url)> {
-    let url = Url::parse(url)?;
+  fn get_agent(&self, url: &Url) -> Result<ureq::Agent> {
     let kind = match url.scheme() {
       "https" => AgentKind::Https,
       "http" => AgentKind::Http,
       _ => bail!("Not implemented url scheme: {}", url),
     };
     // this is expensive, but we're already in a blocking task here
-    let agent = self.agent_store.get(kind, &url)?;
-    Ok((agent, url))
+    self.agent_store.get(kind, url)
   }
 
   fn inner_download(&self, url: &Url, retry_count: u8, agent: &ureq::Agent) -> Result<Option<DownloadedFile>> {

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use anyhow::bail;
+use std::borrow::Cow;
 use std::ffi::OsString;
 use std::io;
 use std::io::Read;
@@ -7,6 +8,7 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use url::Url;
 
 use dprint_core::async_runtime::async_trait;
 use sys_traits::BaseFsCreateDir;
@@ -64,26 +66,32 @@ pub trait UrlDownloader {
   /// Downloads a file without following redirects. Returns the raw response
   /// headers and content. A redirect response will have a `location` header
   /// and empty content.
-  async fn download_file(&self, url: &str) -> Result<Option<DownloadedFile>>;
+  async fn download_file_no_redirects(&self, url: &Url) -> Result<Option<DownloadedFile>>;
 
-  /// Downloads a file, following redirects, and returns just the content bytes.
-  async fn download_file_err_404(&self, url: &str) -> Result<Vec<u8>> {
-    let mut current_url = url.to_string();
+  /// Downloads a file, following redirects, and returns `None` on 404.
+  async fn download_file<'a>(&self, url: &'a Url) -> Result<(Cow<'a, Url>, Option<DownloadedFile>)> {
+    let mut current_url = Cow::Borrowed(url);
     for _ in 0..=10 {
-      let result = match self.download_file(&current_url).await? {
+      let result = match self.download_file_no_redirects(&current_url).await? {
         Some(r) => r,
-        None => bail!("Error downloading {} - 404 Not Found", url),
+        None => return Ok((current_url, None)),
       };
       if let Some(location) = result.headers.get("location") {
-        current_url = url::Url::parse(&current_url)
-          .and_then(|u| u.join(location))
-          .map(|u| u.to_string())
-          .unwrap_or_else(|_| location.clone());
+        current_url = Cow::Owned(current_url.join(location)?);
         continue;
       }
-      return Ok(result.content);
+      return Ok((current_url, Some(result)));
     }
     bail!("Too many redirects for {}", url)
+  }
+
+  /// Downloads a file, following redirects, and errors when not found.
+  async fn download_file_err_404<'a>(&self, url: &'a Url) -> Result<(Cow<'a, Url>, DownloadedFile)> {
+    match self.download_file(url).await {
+      Ok((url, Some(value))) => Ok((url, value)),
+      Ok((url, None)) => bail!("Error downloading {} - 404 Not Found", url),
+      Err(err) => Err(err),
+    }
   }
 }
 

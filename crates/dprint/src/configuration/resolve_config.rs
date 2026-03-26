@@ -24,7 +24,7 @@ use crate::utils::PluginKind;
 use crate::utils::ResolvedFilePathWithText;
 use crate::utils::ResolvedFilePathWithTextRef;
 use crate::utils::ShowConfirmStrategy;
-use crate::utils::resolve_url_or_file_path;
+use crate::utils::resolve_url_or_file_path_to_file_with_cache;
 
 use super::resolve_main_config_path::ResolvedConfigPathWithText;
 use super::resolve_main_config_path::resolve_main_config_path_and_bytes;
@@ -210,7 +210,9 @@ fn resolve_extends<TEnvironment: Environment>(
   // boxed because of recursion
   async move {
     for url_or_file_path in extends {
-      let resolved_file = resolve_url_or_file_path(&url_or_file_path, &base_path, &environment).await?.into_text()?;
+      let resolved_file = resolve_url_or_file_path_to_file_with_cache(&url_or_file_path, &base_path, &environment)
+        .await?
+        .into_text()?;
       resolved_config = match handle_config_file(&resolved_file, resolved_config, &environment).await {
         Ok(resolved_config) => resolved_config,
         Err(err) => bail!("{:#}\n    at {}", err, resolved_file.source.display()),
@@ -333,7 +335,7 @@ struct ConfigPathContext<'a> {
 }
 
 fn get_config_map_from_path(path: ConfigPathContext) -> Result<ConfigMap> {
-  let mut result = match deserialize_config(&path.current.content) {
+  let mut result = match deserialize_config(path.current.content) {
     Ok(map) => map,
     Err(e) => bail!("Error deserializing. {}", e.to_string()),
   };

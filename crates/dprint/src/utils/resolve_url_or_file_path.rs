@@ -4,7 +4,6 @@ use anyhow::bail;
 use url::Url;
 
 use super::PathSource;
-use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::utils::RemotePathSource;
 
@@ -48,7 +47,7 @@ pub struct ResolvedFilePathWithTextRef<'a> {
   pub content: &'a str,
 }
 
-pub async fn resolve_url_or_file_path<TEnvironment: Environment>(
+pub async fn resolve_url_or_file_path_to_file_with_cache<TEnvironment: Environment>(
   url_or_file_path: &str,
   base: &PathSource,
   environment: &TEnvironment,
@@ -56,7 +55,7 @@ pub async fn resolve_url_or_file_path<TEnvironment: Environment>(
   let path_source = resolve_url_or_file_path_to_path_source(url_or_file_path, base, environment)?;
 
   match &path_source {
-    PathSource::Remote(remote_path_source) => resolve_url(&remote_path_source.url, environment).await,
+    PathSource::Remote(remote_path_source) => resolve_url_to_file_with_cache(&remote_path_source.url, environment).await,
     PathSource::Local(local_path_source) => {
       let content = environment.read_file_bytes(&local_path_source.path)?;
       Ok(ResolvedFilePathWithBytes {
@@ -68,7 +67,7 @@ pub async fn resolve_url_or_file_path<TEnvironment: Environment>(
   }
 }
 
-async fn resolve_url<TEnvironment: Environment>(url: &Url, environment: &TEnvironment) -> Result<ResolvedFilePathWithBytes> {
+async fn resolve_url_to_file_with_cache<TEnvironment: Environment>(url: &Url, environment: &TEnvironment) -> Result<ResolvedFilePathWithBytes> {
   use crate::cache::HttpCache;
 
   const MAX_REDIRECTS: usize = 10;
@@ -80,7 +79,7 @@ async fn resolve_url<TEnvironment: Environment>(url: &Url, environment: &TEnviro
     let key = cache.cache_item_key(&current_url)?;
 
     // check cache
-    if let Some(entry) = cache.get(&key, None)? {
+    if let Some(entry) = cache.get(&key)? {
       if let Some(location) = entry.metadata.headers.get("location") {
         // cached redirect — follow it
         current_url = current_url.join(location)?;
@@ -97,12 +96,12 @@ async fn resolve_url<TEnvironment: Environment>(url: &Url, environment: &TEnviro
 
     // download
     let result = environment
-      .download_file(current_url.as_str())
+      .download_file_no_redirects(&current_url)
       .await?
       .ok_or_else(|| anyhow::anyhow!("Error downloading {} - 404 Not Found", url))?;
 
-    // cache the response
-    cache.set(&current_url, result.headers.clone(), &result.content)?;
+    // cache the response and ignore errors
+    _ = cache.set(&current_url, result.headers.clone(), &result.content);
 
     // follow redirect
     if let Some(location) = result.headers.get("location") {
@@ -122,7 +121,7 @@ async fn resolve_url<TEnvironment: Environment>(url: &Url, environment: &TEnviro
 
 pub async fn fetch_file_or_url_bytes(url_or_file_path: &PathSource, environment: &impl Environment) -> Result<Vec<u8>> {
   match url_or_file_path {
-    PathSource::Remote(path_source) => Ok(environment.download_file_err_404(path_source.url.as_str()).await?),
+    PathSource::Remote(path_source) => Ok(environment.download_file_err_404(&path_source.url).await?.1.content),
     PathSource::Local(path_source) => Ok(environment.read_file_bytes(&path_source.path)?),
   }
 }
@@ -194,6 +193,7 @@ fn is_absolute_windows_file_path(value: &str) -> bool {
 mod tests {
   use std::path::Path;
 
+  use crate::environment::CanonicalizedPathBuf;
   use crate::environment::TestEnvironment;
   use pretty_assertions::assert_eq;
 
@@ -207,13 +207,13 @@ mod tests {
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
       let url = "https://dprint.dev/test.json";
-      let result = resolve_url_or_file_path(url, &base, &environment).await.unwrap();
+      let result = resolve_url_or_file_path_to_file_with_cache(url, &base, &environment).await.unwrap();
       assert_eq!(result.source.is_remote(), true);
       assert_eq!(result.is_first_download, true);
       assert_eq!(result.content, "t".as_bytes());
 
       // should get a second time from the cache
-      let result = resolve_url_or_file_path(url, &base, &environment).await.unwrap();
+      let result = resolve_url_or_file_path_to_file_with_cache(url, &base, &environment).await.unwrap();
       assert_eq!(result.source.is_remote(), true);
       assert_eq!(result.is_first_download, false);
       assert_eq!(result.content, "t".as_bytes());
@@ -226,8 +226,11 @@ mod tests {
     environment.add_remote_file("https://dprint.dev/asdf/test/test.json", "t".as_bytes());
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_remote(Url::parse("https://dprint.dev/asdf/").unwrap());
-      let result = resolve_url_or_file_path("test/test.json", &base, &environment).await.unwrap();
+      let result = resolve_url_or_file_path_to_file_with_cache("test/test.json", &base, &environment)
+        .await
+        .unwrap();
       assert_eq!(result.source.is_remote(), true);
+      assert_eq!(result.source.unwrap_remote().url.as_str(), "https://dprint.dev/asdf/test/test.json");
       assert_eq!(result.content, "t".as_bytes());
     });
   }
@@ -239,8 +242,12 @@ mod tests {
     environment.mk_dir_all("C:\\test").unwrap();
     environment.write_file("C:\\test\\test.json", "{}").unwrap();
     environment.clone().run_in_runtime(async move {
+      use crate::environment::CanonicalizedPathBuf;
+
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("V:\\"));
-      let result = resolve_url_or_file_path("file://C:/test/test.json", &base, &environment).await.unwrap();
+      let result = resolve_url_or_file_path_to_file_with_cache("file://C:/test/test.json", &base, &environment)
+        .await
+        .unwrap();
       assert_eq!(result.source.is_local(), true);
       assert_eq!(result.source.unwrap_local().path, CanonicalizedPathBuf::new_for_testing("C:\\test\\test.json"));
     });
@@ -252,7 +259,9 @@ mod tests {
     let environment = TestEnvironment::new();
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
-      let result = resolve_url_or_file_path("file:///test/test.json", &base, &environment).await.unwrap();
+      let result = resolve_url_or_file_path_to_file_with_cache("file:///test/test.json", &base, &environment)
+        .await
+        .unwrap();
       assert_eq!(result.source.is_local(), true);
       assert_eq!(result.source.unwrap_local().path, CanonicalizedPathBuf::new_for_testing("/test/test.json"));
     });
@@ -266,7 +275,9 @@ mod tests {
     environment.write_file("C:\\test\\test.json", "{}").unwrap();
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("V:\\"));
-      let result = resolve_url_or_file_path("C:\\test\\test.json", &base, &environment).await.unwrap();
+      let result = resolve_url_or_file_path_to_file_with_cache("C:\\test\\test.json", &base, &environment)
+        .await
+        .unwrap();
       assert_eq!(result.source.is_local(), true);
       assert_eq!(result.source.unwrap_local().path, CanonicalizedPathBuf::new_for_testing("C:\\test\\test.json"));
     });
@@ -280,7 +291,9 @@ mod tests {
     environment.write_file("C:\\test\\test.json", "{}").unwrap();
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("V:\\"));
-      let result = resolve_url_or_file_path("C:/test/test.json", &base, &environment).await.unwrap();
+      let result = resolve_url_or_file_path_to_file_with_cache("C:/test/test.json", &base, &environment)
+        .await
+        .unwrap();
       assert_eq!(result.source.is_local(), true);
       assert_eq!(result.source.unwrap_local().path, CanonicalizedPathBuf::new_for_testing("C:\\test\\test.json"));
     });
@@ -293,7 +306,9 @@ mod tests {
     environment.write_file("/test/test.json", "{}").unwrap();
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
-      let result = resolve_url_or_file_path("test/test.json", &base, &environment).await.unwrap();
+      let result = resolve_url_or_file_path_to_file_with_cache("test/test.json", &base, &environment)
+        .await
+        .unwrap();
       assert_eq!(result.source.is_local(), true);
       assert_eq!(result.source.unwrap_local().path, CanonicalizedPathBuf::new_for_testing("/test/test.json"));
     });
@@ -306,7 +321,9 @@ mod tests {
     environment.write_file("/other/test/test.json", "{}").unwrap();
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/other"));
-      let result = resolve_url_or_file_path("test/test.json", &base, &environment).await.unwrap();
+      let result = resolve_url_or_file_path_to_file_with_cache("test/test.json", &base, &environment)
+        .await
+        .unwrap();
       assert_eq!(result.source.is_local(), true);
       assert_eq!(
         result.source.unwrap_local().path,
@@ -320,7 +337,7 @@ mod tests {
     let environment = TestEnvironment::new();
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/other"));
-      let err = resolve_url_or_file_path("https://dprint.dev/test.json", &base, &environment)
+      let err = resolve_url_or_file_path_to_file_with_cache("https://dprint.dev/test.json", &base, &environment)
         .await
         .err()
         .unwrap();
@@ -335,7 +352,9 @@ mod tests {
     environment.add_remote_file_redirect("https://example.com/plugin.json", "https://cdn.example.com/v1/plugin.json");
     environment.clone().run_in_runtime(async move {
       let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
-      let result = resolve_url_or_file_path("https://example.com/plugin.json", &base, &environment).await.unwrap();
+      let result = resolve_url_or_file_path_to_file_with_cache("https://example.com/plugin.json", &base, &environment)
+        .await
+        .unwrap();
       assert_eq!(result.source.is_remote(), true);
       assert_eq!(result.is_first_download, true);
       assert_eq!(result.content, "content".as_bytes());
@@ -352,7 +371,9 @@ mod tests {
       );
 
       // should get from cache on second request and still have correct redirect URL
-      let result2 = resolve_url_or_file_path("https://example.com/plugin.json", &base, &environment).await.unwrap();
+      let result2 = resolve_url_or_file_path_to_file_with_cache("https://example.com/plugin.json", &base, &environment)
+        .await
+        .unwrap();
       assert_eq!(result2.is_first_download, false);
       assert_eq!(
         result2.source,
@@ -382,7 +403,7 @@ mod tests {
       for (input, expected) in cases {
         environment.mk_dir_all(Path::new(expected).parent().unwrap()).unwrap();
         environment.write_file(expected, "").unwrap();
-        let result = resolve_url_or_file_path(input, &base, &environment).await.unwrap();
+        let result = resolve_url_or_file_path_to_file_with_cache(input, &base, &environment).await.unwrap();
         assert_eq!(result.source.is_local(), true);
         assert_eq!(result.source.unwrap_local().path, CanonicalizedPathBuf::new_for_testing(expected));
       }

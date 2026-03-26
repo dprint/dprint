@@ -26,6 +26,7 @@ use sys_traits::SystemTimeNow;
 use sys_traits::ThreadSleep;
 use sys_traits::impls::RealSys;
 use sysinfo::System;
+use url::Url;
 
 use dprint_core::async_runtime::async_trait;
 
@@ -185,11 +186,11 @@ impl SystemTimeNow for RealEnvironment {
 
 #[async_trait(?Send)]
 impl UrlDownloader for RealEnvironment {
-  async fn download_file(&self, url: &str) -> Result<Option<DownloadedFile>> {
+  async fn download_file_no_redirects(&self, url: &Url) -> Result<Option<DownloadedFile>> {
     log_debug!(self, "Downloading url: {}", url);
 
     let downloader = self.url_downloader.clone();
-    let url = url.to_string();
+    let url = url.clone();
     dprint_core::async_runtime::spawn_blocking(move || downloader.download(&url)).await?
   }
 }
