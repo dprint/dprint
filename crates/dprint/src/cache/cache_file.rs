@@ -5,7 +5,6 @@ use std::borrow::Cow;
 use std::io::ErrorKind;
 use std::path::Path;
 
-use deno_path_util::fs::atomic_write_file_with_retries;
 use serde::de::DeserializeOwned;
 use sys_traits::FsCreateDirAll;
 use sys_traits::FsMetadata;
@@ -18,6 +17,7 @@ use sys_traits::ThreadSleep;
 
 use super::CacheEntry;
 use super::SerializedCachedUrlMetadata;
+use crate::utils::fs::atomic_write_file_with_retries;
 
 pub const CACHE_PERM: u32 = 0o644;
 

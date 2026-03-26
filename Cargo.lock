@@ -756,41 +756,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da692b8d1080ea3045efaab14434d40468c3d8657e42abddfffca87b428f4c1b"
 
 [[package]]
-name = "deno_error"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3007d3f1ea92ea503324ae15883aac0c2de2b8cf6fead62203ff6a67161007ab"
-dependencies = [
- "deno_error_macro",
- "libc",
- "url",
-]
-
-[[package]]
-name = "deno_error_macro"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b565e60a9685cdf312c888665b5f8647ac692a7da7e058a5e2268a466da8eaf"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.104",
-]
-
-[[package]]
-name = "deno_path_util"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78c7e98943f0d068928906db0c7bde89de684fa32c6a8018caacc4cee2cdd72b"
-dependencies = [
- "deno_error",
- "percent-encoding",
- "sys_traits",
- "thiserror",
- "url",
-]
-
-[[package]]
 name = "deno_terminal"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -916,7 +881,6 @@ dependencies = [
  "clap_complete",
  "console_static_text",
  "crossterm",
- "deno_path_util",
  "dirs",
  "dissimilar",
  "dprint-core",

@@ -135,7 +135,7 @@ pub trait Environment:
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()>;
   /// An atomic write, which will write to a temporary file and then rename it to the destination.
   fn atomic_write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
-    deno_path_util::fs::atomic_write_file_with_retries(self, file_path.as_ref(), bytes, 0o644)
+    crate::utils::fs::atomic_write_file_with_retries(self, file_path.as_ref(), bytes, 0o644)
   }
   fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()>;
   fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()>;
