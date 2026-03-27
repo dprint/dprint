@@ -79,6 +79,26 @@ struct Context {
   host_format_callbacks: RcIdStore<HostFormatCallback>,
 }
 
+/// Information needed to launch a process plugin.
+///
+/// For native process plugins, `executable` is the plugin binary and `pre_args` is empty.
+/// For deno plugins, `executable` is the deno binary and `pre_args` contains
+/// `["run", "--allow-read", ..., "main.ts"]`.
+#[derive(Clone, Debug)]
+pub struct ProcessPluginLaunchInfo {
+  pub executable: PathBuf,
+  pub pre_args: Vec<String>,
+}
+
+impl ProcessPluginLaunchInfo {
+  pub fn from_executable(executable_file_path: PathBuf) -> Self {
+    Self {
+      executable: executable_file_path,
+      pre_args: Vec::new(),
+    }
+  }
+}
+
 /// Communicates with a process plugin.
 pub struct ProcessPluginCommunicator {
   child: RefCell<Option<Child>>,
@@ -93,28 +113,38 @@ impl Drop for ProcessPluginCommunicator {
 
 impl ProcessPluginCommunicator {
   pub async fn new(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static) -> Result<Self> {
-    ProcessPluginCommunicator::new_internal(executable_file_path, false, on_std_err).await
+    ProcessPluginCommunicator::new_internal(&ProcessPluginLaunchInfo::from_executable(executable_file_path.to_path_buf()), false, on_std_err).await
   }
 
   /// Provides the `--init` CLI flag to tell the process plugin to do any initialization necessary
   pub async fn new_with_init(executable_file_path: &Path, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static) -> Result<Self> {
-    ProcessPluginCommunicator::new_internal(executable_file_path, true, on_std_err).await
+    ProcessPluginCommunicator::new_internal(&ProcessPluginLaunchInfo::from_executable(executable_file_path.to_path_buf()), true, on_std_err).await
   }
 
-  async fn new_internal(executable_file_path: &Path, is_init: bool, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static) -> Result<Self> {
-    let mut args = vec!["--parent-pid".to_string(), std::process::id().to_string()];
+  pub async fn new_with_launch_info(launch_info: &ProcessPluginLaunchInfo, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static) -> Result<Self> {
+    ProcessPluginCommunicator::new_internal(launch_info, false, on_std_err).await
+  }
+
+  pub async fn new_with_init_launch_info(launch_info: &ProcessPluginLaunchInfo, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static) -> Result<Self> {
+    ProcessPluginCommunicator::new_internal(launch_info, true, on_std_err).await
+  }
+
+  async fn new_internal(launch_info: &ProcessPluginLaunchInfo, is_init: bool, on_std_err: impl Fn(String) + Clone + Send + Sync + 'static) -> Result<Self> {
+    let mut args = launch_info.pre_args.clone();
+    args.push("--parent-pid".to_string());
+    args.push(std::process::id().to_string());
     if is_init {
       args.push("--init".to_string());
     }
 
     let shutdown_flag = Arc::new(AtomicFlag::default());
-    let mut child = Command::new(executable_file_path)
+    let mut child = Command::new(&launch_info.executable)
       .args(&args)
       .stdin(Stdio::piped())
       .stderr(Stdio::piped())
       .stdout(Stdio::piped())
       .spawn()
-      .map_err(|err| anyhow!("Error starting {} with args [{}]. {:#}", executable_file_path.display(), args.join(" "), err))?;
+      .map_err(|err| anyhow!("Error starting {} with args [{}]. {:#}", launch_info.executable.display(), args.join(" "), err))?;
 
     // read and output stderr prefixed
     let stderr = child.stderr.take().unwrap();
