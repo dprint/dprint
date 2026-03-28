@@ -1,7 +1,0 @@
-[target.loongarch64-unknown-linux-gnu.dockerfile]
-file = "./loongarch64.Dockerfile"
-build-args = { TARGET = "loongarch64-unknown-linux-gnu" }
-
-[target.loongarch64-unknown-linux-musl.dockerfile]
-file = "./loongarch64.Dockerfile"
-build-args = { TARGET = "loongarch64-unknown-linux-musl" }
