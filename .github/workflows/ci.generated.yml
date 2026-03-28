@@ -126,7 +126,20 @@ jobs:
           ./.github/workflows/website.ts --lint
           ./.github/workflows/release.ts --lint
       - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a
+        if: 'startsWith(matrix.target, ''loongarch64'') && matrix.cross == ''true'' && ((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/''))'
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd
+        if: 'startsWith(matrix.target, ''loongarch64'') && matrix.cross == ''true'' && ((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/''))'
+      - uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294
         if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && startsWith(matrix.target, ''loongarch64'') && matrix.cross == ''true'''
+        with:
+          file: loongarch64.Dockerfile
+          tags: "dprint-cross-base-${{ matrix.target }}"
+          load: true
+          cache-from: "type=gha,scope=dprint-cross-base-${{ matrix.target }}"
+          cache-to: "type=gha,mode=max,scope=dprint-cross-base-${{ matrix.target }}"
+          build-args: |-
+            CROSS_BASE_IMAGE=ghcr.io/cross-rs/${{ matrix.target }}:main
+            TARGET=${{ matrix.target }}
       - name: Build (Debug)
         if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.cross != ''true'''
         env:
@@ -134,6 +147,9 @@ jobs:
         run: "cargo build -p dprint --locked --target ${{ matrix.target }}"
       - name: Build cross (Debug)
         if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.cross == ''true'''
+        env:
+          CROSS_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_IMAGE: dprint-cross-base-loongarch64-unknown-linux-gnu
+          CROSS_TARGET_LOONGARCH64_UNKNOWN_LINUX_MUSL_IMAGE: dprint-cross-base-loongarch64-unknown-linux-musl
         run: "cross build -p dprint --locked --target ${{ matrix.target }}"
       - name: Build test plugins (Debug)
         if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'')'
@@ -151,6 +167,9 @@ jobs:
         run: "cargo build -p dprint --locked --target ${{ matrix.target }} --release"
       - name: Build cross (Release)
         if: 'startsWith(github.ref, ''refs/tags/'') && (matrix.run_tests == ''true'' || matrix.target == ''x86_64-apple-darwin'' || matrix.target == ''aarch64-apple-darwin'' || matrix.target == ''x86_64-pc-windows-msvc'' || matrix.target == ''x86_64-unknown-linux-gnu'' || matrix.target == ''x86_64-unknown-linux-musl'' || matrix.target == ''aarch64-unknown-linux-gnu'' || matrix.target == ''aarch64-unknown-linux-musl'' || matrix.target == ''riscv64gc-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-musl'') && matrix.cross == ''true'''
+        env:
+          CROSS_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_IMAGE: dprint-cross-base-loongarch64-unknown-linux-gnu
+          CROSS_TARGET_LOONGARCH64_UNKNOWN_LINUX_MUSL_IMAGE: dprint-cross-base-loongarch64-unknown-linux-musl
         run: "cross build -p dprint --locked --target ${{ matrix.target }} --release"
       - name: Build test plugins (Release)
         if: 'matrix.run_tests == ''true'' && startsWith(github.ref, ''refs/tags/'')'
@@ -397,6 +416,8 @@ jobs:
 # gagen:pin actions/download-artifact@v6 = 018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
 # gagen:pin actions/upload-artifact@v6 = b7c566a772e6b6bfb58ed0dc250532a479d7789f
 # gagen:pin denoland/setup-deno@v2 = 667a34cdef165d8d2b2e98dde39547c9daac7282
+# gagen:pin docker/build-push-action@v7 = d08e5c354a6adb9ed34480a06d141179aa583294
+# gagen:pin docker/setup-buildx-action@v4 = 4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd
 # gagen:pin docker/setup-qemu-action@v4 = ce360397dd3f832beb865e1373c09c0e9f86d70a
 # gagen:pin dprint/check@v2.3 = 9cb3a2b17a8e606d37aae341e49df3654933fc23
 # gagen:pin dsherret/rust-toolchain-file@v1 = 3551321aa44dd44a0393eb3b6bdfbc5d25ecf621
