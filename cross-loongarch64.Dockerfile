@@ -1,5 +1,7 @@
-ARG TARGET
-ARG CROSS_BASE_IMAGE
+# For loongarch64-unknown-linux-gnu / loongarch64-unknown-linux-musl
+# This file can be used with cross directly
+ARG TARGET=loongarch64-unknown-linux-gnu
+ARG CROSS_BASE_IMAGE=ghcr.io/cross-rs/loongarch64-unknown-linux-gnu:main
 
 
 FROM $CROSS_BASE_IMAGE AS llvm-builder
