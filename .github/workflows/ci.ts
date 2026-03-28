@@ -191,7 +191,7 @@ const buildAndCacheCrossImages = step({
   uses: "docker/build-push-action@v7",
   if: matrix.target.startsWith("loongarch64").and(isCross),
   with: {
-    file: "loongarch64.Dockerfile",
+    file: "cross-loongarch64.Dockerfile",
     tags: crossImageName,
     load: true,
     "cache-from": `type=gha,scope=${crossImageName}`,
