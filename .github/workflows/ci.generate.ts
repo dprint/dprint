@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 import $ from "jsr:@david/dax@0.45.0";
-import { conditions, createWorkflow, defineMatrix, expr, type ExpressionValue, isLinting, job, step } from "jsr:@david/gagen@0.2.18";
+import { conditions, createWorkflow, defineMatrix, expr, type ExpressionValue, isLinting, job, step } from "jsr:@david/gagen@0.3.0";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
@@ -150,7 +150,15 @@ const lint = step.if(isLinuxGnu.and(isNotTag))(
   }).dependsOn(setupDeno),
   step({
     name: "Lint CI Generation",
-    run: "./.github/workflows/ci.generate.ts --lint",
+    run: [
+      "./.github/workflows/ci.generate.ts --lint",
+      "./.github/workflows/publish.generate.ts --lint",
+      "./.github/workflows/publish_crate_core.generate.ts --lint",
+      "./.github/workflows/publish_crate_core-macros.generate.ts --lint",
+      "./.github/workflows/publish_crate_dev.generate.ts --lint",
+      "./.github/workflows/website.generate.ts --lint",
+      "./.github/workflows/release.generate.ts --lint",
+    ],
   }).dependsOn(setupDeno),
 );
 
