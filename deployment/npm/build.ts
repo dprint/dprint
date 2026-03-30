@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run -A
-import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
-// @ts-types="npm:@types/decompress@4.2.7"
 import { parseArgs } from "https://deno.land/std@0.208.0/cli/parse_args.ts";
+import $ from "jsr:@david/dax@0.45.0";
+// @ts-types="npm:@types/decompress@4.2.7"
 import decompress from "npm:decompress@4.2.1";
 
 interface Package {
@@ -73,7 +73,7 @@ const markdownText = `# dprint
 npm CLI distribution for [dprint](https://dprint.dev)—a pluggable and configurable code formatting platform.
 `;
 
-const currentDir = $.path(import.meta).parentOrThrow();
+const currentDir = $.path(import.meta.url).parentOrThrow();
 const rootDir = currentDir.parentOrThrow().parentOrThrow();
 const outputDir = currentDir.join("./dist");
 const scopeDir = outputDir.join("@dprint");

@@ -5,6 +5,7 @@ mod command;
 mod error_count_logger;
 mod extract_zip;
 mod file_path_utils;
+pub mod fs;
 mod get_bytes_hash;
 mod get_difference;
 mod gitignore;

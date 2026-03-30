@@ -1,15 +1,25 @@
 use anyhow::Result;
 use anyhow::bail;
+use std::borrow::Cow;
 use std::ffi::OsString;
-use std::fmt::Write as FmtWrite;
 use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use url::Url;
 
 use dprint_core::async_runtime::async_trait;
+use sys_traits::BaseFsCreateDir;
+use sys_traits::BaseFsMetadata;
+use sys_traits::BaseFsOpen;
+use sys_traits::BaseFsRead;
+use sys_traits::BaseFsRemoveFile;
+use sys_traits::BaseFsRename;
+use sys_traits::SystemRandom;
+use sys_traits::SystemTimeNow;
+use sys_traits::ThreadSleep;
 
 use crate::plugins::CompilationResult;
 use crate::utils::BasicShowConfirmStrategy;
@@ -46,25 +56,78 @@ pub struct TestFilePermissions {
   pub readonly: bool,
 }
 
+pub struct DownloadedFile {
+  pub headers: std::collections::HashMap<String, String>,
+  pub content: Vec<u8>,
+}
+
 #[async_trait(?Send)]
 pub trait UrlDownloader {
-  async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>>;
-  async fn download_file_err_404(&self, url: &str) -> Result<Vec<u8>> {
-    match self.download_file(url).await? {
-      Some(result) => Ok(result),
-      None => bail!("Error downloading {} - 404 Not Found", url),
+  /// Downloads a file without following redirects. Returns the raw response
+  /// headers and content. A redirect response will have a `location` header
+  /// and empty content.
+  async fn download_file_no_redirects(&self, url: &Url) -> Result<Option<DownloadedFile>>;
+
+  /// Downloads a file, following redirects, and returns `None` on 404.
+  async fn download_file<'a>(&self, url: &'a Url) -> Result<(Cow<'a, Url>, Option<DownloadedFile>)> {
+    let mut current_url = Cow::Borrowed(url);
+    for _ in 0..=10 {
+      let result = match self.download_file_no_redirects(&current_url).await? {
+        Some(r) => r,
+        None => return Ok((current_url, None)),
+      };
+      if let Some(location) = result.headers.get("location") {
+        current_url = Cow::Owned(current_url.join(location)?);
+        continue;
+      }
+      return Ok((current_url, Some(result)));
+    }
+    bail!("Too many redirects for {}", url)
+  }
+
+  /// Downloads a file, following redirects, and errors when not found.
+  async fn download_file_err_404<'a>(&self, url: &'a Url) -> Result<(Cow<'a, Url>, DownloadedFile)> {
+    match self.download_file(url).await {
+      Ok((url, Some(value))) => Ok((url, value)),
+      Ok((url, None)) => bail!("Error downloading {} - 404 Not Found", url),
+      Err(err) => Err(err),
     }
   }
 }
 
 #[async_trait]
-pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
+pub trait Environment:
+  Clone
+  + Send
+  + Sync
+  + std::fmt::Debug
+  + UrlDownloader
+  + BaseFsCreateDir
+  + BaseFsMetadata
+  + BaseFsOpen
+  + BaseFsRead
+  + BaseFsRemoveFile
+  + BaseFsRename
+  + ThreadSleep
+  + SystemRandom
+  + SystemTimeNow
+  + 'static
+{
   fn is_real(&self) -> bool;
 
   fn env_var(&self, name: &str) -> Option<OsString>;
 
   fn get_staged_files(&self) -> Result<Vec<PathBuf>>;
   fn read_file(&self, file_path: impl AsRef<Path>) -> io::Result<String>;
+  fn maybe_read_file(&self, file_path: impl AsRef<Path>) -> io::Result<Option<String>> {
+    match self.read_file(file_path) {
+      Ok(value) => Ok(Some(value)),
+      Err(err) => match err.kind() {
+        std::io::ErrorKind::NotFound => Ok(None),
+        _ => Err(err),
+      },
+    }
+  }
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> io::Result<Vec<u8>>;
   fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> io::Result<()> {
     self.write_file_bytes(file_path, file_text.as_bytes())
@@ -72,15 +135,7 @@ pub trait Environment: Clone + Send + Sync + UrlDownloader + 'static {
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()>;
   /// An atomic write, which will write to a temporary file and then rename it to the destination.
   fn atomic_write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
-    // lifted from https://github.com/denoland/deno/blob/0f4051a37ad23377091043206e64126003caa480/cli/util/fs.rs#L29
-    let rand: String = (0..4).fold(String::new(), |mut output, _| {
-      let _ = write!(output, "{:02x}", rand::random::<u8>());
-      output
-    });
-    let extension = format!("{rand}.tmp");
-    let tmp_file = file_path.as_ref().with_extension(extension);
-    self.write_file_bytes(&tmp_file, bytes)?;
-    self.rename(tmp_file, file_path)
+    crate::utils::fs::atomic_write_file_with_retries(self, file_path.as_ref(), bytes, 0o644)
   }
   fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()>;
   fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()>;

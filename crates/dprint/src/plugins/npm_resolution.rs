@@ -52,23 +52,28 @@ pub async fn resolve_npm_from_registry(
   let registry_url = get_registry_url(&specifier.name, start_dir, environment);
 
   // fetch the packument to get the tarball URL
-  let packument_url = get_packument_url(&registry_url, &specifier.name);
+  let packument_url_str = get_packument_url(&registry_url, &specifier.name);
+  let packument_url = url::Url::parse(&packument_url_str)
+    .with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
   log_debug!(environment, "Fetching npm packument: {}", packument_url);
-  let packument_bytes = environment
+  let (_, packument_file) = environment
     .download_file_err_404(&packument_url)
     .await
     .with_context(|| format!("Failed to fetch npm packument for {}", specifier.name))?;
   let packument: serde_json::Value =
-    serde_json::from_slice(&packument_bytes).with_context(|| format!("Failed to parse npm packument for {}", specifier.name))?;
+    serde_json::from_slice(&packument_file.content).with_context(|| format!("Failed to parse npm packument for {}", specifier.name))?;
 
-  let tarball_url = get_tarball_url_from_packument(&packument, version, &specifier.name)?;
+  let tarball_url_str = get_tarball_url_from_packument(&packument, version, &specifier.name)?;
+  let tarball_url = url::Url::parse(&tarball_url_str)
+    .with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
   log_debug!(environment, "Downloading npm tarball: {}", tarball_url);
 
   // download the tarball
-  let tarball_bytes = environment
+  let (_, tarball_file) = environment
     .download_file_err_404(&tarball_url)
     .await
     .with_context(|| format!("Failed to download npm tarball for {}@{}", specifier.name, version))?;
+  let tarball_bytes = tarball_file.content;
 
   // verify checksum before doing any extraction work
   let plugin_kind = specifier.plugin_kind();
