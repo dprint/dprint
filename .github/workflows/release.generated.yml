@@ -21,13 +21,13 @@ jobs:
       - name: Clone repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          token: '${{ secrets.GH_DPRINTBOT_PAT }}'
+          token: "${{ secrets.GH_DPRINTBOT_PAT }}"
       - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282
       - uses: dsherret/rust-toolchain-file@3551321aa44dd44a0393eb3b6bdfbc5d25ecf621
       - name: Bump version and tag
         env:
-          GITHUB_TOKEN: '${{ secrets.GH_DPRINTBOT_PAT }}'
-          GH_WORKFLOW_ACTOR: '${{ github.actor }}'
+          GITHUB_TOKEN: "${{ secrets.GH_DPRINTBOT_PAT }}"
+          GH_WORKFLOW_ACTOR: "${{ github.actor }}"
         run: |-
           git config user.email "${{ github.actor }}@users.noreply.github.com"
           git config user.name "${{ github.actor }}"
