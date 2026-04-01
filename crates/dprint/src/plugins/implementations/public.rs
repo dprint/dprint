@@ -20,15 +20,19 @@ pub struct SetupPluginResult {
 }
 
 pub async fn setup_plugin<TEnvironment: Environment>(
-  url_or_file_path: &PathSource,
+  original_source: &PathSource,
+  resolved_source: &PathSource,
   file_bytes: Vec<u8>,
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
-  match url_or_file_path.plugin_kind() {
-    Some(PluginKind::Wasm) => wasm::setup_wasm_plugin(url_or_file_path, file_bytes, environment).await,
-    Some(PluginKind::Process) => process::setup_process_plugin(url_or_file_path, &file_bytes, environment).await,
+  // Use the original URL for plugin type detection (it has the file extension),
+  // but pass the resolved URL to setup functions (process plugins need it for
+  // resolving relative paths in their manifest).
+  match original_source.plugin_kind() {
+    Some(PluginKind::Wasm) => wasm::setup_wasm_plugin(resolved_source, file_bytes, environment).await,
+    Some(PluginKind::Process) => process::setup_process_plugin(resolved_source, &file_bytes, environment).await,
     None => {
-      bail!("Could not resolve plugin type from url or file path: {}", url_or_file_path.display());
+      bail!("Could not resolve plugin type from url or file path: {}", original_source.display());
     }
   }
 }

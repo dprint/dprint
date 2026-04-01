@@ -125,7 +125,7 @@ where
           err
         );
       }
-    } else if resolved_source.plugin_kind() != Some(PluginKind::Wasm) {
+    } else if source_reference.path_source.plugin_kind() != Some(PluginKind::Wasm) {
       bail!(
         concat!(
           "The plugin must have a checksum specified for security reasons ",
@@ -141,7 +141,7 @@ where
       PathSource::Local(_) => Some(get_bytes_hash(&file_bytes)),
       PathSource::Remote(_) => None,
     };
-    let setup_result = setup_plugin(&resolved_source, file_bytes, &self.environment).await?;
+    let setup_result = setup_plugin(&source_reference.path_source, &resolved_source, file_bytes, &self.environment).await?;
     let cache_item = PluginCacheManifestItem {
       info: setup_result.plugin_info.clone(),
       file_hash,
