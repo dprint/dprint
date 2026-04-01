@@ -2144,6 +2144,28 @@ mod test {
   }
 
   #[test]
+  fn should_resolve_wasm_plugin_behind_redirect() {
+    // Regression test: GitHub Releases redirects .wasm URLs to a CDN URL without
+    // the .wasm extension. Plugin type detection must use the original URL.
+    let original_url = "https://plugins.dprint.dev/test-plugin.wasm";
+    let redirected_url = "https://release-assets.githubusercontent.com/github-production-release-asset/abc123";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin_at_url(redirected_url)
+      .with_default_config(|c| {
+        c.add_plugin(original_url);
+      })
+      .write_file("/test.txt", "text")
+      .build();
+    environment.add_remote_file_redirect(original_url, redirected_url);
+    run_test_cli(vec!["fmt", "*.*"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![format!("Compiling {}", redirected_url)]
+    );
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+  }
+
+  #[test]
   fn should_error_if_process_plugin_has_wrong_checksum_in_config() {
     let environment = TestEnvironmentBuilder::with_remote_process_plugin()
       .with_default_config(|c| {
