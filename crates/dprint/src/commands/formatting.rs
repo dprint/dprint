@@ -2158,10 +2158,7 @@ mod test {
       .build();
     environment.add_remote_file_redirect(original_url, redirected_url);
     run_test_cli(vec!["fmt", "*.*"], &environment).unwrap();
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec![format!("Compiling {}", redirected_url)]
-    );
+    assert_eq!(environment.take_stderr_messages(), vec![format!("Compiling {}", redirected_url)]);
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
   }
 
