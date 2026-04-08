@@ -279,6 +279,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     exclude_patterns: Vec::new(),
     exclude_pattern_overrides: None,
     allow_node_modules: false,
+    no_gitignore: false,
     only_staged: false,
   };
   let config_discovery = args.config_discovery(environment);

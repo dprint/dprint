@@ -532,6 +532,63 @@ mod test {
   }
 
   #[test]
+  fn no_gitignore_flag() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      .write_file("/file1.txt", "")
+      .write_file("/file2.txt", "")
+      .write_file("/file3.txt", "")
+      .write_file(".gitignore", "file2.txt")
+      .build();
+    run_test_cli(vec!["output-file-paths", "--no-gitignore"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file1.txt", "/file2.txt", "/file3.txt"]);
+  }
+
+  #[test]
+  fn no_gitignore_flag_sub_dir() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      .write_file("/file1.txt", "")
+      .write_file("/sub/.gitignore", "file1.txt")
+      .write_file("/sub/file1.txt", "")
+      .write_file("/sub/file2.txt", "")
+      .build();
+    run_test_cli(vec!["output-file-paths", "--no-gitignore"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file1.txt", "/sub/file1.txt", "/sub/file2.txt"]);
+  }
+
+  #[test]
+  fn no_gitignore_flag_ignored_dir() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      .write_file("/file.txt", "")
+      .write_file("/ignored_dir/file.txt", "")
+      .write_file("/ignored_dir/sub/file.txt", "")
+      .write_file("/.gitignore", "ignored_dir")
+      .build();
+    // without the flag, the dir is ignored
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.txt"]);
+    // with the flag, the dir is traversed
+    run_test_cli(vec!["output-file-paths", "--no-gitignore"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.txt", "/ignored_dir/file.txt", "/ignored_dir/sub/file.txt"]);
+  }
+
+  #[test]
   fn should_clear_cache_directory() {
     let environment = TestEnvironment::new();
     environment.mk_dir_all("/cache").unwrap();
