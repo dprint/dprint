@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run -A
-import { createWorkflow, expr, job, step } from "jsr:@david/gagen@0.3.2";
+import { expr, job, step, workflow } from "jsr:@david/gagen@0.4.0";
 
-createWorkflow({
+workflow({
   name: "cargo publish development crate",
   on: { workflow_dispatch: {} },
   permissions: { "id-token": "write", contents: "read" },

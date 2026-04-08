@@ -1,8 +1,8 @@
 #!/usr/bin/env -S deno run -A
-import { createWorkflow, defineArtifact, defineMatrix, expr, job, step } from "jsr:@david/gagen@0.3.2";
+import { artifact, defineMatrix, expr, job, step, workflow } from "jsr:@david/gagen@0.4.0";
 
 const isDprintRepo = "github.repository == 'dprint/dprint'";
-const npmDist = defineArtifact("npm-dist");
+const npmDist = artifact("npm-dist");
 
 // === publish-cargo job ===
 
@@ -193,7 +193,7 @@ const publishNpmJob = job("publish-npm", {
 
 // === generate ===
 
-createWorkflow({
+workflow({
   name: "Package Publish",
   on: {
     release: { types: ["published"] },

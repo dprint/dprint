@@ -17,6 +17,9 @@ jobs:
   build:
     name: "${{ matrix.target }}"
     runs-on: "${{ matrix.os }}"
+    defaults:
+      run:
+        shell: bash
     strategy:
       matrix:
         include:
@@ -191,7 +194,7 @@ jobs:
         id: pre_release_x86_64_pc_windows_msvc
         if: 'matrix.target == ''x86_64-pc-windows-msvc'' && startsWith(github.ref, ''refs/tags/'')'
         run: |-
-          Compress-Archive -CompressionLevel Optimal -Force -Path target/x86_64-pc-windows-msvc/release/dprint.exe -DestinationPath target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc.zip
+          (cd target/x86_64-pc-windows-msvc/release && 7z a -mx9 dprint-x86_64-pc-windows-msvc.zip dprint.exe)
           echo "ZIP_CHECKSUM=$(shasum -a 256 target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
           mv deployment/installer/dprint-x86_64-pc-windows-msvc-installer.exe target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe
           echo "INSTALLER_CHECKSUM=$(shasum -a 256 target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')" >> $GITHUB_OUTPUT
