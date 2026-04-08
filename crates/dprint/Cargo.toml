@@ -60,8 +60,13 @@ webpki-roots = "=0.26.7"
 # patch version increases of rkyv may cause panics when deserializing
 # data serialized with older versions
 rkyv = "=0.8.15"
-wasmer = "=7.0.1"
 wasmer-compiler = "=7.0.1"
+
+[target.'cfg(not(target_arch = "loongarch64"))'.dependencies]
+wasmer = "=7.0.1"
+
+[target.'cfg(target_arch = "loongarch64")'.dependencies]
+wasmer = { version = "=7.0.1", features = ["llvm"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "=0.55.0"

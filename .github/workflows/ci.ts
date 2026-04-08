@@ -166,6 +166,40 @@ const aarch64LinkerEnv = {
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc",
 };
 
+// llvm-sys uses cross-compiled llvm-config to detect LLVM
+const setupQemu = step({
+  uses: "docker/setup-qemu-action@v4",
+  if: matrix.target.startsWith("loongarch64").and(isCross),
+}).comesAfter(setupRust);
+const setupBuildx = step({
+  uses: "docker/setup-buildx-action@v4",
+}).dependsOn(setupQemu);
+
+// Bypass cross and build images with GHA cache enabled
+const crossImageBaseName = "dprint-cross-base";
+const crossImageName = `${crossImageBaseName}-${matrix.target}`;
+const loongarch64ImageEnv = Object.fromEntries(
+  profiles.filter((profile) => profile.target.startsWith("loongarch64"))
+    .map((
+      profile,
+    ) => [
+      `CROSS_TARGET_${profile.target.toUpperCase().replaceAll("-", "_")}_IMAGE`,
+      `${crossImageBaseName}-${profile.target}`,
+    ]),
+);
+const buildAndCacheCrossImages = step({
+  uses: "docker/build-push-action@v7",
+  if: matrix.target.startsWith("loongarch64").and(isCross),
+  with: {
+    file: "cross-loongarch64.Dockerfile",
+    tags: crossImageName,
+    load: true,
+    "cache-from": `type=gha,scope=${crossImageName}`,
+    "cache-to": `type=gha,mode=max,scope=${crossImageName}`,
+    "build-args": `CROSS_BASE_IMAGE=ghcr.io/cross-rs/${matrix.target}:main\nTARGET=${matrix.target}`,
+  },
+}).dependsOn(setupBuildx);
+
 const buildDebug = step({
   name: "Build (Debug)",
   if: isCross.not(),
@@ -174,8 +208,9 @@ const buildDebug = step({
 }, {
   name: "Build cross (Debug)",
   if: isCross,
+  env: loongarch64ImageEnv,
   run: `cross build -p dprint --locked --target ${matrix.target}`,
-}).dependsOn(setupRust);
+}).dependsOn(setupRust, buildAndCacheCrossImages);
 const buildRelease = step({
   name: "Build (Release)",
   if: isCross.not(),
@@ -184,8 +219,9 @@ const buildRelease = step({
 }, {
   name: "Build cross (Release)",
   if: isCross,
+  env: loongarch64ImageEnv,
   run: `cross build -p dprint --locked --target ${matrix.target} --release`,
-}).dependsOn(setupRust);
+}).dependsOn(setupRust, buildAndCacheCrossImages);
 
 const tests = step(
   // debug
