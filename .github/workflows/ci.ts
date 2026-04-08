@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 import $ from "jsr:@david/dax@0.45.0";
-import { conditions, createWorkflow, defineMatrix, expr, type ExpressionValue, isLinting, job, step } from "jsr:@david/gagen@0.3.2";
+import { conditions, defineMatrix, expr, type ExpressionValue, isLinting, job, step, workflow } from "jsr:@david/gagen@0.4.0";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
@@ -244,7 +244,7 @@ function getPreReleaseStepForProfile(profile: typeof profiles[0]) {
           ]
           : [];
         return [
-          `Compress-Archive -CompressionLevel Optimal -Force -Path target/${profile.target}/release/dprint.exe -DestinationPath target/${profile.target}/release/${profile.zipFileName}`,
+          `(cd target/${profile.target}/release && 7z a -mx9 ${profile.zipFileName} dprint.exe)`,
           `echo "ZIP_CHECKSUM=$(shasum -a 256 target/${profile.target}/release/${profile.zipFileName} | awk '{print $1}')" >> $GITHUB_OUTPUT`,
           ...installerSteps,
         ];
@@ -323,6 +323,7 @@ const buildJob = job("build", {
   name: matrix.target,
   runsOn: matrix.os,
   strategy: { matrix },
+  defaults: { run: { shell: "bash" } },
   env: {
     // disabled to reduce ./target size and generally it's slower enabled
     CARGO_INCREMENTAL: 0,
@@ -435,7 +436,7 @@ ${
 
 // === generate ===
 
-createWorkflow({
+workflow({
   name: "CI",
   on: {
     pull_request: { branches: ["main"] },
