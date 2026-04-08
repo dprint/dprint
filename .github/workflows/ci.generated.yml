@@ -195,9 +195,9 @@ jobs:
         if: 'matrix.target == ''x86_64-pc-windows-msvc'' && startsWith(github.ref, ''refs/tags/'')'
         run: |-
           (cd target/x86_64-pc-windows-msvc/release && 7z a -mx9 dprint-x86_64-pc-windows-msvc.zip dprint.exe)
-          echo "ZIP_CHECKSUM=$(shasum -a 256 target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "ZIP_CHECKSUM=$(sha256sum target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
           mv deployment/installer/dprint-x86_64-pc-windows-msvc-installer.exe target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe
-          echo "INSTALLER_CHECKSUM=$(shasum -a 256 target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "INSTALLER_CHECKSUM=$(sha256sum target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (x86_64-pc-windows-msvc)
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: 'matrix.target == ''x86_64-pc-windows-msvc'' && startsWith(github.ref, ''refs/tags/'')'

@@ -240,12 +240,12 @@ function getPreReleaseStepForProfile(profile: typeof profiles[0]) {
         const installerSteps = profile.target === "x86_64-pc-windows-msvc"
           ? [
             `mv deployment/installer/${profile.installerFileName} target/${profile.target}/release/${profile.installerFileName}`,
-            `echo "INSTALLER_CHECKSUM=$(shasum -a 256 target/${profile.target}/release/${profile.installerFileName} | awk '{print $1}')" >> $GITHUB_OUTPUT`,
+            `echo "INSTALLER_CHECKSUM=$(sha256sum target/${profile.target}/release/${profile.installerFileName} | awk '{print $1}')" >> $GITHUB_OUTPUT`,
           ]
           : [];
         return [
           `(cd target/${profile.target}/release && 7z a -mx9 ${profile.zipFileName} dprint.exe)`,
-          `echo "ZIP_CHECKSUM=$(shasum -a 256 target/${profile.target}/release/${profile.zipFileName} | awk '{print $1}')" >> $GITHUB_OUTPUT`,
+          `echo "ZIP_CHECKSUM=$(sha256sum target/${profile.target}/release/${profile.zipFileName} | awk '{print $1}')" >> $GITHUB_OUTPUT`,
           ...installerSteps,
         ];
       }
