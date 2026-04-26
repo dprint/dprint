@@ -35,6 +35,7 @@ Repos:
 - [pretty_graphql](https://github.com/g-plane/pretty_graphql) - GraphQL formatter.
 - [pretty_yaml](https://github.com/g-plane/pretty_yaml) - YAML formatter.
 - [dprint-plugin-gofumpt](https://github.com/jakebailey/dprint-plugin-gofumpt) - Go (gofumpt) formatter.
+- [dprint-plugin-sql](https://github.com/dprint/dprint-plugin-sql) - SQL code formatter.
 
 ## Notes
 
