@@ -2,6 +2,7 @@ mod cached_downloader;
 mod certs;
 mod checksums;
 mod command;
+pub mod deno_npmrc;
 mod error_count_logger;
 mod extract_zip;
 mod file_path_utils;

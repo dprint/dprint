@@ -4,6 +4,7 @@ use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use std::borrow::Cow;
+use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs;
 use std::hash::Hash;
@@ -14,6 +15,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::SystemTime;
+use sys_traits::BaseEnvVar;
 use sys_traits::BaseFsCreateDir;
 use sys_traits::BaseFsMetadata;
 use sys_traits::BaseFsOpen;
@@ -123,6 +125,12 @@ impl std::fmt::Debug for RealEnvironment {
 impl BaseFsCreateDir for RealEnvironment {
   fn base_fs_create_dir(&self, path: &Path, options: &CreateDirOptions) -> io::Result<()> {
     RealSys.base_fs_create_dir(path, options)
+  }
+}
+
+impl BaseEnvVar for RealEnvironment {
+  fn base_env_var_os(&self, key: &OsStr) -> Option<OsString> {
+    RealSys.base_env_var_os(key)
   }
 }
 

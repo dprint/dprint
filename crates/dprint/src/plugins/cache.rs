@@ -203,7 +203,9 @@ where
     source_reference: &PluginSourceReference,
     pre_resolved_zip: Option<npm_resolution::ProcessPluginZipBytes>,
   ) -> Result<PluginCacheItem> {
-    let local_path = source_reference.path_source.maybe_local_path()
+    let local_path = source_reference
+      .path_source
+      .maybe_local_path()
       .ok_or_else(|| anyhow::anyhow!("Expected local path for npm node_modules plugin"))?;
 
     // for process plugins, factor the platform zip into the cache hash so that
@@ -654,11 +656,7 @@ mod test {
     };
 
     // seed the manifest and the on-disk artifacts as if a previous resolve had run
-    let extract_dir = environment
-      .get_cache_dir()
-      .join("npm")
-      .join("registry.npmjs.org")
-      .join("@dprint__test@1.0.0");
+    let extract_dir = environment.get_cache_dir().join("npm").join("registry.npmjs.org").join("@dprint__test@1.0.0");
     environment.mk_dir_all(&extract_dir).unwrap();
     environment.write_file(&extract_dir.join("plugin.wasm"), "fake").unwrap();
     let compiled_wasm_path = environment
@@ -855,6 +853,193 @@ mod test {
     let public_cache = PluginCache::new(environment.clone());
     assert_eq!(public_cache.manifest.get(&plugin_source.path_source)?.unwrap().info.name, "public-foo");
 
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn npm_registry_resolve_caches_and_avoids_second_fetch() -> Result<()> {
+    use crate::test_helpers::create_test_npm_tarball;
+    use crate::utils::NpmSpecifier;
+
+    let environment = TestEnvironment::new();
+
+    let packument = serde_json::json!({
+      "versions": {
+        "1.0.0": {
+          "dist": { "tarball": "https://registry.npmjs.org/some-plugin/-/some-plugin-1.0.0.tgz" }
+        }
+      }
+    });
+    let packument_url = "https://registry.npmjs.org/some-plugin";
+    let tarball_url = "https://registry.npmjs.org/some-plugin/-/some-plugin-1.0.0.tgz";
+    environment.add_remote_file_bytes(packument_url, packument.to_string().into_bytes());
+    environment.add_remote_file_bytes(tarball_url, create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]));
+
+    let plugin_cache = PluginCache::new(environment.clone());
+    let plugin_source = PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "some-plugin".to_string(),
+          version: Some("1.0.0".to_string()),
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+
+    let cache_item = plugin_cache.get_plugin_cache_item(&plugin_source).await?;
+    assert_eq!(cache_item.plugin_kind, PluginKind::Wasm);
+    assert_eq!(cache_item.info.name, "test-plugin");
+    assert_eq!(cache_item.info.version, "0.2.0");
+
+    // tarball extracted under registry-host segment
+    let extract_dir = environment.get_cache_dir().join("npm").join("registry.npmjs.org").join("some-plugin@1.0.0");
+    assert!(environment.path_exists(&extract_dir.join("plugin.wasm")));
+
+    // drain the wasm-compile log so it doesn't fail the drop check
+    let _ = environment.take_stderr_messages();
+
+    // poison the remote endpoints — a second resolve must hit the cache, not refetch
+    environment.add_remote_file_error(packument_url, "must not be fetched again");
+    environment.add_remote_file_error(tarball_url, "must not be fetched again");
+    let cached = plugin_cache.get_plugin_cache_item(&plugin_source).await?;
+    assert_eq!(cached.info.name, "test-plugin");
+
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn npm_node_modules_resolve_wasm_walks_up_from_subdir() -> Result<()> {
+    use crate::utils::NpmSpecifier;
+
+    let environment = TestEnvironment::new();
+    // place the package at /node_modules/foo, but run from a nested cwd to
+    // exercise the ancestor walk
+    let pkg_dir = "/node_modules/foo";
+    environment.mk_dir_all(pkg_dir).unwrap();
+    environment
+      .write_file_bytes(&PathBuf::from(pkg_dir).join("plugin.wasm"), WASM_PLUGIN_BYTES)
+      .unwrap();
+    environment.mk_dir_all("/project/sub").unwrap();
+    environment.set_cwd("/project/sub");
+
+    let plugin_cache = PluginCache::new(environment.clone());
+    let plugin_source = PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "foo".to_string(),
+          version: None,
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+
+    let cache_item = plugin_cache.get_plugin_cache_item(&plugin_source).await?;
+    assert_eq!(cache_item.plugin_kind, PluginKind::Wasm);
+    assert_eq!(cache_item.info.name, "test-plugin");
+    let _ = environment.take_stderr_messages();
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn npm_node_modules_resolve_missing_package_errors() -> Result<()> {
+    use crate::utils::NpmSpecifier;
+
+    let environment = TestEnvironment::new();
+    let plugin_cache = PluginCache::new(environment.clone());
+    let plugin_source = PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "nope".to_string(),
+          version: None,
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+
+    let err = match plugin_cache.get_plugin_cache_item(&plugin_source).await {
+      Ok(_) => panic!("expected an error"),
+      Err(e) => e,
+    };
+    assert!(err.to_string().contains("Could not find nope in node_modules"), "got: {}", err);
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn npm_node_modules_resolve_missing_plugin_file_errors() -> Result<()> {
+    use crate::utils::NpmSpecifier;
+
+    let environment = TestEnvironment::new();
+    // package exists but the requested plugin file does not
+    environment.mk_dir_all("/node_modules/foo").unwrap();
+    environment.write_file(&PathBuf::from("/node_modules/foo/package.json"), "{}").unwrap();
+
+    let plugin_cache = PluginCache::new(environment.clone());
+    let plugin_source = PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "foo".to_string(),
+          version: None,
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+
+    let err = match plugin_cache.get_plugin_cache_item(&plugin_source).await {
+      Ok(_) => panic!("expected an error"),
+      Err(e) => e,
+    };
+    assert!(err.to_string().contains("Could not find plugin.wasm"), "got: {}", err);
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn npm_registry_tarball_rejects_path_traversal_entries() -> Result<()> {
+    use crate::test_helpers::create_test_npm_tarball_raw_paths;
+    use crate::utils::NpmSpecifier;
+
+    let environment = TestEnvironment::new();
+
+    let packument = serde_json::json!({
+      "versions": {
+        "1.0.0": {
+          "dist": { "tarball": "https://registry.npmjs.org/evil/-/evil-1.0.0.tgz" }
+        }
+      }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/evil", packument.to_string().into_bytes());
+    // a tarball with an entry that, after stripping the wrapper, escapes the extract dir.
+    // built via raw-path helper because tar::Header::set_path rejects `..`.
+    let tarball = create_test_npm_tarball_raw_paths(&[("package/plugin.wasm", b"good"), ("package/../../../etc/passwd", b"pwned")]);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/evil/-/evil-1.0.0.tgz", tarball);
+
+    let plugin_cache = PluginCache::new(environment.clone());
+    let plugin_source = PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "evil".to_string(),
+          version: Some("1.0.0".to_string()),
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+
+    let err = match plugin_cache.get_plugin_cache_item(&plugin_source).await {
+      Ok(_) => panic!("expected an error"),
+      Err(e) => e,
+    };
+    assert!(err.to_string().contains("outside output directory"), "got: {}", err);
+    // and the escaping file must not have been written anywhere
+    assert!(!environment.path_exists("/etc/passwd"));
     Ok(())
   }
 

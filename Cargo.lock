@@ -756,20 +756,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da692b8d1080ea3045efaab14434d40468c3d8657e42abddfffca87b428f4c1b"
 
 [[package]]
-name = "deno_npmrc"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c3ed22e6df1af31252b40da1e8859735d30ff8302ec857005efe3e08a5d86b1"
-dependencies = [
- "log",
- "monch",
- "serde",
- "sys_traits",
- "thiserror",
- "url",
-]
-
-[[package]]
 name = "deno_terminal"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -895,7 +881,6 @@ dependencies = [
  "clap_complete",
  "console_static_text",
  "crossterm",
- "deno_npmrc",
  "dirs",
  "dissimilar",
  "dprint-core",
@@ -906,6 +891,7 @@ dependencies = [
  "indexmap",
  "ipnet",
  "jsonc-parser",
+ "monch",
  "once_cell",
  "parking_lot",
  "path-clean",
@@ -1835,9 +1821,9 @@ dependencies = [
 
 [[package]]
 name = "monch"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b52c1b33ff98142aecea13138bd399b68aa7ab5d9546c300988c345004001eea"
+checksum = "6bcc6ad3b93f756f2532d29f7c7291b8d246a2c460a99a3611327bb726830014"
 
 [[package]]
 name = "more-asserts"
@@ -2803,9 +2789,9 @@ dependencies = [
 
 [[package]]
 name = "sys_traits"
-version = "0.1.25"
+version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24954f769b36305ab4dc502d095da5cfd9c697c73a8f2c0636a7fca76ff1f24b"
+checksum = "88826d6169418c98e8bc52a43f79d50907dfa3e87ba5161930d42c6f980b35ee"
 dependencies = [
  "parking_lot",
  "sys_traits_macros",

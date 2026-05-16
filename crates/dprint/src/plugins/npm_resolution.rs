@@ -11,6 +11,7 @@ use crate::environment::Environment;
 use crate::utils::NpmSpecifier;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
+use crate::utils::deno_npmrc;
 use crate::utils::get_sha256_checksum;
 use crate::utils::verify_sha256_checksum;
 
@@ -457,7 +458,7 @@ pub fn get_registry_url(package_name: &str, start_dir: Option<&Path>, environmen
 /// Returns None if the file doesn't exist or doesn't configure any registries.
 fn resolve_registry_from_npmrc(package_name: &str, npmrc_path: &Path, environment: &impl Environment) -> Option<String> {
   let text = environment.read_file(npmrc_path).ok()?;
-  let npmrc = deno_npmrc::NpmRc::parse(&text, &|name| environment.env_var(name).map(|v| v.into_string().ok()).flatten()).ok()?;
+  let npmrc = deno_npmrc::NpmRc::parse(environment, &text).ok()?;
 
   // skip this .npmrc if it doesn't configure any registries
   if npmrc.registry.is_none() && npmrc.scope_registries.is_empty() {
@@ -609,23 +610,5 @@ mod tests {
     });
   }
 
-  fn create_test_tarball(files: &[(&str, &[u8])]) -> Vec<u8> {
-    use flate2::Compression;
-    use flate2::write::GzEncoder;
-
-    let mut tar_builder = tar::Builder::new(Vec::new());
-    for (path, contents) in files {
-      let mut header = tar::Header::new_gnu();
-      header.set_path(path).unwrap();
-      header.set_size(contents.len() as u64);
-      header.set_mode(0o644);
-      header.set_cksum();
-      tar_builder.append(&header, *contents).unwrap();
-    }
-    let tar_bytes = tar_builder.into_inner().unwrap();
-
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-    std::io::Write::write_all(&mut encoder, &tar_bytes).unwrap();
-    encoder.finish().unwrap()
-  }
+  use crate::test_helpers::create_test_npm_tarball as create_test_tarball;
 }

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use url::Url;
 
 use dprint_core::async_runtime::async_trait;
+use sys_traits::BaseEnvVar;
 use sys_traits::BaseFsCreateDir;
 use sys_traits::BaseFsMetadata;
 use sys_traits::BaseFsOpen;
@@ -102,6 +103,7 @@ pub trait Environment:
   + Sync
   + std::fmt::Debug
   + UrlDownloader
+  + BaseEnvVar
   + BaseFsCreateDir
   + BaseFsMetadata
   + BaseFsOpen
