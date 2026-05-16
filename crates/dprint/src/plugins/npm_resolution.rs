@@ -53,8 +53,7 @@ pub async fn resolve_npm_from_registry(
 
   // fetch the packument to get the tarball URL
   let packument_url_str = get_packument_url(&registry_url, &specifier.name);
-  let packument_url = url::Url::parse(&packument_url_str)
-    .with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
+  let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
   log_debug!(environment, "Fetching npm packument: {}", packument_url);
   let (_, packument_file) = environment
     .download_file_err_404(&packument_url)
@@ -64,8 +63,7 @@ pub async fn resolve_npm_from_registry(
     serde_json::from_slice(&packument_file.content).with_context(|| format!("Failed to parse npm packument for {}", specifier.name))?;
 
   let tarball_url_str = get_tarball_url_from_packument(&packument, version, &specifier.name)?;
-  let tarball_url = url::Url::parse(&tarball_url_str)
-    .with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
+  let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
   log_debug!(environment, "Downloading npm tarball: {}", tarball_url);
 
   // download the tarball
@@ -209,18 +207,6 @@ fn resolve_process_plugin_dep_from_node_modules(plugin_json_bytes: &[u8], config
   Ok(ProcessPluginZipBytes { name, version, zip_bytes })
 }
 
-/// Gets the platform-specific reference string from a process plugin manifest.
-fn get_os_reference(plugin_file: &serde_json::Value, environment: &impl Environment) -> Result<String> {
-  let (reference, _checksum) = get_os_reference_and_checksum(plugin_file, environment)?;
-  Ok(reference)
-}
-
-/// Gets the platform-specific checksum from a process plugin manifest.
-fn get_os_checksum(plugin_file: &serde_json::Value, environment: &impl Environment) -> Result<String> {
-  let (_reference, checksum) = get_os_reference_and_checksum(plugin_file, environment)?;
-  Ok(checksum)
-}
-
 fn get_os_reference_and_checksum(plugin_file: &serde_json::Value, environment: &impl Environment) -> Result<(String, String)> {
   let arch = environment.cpu_arch();
   let os = environment.os();
@@ -283,7 +269,7 @@ fn find_zip_in_package(package_dir: &Path, environment: &impl Environment) -> Re
 }
 
 /// Returns the directory where an npm package tarball should be extracted.
-fn get_npm_extract_dir(package_name: &str, version: &str, environment: &impl Environment) -> PathBuf {
+pub(super) fn get_npm_extract_dir(package_name: &str, version: &str, environment: &impl Environment) -> PathBuf {
   // use a sanitized name for the directory (replace / with __)
   let dir_name = format!("{}@{}", package_name.replace('/', "__"), version);
   environment.get_cache_dir().join("npm").join(dir_name)

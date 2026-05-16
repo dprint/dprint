@@ -61,6 +61,13 @@ where
       if let Err(err) = cleanup_plugin(plugin_kind, &cache_item.info, &self.environment) {
         log_warn!(self.environment, "Error forgetting plugin: {:#}", err);
       }
+      // also remove the npm tarball extract dir for versioned npm specifiers
+      if let PathSource::Npm(npm_source) = &source_reference.path_source
+        && let Some(version) = &npm_source.specifier.version
+      {
+        let extract_dir = npm_resolution::get_npm_extract_dir(&npm_source.specifier.name, version, &self.environment);
+        let _ = self.environment.remove_dir_all(&extract_dir);
+      }
     }
 
     Ok(())
@@ -547,6 +554,62 @@ mod test {
       .to_string(),
     );
 
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn forget_removes_npm_extract_dir() -> Result<()> {
+    use dprint_core::plugins::PluginInfo;
+
+    use crate::plugins::PluginCacheManifestItem;
+    use crate::utils::NpmSpecifier;
+
+    let environment = TestEnvironment::new();
+    let plugin_cache = PluginCache::new(environment.clone());
+
+    let specifier = NpmSpecifier {
+      name: "@dprint/test".to_string(),
+      version: Some("1.0.0".to_string()),
+      path: "plugin.wasm".to_string(),
+    };
+    let plugin_source = PluginSourceReference {
+      path_source: PathSource::new_npm(specifier.clone(), None),
+      checksum: None,
+    };
+
+    // seed the manifest and the on-disk artifacts as if a previous resolve had run
+    let extract_dir = environment.get_cache_dir().join("npm").join("@dprint__test@1.0.0");
+    environment.mk_dir_all(&extract_dir).unwrap();
+    environment.write_file(&extract_dir.join("plugin.wasm"), "fake").unwrap();
+    let compiled_wasm_path = environment
+      .get_cache_dir()
+      .join("plugins")
+      .join("test-plugin")
+      .join(format!("1.0.0-{WASMER_COMPILER_VERSION}-x86_64"));
+    environment.mk_dir_all(compiled_wasm_path.parent().unwrap()).unwrap();
+    environment.write_file(&compiled_wasm_path, "compiled").unwrap();
+
+    plugin_cache.manifest.add(
+      &plugin_source.path_source,
+      PluginCacheManifestItem {
+        created_time: 0,
+        file_hash: None,
+        plugin_kind: Some(PluginKind::Wasm),
+        info: PluginInfo {
+          name: "test-plugin".to_string(),
+          version: "1.0.0".to_string(),
+          config_key: "test".to_string(),
+          help_url: "help".to_string(),
+          config_schema_url: "schema".to_string(),
+          update_url: None,
+        },
+      },
+    )?;
+
+    plugin_cache.forget(&plugin_source).await?;
+
+    assert_eq!(environment.path_exists(&extract_dir), false);
+    assert_eq!(environment.path_exists(&compiled_wasm_path), false);
     Ok(())
   }
 
