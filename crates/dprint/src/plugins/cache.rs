@@ -57,7 +57,11 @@ where
 
   pub async fn forget(&self, source_reference: &PluginSourceReference) -> Result<()> {
     let _setup_guard = self.fs_locks.lock(&source_reference.path_source).await;
-    let removed_cache_item = self.manifest.remove(&source_reference.path_source)?;
+    // Unversioned npm specifiers cache under their resolved local node_modules
+    // path, not under the npm path. Translate so manifest.remove targets the
+    // same key the resolve flow stored under.
+    let manifest_source = self.manifest_source_for_forget(&source_reference.path_source);
+    let removed_cache_item = self.manifest.remove(&manifest_source)?;
 
     if let Some(cache_item) = removed_cache_item {
       let plugin_kind = cache_item.plugin_kind.or_else(|| source_reference.plugin_kind()).unwrap_or(PluginKind::Wasm);
@@ -77,6 +81,23 @@ where
     }
 
     Ok(())
+  }
+
+  /// Returns the `PathSource` whose cache key matches how the resolve flow
+  /// stored the manifest entry. For unversioned npm this is the resolved local
+  /// node_modules path; for everything else it's the source itself.
+  fn manifest_source_for_forget(&self, path_source: &PathSource) -> PathSource {
+    if let PathSource::Npm(npm_source) = path_source
+      && npm_source.specifier.version.is_none()
+    {
+      let base_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
+      let fallback_dir = self.environment.cwd();
+      let config_dir = base_dir.unwrap_or(fallback_dir.as_ref());
+      if let Ok(local) = npm_resolution::find_npm_plugin_local_path(&npm_source.specifier, config_dir, &self.environment) {
+        return local;
+      }
+    }
+    path_source.clone()
   }
 
   pub async fn get_plugin_cache_item(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem> {
@@ -656,6 +677,69 @@ mod test {
 
     assert_eq!(environment.path_exists(&extract_dir), false);
     assert_eq!(environment.path_exists(&compiled_wasm_path), false);
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn forget_unversioned_npm_removes_node_modules_manifest_entry() -> Result<()> {
+    use dprint_core::plugins::PluginInfo;
+
+    use crate::plugins::PluginCacheManifestItem;
+    use crate::utils::NpmSpecifier;
+
+    let environment = TestEnvironment::new();
+    let plugin_cache = PluginCache::new(environment.clone());
+
+    // simulate a node_modules layout so find_npm_plugin_local_path resolves
+    let plugin_path = environment.cwd().join("node_modules").join("foo").join("plugin.wasm");
+    environment.mk_dir_all(plugin_path.parent().unwrap()).unwrap();
+    environment.write_file_bytes(&plugin_path, b"wasm").unwrap();
+    let canonical = environment.canonicalize(&plugin_path).unwrap();
+
+    // unversioned npm: resolve flow stores the manifest entry under the local
+    // path key, so forget needs to translate to find it
+    let plugin_source = PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "foo".to_string(),
+          version: None,
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+
+    let compiled_wasm_path = environment
+      .get_cache_dir()
+      .join("plugins")
+      .join("foo-plugin")
+      .join(format!("1.0.0-{WASMER_COMPILER_VERSION}-x86_64"));
+    environment.mk_dir_all(compiled_wasm_path.parent().unwrap()).unwrap();
+    environment.write_file(&compiled_wasm_path, "compiled").unwrap();
+
+    let local_path_source = PathSource::new_local(canonical.clone());
+    plugin_cache.manifest.add(
+      &local_path_source,
+      PluginCacheManifestItem {
+        created_time: 0,
+        file_hash: Some(0),
+        plugin_kind: Some(PluginKind::Wasm),
+        info: PluginInfo {
+          name: "foo-plugin".to_string(),
+          version: "1.0.0".to_string(),
+          config_key: "foo".to_string(),
+          help_url: "help".to_string(),
+          config_schema_url: "schema".to_string(),
+          update_url: None,
+        },
+      },
+    )?;
+    assert!(plugin_cache.manifest.get(&local_path_source)?.is_some());
+
+    plugin_cache.forget(&plugin_source).await?;
+
+    assert!(plugin_cache.manifest.get(&local_path_source)?.is_none());
     Ok(())
   }
 

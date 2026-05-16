@@ -130,6 +130,30 @@ pub async fn resolve_npm_from_registry(
 
 /// Resolves an npm plugin from node_modules (unversioned specifier).
 pub fn resolve_npm_from_node_modules(specifier: &NpmSpecifier, config_dir: &Path, environment: &impl Environment) -> Result<NpmResolvedPlugin> {
+  let local_path = find_npm_plugin_local_path(specifier, config_dir, environment)?;
+  let canonical = local_path.maybe_local_path().expect("find_npm_plugin_local_path returns Local").clone();
+  let plugin_bytes = environment
+    .read_file_bytes(canonical.as_ref())
+    .with_context(|| format!("Failed to read {}", canonical.display()))?;
+
+  // for process plugins, resolve the platform-specific binary from node_modules too
+  let pre_resolved_zip = if specifier.plugin_kind() == PluginKind::Process {
+    Some(resolve_process_plugin_dep_from_node_modules(&plugin_bytes, config_dir, environment)?)
+  } else {
+    None
+  };
+
+  Ok(NpmResolvedPlugin {
+    plugin_bytes,
+    plugin_kind: specifier.plugin_kind(),
+    local_path,
+    pre_resolved_zip,
+  })
+}
+
+/// Locates the canonical local path an unversioned npm specifier resolves to,
+/// without reading the plugin file or doing process-plugin dep resolution.
+pub fn find_npm_plugin_local_path(specifier: &NpmSpecifier, config_dir: &Path, environment: &impl Environment) -> Result<PathSource> {
   let package_dir = find_package_in_node_modules(&specifier.name, config_dir, environment)?;
   let plugin_path = package_dir.join(&specifier.path);
 
@@ -142,23 +166,7 @@ pub fn resolve_npm_from_node_modules(specifier: &NpmSpecifier, config_dir: &Path
   }
 
   let canonical = environment.canonicalize(&plugin_path)?;
-  let plugin_bytes = environment
-    .read_file_bytes(&canonical)
-    .with_context(|| format!("Failed to read {}", plugin_path.display()))?;
-
-  // for process plugins, resolve the platform-specific binary from node_modules too
-  let pre_resolved_zip = if specifier.plugin_kind() == PluginKind::Process {
-    Some(resolve_process_plugin_dep_from_node_modules(&plugin_bytes, config_dir, environment)?)
-  } else {
-    None
-  };
-
-  Ok(NpmResolvedPlugin {
-    plugin_bytes,
-    plugin_kind: specifier.plugin_kind(),
-    local_path: PathSource::new_local(canonical),
-    pre_resolved_zip,
-  })
+  Ok(PathSource::new_local(canonical))
 }
 
 /// Reads a process plugin manifest (plugin.json), finds the platform-specific
