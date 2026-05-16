@@ -35,6 +35,8 @@ pub struct GlobOptions {
   /// The directory to use as the base for the patterns.
   /// Generally you want this to be the directory of the config file.
   pub pattern_base: CanonicalizedPathBuf,
+  /// Whether to disable respecting .gitignore files.
+  pub no_gitignore: bool,
 }
 
 pub fn glob(environment: &impl Environment, opts: GlobOptions) -> Result<GlobOutput> {
@@ -53,7 +55,11 @@ pub fn glob(environment: &impl Environment, opts: GlobOptions) -> Result<GlobOut
   let start_instant = std::time::Instant::now();
   log_debug!(environment, "Globbing: {:?}", opts.file_patterns);
 
-  let git_ignore_tree = GitIgnoreTree::new(environment.clone(), opts.file_patterns.include_paths());
+  let git_ignore_tree = if opts.no_gitignore {
+    None
+  } else {
+    Some(GitIgnoreTree::new(environment.clone(), opts.file_patterns.include_paths()))
+  };
   let glob_matcher = GlobMatcher::new(
     opts.file_patterns,
     &GlobMatcherOptions {
@@ -235,11 +241,11 @@ fn is_system_volume_error(dir_path: &Path, err: &std::io::Error) -> bool {
 struct GlobMatchingProcessor<TEnvironment: Environment> {
   shared_state: Arc<SharedState>,
   glob_matcher: GlobMatcher,
-  git_ignore_tree: GitIgnoreTree<TEnvironment>,
+  git_ignore_tree: Option<GitIgnoreTree<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
-  pub fn new(shared_state: Arc<SharedState>, glob_matcher: GlobMatcher, git_ignore_tree: GitIgnoreTree<TEnvironment>) -> Self {
+  pub fn new(shared_state: Arc<SharedState>, glob_matcher: GlobMatcher, git_ignore_tree: Option<GitIgnoreTree<TEnvironment>>) -> Self {
     Self {
       shared_state,
       glob_matcher,
@@ -258,7 +264,10 @@ impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
         Err(err) => return Err(err), // error
         Ok(Some(entries)) => {
           for dir in entries.into_iter().flatten() {
-            let gitignore = self.git_ignore_tree.get_resolved_git_ignore_for_dir_children(&dir.path);
+            let gitignore = self
+              .git_ignore_tree
+              .as_mut()
+              .and_then(|t| t.get_resolved_git_ignore_for_dir_children(&dir.path));
             for entry in dir.entries {
               match entry {
                 DirOrConfigEntry::Dir(path) => {
@@ -433,6 +442,7 @@ mod test {
           config_excludes: vec![GlobPattern::new("**/ignore".to_string(), root_dir)],
         },
         pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+        no_gitignore: false,
       },
     )
     .unwrap();
@@ -459,6 +469,7 @@ mod test {
           config_excludes: Vec::new(),
         },
         pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+        no_gitignore: false,
       },
     )
     .err()
@@ -483,6 +494,7 @@ mod test {
           config_excludes: Vec::new(),
         },
         pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+        no_gitignore: false,
       },
     );
     assert!(result.is_ok());
@@ -512,6 +524,7 @@ mod test {
           config_excludes: Vec::new(),
         },
         pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+        no_gitignore: false,
       },
     )
     .unwrap();
@@ -544,6 +557,7 @@ mod test {
           config_excludes: Vec::new(),
         },
         pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+        no_gitignore: false,
       },
     )
     .unwrap();
@@ -577,6 +591,7 @@ mod test {
           config_excludes: Vec::new(),
         },
         pattern_base: CanonicalizedPathBuf::new_for_testing("/test/"),
+        no_gitignore: false,
       },
     )
     .unwrap();
@@ -609,6 +624,7 @@ mod test {
           config_excludes: Vec::new(),
         },
         pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+        no_gitignore: false,
       },
     )
     .unwrap();

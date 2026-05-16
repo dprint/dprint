@@ -233,6 +233,7 @@ pub struct FilePatternArgs {
   pub exclude_patterns: Vec<String>,
   pub exclude_pattern_overrides: Option<Vec<String>>,
   pub allow_node_modules: bool,
+  pub no_gitignore: bool,
   pub only_staged: bool,
 }
 
@@ -434,6 +435,7 @@ fn parse_file_patterns(matches: &ArgMatches) -> Result<FilePatternArgs> {
   Ok(FilePatternArgs {
     only_staged: matches.get_flag("staged"),
     allow_node_modules: matches.get_flag("allow-node-modules"),
+    no_gitignore: matches.get_flag("no-gitignore"),
     include_patterns: file_patterns,
     include_pattern_overrides: matches.get_many("includes-override").map(values_to_vec),
     exclude_patterns: maybe_values_to_vec(matches.get_many("excludes")),
@@ -861,6 +863,12 @@ impl ClapExtensions for clap::Command {
         Arg::new("allow-node-modules")
           .long("allow-node-modules")
           .help("Allows traversing node module directories (unstable - This flag will be renamed to be non-node specific in the future).")
+          .num_args(0),
+      )
+      .arg(
+        Arg::new("no-gitignore")
+          .long("no-gitignore")
+          .help("Disables respecting .gitignore files.")
           .num_args(0),
       )
   }

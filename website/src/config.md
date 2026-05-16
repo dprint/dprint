@@ -161,6 +161,8 @@ Files that are gitignored will be excluded by default, but you can "un-exclude" 
 }
 ```
 
+Alternatively, you can disable all `.gitignore` handling with the `--no-gitignore` CLI flag (see [CLI docs](/cli#ignoring-gitignore)).
+
 ## Includes
 
 The `includes` property can be used to limit dprint to only formatting certain files. Generally, you don't need to bother providing this.

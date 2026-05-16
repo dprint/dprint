@@ -400,9 +400,9 @@ dependencies = [
 
 [[package]]
 name = "console_static_text"
-version = "0.8.3"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55d8a913e62f6444b79e038be3eb09839e9cfc34d55d85f9336460710647d2f6"
+checksum = "afaf38e52e96a95b0927d0a9e0aa7d765db0392de4a755cb4b336219e00a0b9e"
 dependencies = [
  "unicode-width 0.1.14",
  "vte",
@@ -888,7 +888,7 @@ checksum = "8975ffdaa0ef3661bfe02dbdcc06c9f829dfafe6a3c474de366a8d5e44276921"
 
 [[package]]
 name = "dprint"
-version = "0.53.1"
+version = "0.54.0"
 dependencies = [
  "anyhow",
  "clap",
