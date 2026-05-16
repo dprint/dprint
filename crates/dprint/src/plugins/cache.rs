@@ -1,6 +1,9 @@
 use anyhow::Result;
 use anyhow::bail;
+use parking_lot::Mutex;
 use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
 
 use dprint_core::plugins::PluginInfo;
@@ -66,7 +69,7 @@ where
         && let Some(version) = &npm_source.specifier.version
       {
         let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-        let registry = npm_resolution::get_registry_url(&npm_source.specifier.name, start_dir, &self.environment);
+        let registry = self.manifest.resolve_registry_url(&npm_source.specifier.name, start_dir);
         let registry_segment = npm_resolution::registry_dir_segment(&registry);
         let extract_dir = npm_resolution::get_npm_extract_dir(&registry_segment, &npm_source.specifier.name, version, &self.environment);
         let _ = self.environment.remove_dir_all(&extract_dir);
@@ -143,7 +146,8 @@ where
     let specifier = &npm_source.specifier;
     let checksum = source_reference.checksum.as_deref();
     let base_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-    let resolved = npm_resolution::resolve_npm_from_registry(specifier, checksum, base_dir, &self.environment).await?;
+    let registry_url = self.manifest.resolve_registry_url(&specifier.name, base_dir);
+    let resolved = npm_resolution::resolve_npm_from_registry(specifier, checksum, &registry_url, &self.environment).await?;
 
     let plugin_kind = resolved.plugin_kind;
     // use the local extracted path so process plugin manifests can resolve relative URLs
@@ -325,12 +329,42 @@ where
 struct ConcurrentPluginCacheManifest<TEnvironment: Environment> {
   environment: TEnvironment,
   manifest: RwLock<PluginCacheManifest>,
+  /// memoized npm registry URLs keyed on (package name, config dir).
+  /// resolving via `.npmrc` walks the directory tree, so the same key is
+  /// hit multiple times per plugin (cache lookup, store, forget cleanup).
+  registry_url_cache: Mutex<HashMap<RegistryUrlKey, String>>,
+}
+
+#[derive(Hash, PartialEq, Eq)]
+struct RegistryUrlKey {
+  package_name: String,
+  start_dir: Option<PathBuf>,
 }
 
 impl<TEnvironment: Environment> ConcurrentPluginCacheManifest<TEnvironment> {
   pub fn new(environment: TEnvironment) -> Self {
     let manifest = RwLock::new(read_manifest(&environment));
-    Self { environment, manifest }
+    Self {
+      environment,
+      manifest,
+      registry_url_cache: Mutex::new(HashMap::new()),
+    }
+  }
+
+  pub(super) fn resolve_registry_url(&self, package_name: &str, start_dir: Option<&Path>) -> String {
+    let key = RegistryUrlKey {
+      package_name: package_name.to_string(),
+      start_dir: start_dir.map(|p| p.to_path_buf()),
+    };
+    if let Some(url) = self.registry_url_cache.lock().get(&key) {
+      return url.clone();
+    }
+    // resolved outside the lock since it does file I/O.
+    // a concurrent caller may compute the same value — harmless since the
+    // result is deterministic for a given key.
+    let url = npm_resolution::get_registry_url(package_name, start_dir, &self.environment);
+    self.registry_url_cache.lock().insert(key, url.clone());
+    url
   }
 
   pub fn get(&self, path_source: &PathSource) -> Result<Option<PluginCacheManifestItem>> {
@@ -371,7 +405,7 @@ impl<TEnvironment: Environment> ConcurrentPluginCacheManifest<TEnvironment> {
         // include the resolved registry so the same name@version from different
         // registries (e.g. a private mirror via .npmrc) doesn't collide.
         let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-        let registry = npm_resolution::get_registry_url(&npm_source.specifier.name, start_dir, &self.environment);
+        let registry = self.resolve_registry_url(&npm_source.specifier.name, start_dir);
         format!(
           "npm:{}#{}@{}",
           registry,
@@ -664,19 +698,18 @@ mod test {
     // entry resolved against the default registry
     plugin_cache.manifest.add(&plugin_source.path_source, make_item("public-foo"))?;
 
-    // switching registries should produce a different key — the previous
-    // entry must not be visible, and we should be able to add a separate one
+    // a second cache (new dprint invocation) pointed at a private registry
+    // via env should not see the public entry and should store its own
     environment.set_env_var("NPM_CONFIG_REGISTRY", Some("https://private.example.com"));
-    assert!(plugin_cache.manifest.get(&plugin_source.path_source)?.is_none());
+    let private_cache = PluginCache::new(environment.clone());
+    assert!(private_cache.manifest.get(&plugin_source.path_source)?.is_none());
+    private_cache.manifest.add(&plugin_source.path_source, make_item("private-foo"))?;
+    assert_eq!(private_cache.manifest.get(&plugin_source.path_source)?.unwrap().info.name, "private-foo");
 
-    plugin_cache.manifest.add(&plugin_source.path_source, make_item("private-foo"))?;
-    let private = plugin_cache.manifest.get(&plugin_source.path_source)?.unwrap();
-    assert_eq!(private.info.name, "private-foo");
-
-    // switching back exposes the original entry again
+    // and switching back (yet another invocation) still finds the original entry
     environment.set_env_var("NPM_CONFIG_REGISTRY", None);
-    let public = plugin_cache.manifest.get(&plugin_source.path_source)?.unwrap();
-    assert_eq!(public.info.name, "public-foo");
+    let public_cache = PluginCache::new(environment.clone());
+    assert_eq!(public_cache.manifest.get(&plugin_source.path_source)?.unwrap().info.name, "public-foo");
 
     Ok(())
   }

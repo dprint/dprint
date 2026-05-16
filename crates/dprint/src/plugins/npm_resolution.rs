@@ -42,18 +42,17 @@ pub struct ProcessPluginZipBytes {
 pub async fn resolve_npm_from_registry(
   specifier: &NpmSpecifier,
   checksum: Option<&str>,
-  start_dir: Option<&Path>,
+  registry_url: &str,
   environment: &impl Environment,
 ) -> Result<NpmResolvedPlugin> {
   let version = specifier
     .version
     .as_deref()
     .ok_or_else(|| anyhow::anyhow!("Cannot resolve npm plugin without a version from the registry"))?;
-  let registry_url = get_registry_url(&specifier.name, start_dir, environment);
-  let registry_segment = registry_dir_segment(&registry_url);
+  let registry_segment = registry_dir_segment(registry_url);
 
   // fetch the packument to get the tarball URL
-  let packument_url_str = get_packument_url(&registry_url, &specifier.name);
+  let packument_url_str = get_packument_url(registry_url, &specifier.name);
   let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
   log_debug!(environment, "Fetching npm packument: {}", packument_url);
   let (_, packument_file) = environment
@@ -403,7 +402,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 /// 2. .npmrc files walking up from `start_dir`
 /// 3. ~/.npmrc
 /// 4. https://registry.npmjs.org
-pub(super) fn get_registry_url(package_name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> String {
+pub fn get_registry_url(package_name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> String {
   // env vars take precedence over .npmrc
   if let Some(registry) = environment.env_var("NPM_CONFIG_REGISTRY") {
     let registry = registry.to_string_lossy().to_string();
@@ -412,14 +411,9 @@ pub(super) fn get_registry_url(package_name: &str, start_dir: Option<&Path>, env
 
   // walk up from the config file's directory checking for .npmrc files
   if let Some(start) = start_dir {
-    let mut current = start.to_path_buf();
-    loop {
-      let npmrc_path = current.join(".npmrc");
-      if let Some(url) = resolve_registry_from_npmrc(package_name, &npmrc_path, environment) {
+    for dir in start.ancestors() {
+      if let Some(url) = resolve_registry_from_npmrc(package_name, &dir.join(".npmrc"), environment) {
         return url;
-      }
-      if !current.pop() {
-        break;
       }
     }
   }
@@ -481,16 +475,10 @@ fn get_tarball_url_from_packument(packument: &serde_json::Value, version: &str, 
 
 /// Walks up from `start_dir` looking for `node_modules/{package_name}/`.
 fn find_package_in_node_modules(package_name: &str, start_dir: &Path, environment: &impl Environment) -> Result<std::path::PathBuf> {
-  let mut current = start_dir.to_path_buf();
-
-  loop {
-    let candidate = current.join("node_modules").join(package_name);
+  for dir in start_dir.ancestors() {
+    let candidate = dir.join("node_modules").join(package_name);
     if environment.path_exists(&candidate) {
       return Ok(candidate);
-    }
-
-    if !current.pop() {
-      break;
     }
   }
 
