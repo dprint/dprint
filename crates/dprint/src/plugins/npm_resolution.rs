@@ -38,6 +38,52 @@ pub struct ProcessPluginZipBytes {
   pub zip_bytes: Vec<u8>,
 }
 
+/// Information about the latest published version of an npm-distributed plugin.
+pub struct NpmLatestInfo {
+  pub version: String,
+  /// SHA-256 of the latest tarball, computed only for non-wasm plugins (where
+  /// a checksum is required in the dprint.json specifier). `None` for wasm.
+  pub tarball_sha256: Option<String>,
+}
+
+/// Fetches the latest version of an npm-distributed plugin (and its tarball
+/// checksum for non-wasm plugins). Used by `dprint config update`.
+pub async fn fetch_npm_latest_info(specifier: &NpmSpecifier, start_dir: Option<&Path>, environment: &impl Environment) -> Result<NpmLatestInfo> {
+  let registry_url = get_registry_url(&specifier.name, start_dir, environment);
+  let packument_url_str = get_packument_url(&registry_url, &specifier.name);
+  let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
+  let (_, packument_file) = environment
+    .download_file_err_404(&packument_url)
+    .await
+    .with_context(|| format!("Failed to fetch npm packument for {}", specifier.name))?;
+  let packument: serde_json::Value =
+    serde_json::from_slice(&packument_file.content).with_context(|| format!("Failed to parse npm packument for {}", specifier.name))?;
+
+  let latest_version = packument
+    .get("dist-tags")
+    .and_then(|d| d.get("latest"))
+    .and_then(|v| v.as_str())
+    .ok_or_else(|| anyhow::anyhow!("Missing dist-tags.latest for {}", specifier.name))?
+    .to_string();
+
+  let tarball_sha256 = if specifier.plugin_kind() != PluginKind::Wasm {
+    let tarball_url_str = get_tarball_url_from_packument(&packument, &latest_version, &specifier.name)?;
+    let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
+    let (_, tarball_file) = environment
+      .download_file_err_404(&tarball_url)
+      .await
+      .with_context(|| format!("Failed to download npm tarball for {}@{}", specifier.name, latest_version))?;
+    Some(get_sha256_checksum(&tarball_file.content))
+  } else {
+    None
+  };
+
+  Ok(NpmLatestInfo {
+    version: latest_version,
+    tarball_sha256,
+  })
+}
+
 /// Resolves an npm plugin from the registry (versioned specifier).
 /// Downloads the tarball, extracts it to the cache directory, and reads the plugin file.
 pub async fn resolve_npm_from_registry(
@@ -558,6 +604,50 @@ mod tests {
     let result = get_tarball_url_from_packument(&packument, "0.23.0", "@dprint/typescript");
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("Version 0.23.0 not found"));
+  }
+
+  #[tokio::test]
+  async fn fetch_npm_latest_info_wasm_skips_tarball_download() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "1.2.3" },
+      "versions": { "1.2.3": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.2.3.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    // intentionally NOT adding the tarball — wasm should not fetch it
+
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: Some("1.0.0".to_string()),
+      path: "plugin.wasm".to_string(),
+    };
+    let info = fetch_npm_latest_info(&specifier, None, &environment).await.unwrap();
+    assert_eq!(info.version, "1.2.3");
+    assert!(info.tarball_sha256.is_none());
+  }
+
+  #[tokio::test]
+  async fn fetch_npm_latest_info_process_downloads_tarball_for_checksum() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "2.0.0" },
+      "versions": { "2.0.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-2.0.0.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    let tarball_bytes = vec![0u8, 1, 2, 3, 4, 5];
+    let expected_checksum = get_sha256_checksum(&tarball_bytes);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-2.0.0.tgz", tarball_bytes);
+
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: Some("1.0.0".to_string()),
+      path: "plugin.json".to_string(),
+    };
+    let info = fetch_npm_latest_info(&specifier, None, &environment).await.unwrap();
+    assert_eq!(info.version, "2.0.0");
+    assert_eq!(info.tarball_sha256.as_deref(), Some(expected_checksum.as_str()));
   }
 
   #[test]

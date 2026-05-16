@@ -22,6 +22,7 @@ use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginWrapper;
+use crate::plugins::fetch_npm_latest_info;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
 use crate::resolution::GetPluginResult;
@@ -499,6 +500,43 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
         }));
       }
     };
+
+    // npm specifiers update via the npm registry (dist-tags.latest), not the
+    // plugin's update_url which would migrate us off the npm form
+    if let PathSource::Npm(npm_source) = &plugin_reference.path_source {
+      if npm_source.specifier.version.is_none() {
+        // unversioned specifiers track node_modules — versions are managed by npm/package-lock
+        log_warn!(environment, "Skipping {} (unversioned npm specifier — update via your package manager).", plugin.info().name);
+        return None;
+      }
+      let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
+      match fetch_npm_latest_info(&npm_source.specifier, start_dir, environment).await {
+        Ok(info) => {
+          let new_specifier = crate::utils::NpmSpecifier {
+            name: npm_source.specifier.name.clone(),
+            version: Some(info.version.clone()),
+            path: npm_source.specifier.path.clone(),
+          };
+          let new_reference = PluginSourceReference {
+            path_source: PathSource::new_npm(new_specifier, npm_source.base_dir.clone()),
+            checksum: info.tarball_sha256.or_else(|| plugin_reference.checksum.clone()),
+          };
+          return Some(Ok(PluginUpdateInfo {
+            name: plugin.info().name.to_string(),
+            old_version: plugin.info().version.to_string(),
+            old_reference: plugin_reference,
+            new_version: info.version,
+            new_reference,
+          }));
+        }
+        Err(err) => {
+          return Some(Err(PluginUpdateError {
+            name: plugin_reference.path_source.display(),
+            error: err,
+          }));
+        }
+      }
+    }
 
     // request
     if let Some(plugin_update_url) = &plugin.info().update_url {
