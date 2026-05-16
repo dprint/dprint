@@ -39,9 +39,7 @@ pub enum Value<'a> {
   Undefined,
 }
 
-pub fn parse_ini(
-  input: &str,
-) -> Result<Vec<KeyValueOrSection<'_>>, ParseErrorFailureError> {
+pub fn parse_ini(input: &str) -> Result<Vec<KeyValueOrSection<'_>>, ParseErrorFailureError> {
   with_failure_handling(|input| {
     let (input, _) = skip_trivia(input)?;
     let (input, items) = many0(|input| {
@@ -76,8 +74,7 @@ fn parse_section(input: &str) -> ParseResult<'_, Section<'_>> {
 fn parse_section_header(input: &str) -> ParseResult<'_, &str> {
   let (input, _) = ch('[')(input)?;
   // `]` and `\n` are ASCII; byte scan halts on a valid char boundary.
-  let (input, header_text) =
-    take_while_byte(|b| b != b']' && b != b'\n')(input)?;
+  let (input, header_text) = take_while_byte(|b| b != b']' && b != b'\n')(input)?;
   let (input, _) = ch(']')(input)?;
 
   Ok((input, header_text))
@@ -87,8 +84,7 @@ fn parse_key_value(input: &str) -> ParseResult<'_, KeyValue<'_>> {
   fn parse_empty_value(input: &str) -> ParseResult<'_, ()> {
     let (input, _) = skip_non_newline_whitespace(input)?;
     let (input, _) = skip_comment(input)?;
-    if input.is_empty() || input.starts_with('\n') || input.starts_with("\r\n")
-    {
+    if input.is_empty() || input.starts_with('\n') || input.starts_with("\r\n") {
       Ok((input, ()))
     } else {
       Err(ParseError::Backtrace)
@@ -109,8 +105,7 @@ fn parse_key_value(input: &str) -> ParseResult<'_, KeyValue<'_>> {
 
 fn parse_key(input: &str) -> ParseResult<'_, Key<'_>> {
   fn parse_unquoted(input: &str) -> ParseResult<'_, Key<'_>> {
-    let (input, key) =
-      take_while_not_comment_and(|c| c != '=' && c != '\n')(input)?;
+    let (input, key) = take_while_not_comment_and(|c| c != '=' && c != '\n')(input)?;
     let key = trim_cow_str(key);
     match strip_cow_str_suffix(&key, "[]") {
       Some(key) => Ok((input, Key::Array(key))),
@@ -118,10 +113,7 @@ fn parse_key(input: &str) -> ParseResult<'_, Key<'_>> {
     }
   }
 
-  or(
-    map(parse_quoted_skipping_spaces, Key::Plain),
-    parse_unquoted,
-  )(input)
+  or(map(parse_quoted_skipping_spaces, Key::Plain), parse_unquoted)(input)
 }
 
 fn parse_value(input: &str) -> ParseResult<'_, Value<'_>> {
@@ -146,22 +138,13 @@ fn parse_value(input: &str) -> ParseResult<'_, Value<'_>> {
     ))
   }
 
-  or(
-    map(parse_quoted_skipping_spaces, Value::String),
-    parse_unquoted,
-  )(input)
+  or(map(parse_quoted_skipping_spaces, Value::String), parse_unquoted)(input)
 }
 
-fn strip_cow_str_suffix<'a>(
-  cow: &Cow<'a, str>,
-  suffix: &str,
-) -> Option<Cow<'a, str>> {
+fn strip_cow_str_suffix<'a>(cow: &Cow<'a, str>, suffix: &str) -> Option<Cow<'a, str>> {
   match cow {
     Cow::Borrowed(s) => s.strip_suffix(suffix).map(Cow::Borrowed),
-    Cow::Owned(s) => s
-      .strip_suffix(suffix)
-      .map(ToOwned::to_owned)
-      .map(Cow::Owned),
+    Cow::Owned(s) => s.strip_suffix(suffix).map(ToOwned::to_owned).map(Cow::Owned),
   }
 }
 
@@ -199,9 +182,7 @@ fn parse_quoted_skipping_spaces(input: &str) -> ParseResult<'_, Cow<'_, str>> {
 }
 
 fn parse_quoted_string(input: &str) -> ParseResult<'_, Cow<'_, str>> {
-  fn take_inner_text(
-    quote_start_char: char,
-  ) -> impl Fn(&str) -> ParseResult<'_, Cow<str>> {
+  fn take_inner_text(quote_start_char: char) -> impl Fn(&str) -> ParseResult<'_, Cow<str>> {
     move |input| {
       let mut last_char = None;
       let mut texts = Vec::new();
@@ -248,8 +229,7 @@ fn skip_non_newline_whitespace(input: &str) -> ParseResult<'_, ()> {
 }
 
 fn skip_comment(input: &str) -> ParseResult<'_, ()> {
-  let (input, maybe_found) =
-    maybe(or(map(ch('#'), |_| ()), map(ch(';'), |_| ())))(input)?;
+  let (input, maybe_found) = maybe(or(map(ch('#'), |_| ()), map(ch(';'), |_| ())))(input)?;
   if maybe_found.is_none() {
     return Ok((input, ()));
   }
@@ -262,9 +242,7 @@ fn take_until_comment_or_newline(input: &str) -> ParseResult<'_, Cow<'_, str>> {
   take_while_not_comment_and(|c| c != '\n')(input)
 }
 
-fn take_while_not_comment_and<'a>(
-  test: impl Fn(char) -> bool,
-) -> impl Fn(&'a str) -> ParseResult<'a, Cow<'a, str>> {
+fn take_while_not_comment_and<'a>(test: impl Fn(char) -> bool) -> impl Fn(&'a str) -> ParseResult<'a, Cow<'a, str>> {
   move |input| {
     let mut texts = Vec::new();
     let mut last_char = None;

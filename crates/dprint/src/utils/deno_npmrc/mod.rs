@@ -58,10 +58,7 @@ pub struct NpmRc {
 }
 
 impl NpmRc {
-  pub fn parse(
-    sys: &impl EnvVar,
-    input: &str,
-  ) -> Result<Self, NpmRcParseError> {
+  pub fn parse(sys: &impl EnvVar, input: &str) -> Result<Self, NpmRcParseError> {
     let kv_or_sections = ini::parse_ini(input)?;
     let mut registry = None;
     let mut scope_registries: HashMap<String, String> = HashMap::new();
@@ -84,9 +81,7 @@ impl NpmRc {
                 && let Value::String(text) = &kv.value
               {
                 let value = expand_vars(text, sys);
-                let config = registry_configs
-                  .entry(host_and_path.to_string())
-                  .or_default();
+                let config = registry_configs.entry(host_and_path.to_string()).or_default();
                 match right {
                   "_auth" => {
                     config.auth = Some(value);
@@ -145,38 +140,22 @@ impl NpmRc {
     Ok(NpmRc {
       registry,
       scope_registries,
-      registry_configs: registry_configs
-        .into_iter()
-        .map(|(k, v)| (k, Arc::new(v)))
-        .collect(),
+      registry_configs: registry_configs.into_iter().map(|(k, v)| (k, Arc::new(v))).collect(),
       min_release_age_days,
     })
   }
 
-  pub fn as_resolved(
-    &self,
-    registry_url: &NpmRegistryUrl,
-  ) -> Result<ResolvedNpmRc, ResolveError> {
+  pub fn as_resolved(&self, registry_url: &NpmRegistryUrl) -> Result<ResolvedNpmRc, ResolveError> {
     let mut scopes = HashMap::with_capacity(self.scope_registries.len());
     for scope in self.scope_registries.keys() {
-      let (url, config) = self.registry_url_and_config_for_maybe_scope(
-        Some(scope.as_str()),
-        registry_url,
-      );
+      let (url, config) = self.registry_url_and_config_for_maybe_scope(Some(scope.as_str()), registry_url);
       let url = Url::parse(&url).map_err(|e| ResolveError::UrlScope {
         scope: scope.clone(),
         source: e,
       })?;
-      scopes.insert(
-        scope.clone(),
-        RegistryConfigWithUrl {
-          registry_url: url,
-          config,
-        },
-      );
+      scopes.insert(scope.clone(), RegistryConfigWithUrl { registry_url: url, config });
     }
-    let (default_url, default_config) =
-      self.registry_url_and_config_for_maybe_scope(None, registry_url);
+    let (default_url, default_config) = self.registry_url_and_config_for_maybe_scope(None, registry_url);
     let default_url = Url::parse(&default_url).map_err(ResolveError::Url)?;
     Ok(ResolvedNpmRc {
       default_config: RegistryConfigWithUrl {
@@ -189,11 +168,7 @@ impl NpmRc {
     })
   }
 
-  fn registry_url_and_config_for_maybe_scope(
-    &self,
-    maybe_scope_name: Option<&str>,
-    registry_url: &NpmRegistryUrl,
-  ) -> (String, Arc<RegistryConfig>) {
+  fn registry_url_and_config_for_maybe_scope(&self, maybe_scope_name: Option<&str>, registry_url: &NpmRegistryUrl) -> (String, Arc<RegistryConfig>) {
     let registry_url = maybe_scope_name
       .and_then(|scope| self.scope_registries.get(scope).map(|s| s.as_str()))
       .unwrap_or_else(|| {
@@ -202,10 +177,7 @@ impl NpmRc {
         if registry_url.from_env {
           registry_url.url.as_str()
         } else {
-          self
-            .registry
-            .as_deref()
-            .unwrap_or(registry_url.url.as_str())
+          self.registry.as_deref().unwrap_or(registry_url.url.as_str())
         }
       });
 
@@ -215,14 +187,8 @@ impl NpmRc {
       Cow::Owned(format!("{}/", registry_url))
     };
     // https://example.com/ -> example.com/
-    let Some((_, registry_url)) = original_registry_url
-      .split_once("//")
-      .filter(|(_, url)| !url.is_empty())
-    else {
-      return (
-        original_registry_url.into_owned(),
-        Arc::new(RegistryConfig::default()),
-      );
+    let Some((_, registry_url)) = original_registry_url.split_once("//").filter(|(_, url)| !url.is_empty()) else {
+      return (original_registry_url.into_owned(), Arc::new(RegistryConfig::default()));
     };
     let mut url: &str = registry_url;
 
@@ -231,10 +197,7 @@ impl NpmRc {
         return (original_registry_url.into_owned(), config.clone());
       }
       let Some(next_slash_index) = url[..url.len() - 1].rfind('/') else {
-        return (
-          original_registry_url.into_owned(),
-          Arc::new(RegistryConfig::default()),
-        );
+        return (original_registry_url.into_owned(), Arc::new(RegistryConfig::default()));
       };
       url = &url[..next_slash_index + 1];
     }
@@ -274,10 +237,7 @@ impl ResolvedNpmRc {
     }
   }
 
-  pub fn get_registry_config(
-    &self,
-    package_name: &str,
-  ) -> &Arc<RegistryConfig> {
+  pub fn get_registry_config(&self, package_name: &str) -> &Arc<RegistryConfig> {
     let Some(scope_name) = get_scope_name(package_name) else {
       return &self.default_config.config;
     };
@@ -298,20 +258,13 @@ impl ResolvedNpmRc {
     urls
   }
 
-  pub fn tarball_config(
-    &self,
-    tarball_url: &Url,
-  ) -> Option<&Arc<RegistryConfig>> {
+  pub fn tarball_config(&self, tarball_url: &Url) -> Option<&Arc<RegistryConfig>> {
     // https://example.com/chalk.tgz -> example.com/.tgz
-    let registry_url = tarball_url
-      .as_str()
-      .split_once("//")
-      .map(|(_, right)| right)?;
+    let registry_url = tarball_url.as_str().split_once("//").map(|(_, right)| right)?;
     let mut best_match: Option<(&str, &Arc<RegistryConfig>)> = None;
     for (config_url, config) in &self.registry_configs {
       if registry_url.starts_with(config_url)
-        && (best_match.is_none()
-          || matches!(best_match, Some((current_config_url, _)) if config_url.len() > current_config_url.len()))
+        && (best_match.is_none() || matches!(best_match, Some((current_config_url, _)) if config_url.len() > current_config_url.len()))
       {
         best_match = Some((config_url, config));
       }
@@ -371,11 +324,7 @@ impl NpmRegistryUrl {
     Self::from_env(sys, "JSR_NPM_URL", "https://npm.jsr.io")
   }
 
-  fn from_env(
-    sys: &impl EnvVar,
-    env_var_name: &str,
-    fallback_url: &str,
-  ) -> Self {
+  fn from_env(sys: &impl EnvVar, env_var_name: &str, fallback_url: &str) -> Self {
     fn ensure_trailing_slash(value: &str) -> Cow<'_, str> {
       if value.ends_with('/') {
         Cow::Borrowed(value)
@@ -389,10 +338,7 @@ impl NpmRegistryUrl {
       let registry_url = ensure_trailing_slash(&registry_url);
       match Url::parse(&registry_url) {
         Ok(url) => {
-          return NpmRegistryUrl {
-            url,
-            from_env: true,
-          };
+          return NpmRegistryUrl { url, from_env: true };
         }
         Err(_err) => {
           // log::debug! was dropped to avoid pulling in the `log` crate as
@@ -453,18 +399,9 @@ registry=https://registry.npmjs.org/
         registry: Some("https://registry.npmjs.org/".to_string()),
         scope_registries: HashMap::from([
           ("myorg".to_string(), "https://example.com/myorg".to_string()),
-          (
-            "another".to_string(),
-            "https://example.com/another".to_string()
-          ),
-          (
-            "example".to_string(),
-            "https://example.com/example".to_string()
-          ),
-          (
-            "yet_another".to_string(),
-            "https://yet.another.com/".to_string()
-          ),
+          ("another".to_string(), "https://example.com/another".to_string()),
+          ("example".to_string(), "https://example.com/example".to_string()),
+          ("yet_another".to_string(), "https://yet.another.com/".to_string()),
         ]),
         registry_configs: HashMap::from([
           (
@@ -512,9 +449,7 @@ registry=https://registry.npmjs.org/
       }
     );
 
-    let resolved_npm_rc = npm_rc
-      .as_resolved(&npm_url("https://deno.land/npm/"))
-      .unwrap();
+    let resolved_npm_rc = npm_rc.as_resolved(&npm_url("https://deno.land/npm/")).unwrap();
     assert_eq!(
       resolved_npm_rc,
       ResolvedNpmRc {
@@ -605,49 +540,16 @@ registry=https://registry.npmjs.org/
       assert_eq!(config.auth_token, None);
     }
 
-    assert_eq!(
-      resolved_npm_rc.get_registry_url("@deno/test").as_str(),
-      "https://registry.npmjs.org/"
-    );
-    assert_eq!(
-      resolved_npm_rc
-        .get_registry_config("@deno/test")
-        .auth_token
-        .as_ref()
-        .unwrap(),
-      "MYTOKEN"
-    );
+    assert_eq!(resolved_npm_rc.get_registry_url("@deno/test").as_str(), "https://registry.npmjs.org/");
+    assert_eq!(resolved_npm_rc.get_registry_config("@deno/test").auth_token.as_ref().unwrap(), "MYTOKEN");
 
-    assert_eq!(
-      resolved_npm_rc.get_registry_url("@myorg/test").as_str(),
-      "https://example.com/myorg/"
-    );
-    assert_eq!(
-      resolved_npm_rc
-        .get_registry_config("@myorg/test")
-        .auth_token
-        .as_ref()
-        .unwrap(),
-      "MYTOKEN1"
-    );
+    assert_eq!(resolved_npm_rc.get_registry_url("@myorg/test").as_str(), "https://example.com/myorg/");
+    assert_eq!(resolved_npm_rc.get_registry_config("@myorg/test").auth_token.as_ref().unwrap(), "MYTOKEN1");
 
-    assert_eq!(
-      resolved_npm_rc.get_registry_url("@another/test").as_str(),
-      "https://example.com/another/"
-    );
-    assert_eq!(
-      resolved_npm_rc
-        .get_registry_config("@another/test")
-        .auth_token
-        .as_ref()
-        .unwrap(),
-      "MYTOKEN2"
-    );
+    assert_eq!(resolved_npm_rc.get_registry_url("@another/test").as_str(), "https://example.com/another/");
+    assert_eq!(resolved_npm_rc.get_registry_config("@another/test").auth_token.as_ref().unwrap(), "MYTOKEN2");
 
-    assert_eq!(
-      resolved_npm_rc.get_registry_url("@example/test").as_str(),
-      "https://example.com/example/"
-    );
+    assert_eq!(resolved_npm_rc.get_registry_url("@example/test").as_str(), "https://example.com/example/");
     let config = resolved_npm_rc.get_registry_config("@example/test");
     assert_eq!(config.auth.as_ref().unwrap(), "AUTH");
     assert_eq!(config.auth_token.as_ref().unwrap(), "MYTOKEN0");
@@ -661,9 +563,7 @@ registry=https://registry.npmjs.org/
     {
       assert_eq!(
         resolved_npm_rc
-          .tarball_config(
-            &Url::parse("https://example.com/example/chalk.tgz").unwrap(),
-          )
+          .tarball_config(&Url::parse("https://example.com/example/chalk.tgz").unwrap(),)
           .unwrap()
           .auth_token
           .as_ref()
@@ -672,9 +572,7 @@ registry=https://registry.npmjs.org/
       );
       assert_eq!(
         resolved_npm_rc
-          .tarball_config(
-            &Url::parse("https://example.com/myorg/chalk.tgz").unwrap(),
-          )
+          .tarball_config(&Url::parse("https://example.com/myorg/chalk.tgz").unwrap(),)
           .unwrap()
           .auth_token
           .as_ref()
@@ -683,9 +581,7 @@ registry=https://registry.npmjs.org/
       );
       assert_eq!(
         resolved_npm_rc
-          .tarball_config(
-            &Url::parse("https://example.com/another/chalk.tgz").unwrap(),
-          )
+          .tarball_config(&Url::parse("https://example.com/another/chalk.tgz").unwrap(),)
           .unwrap()
           .auth_token
           .as_ref()
@@ -693,19 +589,12 @@ registry=https://registry.npmjs.org/
         "MYTOKEN2"
       );
       assert_eq!(
-        resolved_npm_rc.tarball_config(
-          &Url::parse("https://yet.another.com/example/chalk.tgz").unwrap(),
-        ),
+        resolved_npm_rc.tarball_config(&Url::parse("https://yet.another.com/example/chalk.tgz").unwrap(),),
         None,
       );
       assert_eq!(
         resolved_npm_rc
-          .tarball_config(
-            &Url::parse(
-              "https://yet.another.com/yet_another/example/chalk.tgz"
-            )
-            .unwrap(),
-          )
+          .tarball_config(&Url::parse("https://yet.another.com/yet_another/example/chalk.tgz").unwrap(),)
           .unwrap()
           .auth_token
           .as_ref()
@@ -780,9 +669,7 @@ registry=${VAR_FOUND}
     let sys = InMemorySys::default();
     let npm_rc = NpmRc::parse(&sys, "min-release-age=30").unwrap();
     assert_eq!(npm_rc.min_release_age_days, Some(30));
-    let resolved = npm_rc
-      .as_resolved(&npm_url("https://registry.npmjs.org/"))
-      .unwrap();
+    let resolved = npm_rc.as_resolved(&npm_url("https://registry.npmjs.org/")).unwrap();
     assert_eq!(resolved.min_release_age_days, Some(30));
 
     // not set
@@ -808,9 +695,7 @@ registry=${VAR_FOUND}
 "#,
     )
     .unwrap();
-    let npm_rc = npm_rc
-      .as_resolved(&npm_url("https://deno.land/npm/"))
-      .unwrap();
+    let npm_rc = npm_rc.as_resolved(&npm_url("https://deno.land/npm/")).unwrap();
     {
       let registry_url = npm_rc.get_registry_url("@example/test");
       let config = npm_rc.get_registry_config("@example/test");
@@ -838,9 +723,7 @@ registry=${VAR_FOUND}
 "#,
     )
     .unwrap();
-    let npm_rc = npm_rc
-      .as_resolved(&npm_url("https://deno.land/npm/"))
-      .unwrap();
+    let npm_rc = npm_rc.as_resolved(&npm_url("https://deno.land/npm/")).unwrap();
     {
       let registry_url = npm_rc.get_registry_url("@example/test");
       let config = npm_rc.get_registry_config("@example/test");
@@ -875,28 +758,18 @@ registry=${VAR_FOUND}
 "#,
     )
     .unwrap();
-    let npm_rc = npm_rc
-      .as_resolved(&npm_url("https://registry.npmjs.org/"))
-      .unwrap();
+    let npm_rc = npm_rc.as_resolved(&npm_url("https://registry.npmjs.org/")).unwrap();
     assert!(npm_rc.scopes.contains_key("jsr"));
-    assert_eq!(
-      npm_rc.scopes.get("jsr").unwrap().registry_url.as_str(),
-      "https://registry.npmjs.org/"
-    );
+    assert_eq!(npm_rc.scopes.get("jsr").unwrap().registry_url.as_str(), "https://registry.npmjs.org/");
   }
 
   #[test]
   fn test_npm_config_registry_overrides_npmrc() {
     // NPM_CONFIG_REGISTRY should override the registry in .npmrc files
-    let npm_rc = NpmRc::parse(
-      &InMemorySys::default(),
-      "registry=http://wrong.registry.example.com/",
-    )
-    .unwrap();
+    let npm_rc = NpmRc::parse(&InMemorySys::default(), "registry=http://wrong.registry.example.com/").unwrap();
 
     // This simulates what npm_registry_url() would return when NPM_CONFIG_REGISTRY is set
-    let env_registry_url =
-      Url::parse("http://env.registry.example.com/").unwrap();
+    let env_registry_url = Url::parse("http://env.registry.example.com/").unwrap();
     let resolved = npm_rc
       .as_resolved(&NpmRegistryUrl {
         url: env_registry_url,
@@ -905,20 +778,13 @@ registry=${VAR_FOUND}
       .unwrap();
 
     // Should use the env var registry, not the .npmrc one
-    assert_eq!(
-      resolved.default_config.registry_url.as_str(),
-      "http://env.registry.example.com/"
-    );
+    assert_eq!(resolved.default_config.registry_url.as_str(), "http://env.registry.example.com/");
   }
 
   #[test]
   fn test_npmrc_registry_used_when_no_env_var() {
     // When NPM_CONFIG_REGISTRY is not set, should use .npmrc registry
-    let npm_rc = NpmRc::parse(
-      &InMemorySys::default(),
-      "registry=http://npmrc.registry.example.com/",
-    )
-    .unwrap();
+    let npm_rc = NpmRc::parse(&InMemorySys::default(), "registry=http://npmrc.registry.example.com/").unwrap();
 
     let resolved = npm_rc
       .as_resolved(&NpmRegistryUrl {
@@ -928,10 +794,7 @@ registry=${VAR_FOUND}
       .unwrap();
 
     // Should use the .npmrc registry
-    assert_eq!(
-      resolved.default_config.registry_url.as_str(),
-      "http://npmrc.registry.example.com/"
-    );
+    assert_eq!(resolved.default_config.registry_url.as_str(), "http://npmrc.registry.example.com/");
   }
 
   fn npm_url(url: &str) -> NpmRegistryUrl {
