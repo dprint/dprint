@@ -22,6 +22,7 @@ use crate::plugins::PluginSourceReference;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::get_bytes_hash;
+use crate::utils::get_combined_bytes_hash;
 use crate::utils::get_sha256_checksum;
 use crate::utils::verify_sha256_checksum;
 
@@ -205,10 +206,20 @@ where
     let local_path = source_reference.path_source.maybe_local_path()
       .ok_or_else(|| anyhow::anyhow!("Expected local path for npm node_modules plugin"))?;
 
+    // for process plugins, factor the platform zip into the cache hash so that
+    // a node_modules reinstall that swaps the zip but not plugin.json busts the cache
+    let zip_bytes_ref = pre_resolved_zip.as_ref().map(|z| z.zip_bytes.as_slice());
+    let compute_hash = |file_bytes: &[u8]| -> u64 {
+      match zip_bytes_ref {
+        Some(zip) => get_combined_bytes_hash(&[file_bytes, zip]),
+        None => get_bytes_hash(file_bytes),
+      }
+    };
+
     // check file hash to see if we can reuse cached setup
     if let Some(manifest_item) = self.manifest.get(&source_reference.path_source)? {
       let file_bytes = self.environment.read_file_bytes(local_path)?;
-      let file_hash = get_bytes_hash(&file_bytes);
+      let file_hash = compute_hash(&file_bytes);
       let cache_file_hash = match &manifest_item.file_hash {
         Some(file_hash) => *file_hash,
         None => bail!("Expected to have the plugin file hash stored in the cache."),
@@ -240,7 +251,7 @@ where
       .plugin_kind()
       .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for {}", source_reference.display()))?;
 
-    let file_hash = Some(get_bytes_hash(&file_bytes));
+    let file_hash = Some(compute_hash(&file_bytes));
     let setup_result = setup_plugin(&source_reference.path_source, file_bytes, plugin_kind, pre_resolved_zip, &self.environment).await?;
     let cache_item = PluginCacheManifestItem {
       info: setup_result.plugin_info.clone(),
@@ -423,15 +434,17 @@ impl<TEnvironment: Environment> ConcurrentPluginCacheManifest<TEnvironment> {
       PathSource::Npm(npm_source) => {
         // only versioned npm specifiers use the npm cache key —
         // unversioned specifiers resolve to local paths and use local: keys.
-        // include the resolved registry so the same name@version from different
-        // registries (e.g. a private mirror via .npmrc) doesn't collide.
+        // include the resolved registry (private vs public mirror) and the
+        // specifier path (a single package can ship plugin.wasm and plugin.json)
+        // so distinct specifiers don't share an entry.
         let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
         let registry = self.resolve_registry_url(&npm_source.specifier.name, start_dir);
         format!(
-          "npm:{}#{}@{}",
+          "npm:{}#{}@{}/{}",
           registry,
           npm_source.specifier.name,
           npm_source.specifier.version.as_deref().unwrap_or("latest"),
+          npm_source.specifier.path,
         )
       }
     })
@@ -740,6 +753,53 @@ mod test {
     plugin_cache.forget(&plugin_source).await?;
 
     assert!(plugin_cache.manifest.get(&local_path_source)?.is_none());
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn npm_cache_key_distinguishes_specifier_paths() -> Result<()> {
+    use dprint_core::plugins::PluginInfo;
+
+    use crate::plugins::PluginCacheManifestItem;
+    use crate::utils::NpmSpecifier;
+
+    let environment = TestEnvironment::new();
+    let plugin_cache = PluginCache::new(environment.clone());
+
+    let make_source = |path: &str| PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "foo".to_string(),
+          version: Some("1.0.0".to_string()),
+          path: path.to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+
+    let make_item = |name: &str| PluginCacheManifestItem {
+      created_time: 0,
+      file_hash: None,
+      plugin_kind: Some(PluginKind::Wasm),
+      info: PluginInfo {
+        name: name.to_string(),
+        version: "1.0.0".to_string(),
+        config_key: "test".to_string(),
+        help_url: "help".to_string(),
+        config_schema_url: "schema".to_string(),
+        update_url: None,
+      },
+    };
+
+    // same name@version, different plugin file → distinct cache entries
+    let wasm_source = make_source("plugin.wasm");
+    let json_source = make_source("plugin.json");
+    plugin_cache.manifest.add(&wasm_source.path_source, make_item("foo-wasm"))?;
+    plugin_cache.manifest.add(&json_source.path_source, make_item("foo-process"))?;
+    assert_eq!(plugin_cache.manifest.get(&wasm_source.path_source)?.unwrap().info.name, "foo-wasm");
+    assert_eq!(plugin_cache.manifest.get(&json_source.path_source)?.unwrap().info.name, "foo-process");
+
     Ok(())
   }
 

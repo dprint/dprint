@@ -195,12 +195,17 @@ fn resolve_process_plugin_dep_from_node_modules(plugin_json_bytes: &[u8], config
 
   let dep_dir = find_package_in_node_modules(dep_name, config_dir, environment)?;
 
-  // read all files in the dep package directory and zip them, since setup_process_plugin
-  // expects zip bytes. Actually — the dep package likely contains the zip itself or the
-  // executable directly. Let's look for a zip file or read the directory contents.
-  // In practice, the npm platform package contains the zip as the main artifact.
-  // Let's look for a .zip file in the package.
-  let zip_path = find_zip_in_package(&dep_dir, environment)?;
+  // the npm reference in plugin.json names the zip exactly (e.g.
+  // `npm:@scope/foo-linux-x64@1.0.0/plugin.zip`), so look it up by path
+  // rather than scanning the directory for an arbitrary .zip
+  let zip_path = dep_dir.join(&parsed.specifier.path);
+  if !environment.path_exists(&zip_path) {
+    bail!(
+      "Could not find {} in {}. The plugin.json reference does not match the installed package contents.",
+      parsed.specifier.path,
+      dep_dir.display(),
+    );
+  }
   let zip_bytes = environment
     .read_file_bytes(&zip_path)
     .with_context(|| format!("Failed to read {}", zip_path.display()))?;
@@ -264,18 +269,6 @@ fn get_os_reference_and_checksum(plugin_file: &serde_json::Value, environment: &
 }
 
 /// Finds a .zip file in the given package directory.
-fn find_zip_in_package(package_dir: &Path, environment: &impl Environment) -> Result<PathBuf> {
-  let entries = environment.dir_info(package_dir)?;
-  for entry in entries {
-    if let crate::environment::DirEntry::File { path, .. } = entry {
-      if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("zip")) {
-        return Ok(path);
-      }
-    }
-  }
-  bail!("Could not find a .zip file in {}", package_dir.display())
-}
-
 /// Returns the directory where an npm package tarball should be extracted.
 /// Namespaced by the registry so the same name@version from different registries
 /// (e.g. public npmjs.org vs a private registry) do not collide.
@@ -327,6 +320,12 @@ fn extract_tarball_to_dir(tarball_bytes: &[u8], dest_dir: &Path, environment: &i
 fn extract_tarball_to_dir_inner(tarball_bytes: &[u8], output_dir: &Path, environment: &impl Environment) -> Result<()> {
   let decoder = GzDecoder::new(tarball_bytes);
   let mut archive = Archive::new(decoder);
+  // npm tarballs wrap every entry under a single top-level directory (usually
+  // "package/"). Lock in that wrapper from the first entry and reject any
+  // entry that doesn't share it, otherwise files outside the wrapper would
+  // be silently dropped.
+  let mut wrapper: Option<std::ffi::OsString> = None;
+  let mut files_written: usize = 0;
 
   for entry in archive.entries().context("Failed to read npm tarball entries")? {
     let mut entry = entry.context("Failed to read npm tarball entry")?;
@@ -345,11 +344,24 @@ fn extract_tarball_to_dir_inner(tarball_bytes: &[u8], output_dir: &Path, environ
 
     let path = entry.path().context("Failed to get entry path")?.to_path_buf();
 
-    // strip the first path component (usually "package" but can also be the package name)
     let mut components = path.components();
-    components.next(); // skip first component
-    let relative: PathBuf = components.collect();
+    let Some(first) = components.next() else {
+      continue;
+    };
+    let first_os = first.as_os_str().to_os_string();
+    match &wrapper {
+      None => wrapper = Some(first_os),
+      Some(existing) if existing == &first_os => {}
+      Some(existing) => {
+        bail!(
+          "Inconsistent npm tarball: expected all entries under '{}/' but found '{}'",
+          existing.to_string_lossy(),
+          path.display(),
+        );
+      }
+    }
 
+    let relative: PathBuf = components.collect();
     if relative.as_os_str().is_empty() {
       continue;
     }
@@ -375,6 +387,7 @@ fn extract_tarball_to_dir_inner(tarball_bytes: &[u8], output_dir: &Path, environ
     let mut bytes = Vec::new();
     std::io::Read::read_to_end(&mut entry, &mut bytes)?;
     environment.write_file_bytes(&dest_path, &bytes)?;
+    files_written += 1;
 
     // preserve executable permissions on unix
     #[cfg(unix)]
@@ -385,6 +398,10 @@ fn extract_tarball_to_dir_inner(tarball_bytes: &[u8], output_dir: &Path, environ
           .with_context(|| format!("Failed to set permissions on {}", dest_path.display()))?;
       }
     }
+  }
+
+  if files_written == 0 {
+    bail!("npm tarball contained no extractable files (expected at least one file under a wrapper directory)");
   }
 
   Ok(())
@@ -557,6 +574,37 @@ mod tests {
         assert_eq!(std::fs::read(dest.join("extra").join("data.bin")).unwrap(), b"extra-data");
         // the "package" prefix should be stripped
         assert!(!dest.join("package").exists());
+      })
+    });
+  }
+
+  #[test]
+  fn extract_tarball_rejects_inconsistent_wrapper() {
+    use crate::environment::RealEnvironment;
+    RealEnvironment::run_test_with_real_env(|env| {
+      Box::pin(async move {
+        let tarball = create_test_tarball(&[("package/plugin.wasm", b"wasm-bytes"), ("other/extra.bin", b"stray")]);
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("extracted");
+
+        let err = extract_tarball_to_dir(&tarball, &dest, &env).unwrap_err();
+        assert!(err.to_string().contains("Inconsistent npm tarball"), "got: {}", err);
+      })
+    });
+  }
+
+  #[test]
+  fn extract_tarball_rejects_root_only_entries() {
+    use crate::environment::RealEnvironment;
+    RealEnvironment::run_test_with_real_env(|env| {
+      Box::pin(async move {
+        // a single file with no wrapper directory — would have been silently dropped
+        let tarball = create_test_tarball(&[("plugin.wasm", b"wasm-bytes")]);
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("extracted");
+
+        let err = extract_tarball_to_dir(&tarball, &dest, &env).unwrap_err();
+        assert!(err.to_string().contains("no extractable files"), "got: {}", err);
       })
     });
   }
