@@ -65,7 +65,10 @@ where
       if let PathSource::Npm(npm_source) = &source_reference.path_source
         && let Some(version) = &npm_source.specifier.version
       {
-        let extract_dir = npm_resolution::get_npm_extract_dir(&npm_source.specifier.name, version, &self.environment);
+        let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
+        let registry = npm_resolution::get_registry_url(&npm_source.specifier.name, start_dir, &self.environment);
+        let registry_segment = npm_resolution::registry_dir_segment(&registry);
+        let extract_dir = npm_resolution::get_npm_extract_dir(&registry_segment, &npm_source.specifier.name, version, &self.environment);
         let _ = self.environment.remove_dir_all(&extract_dir);
       }
     }
@@ -364,11 +367,16 @@ impl<TEnvironment: Environment> ConcurrentPluginCacheManifest<TEnvironment> {
       }
       PathSource::Npm(npm_source) => {
         // only versioned npm specifiers use the npm cache key —
-        // unversioned specifiers resolve to local paths and use local: keys
+        // unversioned specifiers resolve to local paths and use local: keys.
+        // include the resolved registry so the same name@version from different
+        // registries (e.g. a private mirror via .npmrc) doesn't collide.
+        let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
+        let registry = npm_resolution::get_registry_url(&npm_source.specifier.name, start_dir, &self.environment);
         format!(
-          "npm:{}@{}",
+          "npm:{}#{}@{}",
+          registry,
           npm_source.specifier.name,
-          npm_source.specifier.version.as_deref().unwrap_or("latest")
+          npm_source.specifier.version.as_deref().unwrap_or("latest"),
         )
       }
     })
@@ -412,7 +420,7 @@ mod test {
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
       serde_json::json!({
-        "schemaVersion": 8,
+        "schemaVersion": 9,
         "wasmCacheVersion": WASMER_COMPILER_VERSION,
         "plugins": {
           "remote:https://plugins.dprint.dev/test.wasm": {
@@ -440,7 +448,7 @@ mod test {
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
       serde_json::json!({
-        "schemaVersion": 8,
+        "schemaVersion": 9,
         "wasmCacheVersion": WASMER_COMPILER_VERSION,
         "plugins": {}
       })
@@ -474,7 +482,7 @@ mod test {
 
     // should have saved the manifest
     let expected_text = serde_json::json!({
-      "schemaVersion": 8,
+      "schemaVersion": 9,
       "wasmCacheVersion": WASMER_COMPILER_VERSION,
       "plugins": {
         "local:/test.wasm": {
@@ -514,7 +522,7 @@ mod test {
     assert_eq!(file_path, expected_file_path);
 
     let expected_text = serde_json::json!({
-      "schemaVersion": 8,
+      "schemaVersion": 9,
       "wasmCacheVersion": WASMER_COMPILER_VERSION,
       "plugins": {
         "local:/test.wasm": {
@@ -547,7 +555,7 @@ mod test {
     assert_eq!(
       environment.read_file(&environment.get_cache_dir().join("plugin-cache-manifest.json")).unwrap(),
       serde_json::json!({
-        "schemaVersion": 8,
+        "schemaVersion": 9,
         "wasmCacheVersion": WASMER_COMPILER_VERSION,
         "plugins": {}
       })
@@ -578,7 +586,11 @@ mod test {
     };
 
     // seed the manifest and the on-disk artifacts as if a previous resolve had run
-    let extract_dir = environment.get_cache_dir().join("npm").join("@dprint__test@1.0.0");
+    let extract_dir = environment
+      .get_cache_dir()
+      .join("npm")
+      .join("registry.npmjs.org")
+      .join("@dprint__test@1.0.0");
     environment.mk_dir_all(&extract_dir).unwrap();
     environment.write_file(&extract_dir.join("plugin.wasm"), "fake").unwrap();
     let compiled_wasm_path = environment
@@ -610,6 +622,62 @@ mod test {
 
     assert_eq!(environment.path_exists(&extract_dir), false);
     assert_eq!(environment.path_exists(&compiled_wasm_path), false);
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn npm_cache_key_includes_registry() -> Result<()> {
+    use dprint_core::plugins::PluginInfo;
+
+    use crate::plugins::PluginCacheManifestItem;
+    use crate::utils::NpmSpecifier;
+
+    let environment = TestEnvironment::new();
+    let plugin_cache = PluginCache::new(environment.clone());
+
+    let plugin_source = PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "foo".to_string(),
+          version: Some("1.0.0".to_string()),
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+
+    let make_item = |name: &str| PluginCacheManifestItem {
+      created_time: 0,
+      file_hash: None,
+      plugin_kind: Some(PluginKind::Wasm),
+      info: PluginInfo {
+        name: name.to_string(),
+        version: "1.0.0".to_string(),
+        config_key: "test".to_string(),
+        help_url: "help".to_string(),
+        config_schema_url: "schema".to_string(),
+        update_url: None,
+      },
+    };
+
+    // entry resolved against the default registry
+    plugin_cache.manifest.add(&plugin_source.path_source, make_item("public-foo"))?;
+
+    // switching registries should produce a different key — the previous
+    // entry must not be visible, and we should be able to add a separate one
+    environment.set_env_var("NPM_CONFIG_REGISTRY", Some("https://private.example.com"));
+    assert!(plugin_cache.manifest.get(&plugin_source.path_source)?.is_none());
+
+    plugin_cache.manifest.add(&plugin_source.path_source, make_item("private-foo"))?;
+    let private = plugin_cache.manifest.get(&plugin_source.path_source)?.unwrap();
+    assert_eq!(private.info.name, "private-foo");
+
+    // switching back exposes the original entry again
+    environment.set_env_var("NPM_CONFIG_REGISTRY", None);
+    let public = plugin_cache.manifest.get(&plugin_source.path_source)?.unwrap();
+    assert_eq!(public.info.name, "public-foo");
+
     Ok(())
   }
 

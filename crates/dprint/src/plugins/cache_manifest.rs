@@ -10,7 +10,7 @@ use super::implementations::WASMER_COMPILER_VERSION;
 use crate::environment::Environment;
 use crate::utils::PluginKind;
 
-const PLUGIN_CACHE_SCHEMA_VERSION: usize = 8;
+const PLUGIN_CACHE_SCHEMA_VERSION: usize = 9;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -142,7 +142,7 @@ mod test {
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
         r#"{
-    "schemaVersion": 8,
+    "schemaVersion": 9,
     "wasmCacheVersion": "99.9.9",
     "plugins": {
         "a": {
@@ -246,7 +246,7 @@ mod test {
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
         r#"{
-    "schemaVersion": 8,
+    "schemaVersion": 9,
     "wasmCacheVersion": "0.1.0",
     "plugins": {
         "a": {
@@ -435,7 +435,7 @@ mod test {
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
         &serde_json::json!({
-          "schemaVersion": 8,
+          "schemaVersion": 9,
           "wasmCacheVersion": WASMER_COMPILER_VERSION,
           "plugins": {
             "remote:https://example.com/test.wasm": {

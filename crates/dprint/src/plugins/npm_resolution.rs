@@ -50,6 +50,7 @@ pub async fn resolve_npm_from_registry(
     .as_deref()
     .ok_or_else(|| anyhow::anyhow!("Cannot resolve npm plugin without a version from the registry"))?;
   let registry_url = get_registry_url(&specifier.name, start_dir, environment);
+  let registry_segment = registry_dir_segment(&registry_url);
 
   // fetch the packument to get the tarball URL
   let packument_url_str = get_packument_url(&registry_url, &specifier.name);
@@ -97,7 +98,7 @@ pub async fn resolve_npm_from_registry(
 
   // extract and read the plugin file in a blocking task since
   // tarball decompression and file I/O can be slow
-  let extract_dir = get_npm_extract_dir(&specifier.name, version, environment);
+  let extract_dir = get_npm_extract_dir(&registry_segment, &specifier.name, version, environment);
   let plugin_path = specifier.path.clone();
   let package_name = specifier.name.clone();
   let environment = environment.clone();
@@ -269,10 +270,27 @@ fn find_zip_in_package(package_dir: &Path, environment: &impl Environment) -> Re
 }
 
 /// Returns the directory where an npm package tarball should be extracted.
-pub(super) fn get_npm_extract_dir(package_name: &str, version: &str, environment: &impl Environment) -> PathBuf {
+/// Namespaced by the registry so the same name@version from different registries
+/// (e.g. public npmjs.org vs a private registry) do not collide.
+pub(super) fn get_npm_extract_dir(registry_segment: &str, package_name: &str, version: &str, environment: &impl Environment) -> PathBuf {
   // use a sanitized name for the directory (replace / with __)
   let dir_name = format!("{}@{}", package_name.replace('/', "__"), version);
-  environment.get_cache_dir().join("npm").join(dir_name)
+  environment.get_cache_dir().join("npm").join(registry_segment).join(dir_name)
+}
+
+/// Returns a filesystem- and key-safe segment identifying a registry by host
+/// (and port, if non-default). Falls back to "unknown" if the URL is unparseable.
+pub(super) fn registry_dir_segment(registry_url: &str) -> String {
+  let Ok(url) = url::Url::parse(registry_url) else {
+    return "unknown".to_string();
+  };
+  let Some(host) = url.host_str() else {
+    return "unknown".to_string();
+  };
+  match url.port() {
+    Some(port) => format!("{host}_{port}"),
+    None => host.to_string(),
+  }
 }
 
 /// Extracts an npm tarball to a directory on disk.
@@ -385,7 +403,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 /// 2. .npmrc files walking up from `start_dir`
 /// 3. ~/.npmrc
 /// 4. https://registry.npmjs.org
-fn get_registry_url(package_name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> String {
+pub(super) fn get_registry_url(package_name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> String {
   // env vars take precedence over .npmrc
   if let Some(registry) = environment.env_var("NPM_CONFIG_REGISTRY") {
     let registry = registry.to_string_lossy().to_string();
