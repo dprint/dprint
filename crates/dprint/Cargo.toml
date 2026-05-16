@@ -27,7 +27,7 @@ fs3 = "=0.5.0"
 ignore = "=0.4.23"
 indexmap.workspace = true
 ipnet = "2.11.0"
-jsonc-parser = { version = "=0.26.2", features = ["cst", "preserve_order"] }
+jsonc-parser = { version = "=0.32.4", features = ["cst", "preserve_order"] }
 once_cell = "=1.21.3"
 parking_lot = "=0.12.3"
 percent-encoding = "=2.3.1"
