@@ -119,9 +119,9 @@ Supported `npm:` specifier forms:
     "npm:@dprint/prettier@0.50.0/plugin.json@<sha256>",
 
     // resolve from your local node_modules, walking up from the config file
-    // (use this when npm/package-lock manages the version)
-    "npm:@dprint/typescript"
-  ]
+    // (use this when an npm package manger manages the version)
+    "npm:@dprint/json",
+  ],
 }
 ```
 

@@ -255,11 +255,7 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
 ///   `devDependencies` → keep unversioned (defer to npm/node_modules).
 /// - `npm:foo` (unversioned) otherwise → resolve `dist-tags.latest` and write
 ///   the pinned form, with checksum for non-wasm plugins.
-async fn resolve_npm_plugin_to_add<TEnvironment: Environment>(
-  text: &str,
-  config_path: &CanonicalizedPathBuf,
-  environment: &TEnvironment,
-) -> Result<String> {
+async fn resolve_npm_plugin_to_add<TEnvironment: Environment>(text: &str, config_path: &CanonicalizedPathBuf, environment: &TEnvironment) -> Result<String> {
   let parsed = crate::utils::parse_npm_specifier(text)?;
 
   if parsed.specifier.version.is_some() {
@@ -271,7 +267,11 @@ async fn resolve_npm_plugin_to_add<TEnvironment: Environment>(
   if let Some(dir) = start_dir_ref
     && is_in_package_json_deps(&parsed.specifier.name, dir, environment)
   {
-    log_stderr_info!(environment, "Found {} in package.json — adding unversioned npm specifier.", parsed.specifier.name);
+    log_stderr_info!(
+      environment,
+      "Found {} in package.json — adding unversioned npm specifier.",
+      parsed.specifier.name
+    );
     return Ok(parsed.specifier.display());
   }
 
@@ -583,7 +583,11 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
     if let PathSource::Npm(npm_source) = &plugin_reference.path_source {
       if npm_source.specifier.version.is_none() {
         // unversioned specifiers track node_modules — versions are managed by npm/package-lock
-        log_warn!(environment, "Skipping {} (unversioned npm specifier — update via your package manager).", plugin.info().name);
+        log_warn!(
+          environment,
+          "Skipping {} (unversioned npm specifier — update via your package manager).",
+          plugin.info().name
+        );
         return None;
       }
       let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
@@ -2191,7 +2195,9 @@ mod test {
     let environment = TestEnvironment::new();
     environment.write_file("/dprint.json", "{}").unwrap();
     let config_path = environment.canonicalize("/dprint.json").unwrap();
-    let result = super::resolve_npm_plugin_to_add("npm:@dprint/typescript@0.95.15", &config_path, &environment).await.unwrap();
+    let result = super::resolve_npm_plugin_to_add("npm:@dprint/typescript@0.95.15", &config_path, &environment)
+      .await
+      .unwrap();
     assert_eq!(result, "npm:@dprint/typescript@0.95.15");
   }
 
@@ -2199,9 +2205,13 @@ mod test {
   async fn npm_add_defers_to_devdep_when_present() {
     let environment = TestEnvironment::new();
     environment.write_file("/dprint.json", "{}").unwrap();
-    environment.write_file("/package.json", r#"{"devDependencies": {"@dprint/typescript": "^0.95.0"}}"#).unwrap();
+    environment
+      .write_file("/package.json", r#"{"devDependencies": {"@dprint/typescript": "^0.95.0"}}"#)
+      .unwrap();
     let config_path = environment.canonicalize("/dprint.json").unwrap();
-    let result = super::resolve_npm_plugin_to_add("npm:@dprint/typescript", &config_path, &environment).await.unwrap();
+    let result = super::resolve_npm_plugin_to_add("npm:@dprint/typescript", &config_path, &environment)
+      .await
+      .unwrap();
     assert_eq!(result, "npm:@dprint/typescript");
     let _ = environment.take_stderr_messages();
   }
@@ -2210,9 +2220,13 @@ mod test {
   async fn npm_add_defers_to_regular_dependency_when_present() {
     let environment = TestEnvironment::new();
     environment.write_file("/dprint.json", "{}").unwrap();
-    environment.write_file("/package.json", r#"{"dependencies": {"@dprint/typescript": "^0.95.0"}}"#).unwrap();
+    environment
+      .write_file("/package.json", r#"{"dependencies": {"@dprint/typescript": "^0.95.0"}}"#)
+      .unwrap();
     let config_path = environment.canonicalize("/dprint.json").unwrap();
-    let result = super::resolve_npm_plugin_to_add("npm:@dprint/typescript", &config_path, &environment).await.unwrap();
+    let result = super::resolve_npm_plugin_to_add("npm:@dprint/typescript", &config_path, &environment)
+      .await
+      .unwrap();
     assert_eq!(result, "npm:@dprint/typescript");
     let _ = environment.take_stderr_messages();
   }
@@ -2244,7 +2258,9 @@ mod test {
     let expected = crate::utils::get_sha256_checksum(&tarball_bytes);
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-2.0.0.tgz", tarball_bytes);
     let config_path = environment.canonicalize("/dprint.json").unwrap();
-    let result = super::resolve_npm_plugin_to_add("npm:foo/plugin.json", &config_path, &environment).await.unwrap();
+    let result = super::resolve_npm_plugin_to_add("npm:foo/plugin.json", &config_path, &environment)
+      .await
+      .unwrap();
     assert_eq!(result, format!("npm:foo@2.0.0/plugin.json@{}", expected));
   }
 }
