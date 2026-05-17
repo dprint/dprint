@@ -25,6 +25,12 @@ Adapter plugin that formats [many languages](https://prettier.io/docs/en/index.h
 
 Follow the instructions at [https://github.com/dprint/dprint-plugin-prettier/releases/](https://github.com/dprint/dprint-plugin-prettier/releases/)
 
+Or install from npm:
+
+```shellsession
+dprint add npm:@dprint/prettier
+```
+
 ## Configuration
 
 See Prettier's configuration [here](https://prettier.io/docs/en/options.html). Specify using the "API Override" column.

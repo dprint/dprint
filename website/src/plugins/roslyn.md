@@ -23,7 +23,24 @@ Adapter plugin that formats C# and Visual Basic code via [Roslyn](https://github
 
 ## Install and Setup
 
-Follow the instructions at [https://github.com/dprint/dprint-plugin-roslyn/releases/](https://github.com/dprint/dprint-plugin-roslyn/releases/)
+In your project's directory with a dprint.json file, run:
+
+```shellsession
+dprint add roslyn
+# or install from npm
+dprint add npm:@dprint/roslyn
+```
+
+This will update your config file to have an entry for the plugin. Then optionally specify a `"roslyn"` property to add configuration:
+
+```json
+{
+  "roslyn": {
+    // roslyn's config goes here
+  }
+  // etc...
+}
+```
 
 ## Configuration
 

@@ -105,7 +105,7 @@ To update configuration files in descendant directories, run `dprint config upda
 
 ### Using Plugins from npm
 
-Plugins can be referenced by npm specifier instead of URL. This is useful in environments where downloading from `plugins.dprint.dev`/GitHub releases is restricted, or when you're already using npm and want one place to manage versions.
+Plugins can be referenced by npm specifiers instead of HTTPS URLs. This is useful in environments where downloading from `plugins.dprint.dev` or other domains is restricted, or when you're already using npm and want one place to download dependencies from.
 
 Supported `npm:` specifier forms:
 
@@ -133,7 +133,7 @@ Behaviour:
 - `dprint config update` will bump versioned npm specifiers to the latest published version (and compute the new checksum for process plugins). Unversioned specifiers are managed by your package manager, so they're skipped.
 - `dprint add npm:@scope/name` resolves to the latest version and writes the pinned form, unless the package is listed in a nearby `package.json` under `devDependencies` — in which case the unversioned form is written so npm/`package-lock.json` stays the source of truth.
 
-Available npm packages include `@dprint/typescript`, `@dprint/json`, `@dprint/markdown`, `@dprint/toml`, `@dprint/dockerfile`, `@dprint/biome`, `@dprint/oxc`, `@dprint/ruff`, `@dprint/sql`, and `@dprint/mago`.
+Available npm packages include `@dprint/typescript`, `@dprint/json`, `@dprint/markdown`, `@dprint/toml`, `@dprint/dockerfile`, `@dprint/biome`, `@dprint/oxc`, `@dprint/ruff`, `@dprint/sql`, `@dprint/mago`, `@dprint/jupyter`, `@dprint/exec`, `@dprint/prettier`, and `@dprint/roslyn`.
 
 You can also reference a plugin file directly in `node_modules` if you prefer (`"./node_modules/@dprint/typescript/plugin.wasm"`); the `npm:` form just removes the need for that path.
 
