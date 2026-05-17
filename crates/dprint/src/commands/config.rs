@@ -173,6 +173,14 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<Option<String>> {
+  // intercept npm: specifiers before URL parsing. For unversioned forms,
+  // defer to package.json devDependencies if present (so npm/node_modules
+  // manages the version), otherwise resolve dist-tags.latest and compute
+  // the tarball checksum for process plugins. Url::parse would otherwise
+  // accept `npm:foo` as a valid URL and pass it through without pinning.
+  if plugin_name_or_url.starts_with("npm:") {
+    return Ok(Some(resolve_npm_plugin_to_add(plugin_name_or_url, config_path, environment).await?));
+  }
   match Url::parse(plugin_name_or_url) {
     Ok(url) => Ok(Some(url.to_string())),
     Err(_) => {
@@ -237,6 +245,75 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
       Ok(Some(plugin.full_url_no_wasm_checksum()))
     }
   }
+}
+
+/// Resolves an `npm:` specifier from `dprint add` into the string to write
+/// into the config's `plugins` array.
+///
+/// - `npm:foo@1.2.3[...]` (already versioned) → pass through verbatim.
+/// - `npm:foo` (unversioned) and the package is in a nearby `package.json`'s
+///   `devDependencies` → keep unversioned (defer to npm/node_modules).
+/// - `npm:foo` (unversioned) otherwise → resolve `dist-tags.latest` and write
+///   the pinned form, with checksum for non-wasm plugins.
+async fn resolve_npm_plugin_to_add<TEnvironment: Environment>(
+  text: &str,
+  config_path: &CanonicalizedPathBuf,
+  environment: &TEnvironment,
+) -> Result<String> {
+  let parsed = crate::utils::parse_npm_specifier(text)?;
+
+  if parsed.specifier.version.is_some() {
+    return Ok(text.to_string());
+  }
+
+  let start_dir = config_path.parent();
+  let start_dir_ref = start_dir.as_ref().map(|d| d.as_ref());
+  if let Some(dir) = start_dir_ref
+    && is_in_package_json_deps(&parsed.specifier.name, dir, environment)
+  {
+    log_stderr_info!(environment, "Found {} in package.json — adding unversioned npm specifier.", parsed.specifier.name);
+    return Ok(parsed.specifier.display());
+  }
+
+  let info = fetch_npm_latest_info(&parsed.specifier, start_dir_ref, environment).await?;
+  let pinned = crate::utils::NpmSpecifier {
+    name: parsed.specifier.name,
+    version: Some(info.version),
+    path: parsed.specifier.path,
+  };
+  let display = pinned.display();
+  Ok(match info.tarball_sha256 {
+    Some(checksum) => format!("{}@{}", display, checksum),
+    None => display,
+  })
+}
+
+/// Returns true if the first `package.json` found walking up from `start_dir`
+/// lists `package_name` under `dependencies` or `devDependencies`. Only the
+/// nearest package.json is consulted — we don't keep climbing into a monorepo
+/// root.
+fn is_in_package_json_deps<TEnvironment: Environment>(package_name: &str, start_dir: &std::path::Path, environment: &TEnvironment) -> bool {
+  use jsonc_parser::JsonValue;
+  use jsonc_parser::parse_to_value;
+
+  for dir in start_dir.ancestors() {
+    let pkg_path = dir.join("package.json");
+    let Ok(text) = environment.read_file(&pkg_path) else {
+      continue;
+    };
+    let Ok(Some(JsonValue::Object(obj))) = parse_to_value(&text, &Default::default()) else {
+      return false;
+    };
+    for field in ["dependencies", "devDependencies"] {
+      if let Some(JsonValue::Object(deps)) = obj.get(field)
+        && deps.get(package_name).is_some()
+      {
+        return true;
+      }
+    }
+    return false;
+  }
+  false
 }
 
 async fn get_possible_plugins_to_add<TEnvironment: Environment>(
@@ -2107,5 +2184,67 @@ mod test {
     let commands = environment.take_run_commands();
     let (args, _) = &commands[0];
     assert_eq!(args[args.len() - 1], "/custom.config.json");
+  }
+
+  #[tokio::test]
+  async fn npm_add_pinned_passes_through() {
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = super::resolve_npm_plugin_to_add("npm:@dprint/typescript@0.95.15", &config_path, &environment).await.unwrap();
+    assert_eq!(result, "npm:@dprint/typescript@0.95.15");
+  }
+
+  #[tokio::test]
+  async fn npm_add_defers_to_devdep_when_present() {
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    environment.write_file("/package.json", r#"{"devDependencies": {"@dprint/typescript": "^0.95.0"}}"#).unwrap();
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = super::resolve_npm_plugin_to_add("npm:@dprint/typescript", &config_path, &environment).await.unwrap();
+    assert_eq!(result, "npm:@dprint/typescript");
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[tokio::test]
+  async fn npm_add_defers_to_regular_dependency_when_present() {
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    environment.write_file("/package.json", r#"{"dependencies": {"@dprint/typescript": "^0.95.0"}}"#).unwrap();
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = super::resolve_npm_plugin_to_add("npm:@dprint/typescript", &config_path, &environment).await.unwrap();
+    assert_eq!(result, "npm:@dprint/typescript");
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[tokio::test]
+  async fn npm_add_resolves_latest_without_devdep() {
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "1.2.3" },
+      "versions": { "1.2.3": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.2.3.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = super::resolve_npm_plugin_to_add("npm:foo", &config_path, &environment).await.unwrap();
+    assert_eq!(result, "npm:foo@1.2.3");
+  }
+
+  #[tokio::test]
+  async fn npm_add_resolves_latest_with_checksum_for_process_plugin() {
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "2.0.0" },
+      "versions": { "2.0.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-2.0.0.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    let tarball_bytes = vec![9u8, 8, 7, 6];
+    let expected = crate::utils::get_sha256_checksum(&tarball_bytes);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-2.0.0.tgz", tarball_bytes);
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = super::resolve_npm_plugin_to_add("npm:foo/plugin.json", &config_path, &environment).await.unwrap();
+    assert_eq!(result, format!("npm:foo@2.0.0/plugin.json@{}", expected));
   }
 }
