@@ -119,41 +119,41 @@ pub fn cleanup_process_plugin(plugin_info: &PluginInfo, environment: &impl Envir
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct ProcessPluginFile {
-  schema_version: u32,
-  name: String,
-  version: String,
+pub(crate) struct ProcessPluginFile {
+  pub schema_version: u32,
+  pub name: String,
+  pub version: String,
   #[serde(rename = "linux-x86_64")]
-  linux_x86_64: Option<ProcessPluginPath>,
+  pub linux_x86_64: Option<ProcessPluginPath>,
   #[serde(rename = "linux-x86_64-musl")]
-  linux_x86_64_musl: Option<ProcessPluginPath>,
+  pub linux_x86_64_musl: Option<ProcessPluginPath>,
   #[serde(rename = "linux-aarch64")]
-  linux_aarch64: Option<ProcessPluginPath>,
+  pub linux_aarch64: Option<ProcessPluginPath>,
   #[serde(rename = "linux-aarch64-musl")]
-  linux_aarch64_musl: Option<ProcessPluginPath>,
+  pub linux_aarch64_musl: Option<ProcessPluginPath>,
   #[serde(rename = "linux-riscv64")]
-  linux_riscv64: Option<ProcessPluginPath>,
+  pub linux_riscv64: Option<ProcessPluginPath>,
   #[serde(rename = "linux-riscv64-musl")]
-  linux_riscv64_musl: Option<ProcessPluginPath>,
+  pub linux_riscv64_musl: Option<ProcessPluginPath>,
   #[serde(rename = "linux-loongarch64")]
-  linux_loongarch64: Option<ProcessPluginPath>,
+  pub linux_loongarch64: Option<ProcessPluginPath>,
   #[serde(rename = "linux-loongarch64-musl")]
-  linux_loongarch64_musl: Option<ProcessPluginPath>,
+  pub linux_loongarch64_musl: Option<ProcessPluginPath>,
   #[serde(rename = "darwin-x86_64")]
-  darwin_x86_64: Option<ProcessPluginPath>,
+  pub darwin_x86_64: Option<ProcessPluginPath>,
   #[serde(rename = "darwin-aarch64")]
-  darwin_aarch64: Option<ProcessPluginPath>,
+  pub darwin_aarch64: Option<ProcessPluginPath>,
   #[serde(rename = "windows-x86_64")]
-  windows_x64_64: Option<ProcessPluginPath>,
+  pub windows_x64_64: Option<ProcessPluginPath>,
   #[serde(rename = "windows-aarch64")]
-  windows_aarch64: Option<ProcessPluginPath>,
+  pub windows_aarch64: Option<ProcessPluginPath>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct ProcessPluginPath {
-  reference: String,
-  checksum: String,
+pub(crate) struct ProcessPluginPath {
+  pub reference: String,
+  pub checksum: String,
 }
 
 struct ProcessPluginZipBytes {
@@ -167,7 +167,7 @@ async fn get_plugin_zip_bytes<TEnvironment: Environment>(
   plugin_file_bytes: &[u8],
   environment: &TEnvironment,
 ) -> Result<ProcessPluginZipBytes> {
-  let plugin_file = deserialize_file(plugin_file_bytes)?;
+  let plugin_file = parse_process_plugin_file(plugin_file_bytes)?;
   let plugin_path = get_os_path(&plugin_file, environment)?;
   let plugin_zip_path = resolve_url_or_file_path_to_path_source(&plugin_path.reference, &url_or_file_path.parent(), environment)?;
   let plugin_zip_bytes = fetch_file_or_url_bytes(&plugin_zip_path, environment).await?;
@@ -189,7 +189,7 @@ async fn get_plugin_zip_bytes<TEnvironment: Environment>(
   })
 }
 
-fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
+pub(crate) fn parse_process_plugin_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
   let plugin_file: Value = match serde_json::from_slice(bytes) {
     Ok(plugin_file) => plugin_file,
     Err(err) => bail!(
@@ -223,7 +223,7 @@ fn verify_plugin_file(plugin_file: &Value) -> Result<()> {
   Ok(())
 }
 
-fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Environment) -> Result<&'a ProcessPluginPath> {
+pub(crate) fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Environment) -> Result<&'a ProcessPluginPath> {
   let arch = environment.cpu_arch();
   let os = environment.os();
   let path = match os.as_str() {

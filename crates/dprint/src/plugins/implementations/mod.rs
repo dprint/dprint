@@ -8,6 +8,8 @@ pub use wasm::WASMER_COMPILER_VERSION;
 pub use wasm::WasmModuleCreator;
 pub use wasm::compile as compile_wasm;
 
+pub(crate) use process::{get_os_path as get_process_plugin_os_path, parse_process_plugin_file};
+
 #[cfg(test)]
 mod test {
   use std::path::PathBuf;

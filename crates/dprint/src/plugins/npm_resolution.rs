@@ -229,27 +229,22 @@ pub fn find_npm_plugin_local_path(specifier: &NpmSpecifier, config_dir: &Path, e
 }
 
 /// Reads a process plugin manifest (plugin.json), finds the platform-specific
-/// reference, and if it's an npm specifier, resolves it from node_modules.
+/// reference (with the same aarch64→x86_64 fallback the HTTPS path uses),
+/// and resolves it from node_modules.
 fn resolve_process_plugin_dep_from_node_modules(plugin_json_bytes: &[u8], config_dir: &Path, environment: &impl Environment) -> Result<ProcessPluginZipBytes> {
-  let plugin_file: serde_json::Value = serde_json::from_slice(plugin_json_bytes).context("Failed to parse process plugin manifest (plugin.json)")?;
-  let name = plugin_file
-    .get("name")
-    .and_then(|v| v.as_str())
-    .ok_or_else(|| anyhow::anyhow!("Missing 'name' in plugin.json"))?
-    .to_string();
-  let version = plugin_file
-    .get("version")
-    .and_then(|v| v.as_str())
-    .ok_or_else(|| anyhow::anyhow!("Missing 'version' in plugin.json"))?
-    .to_string();
+  use crate::plugins::implementations::{get_process_plugin_os_path, parse_process_plugin_file};
 
-  let (reference, checksum) = get_os_reference_and_checksum(&plugin_file, environment)?;
+  let plugin_file = parse_process_plugin_file(plugin_json_bytes).context("Failed to parse process plugin manifest (plugin.json)")?;
+  let os_path = get_process_plugin_os_path(&plugin_file, environment)?;
 
   // parse as npm specifier — use the package name for node_modules resolution
-  if !reference.starts_with("npm:") {
-    bail!("Expected an npm: reference in plugin.json for node_modules resolution, but got: {}", reference);
+  if !os_path.reference.starts_with("npm:") {
+    bail!(
+      "Expected an npm: reference in plugin.json for node_modules resolution, but got: {}",
+      os_path.reference,
+    );
   }
-  let parsed = crate::utils::parse_npm_specifier(&reference)?;
+  let parsed = crate::utils::parse_npm_specifier(&os_path.reference)?;
   let dep_name = &parsed.specifier.name;
 
   let dep_dir = find_package_in_node_modules(dep_name, config_dir, environment)?;
@@ -269,62 +264,18 @@ fn resolve_process_plugin_dep_from_node_modules(plugin_json_bytes: &[u8], config
     .read_file_bytes(&zip_path)
     .with_context(|| format!("Failed to read {}", zip_path.display()))?;
 
-  verify_sha256_checksum(&zip_bytes, &checksum).with_context(|| {
+  verify_sha256_checksum(&zip_bytes, &os_path.checksum).with_context(|| {
     format!(
       "Invalid checksum for process plugin dependency '{}'. This is likely a bug in the process plugin.",
       dep_name,
     )
   })?;
 
-  Ok(ProcessPluginZipBytes { name, version, zip_bytes })
-}
-
-fn get_os_reference_and_checksum(plugin_file: &serde_json::Value, environment: &impl Environment) -> Result<(String, String)> {
-  let arch = environment.cpu_arch();
-  let os = environment.os();
-  let key = match os.as_str() {
-    "linux" => match arch.as_str() {
-      "x86_64" => "linux-x86_64",
-      "aarch64" => "linux-aarch64",
-      "riscv64" => "linux-riscv64",
-      "loongarch64" => "linux-loongarch64",
-      _ => bail!("Unsupported CPU architecture: {} ({})", arch, os),
-    },
-    "linux-musl" => match arch.as_str() {
-      "x86_64" => "linux-x86_64-musl",
-      "aarch64" => "linux-aarch64-musl",
-      "riscv64" => "linux-riscv64-musl",
-      "loongarch64" => "linux-loongarch64-musl",
-      _ => bail!("Unsupported CPU architecture: {} ({})", arch, os),
-    },
-    "macos" => match arch.as_str() {
-      "x86_64" => "darwin-x86_64",
-      "aarch64" => "darwin-aarch64",
-      _ => bail!("Unsupported CPU architecture: {} ({})", arch, os),
-    },
-    "windows" => match arch.as_str() {
-      "x86_64" => "windows-x86_64",
-      "aarch64" => "windows-aarch64",
-      _ => bail!("Unsupported CPU architecture: {} ({})", arch, os),
-    },
-    _ => bail!("Unsupported operating system: {}", os),
-  };
-
-  let entry = plugin_file
-    .get(key)
-    .and_then(|v| v.as_object())
-    .ok_or_else(|| anyhow::anyhow!("No entry for platform '{}' in plugin.json", key))?;
-  let reference = entry
-    .get("reference")
-    .and_then(|v| v.as_str())
-    .ok_or_else(|| anyhow::anyhow!("Missing 'reference' for platform '{}' in plugin.json", key))?
-    .to_string();
-  let checksum = entry
-    .get("checksum")
-    .and_then(|v| v.as_str())
-    .ok_or_else(|| anyhow::anyhow!("Missing 'checksum' for platform '{}' in plugin.json", key))?
-    .to_string();
-  Ok((reference, checksum))
+  Ok(ProcessPluginZipBytes {
+    name: plugin_file.name,
+    version: plugin_file.version,
+    zip_bytes,
+  })
 }
 
 /// Finds a .zip file in the given package directory.
@@ -931,6 +882,105 @@ mod tests {
     assert_eq!(environment.take_remote_file_auth("https://private.example.com/foo").as_deref(), Some("Bearer SECRET"));
     // tarball request is to a different origin — no credentials leak
     assert_eq!(environment.take_remote_file_auth("https://cdn.example.net/foo-1.0.0.tgz"), None);
+  }
+
+  #[tokio::test]
+  async fn resolve_npm_from_node_modules_process_plugin_aarch64_falls_back_to_x86_64() {
+    // a process plugin manifest that only ships linux-x86_64 should still
+    // resolve on linux/aarch64 — matches the HTTPS path's behavior.
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.set_os("linux");
+    environment.set_cpu_arch("aarch64");
+
+    // the platform-specific zip (referenced by the manifest)
+    let zip_bytes = b"fake-zip-contents";
+    let zip_checksum = get_sha256_checksum(zip_bytes);
+    environment.mk_dir_all("/node_modules/foo-linux-x86_64").unwrap();
+    environment.write_file_bytes("/node_modules/foo-linux-x86_64/plugin.zip", zip_bytes).unwrap();
+
+    // the manifest only lists linux-x86_64; the aarch64 host should still resolve it
+    let manifest = serde_json::json!({
+      "schemaVersion": 2,
+      "name": "foo",
+      "version": "1.0.0",
+      "linux-x86_64": {
+        "reference": "npm:foo-linux-x86_64@1.0.0/plugin.zip",
+        "checksum": zip_checksum,
+      },
+    });
+    environment.mk_dir_all("/node_modules/foo").unwrap();
+    environment
+      .write_file("/node_modules/foo/plugin.json", &manifest.to_string())
+      .unwrap();
+
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: None,
+      path: "plugin.json".to_string(),
+    };
+    let resolved = resolve_npm_from_node_modules(&specifier, std::path::Path::new("/"), &environment).unwrap();
+    let zip = resolved.pre_resolved_zip.expect("process plugin should have a pre-resolved zip");
+    assert_eq!(zip.name, "foo");
+    assert_eq!(zip.version, "1.0.0");
+    assert_eq!(zip.zip_bytes, zip_bytes);
+  }
+
+  #[tokio::test]
+  async fn resolve_npm_from_node_modules_process_plugin_rejects_bad_schema_version() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    let manifest = serde_json::json!({
+      "schemaVersion": 1,
+      "name": "foo",
+      "version": "1.0.0",
+    });
+    environment.mk_dir_all("/node_modules/foo").unwrap();
+    environment
+      .write_file("/node_modules/foo/plugin.json", &manifest.to_string())
+      .unwrap();
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: None,
+      path: "plugin.json".to_string(),
+    };
+    let err = match resolve_npm_from_node_modules(&specifier, std::path::Path::new("/"), &environment) {
+      Ok(_) => panic!("expected an error"),
+      Err(e) => e,
+    };
+    assert!(
+      err.to_string().contains("schema version") || format!("{err:#}").contains("schema version"),
+      "expected schema-version error, got: {err:#}"
+    );
+  }
+
+  #[tokio::test]
+  async fn resolve_npm_from_node_modules_process_plugin_rejects_non_process_kind() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    let manifest = serde_json::json!({
+      "schemaVersion": 2,
+      "kind": "other",
+      "name": "foo",
+      "version": "1.0.0",
+    });
+    environment.mk_dir_all("/node_modules/foo").unwrap();
+    environment
+      .write_file("/node_modules/foo/plugin.json", &manifest.to_string())
+      .unwrap();
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: None,
+      path: "plugin.json".to_string(),
+    };
+    let err = match resolve_npm_from_node_modules(&specifier, std::path::Path::new("/"), &environment) {
+      Ok(_) => panic!("expected an error"),
+      Err(e) => e,
+    };
+    assert!(
+      format!("{err:#}").contains("Unsupported plugin kind: other"),
+      "expected unsupported-kind error, got: {err:#}"
+    );
   }
 
   #[cfg(unix)]
