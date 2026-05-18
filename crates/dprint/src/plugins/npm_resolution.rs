@@ -509,10 +509,10 @@ pub fn resolve_registry_for_package(package_name: &str, start_dir: Option<&Path>
   }
 
   // user-level ~/.npmrc
-  if let Some(home_dir) = environment.get_home_dir() {
-    if let Some(info) = resolve_registry_from_npmrc(package_name, &home_dir.join(".npmrc"), environment) {
-      return info;
-    }
+  if let Some(home_dir) = environment.get_home_dir()
+    && let Some(info) = resolve_registry_from_npmrc(package_name, &home_dir.join(".npmrc"), environment)
+  {
+    return info;
   }
 
   NpmRegistryResolution {

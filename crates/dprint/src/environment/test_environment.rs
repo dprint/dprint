@@ -763,19 +763,3 @@ impl Environment for TestEnvironment {
   }
 }
 
-fn copy_dir_recursive(env: &TestEnvironment, from: &Path, to: &Path) -> io::Result<()> {
-  env.sys.fs_create_dir_all(to)?;
-  for entry in env.sys.fs_read_dir(from)? {
-    let entry = entry?;
-    let entry_path = entry.path().to_path_buf();
-    let file_name = entry_path.file_name().expect("dir entry has a file name");
-    let dest = to.join(file_name);
-    if entry.file_type()?.is_dir() {
-      copy_dir_recursive(env, &entry_path, &dest)?;
-    } else {
-      let bytes = env.sys.fs_read(&entry_path)?;
-      env.sys.fs_write(&dest, bytes.as_ref())?;
-    }
-  }
-  Ok(())
-}

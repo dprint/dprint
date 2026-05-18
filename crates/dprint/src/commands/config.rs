@@ -660,9 +660,19 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
   }
 
   let config_file_plugins = get_config_file_plugins(plugin_resolver, plugins).await;
-  let mut final_infos = Vec::with_capacity(config_file_plugins.len());
-  for (plugin_reference, plugin_result) in config_file_plugins {
-    let maybe_info = resolve_plugin_update_info(environment, plugin_reference, plugin_result).await;
+  // run each plugin's latest-info lookup in parallel — the network round-trip
+  // dominates and serializing them multiplies latency by the plugin count
+  let tasks = config_file_plugins
+    .into_iter()
+    .map(|(plugin_reference, plugin_result)| {
+      let environment = environment.clone();
+      dprint_core::async_runtime::spawn(async move { resolve_plugin_update_info(&environment, plugin_reference, plugin_result).await })
+    })
+    .collect::<Vec<_>>();
+
+  let mut final_infos = Vec::with_capacity(tasks.len());
+  for result in future::join_all(tasks).await {
+    let maybe_info = result.unwrap();
     if let Some(info) = maybe_info
       && info.as_ref().ok().map(|info| info.old_version != info.new_version).unwrap_or(true)
     {

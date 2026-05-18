@@ -78,9 +78,9 @@ pub fn parse_npm_specifier(text: &str) -> Result<ParsedNpmSpecifier> {
   }
 
   // after_name starts with '@' (version separator) or '/' (path)
-  if after_name.starts_with('/') {
+  if let Some(rest) = after_name.strip_prefix('/') {
     // no version, just a path: npm:@scope/name/plugin.json
-    let (path, checksum) = parse_path_and_checksum(&after_name[1..], text)?;
+    let (path, checksum) = parse_path_and_checksum(rest, text)?;
     return Ok(ParsedNpmSpecifier {
       specifier: NpmSpecifier { name, version: None, path },
       checksum,
@@ -107,9 +107,9 @@ pub fn parse_npm_specifier(text: &str) -> Result<ParsedNpmSpecifier> {
     });
   }
 
-  if remainder.starts_with('/') {
+  if let Some(rest) = remainder.strip_prefix('/') {
     // version followed by path: npm:@scope/name@version/plugin.json[@checksum]
-    let (path, checksum) = parse_path_and_checksum(&remainder[1..], text)?;
+    let (path, checksum) = parse_path_and_checksum(rest, text)?;
     return Ok(ParsedNpmSpecifier {
       specifier: NpmSpecifier {
         name,
@@ -120,9 +120,8 @@ pub fn parse_npm_specifier(text: &str) -> Result<ParsedNpmSpecifier> {
     });
   }
 
-  if remainder.starts_with('@') {
+  if let Some(checksum) = remainder.strip_prefix('@') {
     // version followed by checksum (no path): npm:@scope/name@version@checksum
-    let checksum = &remainder[1..];
     if checksum.is_empty() {
       bail!("Expected a checksum after '@' in npm specifier: {}", text);
     }
@@ -183,7 +182,7 @@ fn parse_package_name<'a>(rest: &'a str, original: &str) -> Result<(String, &'a 
     }
     // the name ends at the next '@' or '/' or end of string
     // for scoped packages, the second '/' is the path separator
-    match after_slash.find(|c| c == '@' || c == '/') {
+    match after_slash.find(['@', '/']) {
       Some(idx) => {
         let name_end = slash_idx + 1 + idx;
         Ok((rest[..name_end].to_string(), &rest[name_end..]))
@@ -192,7 +191,7 @@ fn parse_package_name<'a>(rest: &'a str, original: &str) -> Result<(String, &'a 
     }
   } else {
     // unscoped package: name ends at '@' or '/'
-    match rest.find(|c| c == '@' || c == '/') {
+    match rest.find(['@', '/']) {
       Some(idx) => Ok((rest[..idx].to_string(), &rest[idx..])),
       None => Ok((rest.to_string(), "")),
     }
