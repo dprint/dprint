@@ -32,6 +32,7 @@ The setup for both is the same except process plugins require a checksum to be s
 - [Ruff](/plugins/ruff) (Python)
 - [Jupyter](/plugins/jupyter)
 - [Gofumpt](/plugins/gofumpt) (Go)
+- [SQL](/plugins/sql)
 
 ## Process Plugins
 
