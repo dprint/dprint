@@ -159,8 +159,9 @@ pub async fn resolve_npm_from_registry(
   let extract_dir = get_npm_extract_dir(&registry_segment, &specifier.name, version, environment);
   let plugin_path = specifier.path.clone();
   let package_name = specifier.name.clone();
-  let environment = environment.clone();
+  let environment_clone = environment.clone();
   let (plugin_bytes, local_path) = dprint_core::async_runtime::spawn_blocking(move || -> Result<_> {
+    let environment = environment_clone;
     extract_tarball_to_dir(&tarball_bytes, &extract_dir, &environment)?;
 
     let plugin_file_path = extract_dir.join(&plugin_path);
@@ -179,6 +180,13 @@ pub async fn resolve_npm_from_registry(
   })
   .await??;
 
+  // process plugins shipped via the npm registry mustn't silently fetch their
+  // platform binary over http(s) at format time. file/relative references
+  // resolve against the extract dir via the standard setup flow.
+  if plugin_kind == PluginKind::Process {
+    reject_http_reference_in_process_plugin_manifest(&plugin_bytes, environment)?;
+  }
+
   Ok(NpmResolvedPlugin {
     plugin_bytes,
     plugin_kind,
@@ -196,11 +204,12 @@ pub fn resolve_npm_from_node_modules(specifier: &NpmSpecifier, config_dir: &Path
     .with_context(|| format!("Failed to read {}", canonical.display()))?;
 
   // for process plugins whose manifest references the platform binary via
-  // `npm:`, look it up alongside the plugin in node_modules. For any other
-  // reference style (relative path, `file:///`, `https://`) fall through to
-  // the standard setup_process_plugin flow, which resolves against the
-  // plugin.json's directory — so a self-contained npm package can ship
-  // `plugin.json` + `bin.zip` side-by-side and reference `./bin.zip`.
+  // `npm:`, look it up alongside the plugin in node_modules. For relative
+  // paths and `file:///` URLs, fall through to the standard
+  // setup_process_plugin flow, which resolves against the plugin.json's
+  // directory — so a self-contained npm package can ship `plugin.json` +
+  // `bin.zip` side-by-side. `http(s)://` references are rejected: if the
+  // plugin came from npm, the user shouldn't get a surprise network fetch.
   let pre_resolved_zip = if specifier.plugin_kind() == PluginKind::Process {
     try_resolve_process_plugin_dep_from_node_modules(&plugin_bytes, config_dir, environment)?
   } else {
@@ -248,8 +257,12 @@ fn try_resolve_process_plugin_dep_from_node_modules(
   let os_path = get_process_plugin_os_path(&plugin_file, environment)?;
 
   if !os_path.reference.starts_with("npm:") {
-    // not an npm reference — let the caller resolve via the standard flow
-    // (`./bin.zip` against the plugin.json directory, file://, https://, etc.)
+    // not an npm reference — only relative paths and `file:///` URLs are
+    // allowed for npm-installed process plugins. `http(s)://` is rejected
+    // so an npm-installed plugin can't silently fetch from the network.
+    bail_if_http_reference(&plugin_file.name, &os_path.reference)?;
+    // relative path or `file:///` — let the caller resolve via the standard
+    // flow against the plugin.json's directory in node_modules
     return Ok(None);
   }
 
@@ -285,6 +298,34 @@ fn try_resolve_process_plugin_dep_from_node_modules(
     version: plugin_file.version,
     zip_bytes,
   }))
+}
+
+/// Used by the npm-registry path. Parses plugin.json, looks up the per-platform
+/// reference, and errors if it points at an `http(s)://` URL — npm-installed
+/// process plugins shouldn't silently fetch their binary from the network.
+fn reject_http_reference_in_process_plugin_manifest(plugin_json_bytes: &[u8], environment: &impl Environment) -> Result<()> {
+  use crate::plugins::implementations::get_process_plugin_os_path;
+  use crate::plugins::implementations::parse_process_plugin_file;
+
+  let plugin_file = parse_process_plugin_file(plugin_json_bytes).context("Failed to parse process plugin manifest (plugin.json)")?;
+  let os_path = get_process_plugin_os_path(&plugin_file, environment)?;
+  bail_if_http_reference(&plugin_file.name, &os_path.reference)
+}
+
+fn bail_if_http_reference(plugin_name: &str, reference: &str) -> Result<()> {
+  let scheme = url::Url::parse(reference).ok().map(|u| u.scheme().to_string());
+  if matches!(scheme.as_deref(), Some("http" | "https")) {
+    bail!(
+      concat!(
+        "Process plugin '{}' was installed via npm but its plugin.json references the platform ",
+        "binary over the network ({}). Network references aren't allowed for npm-installed plugins; ",
+        "the plugin author needs to ship the binary inside the npm package or as a separate npm package.",
+      ),
+      plugin_name,
+      reference,
+    );
+  }
+  Ok(())
 }
 
 /// Finds a .zip file in the given package directory.
@@ -970,6 +1011,40 @@ mod tests {
       err.to_string().contains("schema version") || format!("{err:#}").contains("schema version"),
       "expected schema-version error, got: {err:#}"
     );
+  }
+
+  #[tokio::test]
+  async fn resolve_npm_from_node_modules_process_plugin_rejects_https_reference() {
+    // an npm-installed process plugin can't reference its platform binary
+    // over the network — the whole point of installing via npm is to avoid
+    // surprise HTTP fetches at format time.
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.set_os("linux");
+    environment.set_cpu_arch("x86_64");
+    let manifest = serde_json::json!({
+      "schemaVersion": 2,
+      "name": "foo",
+      "version": "1.0.0",
+      "linux-x86_64": {
+        "reference": "https://example.com/foo-linux-x86_64.zip",
+        "checksum": "deadbeef",
+      },
+    });
+    environment.mk_dir_all("/node_modules/foo").unwrap();
+    environment.write_file("/node_modules/foo/plugin.json", &manifest.to_string()).unwrap();
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: None,
+      path: "plugin.json".to_string(),
+    };
+    let err = match resolve_npm_from_node_modules(&specifier, std::path::Path::new("/"), &environment) {
+      Ok(_) => panic!("expected an error"),
+      Err(e) => e,
+    };
+    let msg = format!("{err:#}");
+    assert!(msg.contains("Network references aren't allowed"), "got: {msg}");
+    assert!(msg.contains("https://example.com/foo-linux-x86_64.zip"), "got: {msg}");
   }
 
   #[tokio::test]

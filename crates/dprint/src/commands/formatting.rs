@@ -2751,19 +2751,33 @@ mod test {
 
   #[test]
   fn should_format_with_versioned_npm_process_plugin() {
+    // a self-contained npm-published process plugin: the npm tarball ships
+    // both `plugin.json` and `bin.zip`; the manifest references the zip with
+    // a relative path that resolves against the extracted package dir.
     use crate::test_helpers::PROCESS_PLUGIN_ZIP_BYTES;
-    use crate::test_helpers::TestProcessPluginFile;
     use crate::test_helpers::create_test_npm_tarball;
     use crate::utils::get_sha256_checksum;
 
-    // a regular process-plugin manifest whose per-platform `reference` is the
-    // existing test zip URL; the manifest is shipped *inside* the npm tarball
-    let plugin_file = TestProcessPluginFile::default();
-    let tarball = create_test_npm_tarball(&[("package/plugin.json", plugin_file.text().as_bytes())]);
+    let zip_bytes: &[u8] = &PROCESS_PLUGIN_ZIP_BYTES;
+    let zip_checksum = get_sha256_checksum(zip_bytes);
+    let plugin_json = format!(
+      r#"{{
+  "schemaVersion": 2,
+  "name": "test-process-plugin",
+  "version": "0.1.0",
+  "linux-x86_64":    {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "linux-aarch64":   {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "darwin-x86_64":   {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "darwin-aarch64":  {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "windows-x86_64":  {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "windows-aarch64": {{ "reference": "./bin.zip", "checksum": "{0}" }}
+}}"#,
+      zip_checksum
+    );
+    let tarball = create_test_npm_tarball(&[("package/plugin.json", plugin_json.as_bytes()), ("package/bin.zip", zip_bytes)]);
     let tarball_checksum = get_sha256_checksum(&tarball);
 
     let environment = TestEnvironmentBuilder::new()
-      .add_remote_process_plugin() // makes the platform-zip URL resolvable
       .with_local_config("/dprint.json", |c| {
         c.add_plugin(&format!("npm:test-process@1.0.0/plugin.json@{}", tarball_checksum));
       })
@@ -2777,17 +2791,49 @@ mod test {
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/test-process", packument.to_string().into_bytes());
     environment.add_remote_file_bytes("https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz", tarball);
-    // ensure the per-platform zip exists for any os/arch the env reports
-    environment.add_remote_file_bytes(
-      "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
-      PROCESS_PLUGIN_ZIP_BYTES.to_vec(),
-    );
 
     run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_formatted_process");
 
     let _ = environment.take_stderr_messages(); // drain process-plugin extract progress
+  }
+
+  #[test]
+  fn should_reject_versioned_npm_process_plugin_with_https_reference() {
+    // mirror of the test above, except the manifest references the platform
+    // binary over the network — must be rejected before any http fetch.
+    use crate::test_helpers::TestProcessPluginFile;
+    use crate::test_helpers::create_test_npm_tarball;
+    use crate::utils::get_sha256_checksum;
+
+    let plugin_file = TestProcessPluginFile::default(); // uses an https:// reference
+    let tarball = create_test_npm_tarball(&[("package/plugin.json", plugin_file.text().as_bytes())]);
+    let tarball_checksum = get_sha256_checksum(&tarball);
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin(&format!("npm:test-process@1.0.0/plugin.json@{}", tarball_checksum));
+      })
+      .write_file("/file.txt_ps", "text")
+      .build();
+
+    let packument = serde_json::json!({
+      "versions": {
+        "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz" } }
+      }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process", packument.to_string().into_bytes());
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz", tarball);
+
+    let err = run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).err().expect("expected an error");
+    err.assert_exit_code(12);
+    let msg = format!("{err:#}");
+    assert!(msg.contains("Network references aren't allowed"), "got: {msg}");
+    // file should not have been formatted
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text");
+
+    let _ = environment.take_stderr_messages();
   }
 
   #[test]
