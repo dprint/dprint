@@ -78,8 +78,9 @@ pub async fn fetch_npm_latest_info(specifier: &NpmSpecifier, start_dir: Option<&
   let tarball_sha256 = if specifier.plugin_kind() != PluginKind::Wasm {
     let tarball_url_str = get_tarball_url_from_packument(&packument, &latest_version, &specifier.name)?;
     let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
+    let tarball_auth = same_origin_auth(&packument_url, &tarball_url, registry.auth_header.as_deref());
     let (_, tarball_file) = environment
-      .download_file_with_auth_err_404(&tarball_url, registry.auth_header.as_deref())
+      .download_file_with_auth_err_404(&tarball_url, tarball_auth)
       .await
       .with_context(|| format!("Failed to download npm tarball for {}@{}", specifier.name, latest_version))?;
     Some(get_sha256_checksum(&tarball_file.content))
@@ -122,9 +123,11 @@ pub async fn resolve_npm_from_registry(
   let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
   log_debug!(environment, "Downloading npm tarball: {}", tarball_url);
 
-  // download the tarball
+  // download the tarball — only send the registry auth if the tarball is on
+  // the same origin as the registry (don't leak credentials to a CDN)
+  let tarball_auth = same_origin_auth(&packument_url, &tarball_url, registry.auth_header.as_deref());
   let (_, tarball_file) = environment
-    .download_file_with_auth_err_404(&tarball_url, registry.auth_header.as_deref())
+    .download_file_with_auth_err_404(&tarball_url, tarball_auth)
     .await
     .with_context(|| format!("Failed to download npm tarball for {}@{}", specifier.name, version))?;
   let tarball_bytes = tarball_file.content;
@@ -566,6 +569,14 @@ fn compute_auth_header(config: &RegistryConfig) -> Option<String> {
   None
 }
 
+/// Returns `auth` only when `other` shares an origin (scheme + host + port)
+/// with `registry`. Tarballs/packuments sometimes live on a CDN; the registry
+/// credentials must not be sent there.
+fn same_origin_auth<'a>(registry: &url::Url, other: &url::Url, auth: Option<&'a str>) -> Option<&'a str> {
+  let same = registry.scheme() == other.scheme() && registry.host_str() == other.host_str() && registry.port_or_known_default() == other.port_or_known_default();
+  if same { auth } else { None }
+}
+
 fn get_packument_url(registry_url: &str, package_name: &str) -> String {
   format!("{}/{}", registry_url, package_name)
 }
@@ -822,4 +833,129 @@ mod tests {
   }
 
   use crate::test_helpers::create_test_npm_tarball as create_test_tarball;
+
+  #[tokio::test]
+  async fn download_with_auth_keeps_header_on_same_origin_redirect() {
+    use crate::environment::TestEnvironment;
+    use crate::environment::UrlDownloader;
+    let environment = TestEnvironment::new();
+    let start = "https://registry.example.com/foo";
+    let redirected = "https://registry.example.com/foo/latest";
+    environment.add_remote_file_redirect(start, redirected);
+    environment.add_remote_file_bytes(redirected, b"ok".to_vec());
+
+    let url = url::Url::parse(start).unwrap();
+    let _ = environment.download_file_with_auth_err_404(&url, Some("Bearer T")).await.unwrap();
+
+    assert_eq!(environment.take_remote_file_auth(start).as_deref(), Some("Bearer T"));
+    assert_eq!(environment.take_remote_file_auth(redirected).as_deref(), Some("Bearer T"));
+  }
+
+  #[tokio::test]
+  async fn download_with_auth_drops_header_on_cross_origin_redirect() {
+    use crate::environment::TestEnvironment;
+    use crate::environment::UrlDownloader;
+    let environment = TestEnvironment::new();
+    let start = "https://registry.example.com/foo";
+    let cdn = "https://cdn.example.net/foo.tgz";
+    environment.add_remote_file_redirect(start, cdn);
+    environment.add_remote_file_bytes(cdn, b"tarball".to_vec());
+
+    let url = url::Url::parse(start).unwrap();
+    let _ = environment.download_file_with_auth_err_404(&url, Some("Bearer T")).await.unwrap();
+
+    // initial registry request gets the token; CDN does not
+    assert_eq!(environment.take_remote_file_auth(start).as_deref(), Some("Bearer T"));
+    assert_eq!(environment.take_remote_file_auth(cdn), None);
+  }
+
+  #[tokio::test]
+  async fn resolve_npm_from_registry_sends_auth_on_packument_and_tarball() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    let packument = serde_json::json!({
+      "versions": {
+        "1.0.0": { "dist": { "tarball": "https://private.example.com/foo/-/foo-1.0.0.tgz" } }
+      }
+    });
+    environment.add_remote_file_bytes("https://private.example.com/foo", packument.to_string().into_bytes());
+    let tarball = create_test_tarball(&[("package/plugin.wasm", b"wasm")]);
+    let tarball_checksum = get_sha256_checksum(&tarball);
+    environment.add_remote_file_bytes("https://private.example.com/foo/-/foo-1.0.0.tgz", tarball);
+
+    let registry = NpmRegistryResolution {
+      url: "https://private.example.com".to_string(),
+      auth_header: Some("Bearer SECRET".to_string()),
+    };
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: Some("1.0.0".to_string()),
+      path: "plugin.wasm".to_string(),
+    };
+    let _ = resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, &environment).await.unwrap();
+
+    assert_eq!(environment.take_remote_file_auth("https://private.example.com/foo").as_deref(), Some("Bearer SECRET"));
+    assert_eq!(
+      environment.take_remote_file_auth("https://private.example.com/foo/-/foo-1.0.0.tgz").as_deref(),
+      Some("Bearer SECRET")
+    );
+  }
+
+  #[tokio::test]
+  async fn resolve_npm_from_registry_drops_auth_on_cross_origin_tarball() {
+    // registry's packument points at a different host (a CDN) for the tarball —
+    // the auth header must not be sent to the CDN.
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    let packument = serde_json::json!({
+      "versions": {
+        "1.0.0": { "dist": { "tarball": "https://cdn.example.net/foo-1.0.0.tgz" } }
+      }
+    });
+    environment.add_remote_file_bytes("https://private.example.com/foo", packument.to_string().into_bytes());
+    let tarball = create_test_tarball(&[("package/plugin.wasm", b"wasm")]);
+    let tarball_checksum = get_sha256_checksum(&tarball);
+    environment.add_remote_file_bytes("https://cdn.example.net/foo-1.0.0.tgz", tarball);
+
+    let registry = NpmRegistryResolution {
+      url: "https://private.example.com".to_string(),
+      auth_header: Some("Bearer SECRET".to_string()),
+    };
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: Some("1.0.0".to_string()),
+      path: "plugin.wasm".to_string(),
+    };
+    let _ = resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, &environment).await.unwrap();
+
+    assert_eq!(environment.take_remote_file_auth("https://private.example.com/foo").as_deref(), Some("Bearer SECRET"));
+    // tarball request is to a different origin — no credentials leak
+    assert_eq!(environment.take_remote_file_auth("https://cdn.example.net/foo-1.0.0.tgz"), None);
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn extract_tarball_preserves_exec_bits_via_env_set_permissions() {
+    use crate::environment::RealEnvironment;
+    use crate::test_helpers::create_test_npm_tarball_with_modes;
+    use std::os::unix::fs::PermissionsExt;
+    RealEnvironment::run_test_with_real_env(|env| {
+      Box::pin(async move {
+        let tarball = create_test_npm_tarball_with_modes(&[
+          ("package/plugin.wasm", b"wasm", 0o644),
+          ("package/scripts/run.sh", b"#!/bin/sh\n", 0o755),
+        ]);
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("extracted");
+
+        extract_tarball_to_dir(&tarball, &dest, &env).unwrap();
+
+        let exec_mode = std::fs::metadata(dest.join("scripts").join("run.sh")).unwrap().permissions().mode() & 0o777;
+        assert_eq!(exec_mode, 0o755, "expected exec bits preserved");
+        let plain_mode = std::fs::metadata(dest.join("plugin.wasm")).unwrap().permissions().mode() & 0o777;
+        // 0o644 is the default — set_permissions is skipped for it
+        assert_eq!(plain_mode, 0o644);
+      })
+    });
+  }
 }
