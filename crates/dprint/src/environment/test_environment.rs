@@ -22,6 +22,7 @@ use sys_traits::BaseFsOpen;
 use sys_traits::BaseFsRead;
 use sys_traits::BaseFsRemoveFile;
 use sys_traits::BaseFsRename;
+use sys_traits::BaseFsSetPermissions;
 use sys_traits::CreateDirOptions;
 use sys_traits::EnvCurrentDir;
 use sys_traits::EnvRemoveVar;
@@ -137,6 +138,8 @@ pub struct TestEnvironment {
   stderr_messages: Arc<Mutex<Vec<String>>>,
   remote_files: Arc<Mutex<HashMap<String, Result<Vec<u8>>>>>,
   remote_file_redirects: Arc<Mutex<HashMap<String, String>>>,
+  /// Last auth header seen for each URL.
+  remote_file_auth: Arc<Mutex<HashMap<String, Option<String>>>>,
   selection_result: Arc<Mutex<usize>>,
   multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>>>>>,
@@ -164,6 +167,7 @@ impl TestEnvironment {
       stderr_messages: Default::default(),
       remote_files: Default::default(),
       remote_file_redirects: Default::default(),
+      remote_file_auth: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
       multi_selection_result: Arc::new(Mutex::new(None)),
       confirm_results: Default::default(),
@@ -226,6 +230,10 @@ impl TestEnvironment {
 
   pub fn add_remote_file_redirect(&self, from: &str, to: &str) {
     self.remote_file_redirects.lock().insert(from.to_string(), to.to_string());
+  }
+
+  pub fn take_remote_file_auth(&self, url: &str) -> Option<String> {
+    self.remote_file_auth.lock().remove(url).flatten()
   }
 
   pub fn set_env_var(&self, name: &str, value: Option<&str>) {
@@ -402,6 +410,12 @@ impl BaseFsRename for TestEnvironment {
   }
 }
 
+impl BaseFsSetPermissions for TestEnvironment {
+  fn base_fs_set_permissions(&self, path: &Path, mode: u32) -> io::Result<()> {
+    (*self.sys).base_fs_set_permissions(path, mode)
+  }
+}
+
 impl ThreadSleep for TestEnvironment {
   fn thread_sleep(&self, duration: std::time::Duration) {
     (*self.sys).thread_sleep(duration);
@@ -423,6 +437,12 @@ impl SystemTimeNow for TestEnvironment {
 #[async_trait(?Send)]
 impl UrlDownloader for TestEnvironment {
   async fn download_file_no_redirects(&self, url: &Url) -> Result<Option<DownloadedFile>> {
+    self.download_file_no_redirects_with_auth(url, None).await
+  }
+
+  async fn download_file_no_redirects_with_auth(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
+    self.remote_file_auth.lock().insert(url.to_string(), auth.map(|s| s.to_string()));
+
     // check for a redirect first
     let redirects = self.remote_file_redirects.lock();
     if let Some(target) = redirects.get(url.as_str()) {

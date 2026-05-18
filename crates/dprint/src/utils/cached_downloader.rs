@@ -48,6 +48,12 @@ impl<TInner: UrlDownloader> UrlDownloader for CachedDownloader<TInner> {
     );
     result
   }
+
+  async fn download_file_no_redirects_with_auth(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
+    // skip the cache when auth is involved — different callers may legitimately
+    // have different credentials for the same URL
+    self.inner.download_file_no_redirects_with_auth(url, auth).await
+  }
 }
 
 #[cfg(test)]

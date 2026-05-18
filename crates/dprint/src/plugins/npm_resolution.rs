@@ -12,8 +12,17 @@ use crate::utils::NpmSpecifier;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::deno_npmrc;
+use crate::utils::deno_npmrc::RegistryConfig;
 use crate::utils::get_sha256_checksum;
 use crate::utils::verify_sha256_checksum;
+
+/// Resolved npm registry for a package, including the auth header to send
+/// with requests (if the configured `.npmrc` provides one).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NpmRegistryResolution {
+  pub url: String,
+  pub auth_header: Option<String>,
+}
 
 /// The result of resolving an npm plugin specifier.
 pub struct NpmResolvedPlugin {
@@ -49,11 +58,11 @@ pub struct NpmLatestInfo {
 /// Fetches the latest version of an npm-distributed plugin (and its tarball
 /// checksum for non-wasm plugins). Used by `dprint config update`.
 pub async fn fetch_npm_latest_info(specifier: &NpmSpecifier, start_dir: Option<&Path>, environment: &impl Environment) -> Result<NpmLatestInfo> {
-  let registry_url = get_registry_url(&specifier.name, start_dir, environment);
-  let packument_url_str = get_packument_url(&registry_url, &specifier.name);
+  let registry = resolve_registry_for_package(&specifier.name, start_dir, environment);
+  let packument_url_str = get_packument_url(&registry.url, &specifier.name);
   let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
   let (_, packument_file) = environment
-    .download_file_err_404(&packument_url)
+    .download_file_with_auth_err_404(&packument_url, registry.auth_header.as_deref())
     .await
     .with_context(|| format!("Failed to fetch npm packument for {}", specifier.name))?;
   let packument: serde_json::Value =
@@ -70,7 +79,7 @@ pub async fn fetch_npm_latest_info(specifier: &NpmSpecifier, start_dir: Option<&
     let tarball_url_str = get_tarball_url_from_packument(&packument, &latest_version, &specifier.name)?;
     let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
     let (_, tarball_file) = environment
-      .download_file_err_404(&tarball_url)
+      .download_file_with_auth_err_404(&tarball_url, registry.auth_header.as_deref())
       .await
       .with_context(|| format!("Failed to download npm tarball for {}@{}", specifier.name, latest_version))?;
     Some(get_sha256_checksum(&tarball_file.content))
@@ -89,21 +98,21 @@ pub async fn fetch_npm_latest_info(specifier: &NpmSpecifier, start_dir: Option<&
 pub async fn resolve_npm_from_registry(
   specifier: &NpmSpecifier,
   checksum: Option<&str>,
-  registry_url: &str,
+  registry: &NpmRegistryResolution,
   environment: &impl Environment,
 ) -> Result<NpmResolvedPlugin> {
   let version = specifier
     .version
     .as_deref()
     .ok_or_else(|| anyhow::anyhow!("Cannot resolve npm plugin without a version from the registry"))?;
-  let registry_segment = registry_dir_segment(registry_url);
+  let registry_segment = registry_dir_segment(&registry.url);
 
   // fetch the packument to get the tarball URL
-  let packument_url_str = get_packument_url(registry_url, &specifier.name);
+  let packument_url_str = get_packument_url(&registry.url, &specifier.name);
   let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
   log_debug!(environment, "Fetching npm packument: {}", packument_url);
   let (_, packument_file) = environment
-    .download_file_err_404(&packument_url)
+    .download_file_with_auth_err_404(&packument_url, registry.auth_header.as_deref())
     .await
     .with_context(|| format!("Failed to fetch npm packument for {}", specifier.name))?;
   let packument: serde_json::Value =
@@ -115,7 +124,7 @@ pub async fn resolve_npm_from_registry(
 
   // download the tarball
   let (_, tarball_file) = environment
-    .download_file_err_404(&tarball_url)
+    .download_file_with_auth_err_404(&tarball_url, registry.auth_header.as_deref())
     .await
     .with_context(|| format!("Failed to download npm tarball for {}@{}", specifier.name, version))?;
   let tarball_bytes = tarball_file.content;
@@ -438,12 +447,13 @@ fn extract_tarball_to_dir_inner(tarball_bytes: &[u8], output_dir: &Path, environ
 
     // preserve executable permissions on unix
     #[cfg(unix)]
-    if let Ok(mode) = entry.header().mode() {
-      if mode != 0o644 {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&dest_path, std::fs::Permissions::from_mode(mode))
-          .with_context(|| format!("Failed to set permissions on {}", dest_path.display()))?;
-      }
+    if let Ok(mode) = entry.header().mode()
+      && mode != 0o644
+    {
+      use sys_traits::FsSetPermissions;
+      environment
+        .fs_set_permissions(&dest_path, mode)
+        .with_context(|| format!("Failed to set permissions on {}", dest_path.display()))?;
     }
   }
 
@@ -469,45 +479,58 @@ fn normalize_path(path: &Path) -> PathBuf {
   result
 }
 
-/// Resolves the npm registry URL for a package, checking (in order):
-/// 1. NPM_CONFIG_REGISTRY env var
-/// 2. .npmrc files walking up from `start_dir`
+/// Resolves the npm registry URL and credentials for a package, checking (in order):
+/// 1. NPM_CONFIG_REGISTRY env var (no credentials)
+/// 2. .npmrc files walking up from `start_dir` — keep walking past `.npmrc`s
+///    that don't apply to this package's scope
 /// 3. ~/.npmrc
-/// 4. https://registry.npmjs.org
-pub fn get_registry_url(package_name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> String {
-  // env vars take precedence over .npmrc
+/// 4. https://registry.npmjs.org (no credentials)
+pub fn resolve_registry_for_package(package_name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> NpmRegistryResolution {
+  // env vars take precedence over .npmrc — but they only set the URL,
+  // never auth, so we can return immediately.
   if let Some(registry) = environment.env_var("NPM_CONFIG_REGISTRY") {
     let registry = registry.to_string_lossy().to_string();
-    return registry.trim_end_matches('/').to_string();
+    return NpmRegistryResolution {
+      url: registry.trim_end_matches('/').to_string(),
+      auth_header: None,
+    };
   }
 
   // walk up from the config file's directory checking for .npmrc files
   if let Some(start) = start_dir {
     for dir in start.ancestors() {
-      if let Some(url) = resolve_registry_from_npmrc(package_name, &dir.join(".npmrc"), environment) {
-        return url;
+      if let Some(info) = resolve_registry_from_npmrc(package_name, &dir.join(".npmrc"), environment) {
+        return info;
       }
     }
   }
 
   // user-level ~/.npmrc
   if let Some(home_dir) = environment.get_home_dir() {
-    if let Some(url) = resolve_registry_from_npmrc(package_name, &home_dir.join(".npmrc"), environment) {
-      return url;
+    if let Some(info) = resolve_registry_from_npmrc(package_name, &home_dir.join(".npmrc"), environment) {
+      return info;
     }
   }
 
-  deno_npmrc::NPM_DEFAULT_REGISTRY.to_string()
+  NpmRegistryResolution {
+    url: deno_npmrc::NPM_DEFAULT_REGISTRY.to_string(),
+    auth_header: None,
+  }
 }
 
-/// Parses a single .npmrc file and resolves the registry URL for a package.
-/// Returns None if the file doesn't exist or doesn't configure any registries.
-fn resolve_registry_from_npmrc(package_name: &str, npmrc_path: &Path, environment: &impl Environment) -> Option<String> {
+/// Parses a single .npmrc file and resolves the registry for a package.
+/// Returns `None` if the file doesn't exist, or if it doesn't configure a registry
+/// that applies to this package (so the caller keeps walking).
+fn resolve_registry_from_npmrc(package_name: &str, npmrc_path: &Path, environment: &impl Environment) -> Option<NpmRegistryResolution> {
   let text = environment.read_file(npmrc_path).ok()?;
   let npmrc = deno_npmrc::NpmRc::parse(environment, &text).ok()?;
 
-  // skip this .npmrc if it doesn't configure any registries
-  if npmrc.registry.is_none() && npmrc.scope_registries.is_empty() {
+  // figure out whether this .npmrc actually applies to this package — either
+  // a scope registry matching the package's scope, or a default registry.
+  let scope = scope_of(package_name);
+  let has_default = npmrc.registry.is_some();
+  let has_scope = scope.is_some_and(|s| npmrc.scope_registries.contains_key(s));
+  if !has_default && !has_scope {
     return None;
   }
 
@@ -517,8 +540,30 @@ fn resolve_registry_from_npmrc(package_name: &str, npmrc_path: &Path, environmen
     from_env: false,
   };
   let resolved = npmrc.as_resolved(&registry_url).ok()?;
-  let url = resolved.get_registry_url(package_name);
-  Some(url.as_str().trim_end_matches('/').to_string())
+  let url = resolved.get_registry_url(package_name).as_str().trim_end_matches('/').to_string();
+  let auth_header = compute_auth_header(resolved.get_registry_config(package_name).as_ref());
+
+  Some(NpmRegistryResolution { url, auth_header })
+}
+
+/// Returns the scope (without the `@`) for a scoped package, or `None` for
+/// unscoped packages.
+fn scope_of(package_name: &str) -> Option<&str> {
+  package_name.strip_prefix('@')?.split_once('/').map(|(scope, _)| scope)
+}
+
+/// Builds an HTTP `Authorization` header value from a registry's `.npmrc`
+/// credentials. Supports `_authToken` (Bearer) and `_auth` (Basic). The
+/// `username` / `_password` combination is not yet supported (would require
+/// base64-encoding) — returns `None` and emits no header in that case.
+fn compute_auth_header(config: &RegistryConfig) -> Option<String> {
+  if let Some(token) = &config.auth_token {
+    return Some(format!("Bearer {}", token));
+  }
+  if let Some(auth) = &config.auth {
+    return Some(format!("Basic {}", auth));
+  }
+  None
 }
 
 fn get_packument_url(registry_url: &str, package_name: &str) -> String {
@@ -564,6 +609,82 @@ fn find_package_in_node_modules(package_name: &str, start_dir: &Path, environmen
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn compute_auth_header_supports_auth_token_and_auth() {
+    let mut cfg = RegistryConfig::default();
+    assert_eq!(compute_auth_header(&cfg), None);
+
+    cfg.auth_token = Some("tok".to_string());
+    assert_eq!(compute_auth_header(&cfg), Some("Bearer tok".to_string()));
+
+    cfg.auth_token = None;
+    cfg.auth = Some("dXNlcjpwd2Q=".to_string());
+    assert_eq!(compute_auth_header(&cfg), Some("Basic dXNlcjpwd2Q=".to_string()));
+
+    // auth_token wins over auth when both are present
+    cfg.auth_token = Some("tok".to_string());
+    assert_eq!(compute_auth_header(&cfg), Some("Bearer tok".to_string()));
+  }
+
+  #[tokio::test]
+  async fn resolve_registry_walks_past_unrelated_npmrc() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    // child .npmrc configures a scope that is not our package's scope —
+    // the walk should not stop here. Parent .npmrc configures our scope.
+    environment.mk_dir_all("/repo").unwrap();
+    environment.write_file("/repo/.npmrc", "@other:registry=https://other.example.com").unwrap();
+    environment.write_file("/.npmrc", "@dprint:registry=https://dprint.example.com").unwrap();
+    let info = resolve_registry_for_package("@dprint/typescript", Some(std::path::Path::new("/repo")), &environment);
+    assert_eq!(info.url, "https://dprint.example.com");
+  }
+
+  #[tokio::test]
+  async fn resolve_registry_picks_up_auth_token() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/repo").unwrap();
+    environment
+      .write_file(
+        "/repo/.npmrc",
+        "@dprint:registry=https://dprint.example.com\n//dprint.example.com/:_authToken=MYTOKEN",
+      )
+      .unwrap();
+    let info = resolve_registry_for_package("@dprint/typescript", Some(std::path::Path::new("/repo")), &environment);
+    assert_eq!(info.url, "https://dprint.example.com");
+    assert_eq!(info.auth_header.as_deref(), Some("Bearer MYTOKEN"));
+  }
+
+  #[tokio::test]
+  async fn fetch_npm_latest_info_sends_auth_header() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/repo").unwrap();
+    environment
+      .write_file(
+        "/repo/.npmrc",
+        "@dprint:registry=https://dprint.example.com\n//dprint.example.com/:_authToken=MYTOKEN",
+      )
+      .unwrap();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "1.2.3" },
+      "versions": { "1.2.3": { "dist": { "tarball": "https://dprint.example.com/@dprint/foo/-/foo-1.2.3.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://dprint.example.com/@dprint/foo", packument.to_string().into_bytes());
+
+    let specifier = NpmSpecifier {
+      name: "@dprint/foo".to_string(),
+      version: Some("1.0.0".to_string()),
+      path: "plugin.wasm".to_string(),
+    };
+    let info = fetch_npm_latest_info(&specifier, Some(std::path::Path::new("/repo")), &environment).await.unwrap();
+    assert_eq!(info.version, "1.2.3");
+
+    // verify the Authorization header was sent
+    let seen = environment.take_remote_file_auth("https://dprint.example.com/@dprint/foo");
+    assert_eq!(seen.as_deref(), Some("Bearer MYTOKEN"));
+  }
 
   #[test]
   fn test_get_packument_url_scoped() {

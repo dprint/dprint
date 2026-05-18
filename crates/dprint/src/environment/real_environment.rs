@@ -22,6 +22,7 @@ use sys_traits::BaseFsOpen;
 use sys_traits::BaseFsRead;
 use sys_traits::BaseFsRemoveFile;
 use sys_traits::BaseFsRename;
+use sys_traits::BaseFsSetPermissions;
 use sys_traits::CreateDirOptions;
 use sys_traits::SystemRandom;
 use sys_traits::SystemTimeNow;
@@ -172,6 +173,12 @@ impl BaseFsRename for RealEnvironment {
   }
 }
 
+impl BaseFsSetPermissions for RealEnvironment {
+  fn base_fs_set_permissions(&self, path: &Path, mode: u32) -> io::Result<()> {
+    RealSys.base_fs_set_permissions(path, mode)
+  }
+}
+
 impl ThreadSleep for RealEnvironment {
   fn thread_sleep(&self, duration: std::time::Duration) {
     std::thread::sleep(duration);
@@ -195,11 +202,16 @@ impl SystemTimeNow for RealEnvironment {
 #[async_trait(?Send)]
 impl UrlDownloader for RealEnvironment {
   async fn download_file_no_redirects(&self, url: &Url) -> Result<Option<DownloadedFile>> {
+    self.download_file_no_redirects_with_auth(url, None).await
+  }
+
+  async fn download_file_no_redirects_with_auth(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
     log_debug!(self, "Downloading url: {}", url);
 
     let downloader = self.url_downloader.clone();
     let url = url.clone();
-    dprint_core::async_runtime::spawn_blocking(move || downloader.download(&url)).await?
+    let auth = auth.map(|s| s.to_string());
+    dprint_core::async_runtime::spawn_blocking(move || downloader.download_with_auth(&url, auth.as_deref())).await?
   }
 }
 

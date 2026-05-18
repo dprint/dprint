@@ -168,8 +168,8 @@ where
     let specifier = &npm_source.specifier;
     let checksum = source_reference.checksum.as_deref();
     let base_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-    let registry_url = self.manifest.resolve_registry_url(&specifier.name, base_dir);
-    let resolved = npm_resolution::resolve_npm_from_registry(specifier, checksum, &registry_url, &self.environment).await?;
+    let registry = self.manifest.resolve_registry(&specifier.name, base_dir);
+    let resolved = npm_resolution::resolve_npm_from_registry(specifier, checksum, &registry, &self.environment).await?;
 
     let plugin_kind = resolved.plugin_kind;
     // use the local extracted path so process plugin manifests can resolve relative URLs
@@ -363,10 +363,10 @@ where
 struct ConcurrentPluginCacheManifest<TEnvironment: Environment> {
   environment: TEnvironment,
   manifest: RwLock<PluginCacheManifest>,
-  /// memoized npm registry URLs keyed on (package name, config dir).
+  /// memoized npm registry resolutions keyed on (package name, config dir).
   /// resolving via `.npmrc` walks the directory tree, so the same key is
   /// hit multiple times per plugin (cache lookup, store, forget cleanup).
-  registry_url_cache: Mutex<HashMap<RegistryUrlKey, String>>,
+  registry_cache: Mutex<HashMap<RegistryUrlKey, npm_resolution::NpmRegistryResolution>>,
 }
 
 #[derive(Hash, PartialEq, Eq)]
@@ -381,24 +381,28 @@ impl<TEnvironment: Environment> ConcurrentPluginCacheManifest<TEnvironment> {
     Self {
       environment,
       manifest,
-      registry_url_cache: Mutex::new(HashMap::new()),
+      registry_cache: Mutex::new(HashMap::new()),
     }
   }
 
-  pub(super) fn resolve_registry_url(&self, package_name: &str, start_dir: Option<&Path>) -> String {
+  pub(super) fn resolve_registry(&self, package_name: &str, start_dir: Option<&Path>) -> npm_resolution::NpmRegistryResolution {
     let key = RegistryUrlKey {
       package_name: package_name.to_string(),
       start_dir: start_dir.map(|p| p.to_path_buf()),
     };
-    if let Some(url) = self.registry_url_cache.lock().get(&key) {
-      return url.clone();
+    if let Some(info) = self.registry_cache.lock().get(&key) {
+      return info.clone();
     }
     // resolved outside the lock since it does file I/O.
     // a concurrent caller may compute the same value — harmless since the
     // result is deterministic for a given key.
-    let url = npm_resolution::get_registry_url(package_name, start_dir, &self.environment);
-    self.registry_url_cache.lock().insert(key, url.clone());
-    url
+    let info = npm_resolution::resolve_registry_for_package(package_name, start_dir, &self.environment);
+    self.registry_cache.lock().insert(key, info.clone());
+    info
+  }
+
+  pub(super) fn resolve_registry_url(&self, package_name: &str, start_dir: Option<&Path>) -> String {
+    self.resolve_registry(package_name, start_dir).url
   }
 
   pub fn get(&self, path_source: &PathSource) -> Result<Option<PluginCacheManifestItem>> {

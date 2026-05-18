@@ -264,15 +264,15 @@ impl RealUrlDownloader {
     })
   }
 
-  pub fn download(&self, url: &Url) -> Result<Option<DownloadedFile>> {
+  pub fn download_with_auth(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
     let agent = self.get_agent(url)?;
-    self.download_with_retries(url, &agent)
+    self.download_with_retries(url, auth, &agent)
   }
 
-  fn download_with_retries(&self, url: &Url, agent: &ureq::Agent) -> Result<Option<DownloadedFile>> {
+  fn download_with_retries(&self, url: &Url, auth: Option<&str>, agent: &ureq::Agent) -> Result<Option<DownloadedFile>> {
     let mut last_error = None;
     for retry_count in 0..(MAX_RETRIES + 1) {
-      match self.inner_download(url, retry_count, agent) {
+      match self.inner_download(url, auth, retry_count, agent) {
         Ok(result) => return Ok(result),
         Err(err) => {
           if retry_count < MAX_RETRIES {
@@ -289,7 +289,7 @@ impl RealUrlDownloader {
   pub fn download_no_retries_for_testing(&self, url: &str) -> Result<Option<Vec<u8>>> {
     let url = Url::parse(url)?;
     let agent = self.get_agent(&url)?;
-    Ok(self.inner_download(&url, 0, &agent)?.map(|r| r.content))
+    Ok(self.inner_download(&url, None, 0, &agent)?.map(|r| r.content))
   }
 
   fn get_agent(&self, url: &Url) -> Result<ureq::Agent> {
@@ -302,8 +302,12 @@ impl RealUrlDownloader {
     self.agent_store.get(kind, url)
   }
 
-  fn inner_download(&self, url: &Url, retry_count: u8, agent: &ureq::Agent) -> Result<Option<DownloadedFile>> {
-    let resp = match agent.request_url("GET", url).call() {
+  fn inner_download(&self, url: &Url, auth: Option<&str>, retry_count: u8, agent: &ureq::Agent) -> Result<Option<DownloadedFile>> {
+    let mut request = agent.request_url("GET", url);
+    if let Some(auth) = auth {
+      request = request.set("Authorization", auth);
+    }
+    let resp = match request.call() {
       Ok(resp) => resp,
       Err(ureq::Error::Status(404, _)) => {
         return Ok(None);
