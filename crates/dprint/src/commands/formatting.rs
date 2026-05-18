@@ -2692,4 +2692,145 @@ mod test {
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "hello_formatted");
   }
+
+  // ---- npm: plugin specifiers ----
+
+  #[test]
+  fn should_format_with_versioned_npm_wasm_plugin() {
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin("npm:test-plugin@1.0.0");
+      })
+      .write_file("/file.txt", "text")
+      .build();
+
+    // mock the npm registry: packument + tarball
+    let packument = serde_json::json!({
+      "versions": {
+        "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/test-plugin/-/test-plugin-1.0.0.tgz" } }
+      }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-plugin", packument.to_string().into_bytes());
+    environment.add_remote_file_bytes(
+      "https://registry.npmjs.org/test-plugin/-/test-plugin-1.0.0.tgz",
+      create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]),
+    );
+
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_formatted");
+
+    // tarball should be extracted under the registry-scoped cache dir
+    let extract_dir = environment.get_cache_dir().join("npm").join("registry.npmjs.org").join("test-plugin@1.0.0");
+    assert!(environment.path_exists(&extract_dir.join("plugin.wasm")));
+
+    let _ = environment.take_stderr_messages(); // drain wasm-compile progress
+  }
+
+  #[test]
+  fn should_format_with_unversioned_npm_wasm_plugin_from_node_modules() {
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin("npm:test-plugin");
+      })
+      .write_file("/node_modules/test-plugin/plugin.wasm", WASM_PLUGIN_BYTES)
+      .write_file("/file.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_formatted");
+
+    let _ = environment.take_stderr_messages(); // drain wasm-compile progress
+  }
+
+  #[test]
+  fn should_format_with_versioned_npm_process_plugin() {
+    use crate::test_helpers::PROCESS_PLUGIN_ZIP_BYTES;
+    use crate::test_helpers::TestProcessPluginFile;
+    use crate::test_helpers::create_test_npm_tarball;
+    use crate::utils::get_sha256_checksum;
+
+    // a regular process-plugin manifest whose per-platform `reference` is the
+    // existing test zip URL; the manifest is shipped *inside* the npm tarball
+    let plugin_file = TestProcessPluginFile::default();
+    let tarball = create_test_npm_tarball(&[("package/plugin.json", plugin_file.text().as_bytes())]);
+    let tarball_checksum = get_sha256_checksum(&tarball);
+
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin() // makes the platform-zip URL resolvable
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin(&format!("npm:test-process@1.0.0/plugin.json@{}", tarball_checksum));
+      })
+      .write_file("/file.txt_ps", "text")
+      .build();
+
+    let packument = serde_json::json!({
+      "versions": {
+        "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz" } }
+      }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process", packument.to_string().into_bytes());
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz", tarball);
+    // ensure the per-platform zip exists for any os/arch the env reports
+    environment.add_remote_file_bytes(
+      "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
+      PROCESS_PLUGIN_ZIP_BYTES.to_vec(),
+    );
+
+    run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_formatted_process");
+
+    let _ = environment.take_stderr_messages(); // drain process-plugin extract progress
+  }
+
+  #[test]
+  fn should_format_with_unversioned_npm_process_plugin_from_node_modules() {
+    // unversioned process plugin: plugin.json references a per-platform npm
+    // package, which itself lives in node_modules. Exercises the
+    // `pre_resolved_zip` path through `resolve_process_plugin_dep_from_node_modules`.
+    use crate::test_helpers::PROCESS_PLUGIN_ZIP_BYTES;
+    use crate::utils::get_sha256_checksum;
+
+    let zip_bytes: &[u8] = &PROCESS_PLUGIN_ZIP_BYTES;
+    let zip_checksum = get_sha256_checksum(zip_bytes);
+
+    // craft a plugin.json whose every-platform reference is `npm:` and points
+    // at the same dep package (so this test is platform-independent)
+    let plugin_json = format!(
+      r#"{{
+  "schemaVersion": 2,
+  "name": "test-process-plugin",
+  "version": "0.1.0",
+  "linux-x86_64":    {{ "reference": "npm:test-process-bin@0.1.0/plugin.zip", "checksum": "{0}" }},
+  "linux-aarch64":   {{ "reference": "npm:test-process-bin@0.1.0/plugin.zip", "checksum": "{0}" }},
+  "darwin-x86_64":   {{ "reference": "npm:test-process-bin@0.1.0/plugin.zip", "checksum": "{0}" }},
+  "darwin-aarch64":  {{ "reference": "npm:test-process-bin@0.1.0/plugin.zip", "checksum": "{0}" }},
+  "windows-x86_64":  {{ "reference": "npm:test-process-bin@0.1.0/plugin.zip", "checksum": "{0}" }},
+  "windows-aarch64": {{ "reference": "npm:test-process-bin@0.1.0/plugin.zip", "checksum": "{0}" }}
+}}"#,
+      zip_checksum
+    );
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin("npm:test-process/plugin.json");
+      })
+      .write_file("/node_modules/test-process/plugin.json", plugin_json.as_bytes())
+      .write_file("/node_modules/test-process-bin/plugin.zip", zip_bytes)
+      .write_file("/file.txt_ps", "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_formatted_process");
+
+    let _ = environment.take_stderr_messages(); // drain process-plugin extract progress
+  }
 }
