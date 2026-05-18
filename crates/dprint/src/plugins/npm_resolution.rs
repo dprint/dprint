@@ -232,7 +232,8 @@ pub fn find_npm_plugin_local_path(specifier: &NpmSpecifier, config_dir: &Path, e
 /// reference (with the same aarch64→x86_64 fallback the HTTPS path uses),
 /// and resolves it from node_modules.
 fn resolve_process_plugin_dep_from_node_modules(plugin_json_bytes: &[u8], config_dir: &Path, environment: &impl Environment) -> Result<ProcessPluginZipBytes> {
-  use crate::plugins::implementations::{get_process_plugin_os_path, parse_process_plugin_file};
+  use crate::plugins::implementations::get_process_plugin_os_path;
+  use crate::plugins::implementations::parse_process_plugin_file;
 
   let plugin_file = parse_process_plugin_file(plugin_json_bytes).context("Failed to parse process plugin manifest (plugin.json)")?;
   let os_path = get_process_plugin_os_path(&plugin_file, environment)?;
@@ -524,7 +525,8 @@ fn compute_auth_header(config: &RegistryConfig) -> Option<String> {
 /// with `registry`. Tarballs/packuments sometimes live on a CDN; the registry
 /// credentials must not be sent there.
 fn same_origin_auth<'a>(registry: &url::Url, other: &url::Url, auth: Option<&'a str>) -> Option<&'a str> {
-  let same = registry.scheme() == other.scheme() && registry.host_str() == other.host_str() && registry.port_or_known_default() == other.port_or_known_default();
+  let same =
+    registry.scheme() == other.scheme() && registry.host_str() == other.host_str() && registry.port_or_known_default() == other.port_or_known_default();
   if same { auth } else { None }
 }
 
@@ -640,7 +642,9 @@ mod tests {
       version: Some("1.0.0".to_string()),
       path: "plugin.wasm".to_string(),
     };
-    let info = fetch_npm_latest_info(&specifier, Some(std::path::Path::new("/repo")), &environment).await.unwrap();
+    let info = fetch_npm_latest_info(&specifier, Some(std::path::Path::new("/repo")), &environment)
+      .await
+      .unwrap();
     assert_eq!(info.version, "1.2.3");
 
     // verify the Authorization header was sent
@@ -843,9 +847,14 @@ mod tests {
       version: Some("1.0.0".to_string()),
       path: "plugin.wasm".to_string(),
     };
-    let _ = resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, &environment).await.unwrap();
+    let _ = resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, &environment)
+      .await
+      .unwrap();
 
-    assert_eq!(environment.take_remote_file_auth("https://private.example.com/foo").as_deref(), Some("Bearer SECRET"));
+    assert_eq!(
+      environment.take_remote_file_auth("https://private.example.com/foo").as_deref(),
+      Some("Bearer SECRET")
+    );
     assert_eq!(
       environment.take_remote_file_auth("https://private.example.com/foo/-/foo-1.0.0.tgz").as_deref(),
       Some("Bearer SECRET")
@@ -877,9 +886,14 @@ mod tests {
       version: Some("1.0.0".to_string()),
       path: "plugin.wasm".to_string(),
     };
-    let _ = resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, &environment).await.unwrap();
+    let _ = resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, &environment)
+      .await
+      .unwrap();
 
-    assert_eq!(environment.take_remote_file_auth("https://private.example.com/foo").as_deref(), Some("Bearer SECRET"));
+    assert_eq!(
+      environment.take_remote_file_auth("https://private.example.com/foo").as_deref(),
+      Some("Bearer SECRET")
+    );
     // tarball request is to a different origin — no credentials leak
     assert_eq!(environment.take_remote_file_auth("https://cdn.example.net/foo-1.0.0.tgz"), None);
   }
@@ -910,9 +924,7 @@ mod tests {
       },
     });
     environment.mk_dir_all("/node_modules/foo").unwrap();
-    environment
-      .write_file("/node_modules/foo/plugin.json", &manifest.to_string())
-      .unwrap();
+    environment.write_file("/node_modules/foo/plugin.json", &manifest.to_string()).unwrap();
 
     let specifier = NpmSpecifier {
       name: "foo".to_string(),
@@ -936,9 +948,7 @@ mod tests {
       "version": "1.0.0",
     });
     environment.mk_dir_all("/node_modules/foo").unwrap();
-    environment
-      .write_file("/node_modules/foo/plugin.json", &manifest.to_string())
-      .unwrap();
+    environment.write_file("/node_modules/foo/plugin.json", &manifest.to_string()).unwrap();
     let specifier = NpmSpecifier {
       name: "foo".to_string(),
       version: None,
@@ -965,9 +975,7 @@ mod tests {
       "version": "1.0.0",
     });
     environment.mk_dir_all("/node_modules/foo").unwrap();
-    environment
-      .write_file("/node_modules/foo/plugin.json", &manifest.to_string())
-      .unwrap();
+    environment.write_file("/node_modules/foo/plugin.json", &manifest.to_string()).unwrap();
     let specifier = NpmSpecifier {
       name: "foo".to_string(),
       version: None,
@@ -991,10 +999,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     RealEnvironment::run_test_with_real_env(|env| {
       Box::pin(async move {
-        let tarball = create_test_npm_tarball_with_modes(&[
-          ("package/plugin.wasm", b"wasm", 0o644),
-          ("package/scripts/run.sh", b"#!/bin/sh\n", 0o755),
-        ]);
+        let tarball = create_test_npm_tarball_with_modes(&[("package/plugin.wasm", b"wasm", 0o644), ("package/scripts/run.sh", b"#!/bin/sh\n", 0o755)]);
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("extracted");
 
