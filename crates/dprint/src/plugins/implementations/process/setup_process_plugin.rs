@@ -119,7 +119,7 @@ pub fn cleanup_process_plugin(plugin_info: &PluginInfo, environment: &impl Envir
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ProcessPluginFile {
+pub struct ProcessPluginFile {
   pub schema_version: u32,
   pub name: String,
   pub version: String,
@@ -151,7 +151,7 @@ pub(crate) struct ProcessPluginFile {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ProcessPluginPath {
+pub struct ProcessPluginPath {
   pub reference: String,
   pub checksum: String,
 }
@@ -189,7 +189,7 @@ async fn get_plugin_zip_bytes<TEnvironment: Environment>(
   })
 }
 
-pub(crate) fn parse_process_plugin_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
+pub fn parse_process_plugin_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
   let plugin_file: Value = match serde_json::from_slice(bytes) {
     Ok(plugin_file) => plugin_file,
     Err(err) => bail!(
@@ -223,7 +223,7 @@ fn verify_plugin_file(plugin_file: &Value) -> Result<()> {
   Ok(())
 }
 
-pub(crate) fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Environment) -> Result<&'a ProcessPluginPath> {
+pub fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Environment) -> Result<&'a ProcessPluginPath> {
   let arch = environment.cpu_arch();
   let os = environment.os();
   let path = match os.as_str() {
