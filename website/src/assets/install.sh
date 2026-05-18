@@ -36,18 +36,20 @@ else
 	dprint_uri="https://github.com/dprint/dprint/releases/download/${1}/dprint-${target}.zip"
 fi
 
-dprint_install="$(realpath "${DPRINT_INSTALL:-$HOME/.dprint}")"
+dprint_install="${DPRINT_INSTALL:-$HOME/.dprint}"
 bin_dir="$dprint_install/bin"
+if [ ! -d "$bin_dir" ]; then
+	mkdir -p "$bin_dir"
+fi
+dprint_install="$(realpath "$dprint_install")"
+bin_dir="$dprint_install/bin"
+
 exe="$bin_dir/dprint"
 zip="$exe.zip"
 
 # append .exe for Windows
 if [ "$target" = "x86_64-pc-windows-msvc" ]; then
 	exe="$exe.exe"
-fi
-
-if [ ! -d "$bin_dir" ]; then
-	mkdir -p "$bin_dir"
 fi
 
 # download
