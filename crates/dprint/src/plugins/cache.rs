@@ -439,19 +439,20 @@ impl<TEnvironment: Environment> ConcurrentPluginCacheManifest<TEnvironment> {
       }
       PathSource::Npm(npm_source) => {
         // only versioned npm specifiers use the npm cache key —
-        // unversioned specifiers resolve to local paths and use local: keys.
+        // unversioned ones are mapped to local paths before reaching here
+        // (see `get_plugin_cache_item` / `manifest_source_for_forget`).
         // include the resolved registry (private vs public mirror) and the
         // specifier path (a single package can ship plugin.wasm and plugin.json)
         // so distinct specifiers don't share an entry.
+        let Some(version) = npm_source.specifier.version.as_deref() else {
+          bail!(
+            "Internal error: cache key requested for unversioned npm specifier {} — this should have been mapped to a local path.",
+            npm_source.specifier.display(),
+          );
+        };
         let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
         let registry = self.resolve_registry_url(&npm_source.specifier.name, start_dir);
-        format!(
-          "npm:{}#{}@{}/{}",
-          registry,
-          npm_source.specifier.name,
-          npm_source.specifier.version.as_deref().unwrap_or("latest"),
-          npm_source.specifier.path,
-        )
+        format!("npm:{}#{}@{}/{}", registry, npm_source.specifier.name, version, npm_source.specifier.path,)
       }
     })
   }
@@ -803,6 +804,34 @@ mod test {
     assert_eq!(plugin_cache.manifest.get(&json_source.path_source)?.unwrap().info.name, "foo-process");
 
     Ok(())
+  }
+
+  #[tokio::test]
+  async fn npm_cache_key_rejects_unversioned_npm_path_source() {
+    // Unversioned npm specifiers are supposed to be mapped to a local path
+    // before they reach the cache-key code. If that mapping is ever skipped,
+    // we should surface a loud error rather than silently bucket all
+    // unversioned specifiers into one "latest" entry.
+    use crate::utils::NpmSpecifier;
+
+    let environment = TestEnvironment::new();
+    let plugin_cache = PluginCache::new(environment);
+
+    let path_source = PathSource::new_npm(
+      NpmSpecifier {
+        name: "foo".to_string(),
+        version: None,
+        path: "plugin.wasm".to_string(),
+      },
+      None,
+    );
+
+    let err = plugin_cache.manifest.get(&path_source).unwrap_err();
+    assert!(
+      err.to_string().contains("unversioned npm specifier"),
+      "expected unversioned-npm error, got: {}",
+      err
+    );
   }
 
   #[tokio::test]
