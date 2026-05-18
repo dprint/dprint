@@ -195,9 +195,14 @@ pub fn resolve_npm_from_node_modules(specifier: &NpmSpecifier, config_dir: &Path
     .read_file_bytes(canonical.as_ref())
     .with_context(|| format!("Failed to read {}", canonical.display()))?;
 
-  // for process plugins, resolve the platform-specific binary from node_modules too
+  // for process plugins whose manifest references the platform binary via
+  // `npm:`, look it up alongside the plugin in node_modules. For any other
+  // reference style (relative path, `file:///`, `https://`) fall through to
+  // the standard setup_process_plugin flow, which resolves against the
+  // plugin.json's directory — so a self-contained npm package can ship
+  // `plugin.json` + `bin.zip` side-by-side and reference `./bin.zip`.
   let pre_resolved_zip = if specifier.plugin_kind() == PluginKind::Process {
-    Some(resolve_process_plugin_dep_from_node_modules(&plugin_bytes, config_dir, environment)?)
+    try_resolve_process_plugin_dep_from_node_modules(&plugin_bytes, config_dir, environment)?
   } else {
     None
   };
@@ -228,23 +233,26 @@ pub fn find_npm_plugin_local_path(specifier: &NpmSpecifier, config_dir: &Path, e
   Ok(PathSource::new_local(canonical))
 }
 
-/// Reads a process plugin manifest (plugin.json), finds the platform-specific
-/// reference (with the same aarch64→x86_64 fallback the HTTPS path uses),
-/// and resolves it from node_modules.
-fn resolve_process_plugin_dep_from_node_modules(plugin_json_bytes: &[u8], config_dir: &Path, environment: &impl Environment) -> Result<ProcessPluginZipBytes> {
+/// Reads a process plugin manifest (plugin.json) and, if the platform-specific
+/// reference is an `npm:` specifier, walks node_modules for it. Returns `None`
+/// for non-npm references so the caller falls back to the standard flow.
+fn try_resolve_process_plugin_dep_from_node_modules(
+  plugin_json_bytes: &[u8],
+  config_dir: &Path,
+  environment: &impl Environment,
+) -> Result<Option<ProcessPluginZipBytes>> {
   use crate::plugins::implementations::get_process_plugin_os_path;
   use crate::plugins::implementations::parse_process_plugin_file;
 
   let plugin_file = parse_process_plugin_file(plugin_json_bytes).context("Failed to parse process plugin manifest (plugin.json)")?;
   let os_path = get_process_plugin_os_path(&plugin_file, environment)?;
 
-  // parse as npm specifier — use the package name for node_modules resolution
   if !os_path.reference.starts_with("npm:") {
-    bail!(
-      "Expected an npm: reference in plugin.json for node_modules resolution, but got: {}",
-      os_path.reference,
-    );
+    // not an npm reference — let the caller resolve via the standard flow
+    // (`./bin.zip` against the plugin.json directory, file://, https://, etc.)
+    return Ok(None);
   }
+
   let parsed = crate::utils::parse_npm_specifier(&os_path.reference)?;
   let dep_name = &parsed.specifier.name;
 
@@ -272,11 +280,11 @@ fn resolve_process_plugin_dep_from_node_modules(plugin_json_bytes: &[u8], config
     )
   })?;
 
-  Ok(ProcessPluginZipBytes {
+  Ok(Some(ProcessPluginZipBytes {
     name: plugin_file.name,
     version: plugin_file.version,
     zip_bytes,
-  })
+  }))
 }
 
 /// Finds a .zip file in the given package directory.
