@@ -1,3 +1,4 @@
+use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use parking_lot::Mutex;
@@ -138,12 +139,16 @@ where
           let base_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
           let fallback_dir = self.environment.cwd();
           let config_dir = base_dir.unwrap_or(fallback_dir.as_ref());
-          let resolved = npm_resolution::resolve_npm_from_node_modules(&npm_source.specifier, config_dir, &self.environment)?;
+          let resolved = npm_resolution::resolve_npm_from_node_modules(&npm_source.specifier, config_dir, &self.environment)
+            .with_context(|| format!("Resolving {}", npm_source.specifier.display()))?;
           let local_ref = PluginSourceReference {
             path_source: resolved.local_path,
             checksum: None,
           };
-          self.get_local_plugin(&local_ref, resolved.pre_resolved_zip).await
+          self
+            .get_local_plugin(&local_ref, resolved.pre_resolved_zip)
+            .await
+            .with_context(|| format!("Setting up {}", npm_source.specifier.display()))
         };
       }
     }
@@ -180,7 +185,8 @@ where
       resolved.pre_resolved_zip,
       &self.environment,
     )
-    .await?;
+    .await
+    .with_context(|| format!("Setting up {}", specifier.display()))?;
     let cache_item = PluginCacheManifestItem {
       info: setup_result.plugin_info.clone(),
       file_hash: None,
@@ -999,7 +1005,11 @@ mod test {
       Ok(_) => panic!("expected an error"),
       Err(e) => e,
     };
-    assert!(err.to_string().contains("Could not find nope in node_modules"), "got: {}", err);
+    // the inner error names the package; the wrapping context names the
+    // user-typed npm specifier so it's easy to map an error back to the config
+    let chained = format!("{err:#}");
+    assert!(chained.contains("Resolving npm:nope"), "expected npm-spec context, got: {chained}");
+    assert!(chained.contains("Could not find nope in node_modules"), "got: {chained}");
     Ok(())
   }
 
@@ -1029,7 +1039,8 @@ mod test {
       Ok(_) => panic!("expected an error"),
       Err(e) => e,
     };
-    assert!(err.to_string().contains("Could not find plugin.wasm"), "got: {}", err);
+    let chained = format!("{err:#}");
+    assert!(chained.contains("Could not find plugin.wasm"), "got: {chained}");
     Ok(())
   }
 

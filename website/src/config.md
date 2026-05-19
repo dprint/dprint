@@ -137,6 +137,34 @@ Available npm packages include `@dprint/typescript`, `@dprint/json`, `@dprint/ma
 
 You can also reference a plugin file directly in `node_modules` if you prefer (`"./node_modules/@dprint/typescript/plugin.wasm"`); the `npm:` form just removes the need for that path.
 
+#### Private npm registries
+
+dprint reads `.npmrc` files (walking up from the config, then `~/.npmrc`) to pick a registry and credentials. Both common auth schemes are supported:
+
+```
+@mycorp:registry=https://npm.mycorp.com
+//npm.mycorp.com/:_authToken=${MYCORP_NPM_TOKEN}
+```
+
+- `_authToken=…` → sent as `Authorization: Bearer …`
+- `_auth=…` (already base64-encoded user:pass) → sent as `Authorization: Basic …`
+- `${VAR}` substitution works the same as for npm itself.
+
+Credentials are dropped on cross-origin redirects (e.g. a registry that redirects tarball downloads to a CDN on a different host), so they never leak outside the configured registry.
+
+#### Process plugins distributed via npm
+
+A process plugin's `plugin.json` lists per-platform binaries; for npm-installed process plugins the `reference` field must be one of:
+
+- a relative path (`"./bin.zip"`) or `file:///…` URL — resolved against the plugin.json's directory inside the npm package. This is the simplest layout: ship `plugin.json` and `bin.zip` together in one npm package.
+- an `npm:` specifier — used when the per-platform binary lives in a separate npm package (e.g., the manifest references `npm:@scope/foo-linux-x86_64@1.0.0/plugin.zip` and the dep is installed alongside via npm `optionalDependencies`).
+
+`http://` and `https://` references are rejected for npm-installed process plugins. The whole point of installing via npm is to avoid surprise network fetches at format time, so the binary must come from the npm package(s) you already installed.
+
+#### Cache layout
+
+Resolved npm packages are extracted under `<dprint-cache>/npm/<registry-host>/<name>@<version>/`. Different registries (public vs. private mirror) get separate directories. Compiled wasm modules and extracted process-plugin binaries continue to live under `<dprint-cache>/plugins/`. `dprint clear-cache` wipes everything.
+
 ### Editing Config via CLI
 
 ```sh
