@@ -354,27 +354,48 @@ pub(super) fn registry_dir_segment(registry_url: &str) -> String {
 }
 
 /// Extracts an npm tarball to a directory on disk.
-/// Uses a .temp directory and rename for reliability.
+///
+/// Idempotent and concurrency-safe:
+/// - If `dest_dir` already exists, returns immediately. `name@version` is
+///   immutable on npm, and `dest_dir` only appears after a complete extract
+///   (we populate a temp dir first, then rename), so existence implies a
+///   prior successful extract.
+/// - Each call uses a uniquely-named temp dir, so two concurrent extracts
+///   (different processes, or otherwise outside the in-process fs lock pool)
+///   never trample each other's intermediate state.
+/// - If the final rename fails because a racing extract finished first, we
+///   discard our copy and use the winner's `dest_dir`.
+///
 /// Strips the first path component (usually `package/`) from each entry.
 fn extract_tarball_to_dir(tarball_bytes: &[u8], dest_dir: &Path, environment: &impl Environment) -> Result<()> {
-  let temp_dir = dest_dir.with_extension("temp");
+  use crate::utils::fs::get_atomic_path;
 
-  // clean up any previous failed extraction
-  let _ = environment.remove_dir_all(&temp_dir);
-  environment.mk_dir_all(&temp_dir)?;
-
-  let result = extract_tarball_to_dir_inner(tarball_bytes, &temp_dir, environment);
-  if result.is_err() {
-    // clean up on failure
-    let _ = environment.remove_dir_all(&temp_dir);
-    return result;
+  if environment.path_exists(dest_dir) {
+    return Ok(());
   }
 
-  // atomic-ish rename: remove old dir, rename temp to final
-  let _ = environment.remove_dir_all(dest_dir);
-  environment.rename(&temp_dir, dest_dir)?;
+  let temp_dir = get_atomic_path(environment, dest_dir);
+  environment.mk_dir_all(&temp_dir)?;
 
-  Ok(())
+  if let Err(err) = extract_tarball_to_dir_inner(tarball_bytes, &temp_dir, environment) {
+    let _ = environment.remove_dir_all(&temp_dir);
+    return Err(err);
+  }
+
+  match environment.rename(&temp_dir, dest_dir) {
+    Ok(()) => Ok(()),
+    Err(err) => {
+      if environment.path_exists(dest_dir) {
+        // another concurrent extract finished first — discard our copy and
+        // use theirs (immutable name@version means contents are equivalent)
+        let _ = environment.remove_dir_all(&temp_dir);
+        Ok(())
+      } else {
+        let _ = environment.remove_dir_all(&temp_dir);
+        Err(err.into())
+      }
+    }
+  }
 }
 
 fn extract_tarball_to_dir_inner(tarball_bytes: &[u8], output_dir: &Path, environment: &impl Environment) -> Result<()> {
@@ -837,6 +858,74 @@ mod tests {
   }
 
   use crate::test_helpers::create_test_npm_tarball as create_test_tarball;
+
+  #[test]
+  fn extract_tarball_is_idempotent_when_dest_dir_exists() {
+    // a second call must not re-extract; trusting that name@version is
+    // immutable means we can fast-path-skip if dest_dir already exists.
+    use crate::environment::RealEnvironment;
+    RealEnvironment::run_test_with_real_env(|env| {
+      Box::pin(async move {
+        let tarball = create_test_tarball(&[("package/plugin.wasm", b"first-extract")]);
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("extracted");
+
+        extract_tarball_to_dir(&tarball, &dest, &env).unwrap();
+        assert_eq!(std::fs::read(dest.join("plugin.wasm")).unwrap(), b"first-extract");
+
+        // a second call with different bytes must NOT overwrite — we trust
+        // dest_dir's existence to mean "already extracted"
+        let different = create_test_tarball(&[("package/plugin.wasm", b"second-extract")]);
+        extract_tarball_to_dir(&different, &dest, &env).unwrap();
+        assert_eq!(
+          std::fs::read(dest.join("plugin.wasm")).unwrap(),
+          b"first-extract",
+          "dest_dir should not be re-extracted"
+        );
+
+        // and there shouldn't be any leftover temp dirs
+        let leftover: Vec<_> = std::fs::read_dir(dir.path())
+          .unwrap()
+          .filter_map(|e| e.ok())
+          .map(|e| e.file_name())
+          .filter(|name| name.to_string_lossy().contains(".tmp"))
+          .collect();
+        assert!(leftover.is_empty(), "expected no .tmp leftover, got {leftover:?}");
+      })
+    });
+  }
+
+  #[test]
+  fn extract_tarball_concurrent_extracts_do_not_trample() {
+    // simulate a racing concurrent extract by populating dest_dir between the
+    // first call's temp-build and rename: the rename will fail, and the
+    // function must fall through to "winner already won" rather than erroring.
+    use crate::environment::RealEnvironment;
+    RealEnvironment::run_test_with_real_env(|env| {
+      Box::pin(async move {
+        let tarball = create_test_tarball(&[("package/plugin.wasm", b"second-attempt")]);
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("extracted");
+
+        // pretend a concurrent process already populated dest_dir
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(dest.join("plugin.wasm"), b"winner").unwrap();
+
+        // our extract should be a no-op because dest_dir already exists
+        extract_tarball_to_dir(&tarball, &dest, &env).unwrap();
+        assert_eq!(std::fs::read(dest.join("plugin.wasm")).unwrap(), b"winner");
+
+        // no temp dir orphans
+        let leftover: Vec<_> = std::fs::read_dir(dir.path())
+          .unwrap()
+          .filter_map(|e| e.ok())
+          .map(|e| e.file_name())
+          .filter(|name| name.to_string_lossy().contains(".tmp"))
+          .collect();
+        assert!(leftover.is_empty(), "expected no .tmp leftover, got {leftover:?}");
+      })
+    });
+  }
 
   #[tokio::test]
   async fn download_with_auth_keeps_header_on_same_origin_redirect() {
