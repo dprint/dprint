@@ -61,8 +61,11 @@ where
     let _setup_guard = self.fs_locks.lock(&source_reference.path_source).await;
     // Unversioned npm specifiers cache under their resolved local node_modules
     // path, not under the npm path. Translate so manifest.remove targets the
-    // same key the resolve flow stored under.
-    let manifest_source = self.manifest_source_for_forget(&source_reference.path_source);
+    // same key the resolve flow stored under. If the package is no longer in
+    // node_modules we have no path to key on, so there's nothing to forget.
+    let Some(manifest_source) = self.manifest_source_for_forget(&source_reference.path_source) else {
+      return Ok(());
+    };
     let removed_cache_item = self.manifest.remove(&manifest_source)?;
 
     if let Some(cache_item) = removed_cache_item {
@@ -87,19 +90,20 @@ where
 
   /// Returns the `PathSource` whose cache key matches how the resolve flow
   /// stored the manifest entry. For unversioned npm this is the resolved local
-  /// node_modules path; for everything else it's the source itself.
-  fn manifest_source_for_forget(&self, path_source: &PathSource) -> PathSource {
+  /// node_modules path; for everything else it's the source itself. Returns
+  /// `None` for an unversioned npm whose package is no longer in node_modules
+  /// — without a local path we have no key to look up, so there's nothing to
+  /// forget.
+  fn manifest_source_for_forget(&self, path_source: &PathSource) -> Option<PathSource> {
     if let PathSource::Npm(npm_source) = path_source
       && npm_source.specifier.version.is_none()
     {
       let base_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
       let fallback_dir = self.environment.cwd();
       let config_dir = base_dir.unwrap_or(fallback_dir.as_ref());
-      if let Ok(local) = npm_resolution::find_npm_plugin_local_path(&npm_source.specifier, config_dir, &self.environment) {
-        return local;
-      }
+      return npm_resolution::find_npm_plugin_local_path(&npm_source.specifier, config_dir, &self.environment).ok();
     }
-    path_source.clone()
+    Some(path_source.clone())
   }
 
   pub async fn get_plugin_cache_item(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem> {
@@ -762,6 +766,33 @@ mod test {
     plugin_cache.forget(&plugin_source).await?;
 
     assert!(plugin_cache.manifest.get(&local_path_source)?.is_none());
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn forget_unversioned_npm_with_missing_node_modules_is_noop() -> Result<()> {
+    // a user deletes node_modules between dprint runs. The resolver will then
+    // call forget on the original unversioned npm reference. Without a local
+    // path we have no manifest key to remove, so forget should be a no-op
+    // instead of surfacing the internal "unversioned npm" cache-key error.
+    use crate::utils::NpmSpecifier;
+
+    let environment = TestEnvironment::new();
+    let plugin_cache = PluginCache::new(environment.clone());
+
+    let plugin_source = PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "missing".to_string(),
+          version: None,
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+
+    plugin_cache.forget(&plugin_source).await?;
     Ok(())
   }
 

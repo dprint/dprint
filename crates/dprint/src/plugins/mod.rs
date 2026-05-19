@@ -20,4 +20,5 @@ pub use types::*;
 
 pub use implementations::compile_wasm;
 pub use name_resolution::PluginNameResolutionMaps;
+pub use npm_resolution::FetchNpmLatestInfo;
 pub use npm_resolution::fetch_npm_latest_info;

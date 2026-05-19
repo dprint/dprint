@@ -22,6 +22,7 @@ use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginWrapper;
+use crate::plugins::FetchNpmLatestInfo;
 use crate::plugins::fetch_npm_latest_info;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
@@ -275,7 +276,15 @@ async fn resolve_npm_plugin_to_add<TEnvironment: Environment>(text: &str, config
     return Ok(parsed.specifier.display());
   }
 
-  let info = fetch_npm_latest_info(&parsed.specifier, start_dir_ref, environment).await?;
+  let info = fetch_npm_latest_info(
+    FetchNpmLatestInfo {
+      specifier: &parsed.specifier,
+      start_dir: start_dir_ref,
+      want_tarball_sha: false,
+    },
+    environment,
+  )
+  .await?;
   let pinned = crate::utils::NpmSpecifier {
     name: parsed.specifier.name,
     version: Some(info.version),
@@ -591,7 +600,15 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
         return None;
       }
       let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-      match fetch_npm_latest_info(&npm_source.specifier, start_dir, environment).await {
+      // preserve the user's checksum on update: if they pinned a checksum on
+      // the old reference, fetch a fresh one for the new version instead of
+      // carrying the stale hash (which would fail verification on next run)
+      let args = FetchNpmLatestInfo {
+        specifier: &npm_source.specifier,
+        start_dir,
+        want_tarball_sha: plugin_reference.checksum.is_some(),
+      };
+      match fetch_npm_latest_info(args, environment).await {
         Ok(info) => {
           let new_specifier = crate::utils::NpmSpecifier {
             name: npm_source.specifier.name.clone(),
@@ -600,7 +617,7 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
           };
           let new_reference = PluginSourceReference {
             path_source: PathSource::new_npm(new_specifier, npm_source.base_dir.clone()),
-            checksum: info.tarball_sha256.or_else(|| plugin_reference.checksum.clone()),
+            checksum: info.tarball_sha256,
           };
           return Some(Ok(PluginUpdateInfo {
             name: plugin.info().name.to_string(),

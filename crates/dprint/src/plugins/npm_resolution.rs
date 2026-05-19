@@ -50,14 +50,33 @@ pub struct ProcessPluginZipBytes {
 /// Information about the latest published version of an npm-distributed plugin.
 pub struct NpmLatestInfo {
   pub version: String,
-  /// SHA-256 of the latest tarball, computed only for non-wasm plugins (where
-  /// a checksum is required in the dprint.json specifier). `None` for wasm.
+  /// SHA-256 of the latest tarball. Populated when `want_tarball_sha` was set
+  /// on the request, or whenever the plugin is non-wasm (where a checksum is
+  /// always required in the dprint.json specifier).
   pub tarball_sha256: Option<String>,
 }
 
-/// Fetches the latest version of an npm-distributed plugin (and its tarball
-/// checksum for non-wasm plugins). Used by `dprint config update`.
-pub async fn fetch_npm_latest_info(specifier: &NpmSpecifier, start_dir: Option<&Path>, environment: &impl Environment) -> Result<NpmLatestInfo> {
+/// Inputs to [`fetch_npm_latest_info`].
+pub struct FetchNpmLatestInfo<'a> {
+  pub specifier: &'a NpmSpecifier,
+  /// Directory to start the `.npmrc` walk from when resolving the registry.
+  /// `None` falls back to `~/.npmrc` and then the default registry.
+  pub start_dir: Option<&'a Path>,
+  /// Force computing the tarball checksum even for wasm plugins. Used on
+  /// update when the existing specifier carries a checksum, so the upgrade
+  /// pins to the new tarball rather than carrying the stale hash. Non-wasm
+  /// plugins always compute the checksum regardless.
+  pub want_tarball_sha: bool,
+}
+
+/// Fetches the latest version of an npm-distributed plugin (and, when needed,
+/// the SHA-256 of its tarball). Used by `dprint config update` and `dprint add`.
+pub async fn fetch_npm_latest_info(args: FetchNpmLatestInfo<'_>, environment: &impl Environment) -> Result<NpmLatestInfo> {
+  let FetchNpmLatestInfo {
+    specifier,
+    start_dir,
+    want_tarball_sha,
+  } = args;
   let registry = resolve_registry_for_package(&specifier.name, start_dir, environment);
   let packument_url_str = get_packument_url(&registry.url, &specifier.name);
   let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
@@ -75,7 +94,8 @@ pub async fn fetch_npm_latest_info(specifier: &NpmSpecifier, start_dir: Option<&
     .ok_or_else(|| anyhow::anyhow!("Missing dist-tags.latest for {}", specifier.name))?
     .to_string();
 
-  let tarball_sha256 = if specifier.plugin_kind() != PluginKind::Wasm {
+  let need_tarball_sha = want_tarball_sha || specifier.plugin_kind() != PluginKind::Wasm;
+  let tarball_sha256 = if need_tarball_sha {
     let tarball_url_str = get_tarball_url_from_packument(&packument, &latest_version, &specifier.name)?;
     let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
     let tarball_auth = same_origin_auth(&packument_url, &tarball_url, registry.auth_header.as_deref());
@@ -715,9 +735,16 @@ mod tests {
       version: Some("1.0.0".to_string()),
       path: "plugin.wasm".to_string(),
     };
-    let info = fetch_npm_latest_info(&specifier, Some(std::path::Path::new("/repo")), &environment)
-      .await
-      .unwrap();
+    let info = fetch_npm_latest_info(
+      FetchNpmLatestInfo {
+        specifier: &specifier,
+        start_dir: Some(std::path::Path::new("/repo")),
+        want_tarball_sha: false,
+      },
+      &environment,
+    )
+    .await
+    .unwrap();
     assert_eq!(info.version, "1.2.3");
 
     // verify the Authorization header was sent
@@ -782,9 +809,52 @@ mod tests {
       version: Some("1.0.0".to_string()),
       path: "plugin.wasm".to_string(),
     };
-    let info = fetch_npm_latest_info(&specifier, None, &environment).await.unwrap();
+    let info = fetch_npm_latest_info(
+      FetchNpmLatestInfo {
+        specifier: &specifier,
+        start_dir: None,
+        want_tarball_sha: false,
+      },
+      &environment,
+    )
+    .await
+    .unwrap();
     assert_eq!(info.version, "1.2.3");
     assert!(info.tarball_sha256.is_none());
+  }
+
+  #[tokio::test]
+  async fn fetch_npm_latest_info_wasm_with_want_tarball_sha_fetches_tarball() {
+    // wasm plugin updates that previously carried a checksum must get a fresh
+    // tarball sha rather than reusing the stale one from the old specifier.
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "1.2.3" },
+      "versions": { "1.2.3": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.2.3.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    let tarball_bytes = vec![1u8, 2, 3, 4];
+    let expected = get_sha256_checksum(&tarball_bytes);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-1.2.3.tgz", tarball_bytes);
+
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: Some("1.0.0".to_string()),
+      path: "plugin.wasm".to_string(),
+    };
+    let info = fetch_npm_latest_info(
+      FetchNpmLatestInfo {
+        specifier: &specifier,
+        start_dir: None,
+        want_tarball_sha: true,
+      },
+      &environment,
+    )
+    .await
+    .unwrap();
+    assert_eq!(info.version, "1.2.3");
+    assert_eq!(info.tarball_sha256.as_deref(), Some(expected.as_str()));
   }
 
   #[tokio::test]
@@ -805,7 +875,16 @@ mod tests {
       version: Some("1.0.0".to_string()),
       path: "plugin.json".to_string(),
     };
-    let info = fetch_npm_latest_info(&specifier, None, &environment).await.unwrap();
+    let info = fetch_npm_latest_info(
+      FetchNpmLatestInfo {
+        specifier: &specifier,
+        start_dir: None,
+        want_tarball_sha: false,
+      },
+      &environment,
+    )
+    .await
+    .unwrap();
     assert_eq!(info.version, "2.0.0");
     assert_eq!(info.tarball_sha256.as_deref(), Some(expected_checksum.as_str()));
   }
