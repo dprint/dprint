@@ -339,13 +339,16 @@ pub(super) fn get_npm_extract_dir(registry_segment: &str, package_name: &str, ve
 }
 
 /// Returns a filesystem- and key-safe segment identifying a registry by host
-/// (and port, if non-default). Falls back to "unknown" if the URL is unparseable.
+/// (and port, if non-default). For URLs we can't parse or that have no host,
+/// falls back to `unknown_<hash>` so distinct unparseable URLs land in
+/// different cache directories instead of colliding under a shared `unknown`.
 pub(super) fn registry_dir_segment(registry_url: &str) -> String {
+  let fallback = || format!("unknown_{:016x}", crate::utils::get_bytes_hash(registry_url.as_bytes()));
   let Ok(url) = url::Url::parse(registry_url) else {
-    return "unknown".to_string();
+    return fallback();
   };
   let Some(host) = url.host_str() else {
-    return "unknown".to_string();
+    return fallback();
   };
   match url.port() {
     Some(port) => format!("{host}_{port}"),
@@ -858,6 +861,38 @@ mod tests {
   }
 
   use crate::test_helpers::create_test_npm_tarball as create_test_tarball;
+
+  #[test]
+  fn registry_dir_segment_uses_host_for_normal_urls() {
+    assert_eq!(registry_dir_segment("https://registry.npmjs.org"), "registry.npmjs.org");
+    assert_eq!(registry_dir_segment("https://registry.npmjs.org/"), "registry.npmjs.org");
+    // non-default ports are encoded so :443 vs :8443 don't share a directory
+    assert_eq!(registry_dir_segment("http://localhost:8080"), "localhost_8080");
+  }
+
+  #[test]
+  fn registry_dir_segment_unparseable_urls_get_distinct_hashed_segments() {
+    // distinct unparseable URLs must NOT share the literal "unknown" — a
+    // collision there would silently mix two registries' tarballs in one dir.
+    let a = registry_dir_segment("not a url at all");
+    let b = registry_dir_segment("also not a url");
+    assert!(a.starts_with("unknown_"), "got: {a}");
+    assert!(b.starts_with("unknown_"), "got: {b}");
+    assert_ne!(a, b);
+
+    // deterministic: same input → same segment
+    assert_eq!(a, registry_dir_segment("not a url at all"));
+  }
+
+  #[test]
+  fn registry_dir_segment_hostless_urls_get_distinct_hashed_segments() {
+    // `file:` URLs parse fine but have no host — historically also "unknown"
+    let a = registry_dir_segment("file:///tmp/registry-a");
+    let b = registry_dir_segment("file:///tmp/registry-b");
+    assert!(a.starts_with("unknown_"), "got: {a}");
+    assert!(b.starts_with("unknown_"), "got: {b}");
+    assert_ne!(a, b);
+  }
 
   #[test]
   fn extract_tarball_is_idempotent_when_dest_dir_exists() {
