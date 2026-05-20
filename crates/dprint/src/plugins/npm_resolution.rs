@@ -472,7 +472,17 @@ fn extract_tarball_to_dir_inner(tarball_bytes: &[u8], output_dir: &Path, environ
     let Some(first) = components.next() else {
       continue;
     };
-    let first_os = first.as_os_str().to_os_string();
+    // require a normal directory component as the wrapper. Absolute paths
+    // (RootDir / Prefix) and `..` (ParentDir) at the top of an entry would
+    // otherwise pin `wrapper` to a value we'd silently apply to subsequent
+    // entries, mis-shaping the extract.
+    let std::path::Component::Normal(first_name) = first else {
+      bail!(
+        "Refusing to extract npm tarball entry with non-relative top-level component: {}",
+        path.display(),
+      );
+    };
+    let first_os = first_name.to_os_string();
     match &wrapper {
       None => wrapper = Some(first_os),
       Some(existing) if existing == &first_os => {}
@@ -999,6 +1009,25 @@ mod tests {
 
         let err = extract_tarball_to_dir(&tarball, &dest, &env).unwrap_err();
         assert!(err.to_string().contains("no extractable files"), "got: {}", err);
+      })
+    });
+  }
+
+  #[test]
+  fn extract_tarball_rejects_absolute_path_entries() {
+    // a tarball entry whose first component is `/` would otherwise pin the
+    // wrapper to "/" and write the entry's tail under output_dir, mis-shaping
+    // the extract. Reject before that mistake can take effect.
+    use crate::environment::RealEnvironment;
+    use crate::test_helpers::create_test_npm_tarball_raw_paths;
+    RealEnvironment::run_test_with_real_env(|env| {
+      Box::pin(async move {
+        let tarball = create_test_npm_tarball_raw_paths(&[("/etc/passwd", b"pwned")]);
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("extracted");
+
+        let err = extract_tarball_to_dir(&tarball, &dest, &env).unwrap_err();
+        assert!(err.to_string().contains("non-relative top-level component"), "got: {}", err);
       })
     });
   }
