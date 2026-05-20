@@ -411,11 +411,18 @@ pub(super) fn registry_dir_segment(registry_url: &str) -> String {
 ///
 /// Strips the first path component (usually `package/`) from each entry.
 fn extract_tarball_to_dir(tarball_bytes: &[u8], dest_dir: &Path, environment: &impl Environment) -> Result<()> {
-  use crate::utils::fs::get_atomic_path;
-
   if environment.path_exists(dest_dir) {
     return Ok(());
   }
+  extract_tarball_to_dir_unconditionally(tarball_bytes, dest_dir, environment)
+}
+
+/// Inner that always extracts and renames into place, bypassing the initial
+/// `path_exists` fast-path. Tests use this to exercise the rename-race
+/// fallback (a winning concurrent extract appears between the check and the
+/// rename) without having to inject behavior into the environment.
+fn extract_tarball_to_dir_unconditionally(tarball_bytes: &[u8], dest_dir: &Path, environment: &impl Environment) -> Result<()> {
+  use crate::utils::fs::get_atomic_path;
 
   let temp_dir = get_atomic_path(environment, dest_dir);
   environment.mk_dir_all(&temp_dir)?;
@@ -1103,10 +1110,11 @@ mod tests {
   }
 
   #[test]
-  fn extract_tarball_concurrent_extracts_do_not_trample() {
-    // simulate a racing concurrent extract by populating dest_dir between the
-    // first call's temp-build and rename: the rename will fail, and the
-    // function must fall through to "winner already won" rather than erroring.
+  fn extract_tarball_fast_paths_when_dest_dir_exists_from_a_prior_extract() {
+    // dest_dir is already populated (e.g. from a previous extract or a
+    // concurrent winner that finished before we even started). The initial
+    // path_exists check must short-circuit and leave the existing contents
+    // alone.
     use crate::environment::RealEnvironment;
     RealEnvironment::run_test_with_real_env(|env| {
       Box::pin(async move {
@@ -1114,15 +1122,48 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("extracted");
 
-        // pretend a concurrent process already populated dest_dir
         std::fs::create_dir_all(&dest).unwrap();
         std::fs::write(dest.join("plugin.wasm"), b"winner").unwrap();
 
-        // our extract should be a no-op because dest_dir already exists
         extract_tarball_to_dir(&tarball, &dest, &env).unwrap();
         assert_eq!(std::fs::read(dest.join("plugin.wasm")).unwrap(), b"winner");
 
         // no temp dir orphans
+        let leftover: Vec<_> = std::fs::read_dir(dir.path())
+          .unwrap()
+          .filter_map(|e| e.ok())
+          .map(|e| e.file_name())
+          .filter(|name| name.to_string_lossy().contains(".tmp"))
+          .collect();
+        assert!(leftover.is_empty(), "expected no .tmp leftover, got {leftover:?}");
+      })
+    });
+  }
+
+  #[test]
+  fn extract_tarball_falls_back_when_rename_loses_to_a_concurrent_extract() {
+    // exercise the path where the initial path_exists check returned false
+    // but dest_dir is populated by another extract before our rename runs.
+    // we call the unconditional inner directly to skip the fast-path check
+    // and pre-populate dest_dir so the rename collides — the function must
+    // accept the winner and clean up its own temp dir rather than erroring.
+    use crate::environment::RealEnvironment;
+    RealEnvironment::run_test_with_real_env(|env| {
+      Box::pin(async move {
+        let tarball = create_test_tarball(&[("package/plugin.wasm", b"loser")]);
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("extracted");
+
+        // a winning concurrent extract has populated dest_dir with content.
+        // a non-empty dest is what makes rename of our temp dir collide.
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(dest.join("plugin.wasm"), b"winner").unwrap();
+
+        extract_tarball_to_dir_unconditionally(&tarball, &dest, &env).unwrap();
+        // winner's contents preserved
+        assert_eq!(std::fs::read(dest.join("plugin.wasm")).unwrap(), b"winner");
+
+        // our temp dir was cleaned up
         let leftover: Vec<_> = std::fs::read_dir(dir.path())
           .unwrap()
           .filter_map(|e| e.ok())
