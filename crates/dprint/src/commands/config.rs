@@ -297,10 +297,10 @@ async fn resolve_npm_plugin_to_add<TEnvironment: Environment>(text: &str, config
   })
 }
 
-/// Returns true if the first `package.json` found walking up from `start_dir`
-/// lists `package_name` under `dependencies` or `devDependencies`. Only the
-/// nearest package.json is consulted — we don't keep climbing into a monorepo
-/// root.
+/// Returns true if any `package.json` found walking up from `start_dir` lists
+/// `package_name` under `dependencies` or `devDependencies`. Monorepos
+/// commonly list deps at the workspace root rather than each package, so we
+/// keep climbing past package.jsons that don't mention the plugin.
 fn is_in_package_json_deps<TEnvironment: Environment>(package_name: &str, start_dir: &std::path::Path, environment: &TEnvironment) -> bool {
   use jsonc_parser::JsonValue;
   use jsonc_parser::parse_to_value;
@@ -311,7 +311,9 @@ fn is_in_package_json_deps<TEnvironment: Environment>(package_name: &str, start_
       continue;
     };
     let Ok(Some(JsonValue::Object(obj))) = parse_to_value(&text, &Default::default()) else {
-      return false;
+      // malformed package.json — don't pretend we know either way; keep
+      // walking in case a parent package.json is well-formed and lists it.
+      continue;
     };
     for field in ["dependencies", "devDependencies"] {
       if let Some(JsonValue::Object(deps)) = obj.get(field)
@@ -320,7 +322,6 @@ fn is_in_package_json_deps<TEnvironment: Environment>(package_name: &str, start_
         return true;
       }
     }
-    return false;
   }
   false
 }
@@ -2251,6 +2252,31 @@ mod test {
       .write_file("/package.json", r#"{"dependencies": {"@dprint/typescript": "^0.95.0"}}"#)
       .unwrap();
     let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = super::resolve_npm_plugin_to_add("npm:@dprint/typescript", &config_path, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result, "npm:@dprint/typescript");
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[tokio::test]
+  async fn npm_add_defers_to_dep_listed_in_a_parent_package_json() {
+    // monorepo layout: deps are listed at the workspace root, not in the
+    // child workspace's package.json. Walk past the child package.json and
+    // find the dep at the root.
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/repo/packages/web").unwrap();
+    environment.write_file("/repo/packages/web/dprint.json", "{}").unwrap();
+    // child package.json doesn't mention the plugin
+    environment
+      .write_file("/repo/packages/web/package.json", r#"{"name": "web"}"#)
+      .unwrap();
+    // root package.json does
+    environment
+      .write_file("/repo/package.json", r#"{"devDependencies": {"@dprint/typescript": "^0.95.0"}}"#)
+      .unwrap();
+
+    let config_path = environment.canonicalize("/repo/packages/web/dprint.json").unwrap();
     let result = super::resolve_npm_plugin_to_add("npm:@dprint/typescript", &config_path, &environment)
       .await
       .unwrap();
