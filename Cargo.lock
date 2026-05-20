@@ -877,6 +877,7 @@ name = "dprint"
 version = "0.54.0"
 dependencies = [
  "anyhow",
+ "base64",
  "clap",
  "clap_complete",
  "console_static_text",

@@ -621,15 +621,26 @@ fn scope_of(package_name: &str) -> Option<&str> {
 }
 
 /// Builds an HTTP `Authorization` header value from a registry's `.npmrc`
-/// credentials. Supports `_authToken` (Bearer) and `_auth` (Basic). The
-/// `username` / `_password` combination is not yet supported (would require
-/// base64-encoding) — returns `None` and emits no header in that case.
+/// credentials. Supports `_authToken` (Bearer), `_auth` (Basic), and the
+/// `username` + `_password` pair (Basic, base64-encoded here — npm stores
+/// `_password` itself as base64 over the cleartext password).
 fn compute_auth_header(config: &RegistryConfig) -> Option<String> {
+  use base64::Engine;
   if let Some(token) = &config.auth_token {
     return Some(format!("Bearer {}", token));
   }
   if let Some(auth) = &config.auth {
     return Some(format!("Basic {}", auth));
+  }
+  if let (Some(username), Some(password_b64)) = (&config.username, &config.password) {
+    // npm stores `_password` as base64 of the cleartext password; we need to
+    // send `Basic base64(username:password)`. Decode then re-encode.
+    let password = base64::engine::general_purpose::STANDARD
+      .decode(password_b64.as_bytes())
+      .ok()
+      .and_then(|bytes| String::from_utf8(bytes).ok())?;
+    let credentials = format!("{}:{}", username, password);
+    return Some(format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(credentials.as_bytes())));
   }
   None
 }
@@ -711,6 +722,30 @@ mod tests {
     // auth_token wins over auth when both are present
     cfg.auth_token = Some("tok".to_string());
     assert_eq!(compute_auth_header(&cfg), Some("Bearer tok".to_string()));
+  }
+
+  #[test]
+  fn compute_auth_header_supports_username_and_password() {
+    use base64::Engine;
+    // npm stores _password as base64 of the cleartext password
+    let password_b64 = base64::engine::general_purpose::STANDARD.encode(b"pwd");
+    let cfg = RegistryConfig {
+      username: Some("user".to_string()),
+      password: Some(password_b64),
+      ..Default::default()
+    };
+    // header is base64(user:pwd) which matches the well-known _auth example
+    assert_eq!(compute_auth_header(&cfg), Some("Basic dXNlcjpwd2Q=".to_string()));
+  }
+
+  #[test]
+  fn compute_auth_header_username_only_is_none() {
+    // username without _password (or vice versa) can't produce a header
+    let cfg = RegistryConfig {
+      username: Some("user".to_string()),
+      ..Default::default()
+    };
+    assert_eq!(compute_auth_header(&cfg), None);
   }
 
   #[tokio::test]
