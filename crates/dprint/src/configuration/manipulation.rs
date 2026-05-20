@@ -15,7 +15,9 @@ use jsonc_parser::cst::CstRootNode;
 use jsonc_parser::json;
 
 use crate::plugins::PluginSourceReference;
+use crate::utils::PathSource;
 use crate::utils::PluginKind;
+use crate::utils::parse_npm_specifier;
 
 #[derive(Debug)]
 pub struct PluginUpdateInfo {
@@ -44,7 +46,40 @@ impl PluginUpdateInfo {
 
 pub fn update_plugin_in_config(file_text: &str, info: &PluginUpdateInfo) -> String {
   let new_url = info.get_full_new_config_url();
+  // npm references normalize their display form (the default `/plugin.wasm`
+  // path is stripped), so `info.old_reference.to_string()` is often a strict
+  // prefix of the original config text. A naive `replace` would leave the
+  // `/plugin.wasm[@checksum]` suffix glued to the new version. Update the
+  // matching string in the plugins array structurally instead.
+  if let PathSource::Npm(_) = &info.old_reference.path_source
+    && let Some(updated) = try_replace_npm_plugin_in_config(file_text, &info.old_reference, &new_url)
+  {
+    return updated;
+  }
   file_text.replace(&info.old_reference.to_string(), &new_url)
+}
+
+fn try_replace_npm_plugin_in_config(file_text: &str, old_reference: &PluginSourceReference, new_url: &str) -> Option<String> {
+  let PathSource::Npm(npm_source) = &old_reference.path_source else {
+    return None;
+  };
+  let root = CstRootNode::parse(file_text, &Default::default()).ok()?;
+  let plugins = root.object_value()?.array_value("plugins")?;
+  for element in plugins.elements() {
+    let CstNode::Leaf(CstLeafNode::StringLit(string_lit)) = element else {
+      continue;
+    };
+    let entry_text = string_lit.decoded_value().ok()?;
+    let Ok(parsed) = parse_npm_specifier(&entry_text) else {
+      continue;
+    };
+    // structural identity: same package + version + path + checksum
+    if &parsed.specifier == &npm_source.specifier && parsed.checksum == old_reference.checksum {
+      string_lit.replace_with(json!(new_url));
+      return Some(root.to_string());
+    }
+  }
+  None
 }
 
 pub fn add_to_plugins_array(file_text: &str, url: &str) -> Result<String> {
@@ -408,6 +443,122 @@ mod test {
   ]
 }"#
     );
+  }
+
+  #[test]
+  fn update_plugin_in_config_npm_rewrites_explicit_default_path_entry() {
+    // user wrote `npm:foo@1.0.0/plugin.wasm` (explicit default path). The
+    // PluginSourceReference normalizes the path to "plugin.wasm" and
+    // display() strips it, so a naive string replace would leave a stale
+    // `/plugin.wasm` suffix. The structural update should replace the whole
+    // entry cleanly.
+    use crate::plugins::PluginSourceReference;
+    use crate::utils::NpmSpecifier;
+    let npm = |v: &str| PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "foo".to_string(),
+          version: Some(v.to_string()),
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+    let info = PluginUpdateInfo {
+      name: "foo".to_string(),
+      old_version: "1.0.0".to_string(),
+      old_reference: npm("1.0.0"),
+      new_version: "1.1.0".to_string(),
+      new_reference: npm("1.1.0"),
+    };
+    let input = r#"{
+  "plugins": [
+    "npm:foo@1.0.0/plugin.wasm"
+  ]
+}"#;
+    let expected = r#"{
+  "plugins": [
+    "npm:foo@1.1.0"
+  ]
+}"#;
+    assert_eq!(update_plugin_in_config(input, &info), expected);
+  }
+
+  #[test]
+  fn update_plugin_in_config_npm_rewrites_process_plugin_with_checksum() {
+    // process plugins always carry a checksum; both the path and the
+    // checksum need to be replaced as a single unit.
+    use crate::plugins::PluginSourceReference;
+    use crate::utils::NpmSpecifier;
+    let npm = |v: &str, csum: &str| PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "foo".to_string(),
+          version: Some(v.to_string()),
+          path: "plugin.json".to_string(),
+        },
+        None,
+      ),
+      checksum: Some(csum.to_string()),
+    };
+    let info = PluginUpdateInfo {
+      name: "foo".to_string(),
+      old_version: "1.0.0".to_string(),
+      old_reference: npm("1.0.0", "oldsum"),
+      new_version: "1.1.0".to_string(),
+      new_reference: npm("1.1.0", "newsum"),
+    };
+    let input = r#"{
+  "plugins": [
+    "npm:foo@1.0.0/plugin.json@oldsum"
+  ]
+}"#;
+    let expected = r#"{
+  "plugins": [
+    "npm:foo@1.1.0/plugin.json@newsum"
+  ]
+}"#;
+    assert_eq!(update_plugin_in_config(input, &info), expected);
+  }
+
+  #[test]
+  fn update_plugin_in_config_npm_leaves_other_entries_alone() {
+    // a similarly-prefixed but distinct entry (different path) must not be
+    // touched. A naive prefix-replace would have rewritten both.
+    use crate::plugins::PluginSourceReference;
+    use crate::utils::NpmSpecifier;
+    let npm_wasm = |v: &str| PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "foo".to_string(),
+          version: Some(v.to_string()),
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+    let info = PluginUpdateInfo {
+      name: "foo".to_string(),
+      old_version: "1.0.0".to_string(),
+      old_reference: npm_wasm("1.0.0"),
+      new_version: "1.1.0".to_string(),
+      new_reference: npm_wasm("1.1.0"),
+    };
+    let input = r#"{
+  "plugins": [
+    "npm:foo@1.0.0",
+    "npm:foo@1.0.0/plugin.json@somesum"
+  ]
+}"#;
+    let expected = r#"{
+  "plugins": [
+    "npm:foo@1.1.0",
+    "npm:foo@1.0.0/plugin.json@somesum"
+  ]
+}"#;
+    assert_eq!(update_plugin_in_config(input, &info), expected);
   }
 
   #[test]
