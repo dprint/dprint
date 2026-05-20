@@ -291,6 +291,25 @@ fn try_resolve_process_plugin_dep_from_node_modules(
 
   let dep_dir = find_package_in_node_modules(dep_name, config_dir, environment)?;
 
+  // if the plugin.json reference pins a version, sanity-check that the
+  // installed package matches before we read the zip. The checksum below
+  // would also catch a version mismatch, but the resulting error blames the
+  // wrong party — the install is what's stale, not the plugin's checksum.
+  if let Some(expected_version) = &parsed.specifier.version
+    && let Some(installed_version) = read_package_json_version(&dep_dir, environment)
+    && installed_version != *expected_version
+  {
+    bail!(
+      "Installed version of '{}' ({}) doesn't match what plugin '{}' expects ({}). Update the installed package — for example, `npm install {}@{}`.",
+      dep_name,
+      installed_version,
+      plugin_file.name,
+      expected_version,
+      dep_name,
+      expected_version,
+    );
+  }
+
   // the npm reference in plugin.json names the zip exactly (e.g.
   // `npm:@scope/foo-linux-x64@1.0.0/plugin.zip`), so look it up by path
   // rather than scanning the directory for an arbitrary .zip
@@ -308,8 +327,9 @@ fn try_resolve_process_plugin_dep_from_node_modules(
 
   verify_sha256_checksum(&zip_bytes, &os_path.checksum).with_context(|| {
     format!(
-      "Invalid checksum for process plugin dependency '{}'. This is likely a bug in the process plugin.",
+      "Invalid checksum for process plugin dependency '{}'. The installed package's contents don't match what '{}' was built against — try reinstalling it.",
       dep_name,
+      plugin_file.name,
     )
   })?;
 
@@ -645,6 +665,15 @@ fn get_tarball_url_from_packument(packument: &serde_json::Value, version: &str, 
     .ok_or_else(|| anyhow::anyhow!("Missing tarball URL for {}@{}", package_name, version))?;
 
   Ok(tarball_url.to_string())
+}
+
+/// Reads `package_dir/package.json` and returns the `version` field, or `None`
+/// if the file is missing, malformed, or has no string `version`. Best-effort:
+/// callers use this for diagnostics, not for security decisions.
+fn read_package_json_version(package_dir: &Path, environment: &impl Environment) -> Option<String> {
+  let text = environment.read_file(package_dir.join("package.json")).ok()?;
+  let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+  value.get("version")?.as_str().map(|s| s.to_string())
 }
 
 /// Walks up from `start_dir` looking for `node_modules/{package_name}/`.
@@ -1188,6 +1217,54 @@ mod tests {
     assert_eq!(zip.name, "foo");
     assert_eq!(zip.version, "1.0.0");
     assert_eq!(zip.zip_bytes, zip_bytes);
+  }
+
+  #[tokio::test]
+  async fn resolve_npm_from_node_modules_process_plugin_rejects_version_mismatch() {
+    // plugin.json references `npm:foo-bin@1.0.0/plugin.zip` but node_modules
+    // has foo-bin@2.0.0 installed. We should detect the version mismatch and
+    // tell the user, not blame the plugin author via the checksum error.
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.set_os("linux");
+    environment.set_cpu_arch("x86_64");
+
+    let zip_bytes = b"fake-zip-contents";
+    let zip_checksum = get_sha256_checksum(zip_bytes);
+    environment.mk_dir_all("/node_modules/foo-bin").unwrap();
+    environment.write_file_bytes("/node_modules/foo-bin/plugin.zip", zip_bytes).unwrap();
+    environment
+      .write_file(
+        "/node_modules/foo-bin/package.json",
+        &serde_json::json!({ "name": "foo-bin", "version": "2.0.0" }).to_string(),
+      )
+      .unwrap();
+
+    let manifest = serde_json::json!({
+      "schemaVersion": 2,
+      "name": "foo",
+      "version": "1.0.0",
+      "linux-x86_64": {
+        "reference": "npm:foo-bin@1.0.0/plugin.zip",
+        "checksum": zip_checksum,
+      },
+    });
+    environment.mk_dir_all("/node_modules/foo").unwrap();
+    environment.write_file("/node_modules/foo/plugin.json", &manifest.to_string()).unwrap();
+
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: None,
+      path: "plugin.json".to_string(),
+    };
+    let err = match resolve_npm_from_node_modules(&specifier, std::path::Path::new("/"), &environment) {
+      Ok(_) => panic!("expected an error"),
+      Err(e) => e,
+    };
+    let msg = format!("{err:#}");
+    assert!(msg.contains("Installed version of 'foo-bin' (2.0.0)"), "got: {msg}");
+    assert!(msg.contains("plugin 'foo' expects (1.0.0)"), "got: {msg}");
+    assert!(msg.contains("npm install foo-bin@1.0.0"), "got: {msg}");
   }
 
   #[tokio::test]
