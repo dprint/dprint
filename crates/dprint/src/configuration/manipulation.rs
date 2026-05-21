@@ -49,37 +49,58 @@ pub fn update_plugin_in_config(file_text: &str, info: &PluginUpdateInfo) -> Stri
   // npm references normalize their display form (the default `/plugin.wasm`
   // path is stripped), so `info.old_reference.to_string()` is often a strict
   // prefix of the original config text. A naive `replace` would leave the
-  // `/plugin.wasm[@checksum]` suffix glued to the new version. Update the
-  // matching string in the plugins array structurally instead.
-  if let PathSource::Npm(_) = &info.old_reference.path_source
-    && let Some(updated) = try_replace_npm_plugin_in_config(file_text, &info.old_reference, &new_url)
-  {
-    return updated;
+  // `/plugin.wasm[@checksum]` suffix glued to the new version. For npm we
+  // always go through the CST path so we never fall back to the buggy
+  // prefix-replace; if the entry isn't in this file (e.g. it lives in an
+  // `extends`ed config) we return the file unchanged.
+  if let PathSource::Npm(_) = &info.old_reference.path_source {
+    return replace_npm_plugin_in_config(file_text, &info.old_reference, &new_url);
   }
   file_text.replace(&info.old_reference.to_string(), &new_url)
 }
 
-fn try_replace_npm_plugin_in_config(file_text: &str, old_reference: &PluginSourceReference, new_url: &str) -> Option<String> {
+fn replace_npm_plugin_in_config(file_text: &str, old_reference: &PluginSourceReference, new_url: &str) -> String {
   let PathSource::Npm(npm_source) = &old_reference.path_source else {
-    return None;
+    return file_text.to_string();
   };
-  let root = CstRootNode::parse(file_text, &Default::default()).ok()?;
-  let plugins = root.object_value()?.array_value("plugins")?;
+  let Ok(root) = CstRootNode::parse(file_text, &Default::default()) else {
+    // unparseable config — don't risk corrupting it via prefix-replace
+    return file_text.to_string();
+  };
+  let Some(plugins) = root.object_value().and_then(|obj| obj.array_value("plugins")) else {
+    // no plugins array in this file (e.g. plugins come from an extends);
+    // nothing to rewrite here
+    return file_text.to_string();
+  };
+  // collect every matching string lit first, then replace each. The
+  // PluginUpdateInfo passed in identifies a single logical entry, but the
+  // same string can appear more than once in the array (e.g. via copy/paste);
+  // leaving a stale duplicate around would just make the next config update
+  // flag it again.
+  let mut matches = Vec::new();
   for element in plugins.elements() {
     let CstNode::Leaf(CstLeafNode::StringLit(string_lit)) = element else {
       continue;
     };
-    let entry_text = string_lit.decoded_value().ok()?;
+    // a string with an invalid JSON escape isn't ours to interpret; skip it
+    // and keep scanning the rest of the array.
+    let Ok(entry_text) = string_lit.decoded_value() else {
+      continue;
+    };
     let Ok(parsed) = parse_npm_specifier(&entry_text) else {
       continue;
     };
-    // structural identity: same package + version + path + checksum
     if &parsed.specifier == &npm_source.specifier && parsed.checksum == old_reference.checksum {
-      string_lit.replace_with(json!(new_url));
-      return Some(root.to_string());
+      matches.push(string_lit);
     }
   }
-  None
+  if matches.is_empty() {
+    return file_text.to_string();
+  }
+  for string_lit in matches {
+    string_lit.replace_with(json!(new_url));
+  }
+  root.to_string()
 }
 
 pub fn add_to_plugins_array(file_text: &str, url: &str) -> Result<String> {
@@ -520,6 +541,80 @@ mod test {
   ]
 }"#;
     assert_eq!(update_plugin_in_config(input, &info), expected);
+  }
+
+  #[test]
+  fn update_plugin_in_config_npm_rewrites_duplicate_entries() {
+    // a plugins array with two identical npm references — both should be
+    // bumped, not just the first. Otherwise the next dprint config update
+    // would flag the stale duplicate again.
+    use crate::plugins::PluginSourceReference;
+    use crate::utils::NpmSpecifier;
+    let npm = |v: &str| PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "foo".to_string(),
+          version: Some(v.to_string()),
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+    let info = PluginUpdateInfo {
+      name: "foo".to_string(),
+      old_version: "1.0.0".to_string(),
+      old_reference: npm("1.0.0"),
+      new_version: "1.1.0".to_string(),
+      new_reference: npm("1.1.0"),
+    };
+    let input = r#"{
+  "plugins": [
+    "npm:foo@1.0.0",
+    "npm:foo@1.0.0"
+  ]
+}"#;
+    let expected = r#"{
+  "plugins": [
+    "npm:foo@1.1.0",
+    "npm:foo@1.1.0"
+  ]
+}"#;
+    assert_eq!(update_plugin_in_config(input, &info), expected);
+  }
+
+  #[test]
+  fn update_plugin_in_config_npm_returns_file_unchanged_when_no_plugins_array() {
+    // e.g. the plugin reference lives in an `extends`ed file, so this file
+    // has no plugins array of its own. The previous fallback to file_text
+    // .replace would search for the normalized display ("npm:foo@1.0.0")
+    // anywhere in the text — including comments or other strings — and
+    // potentially corrupt them.
+    use crate::plugins::PluginSourceReference;
+    use crate::utils::NpmSpecifier;
+    let npm = |v: &str| PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "foo".to_string(),
+          version: Some(v.to_string()),
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+    let info = PluginUpdateInfo {
+      name: "foo".to_string(),
+      old_version: "1.0.0".to_string(),
+      old_reference: npm("1.0.0"),
+      new_version: "1.1.0".to_string(),
+      new_reference: npm("1.1.0"),
+    };
+    let input = r#"{
+  "extends": "./shared.json",
+  "//": "would have been corrupted by a textual replace of npm:foo@1.0.0"
+}"#;
+    assert_eq!(update_plugin_in_config(input, &info), input);
   }
 
   #[test]
