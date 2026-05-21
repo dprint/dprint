@@ -258,6 +258,10 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
 ///   the pinned form, with checksum for non-wasm plugins.
 async fn resolve_npm_plugin_to_add<TEnvironment: Environment>(text: &str, config_path: &CanonicalizedPathBuf, environment: &TEnvironment) -> Result<String> {
   let parsed = crate::utils::parse_npm_specifier(text)?;
+  // top-level plugin reference: enforce the same .wasm/.json constraint that
+  // parse_plugin_source_reference applies, since `dprint add` writes the
+  // result straight into the plugins array.
+  crate::utils::validate_plugin_extension(&parsed.specifier, text)?;
 
   if parsed.specifier.version.is_some() {
     return Ok(text.to_string());

@@ -27,15 +27,10 @@ pub struct ParsedNpmSpecifier {
 }
 
 impl NpmSpecifier {
-  /// Returns the plugin kind implied by `path`'s extension.
-  /// `parse_npm_specifier` rejects any other extension, so this only ever
-  /// sees `.wasm` or `.json` (case-insensitive).
+  /// Returns the plugin kind implied by `path`'s extension (case-insensitive).
+  /// Defaults to `Wasm` for any other extension — callers that need to reject
+  /// non-plugin paths should run `validate_plugin_extension` after parsing.
   pub fn plugin_kind(&self) -> PluginKind {
-    debug_assert!(
-      matches!(plugin_kind_from_extension(&self.path), Some(PluginKind::Wasm) | Some(PluginKind::Process)),
-      "NpmSpecifier::path should be validated to .wasm/.json by parse_npm_specifier, got: {}",
-      self.path,
-    );
     plugin_kind_from_extension(&self.path).unwrap_or(PluginKind::Wasm)
   }
 
@@ -153,11 +148,15 @@ fn split_version(s: &str) -> (&str, &str) {
 }
 
 /// Parses `plugin.json@checksum` or `plugin.wasm` from the path portion.
+/// Note: this does not validate the extension, since npm specifiers also
+/// appear inside a process plugin's plugin.json (referencing a `.zip` from
+/// a per-platform npm package). Callers that need a plugin file specifically
+/// validate the extension themselves via `validate_plugin_extension`.
 fn parse_path_and_checksum(s: &str, original: &str) -> Result<(String, Option<String>)> {
   if s.is_empty() {
     bail!("Expected a plugin filename after '/' in npm specifier: {}", original);
   }
-  let (path, checksum) = if let Some(at_idx) = s.find('@') {
+  if let Some(at_idx) = s.find('@') {
     let path = &s[..at_idx];
     let checksum = &s[at_idx + 1..];
     if path.is_empty() {
@@ -166,27 +165,30 @@ fn parse_path_and_checksum(s: &str, original: &str) -> Result<(String, Option<St
     if checksum.is_empty() {
       bail!("Expected a checksum after '@' in npm specifier: {}", original);
     }
-    (path.to_string(), Some(checksum.to_string()))
+    Ok((path.to_string(), Some(checksum.to_string())))
   } else {
-    (s.to_string(), None)
-  };
-  // only `.wasm` and `.json` are meaningful plugin kinds; reject anything
-  // else here rather than letting it silently fall through to "wasm".
-  // Matches the case-insensitive behavior used for local/remote sources.
-  if plugin_kind_from_extension(&path).is_none() {
+    Ok((s.to_string(), None))
+  }
+}
+
+/// Rejects an npm specifier whose path doesn't end in `.wasm` or `.json`
+/// (case-insensitive). Call this on a parsed `NpmSpecifier` when the
+/// specifier is supposed to identify a top-level plugin (as opposed to an
+/// embedded zip reference inside a process plugin manifest).
+pub fn validate_plugin_extension(specifier: &NpmSpecifier, original: &str) -> Result<()> {
+  if plugin_kind_from_extension(&specifier.path).is_none() {
     bail!(
       "Unsupported plugin file extension in npm specifier '{}': '{}'. Expected '.wasm' or '.json'.",
       original,
-      path,
+      specifier.path,
     );
   }
-  Ok((path, checksum))
+  Ok(())
 }
 
 /// Maps a path's extension (case-insensitive) to a plugin kind, or `None`
-/// if the extension isn't one we recognize. Shared by `parse_npm_specifier`
-/// (which rejects unknown extensions) and `NpmSpecifier::plugin_kind`
-/// (which trusts the parsed path).
+/// if the extension isn't one we recognize. Shared by
+/// `validate_plugin_extension` and `NpmSpecifier::plugin_kind`.
 fn plugin_kind_from_extension(path: &str) -> Option<PluginKind> {
   let (_, ext) = path.rsplit_once('.')?;
   if ext.eq_ignore_ascii_case("wasm") {
@@ -384,20 +386,29 @@ mod tests {
   }
 
   #[test]
-  fn error_unsupported_extension() {
-    // local/remote plugin sources only ever classify .wasm/.json — npm
-    // specifiers should reject anything else at parse time rather than
-    // silently classifying it as wasm.
-    let err = match parse_npm_specifier("npm:foo@1.0.0/plugin.txt") {
-      Ok(_) => panic!("expected an error"),
-      Err(e) => e,
-    };
+  fn validate_plugin_extension_rejects_non_plugin_paths() {
+    // local/remote plugin sources only ever classify .wasm/.json. Top-level
+    // npm plugin specifiers should be rejected the same way — but parsing
+    // itself stays permissive because npm: specifiers are also used inside
+    // process plugin manifests to reference per-platform .zip binaries.
+    let parsed = parse_npm_specifier("npm:foo@1.0.0/plugin.txt").unwrap();
+    let err = validate_plugin_extension(&parsed.specifier, "npm:foo@1.0.0/plugin.txt").unwrap_err();
     let msg = err.to_string();
     assert!(msg.contains("Unsupported plugin file extension"), "got: {msg}");
     assert!(msg.contains("plugin.txt"), "got: {msg}");
 
     // bare names with no extension are also rejected
-    assert!(parse_npm_specifier("npm:foo@1.0.0/plugin").is_err());
+    let parsed = parse_npm_specifier("npm:foo@1.0.0/plugin").unwrap();
+    assert!(validate_plugin_extension(&parsed.specifier, "npm:foo@1.0.0/plugin").is_err());
+  }
+
+  #[test]
+  fn validate_plugin_extension_accepts_zip_only_through_parse_not_validate() {
+    // npm specifiers referencing zip binaries (from inside a process plugin
+    // manifest) must parse, but should not pass plugin-extension validation.
+    let parsed = parse_npm_specifier("npm:foo-bin@1.0.0/plugin.zip").unwrap();
+    assert_eq!(parsed.specifier.path, "plugin.zip");
+    assert!(validate_plugin_extension(&parsed.specifier, "npm:foo-bin@1.0.0/plugin.zip").is_err());
   }
 
   #[test]
@@ -407,9 +418,11 @@ mod tests {
     let result = parse_npm_specifier("npm:foo@1.0.0/plugin.JSON").unwrap();
     assert_eq!(result.specifier.path, "plugin.JSON");
     assert_eq!(result.specifier.plugin_kind(), PluginKind::Process);
+    assert!(validate_plugin_extension(&result.specifier, "npm:foo@1.0.0/plugin.JSON").is_ok());
 
     let result = parse_npm_specifier("npm:foo@1.0.0/PLUGIN.WASM").unwrap();
     assert_eq!(result.specifier.path, "PLUGIN.WASM");
     assert_eq!(result.specifier.plugin_kind(), PluginKind::Wasm);
+    assert!(validate_plugin_extension(&result.specifier, "npm:foo@1.0.0/PLUGIN.WASM").is_ok());
   }
 }

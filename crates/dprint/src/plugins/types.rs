@@ -9,6 +9,7 @@ use crate::utils::PluginKind;
 use crate::utils::parse_checksum_path_or_url;
 use crate::utils::parse_npm_specifier;
 use crate::utils::resolve_url_or_file_path_to_path_source;
+use crate::utils::validate_plugin_extension;
 
 #[derive(Clone)]
 pub struct CompilationResult {
@@ -76,6 +77,10 @@ pub fn parse_plugin_source_reference(text: &str, base: &PathSource, environment:
   // intercept npm: specifiers before the general checksum/url parsing
   if text.starts_with("npm:") {
     let parsed = parse_npm_specifier(text)?;
+    // The parser stays permissive about extensions because npm: specifiers
+    // also appear inside process plugin manifests pointing at `.zip` files.
+    // For a top-level plugin reference, restrict to `.wasm` / `.json` here.
+    validate_plugin_extension(&parsed.specifier, text)?;
     // store the config file's directory for node_modules resolution
     let base_dir = base.maybe_local_path().and_then(|p| p.parent());
     return Ok(PluginSourceReference {
