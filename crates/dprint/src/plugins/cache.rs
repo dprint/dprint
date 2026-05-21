@@ -52,13 +52,16 @@ where
   }
 
   pub async fn forget_and_recreate(&self, source_reference: &PluginSourceReference) -> Result<PluginCacheItem> {
-    let _setup_guard = self.fs_locks.lock(&source_reference.path_source).await;
+    // lock on the same key the inner forget+resolve will use so this whole
+    // forget-then-recreate sequence appears atomic to other processes. See
+    // `cache_lock_key` for why npm needs special treatment here.
+    let lock_source = self.cache_lock_key(&source_reference.path_source);
+    let _setup_guard = self.fs_locks.lock(&lock_source).await;
     self.forget(source_reference).await?;
     self.get_plugin_cache_item(source_reference).await
   }
 
   pub async fn forget(&self, source_reference: &PluginSourceReference) -> Result<()> {
-    let _setup_guard = self.fs_locks.lock(&source_reference.path_source).await;
     // Unversioned npm specifiers cache under their resolved local node_modules
     // path, not under the npm path. Translate so manifest.remove targets the
     // same key the resolve flow stored under. If the package is no longer in
@@ -66,6 +69,12 @@ where
     let Some(manifest_source) = self.manifest_source_for_forget(&source_reference.path_source) else {
       return Ok(());
     };
+    // Lock on the same key the resolve flow uses (`get_local_plugin` for
+    // unversioned npm), not the original npm PathSource — otherwise a
+    // concurrent process resolving the same plugin would lock on a
+    // different key and we'd race between cleanup_plugin here and
+    // setup_plugin over there.
+    let _setup_guard = self.fs_locks.lock(&manifest_source).await;
     let removed_cache_item = self.manifest.remove(&manifest_source)?;
 
     if let Some(cache_item) = removed_cache_item {
@@ -86,6 +95,16 @@ where
     }
 
     Ok(())
+  }
+
+  /// Returns the `PathSource` to lock on when forgetting *and* recreating
+  /// a plugin atomically. For unversioned npm this is the resolved local
+  /// node_modules path (same key the resolve flow's `get_local_plugin`
+  /// locks on); for everything else it's the source itself. Falls back to
+  /// the original source if the local path can't be resolved — the
+  /// subsequent resolve will then fail with a clearer error anyway.
+  fn cache_lock_key(&self, path_source: &PathSource) -> PathSource {
+    self.manifest_source_for_forget(path_source).unwrap_or_else(|| path_source.clone())
   }
 
   /// Returns the `PathSource` whose cache key matches how the resolve flow
