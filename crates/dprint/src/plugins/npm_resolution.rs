@@ -475,7 +475,12 @@ fn extract_tarball_to_dir_inner(tarball_bytes: &[u8], output_dir: &Path, environ
 
     let path = entry.path().context("Failed to get entry path")?.to_path_buf();
 
-    let mut components = path.components();
+    // GNU tar prefixes entries with `./` by default; skip those leading
+    // `CurDir`s so the wrapper-detection sees the real first directory.
+    let mut components = path.components().peekable();
+    while let Some(std::path::Component::CurDir) = components.peek() {
+      components.next();
+    }
     let Some(first) = components.next() else {
       continue;
     };
@@ -1016,6 +1021,26 @@ mod tests {
 
         let err = extract_tarball_to_dir(&tarball, &dest, &env).unwrap_err();
         assert!(err.to_string().contains("no extractable files"), "got: {}", err);
+      })
+    });
+  }
+
+  #[test]
+  fn extract_tarball_accepts_leading_curdir_components() {
+    // GNU tar's default output prefixes every entry with `./`. The wrapper-
+    // detection logic must look past those leading `CurDir`s rather than
+    // treating them as the first directory.
+    use crate::environment::RealEnvironment;
+    use crate::test_helpers::create_test_npm_tarball_raw_paths;
+    RealEnvironment::run_test_with_real_env(|env| {
+      Box::pin(async move {
+        let tarball = create_test_npm_tarball_raw_paths(&[("./package/plugin.wasm", b"wasm-bytes"), ("./package/extra.bin", b"extra")]);
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("extracted");
+
+        extract_tarball_to_dir(&tarball, &dest, &env).unwrap();
+        assert_eq!(std::fs::read(dest.join("plugin.wasm")).unwrap(), b"wasm-bytes");
+        assert_eq!(std::fs::read(dest.join("extra.bin")).unwrap(), b"extra");
       })
     });
   }
