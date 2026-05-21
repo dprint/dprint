@@ -18,11 +18,11 @@ use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
+use crate::plugins::FetchNpmLatestInfo;
 use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginWrapper;
-use crate::plugins::FetchNpmLatestInfo;
 use crate::plugins::fetch_npm_latest_info;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
@@ -2268,9 +2268,7 @@ mod test {
     environment.mk_dir_all("/repo/packages/web").unwrap();
     environment.write_file("/repo/packages/web/dprint.json", "{}").unwrap();
     // child package.json doesn't mention the plugin
-    environment
-      .write_file("/repo/packages/web/package.json", r#"{"name": "web"}"#)
-      .unwrap();
+    environment.write_file("/repo/packages/web/package.json", r#"{"name": "web"}"#).unwrap();
     // root package.json does
     environment
       .write_file("/repo/package.json", r#"{"devDependencies": {"@dprint/typescript": "^0.95.0"}}"#)

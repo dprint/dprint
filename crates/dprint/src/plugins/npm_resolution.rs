@@ -331,8 +331,7 @@ fn try_resolve_process_plugin_dep_from_node_modules(
   verify_sha256_checksum(&zip_bytes, &os_path.checksum).with_context(|| {
     format!(
       "Invalid checksum for process plugin dependency '{}'. The installed package's contents don't match what '{}' was built against — try reinstalling it.",
-      dep_name,
-      plugin_file.name,
+      dep_name, plugin_file.name,
     )
   })?;
 
@@ -847,10 +846,7 @@ mod tests {
     };
     assert_eq!(compute_auth_header(&cfg, &env), None);
     let stderr = env.take_stderr_messages();
-    assert!(
-      stderr.iter().any(|m| m.contains("not valid UTF-8")),
-      "expected utf-8 warning, got: {stderr:?}"
-    );
+    assert!(stderr.iter().any(|m| m.contains("not valid UTF-8")), "expected utf-8 warning, got: {stderr:?}");
   }
 
   #[tokio::test]
