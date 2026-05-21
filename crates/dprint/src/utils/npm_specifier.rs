@@ -27,12 +27,16 @@ pub struct ParsedNpmSpecifier {
 }
 
 impl NpmSpecifier {
+  /// Returns the plugin kind implied by `path`'s extension.
+  /// `parse_npm_specifier` rejects any other extension, so this only ever
+  /// sees `.wasm` or `.json` (case-insensitive).
   pub fn plugin_kind(&self) -> PluginKind {
-    if self.path.ends_with(".json") {
-      PluginKind::Process
-    } else {
-      PluginKind::Wasm
-    }
+    debug_assert!(
+      matches!(plugin_kind_from_extension(&self.path), Some(PluginKind::Wasm) | Some(PluginKind::Process)),
+      "NpmSpecifier::path should be validated to .wasm/.json by parse_npm_specifier, got: {}",
+      self.path,
+    );
+    plugin_kind_from_extension(&self.path).unwrap_or(PluginKind::Wasm)
   }
 
   /// Returns the specifier string suitable for display.
@@ -153,7 +157,7 @@ fn parse_path_and_checksum(s: &str, original: &str) -> Result<(String, Option<St
   if s.is_empty() {
     bail!("Expected a plugin filename after '/' in npm specifier: {}", original);
   }
-  if let Some(at_idx) = s.find('@') {
+  let (path, checksum) = if let Some(at_idx) = s.find('@') {
     let path = &s[..at_idx];
     let checksum = &s[at_idx + 1..];
     if path.is_empty() {
@@ -162,9 +166,35 @@ fn parse_path_and_checksum(s: &str, original: &str) -> Result<(String, Option<St
     if checksum.is_empty() {
       bail!("Expected a checksum after '@' in npm specifier: {}", original);
     }
-    Ok((path.to_string(), Some(checksum.to_string())))
+    (path.to_string(), Some(checksum.to_string()))
   } else {
-    Ok((s.to_string(), None))
+    (s.to_string(), None)
+  };
+  // only `.wasm` and `.json` are meaningful plugin kinds; reject anything
+  // else here rather than letting it silently fall through to "wasm".
+  // Matches the case-insensitive behavior used for local/remote sources.
+  if plugin_kind_from_extension(&path).is_none() {
+    bail!(
+      "Unsupported plugin file extension in npm specifier '{}': '{}'. Expected '.wasm' or '.json'.",
+      original,
+      path,
+    );
+  }
+  Ok((path, checksum))
+}
+
+/// Maps a path's extension (case-insensitive) to a plugin kind, or `None`
+/// if the extension isn't one we recognize. Shared by `parse_npm_specifier`
+/// (which rejects unknown extensions) and `NpmSpecifier::plugin_kind`
+/// (which trusts the parsed path).
+fn plugin_kind_from_extension(path: &str) -> Option<PluginKind> {
+  let (_, ext) = path.rsplit_once('.')?;
+  if ext.eq_ignore_ascii_case("wasm") {
+    Some(PluginKind::Wasm)
+  } else if ext.eq_ignore_ascii_case("json") {
+    Some(PluginKind::Process)
+  } else {
+    None
   }
 }
 
@@ -351,5 +381,35 @@ mod tests {
   #[test]
   fn error_empty_checksum_after_path() {
     assert!(parse_npm_specifier("npm:@dprint/typescript@0.23.0/plugin.json@").is_err());
+  }
+
+  #[test]
+  fn error_unsupported_extension() {
+    // local/remote plugin sources only ever classify .wasm/.json — npm
+    // specifiers should reject anything else at parse time rather than
+    // silently classifying it as wasm.
+    let err = match parse_npm_specifier("npm:foo@1.0.0/plugin.txt") {
+      Ok(_) => panic!("expected an error"),
+      Err(e) => e,
+    };
+    let msg = err.to_string();
+    assert!(msg.contains("Unsupported plugin file extension"), "got: {msg}");
+    assert!(msg.contains("plugin.txt"), "got: {msg}");
+
+    // bare names with no extension are also rejected
+    assert!(parse_npm_specifier("npm:foo@1.0.0/plugin").is_err());
+  }
+
+  #[test]
+  fn parse_extension_case_insensitive() {
+    // matches PathSource::plugin_kind's case-insensitive behavior for
+    // local/remote sources.
+    let result = parse_npm_specifier("npm:foo@1.0.0/plugin.JSON").unwrap();
+    assert_eq!(result.specifier.path, "plugin.JSON");
+    assert_eq!(result.specifier.plugin_kind(), PluginKind::Process);
+
+    let result = parse_npm_specifier("npm:foo@1.0.0/PLUGIN.WASM").unwrap();
+    assert_eq!(result.specifier.path, "PLUGIN.WASM");
+    assert_eq!(result.specifier.plugin_kind(), PluginKind::Wasm);
   }
 }
