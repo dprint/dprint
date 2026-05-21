@@ -414,18 +414,11 @@ pub(super) fn registry_dir_segment(registry_url: &str) -> String {
 ///
 /// Strips the first path component (usually `package/`) from each entry.
 fn extract_tarball_to_dir(tarball_bytes: &[u8], dest_dir: &Path, environment: &impl Environment) -> Result<()> {
+  use crate::utils::fs::get_atomic_path;
+
   if environment.path_exists(dest_dir) {
     return Ok(());
   }
-  extract_tarball_to_dir_unconditionally(tarball_bytes, dest_dir, environment)
-}
-
-/// Inner that always extracts and renames into place, bypassing the initial
-/// `path_exists` fast-path. Tests use this to exercise the rename-race
-/// fallback (a winning concurrent extract appears between the check and the
-/// rename) without having to inject behavior into the environment.
-fn extract_tarball_to_dir_unconditionally(tarball_bytes: &[u8], dest_dir: &Path, environment: &impl Environment) -> Result<()> {
-  use crate::utils::fs::get_atomic_path;
 
   let temp_dir = get_atomic_path(environment, dest_dir);
   environment.mk_dir_all(&temp_dir)?;
@@ -1255,13 +1248,40 @@ mod tests {
     });
   }
 
+  /// Test-only seam to exercise the rename-race fallback in
+  /// `extract_tarball_to_dir`. Production has no business calling this — the
+  /// fast-path skip on existing `dest_dir` is part of the correctness story
+  /// — so it lives here under `#[cfg(test)]` rather than as a module-private
+  /// function that future production code could pick up by accident.
+  fn extract_tarball_skipping_existence_check<E: Environment>(tarball_bytes: &[u8], dest_dir: &Path, environment: &E) -> Result<()> {
+    use crate::utils::fs::get_atomic_path;
+    let temp_dir = get_atomic_path(environment, dest_dir);
+    environment.mk_dir_all(&temp_dir)?;
+    if let Err(err) = extract_tarball_to_dir_inner(tarball_bytes, &temp_dir, environment) {
+      let _ = environment.remove_dir_all(&temp_dir);
+      return Err(err);
+    }
+    match environment.rename(&temp_dir, dest_dir) {
+      Ok(()) => Ok(()),
+      Err(err) => {
+        if environment.path_exists(dest_dir) {
+          let _ = environment.remove_dir_all(&temp_dir);
+          Ok(())
+        } else {
+          let _ = environment.remove_dir_all(&temp_dir);
+          Err(err.into())
+        }
+      }
+    }
+  }
+
   #[test]
   fn extract_tarball_falls_back_when_rename_loses_to_a_concurrent_extract() {
     // exercise the path where the initial path_exists check returned false
     // but dest_dir is populated by another extract before our rename runs.
-    // we call the unconditional inner directly to skip the fast-path check
-    // and pre-populate dest_dir so the rename collides — the function must
-    // accept the winner and clean up its own temp dir rather than erroring.
+    // we call the test seam directly to skip the fast-path check and pre-
+    // populate dest_dir so the rename collides — the function must accept
+    // the winner and clean up its own temp dir rather than erroring.
     use crate::environment::RealEnvironment;
     RealEnvironment::run_test_with_real_env(|env| {
       Box::pin(async move {
@@ -1274,7 +1294,7 @@ mod tests {
         std::fs::create_dir_all(&dest).unwrap();
         std::fs::write(dest.join("plugin.wasm"), b"winner").unwrap();
 
-        extract_tarball_to_dir_unconditionally(&tarball, &dest, &env).unwrap();
+        extract_tarball_skipping_existence_check(&tarball, &dest, &env).unwrap();
         // winner's contents preserved
         assert_eq!(std::fs::read(dest.join("plugin.wasm")).unwrap(), b"winner");
 
