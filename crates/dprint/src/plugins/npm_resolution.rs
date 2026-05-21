@@ -634,7 +634,7 @@ fn resolve_registry_from_npmrc(package_name: &str, npmrc_path: &Path, environmen
   };
   let resolved = npmrc.as_resolved(&registry_url).ok()?;
   let url = resolved.get_registry_url(package_name).as_str().trim_end_matches('/').to_string();
-  let auth_header = compute_auth_header(resolved.get_registry_config(package_name).as_ref());
+  let auth_header = compute_auth_header(resolved.get_registry_config(package_name).as_ref(), environment);
 
   Some(NpmRegistryResolution { url, auth_header })
 }
@@ -648,8 +648,11 @@ fn scope_of(package_name: &str) -> Option<&str> {
 /// Builds an HTTP `Authorization` header value from a registry's `.npmrc`
 /// credentials. Supports `_authToken` (Bearer), `_auth` (Basic), and the
 /// `username` + `_password` pair (Basic, base64-encoded here — npm stores
-/// `_password` itself as base64 over the cleartext password).
-fn compute_auth_header(config: &RegistryConfig) -> Option<String> {
+/// `_password` itself as base64 over the cleartext password). Warns when
+/// credentials are configured but unusable rather than silently sending
+/// an unauthenticated request, since the resulting 401 from the registry
+/// is otherwise hard to trace back to a misconfigured `.npmrc`.
+fn compute_auth_header(config: &RegistryConfig, environment: &impl Environment) -> Option<String> {
   use base64::Engine;
   if let Some(token) = &config.auth_token {
     return Some(format!("Bearer {}", token));
@@ -660,12 +663,39 @@ fn compute_auth_header(config: &RegistryConfig) -> Option<String> {
   if let (Some(username), Some(password_b64)) = (&config.username, &config.password) {
     // npm stores `_password` as base64 of the cleartext password; we need to
     // send `Basic base64(username:password)`. Decode then re-encode.
-    let password = base64::engine::general_purpose::STANDARD
-      .decode(password_b64.as_bytes())
-      .ok()
-      .and_then(|bytes| String::from_utf8(bytes).ok())?;
+    let password_bytes = match base64::engine::general_purpose::STANDARD.decode(password_b64.as_bytes()) {
+      Ok(bytes) => bytes,
+      Err(err) => {
+        log_warn!(
+          environment,
+          "Ignoring .npmrc _password for user '{}': not valid base64 ({}). Request will be sent unauthenticated.",
+          username,
+          err,
+        );
+        return None;
+      }
+    };
+    let password = match String::from_utf8(password_bytes) {
+      Ok(s) => s,
+      Err(_) => {
+        log_warn!(
+          environment,
+          "Ignoring .npmrc _password for user '{}': decoded bytes are not valid UTF-8. Request will be sent unauthenticated.",
+          username,
+        );
+        return None;
+      }
+    };
     let credentials = format!("{}:{}", username, password);
     return Some(format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(credentials.as_bytes())));
+  }
+  // username without _password (or vice versa) is a partial config; warn so
+  // the user knows we saw it and chose not to use it.
+  if config.username.is_some() || config.password.is_some() {
+    log_warn!(
+      environment,
+      "Ignoring .npmrc credentials: 'username' and '_password' must both be set (saw only one). Request will be sent unauthenticated.",
+    );
   }
   None
 }
@@ -742,24 +772,28 @@ mod tests {
 
   #[test]
   fn compute_auth_header_supports_auth_token_and_auth() {
+    use crate::environment::TestEnvironment;
+    let env = TestEnvironment::new();
     let mut cfg = RegistryConfig::default();
-    assert_eq!(compute_auth_header(&cfg), None);
+    assert_eq!(compute_auth_header(&cfg, &env), None);
 
     cfg.auth_token = Some("tok".to_string());
-    assert_eq!(compute_auth_header(&cfg), Some("Bearer tok".to_string()));
+    assert_eq!(compute_auth_header(&cfg, &env), Some("Bearer tok".to_string()));
 
     cfg.auth_token = None;
     cfg.auth = Some("dXNlcjpwd2Q=".to_string());
-    assert_eq!(compute_auth_header(&cfg), Some("Basic dXNlcjpwd2Q=".to_string()));
+    assert_eq!(compute_auth_header(&cfg, &env), Some("Basic dXNlcjpwd2Q=".to_string()));
 
     // auth_token wins over auth when both are present
     cfg.auth_token = Some("tok".to_string());
-    assert_eq!(compute_auth_header(&cfg), Some("Bearer tok".to_string()));
+    assert_eq!(compute_auth_header(&cfg, &env), Some("Bearer tok".to_string()));
   }
 
   #[test]
   fn compute_auth_header_supports_username_and_password() {
+    use crate::environment::TestEnvironment;
     use base64::Engine;
+    let env = TestEnvironment::new();
     // npm stores _password as base64 of the cleartext password
     let password_b64 = base64::engine::general_purpose::STANDARD.encode(b"pwd");
     let cfg = RegistryConfig {
@@ -768,17 +802,62 @@ mod tests {
       ..Default::default()
     };
     // header is base64(user:pwd) which matches the well-known _auth example
-    assert_eq!(compute_auth_header(&cfg), Some("Basic dXNlcjpwd2Q=".to_string()));
+    assert_eq!(compute_auth_header(&cfg, &env), Some("Basic dXNlcjpwd2Q=".to_string()));
   }
 
   #[test]
-  fn compute_auth_header_username_only_is_none() {
-    // username without _password (or vice versa) can't produce a header
+  fn compute_auth_header_username_only_warns_and_returns_none() {
+    use crate::environment::TestEnvironment;
+    let env = TestEnvironment::new();
     let cfg = RegistryConfig {
       username: Some("user".to_string()),
       ..Default::default()
     };
-    assert_eq!(compute_auth_header(&cfg), None);
+    assert_eq!(compute_auth_header(&cfg, &env), None);
+    let stderr = env.take_stderr_messages();
+    assert!(
+      stderr.iter().any(|m| m.contains("'username' and '_password' must both be set")),
+      "expected partial-config warning, got: {stderr:?}"
+    );
+  }
+
+  #[test]
+  fn compute_auth_header_invalid_base64_password_warns_and_returns_none() {
+    // a misconfigured _password (not valid base64) shouldn't silently produce
+    // an unauthenticated request; the user gets a 401 with no clue why.
+    use crate::environment::TestEnvironment;
+    let env = TestEnvironment::new();
+    let cfg = RegistryConfig {
+      username: Some("user".to_string()),
+      password: Some("!!!not base64!!!".to_string()),
+      ..Default::default()
+    };
+    assert_eq!(compute_auth_header(&cfg, &env), None);
+    let stderr = env.take_stderr_messages();
+    assert!(
+      stderr.iter().any(|m| m.contains("not valid base64") && m.contains("user")),
+      "expected base64 warning, got: {stderr:?}"
+    );
+  }
+
+  #[test]
+  fn compute_auth_header_non_utf8_password_warns_and_returns_none() {
+    use crate::environment::TestEnvironment;
+    use base64::Engine;
+    let env = TestEnvironment::new();
+    // base64 of a non-UTF-8 byte sequence
+    let password_b64 = base64::engine::general_purpose::STANDARD.encode([0xff, 0xfe, 0xfd]);
+    let cfg = RegistryConfig {
+      username: Some("user".to_string()),
+      password: Some(password_b64),
+      ..Default::default()
+    };
+    assert_eq!(compute_auth_header(&cfg, &env), None);
+    let stderr = env.take_stderr_messages();
+    assert!(
+      stderr.iter().any(|m| m.contains("not valid UTF-8")),
+      "expected utf-8 warning, got: {stderr:?}"
+    );
   }
 
   #[tokio::test]
