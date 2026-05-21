@@ -295,19 +295,22 @@ fn try_resolve_process_plugin_dep_from_node_modules(
   // installed package matches before we read the zip. The checksum below
   // would also catch a version mismatch, but the resulting error blames the
   // wrong party — the install is what's stale, not the plugin's checksum.
-  if let Some(expected_version) = &parsed.specifier.version
-    && let Some(installed_version) = read_package_json_version(&dep_dir, environment)
-    && installed_version != *expected_version
-  {
-    bail!(
-      "Installed version of '{}' ({}) doesn't match what plugin '{}' expects ({}). Update the installed package — for example, `npm install {}@{}`.",
-      dep_name,
-      installed_version,
-      plugin_file.name,
-      expected_version,
-      dep_name,
-      expected_version,
-    );
+  if let Some(expected_version) = &parsed.specifier.version {
+    let installed_version = read_package_json_version(&dep_dir, environment)
+      .with_context(|| format!("While checking installed version of '{}' for plugin '{}'", dep_name, plugin_file.name))?;
+    if let Some(installed) = installed_version
+      && installed != *expected_version
+    {
+      bail!(
+        "Installed version of '{}' ({}) doesn't match what plugin '{}' expects ({}). Update the installed package — for example, `npm install {}@{}`.",
+        dep_name,
+        installed,
+        plugin_file.name,
+        expected_version,
+        dep_name,
+        expected_version,
+      );
+    }
   }
 
   // the npm reference in plugin.json names the zip exactly (e.g.
@@ -700,13 +703,21 @@ fn get_tarball_url_from_packument(packument: &serde_json::Value, version: &str, 
   Ok(tarball_url.to_string())
 }
 
-/// Reads `package_dir/package.json` and returns the `version` field, or `None`
-/// if the file is missing, malformed, or has no string `version`. Best-effort:
-/// callers use this for diagnostics, not for security decisions.
-fn read_package_json_version(package_dir: &Path, environment: &impl Environment) -> Option<String> {
-  let text = environment.read_file(package_dir.join("package.json")).ok()?;
-  let value: serde_json::Value = serde_json::from_str(&text).ok()?;
-  value.get("version")?.as_str().map(|s| s.to_string())
+/// Reads `package_dir/package.json` and returns the `version` field.
+/// - `Ok(Some(v))` — file present and well-formed with a string `version`.
+/// - `Ok(None)`     — file absent, or present but with no string `version`.
+/// - `Err(_)`       — file present but malformed/unreadable; the caller
+///   surfaces a clear error rather than silently skipping the version check
+///   (the previous behavior masked the bug as a checksum mismatch later on).
+fn read_package_json_version(package_dir: &Path, environment: &impl Environment) -> Result<Option<String>> {
+  let pkg_path = package_dir.join("package.json");
+  let text = match environment.read_file(&pkg_path) {
+    Ok(text) => text,
+    Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+    Err(err) => return Err(anyhow::Error::from(err).context(format!("Failed to read {}", pkg_path.display()))),
+  };
+  let value: serde_json::Value = serde_json::from_str(&text).with_context(|| format!("Failed to parse {}", pkg_path.display()))?;
+  Ok(value.get("version").and_then(|v| v.as_str()).map(|s| s.to_string()))
 }
 
 /// Walks up from `start_dir` looking for `node_modules/{package_name}/`.
@@ -1395,6 +1406,85 @@ mod tests {
     assert!(msg.contains("Installed version of 'foo-bin' (2.0.0)"), "got: {msg}");
     assert!(msg.contains("plugin 'foo' expects (1.0.0)"), "got: {msg}");
     assert!(msg.contains("npm install foo-bin@1.0.0"), "got: {msg}");
+  }
+
+  #[tokio::test]
+  async fn resolve_npm_from_node_modules_process_plugin_surfaces_malformed_package_json() {
+    // a corrupt package.json (present but unparseable) must surface a clear
+    // error, not get silently skipped to fall through to the misleading
+    // checksum-mismatch path.
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.set_os("linux");
+    environment.set_cpu_arch("x86_64");
+
+    let zip_bytes = b"fake-zip-contents";
+    let zip_checksum = get_sha256_checksum(zip_bytes);
+    environment.mk_dir_all("/node_modules/foo-bin").unwrap();
+    environment.write_file_bytes("/node_modules/foo-bin/plugin.zip", zip_bytes).unwrap();
+    environment.write_file("/node_modules/foo-bin/package.json", "{ not valid json").unwrap();
+
+    let manifest = serde_json::json!({
+      "schemaVersion": 2,
+      "name": "foo",
+      "version": "1.0.0",
+      "linux-x86_64": {
+        "reference": "npm:foo-bin@1.0.0/plugin.zip",
+        "checksum": zip_checksum,
+      },
+    });
+    environment.mk_dir_all("/node_modules/foo").unwrap();
+    environment.write_file("/node_modules/foo/plugin.json", &manifest.to_string()).unwrap();
+
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: None,
+      path: "plugin.json".to_string(),
+    };
+    let err = match resolve_npm_from_node_modules(&specifier, std::path::Path::new("/"), &environment) {
+      Ok(_) => panic!("expected an error"),
+      Err(e) => e,
+    };
+    let msg = format!("{err:#}");
+    assert!(msg.contains("Failed to parse"), "expected parse error, got: {msg}");
+    assert!(msg.contains("package.json"), "expected mention of package.json, got: {msg}");
+  }
+
+  #[tokio::test]
+  async fn resolve_npm_from_node_modules_process_plugin_passes_when_package_json_missing() {
+    // if package.json is absent altogether, the version-mismatch check is
+    // simply skipped. The checksum verification still gates correctness, so
+    // we don't bail just because we can't double-check the version.
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.set_os("linux");
+    environment.set_cpu_arch("x86_64");
+
+    let zip_bytes = b"fake-zip-contents";
+    let zip_checksum = get_sha256_checksum(zip_bytes);
+    environment.mk_dir_all("/node_modules/foo-bin").unwrap();
+    environment.write_file_bytes("/node_modules/foo-bin/plugin.zip", zip_bytes).unwrap();
+    // intentionally no package.json
+
+    let manifest = serde_json::json!({
+      "schemaVersion": 2,
+      "name": "foo",
+      "version": "1.0.0",
+      "linux-x86_64": {
+        "reference": "npm:foo-bin@1.0.0/plugin.zip",
+        "checksum": zip_checksum,
+      },
+    });
+    environment.mk_dir_all("/node_modules/foo").unwrap();
+    environment.write_file("/node_modules/foo/plugin.json", &manifest.to_string()).unwrap();
+
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: None,
+      path: "plugin.json".to_string(),
+    };
+    let resolved = resolve_npm_from_node_modules(&specifier, std::path::Path::new("/"), &environment).unwrap();
+    assert!(resolved.pre_resolved_zip.is_some());
   }
 
   #[tokio::test]
