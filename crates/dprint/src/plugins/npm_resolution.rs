@@ -299,7 +299,7 @@ fn alternate_plugin_filename(requested: &str, package_dir: &Path, environment: &
   } else {
     return None;
   };
-  if environment.path_exists(&package_dir.join(candidate)) {
+  if environment.path_exists(package_dir.join(candidate)) {
     Some(candidate)
   } else {
     None

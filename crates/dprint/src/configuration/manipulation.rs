@@ -90,7 +90,7 @@ fn replace_npm_plugin_in_config(file_text: &str, old_reference: &PluginSourceRef
     let Ok(parsed) = parse_npm_specifier(&entry_text) else {
       continue;
     };
-    if &parsed.specifier == &npm_source.specifier && parsed.checksum == old_reference.checksum {
+    if parsed.specifier == npm_source.specifier && parsed.checksum == old_reference.checksum {
       matches.push(string_lit);
     }
   }
