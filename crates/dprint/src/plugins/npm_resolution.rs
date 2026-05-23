@@ -120,10 +120,13 @@ pub async fn fetch_npm_latest_info(args: FetchNpmLatestInfo<'_>, environment: &i
 
 /// Resolves an npm plugin from the registry (versioned specifier).
 /// Downloads the tarball, extracts it to the cache directory, and reads the plugin file.
+/// `config_dir` is the dprint config's directory; it seeds the `.npmrc` walk
+/// when a process plugin's plugin.json references a per-platform npm package.
 pub async fn resolve_npm_from_registry(
   specifier: &NpmSpecifier,
   checksum: Option<&str>,
   registry: &NpmRegistryResolution,
+  config_dir: Option<&Path>,
   environment: &impl Environment,
 ) -> Result<NpmResolvedPlugin> {
   let version = specifier
@@ -206,17 +209,21 @@ pub async fn resolve_npm_from_registry(
   .await??;
 
   // process plugins shipped via the npm registry mustn't silently fetch their
-  // platform binary over http(s) at format time. file/relative references
-  // resolve against the extract dir via the standard setup flow.
-  if plugin_kind == PluginKind::Process {
-    reject_http_reference_in_process_plugin_manifest(&plugin_bytes, environment)?;
-  }
+  // platform binary over http(s) at format time. For npm references in
+  // plugin.json, we fetch the per-platform tarball from the registry and
+  // verify its checksum (same flow as the node_modules path). File/relative
+  // references resolve against the extract dir via the standard setup flow.
+  let pre_resolved_binary = if plugin_kind == PluginKind::Process {
+    try_resolve_process_plugin_per_platform_binary(&plugin_bytes, config_dir, environment).await?
+  } else {
+    None
+  };
 
   Ok(NpmResolvedPlugin {
     plugin_bytes,
     plugin_kind,
     local_path,
-    pre_resolved_binary: None,
+    pre_resolved_binary,
   })
 }
 
@@ -233,7 +240,7 @@ pub async fn resolve_npm_from_node_modules(specifier: &NpmSpecifier, config_dir:
     .with_context(|| format!("Failed to read {}", canonical.display()))?;
 
   let pre_resolved_binary = if specifier.plugin_kind() == PluginKind::Process {
-    try_resolve_process_plugin_per_platform_binary(&plugin_bytes, config_dir, environment).await?
+    try_resolve_process_plugin_per_platform_binary(&plugin_bytes, Some(config_dir), environment).await?
   } else {
     None
   };
@@ -319,7 +326,7 @@ fn npm_specifier_with_path(specifier: &NpmSpecifier, path: &str) -> String {
 /// silently fetch from the network.
 async fn try_resolve_process_plugin_per_platform_binary(
   plugin_json_bytes: &[u8],
-  config_dir: &Path,
+  config_dir: Option<&Path>,
   environment: &impl Environment,
 ) -> Result<Option<PreResolvedProcessPluginBinary>> {
   use crate::plugins::implementations::get_process_plugin_os_path;
@@ -342,7 +349,7 @@ async fn try_resolve_process_plugin_per_platform_binary(
     )
   })?;
 
-  let registry = resolve_registry_for_package(&parsed.specifier.name, Some(config_dir), environment);
+  let registry = resolve_registry_for_package(&parsed.specifier.name, config_dir, environment);
   let extract_dir = fetch_and_extract_npm_package(
     &parsed.specifier.name,
     version,
@@ -417,18 +424,6 @@ async fn fetch_and_extract_npm_package(
   let extract_dir_clone = extract_dir.clone();
   dprint_core::async_runtime::spawn_blocking(move || extract_tarball_to_dir(&tarball_bytes, &extract_dir_clone, &environment_clone)).await??;
   Ok(extract_dir)
-}
-
-/// Used by the npm-registry path. Parses plugin.json, looks up the per-platform
-/// reference, and errors if it points at an `http(s)://` URL — npm-installed
-/// process plugins shouldn't silently fetch their binary from the network.
-fn reject_http_reference_in_process_plugin_manifest(plugin_json_bytes: &[u8], environment: &impl Environment) -> Result<()> {
-  use crate::plugins::implementations::get_process_plugin_os_path;
-  use crate::plugins::implementations::parse_process_plugin_file;
-
-  let plugin_file = parse_process_plugin_file(plugin_json_bytes).context("Failed to parse process plugin manifest (plugin.json)")?;
-  let os_path = get_process_plugin_os_path(&plugin_file, environment)?;
-  bail_if_http_reference(&plugin_file.name, &os_path.reference)
 }
 
 fn bail_if_http_reference(plugin_name: &str, reference: &str) -> Result<()> {
@@ -1424,7 +1419,7 @@ mod tests {
       version: Some("1.0.0".to_string()),
       path: "plugin.wasm".to_string(),
     };
-    let _ = resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, &environment)
+    let _ = resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, None, &environment)
       .await
       .unwrap();
 
@@ -1463,7 +1458,7 @@ mod tests {
       version: Some("1.0.0".to_string()),
       path: "plugin.wasm".to_string(),
     };
-    let _ = resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, &environment)
+    let _ = resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, None, &environment)
       .await
       .unwrap();
 
@@ -1727,7 +1722,7 @@ mod tests {
       version: Some("0.6.2".to_string()),
       path: "plugin.wasm".to_string(),
     };
-    let err = match resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, &environment).await {
+    let err = match resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, None, &environment).await {
       Ok(_) => panic!("expected an error"),
       Err(e) => e,
     };

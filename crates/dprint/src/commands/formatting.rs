@@ -2800,6 +2800,71 @@ mod test {
   }
 
   #[test]
+  fn should_format_with_versioned_npm_process_plugin_with_npm_per_platform_reference() {
+    // a versioned (registry) top-level process plugin whose plugin.json
+    // points each per-platform entry at another versioned npm package via
+    // `npm:`. Exercises the per-platform tarball fetch flow from the
+    // registry top-level path (not just the node_modules path).
+    use crate::test_helpers::PROCESS_PLUGIN_BINARY_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+    use crate::test_helpers::process_plugin_binary_filename;
+    use crate::utils::get_sha256_checksum;
+
+    let binary_bytes: &[u8] = &PROCESS_PLUGIN_BINARY_BYTES;
+    let binary_filename = process_plugin_binary_filename();
+    let per_platform_tarball = create_test_npm_tarball(&[(&format!("package/{}", binary_filename), binary_bytes)]);
+    let per_platform_checksum = get_sha256_checksum(&per_platform_tarball);
+
+    let plugin_json = format!(
+      r#"{{
+  "schemaVersion": 2,
+  "name": "test-process-plugin",
+  "version": "0.1.0",
+  "linux-x86_64":    {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "linux-aarch64":   {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "darwin-x86_64":   {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "darwin-aarch64":  {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "windows-x86_64":  {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "windows-aarch64": {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }}
+}}"#,
+      per_platform_checksum, binary_filename,
+    );
+    let top_tarball = create_test_npm_tarball(&[("package/plugin.json", plugin_json.as_bytes())]);
+    let top_checksum = get_sha256_checksum(&top_tarball);
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin(&format!("npm:test-process@1.0.0/plugin.json@{}", top_checksum));
+      })
+      .write_file("/file.txt_ps", "text")
+      .build();
+
+    let top_packument = serde_json::json!({
+      "versions": {
+        "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz" } }
+      }
+    });
+    let per_platform_packument = serde_json::json!({
+      "versions": {
+        "0.1.0": { "dist": { "tarball": "https://registry.npmjs.org/test-process-bin/-/test-process-bin-0.1.0.tgz" } }
+      }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process", top_packument.to_string().into_bytes());
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz", top_tarball);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process-bin", per_platform_packument.to_string().into_bytes());
+    environment.add_remote_file_bytes(
+      "https://registry.npmjs.org/test-process-bin/-/test-process-bin-0.1.0.tgz",
+      per_platform_tarball,
+    );
+
+    run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_formatted_process");
+
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[test]
   fn should_reject_versioned_npm_process_plugin_with_https_reference() {
     // mirror of the test above, except the manifest references the platform
     // binary over the network — must be rejected before any http fetch.

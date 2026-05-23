@@ -197,7 +197,7 @@ where
     let checksum = source_reference.checksum.as_deref();
     let base_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
     let registry = self.manifest.resolve_registry(&specifier.name, base_dir);
-    let resolved = npm_resolution::resolve_npm_from_registry(specifier, checksum, &registry, &self.environment).await?;
+    let resolved = npm_resolution::resolve_npm_from_registry(specifier, checksum, &registry, base_dir, &self.environment).await?;
 
     let plugin_kind = resolved.plugin_kind;
     // use the local extracted path so process plugin manifests can resolve relative URLs
