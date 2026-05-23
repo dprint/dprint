@@ -182,7 +182,7 @@ pub async fn resolve_npm_from_registry(
   // tarball decompression and file I/O can be slow
   let extract_dir = get_npm_extract_dir(&registry_segment, &specifier.name, version, environment);
   let plugin_path = specifier.path.clone();
-  let package_name = specifier.name.clone();
+  let specifier_clone = specifier.clone();
   let environment_clone = environment.clone();
   let (plugin_bytes, local_path) = dprint_core::async_runtime::spawn_blocking(move || -> Result<_> {
     let environment = environment_clone;
@@ -190,11 +190,12 @@ pub async fn resolve_npm_from_registry(
 
     let plugin_file_path = extract_dir.join(&plugin_path);
     if !environment.path_exists(&plugin_file_path) {
-      bail!(
-        "Could not find {} in npm package {}. Is the package a dprint plugin?",
-        plugin_path,
-        package_name,
-      );
+      bail!(missing_plugin_file_message(
+        &specifier_clone,
+        &format!("npm package {}", specifier_clone.name),
+        &extract_dir,
+        &environment,
+      ));
     }
     let plugin_bytes = environment
       .read_file_bytes(&plugin_file_path)
@@ -254,15 +255,57 @@ pub fn find_npm_plugin_local_path(specifier: &NpmSpecifier, config_dir: &Path, e
   let plugin_path = package_dir.join(&specifier.path);
 
   if !environment.path_exists(&plugin_path) {
-    bail!(
-      "Could not find {} in {}. Is the package a dprint plugin?",
-      specifier.path,
-      package_dir.display()
-    );
+    bail!(missing_plugin_file_message(
+      specifier,
+      &package_dir.display().to_string(),
+      &package_dir,
+      environment,
+    ));
   }
 
   let canonical = environment.canonicalize(&plugin_path)?;
   Ok(PathSource::new_local(canonical))
+}
+
+/// Builds the error message for a missing plugin file inside an npm package.
+/// When the requested file is `plugin.wasm` (or vice-versa) and the other
+/// recognized plugin file is actually present, suggest the corrected
+/// specifier so users hit the helpful error instead of "Is the package a
+/// dprint plugin?".
+fn missing_plugin_file_message(specifier: &NpmSpecifier, package_display: &str, package_dir: &Path, environment: &impl Environment) -> String {
+  if let Some(alternate) = alternate_plugin_filename(&specifier.path, package_dir, environment) {
+    let suggestion = npm_specifier_with_path(specifier, alternate);
+    return format!(
+      "Could not find {} in {}. The package contains {} instead — reference it as `{}`.",
+      specifier.path, package_display, alternate, suggestion,
+    );
+  }
+  format!("Could not find {} in {}. Is the package a dprint plugin?", specifier.path, package_display)
+}
+
+/// If the requested path is one recognized plugin filename and the *other*
+/// recognized plugin filename actually exists in the package directory,
+/// return that other filename.
+fn alternate_plugin_filename(requested: &str, package_dir: &Path, environment: &impl Environment) -> Option<&'static str> {
+  let candidate = if requested.eq_ignore_ascii_case("plugin.wasm") {
+    "plugin.json"
+  } else if requested.eq_ignore_ascii_case("plugin.json") {
+    "plugin.wasm"
+  } else {
+    return None;
+  };
+  if environment.path_exists(&package_dir.join(candidate)) {
+    Some(candidate)
+  } else {
+    None
+  }
+}
+
+fn npm_specifier_with_path(specifier: &NpmSpecifier, path: &str) -> String {
+  match &specifier.version {
+    Some(version) => format!("npm:{}@{}/{}", specifier.name, version, path),
+    None => format!("npm:{}/{}", specifier.name, path),
+  }
 }
 
 /// Reads a process plugin manifest (plugin.json) and, if the platform-specific
@@ -1648,6 +1691,83 @@ mod tests {
     let msg = format!("{err:#}");
     assert!(msg.contains("Network references aren't allowed"), "got: {msg}");
     assert!(msg.contains("https://example.com/foo-linux-x86_64.zip"), "got: {msg}");
+  }
+
+  #[tokio::test]
+  async fn resolve_npm_from_registry_suggests_plugin_json_when_wasm_missing() {
+    // user wrote `npm:@dprint/exec@0.6.2` (defaulting to plugin.wasm) but the
+    // package ships a plugin.json instead. The error should tell them to
+    // reference plugin.json, not just "Is the package a dprint plugin?".
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    let packument = serde_json::json!({
+      "versions": { "0.6.2": { "dist": { "tarball": "https://registry.npmjs.org/@dprint/exec/-/exec-0.6.2.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/@dprint/exec", packument.to_string().into_bytes());
+    let tarball = create_test_tarball(&[("package/plugin.json", br#"{"schemaVersion":2,"name":"exec","version":"0.6.2"}"#)]);
+    let tarball_checksum = get_sha256_checksum(&tarball);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/@dprint/exec/-/exec-0.6.2.tgz", tarball);
+
+    let registry = NpmRegistryResolution {
+      url: "https://registry.npmjs.org".to_string(),
+      auth_header: None,
+    };
+    let specifier = NpmSpecifier {
+      name: "@dprint/exec".to_string(),
+      version: Some("0.6.2".to_string()),
+      path: "plugin.wasm".to_string(),
+    };
+    let err = match resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, &environment).await {
+      Ok(_) => panic!("expected an error"),
+      Err(e) => e,
+    };
+    let msg = format!("{err:#}");
+    assert!(msg.contains("plugin.json instead"), "got: {msg}");
+    assert!(msg.contains("npm:@dprint/exec@0.6.2/plugin.json"), "got: {msg}");
+  }
+
+  #[test]
+  fn find_npm_plugin_local_path_suggests_plugin_json_when_wasm_missing() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/node_modules/@dprint/exec").unwrap();
+    environment
+      .write_file(
+        "/node_modules/@dprint/exec/plugin.json",
+        r#"{"schemaVersion":2,"name":"exec","version":"0.6.2"}"#,
+      )
+      .unwrap();
+
+    let specifier = NpmSpecifier {
+      name: "@dprint/exec".to_string(),
+      version: None,
+      path: "plugin.wasm".to_string(),
+    };
+    let err = find_npm_plugin_local_path(&specifier, std::path::Path::new("/"), &environment).unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(msg.contains("plugin.json instead"), "got: {msg}");
+    // unversioned suggestion should not pin a version
+    assert!(msg.contains("npm:@dprint/exec/plugin.json"), "got: {msg}");
+  }
+
+  #[test]
+  fn find_npm_plugin_local_path_no_alternate_when_neither_present() {
+    // package directory exists but contains nothing useful — falls back to
+    // the generic "Is the package a dprint plugin?" message.
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/node_modules/foo").unwrap();
+    environment.write_file("/node_modules/foo/README.md", "hi").unwrap();
+
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: None,
+      path: "plugin.wasm".to_string(),
+    };
+    let err = find_npm_plugin_local_path(&specifier, std::path::Path::new("/"), &environment).unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(msg.contains("Is the package a dprint plugin?"), "got: {msg}");
+    assert!(!msg.contains("instead"), "got: {msg}");
   }
 
   #[tokio::test]
