@@ -2750,6 +2750,32 @@ mod test {
   }
 
   #[test]
+  fn should_walk_past_child_node_modules_lacking_plugin_to_reach_workspace_root() {
+    // monorepo layout: dprint.json lives in a child workspace whose own
+    // node_modules doesn't have the plugin (only a different package). The
+    // resolver must walk past it and pick up the plugin from the workspace
+    // root's node_modules, matching how npm itself resolves dependencies.
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/repo/packages/web/dprint.json", |c| {
+        c.add_plugin("npm:test-plugin");
+      })
+      // child node_modules exists but lacks the plugin — must not stop the walk here
+      .write_file("/repo/packages/web/node_modules/other-package/index.js", "// noise")
+      .write_file("/repo/node_modules/test-plugin/plugin.wasm", WASM_PLUGIN_BYTES)
+      .write_file("/repo/packages/web/file.txt", "text")
+      .set_cwd("/repo/packages/web")
+      .build();
+
+    run_test_cli(vec!["fmt", "/repo/packages/web/file.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/repo/packages/web/file.txt").unwrap(), "text_formatted");
+
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[test]
   fn should_format_with_versioned_npm_process_plugin() {
     // a self-contained npm-published process plugin: the npm tarball ships
     // both `plugin.json` and `bin.zip`; the manifest references the zip with
