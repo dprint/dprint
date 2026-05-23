@@ -2883,19 +2883,23 @@ mod test {
 
   #[test]
   fn should_format_with_unversioned_npm_process_plugin_from_node_modules() {
-    // unversioned process plugin: plugin.json references a per-platform npm
-    // package, which itself lives in node_modules. Exercises the
-    // `pre_resolved_binary` path through
-    // `resolve_process_plugin_dep_from_node_modules`. The per-platform npm
-    // package ships the executable directly — no inner zip, since the npm
-    // tarball is already a tar.gz.
+    // unversioned top-level process plugin: plugin.json lives in node_modules,
+    // and each per-platform entry references a versioned `npm:` package. The
+    // per-platform package's tarball is fetched from the registry and its
+    // SHA-256 verified against plugin.json's checksum (covering every file in
+    // the tarball, not just the binary).
     use crate::test_helpers::PROCESS_PLUGIN_BINARY_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
     use crate::test_helpers::process_plugin_binary_filename;
     use crate::utils::get_sha256_checksum;
 
     let binary_bytes: &[u8] = &PROCESS_PLUGIN_BINARY_BYTES;
-    let binary_checksum = get_sha256_checksum(binary_bytes);
     let binary_filename = process_plugin_binary_filename();
+
+    // build the per-platform npm tarball with the binary inside it
+    let tarball_inner_path = format!("package/{}", binary_filename);
+    let tarball = create_test_npm_tarball(&[(&tarball_inner_path, binary_bytes)]);
+    let tarball_checksum = get_sha256_checksum(&tarball);
 
     // craft a plugin.json whose every-platform reference is `npm:` and points
     // at the same dep package (so this test is platform-independent)
@@ -2911,15 +2915,22 @@ mod test {
   "windows-x86_64":  {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
   "windows-aarch64": {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }}
 }}"#,
-      binary_checksum, binary_filename,
+      tarball_checksum, binary_filename,
     );
+
+    let packument = serde_json::json!({
+      "versions": {
+        "0.1.0": { "dist": { "tarball": "https://registry.npmjs.org/test-process-bin/-/test-process-bin-0.1.0.tgz" } }
+      }
+    });
 
     let environment = TestEnvironmentBuilder::new()
       .with_local_config("/dprint.json", |c| {
         c.add_plugin("npm:test-process/plugin.json");
       })
       .write_file("/node_modules/test-process/plugin.json", plugin_json.as_bytes())
-      .write_file(format!("/node_modules/test-process-bin/{}", binary_filename), binary_bytes)
+      .add_remote_file("https://registry.npmjs.org/test-process-bin", &packument.to_string())
+      .add_remote_file_bytes("https://registry.npmjs.org/test-process-bin/-/test-process-bin-0.1.0.tgz", tarball)
       .write_file("/file.txt_ps", "text")
       .build();
 

@@ -23,7 +23,6 @@ use crate::plugins::PluginSourceReference;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::get_bytes_hash;
-use crate::utils::get_combined_bytes_hash;
 use crate::utils::get_sha256_checksum;
 use crate::utils::verify_sha256_checksum;
 
@@ -163,6 +162,7 @@ where
           let fallback_dir = self.environment.cwd();
           let config_dir = base_dir.unwrap_or(fallback_dir.as_ref());
           let resolved = npm_resolution::resolve_npm_from_node_modules(&npm_source.specifier, config_dir, &self.environment)
+            .await
             .with_context(|| format!("Resolving {}", npm_source.specifier.display()))?;
           let local_ref = PluginSourceReference {
             path_source: resolved.local_path,
@@ -237,21 +237,15 @@ where
       .maybe_local_path()
       .ok_or_else(|| anyhow::anyhow!("Expected local path for npm node_modules plugin"))?;
 
-    // for process plugins, factor the platform binary into the cache hash so
-    // that a node_modules reinstall that swaps the binary but not plugin.json
-    // busts the cache
-    let binary_bytes_ref = pre_resolved_binary.as_ref().map(|b| b.binary_bytes.as_slice());
-    let compute_hash = |file_bytes: &[u8]| -> u64 {
-      match binary_bytes_ref {
-        Some(binary) => get_combined_bytes_hash(&[file_bytes, binary]),
-        None => get_bytes_hash(file_bytes),
-      }
-    };
+    // cache invalidation is keyed only on the local plugin file's bytes.
+    // For process plugins, the per-platform binary is fetched from the npm
+    // registry and verified against the checksum in plugin.json, so its
+    // contents are fully determined by plugin.json — no need to mix it in.
 
     // check file hash to see if we can reuse cached setup
     if let Some(manifest_item) = self.manifest.get(&source_reference.path_source)? {
       let file_bytes = self.environment.read_file_bytes(local_path)?;
-      let file_hash = compute_hash(&file_bytes);
+      let file_hash = get_bytes_hash(&file_bytes);
       let cache_file_hash = match &manifest_item.file_hash {
         Some(file_hash) => *file_hash,
         None => bail!("Expected to have the plugin file hash stored in the cache."),
@@ -283,7 +277,7 @@ where
       .plugin_kind()
       .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for {}", source_reference.display()))?;
 
-    let file_hash = Some(compute_hash(&file_bytes));
+    let file_hash = Some(get_bytes_hash(&file_bytes));
     let setup_result = setup_plugin(&source_reference.path_source, file_bytes, plugin_kind, pre_resolved_binary, &self.environment).await?;
     let cache_item = PluginCacheManifestItem {
       info: setup_result.plugin_info.clone(),
