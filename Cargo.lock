@@ -756,6 +756,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da692b8d1080ea3045efaab14434d40468c3d8657e42abddfffca87b428f4c1b"
 
 [[package]]
+name = "deno_npmrc"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfab588b373371827867be00deb270199c655f156468ea07e82075dade72ad4b"
+dependencies = [
+ "log",
+ "monch",
+ "sys_traits",
+ "thiserror",
+ "url",
+]
+
+[[package]]
 name = "deno_terminal"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -882,6 +895,7 @@ dependencies = [
  "clap_complete",
  "console_static_text",
  "crossterm",
+ "deno_npmrc",
  "dirs",
  "dissimilar",
  "dprint-core",

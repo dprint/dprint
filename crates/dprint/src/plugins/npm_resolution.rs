@@ -7,12 +7,12 @@ use anyhow::bail;
 use flate2::read::GzDecoder;
 use tar::Archive;
 
+use deno_npmrc::RegistryConfig;
+
 use crate::environment::Environment;
 use crate::utils::NpmSpecifier;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
-use crate::utils::deno_npmrc;
-use crate::utils::deno_npmrc::RegistryConfig;
 use crate::utils::get_sha256_checksum;
 use crate::utils::verify_sha256_checksum;
 
