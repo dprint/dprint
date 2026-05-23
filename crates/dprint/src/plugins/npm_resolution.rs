@@ -871,7 +871,11 @@ async fn fetch_npm_latest_version(package_name: &str, start_dir: Option<&Path>, 
     .await
     .ok()?;
   let packument: serde_json::Value = serde_json::from_slice(&packument_file.content).ok()?;
-  packument.get("dist-tags").and_then(|d| d.get("latest")).and_then(|v| v.as_str()).map(|s| s.to_string())
+  packument
+    .get("dist-tags")
+    .and_then(|d| d.get("latest"))
+    .and_then(|v| v.as_str())
+    .map(|s| s.to_string())
 }
 
 #[cfg(test)]
