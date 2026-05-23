@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use dprint_core::plugins::PluginInfo;
@@ -41,27 +43,34 @@ fn get_plugin_executable_file_path(dir_path: &Path, plugin_name: &str) -> PathBu
 
 /// Takes a url or file path and extracts the plugin to a cache folder.
 /// Returns the executable file path once complete.
-/// If `pre_resolved_zip` is provided, it's used directly instead of downloading
-/// the platform binary from the reference in the manifest.
+/// If `pre_resolved_binary` is provided (npm-installed process plugins), the
+/// bytes are written directly to the cache as the executable. Otherwise the
+/// reference inside `plugin_file_bytes` is fetched as a zip and extracted.
 pub async fn setup_process_plugin<TEnvironment: Environment>(
   url_or_file_path: &PathSource,
   plugin_file_bytes: &[u8],
-  pre_resolved_zip: Option<crate::plugins::npm_resolution::ProcessPluginZipBytes>,
+  pre_resolved_binary: Option<crate::plugins::npm_resolution::PreResolvedProcessPluginBinary>,
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
-  let plugin_zip_bytes = match pre_resolved_zip {
-    Some(zip) => ProcessPluginZipBytes {
-      name: zip.name,
-      version: zip.version,
-      zip_bytes: zip.zip_bytes,
-    },
-    None => get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment).await?,
-  };
+  if let Some(binary) = pre_resolved_binary {
+    let plugin_cache_dir_path = get_plugin_dir_path(&binary.name, &binary.version, environment);
+    let result = setup_from_binary(&plugin_cache_dir_path, binary.name, &binary.binary_bytes, environment).await;
+    return match result {
+      Ok(result) => Ok(result),
+      Err(err) => {
+        log_debug!(environment, "Failed setting up process plugin. {:#}", err);
+        let _ignore = environment.remove_dir_all(&plugin_cache_dir_path);
+        Err(err)
+      }
+    };
+  }
+
+  let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment).await?;
   let plugin_cache_dir_path = get_plugin_dir_path(&plugin_zip_bytes.name, &plugin_zip_bytes.version, environment);
 
-  let result = setup_inner(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment).await;
+  let result = setup_from_zip(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment).await;
 
-  return match result {
+  match result {
     Ok(result) => Ok(result),
     Err(err) => {
       log_debug!(environment, "Failed setting up process plugin. {:#}", err);
@@ -69,46 +78,79 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
       let _ignore = environment.remove_dir_all(&plugin_cache_dir_path);
       Err(err)
     }
-  };
-
-  async fn setup_inner<TEnvironment: Environment>(
-    plugin_cache_dir_path: &Path,
-    plugin_name: String,
-    zip_bytes: &[u8],
-    environment: &TEnvironment,
-  ) -> Result<SetupPluginResult> {
-    let _ = environment.remove_dir_all(plugin_cache_dir_path);
-    environment.mk_dir_all(plugin_cache_dir_path)?;
-    let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
-
-    extract_zip(&format!("Extracting zip for {}", plugin_name), zip_bytes, plugin_cache_dir_path, environment)?;
-
-    if !environment.path_exists(&plugin_executable_file_path) {
-      bail!(
-        "Plugin zip file did not contain required executable at: {}",
-        plugin_executable_file_path.display()
-      );
-    }
-
-    let executable_path = super::get_test_safe_executable_path(plugin_executable_file_path.clone(), environment);
-    let communicator = ProcessPluginCommunicator::new_with_init(&executable_path, {
-      let environment = environment.clone();
-      move |error_message| {
-        // consider messages from process plugins as warnings
-        if environment.log_level().is_warn() {
-          environment.log_stderr_with_context(&error_message, &plugin_name);
-        }
-      }
-    })
-    .await?;
-    let plugin_info = communicator.plugin_info().await?;
-    communicator.shutdown().await;
-
-    Ok(SetupPluginResult {
-      plugin_info,
-      file_path: plugin_executable_file_path,
-    })
   }
+}
+
+async fn setup_from_zip<TEnvironment: Environment>(
+  plugin_cache_dir_path: &Path,
+  plugin_name: String,
+  zip_bytes: &[u8],
+  environment: &TEnvironment,
+) -> Result<SetupPluginResult> {
+  let _ = environment.remove_dir_all(plugin_cache_dir_path);
+  environment.mk_dir_all(plugin_cache_dir_path)?;
+  let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
+
+  extract_zip(&format!("Extracting zip for {}", plugin_name), zip_bytes, plugin_cache_dir_path, environment)?;
+
+  if !environment.path_exists(&plugin_executable_file_path) {
+    bail!(
+      "Plugin zip file did not contain required executable at: {}",
+      plugin_executable_file_path.display()
+    );
+  }
+
+  start_communicator_and_collect_info(plugin_executable_file_path, plugin_name, environment).await
+}
+
+/// Installs a pre-resolved executable into the plugin cache. The bytes come
+/// straight from a per-platform npm package, which ships the binary directly
+/// (no inner zip), so we just write them and chmod +x.
+async fn setup_from_binary<TEnvironment: Environment>(
+  plugin_cache_dir_path: &Path,
+  plugin_name: String,
+  binary_bytes: &[u8],
+  environment: &TEnvironment,
+) -> Result<SetupPluginResult> {
+  let _ = environment.remove_dir_all(plugin_cache_dir_path);
+  environment.mk_dir_all(plugin_cache_dir_path)?;
+  let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
+  environment.write_file_bytes(&plugin_executable_file_path, binary_bytes)?;
+
+  #[cfg(unix)]
+  {
+    use sys_traits::FsSetPermissions;
+    environment
+      .fs_set_permissions(&plugin_executable_file_path, 0o755)
+      .with_context(|| format!("Failed to set executable permissions on {}", plugin_executable_file_path.display()))?;
+  }
+
+  start_communicator_and_collect_info(plugin_executable_file_path, plugin_name, environment).await
+}
+
+async fn start_communicator_and_collect_info<TEnvironment: Environment>(
+  plugin_executable_file_path: PathBuf,
+  plugin_name: String,
+  environment: &TEnvironment,
+) -> Result<SetupPluginResult> {
+  let executable_path = super::get_test_safe_executable_path(plugin_executable_file_path.clone(), environment);
+  let communicator = ProcessPluginCommunicator::new_with_init(&executable_path, {
+    let environment = environment.clone();
+    move |error_message| {
+      // consider messages from process plugins as warnings
+      if environment.log_level().is_warn() {
+        environment.log_stderr_with_context(&error_message, &plugin_name);
+      }
+    }
+  })
+  .await?;
+  let plugin_info = communicator.plugin_info().await?;
+  communicator.shutdown().await;
+
+  Ok(SetupPluginResult {
+    plugin_info,
+    file_path: plugin_executable_file_path,
+  })
 }
 
 pub fn cleanup_process_plugin(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<()> {

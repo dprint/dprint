@@ -2885,12 +2885,17 @@ mod test {
   fn should_format_with_unversioned_npm_process_plugin_from_node_modules() {
     // unversioned process plugin: plugin.json references a per-platform npm
     // package, which itself lives in node_modules. Exercises the
-    // `pre_resolved_zip` path through `resolve_process_plugin_dep_from_node_modules`.
-    use crate::test_helpers::PROCESS_PLUGIN_ZIP_BYTES;
+    // `pre_resolved_binary` path through
+    // `resolve_process_plugin_dep_from_node_modules`. The per-platform npm
+    // package ships the executable directly — no inner zip, since the npm
+    // tarball is already a tar.gz.
+    use crate::test_helpers::PROCESS_PLUGIN_BINARY_BYTES;
+    use crate::test_helpers::process_plugin_binary_filename;
     use crate::utils::get_sha256_checksum;
 
-    let zip_bytes: &[u8] = &PROCESS_PLUGIN_ZIP_BYTES;
-    let zip_checksum = get_sha256_checksum(zip_bytes);
+    let binary_bytes: &[u8] = &PROCESS_PLUGIN_BINARY_BYTES;
+    let binary_checksum = get_sha256_checksum(binary_bytes);
+    let binary_filename = process_plugin_binary_filename();
 
     // craft a plugin.json whose every-platform reference is `npm:` and points
     // at the same dep package (so this test is platform-independent)
@@ -2899,14 +2904,14 @@ mod test {
   "schemaVersion": 2,
   "name": "test-process-plugin",
   "version": "0.1.0",
-  "linux-x86_64":    {{ "reference": "npm:test-process-bin@0.1.0/plugin.zip", "checksum": "{0}" }},
-  "linux-aarch64":   {{ "reference": "npm:test-process-bin@0.1.0/plugin.zip", "checksum": "{0}" }},
-  "darwin-x86_64":   {{ "reference": "npm:test-process-bin@0.1.0/plugin.zip", "checksum": "{0}" }},
-  "darwin-aarch64":  {{ "reference": "npm:test-process-bin@0.1.0/plugin.zip", "checksum": "{0}" }},
-  "windows-x86_64":  {{ "reference": "npm:test-process-bin@0.1.0/plugin.zip", "checksum": "{0}" }},
-  "windows-aarch64": {{ "reference": "npm:test-process-bin@0.1.0/plugin.zip", "checksum": "{0}" }}
+  "linux-x86_64":    {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "linux-aarch64":   {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "darwin-x86_64":   {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "darwin-aarch64":  {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "windows-x86_64":  {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "windows-aarch64": {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }}
 }}"#,
-      zip_checksum
+      binary_checksum, binary_filename,
     );
 
     let environment = TestEnvironmentBuilder::new()
@@ -2914,7 +2919,7 @@ mod test {
         c.add_plugin("npm:test-process/plugin.json");
       })
       .write_file("/node_modules/test-process/plugin.json", plugin_json.as_bytes())
-      .write_file("/node_modules/test-process-bin/plugin.zip", zip_bytes)
+      .write_file(format!("/node_modules/test-process-bin/{}", binary_filename), binary_bytes)
       .write_file("/file.txt_ps", "text")
       .build();
 

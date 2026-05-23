@@ -22,14 +22,14 @@ pub async fn setup_plugin<TEnvironment: Environment>(
   resolved_source: &PathSource,
   file_bytes: Vec<u8>,
   plugin_kind: PluginKind,
-  pre_resolved_zip: Option<crate::plugins::npm_resolution::ProcessPluginZipBytes>,
+  pre_resolved_binary: Option<crate::plugins::npm_resolution::PreResolvedProcessPluginBinary>,
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
   // pass the resolved source to setup functions so process plugins can
   // resolve relative paths in their manifest after a redirect
   match plugin_kind {
     PluginKind::Wasm => wasm::setup_wasm_plugin(resolved_source, file_bytes, environment).await,
-    PluginKind::Process => process::setup_process_plugin(resolved_source, &file_bytes, pre_resolved_zip, environment).await,
+    PluginKind::Process => process::setup_process_plugin(resolved_source, &file_bytes, pre_resolved_binary, environment).await,
   }
 }
 

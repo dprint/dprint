@@ -34,17 +34,21 @@ pub struct NpmResolvedPlugin {
   /// Used as the PathSource for setup so process plugin manifests
   /// can resolve relative URLs against the package directory.
   pub local_path: PathSource,
-  /// For node-resolved process plugins, the pre-resolved platform binary zip bytes.
-  /// When set, setup_process_plugin should use these directly instead of
-  /// downloading from the reference URL in plugin.json.
-  pub pre_resolved_zip: Option<ProcessPluginZipBytes>,
+  /// For node-resolved process plugins, the pre-resolved platform binary bytes.
+  /// When set, setup_process_plugin writes these directly to the cache instead
+  /// of downloading and extracting a zip from the reference URL in plugin.json.
+  pub pre_resolved_binary: Option<PreResolvedProcessPluginBinary>,
 }
 
-/// Pre-resolved zip bytes for a process plugin's platform-specific binary.
-pub struct ProcessPluginZipBytes {
+/// Pre-resolved platform-binary bytes for a process plugin. Loaded from a
+/// per-platform npm package's binary file (e.g. `node_modules/foo-linux-x64/foo`).
+/// We intentionally do not nest a zip here — the per-platform npm package is
+/// already a tar.gz, so an inner zip is redundant. The npm package ships the
+/// executable file directly, and we install it as-is.
+pub struct PreResolvedProcessPluginBinary {
   pub name: String,
   pub version: String,
-  pub zip_bytes: Vec<u8>,
+  pub binary_bytes: Vec<u8>,
 }
 
 /// Information about the latest published version of an npm-distributed plugin.
@@ -211,7 +215,7 @@ pub async fn resolve_npm_from_registry(
     plugin_bytes,
     plugin_kind,
     local_path,
-    pre_resolved_zip: None,
+    pre_resolved_binary: None,
   })
 }
 
@@ -227,10 +231,9 @@ pub fn resolve_npm_from_node_modules(specifier: &NpmSpecifier, config_dir: &Path
   // `npm:`, look it up alongside the plugin in node_modules. For relative
   // paths and `file:///` URLs, fall through to the standard
   // setup_process_plugin flow, which resolves against the plugin.json's
-  // directory — so a self-contained npm package can ship `plugin.json` +
-  // `bin.zip` side-by-side. `http(s)://` references are rejected: if the
-  // plugin came from npm, the user shouldn't get a surprise network fetch.
-  let pre_resolved_zip = if specifier.plugin_kind() == PluginKind::Process {
+  // directory. `http(s)://` references are rejected: if the plugin came from
+  // npm, the user shouldn't get a surprise network fetch.
+  let pre_resolved_binary = if specifier.plugin_kind() == PluginKind::Process {
     try_resolve_process_plugin_dep_from_node_modules(&plugin_bytes, config_dir, environment)?
   } else {
     None
@@ -240,7 +243,7 @@ pub fn resolve_npm_from_node_modules(specifier: &NpmSpecifier, config_dir: &Path
     plugin_bytes,
     plugin_kind: specifier.plugin_kind(),
     local_path,
-    pre_resolved_zip,
+    pre_resolved_binary,
   })
 }
 
@@ -263,13 +266,17 @@ pub fn find_npm_plugin_local_path(specifier: &NpmSpecifier, config_dir: &Path, e
 }
 
 /// Reads a process plugin manifest (plugin.json) and, if the platform-specific
-/// reference is an `npm:` specifier, walks node_modules for it. Returns `None`
-/// for non-npm references so the caller falls back to the standard flow.
+/// reference is an `npm:` specifier, walks node_modules for the binary file
+/// it names. The per-platform npm package ships the executable directly (no
+/// inner zip — the tarball is already a tar.gz), so we hand the bytes back
+/// to `setup_process_plugin` which writes them straight into the cache.
+/// Returns `None` for non-npm references so the caller falls back to the
+/// standard flow.
 fn try_resolve_process_plugin_dep_from_node_modules(
   plugin_json_bytes: &[u8],
   config_dir: &Path,
   environment: &impl Environment,
-) -> Result<Option<ProcessPluginZipBytes>> {
+) -> Result<Option<PreResolvedProcessPluginBinary>> {
   use crate::plugins::implementations::get_process_plugin_os_path;
   use crate::plugins::implementations::parse_process_plugin_file;
 
@@ -292,7 +299,7 @@ fn try_resolve_process_plugin_dep_from_node_modules(
   let dep_dir = find_package_in_node_modules(dep_name, config_dir, environment)?;
 
   // if the plugin.json reference pins a version, sanity-check that the
-  // installed package matches before we read the zip. The checksum below
+  // installed package matches before we read the binary. The checksum below
   // would also catch a version mismatch, but the resulting error blames the
   // wrong party — the install is what's stale, not the plugin's checksum.
   if let Some(expected_version) = &parsed.specifier.version {
@@ -313,32 +320,32 @@ fn try_resolve_process_plugin_dep_from_node_modules(
     }
   }
 
-  // the npm reference in plugin.json names the zip exactly (e.g.
-  // `npm:@scope/foo-linux-x64@1.0.0/plugin.zip`), so look it up by path
-  // rather than scanning the directory for an arbitrary .zip
-  let zip_path = dep_dir.join(&parsed.specifier.path);
-  if !environment.path_exists(&zip_path) {
+  // the npm reference in plugin.json names the executable file inside the
+  // per-platform package exactly (e.g. `npm:@scope/foo-linux-x64@1.0.0/foo`),
+  // so look it up by path.
+  let binary_path = dep_dir.join(&parsed.specifier.path);
+  if !environment.path_exists(&binary_path) {
     bail!(
       "Could not find {} in {}. The plugin.json reference does not match the installed package contents.",
       parsed.specifier.path,
       dep_dir.display(),
     );
   }
-  let zip_bytes = environment
-    .read_file_bytes(&zip_path)
-    .with_context(|| format!("Failed to read {}", zip_path.display()))?;
+  let binary_bytes = environment
+    .read_file_bytes(&binary_path)
+    .with_context(|| format!("Failed to read {}", binary_path.display()))?;
 
-  verify_sha256_checksum(&zip_bytes, &os_path.checksum).with_context(|| {
+  verify_sha256_checksum(&binary_bytes, &os_path.checksum).with_context(|| {
     format!(
       "Invalid checksum for process plugin dependency '{}'. The installed package's contents don't match what '{}' was built against — try reinstalling it.",
       dep_name, plugin_file.name,
     )
   })?;
 
-  Ok(Some(ProcessPluginZipBytes {
+  Ok(Some(PreResolvedProcessPluginBinary {
     name: plugin_file.name,
     version: plugin_file.version,
-    zip_bytes,
+    binary_bytes,
   }))
 }
 
@@ -1424,11 +1431,12 @@ mod tests {
     environment.set_os("linux");
     environment.set_cpu_arch("aarch64");
 
-    // the platform-specific zip (referenced by the manifest)
-    let zip_bytes = b"fake-zip-contents";
-    let zip_checksum = get_sha256_checksum(zip_bytes);
+    // the platform-specific binary (referenced by the manifest). The npm
+    // package ships the executable directly — no inner zip.
+    let binary_bytes = b"fake-binary-contents";
+    let binary_checksum = get_sha256_checksum(binary_bytes);
     environment.mk_dir_all("/node_modules/foo-linux-x86_64").unwrap();
-    environment.write_file_bytes("/node_modules/foo-linux-x86_64/plugin.zip", zip_bytes).unwrap();
+    environment.write_file_bytes("/node_modules/foo-linux-x86_64/foo", binary_bytes).unwrap();
 
     // the manifest only lists linux-x86_64; the aarch64 host should still resolve it
     let manifest = serde_json::json!({
@@ -1436,8 +1444,8 @@ mod tests {
       "name": "foo",
       "version": "1.0.0",
       "linux-x86_64": {
-        "reference": "npm:foo-linux-x86_64@1.0.0/plugin.zip",
-        "checksum": zip_checksum,
+        "reference": "npm:foo-linux-x86_64@1.0.0/foo",
+        "checksum": binary_checksum,
       },
     });
     environment.mk_dir_all("/node_modules/foo").unwrap();
@@ -1449,26 +1457,26 @@ mod tests {
       path: "plugin.json".to_string(),
     };
     let resolved = resolve_npm_from_node_modules(&specifier, std::path::Path::new("/"), &environment).unwrap();
-    let zip = resolved.pre_resolved_zip.expect("process plugin should have a pre-resolved zip");
-    assert_eq!(zip.name, "foo");
-    assert_eq!(zip.version, "1.0.0");
-    assert_eq!(zip.zip_bytes, zip_bytes);
+    let binary = resolved.pre_resolved_binary.expect("process plugin should have a pre-resolved binary");
+    assert_eq!(binary.name, "foo");
+    assert_eq!(binary.version, "1.0.0");
+    assert_eq!(binary.binary_bytes, binary_bytes);
   }
 
   #[tokio::test]
   async fn resolve_npm_from_node_modules_process_plugin_rejects_version_mismatch() {
-    // plugin.json references `npm:foo-bin@1.0.0/plugin.zip` but node_modules
-    // has foo-bin@2.0.0 installed. We should detect the version mismatch and
+    // plugin.json references `npm:foo-bin@1.0.0/foo` but node_modules has
+    // foo-bin@2.0.0 installed. We should detect the version mismatch and
     // tell the user, not blame the plugin author via the checksum error.
     use crate::environment::TestEnvironment;
     let environment = TestEnvironment::new();
     environment.set_os("linux");
     environment.set_cpu_arch("x86_64");
 
-    let zip_bytes = b"fake-zip-contents";
-    let zip_checksum = get_sha256_checksum(zip_bytes);
+    let binary_bytes = b"fake-binary-contents";
+    let binary_checksum = get_sha256_checksum(binary_bytes);
     environment.mk_dir_all("/node_modules/foo-bin").unwrap();
-    environment.write_file_bytes("/node_modules/foo-bin/plugin.zip", zip_bytes).unwrap();
+    environment.write_file_bytes("/node_modules/foo-bin/foo", binary_bytes).unwrap();
     environment
       .write_file(
         "/node_modules/foo-bin/package.json",
@@ -1481,8 +1489,8 @@ mod tests {
       "name": "foo",
       "version": "1.0.0",
       "linux-x86_64": {
-        "reference": "npm:foo-bin@1.0.0/plugin.zip",
-        "checksum": zip_checksum,
+        "reference": "npm:foo-bin@1.0.0/foo",
+        "checksum": binary_checksum,
       },
     });
     environment.mk_dir_all("/node_modules/foo").unwrap();
@@ -1513,10 +1521,10 @@ mod tests {
     environment.set_os("linux");
     environment.set_cpu_arch("x86_64");
 
-    let zip_bytes = b"fake-zip-contents";
-    let zip_checksum = get_sha256_checksum(zip_bytes);
+    let binary_bytes = b"fake-binary-contents";
+    let binary_checksum = get_sha256_checksum(binary_bytes);
     environment.mk_dir_all("/node_modules/foo-bin").unwrap();
-    environment.write_file_bytes("/node_modules/foo-bin/plugin.zip", zip_bytes).unwrap();
+    environment.write_file_bytes("/node_modules/foo-bin/foo", binary_bytes).unwrap();
     environment.write_file("/node_modules/foo-bin/package.json", "{ not valid json").unwrap();
 
     let manifest = serde_json::json!({
@@ -1524,8 +1532,8 @@ mod tests {
       "name": "foo",
       "version": "1.0.0",
       "linux-x86_64": {
-        "reference": "npm:foo-bin@1.0.0/plugin.zip",
-        "checksum": zip_checksum,
+        "reference": "npm:foo-bin@1.0.0/foo",
+        "checksum": binary_checksum,
       },
     });
     environment.mk_dir_all("/node_modules/foo").unwrap();
@@ -1555,10 +1563,10 @@ mod tests {
     environment.set_os("linux");
     environment.set_cpu_arch("x86_64");
 
-    let zip_bytes = b"fake-zip-contents";
-    let zip_checksum = get_sha256_checksum(zip_bytes);
+    let binary_bytes = b"fake-binary-contents";
+    let binary_checksum = get_sha256_checksum(binary_bytes);
     environment.mk_dir_all("/node_modules/foo-bin").unwrap();
-    environment.write_file_bytes("/node_modules/foo-bin/plugin.zip", zip_bytes).unwrap();
+    environment.write_file_bytes("/node_modules/foo-bin/foo", binary_bytes).unwrap();
     // intentionally no package.json
 
     let manifest = serde_json::json!({
@@ -1566,8 +1574,8 @@ mod tests {
       "name": "foo",
       "version": "1.0.0",
       "linux-x86_64": {
-        "reference": "npm:foo-bin@1.0.0/plugin.zip",
-        "checksum": zip_checksum,
+        "reference": "npm:foo-bin@1.0.0/foo",
+        "checksum": binary_checksum,
       },
     });
     environment.mk_dir_all("/node_modules/foo").unwrap();
@@ -1579,7 +1587,7 @@ mod tests {
       path: "plugin.json".to_string(),
     };
     let resolved = resolve_npm_from_node_modules(&specifier, std::path::Path::new("/"), &environment).unwrap();
-    assert!(resolved.pre_resolved_zip.is_some());
+    assert!(resolved.pre_resolved_binary.is_some());
   }
 
   #[tokio::test]

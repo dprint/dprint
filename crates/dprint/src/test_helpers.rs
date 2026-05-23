@@ -74,6 +74,22 @@ pub static PROCESS_PLUGIN_ZIP_BYTES: Lazy<Vec<u8>> = Lazy::new(|| {
 });
 pub static PROCESS_PLUGIN_ZIP_CHECKSUM: Lazy<String> = Lazy::new(|| crate::utils::get_sha256_checksum(&PROCESS_PLUGIN_ZIP_BYTES));
 
+/// Raw bytes of the test process plugin executable — used for tests that
+/// exercise the `pre_resolved_binary` path (npm-installed process plugins
+/// ship the executable directly, not wrapped in a zip).
+pub static PROCESS_PLUGIN_BINARY_BYTES: Lazy<Vec<u8>> = Lazy::new(|| std::fs::read(&*TEST_PROCESS_PLUGIN_PATH).unwrap());
+
+/// Filename that a per-platform npm package would ship for the test process
+/// plugin's executable (`test-process-plugin.exe` on Windows, otherwise
+/// `test-process-plugin`).
+pub fn process_plugin_binary_filename() -> &'static str {
+  if cfg!(target_os = "windows") {
+    "test-process-plugin.exe"
+  } else {
+    "test-process-plugin"
+  }
+}
+
 /// Builds a gzipped tar with the given (path, contents) entries. Paths must
 /// share a single top-level directory (npm tarballs always wrap under `package/`).
 pub fn create_test_npm_tarball(files: &[(&str, &[u8])]) -> Vec<u8> {

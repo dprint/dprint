@@ -149,9 +149,10 @@ fn split_version(s: &str) -> (&str, &str) {
 
 /// Parses `plugin.json@checksum` or `plugin.wasm` from the path portion.
 /// Note: this does not validate the extension, since npm specifiers also
-/// appear inside a process plugin's plugin.json (referencing a `.zip` from
-/// a per-platform npm package). Callers that need a plugin file specifically
-/// validate the extension themselves via `validate_plugin_extension`.
+/// appear inside a process plugin's plugin.json (referencing the executable
+/// file in a per-platform npm package — typically a bare binary name).
+/// Callers that need a plugin file specifically validate the extension
+/// themselves via `validate_plugin_extension`.
 fn parse_path_and_checksum(s: &str, original: &str) -> Result<(String, Option<String>)> {
   if s.is_empty() {
     bail!("Expected a plugin filename after '/' in npm specifier: {}", original);
@@ -174,7 +175,7 @@ fn parse_path_and_checksum(s: &str, original: &str) -> Result<(String, Option<St
 /// Rejects an npm specifier whose path doesn't end in `.wasm` or `.json`
 /// (case-insensitive). Call this on a parsed `NpmSpecifier` when the
 /// specifier is supposed to identify a top-level plugin (as opposed to an
-/// embedded zip reference inside a process plugin manifest).
+/// embedded executable-binary reference inside a process plugin manifest).
 pub fn validate_plugin_extension(specifier: &NpmSpecifier, original: &str) -> Result<()> {
   if plugin_kind_from_extension(&specifier.path).is_none() {
     bail!(
@@ -390,7 +391,8 @@ mod tests {
     // local/remote plugin sources only ever classify .wasm/.json. Top-level
     // npm plugin specifiers should be rejected the same way — but parsing
     // itself stays permissive because npm: specifiers are also used inside
-    // process plugin manifests to reference per-platform .zip binaries.
+    // process plugin manifests to reference the per-platform executable
+    // binary (typically a bare filename like `foo` or `foo.exe`).
     let parsed = parse_npm_specifier("npm:foo@1.0.0/plugin.txt").unwrap();
     let err = validate_plugin_extension(&parsed.specifier, "npm:foo@1.0.0/plugin.txt").unwrap_err();
     let msg = err.to_string();
@@ -403,12 +405,19 @@ mod tests {
   }
 
   #[test]
-  fn validate_plugin_extension_accepts_zip_only_through_parse_not_validate() {
-    // npm specifiers referencing zip binaries (from inside a process plugin
-    // manifest) must parse, but should not pass plugin-extension validation.
-    let parsed = parse_npm_specifier("npm:foo-bin@1.0.0/plugin.zip").unwrap();
-    assert_eq!(parsed.specifier.path, "plugin.zip");
-    assert!(validate_plugin_extension(&parsed.specifier, "npm:foo-bin@1.0.0/plugin.zip").is_err());
+  fn validate_plugin_extension_accepts_arbitrary_paths_only_through_parse_not_validate() {
+    // npm specifiers referencing the per-platform executable file (from
+    // inside a process plugin manifest) carry an arbitrary path — typically
+    // a bare binary name like `foo` or `foo.exe`. Parsing must accept those,
+    // but plugin-extension validation should still reject them at the
+    // top-level plugin source position.
+    let parsed = parse_npm_specifier("npm:foo-bin@1.0.0/foo").unwrap();
+    assert_eq!(parsed.specifier.path, "foo");
+    assert!(validate_plugin_extension(&parsed.specifier, "npm:foo-bin@1.0.0/foo").is_err());
+
+    let parsed = parse_npm_specifier("npm:foo-bin@1.0.0/foo.exe").unwrap();
+    assert_eq!(parsed.specifier.path, "foo.exe");
+    assert!(validate_plugin_extension(&parsed.specifier, "npm:foo-bin@1.0.0/foo.exe").is_err());
   }
 
   #[test]
