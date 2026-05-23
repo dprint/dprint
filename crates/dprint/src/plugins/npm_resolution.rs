@@ -341,24 +341,16 @@ async fn try_resolve_process_plugin_per_platform_binary(
   }
 
   let parsed = crate::utils::parse_npm_specifier(&os_path.reference)?;
-  let version = parsed.specifier.version.as_deref().ok_or_else(|| {
-    anyhow::anyhow!(
-      "npm reference in plugin '{}' must include a version: {}",
-      plugin_file.name,
-      os_path.reference,
-    )
-  })?;
+  let version = parsed
+    .specifier
+    .version
+    .as_deref()
+    .ok_or_else(|| anyhow::anyhow!("npm reference in plugin '{}' must include a version: {}", plugin_file.name, os_path.reference,))?;
 
   let registry = resolve_registry_for_package(&parsed.specifier.name, config_dir, environment);
-  let extract_dir = fetch_and_extract_npm_package(
-    &parsed.specifier.name,
-    version,
-    &os_path.checksum,
-    &registry,
-    environment,
-  )
-  .await
-  .with_context(|| format!("Resolving npm dependency for process plugin '{}'", plugin_file.name))?;
+  let extract_dir = fetch_and_extract_npm_package(&parsed.specifier.name, version, &os_path.checksum, &registry, environment)
+    .await
+    .with_context(|| format!("Resolving npm dependency for process plugin '{}'", plugin_file.name))?;
 
   let binary_path = extract_dir.join(&parsed.specifier.path);
   if !environment.path_exists(&binary_path) {

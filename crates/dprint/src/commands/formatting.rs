@@ -2852,10 +2852,7 @@ mod test {
     environment.add_remote_file_bytes("https://registry.npmjs.org/test-process", top_packument.to_string().into_bytes());
     environment.add_remote_file_bytes("https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz", top_tarball);
     environment.add_remote_file_bytes("https://registry.npmjs.org/test-process-bin", per_platform_packument.to_string().into_bytes());
-    environment.add_remote_file_bytes(
-      "https://registry.npmjs.org/test-process-bin/-/test-process-bin-0.1.0.tgz",
-      per_platform_tarball,
-    );
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process-bin/-/test-process-bin-0.1.0.tgz", per_platform_tarball);
 
     run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
