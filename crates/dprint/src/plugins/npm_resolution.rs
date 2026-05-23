@@ -233,8 +233,21 @@ pub async fn resolve_npm_from_registry(
 /// inside plugin.json covers the per-platform tarball — see
 /// `try_resolve_process_plugin_per_platform_binary`.
 pub async fn resolve_npm_from_node_modules(specifier: &NpmSpecifier, config_dir: &Path, environment: &impl Environment) -> Result<NpmResolvedPlugin> {
-  let local_path = find_npm_plugin_local_path(specifier, config_dir, environment)?;
-  let canonical = local_path.maybe_local_path().expect("find_npm_plugin_local_path returns Local").clone();
+  let package_dir = match find_package_in_node_modules(&specifier.name, config_dir, environment) {
+    Some(dir) => dir,
+    None => bail!(node_modules_missing_message(specifier, Some(config_dir), environment).await),
+  };
+  let plugin_path = package_dir.join(&specifier.path);
+  if !environment.path_exists(&plugin_path) {
+    bail!(missing_plugin_file_message(
+      specifier,
+      &package_dir.display().to_string(),
+      &package_dir,
+      environment,
+    ));
+  }
+  let canonical = environment.canonicalize(&plugin_path)?;
+  let local_path = PathSource::new_local(canonical.clone());
   let plugin_bytes = environment
     .read_file_bytes(canonical.as_ref())
     .with_context(|| format!("Failed to read {}", canonical.display()))?;
@@ -255,8 +268,17 @@ pub async fn resolve_npm_from_node_modules(specifier: &NpmSpecifier, config_dir:
 
 /// Locates the canonical local path an unversioned npm specifier resolves to,
 /// without reading the plugin file or doing process-plugin dep resolution.
+/// Sync, so the error here is the bare "not installed" hint — the async
+/// resolve path enriches the message with a versioned suggestion via
+/// [`node_modules_missing_message`].
 pub fn find_npm_plugin_local_path(specifier: &NpmSpecifier, config_dir: &Path, environment: &impl Environment) -> Result<PathSource> {
-  let package_dir = find_package_in_node_modules(&specifier.name, config_dir, environment)?;
+  let package_dir = find_package_in_node_modules(&specifier.name, config_dir, environment).ok_or_else(|| {
+    anyhow::anyhow!(
+      "Could not find {} in node_modules. Make sure the package is installed (npm install {}).",
+      specifier.name,
+      specifier.name,
+    )
+  })?;
   let plugin_path = package_dir.join(&specifier.path);
 
   if !environment.path_exists(&plugin_path) {
@@ -790,19 +812,66 @@ fn get_tarball_url_from_packument(packument: &serde_json::Value, version: &str, 
 }
 
 /// Walks up from `start_dir` looking for `node_modules/{package_name}/`.
-fn find_package_in_node_modules(package_name: &str, start_dir: &Path, environment: &impl Environment) -> Result<std::path::PathBuf> {
+/// Returns `None` if not installed anywhere along the ancestor chain.
+fn find_package_in_node_modules(package_name: &str, start_dir: &Path, environment: &impl Environment) -> Option<std::path::PathBuf> {
   for dir in start_dir.ancestors() {
     let candidate = dir.join("node_modules").join(package_name);
     if environment.path_exists(&candidate) {
-      return Ok(candidate);
+      return Some(candidate);
     }
   }
+  None
+}
 
-  bail!(
-    "Could not find {} in node_modules. Make sure the package is installed (npm install {}).",
-    package_name,
-    package_name,
-  )
+/// Builds the user-facing "package not in node_modules" error. When the
+/// caller has async context (the user-facing resolve path), it also
+/// suggests a concrete `npm:<name>@<version>` specifier built from the npm
+/// registry's `dist-tags.latest`; when that lookup fails we fall back to
+/// the bare `npm install` hint. We deliberately don't append the tarball
+/// checksum here — for non-wasm plugins the next resolve step bails with a
+/// "must have a checksum" error that quotes the exact value to use.
+async fn node_modules_missing_message(specifier: &NpmSpecifier, start_dir: Option<&Path>, environment: &impl Environment) -> String {
+  match fetch_npm_latest_version(&specifier.name, start_dir, environment).await {
+    Some(version) => {
+      // hide the default `plugin.wasm` path so the suggestion matches what
+      // a user would actually type. Non-default paths (e.g. `plugin.json`)
+      // are kept verbatim.
+      let suggestion = if specifier.path == "plugin.wasm" {
+        format!("npm:{}@{}", specifier.name, version)
+      } else {
+        format!("npm:{}@{}/{}", specifier.name, version, specifier.path)
+      };
+      format!(
+        concat!(
+          "Could not find {} in node_modules.\n",
+          "\n",
+          "1. Make sure the package is installed (npm install {})\n",
+          "2. OR specify a version (ex. {})",
+        ),
+        specifier.name, specifier.name, suggestion,
+      )
+    }
+    None => format!(
+      "Could not find {} in node_modules. Make sure the package is installed (npm install {}).",
+      specifier.name, specifier.name,
+    ),
+  }
+}
+
+/// Reads `dist-tags.latest` from the registry's packument for a single
+/// package. Returns `None` on any network/parse failure — callers use this
+/// as a best-effort hint, not a hard requirement, so we don't bubble the
+/// error up. Unlike [`fetch_npm_latest_info`] this never downloads the
+/// tarball, so it's cheap enough to call inside an error path.
+async fn fetch_npm_latest_version(package_name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Option<String> {
+  let registry = resolve_registry_for_package(package_name, start_dir, environment);
+  let packument_url = url::Url::parse(&get_packument_url(&registry.url, package_name)).ok()?;
+  let (_, packument_file) = environment
+    .download_file_with_auth_err_404(&packument_url, registry.auth_header.as_deref())
+    .await
+    .ok()?;
+  let packument: serde_json::Value = serde_json::from_slice(&packument_file.content).ok()?;
+  packument.get("dist-tags").and_then(|d| d.get("latest")).and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
 #[cfg(test)]
@@ -1765,6 +1834,92 @@ mod tests {
     let msg = format!("{err:#}");
     assert!(msg.contains("Is the package a dprint plugin?"), "got: {msg}");
     assert!(!msg.contains("instead"), "got: {msg}");
+  }
+
+  #[tokio::test]
+  async fn resolve_npm_from_node_modules_missing_package_suggests_versioned_specifier_wasm() {
+    // user wrote `npm:@dprint/typescript` but hasn't run `npm install`. The
+    // error should not just say "npm install" — it should also offer a
+    // ready-to-paste `npm:<name>@<version>` alternative. For wasm plugins we
+    // skip the checksum (it's optional and would be noise).
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "0.99.0" },
+      "versions": { "0.99.0": { "dist": { "tarball": "https://registry.npmjs.org/@dprint/typescript/-/typescript-0.99.0.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/@dprint/typescript", packument.to_string().into_bytes());
+
+    let specifier = NpmSpecifier {
+      name: "@dprint/typescript".to_string(),
+      version: None,
+      path: "plugin.wasm".to_string(),
+    };
+    let err = match resolve_npm_from_node_modules(&specifier, std::path::Path::new("/"), &environment).await {
+      Ok(_) => panic!("expected an error"),
+      Err(e) => e,
+    };
+    let msg = format!("{err:#}");
+    assert!(msg.contains("Could not find @dprint/typescript in node_modules"), "got: {msg}");
+    assert!(msg.contains("npm install @dprint/typescript"), "got: {msg}");
+    // suggestion includes the resolved latest version, no checksum for wasm
+    assert!(msg.contains("npm:@dprint/typescript@0.99.0"), "got: {msg}");
+    assert!(!msg.contains("npm:@dprint/typescript@0.99.0@"), "wasm shouldn't carry a checksum: {msg}");
+  }
+
+  #[tokio::test]
+  async fn resolve_npm_from_node_modules_missing_package_suggests_versioned_specifier_process() {
+    // for process plugins (path is plugin.json), keep the path component in
+    // the suggestion. The checksum requirement is surfaced by the next
+    // resolve step (which quotes the exact SHA to use), so we don't bake it
+    // into this message.
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "0.6.2" },
+      "versions": { "0.6.2": { "dist": { "tarball": "https://registry.npmjs.org/@dprint/exec/-/exec-0.6.2.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/@dprint/exec", packument.to_string().into_bytes());
+    // intentionally no tarball mock — confirms we don't fetch it for the suggestion
+
+    let specifier = NpmSpecifier {
+      name: "@dprint/exec".to_string(),
+      version: None,
+      path: "plugin.json".to_string(),
+    };
+    let err = match resolve_npm_from_node_modules(&specifier, std::path::Path::new("/"), &environment).await {
+      Ok(_) => panic!("expected an error"),
+      Err(e) => e,
+    };
+    let msg = format!("{err:#}");
+    assert!(msg.contains("Could not find @dprint/exec in node_modules"), "got: {msg}");
+    assert!(msg.contains("npm:@dprint/exec@0.6.2/plugin.json"), "got: {msg}");
+    // no checksum appended — the next step explains that requirement
+    assert!(!msg.contains("npm:@dprint/exec@0.6.2/plugin.json@"), "got: {msg}");
+  }
+
+  #[tokio::test]
+  async fn resolve_npm_from_node_modules_missing_package_falls_back_when_registry_unreachable() {
+    // the registry is unreachable (no mocks set up) — the error degrades
+    // gracefully to the bare "npm install" hint rather than swallowing
+    // the original miss with a confusing network error.
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+
+    let specifier = NpmSpecifier {
+      name: "@dprint/typescript".to_string(),
+      version: None,
+      path: "plugin.wasm".to_string(),
+    };
+    let err = match resolve_npm_from_node_modules(&specifier, std::path::Path::new("/"), &environment).await {
+      Ok(_) => panic!("expected an error"),
+      Err(e) => e,
+    };
+    let msg = format!("{err:#}");
+    assert!(msg.contains("Could not find @dprint/typescript in node_modules"), "got: {msg}");
+    assert!(msg.contains("npm install @dprint/typescript"), "got: {msg}");
+    // no version suggestion when we couldn't reach the registry
+    assert!(!msg.contains("OR specify a version (ex."), "got: {msg}");
   }
 
   #[tokio::test]
