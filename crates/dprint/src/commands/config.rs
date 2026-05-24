@@ -2524,12 +2524,7 @@ mod test {
     environment.write_file("/package.json", "{\n  \"name\": \"app\"\n}\n").unwrap();
     let config_path = environment.canonicalize("/dprint.json").unwrap();
 
-    super::apply_package_json_additions(
-      &config_path,
-      &[("@dprint/typescript".to_string(), "^0.99.0".to_string())],
-      &environment,
-    )
-    .unwrap();
+    super::apply_package_json_additions(&config_path, &[("@dprint/typescript".to_string(), "^0.99.0".to_string())], &environment).unwrap();
 
     let pkg = environment.read_file("/package.json").unwrap();
     assert!(pkg.contains("\"devDependencies\""), "got: {pkg}");
@@ -2551,12 +2546,7 @@ mod test {
       .unwrap();
     let config_path = environment.canonicalize("/dprint.json").unwrap();
 
-    super::apply_package_json_additions(
-      &config_path,
-      &[("@dprint/typescript".to_string(), "^0.99.0".to_string())],
-      &environment,
-    )
-    .unwrap();
+    super::apply_package_json_additions(&config_path, &[("@dprint/typescript".to_string(), "^0.99.0".to_string())], &environment).unwrap();
 
     let pkg = environment.read_file("/package.json").unwrap();
     assert!(pkg.contains("\"@dprint/typescript\": \"^0.99.0\""), "got: {pkg}");
@@ -2575,12 +2565,7 @@ mod test {
     environment.write_file("/repo/package.json", "{\n  \"name\": \"root\"\n}\n").unwrap();
     let config_path = environment.canonicalize("/repo/packages/web/dprint.json").unwrap();
 
-    super::apply_package_json_additions(
-      &config_path,
-      &[("@dprint/typescript".to_string(), "^0.99.0".to_string())],
-      &environment,
-    )
-    .unwrap();
+    super::apply_package_json_additions(&config_path, &[("@dprint/typescript".to_string(), "^0.99.0".to_string())], &environment).unwrap();
 
     let pkg = environment.read_file("/repo/package.json").unwrap();
     assert!(pkg.contains("\"@dprint/typescript\": \"^0.99.0\""), "got: {pkg}");
@@ -2594,12 +2579,7 @@ mod test {
     let environment = TestEnvironment::new();
     environment.write_file("/dprint.json", "{}").unwrap();
     let config_path = environment.canonicalize("/dprint.json").unwrap();
-    let err = super::apply_package_json_additions(
-      &config_path,
-      &[("@dprint/typescript".to_string(), "^0.99.0".to_string())],
-      &environment,
-    )
-    .unwrap_err();
+    let err = super::apply_package_json_additions(&config_path, &[("@dprint/typescript".to_string(), "^0.99.0".to_string())], &environment).unwrap_err();
     let msg = format!("{err:#}");
     assert!(msg.contains("no package.json was found"), "got: {msg}");
     assert!(msg.contains("npm init"), "got: {msg}");

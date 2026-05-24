@@ -544,7 +544,9 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
       .arg(
         Arg::new("no-version")
           .long("no-version")
-          .help("For npm: specifiers, write the unversioned form instead of pinning dist-tags.latest. Defers version management to node_modules / package.json.")
+          .help(
+            "For npm: specifiers, write the unversioned form instead of pinning dist-tags.latest. Defers version management to node_modules / package.json.",
+          )
           .num_args(0)
           .required(false),
       )
@@ -1041,7 +1043,11 @@ mod test {
   fn top_level_add_alias() {
     let args = test_args(vec!["add"]).unwrap();
     match &args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Add { names, no_version, package_json }) => {
+      SubCommand::Config(ConfigSubCommand::Add {
+        names,
+        no_version,
+        package_json,
+      }) => {
         assert!(names.is_empty());
         assert!(!no_version);
         assert!(!package_json);
@@ -1070,7 +1076,11 @@ mod test {
   fn add_no_version_flag() {
     let args = test_args(vec!["add", "--no-version", "npm:@dprint/typescript"]).unwrap();
     match &args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Add { names, no_version, package_json }) => {
+      SubCommand::Config(ConfigSubCommand::Add {
+        names,
+        no_version,
+        package_json,
+      }) => {
         assert_eq!(names, &["npm:@dprint/typescript"]);
         assert!(*no_version);
         assert!(!*package_json);
