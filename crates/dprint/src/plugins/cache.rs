@@ -169,7 +169,7 @@ where
             checksum: None,
           };
           self
-            .get_local_plugin(&local_ref, resolved.pre_resolved_binary)
+            .get_local_plugin(&local_ref, resolved.pre_resolved_tarball)
             .await
             .with_context(|| format!("Setting up {}", npm_source.specifier.display()))
         };
@@ -205,7 +205,7 @@ where
       &resolved.local_path,
       resolved.plugin_bytes,
       plugin_kind,
-      resolved.pre_resolved_binary,
+      resolved.pre_resolved_tarball,
       &self.environment,
     )
     .await
@@ -230,7 +230,7 @@ where
   async fn get_local_plugin(
     &self,
     source_reference: &PluginSourceReference,
-    pre_resolved_binary: Option<npm_resolution::PreResolvedProcessPluginBinary>,
+    pre_resolved_tarball: Option<npm_resolution::PreResolvedProcessPluginTarball>,
   ) -> Result<PluginCacheItem> {
     let local_path = source_reference
       .path_source
@@ -278,7 +278,7 @@ where
       .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for {}", source_reference.display()))?;
 
     let file_hash = Some(get_bytes_hash(&file_bytes));
-    let setup_result = setup_plugin(&source_reference.path_source, file_bytes, plugin_kind, pre_resolved_binary, &self.environment).await?;
+    let setup_result = setup_plugin(&source_reference.path_source, file_bytes, plugin_kind, pre_resolved_tarball, &self.environment).await?;
     let cache_item = PluginCacheManifestItem {
       info: setup_result.plugin_info.clone(),
       file_hash,

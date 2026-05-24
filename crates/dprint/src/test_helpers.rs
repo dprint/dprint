@@ -74,9 +74,10 @@ pub static PROCESS_PLUGIN_ZIP_BYTES: Lazy<Vec<u8>> = Lazy::new(|| {
 });
 pub static PROCESS_PLUGIN_ZIP_CHECKSUM: Lazy<String> = Lazy::new(|| crate::utils::get_sha256_checksum(&PROCESS_PLUGIN_ZIP_BYTES));
 
-/// Raw bytes of the test process plugin executable — used for tests that
-/// exercise the `pre_resolved_binary` path (npm-installed process plugins
-/// ship the executable directly, not wrapped in a zip).
+/// Raw bytes of the test process plugin executable — used by tests that
+/// stuff it into a per-platform npm tarball for the `pre_resolved_tarball`
+/// path (npm-installed process plugins ship the executable inside the
+/// tarball; dprint extracts the full tarball at setup time).
 pub static PROCESS_PLUGIN_BINARY_BYTES: Lazy<Vec<u8>> = Lazy::new(|| std::fs::read(&*TEST_PROCESS_PLUGIN_PATH).unwrap());
 
 /// Filename that a per-platform npm package would ship for the test process

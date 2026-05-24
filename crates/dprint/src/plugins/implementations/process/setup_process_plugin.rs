@@ -1,5 +1,3 @@
-#[cfg(unix)]
-use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use dprint_core::plugins::PluginInfo;
@@ -13,9 +11,11 @@ use std::str;
 
 use crate::environment::Environment;
 use crate::plugins::implementations::SetupPluginResult;
+use crate::plugins::npm_resolution::extract_tarball_replacing;
 use crate::utils::PathSource;
 use crate::utils::extract_zip;
 use crate::utils::fetch_file_or_url_bytes;
+use crate::utils::fs::get_atomic_path;
 use crate::utils::resolve_url_or_file_path_to_path_source;
 use crate::utils::verify_sha256_checksum;
 
@@ -43,18 +43,28 @@ fn get_plugin_executable_file_path(dir_path: &Path, plugin_name: &str) -> PathBu
 
 /// Takes a url or file path and extracts the plugin to a cache folder.
 /// Returns the executable file path once complete.
-/// If `pre_resolved_binary` is provided (npm-installed process plugins), the
-/// bytes are written directly to the cache as the executable. Otherwise the
-/// reference inside `plugin_file_bytes` is fetched as a zip and extracted.
+/// If `pre_resolved_tarball` is provided (npm-installed process plugins), the
+/// full per-platform tarball is extracted into the plugin cache directory so
+/// the executable can sit alongside any sibling files it ships. Otherwise
+/// the reference inside `plugin_file_bytes` is fetched as a zip and
+/// extracted. Both paths stage the extract in a sibling temp dir and rename
+/// into place so a crash mid-extract can't leave a half-populated cache.
 pub async fn setup_process_plugin<TEnvironment: Environment>(
   url_or_file_path: &PathSource,
   plugin_file_bytes: &[u8],
-  pre_resolved_binary: Option<crate::plugins::npm_resolution::PreResolvedProcessPluginBinary>,
+  pre_resolved_tarball: Option<crate::plugins::npm_resolution::PreResolvedProcessPluginTarball>,
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
-  if let Some(binary) = pre_resolved_binary {
-    let plugin_cache_dir_path = get_plugin_dir_path(&binary.name, &binary.version, environment);
-    let result = setup_from_binary(&plugin_cache_dir_path, binary.name, &binary.binary_bytes, environment).await;
+  if let Some(tarball) = pre_resolved_tarball {
+    let plugin_cache_dir_path = get_plugin_dir_path(&tarball.name, &tarball.version, environment);
+    let result = setup_from_tarball(
+      &plugin_cache_dir_path,
+      tarball.name,
+      tarball.tarball_bytes,
+      &tarball.executable_sub_path,
+      environment,
+    )
+    .await;
     return match result {
       Ok(result) => Ok(result),
       Err(err) => {
@@ -87,45 +97,61 @@ async fn setup_from_zip<TEnvironment: Environment>(
   zip_bytes: &[u8],
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
-  let _ = environment.remove_dir_all(plugin_cache_dir_path);
-  environment.mk_dir_all(plugin_cache_dir_path)?;
-  let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
-
-  extract_zip(&format!("Extracting zip for {}", plugin_name), zip_bytes, plugin_cache_dir_path, environment)?;
-
-  if !environment.path_exists(&plugin_executable_file_path) {
+  // stage the extract in a sibling temp dir so a crash mid-extract can't
+  // leave the destination half-populated for a future run to mistake as
+  // "already set up". Caller's fs_lock prevents a competing setup against
+  // the same source.
+  let temp_dir = get_atomic_path(environment, plugin_cache_dir_path);
+  environment.mk_dir_all(&temp_dir)?;
+  if let Err(err) = extract_zip(&format!("Extracting zip for {}", plugin_name), zip_bytes, &temp_dir, environment) {
+    let _ = environment.remove_dir_all(&temp_dir);
+    return Err(err);
+  }
+  let temp_executable = get_plugin_executable_file_path(&temp_dir, &plugin_name);
+  if !environment.path_exists(&temp_executable) {
+    let _ = environment.remove_dir_all(&temp_dir);
     bail!(
       "Plugin zip file did not contain required executable at: {}",
-      plugin_executable_file_path.display()
+      get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name).display(),
     );
   }
+  let _ = environment.remove_dir_all(plugin_cache_dir_path);
+  if let Err(err) = environment.rename(&temp_dir, plugin_cache_dir_path) {
+    let _ = environment.remove_dir_all(&temp_dir);
+    return Err(err.into());
+  }
 
+  let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
   start_communicator_and_collect_info(plugin_executable_file_path, plugin_name, environment).await
 }
 
-/// Installs a pre-resolved executable into the plugin cache. The bytes come
-/// straight from a per-platform npm package, which ships the binary directly
-/// (no inner zip), so we just write them and chmod +x.
-async fn setup_from_binary<TEnvironment: Environment>(
+/// Extracts a per-platform npm tarball into the plugin cache directory. The
+/// tarball is fully unpacked (wrapper directory stripped, file modes
+/// preserved) so the executable can reference siblings that ship in the
+/// same package. `executable_sub_path` is the binary's path inside the
+/// tarball's top-level wrapper — i.e. the same string the plugin.json
+/// reference carries after the version.
+async fn setup_from_tarball<TEnvironment: Environment>(
   plugin_cache_dir_path: &Path,
   plugin_name: String,
-  binary_bytes: &[u8],
+  tarball_bytes: Vec<u8>,
+  executable_sub_path: &str,
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
-  let _ = environment.remove_dir_all(plugin_cache_dir_path);
-  environment.mk_dir_all(plugin_cache_dir_path)?;
-  let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
-  environment.write_file_bytes(&plugin_executable_file_path, binary_bytes)?;
+  let executable_path = plugin_cache_dir_path.join(executable_sub_path);
+  let extract_env = environment.clone();
+  let extract_dest = plugin_cache_dir_path.to_path_buf();
+  // tarball decompression + file I/O blocks; keep it off the runtime thread.
+  dprint_core::async_runtime::spawn_blocking(move || extract_tarball_replacing(&tarball_bytes, &extract_dest, &extract_env)).await??;
 
-  #[cfg(unix)]
-  {
-    use sys_traits::FsSetPermissions;
-    environment
-      .fs_set_permissions(&plugin_executable_file_path, 0o755)
-      .with_context(|| format!("Failed to set executable permissions on {}", plugin_executable_file_path.display()))?;
+  if !environment.path_exists(&executable_path) {
+    bail!(
+      "Tarball for {} did not contain the executable at the path given by the plugin.json reference ({}).",
+      plugin_name,
+      executable_sub_path,
+    );
   }
-
-  start_communicator_and_collect_info(plugin_executable_file_path, plugin_name, environment).await
+  start_communicator_and_collect_info(executable_path, plugin_name, environment).await
 }
 
 async fn start_communicator_and_collect_info<TEnvironment: Environment>(

@@ -34,21 +34,24 @@ pub struct NpmResolvedPlugin {
   /// Used as the PathSource for setup so process plugin manifests
   /// can resolve relative URLs against the package directory.
   pub local_path: PathSource,
-  /// For node-resolved process plugins, the pre-resolved platform binary bytes.
-  /// When set, setup_process_plugin writes these directly to the cache instead
-  /// of downloading and extracting a zip from the reference URL in plugin.json.
-  pub pre_resolved_binary: Option<PreResolvedProcessPluginBinary>,
+  /// For npm-resolved process plugins, the per-platform tarball whose contents
+  /// `setup_process_plugin` will extract into the plugin cache directory.
+  /// Carries the full tarball bytes (verified against the plugin.json
+  /// checksum) so the executable can be unpacked alongside any sibling
+  /// files it depends on — node_modules-style installs, data files, etc.
+  pub pre_resolved_tarball: Option<PreResolvedProcessPluginTarball>,
 }
 
-/// Pre-resolved platform-binary bytes for a process plugin. Loaded from a
-/// per-platform npm package's binary file (e.g. `node_modules/foo-linux-x64/foo`).
-/// We intentionally do not nest a zip here — the per-platform npm package is
-/// already a tar.gz, so an inner zip is redundant. The npm package ships the
-/// executable file directly, and we install it as-is.
-pub struct PreResolvedProcessPluginBinary {
+/// Per-platform npm tarball that's been fetched and SHA-verified for a
+/// process plugin's plugin.json reference. The tarball is unpacked in
+/// full into the plugin cache so it can ship things alongside the binary;
+/// `executable_sub_path` is the binary's location inside the tarball's
+/// top-level wrapper directory (e.g. `foo` for `package/foo`).
+pub struct PreResolvedProcessPluginTarball {
   pub name: String,
   pub version: String,
-  pub binary_bytes: Vec<u8>,
+  pub tarball_bytes: Vec<u8>,
+  pub executable_sub_path: String,
 }
 
 /// Information about the latest published version of an npm-distributed plugin.
@@ -213,8 +216,8 @@ pub async fn resolve_npm_from_registry(
   // plugin.json, we fetch the per-platform tarball from the registry and
   // verify its checksum (same flow as the node_modules path). File/relative
   // references resolve against the extract dir via the standard setup flow.
-  let pre_resolved_binary = if plugin_kind == PluginKind::Process {
-    try_resolve_process_plugin_per_platform_binary(&plugin_bytes, config_dir, environment).await?
+  let pre_resolved_tarball = if plugin_kind == PluginKind::Process {
+    try_resolve_process_plugin_per_platform_tarball(&plugin_bytes, config_dir, environment).await?
   } else {
     None
   };
@@ -223,7 +226,7 @@ pub async fn resolve_npm_from_registry(
     plugin_bytes,
     plugin_kind,
     local_path,
-    pre_resolved_binary,
+    pre_resolved_tarball,
   })
 }
 
@@ -252,8 +255,8 @@ pub async fn resolve_npm_from_node_modules(specifier: &NpmSpecifier, config_dir:
     .read_file_bytes(canonical.as_ref())
     .with_context(|| format!("Failed to read {}", canonical.display()))?;
 
-  let pre_resolved_binary = if specifier.plugin_kind() == PluginKind::Process {
-    try_resolve_process_plugin_per_platform_binary(&plugin_bytes, Some(config_dir), environment).await?
+  let pre_resolved_tarball = if specifier.plugin_kind() == PluginKind::Process {
+    try_resolve_process_plugin_per_platform_tarball(&plugin_bytes, Some(config_dir), environment).await?
   } else {
     None
   };
@@ -262,7 +265,7 @@ pub async fn resolve_npm_from_node_modules(specifier: &NpmSpecifier, config_dir:
     plugin_bytes,
     plugin_kind: specifier.plugin_kind(),
     local_path,
-    pre_resolved_binary,
+    pre_resolved_tarball,
   })
 }
 
@@ -337,20 +340,21 @@ fn npm_specifier_with_path(specifier: &NpmSpecifier, path: &str) -> String {
 
 /// Reads a process plugin manifest (plugin.json) and, if the platform-specific
 /// reference is an `npm:` specifier, fetches the per-platform package's
-/// tarball from the npm registry, verifies its SHA-256 against the
-/// plugin.json checksum, extracts it, and pulls out the executable at the
-/// reference's path. The checksum covers every file in the tarball, not just
-/// the binary — matching how the top-level npm specifier in dprint.json works.
+/// tarball from the npm registry and verifies its SHA-256 against the
+/// plugin.json checksum. The full tarball bytes are handed back to
+/// `setup_process_plugin`, which unpacks them into the plugin cache
+/// directory — extracting the whole package (not just the named binary)
+/// so the executable can sit alongside any DLLs / data files it ships.
 ///
 /// Returns `None` for non-npm references so the caller falls back to the
 /// standard flow (relative paths / `file:///` resolved against plugin.json's
 /// directory). `http(s)://` is rejected so an npm-installed plugin can't
 /// silently fetch from the network.
-async fn try_resolve_process_plugin_per_platform_binary(
+async fn try_resolve_process_plugin_per_platform_tarball(
   plugin_json_bytes: &[u8],
   config_dir: Option<&Path>,
   environment: &impl Environment,
-) -> Result<Option<PreResolvedProcessPluginBinary>> {
+) -> Result<Option<PreResolvedProcessPluginTarball>> {
   use crate::plugins::implementations::get_process_plugin_os_path;
   use crate::plugins::implementations::parse_process_plugin_file;
 
@@ -370,42 +374,30 @@ async fn try_resolve_process_plugin_per_platform_binary(
     .ok_or_else(|| anyhow::anyhow!("npm reference in plugin '{}' must include a version: {}", plugin_file.name, os_path.reference,))?;
 
   let registry = resolve_registry_for_package(&parsed.specifier.name, config_dir, environment);
-  let extract_dir = fetch_and_extract_npm_package(&parsed.specifier.name, version, &os_path.checksum, &registry, environment)
+  let tarball_bytes = fetch_and_verify_npm_tarball(&parsed.specifier.name, version, &os_path.checksum, &registry, environment)
     .await
     .with_context(|| format!("Resolving npm dependency for process plugin '{}'", plugin_file.name))?;
 
-  let binary_path = extract_dir.join(&parsed.specifier.path);
-  if !environment.path_exists(&binary_path) {
-    bail!(
-      "Could not find {} in npm package {}@{}. The plugin.json reference does not match the tarball contents.",
-      parsed.specifier.path,
-      parsed.specifier.name,
-      version,
-    );
-  }
-  let binary_bytes = environment
-    .read_file_bytes(&binary_path)
-    .with_context(|| format!("Failed to read {}", binary_path.display()))?;
-
-  Ok(Some(PreResolvedProcessPluginBinary {
+  Ok(Some(PreResolvedProcessPluginTarball {
     name: plugin_file.name,
     version: plugin_file.version,
-    binary_bytes,
+    tarball_bytes,
+    executable_sub_path: parsed.specifier.path,
   }))
 }
 
-/// Fetches `name@version` from `registry`, verifies its SHA-256 against
-/// `expected_checksum`, and extracts it to the npm cache. Returns the
-/// extract directory. Always re-fetches and re-verifies the tarball (the
-/// extract itself is idempotent) so a corrupted cache or a registry that
-/// silently swaps the tarball's contents is detected on every load.
-async fn fetch_and_extract_npm_package(
+/// Fetches `name@version` from `registry` and verifies its SHA-256 against
+/// `expected_checksum`. Returns the tarball bytes — the caller decides
+/// where (if anywhere) to extract them. Always re-fetches and re-verifies
+/// on every call so a registry that silently swaps the tarball's contents
+/// is detected immediately.
+async fn fetch_and_verify_npm_tarball(
   name: &str,
   version: &str,
   expected_checksum: &str,
   registry: &NpmRegistryResolution,
   environment: &impl Environment,
-) -> Result<PathBuf> {
+) -> Result<Vec<u8>> {
   let packument_url_str = get_packument_url(&registry.url, name);
   let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
   let (_, packument_file) = environment
@@ -432,12 +424,7 @@ async fn fetch_and_extract_npm_package(
     );
   }
 
-  let registry_segment = registry_dir_segment(&registry.url);
-  let extract_dir = get_npm_extract_dir(&registry_segment, name, version, environment);
-  let environment_clone = environment.clone();
-  let extract_dir_clone = extract_dir.clone();
-  dprint_core::async_runtime::spawn_blocking(move || extract_tarball_to_dir(&tarball_bytes, &extract_dir_clone, &environment_clone)).await??;
-  Ok(extract_dir)
+  Ok(tarball_bytes)
 }
 
 fn bail_if_http_reference(plugin_name: &str, reference: &str) -> Result<()> {
@@ -527,6 +514,33 @@ fn extract_tarball_to_dir(tarball_bytes: &[u8], dest_dir: &Path, environment: &i
       }
     }
   }
+}
+
+/// Extracts an npm tarball into `dest_dir`, replacing any existing contents.
+/// Same wrapper-stripping / path-traversal / permission-preserving rules as
+/// [`extract_tarball_to_dir`], but for caches whose contents are *not*
+/// content-addressable (e.g. the per-plugin cache, which gets rewritten
+/// whenever the source plugin.json changes). The extract goes through a
+/// sibling temp dir so a crash mid-extract can't leave the destination
+/// half-populated; the caller is responsible for serializing extracts
+/// against the same `dest_dir` via fs locks.
+pub(in crate::plugins) fn extract_tarball_replacing(tarball_bytes: &[u8], dest_dir: &Path, environment: &impl Environment) -> Result<()> {
+  use crate::utils::fs::get_atomic_path;
+
+  let temp_dir = get_atomic_path(environment, dest_dir);
+  environment.mk_dir_all(&temp_dir)?;
+
+  if let Err(err) = extract_tarball_to_dir_inner(tarball_bytes, &temp_dir, environment) {
+    let _ = environment.remove_dir_all(&temp_dir);
+    return Err(err);
+  }
+
+  let _ = environment.remove_dir_all(dest_dir);
+  if let Err(err) = environment.rename(&temp_dir, dest_dir) {
+    let _ = environment.remove_dir_all(&temp_dir);
+    return Err(err.into());
+  }
+  Ok(())
 }
 
 fn extract_tarball_to_dir_inner(tarball_bytes: &[u8], output_dir: &Path, environment: &impl Environment) -> Result<()> {
@@ -1585,10 +1599,13 @@ mod tests {
     let resolved = resolve_npm_from_node_modules(&specifier, std::path::Path::new("/"), &environment)
       .await
       .unwrap();
-    let binary = resolved.pre_resolved_binary.expect("process plugin should have a pre-resolved binary");
-    assert_eq!(binary.name, "foo");
-    assert_eq!(binary.version, "1.0.0");
-    assert_eq!(binary.binary_bytes, b"fake-binary-contents");
+    let tarball = resolved.pre_resolved_tarball.expect("process plugin should have a pre-resolved tarball");
+    assert_eq!(tarball.name, "foo");
+    assert_eq!(tarball.version, "1.0.0");
+    assert_eq!(tarball.executable_sub_path, "foo");
+    // tarball bytes are passed straight through (verified against the
+    // checksum); we don't extract here, so we just sanity-check non-emptiness.
+    assert!(!tarball.tarball_bytes.is_empty());
   }
 
   #[tokio::test]
@@ -1663,44 +1680,6 @@ mod tests {
     let msg = format!("{err:#}");
     assert!(msg.contains("Invalid checksum"), "got: {msg}");
     assert!(msg.contains("foo-linux-x86_64"), "got: {msg}");
-  }
-
-  #[tokio::test]
-  async fn resolve_npm_from_node_modules_process_plugin_rejects_missing_binary_in_tarball() {
-    // the tarball is valid and matches the checksum, but doesn't contain
-    // the file the reference names — clear "could not find" error rather
-    // than a panic on the missing-file read.
-    use crate::environment::TestEnvironment;
-    let environment = TestEnvironment::new();
-    environment.set_os("linux");
-    environment.set_cpu_arch("x86_64");
-
-    let tarball_checksum = stage_per_platform_npm_package(&environment, "foo-linux-x86_64", "1.0.0", &[("package/something-else", b"oops")]);
-
-    let manifest = serde_json::json!({
-      "schemaVersion": 2,
-      "name": "foo",
-      "version": "1.0.0",
-      "linux-x86_64": {
-        "reference": "npm:foo-linux-x86_64@1.0.0/foo",
-        "checksum": tarball_checksum,
-      },
-    });
-    environment.mk_dir_all("/node_modules/foo").unwrap();
-    environment.write_file("/node_modules/foo/plugin.json", &manifest.to_string()).unwrap();
-
-    let specifier = NpmSpecifier {
-      name: "foo".to_string(),
-      version: None,
-      path: "plugin.json".to_string(),
-    };
-    let err = match resolve_npm_from_node_modules(&specifier, std::path::Path::new("/"), &environment).await {
-      Ok(_) => panic!("expected an error"),
-      Err(e) => e,
-    };
-    let msg = format!("{err:#}");
-    assert!(msg.contains("Could not find foo"), "got: {msg}");
-    assert!(msg.contains("foo-linux-x86_64@1.0.0"), "got: {msg}");
   }
 
   #[tokio::test]
