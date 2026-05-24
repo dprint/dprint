@@ -845,7 +845,7 @@ async fn node_modules_missing_message(specifier: &NpmSpecifier, start_dir: Optio
         concat!(
           "Could not find {} in node_modules.\n",
           "\n",
-          "1. Make sure the package is installed (npm install {})\n",
+          "1. Make sure the package is installed (ex. npm install {})\n",
           "2. OR specify a version (ex. {})",
         ),
         specifier.name, specifier.name, suggestion,
