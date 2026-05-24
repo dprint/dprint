@@ -2530,7 +2530,9 @@ mod test {
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
     let config_path = environment.canonicalize("/dprint.json").unwrap();
-    let result = call_resolve_npm_plugin_to_add("npm:foo", &config_path, false, false, &environment).await.unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:foo", &config_path, false, false, &environment)
+      .await
+      .unwrap();
     assert_eq!(result.url, "npm:foo@1.2.3");
   }
 
@@ -2600,10 +2602,7 @@ mod test {
       .await
       .unwrap();
     assert_eq!(result.url, "npm:@dprint/typescript");
-    assert_eq!(
-      result.package_json_addition,
-      Some(("@dprint/typescript".to_string(), "^0.99.0".to_string())),
-    );
+    assert_eq!(result.package_json_addition, Some(("@dprint/typescript".to_string(), "^0.99.0".to_string())),);
   }
 
   #[tokio::test]
@@ -2674,12 +2673,7 @@ mod test {
     let environment = TestEnvironment::new();
     environment.write_file("/dprint.json", "{}").unwrap();
     let config_path = environment.canonicalize("/dprint.json").unwrap();
-    super::apply_package_json_additions(
-      &config_path,
-      &[("@dprint/typescript".to_string(), "^0.99.0".to_string())],
-      &environment,
-    )
-    .unwrap();
+    super::apply_package_json_additions(&config_path, &[("@dprint/typescript".to_string(), "^0.99.0".to_string())], &environment).unwrap();
     let stderr = environment.take_stderr_messages();
     assert!(
       stderr.iter().any(|m| m.contains("no package.json was found") && m.contains("npm init")),
@@ -2705,7 +2699,9 @@ mod test {
     run_test_cli(vec!["config", "update"], &environment).unwrap();
     let stderr = environment.take_stderr_messages();
     assert!(
-      stderr.iter().any(|m| m.contains("unversioned npm specifier") && m.contains("update via your package manager")),
+      stderr
+        .iter()
+        .any(|m| m.contains("unversioned npm specifier") && m.contains("update via your package manager")),
       "expected skip warning, got: {stderr:?}"
     );
 
