@@ -20,6 +20,7 @@ pub struct NpmSpecifier {
 }
 
 /// The result of parsing an npm plugin string, separating the specifier from the checksum.
+#[derive(Debug)]
 pub struct ParsedNpmSpecifier {
   pub specifier: NpmSpecifier,
   /// The checksum of the npm tarball, if specified.
@@ -157,7 +158,7 @@ fn parse_path_and_checksum(s: &str, original: &str) -> Result<(String, Option<St
   if s.is_empty() {
     bail!("Expected a plugin filename after '/' in npm specifier: {}", original);
   }
-  if let Some(at_idx) = s.find('@') {
+  let (path, checksum) = if let Some(at_idx) = s.find('@') {
     let path = &s[..at_idx];
     let checksum = &s[at_idx + 1..];
     if path.is_empty() {
@@ -166,10 +167,41 @@ fn parse_path_and_checksum(s: &str, original: &str) -> Result<(String, Option<St
     if checksum.is_empty() {
       bail!("Expected a checksum after '@' in npm specifier: {}", original);
     }
-    Ok((path.to_string(), Some(checksum.to_string())))
+    (path, Some(checksum.to_string()))
   } else {
-    Ok((s.to_string(), None))
+    (s, None)
+  };
+  validate_safe_sub_path(path, original)?;
+  Ok((path.to_string(), checksum))
+}
+
+/// Rejects an npm specifier path that could escape the package directory when
+/// joined onto a base path. Downstream code joins this onto the tarball
+/// extract dir, the node_modules package dir, or the plugin cache dir — an
+/// absolute path or `..` component would let a crafted specifier read or
+/// execute files outside that base. Backslashes are rejected outright since
+/// they're path separators on Windows but not on POSIX, so a `/`-only
+/// component check would miss them there.
+fn validate_safe_sub_path(path: &str, original: &str) -> Result<()> {
+  if path.starts_with('/') {
+    bail!("Plugin path in npm specifier must be relative (got '{}'): {}", path, original);
   }
+  if path.contains('\\') {
+    bail!("Plugin path in npm specifier must not contain backslashes (got '{}'): {}", path, original);
+  }
+  for segment in path.split('/') {
+    if segment.is_empty() {
+      bail!("Plugin path in npm specifier must not contain empty segments (got '{}'): {}", path, original);
+    }
+    if segment == "." || segment == ".." {
+      bail!(
+        "Plugin path in npm specifier must not contain '.' or '..' segments (got '{}'): {}",
+        path,
+        original
+      );
+    }
+  }
+  Ok(())
 }
 
 /// Rejects an npm specifier whose path doesn't end in `.wasm` or `.json`
@@ -418,6 +450,44 @@ mod tests {
     let parsed = parse_npm_specifier("npm:foo-bin@1.0.0/foo.exe").unwrap();
     assert_eq!(parsed.specifier.path, "foo.exe");
     assert!(validate_plugin_extension(&parsed.specifier, "npm:foo-bin@1.0.0/foo.exe").is_err());
+  }
+
+  #[test]
+  fn parse_rejects_parent_dir_segments() {
+    // joining specifier.path onto the package dir / extract dir / plugin cache
+    // dir would escape the base if `..` were allowed through parse.
+    let cases = [
+      "npm:foo@1.0.0/../escape",
+      "npm:foo@1.0.0/sub/../escape",
+      "npm:foo@1.0.0/..",
+      "npm:foo@1.0.0/./plugin.wasm",
+      "npm:foo@1.0.0/.",
+    ];
+    for input in cases {
+      let err = parse_npm_specifier(input).unwrap_err();
+      assert!(
+        err.to_string().contains("'.' or '..' segments"),
+        "expected '.'/'..' rejection for {input}, got: {err}",
+      );
+    }
+  }
+
+  #[test]
+  fn parse_rejects_absolute_paths() {
+    // an absolute path joined onto the base would replace the base entirely
+    let err = parse_npm_specifier("npm:foo@1.0.0//etc/passwd").unwrap_err();
+    assert!(
+      err.to_string().contains("must be relative") || err.to_string().contains("empty segments"),
+      "got: {err}",
+    );
+  }
+
+  #[test]
+  fn parse_rejects_backslashes() {
+    // backslashes are a path separator on Windows; the `/`-component check
+    // would otherwise miss a `foo\..\bar` traversal there.
+    let err = parse_npm_specifier("npm:foo@1.0.0/sub\\plugin.wasm").unwrap_err();
+    assert!(err.to_string().contains("backslashes"), "got: {err}");
   }
 
   #[test]

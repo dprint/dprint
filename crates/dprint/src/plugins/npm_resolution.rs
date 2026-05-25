@@ -880,10 +880,7 @@ async fn node_modules_missing_message(specifier: &NpmSpecifier, start_dir: Optio
 async fn fetch_npm_latest_version(package_name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Option<String> {
   let registry = resolve_registry_for_package(package_name, start_dir, environment);
   let packument_url = url::Url::parse(&get_packument_url(&registry.url, package_name)).ok()?;
-  let (_, packument_file) = environment
-    .download_file_err_404(&packument_url, registry.auth_header.as_deref())
-    .await
-    .ok()?;
+  let (_, packument_file) = environment.download_file_err_404(&packument_url, registry.auth_header.as_deref()).await.ok()?;
   let packument: serde_json::Value = serde_json::from_slice(&packument_file.content).ok()?;
   packument
     .get("dist-tags")
