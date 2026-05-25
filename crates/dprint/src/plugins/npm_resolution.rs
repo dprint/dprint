@@ -88,7 +88,7 @@ pub async fn fetch_npm_latest_info(args: FetchNpmLatestInfo<'_>, environment: &i
   let packument_url_str = get_packument_url(&registry.url, &specifier.name);
   let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
   let (_, packument_file) = environment
-    .download_file_with_auth_err_404(&packument_url, registry.auth_header.as_deref())
+    .download_file_err_404(&packument_url, registry.auth_header.as_deref())
     .await
     .with_context(|| format!("Failed to fetch npm packument for {}", specifier.name))?;
   let packument: serde_json::Value =
@@ -107,7 +107,7 @@ pub async fn fetch_npm_latest_info(args: FetchNpmLatestInfo<'_>, environment: &i
     let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
     let tarball_auth = same_origin_auth(&packument_url, &tarball_url, registry.auth_header.as_deref());
     let (_, tarball_file) = environment
-      .download_file_with_auth_err_404(&tarball_url, tarball_auth)
+      .download_file_err_404(&tarball_url, tarball_auth)
       .await
       .with_context(|| format!("Failed to download npm tarball for {}@{}", specifier.name, latest_version))?;
     Some(get_sha256_checksum(&tarball_file.content))
@@ -143,7 +143,7 @@ pub async fn resolve_npm_from_registry(
   let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
   log_debug!(environment, "Fetching npm packument: {}", packument_url);
   let (_, packument_file) = environment
-    .download_file_with_auth_err_404(&packument_url, registry.auth_header.as_deref())
+    .download_file_err_404(&packument_url, registry.auth_header.as_deref())
     .await
     .with_context(|| format!("Failed to fetch npm packument for {}", specifier.name))?;
   let packument: serde_json::Value =
@@ -157,7 +157,7 @@ pub async fn resolve_npm_from_registry(
   // the same origin as the registry (don't leak credentials to a CDN)
   let tarball_auth = same_origin_auth(&packument_url, &tarball_url, registry.auth_header.as_deref());
   let (_, tarball_file) = environment
-    .download_file_with_auth_err_404(&tarball_url, tarball_auth)
+    .download_file_err_404(&tarball_url, tarball_auth)
     .await
     .with_context(|| format!("Failed to download npm tarball for {}@{}", specifier.name, version))?;
   let tarball_bytes = tarball_file.content;
@@ -401,7 +401,7 @@ async fn fetch_and_verify_npm_tarball(
   let packument_url_str = get_packument_url(&registry.url, name);
   let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
   let (_, packument_file) = environment
-    .download_file_with_auth_err_404(&packument_url, registry.auth_header.as_deref())
+    .download_file_err_404(&packument_url, registry.auth_header.as_deref())
     .await
     .with_context(|| format!("Failed to fetch npm packument for {}", name))?;
   let packument: serde_json::Value = serde_json::from_slice(&packument_file.content).with_context(|| format!("Failed to parse npm packument for {}", name))?;
@@ -410,7 +410,7 @@ async fn fetch_and_verify_npm_tarball(
   let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
   let tarball_auth = same_origin_auth(&packument_url, &tarball_url, registry.auth_header.as_deref());
   let (_, tarball_file) = environment
-    .download_file_with_auth_err_404(&tarball_url, tarball_auth)
+    .download_file_err_404(&tarball_url, tarball_auth)
     .await
     .with_context(|| format!("Failed to download npm tarball for {}@{}", name, version))?;
   let tarball_bytes = tarball_file.content;
@@ -881,7 +881,7 @@ async fn fetch_npm_latest_version(package_name: &str, start_dir: Option<&Path>, 
   let registry = resolve_registry_for_package(package_name, start_dir, environment);
   let packument_url = url::Url::parse(&get_packument_url(&registry.url, package_name)).ok()?;
   let (_, packument_file) = environment
-    .download_file_with_auth_err_404(&packument_url, registry.auth_header.as_deref())
+    .download_file_err_404(&packument_url, registry.auth_header.as_deref())
     .await
     .ok()?;
   let packument: serde_json::Value = serde_json::from_slice(&packument_file.content).ok()?;
@@ -1451,7 +1451,7 @@ mod tests {
     environment.add_remote_file_bytes(redirected, b"ok".to_vec());
 
     let url = url::Url::parse(start).unwrap();
-    let _ = environment.download_file_with_auth_err_404(&url, Some("Bearer T")).await.unwrap();
+    let _ = environment.download_file_err_404(&url, Some("Bearer T")).await.unwrap();
 
     assert_eq!(environment.take_remote_file_auth(start).as_deref(), Some("Bearer T"));
     assert_eq!(environment.take_remote_file_auth(redirected).as_deref(), Some("Bearer T"));
@@ -1468,7 +1468,7 @@ mod tests {
     environment.add_remote_file_bytes(cdn, b"tarball".to_vec());
 
     let url = url::Url::parse(start).unwrap();
-    let _ = environment.download_file_with_auth_err_404(&url, Some("Bearer T")).await.unwrap();
+    let _ = environment.download_file_err_404(&url, Some("Bearer T")).await.unwrap();
 
     // initial registry request gets the token; CDN does not
     assert_eq!(environment.take_remote_file_auth(start).as_deref(), Some("Bearer T"));

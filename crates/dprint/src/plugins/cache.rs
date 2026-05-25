@@ -312,7 +312,7 @@ where
     // get bytes (resolved_source may differ from the original due to redirects)
     let (file_bytes, resolved_source) = match &source_reference.path_source {
       PathSource::Remote(remote) => {
-        let (url, file) = self.environment.download_file_err_404(&remote.url).await?;
+        let (url, file) = self.environment.download_file_err_404(&remote.url, None).await?;
         (file.content, PathSource::new_remote(url.into_owned()))
       }
       PathSource::Local(local) => {

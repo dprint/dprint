@@ -436,11 +436,7 @@ impl SystemTimeNow for TestEnvironment {
 
 #[async_trait(?Send)]
 impl UrlDownloader for TestEnvironment {
-  async fn download_file_no_redirects(&self, url: &Url) -> Result<Option<DownloadedFile>> {
-    self.download_file_no_redirects_with_auth(url, None).await
-  }
-
-  async fn download_file_no_redirects_with_auth(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
+  async fn download_file_no_redirects(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
     self.remote_file_auth.lock().insert(url.to_string(), auth.map(|s| s.to_string()));
 
     // check for a redirect first

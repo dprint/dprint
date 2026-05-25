@@ -68,28 +68,15 @@ pub trait UrlDownloader {
   /// Downloads a file without following redirects. Returns the raw response
   /// headers and content. A redirect response will have a `location` header
   /// and empty content.
-  async fn download_file_no_redirects(&self, url: &Url) -> Result<Option<DownloadedFile>>;
-
-  /// Like `download_file_no_redirects` but sends an `Authorization` header.
-  /// Default impl ignores the header — override on downloaders that can send it.
-  async fn download_file_no_redirects_with_auth(&self, url: &Url, _auth: Option<&str>) -> Result<Option<DownloadedFile>> {
-    self.download_file_no_redirects(url).await
-  }
+  async fn download_file_no_redirects(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>>;
 
   /// Downloads a file, following redirects, and returns `None` on 404.
-  async fn download_file<'a>(&self, url: &'a Url) -> Result<(Cow<'a, Url>, Option<DownloadedFile>)> {
-    self.download_file_with_auth(url, None).await
-  }
-
-  /// Like `download_file` but sends an optional `Authorization` header on the
-  /// initial request. On a cross-origin redirect the auth header is dropped
-  /// so credentials aren't leaked to a different host (e.g. registry → CDN).
-  async fn download_file_with_auth<'a>(&self, url: &'a Url, auth: Option<&str>) -> Result<(Cow<'a, Url>, Option<DownloadedFile>)> {
+  async fn download_file<'a>(&self, url: &'a Url, auth: Option<&str>) -> Result<(Cow<'a, Url>, Option<DownloadedFile>)> {
     let original_origin = (url.scheme().to_string(), url.host_str().map(|h| h.to_string()), url.port_or_known_default());
     let mut current_url = Cow::Borrowed(url);
     let mut current_auth = auth;
     for _ in 0..=10 {
-      let result = match self.download_file_no_redirects_with_auth(&current_url, current_auth).await? {
+      let result = match self.download_file_no_redirects(&current_url, current_auth).await? {
         Some(r) => r,
         None => return Ok((current_url, None)),
       };
@@ -112,13 +99,8 @@ pub trait UrlDownloader {
   }
 
   /// Downloads a file, following redirects, and errors when not found.
-  async fn download_file_err_404<'a>(&self, url: &'a Url) -> Result<(Cow<'a, Url>, DownloadedFile)> {
-    self.download_file_with_auth_err_404(url, None).await
-  }
-
-  /// Like `download_file_err_404` but sends an optional `Authorization` header.
-  async fn download_file_with_auth_err_404<'a>(&self, url: &'a Url, auth: Option<&str>) -> Result<(Cow<'a, Url>, DownloadedFile)> {
-    match self.download_file_with_auth(url, auth).await {
+  async fn download_file_err_404<'a>(&self, url: &'a Url, auth: Option<&str>) -> Result<(Cow<'a, Url>, DownloadedFile)> {
+    match self.download_file(url, auth).await {
       Ok((url, Some(value))) => Ok((url, value)),
       Ok((url, None)) => bail!("Error downloading {} - 404 Not Found", url),
       Err(err) => Err(err),

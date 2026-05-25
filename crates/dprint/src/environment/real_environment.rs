@@ -201,11 +201,7 @@ impl SystemTimeNow for RealEnvironment {
 
 #[async_trait(?Send)]
 impl UrlDownloader for RealEnvironment {
-  async fn download_file_no_redirects(&self, url: &Url) -> Result<Option<DownloadedFile>> {
-    self.download_file_no_redirects_with_auth(url, None).await
-  }
-
-  async fn download_file_no_redirects_with_auth(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
+  async fn download_file_no_redirects(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
     log_debug!(self, "Downloading url: {}", url);
 
     let downloader = self.url_downloader.clone();
