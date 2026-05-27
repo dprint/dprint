@@ -111,6 +111,14 @@ pub fn create_test_npm_tarball_raw_paths(files: &[(&str, &[u8])]) -> Vec<u8> {
   build_tarball(&with_mode, |header, path| {
     let bytes = path.as_bytes();
     let name = &mut header.as_old_mut().name;
+    if bytes.len() > name.len() {
+      panic!(
+        "raw tar path is too long for the legacy tar header name field: {} bytes > {} bytes: {}",
+        bytes.len(),
+        name.len(),
+        path
+      );
+    }
     name.fill(0);
     name[..bytes.len()].copy_from_slice(bytes);
   })
