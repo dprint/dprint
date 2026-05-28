@@ -65,6 +65,7 @@ pub fn parse_npm_specifier(text: &str) -> Result<ParsedNpmSpecifier> {
   }
 
   let (name, after_name) = parse_package_name(rest, text)?;
+  validate_safe_package_name(&name, text)?;
 
   if after_name.is_empty() {
     return Ok(ParsedNpmSpecifier {
@@ -95,6 +96,7 @@ pub fn parse_npm_specifier(text: &str) -> Result<ParsedNpmSpecifier> {
   if version.is_empty() {
     bail!("Expected a version after '@' in npm specifier: {}", text);
   }
+  validate_safe_version(version, text)?;
 
   if remainder.is_empty() {
     return Ok(ParsedNpmSpecifier {
@@ -197,6 +199,48 @@ fn validate_safe_sub_path(path: &str, original: &str) -> Result<()> {
       bail!(
         "Plugin path in npm specifier must not contain '.' or '..' segments (got '{}'): {}",
         path,
+        original
+      );
+    }
+  }
+  Ok(())
+}
+
+/// Rejects an npm version that isn't a plausible semver token. The version
+/// flows into the npm extract cache dir (`name@version`) and into the
+/// packument/tarball URL, so restrict it to the characters a real semver
+/// version uses — blocking path-traversal segments and URL/whitespace
+/// injection. (`/` and `@` can't reach here: the parser splits the version off
+/// at those, so a multi-segment traversal is already impossible.)
+fn validate_safe_version(version: &str, original: &str) -> Result<()> {
+  if version == "." || version == ".." {
+    bail!("Version in npm specifier must not be '.' or '..' (got '{}'): {}", version, original);
+  }
+  if !version.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+' | '_' | '~')) {
+    bail!("Version in npm specifier contains invalid characters (got '{}'): {}", version, original);
+  }
+  Ok(())
+}
+
+/// Rejects an npm package name that could escape the directory it's joined
+/// onto. The name flows into `node_modules`-relative joins
+/// (`node_modules/<name>`) and the npm extract cache dir, so a name containing
+/// `..`, an empty segment, or a backslash would let a crafted specifier walk
+/// out of those directories — mirroring the threat `validate_safe_sub_path`
+/// guards against for the path portion. A legitimate name is either `name` or
+/// `@scope/name`, so a `.`/`..`/empty segment never appears in practice.
+fn validate_safe_package_name(name: &str, original: &str) -> Result<()> {
+  if name.contains('\\') {
+    bail!("Package name in npm specifier must not contain backslashes (got '{}'): {}", name, original);
+  }
+  for segment in name.split('/') {
+    if segment.is_empty() {
+      bail!("Package name in npm specifier must not contain empty segments (got '{}'): {}", name, original);
+    }
+    if segment == "." || segment == ".." {
+      bail!(
+        "Package name in npm specifier must not contain '.' or '..' segments (got '{}'): {}",
+        name,
         original
       );
     }
@@ -470,6 +514,50 @@ mod tests {
         "expected '.'/'..' rejection for {input}, got: {err}",
       );
     }
+  }
+
+  #[test]
+  fn parse_rejects_parent_dir_package_names() {
+    // the package name is joined onto node_modules and the extract cache dir;
+    // a `..` segment would walk out of those directories.
+    let cases = [
+      "npm:..@1.0.0",
+      "npm:..",
+      "npm:@scope/..@1.0.0",
+      "npm:@scope/..",
+      "npm:.@1.0.0",
+    ];
+    for input in cases {
+      let err = parse_npm_specifier(input).unwrap_err();
+      let msg = err.to_string();
+      assert!(
+        msg.contains("'.' or '..' segments") || msg.contains("empty segments"),
+        "expected name rejection for {input}, got: {msg}",
+      );
+    }
+  }
+
+  #[test]
+  fn parse_rejects_invalid_versions() {
+    // the version flows into the cache dir name and the registry URL
+    let cases = ["npm:foo@..", "npm:foo@.", "npm:foo@ 1.0.0", "npm:foo@1.0.0 ", "npm:foo@1,0,0"];
+    for input in cases {
+      assert!(parse_npm_specifier(input).is_err(), "expected version rejection for {input}");
+    }
+  }
+
+  #[test]
+  fn parse_accepts_semver_versions() {
+    // prerelease / build-metadata versions must still parse
+    for input in ["npm:foo@1.0.0-beta.1", "npm:foo@1.0.0+build.5", "npm:foo@1.0.0-rc_1"] {
+      assert!(parse_npm_specifier(input).is_ok(), "expected {input} to parse");
+    }
+  }
+
+  #[test]
+  fn parse_rejects_backslash_in_package_name() {
+    let err = parse_npm_specifier("npm:foo\\bar@1.0.0").unwrap_err();
+    assert!(err.to_string().contains("backslashes"), "got: {err}");
   }
 
   #[test]

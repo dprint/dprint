@@ -20,11 +20,14 @@ use super::read_manifest;
 use super::write_manifest;
 use crate::environment::Environment;
 use crate::plugins::PluginSourceReference;
+use crate::utils::FastInsecureHasher;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::get_bytes_hash;
 use crate::utils::get_sha256_checksum;
+use crate::utils::resolve_url_or_file_path_to_path_source;
 use crate::utils::verify_sha256_checksum;
+use std::hash::Hasher;
 
 pub struct PluginCacheItem {
   pub file_path: PathBuf,
@@ -131,17 +134,17 @@ where
       PathSource::Local(local) => {
         if let Some(manifest_item) = self.manifest.get(&source_reference.path_source)? {
           let file_bytes = self.environment.read_file_bytes(&local.path)?;
-          let file_hash = get_bytes_hash(&file_bytes);
+          let plugin_kind = manifest_item
+            .plugin_kind
+            .or_else(|| source_reference.plugin_kind())
+            .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for {}", source_reference.display()))?;
+          let file_hash = compute_local_plugin_file_hash(&source_reference.path_source, &file_bytes, plugin_kind, None, &self.environment);
           let cache_file_hash = match &manifest_item.file_hash {
             Some(file_hash) => *file_hash,
             None => bail!("Expected to have the plugin file hash stored in the cache."),
           };
 
           if file_hash == cache_file_hash {
-            let plugin_kind = manifest_item
-              .plugin_kind
-              .or_else(|| source_reference.plugin_kind())
-              .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for {}", source_reference.display()))?;
             return Ok(PluginCacheItem {
               file_path: get_file_path_from_plugin_info(plugin_kind, &manifest_item.info, &self.environment),
               info: manifest_item.info,
@@ -237,25 +240,33 @@ where
       .maybe_local_path()
       .ok_or_else(|| anyhow::anyhow!("Expected local path for npm node_modules plugin"))?;
 
-    // cache invalidation is keyed only on the local plugin file's bytes.
-    // For process plugins, the per-platform binary is fetched from the npm
-    // registry and verified against the checksum in plugin.json, so its
-    // contents are fully determined by plugin.json — no need to mix it in.
+    // for npm-resolved process plugins the per-platform binary comes from the
+    // npm registry (verified against plugin.json's checksum), so the plugin
+    // file's bytes alone fully determine the cached output. For process
+    // plugins whose per-platform reference points to a *local* archive
+    // (relative path / file://), [`compute_local_plugin_file_hash`] also
+    // mixes the archive's bytes in so editing it invalidates the cache.
 
     // check file hash to see if we can reuse cached setup
     if let Some(manifest_item) = self.manifest.get(&source_reference.path_source)? {
       let file_bytes = self.environment.read_file_bytes(local_path)?;
-      let file_hash = get_bytes_hash(&file_bytes);
+      let plugin_kind = manifest_item
+        .plugin_kind
+        .or_else(|| source_reference.plugin_kind())
+        .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for {}", source_reference.display()))?;
+      let file_hash = compute_local_plugin_file_hash(
+        &source_reference.path_source,
+        &file_bytes,
+        plugin_kind,
+        pre_resolved_tarball.as_ref(),
+        &self.environment,
+      );
       let cache_file_hash = match &manifest_item.file_hash {
         Some(file_hash) => *file_hash,
         None => bail!("Expected to have the plugin file hash stored in the cache."),
       };
 
       if file_hash == cache_file_hash {
-        let plugin_kind = manifest_item
-          .plugin_kind
-          .or_else(|| source_reference.plugin_kind())
-          .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for {}", source_reference.display()))?;
         return Ok(PluginCacheItem {
           file_path: get_file_path_from_plugin_info(plugin_kind, &manifest_item.info, &self.environment),
           info: manifest_item.info,
@@ -277,7 +288,13 @@ where
       .plugin_kind()
       .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for {}", source_reference.display()))?;
 
-    let file_hash = Some(get_bytes_hash(&file_bytes));
+    let file_hash = Some(compute_local_plugin_file_hash(
+      &source_reference.path_source,
+      &file_bytes,
+      plugin_kind,
+      pre_resolved_tarball.as_ref(),
+      &self.environment,
+    ));
     let setup_result = setup_plugin(&source_reference.path_source, file_bytes, plugin_kind, pre_resolved_tarball, &self.environment).await?;
     let cache_item = PluginCacheManifestItem {
       info: setup_result.plugin_info.clone(),
@@ -347,7 +364,13 @@ where
     }
 
     let file_hash = match &resolved_source {
-      PathSource::Local(_) => Some(get_bytes_hash(&file_bytes)),
+      PathSource::Local(_) => Some(compute_local_plugin_file_hash(
+        &resolved_source,
+        &file_bytes,
+        plugin_kind,
+        None,
+        &self.environment,
+      )),
       _ => None,
     };
     let setup_result = setup_plugin(&resolved_source, file_bytes, plugin_kind, None, &self.environment).await?;
@@ -382,6 +405,65 @@ where
       Ok(None)
     }
   }
+}
+
+/// Cache invalidation hash for a local plugin file. For wasm or for process
+/// plugins whose per-platform archive comes from an `npm:` reference (we
+/// already have the verified tarball in hand via `pre_resolved_tarball`),
+/// the plugin file's bytes alone determine the cached output. For process
+/// plugins whose per-platform reference resolves to a *local* archive
+/// (relative path / `file://`), mix that archive's bytes into the hash —
+/// otherwise editing `bin.zip` without touching `plugin.json` would leave
+/// the previously-extracted executable in the cache forever and skip the
+/// checksum check that `setup_plugin` would do on a fresh extract.
+///
+/// Failing-soft (returning just the primary hash) when the manifest can't
+/// be parsed or the local archive can't be read is intentional — those
+/// errors will surface with much better context from `setup_plugin` when
+/// the cache miss falls through.
+fn compute_local_plugin_file_hash<TEnvironment: Environment>(
+  source: &PathSource,
+  plugin_bytes: &[u8],
+  plugin_kind: PluginKind,
+  pre_resolved_tarball: Option<&npm_resolution::PreResolvedProcessPluginTarball>,
+  environment: &TEnvironment,
+) -> u64 {
+  if plugin_kind != PluginKind::Process || pre_resolved_tarball.is_some() {
+    return get_bytes_hash(plugin_bytes);
+  }
+  let Some(archive_bytes) = read_local_per_platform_archive_bytes(source, plugin_bytes, environment) else {
+    return get_bytes_hash(plugin_bytes);
+  };
+  let mut hasher = FastInsecureHasher::default();
+  hasher.write(plugin_bytes);
+  hasher.write(&archive_bytes);
+  hasher.finish()
+}
+
+/// If `plugin_bytes` is a parseable process-plugin manifest whose
+/// per-platform reference resolves to a local file (relative path /
+/// `file://`), returns that file's bytes. Returns `None` for any other
+/// case — non-local references, parse failures, missing platform entry,
+/// or unreadable archive. Errors are swallowed because callers fall back
+/// to a primary-only hash and the real setup will surface the same errors
+/// with better context.
+fn read_local_per_platform_archive_bytes<TEnvironment: Environment>(source: &PathSource, plugin_bytes: &[u8], environment: &TEnvironment) -> Option<Vec<u8>> {
+  use crate::plugins::implementations::get_process_plugin_os_path;
+  use crate::plugins::implementations::parse_process_plugin_file;
+
+  let plugin_file = parse_process_plugin_file(plugin_bytes).ok()?;
+  let os_path = get_process_plugin_os_path(&plugin_file, environment).ok()?;
+  // an `npm:` reference is handled via pre_resolved_tarball; an http(s) one
+  // is fetched fresh during setup and rejected for npm-installed plugins.
+  // we only need to mix in bytes for *local* references.
+  if os_path.reference.starts_with("npm:") || os_path.reference.starts_with("http://") || os_path.reference.starts_with("https://") {
+    return None;
+  }
+  let resolved = resolve_url_or_file_path_to_path_source(&os_path.reference, &source.parent(), environment).ok()?;
+  let PathSource::Local(local) = resolved else {
+    return None;
+  };
+  environment.read_file_bytes(&local.path).ok()
 }
 
 struct ConcurrentPluginCacheManifest<TEnvironment: Environment> {
@@ -1130,6 +1212,72 @@ mod test {
     // and the escaping file must not have been written anywhere
     assert!(!environment.path_exists("/etc/passwd"));
     Ok(())
+  }
+
+  #[tokio::test]
+  async fn local_process_plugin_hash_invalidates_when_local_archive_changes() {
+    // A process plugin whose plugin.json references a *local* archive (relative
+    // path / file://) is at risk of stale cache hits if the archive is edited
+    // without touching plugin.json. The cache invalidation hash must mix the
+    // archive's bytes in so this is detected.
+    let environment = TestEnvironment::new();
+
+    // any non-empty bytes work — the helper hashes them and never verifies the
+    // checksum field
+    let zip_bytes_v1: &[u8] = b"zip-v1";
+    let zip_bytes_v2: &[u8] = b"zip-v2-different";
+    let zip_checksum = crate::utils::get_sha256_checksum(zip_bytes_v1);
+    let plugin_json = format!(
+      r#"{{
+  "schemaVersion": 2,
+  "name": "p",
+  "version": "0.1.0",
+  "linux-x86_64": {{ "reference": "./bin.zip", "checksum": "{zip_checksum}" }},
+  "linux-aarch64": {{ "reference": "./bin.zip", "checksum": "{zip_checksum}" }},
+  "darwin-x86_64": {{ "reference": "./bin.zip", "checksum": "{zip_checksum}" }},
+  "darwin-aarch64": {{ "reference": "./bin.zip", "checksum": "{zip_checksum}" }},
+  "windows-x86_64": {{ "reference": "./bin.zip", "checksum": "{zip_checksum}" }},
+  "windows-aarch64": {{ "reference": "./bin.zip", "checksum": "{zip_checksum}" }}
+}}"#,
+    );
+    let plugin_json_path = PathBuf::from("/pkg/plugin.json");
+    let archive_path = PathBuf::from("/pkg/bin.zip");
+    environment.mk_dir_all("/pkg").unwrap();
+    environment.write_file_bytes(&plugin_json_path, plugin_json.as_bytes()).unwrap();
+    environment.write_file_bytes(&archive_path, zip_bytes_v1).unwrap();
+
+    let source = PathSource::new_local(environment.canonicalize(&plugin_json_path).unwrap());
+    let plugin_bytes = environment.read_file_bytes(&plugin_json_path).unwrap();
+
+    let hash_v1 = compute_local_plugin_file_hash(&source, &plugin_bytes, PluginKind::Process, None, &environment);
+
+    // editing the archive must invalidate the hash — this is the regression
+    environment.write_file_bytes(&archive_path, zip_bytes_v2).unwrap();
+    let hash_v2 = compute_local_plugin_file_hash(&source, &plugin_bytes, PluginKind::Process, None, &environment);
+    assert_ne!(hash_v1, hash_v2, "editing local archive must change the cache invalidation hash");
+
+    // with a pre_resolved_tarball the per-platform archive is fetched from
+    // npm (content-addressed by plugin.json's checksum), so the local file
+    // on disk is irrelevant and must NOT factor into the hash
+    let dummy_tarball = npm_resolution::PreResolvedProcessPluginTarball {
+      name: "p".to_string(),
+      version: "0.1.0".to_string(),
+      tarball_bytes: Vec::new(),
+      executable_sub_path: String::new(),
+    };
+    let with_tarball_v1 = compute_local_plugin_file_hash(&source, &plugin_bytes, PluginKind::Process, Some(&dummy_tarball), &environment);
+    environment.write_file_bytes(&archive_path, zip_bytes_v1).unwrap();
+    let with_tarball_v2 = compute_local_plugin_file_hash(&source, &plugin_bytes, PluginKind::Process, Some(&dummy_tarball), &environment);
+    assert_eq!(
+      with_tarball_v1, with_tarball_v2,
+      "with pre_resolved_tarball, local archive bytes must not affect the hash"
+    );
+
+    // wasm plugins: archive bytes shouldn't factor in either
+    let wasm_v1 = compute_local_plugin_file_hash(&source, &plugin_bytes, PluginKind::Wasm, None, &environment);
+    environment.write_file_bytes(&archive_path, zip_bytes_v2).unwrap();
+    let wasm_v2 = compute_local_plugin_file_hash(&source, &plugin_bytes, PluginKind::Wasm, None, &environment);
+    assert_eq!(wasm_v1, wasm_v2, "wasm plugins should not mix in archive bytes");
   }
 
   #[tokio::test]

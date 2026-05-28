@@ -7,12 +7,13 @@ use url::Url;
 
 use crate::environment::DownloadedFile;
 use crate::environment::UrlDownloader;
+use crate::utils::get_bytes_hash;
 
 type CachedDownloadResult = Result<Option<Vec<u8>>, String>;
 
 pub struct CachedDownloader<TInner: UrlDownloader> {
   inner: TInner,
-  results: RefCell<HashMap<(String, Option<String>), CachedDownloadResult>>,
+  results: RefCell<HashMap<(String, Option<u64>), CachedDownloadResult>>,
 }
 
 impl<TInner: UrlDownloader> CachedDownloader<TInner> {
@@ -27,7 +28,7 @@ impl<TInner: UrlDownloader> CachedDownloader<TInner> {
 #[async_trait(?Send)]
 impl<TInner: UrlDownloader> UrlDownloader for CachedDownloader<TInner> {
   async fn download_file_no_redirects(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
-    let key = (url.to_string(), auth.map(|s| s.to_string()));
+    let key = (url.to_string(), auth.map(|s| get_bytes_hash(s.as_bytes())));
     {
       if let Some(result) = self.results.borrow().get(&key) {
         return match result {

@@ -103,12 +103,49 @@ fn replace_npm_plugin_in_config(file_text: &str, old_reference: &PluginSourceRef
   root.to_string()
 }
 
-pub fn add_to_plugins_array(file_text: &str, url: &str) -> Result<String> {
+/// Adds `urls_to_add` to the config's `plugins` array, first dropping every
+/// existing npm entry whose package name appears in `npm_packages_to_replace`
+/// (regardless of version, path, or checksum) so re-adding a package replaces
+/// it rather than appending a duplicate. The whole operation runs on a single
+/// CST parse, so the file is parsed and serialized only once no matter how
+/// many entries are removed or added.
+///
+/// A package in `npm_packages_to_replace` with no matching entry (e.g. it
+/// lives in an `extends`ed config) is simply a no-op for the removal step.
+pub fn add_plugins_to_config(file_text: &str, npm_packages_to_replace: &[String], urls_to_add: &[String]) -> Result<String> {
   let root_node = CstRootNode::parse(file_text, &Default::default()).context("Failed parsing config file.")?;
-  let root_obj = root_node.object_value_or_set();
-  let plugins = root_obj.array_value_or_set("plugins");
-  plugins.ensure_multiline();
-  plugins.append(json!(url));
+
+  // drop pre-existing npm entries for the packages being (re-)added
+  if !npm_packages_to_replace.is_empty()
+    && let Some(plugins) = root_node.object_value().and_then(|obj| obj.array_value("plugins"))
+  {
+    for element in plugins.elements() {
+      let CstNode::Leaf(CstLeafNode::StringLit(string_lit)) = &element else {
+        continue;
+      };
+      // a string with an invalid JSON escape isn't ours to interpret; skip it
+      let Ok(entry_text) = string_lit.decoded_value() else {
+        continue;
+      };
+      let Ok(parsed) = parse_npm_specifier(&entry_text) else {
+        continue;
+      };
+      if npm_packages_to_replace.contains(&parsed.specifier.name) {
+        element.remove();
+      }
+    }
+  }
+
+  // append the new specifiers
+  if !urls_to_add.is_empty() {
+    let root_obj = root_node.object_value_or_set();
+    let plugins = root_obj.array_value_or_set("plugins");
+    plugins.ensure_multiline();
+    for url in urls_to_add {
+      plugins.append(json!(url.as_str()));
+    }
+  }
+
   Ok(root_node.to_string())
 }
 
@@ -356,11 +393,12 @@ mod test {
 
   #[test]
   pub fn add_plugins_array_empty() {
-    let final_text = add_to_plugins_array(
+    let final_text = add_plugins_to_config(
       r#"{
   "plugins": []
 }"#,
-      "value",
+      &[],
+      &["value".to_string()],
     )
     .unwrap();
 
@@ -376,13 +414,14 @@ mod test {
 
   #[test]
   pub fn add_plugins_array_empty_comment() {
-    let final_text = add_to_plugins_array(
+    let final_text = add_plugins_to_config(
       r#"{
   "plugins": [
     // some comment
   ]
 }"#,
-      "value",
+      &[],
+      &["value".to_string()],
     )
     .unwrap();
 
@@ -399,13 +438,14 @@ mod test {
 
   #[test]
   pub fn add_plugins_not_empty() {
-    let final_text = add_to_plugins_array(
+    let final_text = add_plugins_to_config(
       r#"{
   "plugins": [
     "some_value"
   ]
 }"#,
-      "value",
+      &[],
+      &["value".to_string()],
     )
     .unwrap();
 
@@ -422,13 +462,14 @@ mod test {
 
   #[test]
   pub fn add_plugins_trailing_comma() {
-    let final_text = add_to_plugins_array(
+    let final_text = add_plugins_to_config(
       r#"{
   "plugins": [
     "some_value",
   ]
 }"#,
-      "value",
+      &[],
+      &["value".to_string()],
     )
     .unwrap();
 
@@ -445,13 +486,14 @@ mod test {
 
   #[test]
   pub fn add_plugins_trailing_comment() {
-    let final_text = add_to_plugins_array(
+    let final_text = add_plugins_to_config(
       r#"{
   "plugins": [
     "some_value" // comment
   ]
 }"#,
-      "value",
+      &[],
+      &["value".to_string()],
     )
     .unwrap();
 
@@ -654,6 +696,57 @@ mod test {
   ]
 }"#;
     assert_eq!(update_plugin_in_config(input, &info), expected);
+  }
+
+  #[test]
+  fn add_plugins_to_config_replaces_all_matching_npm_entries() {
+    // every existing entry for a replaced package (any version/path/checksum)
+    // is dropped and the new specifier appended, while a different package and
+    // a non-npm entry are left untouched — all in one parse.
+    let input = r#"{
+  "plugins": [
+    "npm:foo@1.0.0",
+    "https://plugins.dprint.dev/other.wasm",
+    "npm:foo@2.0.0/plugin.json@abc",
+    "npm:bar@1.0.0"
+  ]
+}"#;
+    let expected = r#"{
+  "plugins": [
+    "https://plugins.dprint.dev/other.wasm",
+    "npm:bar@1.0.0",
+    "npm:foo@3.0.0"
+  ]
+}"#;
+    assert_eq!(
+      add_plugins_to_config(input, &["foo".to_string()], &["npm:foo@3.0.0".to_string()]).unwrap(),
+      expected
+    );
+  }
+
+  #[test]
+  fn add_plugins_to_config_replace_with_no_match_only_appends() {
+    let input = r#"{
+  "plugins": [
+    "npm:bar@1.0.0"
+  ]
+}"#;
+    let expected = r#"{
+  "plugins": [
+    "npm:bar@1.0.0",
+    "npm:foo@1.0.0"
+  ]
+}"#;
+    assert_eq!(
+      add_plugins_to_config(input, &["foo".to_string()], &["npm:foo@1.0.0".to_string()]).unwrap(),
+      expected
+    );
+    // a replaced package whose only entry lives in an `extends`ed config (no
+    // local plugins array) — nothing to remove and nothing to add, unchanged
+    let extends = r#"{
+  "extends": "./shared.json"
+}"#;
+    assert_eq!(add_plugins_to_config(extends, &["foo".to_string()], &[]).unwrap(), extends);
   }
 
   #[test]

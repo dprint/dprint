@@ -346,10 +346,12 @@ fn npm_specifier_with_path(specifier: &NpmSpecifier, path: &str) -> String {
 /// directory — extracting the whole package (not just the named binary)
 /// so the executable can sit alongside any DLLs / data files it ships.
 ///
-/// Returns `None` for non-npm references so the caller falls back to the
-/// standard flow (relative paths / `file:///` resolved against plugin.json's
-/// directory). `http(s)://` is rejected so an npm-installed plugin can't
-/// silently fetch from the network.
+/// Returns `None` for in-package relative references so the caller falls back
+/// to the standard flow (resolved against plugin.json's directory). Network
+/// (`http(s)://`), `file://`, absolute, home (`~/`), and parent-escaping
+/// (`..`) references are rejected so an npm-installed plugin can't silently
+/// fetch from the network or reach a file outside its own package — see
+/// [`bail_if_disallowed_reference`].
 async fn try_resolve_process_plugin_per_platform_tarball(
   plugin_json_bytes: &[u8],
   config_dir: Option<&Path>,
@@ -362,7 +364,7 @@ async fn try_resolve_process_plugin_per_platform_tarball(
   let os_path = get_process_plugin_os_path(&plugin_file, environment)?;
 
   if !os_path.reference.starts_with("npm:") {
-    bail_if_http_reference(&plugin_file.name, &os_path.reference)?;
+    bail_if_disallowed_reference(&plugin_file.name, &os_path.reference)?;
     return Ok(None);
   }
 
@@ -427,9 +429,15 @@ async fn fetch_and_verify_npm_tarball(
   Ok(tarball_bytes)
 }
 
-fn bail_if_http_reference(plugin_name: &str, reference: &str) -> Result<()> {
-  let scheme = url::Url::parse(reference).ok().map(|u| u.scheme().to_string());
-  if matches!(scheme.as_deref(), Some("http" | "https")) {
+/// An npm-installed process plugin must ship its per-platform binary inside
+/// the package and reference it by a relative path (or fetch it from another
+/// npm package via an `npm:` specifier, handled before this is called). Reject
+/// every other reference: a network URL would let the plugin silently fetch an
+/// unverified-at-config-time binary, and a `file://` / absolute / home /
+/// parent-escaping path would point outside the package at an arbitrary file
+/// already on the machine.
+fn bail_if_disallowed_reference(plugin_name: &str, reference: &str) -> Result<()> {
+  if is_network_reference(reference) {
     bail!(
       concat!(
         "Process plugin '{}' was installed via npm but its plugin.json references the platform ",
@@ -440,7 +448,61 @@ fn bail_if_http_reference(plugin_name: &str, reference: &str) -> Result<()> {
       reference,
     );
   }
+  if escapes_package_dir(reference) {
+    bail!(
+      concat!(
+        "Process plugin '{}' was installed via npm but its plugin.json references the platform ",
+        "binary by a path outside the package ({}). npm-installed plugins may only reference a binary ",
+        "shipped inside the package (a relative path) or another npm package (an npm: specifier); ",
+        "the plugin author needs to fix the reference.",
+      ),
+      plugin_name,
+      reference,
+    );
+  }
   Ok(())
+}
+
+/// True for an `http(s)://` reference (an absolute URL whose scheme is http or
+/// https). Relative paths don't parse as a base URL, so they aren't matched.
+fn is_network_reference(reference: &str) -> bool {
+  url::Url::parse(reference)
+    .ok()
+    .filter(|u| !u.cannot_be_a_base())
+    .map(|u| matches!(u.scheme(), "http" | "https"))
+    .unwrap_or(false)
+}
+
+/// True for references that resolve outside the package directory: `file://`
+/// URLs, absolute paths (POSIX `/…`, UNC / rooted `\…`, Windows `C:\…` /
+/// `C:/…`), home-directory (`~/…`) paths, and relative paths containing a
+/// `..` component. Plain in-package relative paths are not matched.
+fn escapes_package_dir(reference: &str) -> bool {
+  if reference == "~" || reference.starts_with("~/") {
+    return true;
+  }
+  if is_absolute_reference(reference) {
+    return true;
+  }
+  if reference.split(['/', '\\']).any(|segment| segment == "..") {
+    return true;
+  }
+  url::Url::parse(reference)
+    .ok()
+    .filter(|u| !u.cannot_be_a_base())
+    .map(|u| u.scheme() == "file")
+    .unwrap_or(false)
+}
+
+fn is_absolute_reference(reference: &str) -> bool {
+  let bytes = reference.as_bytes();
+  // POSIX absolute, or UNC / drive-relative-rooted on Windows
+  if matches!(bytes.first(), Some(b'/' | b'\\')) {
+    return true;
+  }
+  // Windows drive path: `C:\…` or `C:/…`
+  let chars: Vec<char> = reference.chars().take(3).collect();
+  matches!(chars.first(), Some(c) if c.is_ascii_alphabetic()) && matches!(chars.get(1), Some(':')) && matches!(chars.get(2), Some('/' | '\\'))
 }
 
 /// Finds a .zip file in the given package directory.
@@ -892,6 +954,35 @@ async fn fetch_npm_latest_version(package_name: &str, start_dir: Option<&Path>, 
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn bail_if_disallowed_reference_only_allows_in_package_relative_paths() {
+    // relative, in-package references are the supported form and must pass
+    for ok in ["bin.zip", "./bin.zip", "sub/bin", "sub/dir/foo.exe"] {
+      assert!(bail_if_disallowed_reference("p", ok).is_ok(), "expected {ok} to be allowed");
+    }
+
+    // network, file://, absolute, home, and parent-escaping refs are rejected
+    let network = ["http://example.com/bin.zip", "https://example.com/bin.zip"];
+    for r in network {
+      let err = bail_if_disallowed_reference("p", r).unwrap_err().to_string();
+      assert!(err.contains("Network references aren't allowed"), "got: {err}");
+    }
+    let outside = [
+      "file:///etc/passwd",
+      "/etc/passwd",
+      "\\\\server\\share\\bin",
+      "C:\\Windows\\bin.exe",
+      "C:/Windows/bin.exe",
+      "~/bin.zip",
+      "../escape/bin",
+      "sub/../../escape",
+    ];
+    for r in outside {
+      let err = bail_if_disallowed_reference("p", r).unwrap_err().to_string();
+      assert!(err.contains("outside the package"), "expected {r} rejected, got: {err}");
+    }
+  }
 
   #[test]
   fn compute_auth_header_supports_auth_token_and_auth() {

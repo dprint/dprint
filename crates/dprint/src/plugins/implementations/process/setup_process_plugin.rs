@@ -112,7 +112,7 @@ async fn setup_from_zip<TEnvironment: Environment>(
     let _ = environment.remove_dir_all(&temp_dir);
     bail!(
       "Plugin zip file did not contain required executable at: {}",
-      get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name).display(),
+      temp_executable.display(),
     );
   }
   let _ = environment.remove_dir_all(plugin_cache_dir_path);

@@ -154,6 +154,10 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
   // config update succeeds. Walked-up package.json lookup happens once at
   // the end so a batch add only touches the file once.
   let mut package_json_additions: Vec<(String, String)> = Vec::new();
+  // npm packages whose pre-existing config entry should be dropped before the
+  // freshly-resolved specifier is appended (so re-adding replaces rather than
+  // duplicates). Applied alongside the additions in the single read/write below.
+  let mut npm_packages_to_replace: Vec<String> = Vec::new();
 
   let plugin_urls_to_add = if plugin_names_or_urls.is_empty() {
     if no_version || update_package_json {
@@ -181,6 +185,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
           update_package_json,
         },
         &mut package_json_additions,
+        &mut npm_packages_to_replace,
         environment,
         plugin_resolver,
       )
@@ -192,10 +197,8 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
     urls
   };
 
-  let mut file_text = environment.read_file(&config_path)?;
-  for plugin_url in &plugin_urls_to_add {
-    file_text = add_to_plugins_array(&file_text, plugin_url)?;
-  }
+  let file_text = environment.read_file(&config_path)?;
+  let file_text = add_plugins_to_config(&file_text, &npm_packages_to_replace, &plugin_urls_to_add)?;
   environment.write_file(&config_path, &file_text)?;
 
   if update_package_json && !package_json_additions.is_empty() {
@@ -222,6 +225,9 @@ struct ResolvePluginUrlOptions<'a> {
 #[derive(Debug)]
 struct ResolvedNpmPluginAdd {
   url: String,
+  /// The package name, so the caller can drop any pre-existing entry for the
+  /// same package before appending this one.
+  package_name: String,
   package_json_addition: Option<(String, String)>,
 }
 
@@ -234,6 +240,7 @@ struct ResolvedNpmPluginAdd {
 async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
   options: ResolvePluginUrlOptions<'_>,
   package_json_additions: &mut Vec<(String, String)>,
+  npm_packages_to_replace: &mut Vec<String>,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<Option<String>> {
@@ -263,6 +270,11 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
     if let Some(addition) = resolved.package_json_addition {
       package_json_additions.push(addition);
     }
+    // drop any pre-existing entry for the same package (any version) so the
+    // freshly-resolved specifier replaces it rather than appending a
+    // duplicate. The caller prunes these names from the config in the same
+    // read/write that appends `resolved.url`.
+    npm_packages_to_replace.push(resolved.package_name);
     return Ok(Some(resolved.url));
   }
   if no_version || update_package_json {
@@ -380,6 +392,7 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
     }
     return Ok(ResolvedNpmPluginAdd {
       url: text.to_string(),
+      package_name: parsed.specifier.name.clone(),
       package_json_addition: None,
     });
   }
@@ -406,6 +419,7 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
     };
     return Ok(ResolvedNpmPluginAdd {
       url: parsed.specifier.display(),
+      package_name: parsed.specifier.name.clone(),
       package_json_addition,
     });
   }
@@ -418,6 +432,7 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
     );
     return Ok(ResolvedNpmPluginAdd {
       url: parsed.specifier.display(),
+      package_name: parsed.specifier.name.clone(),
       package_json_addition: None,
     });
   }
@@ -443,6 +458,7 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
   };
   Ok(ResolvedNpmPluginAdd {
     url,
+    package_name: pinned.name,
     package_json_addition: None,
   })
 }
@@ -2679,6 +2695,30 @@ mod test {
       stderr.iter().any(|m| m.contains("no package.json was found") && m.contains("npm init")),
       "expected warn, got: {stderr:?}"
     );
+  }
+
+  #[test]
+  fn config_add_npm_replaces_existing_entry_for_same_package() {
+    // re-adding a package that's already present should replace the existing
+    // entry (any version) rather than append a duplicate. A versioned
+    // specifier passes through without touching the registry, so no mock is
+    // needed here.
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin("npm:test-plugin@1.0.0");
+        c.add_plugin("npm:other@1.0.0");
+      })
+      .build();
+
+    run_test_cli(vec!["config", "add", "npm:test-plugin@2.0.0"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("npm:test-plugin@2.0.0"), "new version added, got: {dprint_json}");
+    assert!(!dprint_json.contains("npm:test-plugin@1.0.0"), "old entry removed, got: {dprint_json}");
+    assert!(dprint_json.contains("npm:other@1.0.0"), "unrelated entry kept, got: {dprint_json}");
+    assert_eq!(dprint_json.matches("npm:test-plugin").count(), 1, "exactly one entry for the package, got: {dprint_json}");
+    let _ = environment.take_stdout_messages();
+    let _ = environment.take_stderr_messages();
   }
 
   #[test]
