@@ -1792,6 +1792,56 @@ mod test {
   }
 
   #[test]
+  fn should_format_incrementally_when_config_override_changes() {
+    let file_path = "/package.txt";
+    let no_change_msg = "No change: /package.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .write_file(file_path, "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "--incremental"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(file_path).unwrap(), "text_package");
+
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
+    assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)), true);
+
+    environment
+      .write_file(
+        "./dprint.json",
+        r#"{
+          "test-plugin": {
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "updated"
+            }
+          },
+          "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#,
+      )
+      .unwrap();
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
+    assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)), false);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(file_path).unwrap(), "text_package_updated");
+  }
+
+  #[test]
   fn incremental_should_error_for_unstable_format() {
     let file_path1 = "/file1.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
