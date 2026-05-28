@@ -905,6 +905,64 @@ mod test {
   }
 
   #[test]
+  fn should_format_files_with_config_overrides() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .write_file("/file.txt", "text")
+      .write_file("/package.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_base");
+    assert_eq!(environment.read_file("/package.txt").unwrap(), "text_package");
+  }
+
+  #[test]
+  fn should_format_files_with_multiple_matching_config_overrides_in_order() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": [
+              {
+                "files": "**/*.txt",
+                "ending": "txt"
+              },
+              {
+                "files": "**/package.txt",
+                "ending": "package"
+              }
+            ]
+          }"#,
+        );
+      })
+      .write_file("/file.txt", "text")
+      .write_file("/package.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_txt");
+    assert_eq!(environment.read_file("/package.txt").unwrap(), "text_package");
+  }
+
+  #[test]
   fn should_format_files_all_negated_associations_no_config_excludes() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
