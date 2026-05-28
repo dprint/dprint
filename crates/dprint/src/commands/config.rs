@@ -2716,7 +2716,11 @@ mod test {
     assert!(dprint_json.contains("npm:test-plugin@2.0.0"), "new version added, got: {dprint_json}");
     assert!(!dprint_json.contains("npm:test-plugin@1.0.0"), "old entry removed, got: {dprint_json}");
     assert!(dprint_json.contains("npm:other@1.0.0"), "unrelated entry kept, got: {dprint_json}");
-    assert_eq!(dprint_json.matches("npm:test-plugin").count(), 1, "exactly one entry for the package, got: {dprint_json}");
+    assert_eq!(
+      dprint_json.matches("npm:test-plugin").count(),
+      1,
+      "exactly one entry for the package, got: {dprint_json}"
+    );
     let _ = environment.take_stdout_messages();
     let _ = environment.take_stderr_messages();
   }

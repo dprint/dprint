@@ -520,13 +520,7 @@ mod tests {
   fn parse_rejects_parent_dir_package_names() {
     // the package name is joined onto node_modules and the extract cache dir;
     // a `..` segment would walk out of those directories.
-    let cases = [
-      "npm:..@1.0.0",
-      "npm:..",
-      "npm:@scope/..@1.0.0",
-      "npm:@scope/..",
-      "npm:.@1.0.0",
-    ];
+    let cases = ["npm:..@1.0.0", "npm:..", "npm:@scope/..@1.0.0", "npm:@scope/..", "npm:.@1.0.0"];
     for input in cases {
       let err = parse_npm_specifier(input).unwrap_err();
       let msg = err.to_string();
