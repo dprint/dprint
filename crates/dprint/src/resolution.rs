@@ -833,6 +833,20 @@ mod test {
     assert_ne!(get_plugin_hash(&plugin_ab_c), get_plugin_hash(&plugin_a_bc));
   }
 
+  #[test]
+  fn should_include_config_overrides_in_incremental_hash() {
+    let config_base_path = CanonicalizedPathBuf::new_for_testing("/");
+    let plugin_without_override = create_plugin_with_overrides(Vec::new());
+    let plugin_with_override = create_plugin_with_overrides(vec![PluginConfigOverride {
+      files: vec!["**/package.txt".to_string()],
+      properties: ConfigKeyMap::from([("ending".to_string(), "package".into())]),
+      config_id: FormatConfigId::from_raw(2),
+      matcher: get_patterns_as_glob_matcher(&["**/package.txt".to_string()], &config_base_path).unwrap(),
+    }]);
+
+    assert_ne!(get_plugin_hash(&plugin_without_override), get_plugin_hash(&plugin_with_override));
+  }
+
   fn get_plugin_hash(plugin: &PluginWithConfig) -> u64 {
     let mut hasher = FastInsecureHasher::default();
     plugin.incremental_hash(&mut hasher);
@@ -842,27 +856,31 @@ mod test {
   fn create_plugin_with_override(files: Vec<String>, properties: ConfigKeyMap) -> PluginWithConfig {
     let config_base_path = CanonicalizedPathBuf::new_for_testing("/config");
     let matcher = get_patterns_as_glob_matcher(&files, &config_base_path).unwrap();
+    create_plugin_with_overrides(vec![PluginConfigOverride {
+      files,
+      properties,
+      config_id: FormatConfigId::from_raw(2),
+      matcher,
+    }])
+  }
+
+  fn create_plugin_with_overrides(overrides: Vec<PluginConfigOverride>) -> PluginWithConfig {
     PluginWithConfig::new_with_overrides(
       Rc::new(PluginWrapper::new(Box::new(TestPlugin::new("test-plugin", "test-plugin", vec!["txt"], vec![])))),
       PluginWithConfigOptions {
         associations: None,
         format_config: Arc::new(FormatConfig {
           id: FormatConfigId::from_raw(1),
-          plugin: ConfigKeyMap::new(),
+          plugin: ConfigKeyMap::from([("ending".to_string(), "base".into())]),
           global: GlobalConfiguration::default(),
         }),
         file_matching: FileMatchingInfo {
-          file_extensions: Vec::new(),
+          file_extensions: vec!["txt".to_string()],
           file_names: Vec::new(),
         },
         serialized_resolved_config: String::new(),
       },
-      vec![PluginConfigOverride {
-        files,
-        properties,
-        config_id: FormatConfigId::from_raw(2),
-        matcher,
-      }],
+      overrides,
     )
   }
 }
