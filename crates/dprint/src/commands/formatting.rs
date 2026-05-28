@@ -850,6 +850,40 @@ mod test {
   }
 
   #[test]
+  fn should_use_request_override_config_over_config_file_overrides() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "associations": ["**/*.txt"],
+              "ending": "wasm"
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "associations": ["**/*.txt_ps"],
+              "ending": "process",
+              "overrides": {
+                "files": "**/test.txt_ps",
+                "ending": "config_file"
+              }
+            }"#,
+          );
+      })
+      .write_file("/file.txt", "plugin-config: text")
+      .build();
+
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "plugin-config: text_custom_config_wasm");
+  }
+
+  #[test]
   fn should_format_files_with_config_associations_multiple_plugins_same_files() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt_ps";
@@ -902,6 +936,64 @@ mod test {
     assert_eq!(environment.read_file(&file_path4).unwrap(), "text4_wasm_ps");
     assert_eq!(environment.read_file(&file_path5).unwrap(), "text5_wasm_ps");
     assert_eq!(environment.read_file(&file_path6).unwrap(), "plugin: text6_wasm_ps_wasm_ps_ps");
+  }
+
+  #[test]
+  fn should_format_files_with_config_overrides() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .write_file("/file.txt", "text")
+      .write_file("/package.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_base");
+    assert_eq!(environment.read_file("/package.txt").unwrap(), "text_package");
+  }
+
+  #[test]
+  fn should_format_files_with_multiple_matching_config_overrides_in_order() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": [
+              {
+                "files": "**/*.txt",
+                "ending": "txt"
+              },
+              {
+                "files": "**/package.txt",
+                "ending": "package"
+              }
+            ]
+          }"#,
+        );
+      })
+      .write_file("/file.txt", "text")
+      .write_file("/package.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_txt");
+    assert_eq!(environment.read_file("/package.txt").unwrap(), "text_package");
   }
 
   #[test]
@@ -1700,6 +1792,56 @@ mod test {
   }
 
   #[test]
+  fn should_format_incrementally_when_config_override_changes() {
+    let file_path = "/package.txt";
+    let no_change_msg = "No change: /package.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .write_file(file_path, "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "--incremental"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(file_path).unwrap(), "text_package");
+
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
+    assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)), true);
+
+    environment
+      .write_file(
+        "./dprint.json",
+        r#"{
+          "test-plugin": {
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "updated"
+            }
+          },
+          "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#,
+      )
+      .unwrap();
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
+    assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)), false);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(file_path).unwrap(), "text_package_updated");
+  }
+
+  #[test]
   fn incremental_should_error_for_unstable_format() {
     let file_path1 = "/file1.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
@@ -1994,6 +2136,29 @@ mod test {
       environment.take_stderr_messages(),
       vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
     );
+  }
+
+  #[test]
+  fn should_format_stdin_with_config_overrides() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .build();
+    let test_std_in = TestStdInReader::from("text");
+
+    run_test_cli_with_stdin(vec!["fmt", "--stdin", "package.txt"], &environment, test_std_in).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec!["text_package"]);
   }
 
   #[test]

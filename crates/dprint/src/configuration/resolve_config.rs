@@ -282,7 +282,7 @@ async fn handle_config_file<TEnvironment: Environment>(
         if let Some(resolved_config_obj) = resolved_config.config_map.get_mut(&key) {
           if let ConfigMapValue::PluginConfig(resolved_config_obj) = resolved_config_obj {
             // check for locked configuration
-            if obj.locked && !resolved_config_obj.properties.is_empty() {
+            if obj.locked && (!resolved_config_obj.properties.is_empty() || !resolved_config_obj.overrides.is_empty()) {
               bail!(
                 concat!(
                   "The configuration for \"{}\" was locked, but a parent configuration specified it. ",
@@ -295,6 +295,12 @@ async fn handle_config_file<TEnvironment: Environment>(
             // now the properties
             for (key, value) in obj.properties {
               resolved_config_obj.properties.entry(key).or_insert(value);
+            }
+
+            if !obj.overrides.is_empty() {
+              let mut overrides = obj.overrides;
+              overrides.append(&mut resolved_config_obj.overrides);
+              resolved_config_obj.overrides = overrides;
             }
 
             // Set the associations if they aren't overwritten in the parent
@@ -524,6 +530,7 @@ mod tests {
 
   use crate::arg_parser::parse_args;
   use crate::configuration::RawPluginConfig;
+  use crate::configuration::RawPluginConfigOverride;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
@@ -718,6 +725,7 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
+            overrides: Vec::new(),
             properties: ConfigKeyMap::from([
               (String::from("prop"), ConfigKeyValue::from_i32(5)),
               (String::from("other"), ConfigKeyValue::from_str("test")),
@@ -729,6 +737,7 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
+            overrides: Vec::new(),
             properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
           }),
         ),
@@ -811,6 +820,7 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
+            overrides: Vec::new(),
             properties: ConfigKeyMap::from([
               (String::from("prop"), ConfigKeyValue::from_i32(5)),
               (String::from("other"), ConfigKeyValue::from_str("test")),
@@ -822,6 +832,7 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
+            overrides: Vec::new(),
             properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
           }),
         ),
@@ -912,6 +923,7 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
+            overrides: Vec::new(),
             properties: ConfigKeyMap::from([
               (String::from("prop"), ConfigKeyValue::from_i32(5)),
               (String::from("other"), ConfigKeyValue::from_str("test")),
@@ -923,6 +935,7 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
+            overrides: Vec::new(),
             properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
           }),
         ),
@@ -1181,6 +1194,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: true,
           associations: None,
+          overrides: Vec::new(),
           properties: ConfigKeyMap::from([
             (String::from("prop"), ConfigKeyValue::from_i32(6)),
             (String::from("other"), ConfigKeyValue::from_str("test")),
@@ -1226,6 +1240,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: true,
           associations: None,
+          overrides: Vec::new(),
           properties: ConfigKeyMap::from([
             (String::from("prop"), ConfigKeyValue::from_i32(7)),
             (String::from("other"), ConfigKeyValue::from_str("test")),
@@ -1269,6 +1284,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: None,
+          overrides: Vec::new(),
           properties: ConfigKeyMap::from([
             (String::from("prop"), ConfigKeyValue::from_i32(6)),
             (String::from("other"), ConfigKeyValue::from_str("test")),
@@ -1277,6 +1293,148 @@ mod tests {
       )]);
 
       assert_eq!(result.config_map, expected_config_map);
+    });
+  }
+
+  #[test]
+  fn should_use_overrides_on_extended_config() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r#"{
+          "test": {
+            "overrides": {
+              "files": "**/package.json",
+              "lineWidth": 80
+            }
+          }
+        }"#
+        .as_bytes(),
+    );
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{
+            "extends": "https://dprint.dev/test.json",
+            "test": {}
+        }"#,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      let expected_config_map = ConfigMap::from([(
+        String::from("test"),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: false,
+          associations: None,
+          overrides: vec![RawPluginConfigOverride {
+            files: vec!["**/package.json".to_string()],
+            properties: ConfigKeyMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(80))]),
+          }],
+          properties: ConfigKeyMap::new(),
+        }),
+      )]);
+
+      assert_eq!(result.config_map, expected_config_map);
+    });
+  }
+
+  #[test]
+  fn should_order_extended_overrides_before_local_overrides() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r#"{
+          "test": {
+            "overrides": {
+              "files": "**/*.json",
+              "lineWidth": 100
+            }
+          }
+        }"#
+        .as_bytes(),
+    );
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{
+            "extends": "https://dprint.dev/test.json",
+            "test": {
+              "overrides": {
+                "files": "**/package.json",
+                "lineWidth": 80
+              }
+            }
+        }"#,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      let expected_config_map = ConfigMap::from([(
+        String::from("test"),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: false,
+          associations: None,
+          overrides: vec![
+            RawPluginConfigOverride {
+              files: vec!["**/*.json".to_string()],
+              properties: ConfigKeyMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(100))]),
+            },
+            RawPluginConfigOverride {
+              files: vec!["**/package.json".to_string()],
+              properties: ConfigKeyMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(80))]),
+            },
+          ],
+          properties: ConfigKeyMap::new(),
+        }),
+      )]);
+
+      assert_eq!(result.config_map, expected_config_map);
+    });
+  }
+
+  #[test]
+  fn should_error_extending_locked_config_with_overrides() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r#"{
+          "test": {
+            "locked": true,
+            "lineWidth": 80
+          }
+        }"#
+        .as_bytes(),
+    );
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{
+            "extends": "https://dprint.dev/test.json",
+            "test": {
+              "overrides": {
+                "files": "**/package.json",
+                "lineWidth": 100
+              }
+            }
+        }"#,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.err().unwrap();
+      assert_eq!(
+        result.to_string(),
+        concat!(
+          "The configuration for \"test\" was locked, but a parent configuration specified it. ",
+          "Locked configurations cannot have their properties overridden.\n",
+          "    at https://dprint.dev/test.json",
+        )
+      );
     });
   }
 
@@ -1310,6 +1468,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: Some(vec!["test".to_string()]),
+          overrides: Vec::new(),
           properties: ConfigKeyMap::new(),
         }),
       )]);
@@ -1350,6 +1509,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: Some(vec!["test1".to_string(), "test2".to_string()]),
+          overrides: Vec::new(),
           properties: ConfigKeyMap::new(),
         }),
       )]);
@@ -1659,6 +1819,7 @@ mod tests {
             ConfigMapValue::PluginConfig(RawPluginConfig {
               locked: false,
               associations: None,
+              overrides: Vec::new(),
               properties: ConfigKeyMap::from([(String::from("value"), ConfigKeyValue::from_str("/dir/test && /dir/other"))]),
             }),
           ),
@@ -1667,6 +1828,7 @@ mod tests {
             ConfigMapValue::PluginConfig(RawPluginConfig {
               locked: false,
               associations: None,
+              overrides: Vec::new(),
               properties: ConfigKeyMap::from([(String::from("value"), ConfigKeyValue::from_str("/dir/origin"))]),
             }),
           ),
@@ -1675,6 +1837,7 @@ mod tests {
             ConfigMapValue::PluginConfig(RawPluginConfig {
               locked: false,
               associations: None,
+              overrides: Vec::new(),
               properties: ConfigKeyMap::from([(String::from("value"), ConfigKeyValue::from_str("/dir/final && ${configDir}/escaped"))]),
             }),
           )

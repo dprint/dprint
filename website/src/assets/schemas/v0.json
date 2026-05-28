@@ -85,7 +85,58 @@
   },
   "additionalProperties": {
     "description": "Plugin configuration.",
-    "type": "object"
+    "type": "object",
+    "properties": {
+      "locked": {
+        "description": "Whether this plugin configuration is locked against overrides from extending configurations.",
+        "type": "boolean"
+      },
+      "associations": {
+        "description": "File patterns to associate with this plugin.",
+        "anyOf": [{
+          "type": "string"
+        }, {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }]
+      },
+      "overrides": {
+        "description": "Plugin configuration overrides for specific file patterns.",
+        "anyOf": [{
+          "$ref": "#/definitions/pluginConfigOverride"
+        }, {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/pluginConfigOverride"
+          }
+        }]
+      }
+    },
+    "additionalProperties": true
+  },
+  "definitions": {
+    "pluginConfigOverride": {
+      "type": "object",
+      "required": ["files"],
+      "minProperties": 2,
+      "properties": {
+        "files": {
+          "description": "File patterns this override applies to.",
+          "anyOf": [{
+            "type": "string"
+          }, {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }]
+        }
+      },
+      "additionalProperties": true
+    }
   },
   "allowTrailingCommas": true
 }

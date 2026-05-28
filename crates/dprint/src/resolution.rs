@@ -16,6 +16,7 @@ use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
+use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
@@ -28,6 +29,7 @@ use crate::arg_parser::CliArgs;
 use crate::arg_parser::ConfigDiscovery;
 use crate::arg_parser::FilePatternArgs;
 use crate::configuration::GlobalConfigDiagnostic;
+use crate::configuration::RawPluginConfigOverride;
 use crate::configuration::ResolveConfigError;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
@@ -42,6 +44,7 @@ use crate::paths::NoFilesFoundError;
 use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins;
 use crate::patterns::FileMatcher;
+use crate::patterns::get_patterns_as_glob_matcher;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
@@ -51,6 +54,7 @@ use crate::plugins::PluginResolver;
 use crate::plugins::PluginWrapper;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::utils::FastInsecureHasher;
+use crate::utils::GlobMatcher;
 use crate::utils::GlobOutput;
 use crate::utils::PathSource;
 
@@ -59,19 +63,40 @@ pub enum GetPluginResult {
   Success(InitializedPluginWithConfig),
 }
 
+pub struct PluginConfigOverride {
+  files: Vec<String>,
+  properties: ConfigKeyMap,
+  config_id: FormatConfigId,
+  #[allow(dead_code)]
+  matcher: GlobMatcher,
+}
+
 pub struct PluginWithConfig {
   pub plugin: Rc<PluginWrapper>,
   pub associations: Option<Vec<String>>,
+  pub overrides: Vec<PluginConfigOverride>,
   pub format_config: Arc<FormatConfig>,
   pub file_matching: FileMatchingInfo,
   config_diagnostic_count: tokio::sync::Mutex<Option<usize>>,
 }
 
 impl PluginWithConfig {
+  #[allow(dead_code)]
   pub fn new(plugin: Rc<PluginWrapper>, associations: Option<Vec<String>>, format_config: Arc<FormatConfig>, file_matching: FileMatchingInfo) -> Self {
+    Self::new_with_overrides(plugin, associations, Vec::new(), format_config, file_matching)
+  }
+
+  pub fn new_with_overrides(
+    plugin: Rc<PluginWrapper>,
+    associations: Option<Vec<String>>,
+    overrides: Vec<PluginConfigOverride>,
+    format_config: Arc<FormatConfig>,
+    file_matching: FileMatchingInfo,
+  ) -> Self {
     Self {
       plugin,
       associations,
+      overrides,
       format_config,
       config_diagnostic_count: Default::default(),
       file_matching,
@@ -98,7 +123,41 @@ impl PluginWithConfig {
         hasher.write(association.as_bytes());
       }
     }
+    for override_config in &self.overrides {
+      override_config.files.len().hash(hasher);
+      for file in &override_config.files {
+        file.hash(hasher);
+      }
+      let sorted_config = override_config.properties.iter().collect::<BTreeMap<_, _>>();
+      sorted_config.len().hash(hasher);
+      for (key, value) in sorted_config {
+        key.hash(hasher);
+        value.hash(hasher);
+      }
+    }
     self.format_config.global.hash(hasher);
+  }
+
+  #[allow(dead_code)]
+  pub fn get_config_file_overrides_for_path(&self, file_path: &Path) -> ConfigKeyMap {
+    let mut result = ConfigKeyMap::new();
+    for override_config in &self.overrides {
+      if override_config.matcher.matches(file_path) {
+        for (key, value) in override_config.properties.iter() {
+          result.insert(key.clone(), value.clone());
+        }
+      }
+    }
+    result
+  }
+
+  #[allow(dead_code)]
+  pub fn get_merged_overrides_for_path(&self, file_path: &Path, request_override_config: &ConfigKeyMap) -> ConfigKeyMap {
+    let mut result = self.get_config_file_overrides_for_path(file_path);
+    for (key, value) in request_override_config.iter() {
+      result.insert(key.clone(), value.clone());
+    }
+    result
   }
 
   pub fn name(&self) -> &str {
@@ -135,8 +194,15 @@ impl PluginWithConfig {
           *config_diagnostic_count = Some(err.diagnostic_count);
           Ok(GetPluginResult::HadDiagnostics(err.diagnostic_count))
         } else {
-          *config_diagnostic_count = Some(0);
-          Ok(GetPluginResult::Success(instance))
+          let result = instance.output_override_config_diagnostics(environment).await?;
+          if let Err(err) = result {
+            log_error!(environment, &err.to_string());
+            *config_diagnostic_count = Some(err.diagnostic_count);
+            Ok(GetPluginResult::HadDiagnostics(err.diagnostic_count))
+          } else {
+            *config_diagnostic_count = Some(0);
+            Ok(GetPluginResult::Success(instance))
+          }
         }
       }
     }
@@ -180,6 +246,37 @@ impl InitializedPluginWithConfig {
     environment: &TEnvironment,
   ) -> Result<Result<(), OutputPluginConfigDiagnosticsError>> {
     output_plugin_config_diagnostics(&self.info().name, &*self.instance, self.plugin.format_config.clone(), environment).await
+  }
+
+  pub async fn output_override_config_diagnostics<TEnvironment: Environment>(
+    &self,
+    environment: &TEnvironment,
+  ) -> Result<Result<(), OutputPluginConfigDiagnosticsError>> {
+    let mut diagnostic_count = 0;
+    for override_config in &self.plugin.overrides {
+      let mut plugin_config = self.plugin.format_config.plugin.clone();
+      for (key, value) in override_config.properties.iter() {
+        plugin_config.insert(key.clone(), value.clone());
+      }
+      let format_config = Arc::new(FormatConfig {
+        id: override_config.config_id,
+        plugin: plugin_config,
+        global: self.plugin.format_config.global.clone(),
+      });
+      for diagnostic in self.instance.config_diagnostics(format_config).await? {
+        log_warn!(environment, "[{}]: {}", self.info().name, diagnostic);
+        diagnostic_count += 1;
+      }
+    }
+
+    if diagnostic_count > 0 {
+      Ok(Err(OutputPluginConfigDiagnosticsError {
+        plugin_name: self.info().name.to_string(),
+        diagnostic_count,
+      }))
+    } else {
+      Ok(Ok(()))
+    }
   }
 
   pub async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
@@ -363,7 +460,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
                 file_path: request.file_path.clone(),
                 file_bytes: file_text.clone(),
                 range: request.range.clone(),
-                override_config: request.override_config.clone(),
+                override_config: plugin.get_merged_overrides_for_path(&request.file_path, &request.override_config),
                 on_host_format: scope.create_host_format_callback(),
                 token: request.token.clone(),
               })
@@ -604,28 +701,36 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   // now get global config
   let global_config_result = get_global_config(config_map);
   let global_config = global_config_result.config;
+  let config_base_path = config.base_path.clone();
 
   // create the scope
-  let plugins = plugins_with_config.into_iter().map(|(plugin_config, plugin)| {
-    let global_config = global_config.clone();
-    let next_config_id = plugin_resolver.next_config_id();
-    async move {
-      let instance = plugin.initialize().await?;
-      let format_config = Arc::new(FormatConfig {
-        id: next_config_id,
-        global: global_config,
-        plugin: plugin_config.properties,
-      });
-      let file_matching_info = instance.file_matching_info(format_config.clone()).await?;
-      Ok::<_, anyhow::Error>(Rc::new(PluginWithConfig::new(
-        plugin,
-        plugin_config.associations,
-        format_config,
-        file_matching_info,
-      )))
-    }
-    .boxed_local()
-  });
+  let plugins = plugins_with_config
+    .into_iter()
+    .map(|(plugin_config, plugin)| {
+      let global_config = global_config.clone();
+      let overrides = resolve_plugin_config_overrides(plugin_config.overrides, &config_base_path, plugin_resolver)?;
+      let next_config_id = plugin_resolver.next_config_id();
+      Ok(
+        async move {
+          let instance = plugin.initialize().await?;
+          let format_config = Arc::new(FormatConfig {
+            id: next_config_id,
+            global: global_config,
+            plugin: plugin_config.properties,
+          });
+          let file_matching_info = instance.file_matching_info(format_config.clone()).await?;
+          Ok::<_, anyhow::Error>(Rc::new(PluginWithConfig::new_with_overrides(
+            plugin,
+            plugin_config.associations,
+            overrides,
+            format_config,
+            file_matching_info,
+          )))
+        }
+        .boxed_local(),
+      )
+    })
+    .collect::<Result<Vec<_>>>()?;
   let plugin_results = dprint_core::async_runtime::future::join_all(plugins).await;
   let mut plugins = Vec::with_capacity(plugin_results.len());
   for result in plugin_results {
@@ -633,4 +738,89 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   }
 
   Ok(PluginsScope::new(environment.clone(), plugins, config, global_config_result.diagnostics)?)
+}
+
+fn resolve_plugin_config_overrides<TEnvironment: Environment>(
+  overrides: Vec<RawPluginConfigOverride>,
+  config_base_path: &CanonicalizedPathBuf,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+) -> Result<Vec<PluginConfigOverride>> {
+  overrides
+    .into_iter()
+    .map(|override_config| {
+      let matcher = get_patterns_as_glob_matcher(&override_config.files, config_base_path)?;
+      Ok(PluginConfigOverride {
+        files: override_config.files,
+        properties: override_config.properties,
+        config_id: plugin_resolver.next_config_id(),
+        matcher,
+      })
+    })
+    .collect()
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use dprint_core::configuration::ConfigKeyValue;
+  use dprint_core::configuration::GlobalConfiguration;
+  use dprint_core::plugins::FormatConfigId;
+
+  use crate::plugins::TestPlugin;
+
+  #[test]
+  fn should_hash_override_file_patterns_and_property_keys_with_boundaries() {
+    let plugin_ab_c = create_plugin_with_override(vec!["ab".to_string()], ConfigKeyMap::from([("c".to_string(), ConfigKeyValue::from_bool(true))]));
+    let plugin_a_bc = create_plugin_with_override(vec!["a".to_string()], ConfigKeyMap::from([("bc".to_string(), ConfigKeyValue::from_bool(true))]));
+
+    assert_ne!(get_plugin_hash(&plugin_ab_c), get_plugin_hash(&plugin_a_bc));
+  }
+
+  #[test]
+  fn should_include_config_overrides_in_incremental_hash() {
+    let config_base_path = CanonicalizedPathBuf::new_for_testing("/");
+    let plugin_without_override = create_plugin_with_overrides(Vec::new());
+    let plugin_with_override = create_plugin_with_overrides(vec![PluginConfigOverride {
+      files: vec!["**/package.txt".to_string()],
+      properties: ConfigKeyMap::from([("ending".to_string(), "package".into())]),
+      config_id: FormatConfigId::from_raw(2),
+      matcher: get_patterns_as_glob_matcher(&["**/package.txt".to_string()], &config_base_path).unwrap(),
+    }]);
+
+    assert_ne!(get_plugin_hash(&plugin_without_override), get_plugin_hash(&plugin_with_override));
+  }
+
+  fn get_plugin_hash(plugin: &PluginWithConfig) -> u64 {
+    let mut hasher = FastInsecureHasher::default();
+    plugin.incremental_hash(&mut hasher);
+    hasher.finish()
+  }
+
+  fn create_plugin_with_override(files: Vec<String>, properties: ConfigKeyMap) -> PluginWithConfig {
+    let config_base_path = CanonicalizedPathBuf::new_for_testing("/config");
+    let matcher = get_patterns_as_glob_matcher(&files, &config_base_path).unwrap();
+    create_plugin_with_overrides(vec![PluginConfigOverride {
+      files,
+      properties,
+      config_id: FormatConfigId::from_raw(2),
+      matcher,
+    }])
+  }
+
+  fn create_plugin_with_overrides(overrides: Vec<PluginConfigOverride>) -> PluginWithConfig {
+    PluginWithConfig::new_with_overrides(
+      Rc::new(PluginWrapper::new(Box::new(TestPlugin::new("test-plugin", "test-plugin", vec!["txt"], vec![])))),
+      None,
+      overrides,
+      Arc::new(FormatConfig {
+        id: FormatConfigId::from_raw(1),
+        plugin: ConfigKeyMap::from([("ending".to_string(), "base".into())]),
+        global: GlobalConfiguration::default(),
+      }),
+      FileMatchingInfo {
+        file_extensions: vec!["txt".to_string()],
+        file_names: Vec::new(),
+      },
+    )
+  }
 }
