@@ -471,7 +471,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
                 file_path: request.file_path.clone(),
                 file_bytes: file_text.clone(),
                 range: request.range.clone(),
-                override_config: request.override_config.clone(),
+                override_config: plugin.get_merged_overrides_for_path(&request.file_path, &request.override_config),
                 on_host_format: scope.create_host_format_callback(),
                 token: request.token.clone(),
               })
