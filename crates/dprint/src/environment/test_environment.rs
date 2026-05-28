@@ -6,6 +6,7 @@ use parking_lot::Mutex;
 use path_clean::PathClean;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::future::Future;
 use std::io;
@@ -14,12 +15,14 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use sys_traits::BaseEnvVar;
 use sys_traits::BaseFsCreateDir;
 use sys_traits::BaseFsMetadata;
 use sys_traits::BaseFsOpen;
 use sys_traits::BaseFsRead;
 use sys_traits::BaseFsRemoveFile;
 use sys_traits::BaseFsRename;
+use sys_traits::BaseFsSetPermissions;
 use sys_traits::CreateDirOptions;
 use sys_traits::EnvCurrentDir;
 use sys_traits::EnvRemoveVar;
@@ -135,6 +138,8 @@ pub struct TestEnvironment {
   stderr_messages: Arc<Mutex<Vec<String>>>,
   remote_files: Arc<Mutex<HashMap<String, Result<Vec<u8>>>>>,
   remote_file_redirects: Arc<Mutex<HashMap<String, String>>>,
+  /// Last auth header seen for each URL.
+  remote_file_auth: Arc<Mutex<HashMap<String, Option<String>>>>,
   selection_result: Arc<Mutex<usize>>,
   multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>>>>>,
@@ -162,6 +167,7 @@ impl TestEnvironment {
       stderr_messages: Default::default(),
       remote_files: Default::default(),
       remote_file_redirects: Default::default(),
+      remote_file_auth: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
       multi_selection_result: Arc::new(Mutex::new(None)),
       confirm_results: Default::default(),
@@ -224,6 +230,10 @@ impl TestEnvironment {
 
   pub fn add_remote_file_redirect(&self, from: &str, to: &str) {
     self.remote_file_redirects.lock().insert(from.to_string(), to.to_string());
+  }
+
+  pub fn take_remote_file_auth(&self, url: &str) -> Option<String> {
+    self.remote_file_auth.lock().remove(url).flatten()
   }
 
   pub fn set_env_var(&self, name: &str, value: Option<&str>) {
@@ -356,6 +366,12 @@ impl BaseFsCreateDir for TestEnvironment {
   }
 }
 
+impl BaseEnvVar for TestEnvironment {
+  fn base_env_var_os(&self, key: &OsStr) -> Option<OsString> {
+    (*self.sys).base_env_var_os(key)
+  }
+}
+
 impl BaseFsMetadata for TestEnvironment {
   type Metadata = sys_traits::impls::InMemoryMetadata;
 
@@ -394,6 +410,12 @@ impl BaseFsRename for TestEnvironment {
   }
 }
 
+impl BaseFsSetPermissions for TestEnvironment {
+  fn base_fs_set_permissions(&self, path: &Path, mode: u32) -> io::Result<()> {
+    (*self.sys).base_fs_set_permissions(path, mode)
+  }
+}
+
 impl ThreadSleep for TestEnvironment {
   fn thread_sleep(&self, duration: std::time::Duration) {
     (*self.sys).thread_sleep(duration);
@@ -414,7 +436,9 @@ impl SystemTimeNow for TestEnvironment {
 
 #[async_trait(?Send)]
 impl UrlDownloader for TestEnvironment {
-  async fn download_file_no_redirects(&self, url: &Url) -> Result<Option<DownloadedFile>> {
+  async fn download_file_no_redirects(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
+    self.remote_file_auth.lock().insert(url.to_string(), auth.map(|s| s.to_string()));
+
     // check for a redirect first
     let redirects = self.remote_file_redirects.lock();
     if let Some(target) = redirects.get(url.as_str()) {

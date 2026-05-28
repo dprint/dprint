@@ -25,6 +25,8 @@ In your project's directory with a dprint.json file, run:
 
 ```shellsession
 dprint add typescript
+# or install from npm
+dprint add npm:@dprint/typescript
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"typescript"` property to add configuration:

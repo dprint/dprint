@@ -344,6 +344,11 @@ impl TestEnvironmentBuilder {
     self
   }
 
+  pub fn add_remote_file_bytes(&mut self, path: &str, bytes: impl Into<Vec<u8>>) -> &mut Self {
+    self.environment.add_remote_file_bytes(path, bytes.into());
+    self
+  }
+
   pub fn set_cwd(&mut self, dir_path: &str) -> &mut Self {
     self.environment.set_cwd(dir_path);
     self
