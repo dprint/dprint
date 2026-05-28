@@ -724,6 +724,7 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
+            overrides: Vec::new(),
             properties: ConfigKeyMap::from([
               (String::from("prop"), ConfigKeyValue::from_i32(5)),
               (String::from("other"), ConfigKeyValue::from_str("test")),
@@ -735,6 +736,7 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
+            overrides: Vec::new(),
             properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
           }),
         ),
@@ -817,6 +819,7 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
+            overrides: Vec::new(),
             properties: ConfigKeyMap::from([
               (String::from("prop"), ConfigKeyValue::from_i32(5)),
               (String::from("other"), ConfigKeyValue::from_str("test")),
@@ -828,6 +831,7 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
+            overrides: Vec::new(),
             properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
           }),
         ),
@@ -918,6 +922,7 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
+            overrides: Vec::new(),
             properties: ConfigKeyMap::from([
               (String::from("prop"), ConfigKeyValue::from_i32(5)),
               (String::from("other"), ConfigKeyValue::from_str("test")),
@@ -929,6 +934,7 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
+            overrides: Vec::new(),
             properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
           }),
         ),
@@ -1187,6 +1193,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: true,
           associations: None,
+          overrides: Vec::new(),
           properties: ConfigKeyMap::from([
             (String::from("prop"), ConfigKeyValue::from_i32(6)),
             (String::from("other"), ConfigKeyValue::from_str("test")),
@@ -1232,6 +1239,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: true,
           associations: None,
+          overrides: Vec::new(),
           properties: ConfigKeyMap::from([
             (String::from("prop"), ConfigKeyValue::from_i32(7)),
             (String::from("other"), ConfigKeyValue::from_str("test")),
@@ -1275,6 +1283,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: None,
+          overrides: Vec::new(),
           properties: ConfigKeyMap::from([
             (String::from("prop"), ConfigKeyValue::from_i32(6)),
             (String::from("other"), ConfigKeyValue::from_str("test")),
@@ -1316,6 +1325,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: Some(vec!["test".to_string()]),
+          overrides: Vec::new(),
           properties: ConfigKeyMap::new(),
         }),
       )]);
@@ -1356,6 +1366,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: Some(vec!["test1".to_string(), "test2".to_string()]),
+          overrides: Vec::new(),
           properties: ConfigKeyMap::new(),
         }),
       )]);
@@ -1665,6 +1676,7 @@ mod tests {
             ConfigMapValue::PluginConfig(RawPluginConfig {
               locked: false,
               associations: None,
+              overrides: Vec::new(),
               properties: ConfigKeyMap::from([(String::from("value"), ConfigKeyValue::from_str("/dir/test && /dir/other"))]),
             }),
           ),
@@ -1673,6 +1685,7 @@ mod tests {
             ConfigMapValue::PluginConfig(RawPluginConfig {
               locked: false,
               associations: None,
+              overrides: Vec::new(),
               properties: ConfigKeyMap::from([(String::from("value"), ConfigKeyValue::from_str("/dir/origin"))]),
             }),
           ),
@@ -1681,6 +1694,7 @@ mod tests {
             ConfigMapValue::PluginConfig(RawPluginConfig {
               locked: false,
               associations: None,
+              overrides: Vec::new(),
               properties: ConfigKeyMap::from([(String::from("value"), ConfigKeyValue::from_str("/dir/final && ${configDir}/escaped"))]),
             }),
           )
