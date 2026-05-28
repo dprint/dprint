@@ -850,6 +850,40 @@ mod test {
   }
 
   #[test]
+  fn should_use_request_override_config_over_config_file_overrides() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "associations": ["**/*.txt"],
+              "ending": "wasm"
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "associations": ["**/*.txt_ps"],
+              "ending": "process",
+              "overrides": {
+                "files": "**/test.txt_ps",
+                "ending": "config_file"
+              }
+            }"#,
+          );
+      })
+      .write_file("/file.txt", "plugin-config: text")
+      .build();
+
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "plugin-config: text_custom_config_wasm");
+  }
+
+  #[test]
   fn should_format_files_with_config_associations_multiple_plugins_same_files() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt_ps";
@@ -2052,6 +2086,29 @@ mod test {
       environment.take_stderr_messages(),
       vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
     );
+  }
+
+  #[test]
+  fn should_format_stdin_with_config_overrides() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .build();
+    let test_std_in = TestStdInReader::from("text");
+
+    run_test_cli_with_stdin(vec!["fmt", "--stdin", "package.txt"], &environment, test_std_in).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec!["text_package"]);
   }
 
   #[test]
