@@ -81,6 +81,7 @@ pub struct PluginWithConfig {
 }
 
 impl PluginWithConfig {
+  #[allow(dead_code)]
   pub fn new(plugin: Rc<PluginWrapper>, associations: Option<Vec<String>>, format_config: Arc<FormatConfig>, file_matching: FileMatchingInfo) -> Self {
     Self::new_with_overrides(plugin, associations, Vec::new(), format_config, file_matching)
   }

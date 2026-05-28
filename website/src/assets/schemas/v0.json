@@ -120,6 +120,7 @@
     "pluginConfigOverride": {
       "type": "object",
       "required": ["files"],
+      "minProperties": 2,
       "properties": {
         "files": {
           "description": "File patterns this override applies to.",
@@ -127,6 +128,7 @@
             "type": "string"
           }, {
             "type": "array",
+            "minItems": 1,
             "items": {
               "type": "string"
             }
