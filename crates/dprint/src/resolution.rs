@@ -93,6 +93,7 @@ pub struct PluginWithConfigOptions {
 }
 
 impl PluginWithConfig {
+  #[allow(dead_code)]
   pub fn new(plugin: Rc<PluginWrapper>, options: PluginWithConfigOptions) -> Self {
     Self::new_with_overrides(plugin, options, Vec::new())
   }
