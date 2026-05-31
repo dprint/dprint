@@ -699,8 +699,14 @@ mod test {
     }
 
     // the same raw config map but a different resolved config must produce a different hash
-    assert_ne!(hash_with_resolved_config(r#"{"cacheKey":"a"}"#), hash_with_resolved_config(r#"{"cacheKey":"b"}"#));
+    assert_ne!(
+      hash_with_resolved_config(r#"{"cacheKey":"a"}"#),
+      hash_with_resolved_config(r#"{"cacheKey":"b"}"#)
+    );
     // and the same resolved config must produce the same hash
-    assert_eq!(hash_with_resolved_config(r#"{"cacheKey":"a"}"#), hash_with_resolved_config(r#"{"cacheKey":"a"}"#));
+    assert_eq!(
+      hash_with_resolved_config(r#"{"cacheKey":"a"}"#),
+      hash_with_resolved_config(r#"{"cacheKey":"a"}"#)
+    );
   }
 }
