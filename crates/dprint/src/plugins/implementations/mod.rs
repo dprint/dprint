@@ -56,14 +56,14 @@ mod test {
           });
           let instance = plugin.initialize().await.unwrap();
           let file_matching = instance.file_matching_info(format_config.clone()).await.unwrap();
-          let resolved_config = instance.resolved_config(format_config.clone()).await.unwrap();
+          let serialized_resolved_config = instance.resolved_config(format_config.clone()).await.unwrap();
           plugins_with_config.push(Rc::new(PluginWithConfig::new(
             plugin,
             PluginWithConfigOptions {
               associations: None,
               format_config,
               file_matching,
-              resolved_config,
+              serialized_resolved_config,
             },
           )));
         }
@@ -120,14 +120,14 @@ mod test {
           });
           let instance = plugin.initialize().await.unwrap();
           let file_matching = instance.file_matching_info(format_config.clone()).await.unwrap();
-          let resolved_config = instance.resolved_config(format_config.clone()).await.unwrap();
+          let serialized_resolved_config = instance.resolved_config(format_config.clone()).await.unwrap();
           plugins_with_config.push(Rc::new(PluginWithConfig::new(
             plugin,
             PluginWithConfigOptions {
               associations: None,
               format_config,
               file_matching,
-              resolved_config,
+              serialized_resolved_config,
             },
           )));
         }

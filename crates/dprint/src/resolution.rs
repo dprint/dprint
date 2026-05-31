@@ -67,7 +67,7 @@ pub struct PluginWithConfig {
   /// The plugin's resolved configuration serialized as JSON. This is used by
   /// the incremental hash so that values the plugin derives at resolution time
   /// (ex. the exec plugin's `cacheKeyFiles` hash) invalidate the cache.
-  resolved_config: String,
+  serialized_resolved_config: String,
   config_diagnostic_count: tokio::sync::Mutex<Option<usize>>,
 }
 
@@ -76,7 +76,7 @@ pub struct PluginWithConfigOptions {
   pub format_config: Arc<FormatConfig>,
   pub file_matching: FileMatchingInfo,
   /// The plugin's resolved configuration serialized as JSON.
-  pub resolved_config: String,
+  pub serialized_resolved_config: String,
 }
 
 impl PluginWithConfig {
@@ -87,7 +87,7 @@ impl PluginWithConfig {
       format_config: options.format_config,
       config_diagnostic_count: Default::default(),
       file_matching: options.file_matching,
-      resolved_config: options.resolved_config,
+      serialized_resolved_config: options.serialized_resolved_config,
     }
   }
 
@@ -109,7 +109,7 @@ impl PluginWithConfig {
     // include the plugin's resolved config so that anything it derives at
     // resolution time but isn't present in the raw config map (ex. the exec
     // plugin folding `cacheKeyFiles` contents into its `cacheKey`) busts the cache
-    hasher.write(self.resolved_config.as_bytes());
+    hasher.write(self.serialized_resolved_config.as_bytes());
 
     if let Some(associations) = &self.associations {
       for association in associations {
@@ -635,14 +635,14 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
         plugin: plugin_config.properties,
       });
       let file_matching = instance.file_matching_info(format_config.clone()).await?;
-      let resolved_config = instance.resolved_config(format_config.clone()).await?;
+      let serialized_resolved_config = instance.resolved_config(format_config.clone()).await?;
       Ok::<_, anyhow::Error>(Rc::new(PluginWithConfig::new(
         plugin,
         PluginWithConfigOptions {
           associations: plugin_config.associations,
           format_config,
           file_matching,
-          resolved_config,
+          serialized_resolved_config,
         },
       )))
     }
@@ -690,7 +690,7 @@ mod test {
             file_extensions: vec!["txt".to_string()],
             file_names: vec![],
           },
-          resolved_config: resolved_config.to_string(),
+          serialized_resolved_config: resolved_config.to_string(),
         },
       );
       let mut hasher = FastInsecureHasher::default();
