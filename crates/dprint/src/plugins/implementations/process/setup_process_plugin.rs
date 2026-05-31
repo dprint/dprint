@@ -11,9 +11,11 @@ use std::str;
 
 use crate::environment::Environment;
 use crate::plugins::implementations::SetupPluginResult;
+use crate::plugins::npm_resolution::extract_tarball_replacing;
 use crate::utils::PathSource;
 use crate::utils::extract_zip;
 use crate::utils::fetch_file_or_url_bytes;
+use crate::utils::fs::get_atomic_path;
 use crate::utils::resolve_url_or_file_path_to_path_source;
 use crate::utils::verify_sha256_checksum;
 
@@ -40,18 +42,45 @@ fn get_plugin_executable_file_path(dir_path: &Path, plugin_name: &str) -> PathBu
 }
 
 /// Takes a url or file path and extracts the plugin to a cache folder.
-/// Returns the executable file path once complete
+/// Returns the executable file path once complete.
+/// If `pre_resolved_tarball` is provided (npm-installed process plugins), the
+/// full per-platform tarball is extracted into the plugin cache directory so
+/// the executable can sit alongside any sibling files it ships. Otherwise
+/// the reference inside `plugin_file_bytes` is fetched as a zip and
+/// extracted. Both paths stage the extract in a sibling temp dir and rename
+/// into place so a crash mid-extract can't leave a half-populated cache.
 pub async fn setup_process_plugin<TEnvironment: Environment>(
   url_or_file_path: &PathSource,
   plugin_file_bytes: &[u8],
+  pre_resolved_tarball: Option<crate::plugins::npm_resolution::PreResolvedProcessPluginTarball>,
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
+  if let Some(tarball) = pre_resolved_tarball {
+    let plugin_cache_dir_path = get_plugin_dir_path(&tarball.name, &tarball.version, environment);
+    let result = setup_from_tarball(
+      &plugin_cache_dir_path,
+      tarball.name,
+      tarball.tarball_bytes,
+      &tarball.executable_sub_path,
+      environment,
+    )
+    .await;
+    return match result {
+      Ok(result) => Ok(result),
+      Err(err) => {
+        log_debug!(environment, "Failed setting up process plugin. {:#}", err);
+        let _ignore = environment.remove_dir_all(&plugin_cache_dir_path);
+        Err(err)
+      }
+    };
+  }
+
   let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment).await?;
   let plugin_cache_dir_path = get_plugin_dir_path(&plugin_zip_bytes.name, &plugin_zip_bytes.version, environment);
 
-  let result = setup_inner(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment).await;
+  let result = setup_from_zip(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment).await;
 
-  return match result {
+  match result {
     Ok(result) => Ok(result),
     Err(err) => {
       log_debug!(environment, "Failed setting up process plugin. {:#}", err);
@@ -59,46 +88,92 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
       let _ignore = environment.remove_dir_all(&plugin_cache_dir_path);
       Err(err)
     }
-  };
-
-  async fn setup_inner<TEnvironment: Environment>(
-    plugin_cache_dir_path: &Path,
-    plugin_name: String,
-    zip_bytes: &[u8],
-    environment: &TEnvironment,
-  ) -> Result<SetupPluginResult> {
-    let _ = environment.remove_dir_all(plugin_cache_dir_path);
-    environment.mk_dir_all(plugin_cache_dir_path)?;
-    let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
-
-    extract_zip(&format!("Extracting zip for {}", plugin_name), zip_bytes, plugin_cache_dir_path, environment)?;
-
-    if !environment.path_exists(&plugin_executable_file_path) {
-      bail!(
-        "Plugin zip file did not contain required executable at: {}",
-        plugin_executable_file_path.display()
-      );
-    }
-
-    let executable_path = super::get_test_safe_executable_path(plugin_executable_file_path.clone(), environment);
-    let communicator = ProcessPluginCommunicator::new_with_init(&executable_path, {
-      let environment = environment.clone();
-      move |error_message| {
-        // consider messages from process plugins as warnings
-        if environment.log_level().is_warn() {
-          environment.log_stderr_with_context(&error_message, &plugin_name);
-        }
-      }
-    })
-    .await?;
-    let plugin_info = communicator.plugin_info().await?;
-    communicator.shutdown().await;
-
-    Ok(SetupPluginResult {
-      plugin_info,
-      file_path: plugin_executable_file_path,
-    })
   }
+}
+
+async fn setup_from_zip<TEnvironment: Environment>(
+  plugin_cache_dir_path: &Path,
+  plugin_name: String,
+  zip_bytes: &[u8],
+  environment: &TEnvironment,
+) -> Result<SetupPluginResult> {
+  // stage the extract in a sibling temp dir so a crash mid-extract can't
+  // leave the destination half-populated for a future run to mistake as
+  // "already set up". Caller's fs_lock prevents a competing setup against
+  // the same source.
+  let temp_dir = get_atomic_path(environment, plugin_cache_dir_path);
+  environment.mk_dir_all(&temp_dir)?;
+  if let Err(err) = extract_zip(&format!("Extracting zip for {}", plugin_name), zip_bytes, &temp_dir, environment) {
+    let _ = environment.remove_dir_all(&temp_dir);
+    return Err(err);
+  }
+  let temp_executable = get_plugin_executable_file_path(&temp_dir, &plugin_name);
+  if !environment.path_exists(&temp_executable) {
+    let _ = environment.remove_dir_all(&temp_dir);
+    bail!("Plugin zip file did not contain required executable at: {}", temp_executable.display(),);
+  }
+  let _ = environment.remove_dir_all(plugin_cache_dir_path);
+  if let Err(err) = environment.rename(&temp_dir, plugin_cache_dir_path) {
+    let _ = environment.remove_dir_all(&temp_dir);
+    return Err(err.into());
+  }
+
+  let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
+  start_communicator_and_collect_info(plugin_executable_file_path, plugin_name, environment).await
+}
+
+/// Extracts a per-platform npm tarball into the plugin cache directory. The
+/// tarball is fully unpacked (wrapper directory stripped, file modes
+/// preserved) so the executable can reference siblings that ship in the
+/// same package. `executable_sub_path` is the binary's path inside the
+/// tarball's top-level wrapper — i.e. the same string the plugin.json
+/// reference carries after the version.
+async fn setup_from_tarball<TEnvironment: Environment>(
+  plugin_cache_dir_path: &Path,
+  plugin_name: String,
+  tarball_bytes: Vec<u8>,
+  executable_sub_path: &str,
+  environment: &TEnvironment,
+) -> Result<SetupPluginResult> {
+  let executable_path = plugin_cache_dir_path.join(executable_sub_path);
+  let extract_env = environment.clone();
+  let extract_dest = plugin_cache_dir_path.to_path_buf();
+  // tarball decompression + file I/O blocks; keep it off the runtime thread.
+  dprint_core::async_runtime::spawn_blocking(move || extract_tarball_replacing(&tarball_bytes, &extract_dest, &extract_env)).await??;
+
+  if !environment.path_exists(&executable_path) {
+    bail!(
+      "Tarball for {} did not contain the executable at the path given by the plugin.json reference ({}).",
+      plugin_name,
+      executable_sub_path,
+    );
+  }
+  start_communicator_and_collect_info(executable_path, plugin_name, environment).await
+}
+
+async fn start_communicator_and_collect_info<TEnvironment: Environment>(
+  plugin_executable_file_path: PathBuf,
+  plugin_name: String,
+  environment: &TEnvironment,
+) -> Result<SetupPluginResult> {
+  let executable_path = super::get_test_safe_executable_path(plugin_executable_file_path.clone(), environment);
+  let communicator = ProcessPluginCommunicator::new_with_init(&executable_path, {
+    let environment = environment.clone();
+    move |error_message| {
+      // consider messages from process plugins as warnings
+      if environment.log_level().is_warn() {
+        environment.log_stderr_with_context(&error_message, &plugin_name);
+      }
+    }
+  })
+  .await?;
+  let plugin_info = communicator.plugin_info().await?;
+  communicator.shutdown().await;
+
+  Ok(SetupPluginResult {
+    plugin_info,
+    file_path: plugin_executable_file_path,
+  })
 }
 
 pub fn cleanup_process_plugin(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<()> {
@@ -109,41 +184,41 @@ pub fn cleanup_process_plugin(plugin_info: &PluginInfo, environment: &impl Envir
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct ProcessPluginFile {
-  schema_version: u32,
-  name: String,
-  version: String,
+pub struct ProcessPluginFile {
+  pub schema_version: u32,
+  pub name: String,
+  pub version: String,
   #[serde(rename = "linux-x86_64")]
-  linux_x86_64: Option<ProcessPluginPath>,
+  pub linux_x86_64: Option<ProcessPluginPath>,
   #[serde(rename = "linux-x86_64-musl")]
-  linux_x86_64_musl: Option<ProcessPluginPath>,
+  pub linux_x86_64_musl: Option<ProcessPluginPath>,
   #[serde(rename = "linux-aarch64")]
-  linux_aarch64: Option<ProcessPluginPath>,
+  pub linux_aarch64: Option<ProcessPluginPath>,
   #[serde(rename = "linux-aarch64-musl")]
-  linux_aarch64_musl: Option<ProcessPluginPath>,
+  pub linux_aarch64_musl: Option<ProcessPluginPath>,
   #[serde(rename = "linux-riscv64")]
-  linux_riscv64: Option<ProcessPluginPath>,
+  pub linux_riscv64: Option<ProcessPluginPath>,
   #[serde(rename = "linux-riscv64-musl")]
-  linux_riscv64_musl: Option<ProcessPluginPath>,
+  pub linux_riscv64_musl: Option<ProcessPluginPath>,
   #[serde(rename = "linux-loongarch64")]
-  linux_loongarch64: Option<ProcessPluginPath>,
+  pub linux_loongarch64: Option<ProcessPluginPath>,
   #[serde(rename = "linux-loongarch64-musl")]
-  linux_loongarch64_musl: Option<ProcessPluginPath>,
+  pub linux_loongarch64_musl: Option<ProcessPluginPath>,
   #[serde(rename = "darwin-x86_64")]
-  darwin_x86_64: Option<ProcessPluginPath>,
+  pub darwin_x86_64: Option<ProcessPluginPath>,
   #[serde(rename = "darwin-aarch64")]
-  darwin_aarch64: Option<ProcessPluginPath>,
+  pub darwin_aarch64: Option<ProcessPluginPath>,
   #[serde(rename = "windows-x86_64")]
-  windows_x64_64: Option<ProcessPluginPath>,
+  pub windows_x64_64: Option<ProcessPluginPath>,
   #[serde(rename = "windows-aarch64")]
-  windows_aarch64: Option<ProcessPluginPath>,
+  pub windows_aarch64: Option<ProcessPluginPath>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct ProcessPluginPath {
-  reference: String,
-  checksum: String,
+pub struct ProcessPluginPath {
+  pub reference: String,
+  pub checksum: String,
 }
 
 struct ProcessPluginZipBytes {
@@ -157,7 +232,7 @@ async fn get_plugin_zip_bytes<TEnvironment: Environment>(
   plugin_file_bytes: &[u8],
   environment: &TEnvironment,
 ) -> Result<ProcessPluginZipBytes> {
-  let plugin_file = deserialize_file(plugin_file_bytes)?;
+  let plugin_file = parse_process_plugin_file(plugin_file_bytes)?;
   let plugin_path = get_os_path(&plugin_file, environment)?;
   let plugin_zip_path = resolve_url_or_file_path_to_path_source(&plugin_path.reference, &url_or_file_path.parent(), environment)?;
   let plugin_zip_bytes = fetch_file_or_url_bytes(&plugin_zip_path, environment).await?;
@@ -179,7 +254,7 @@ async fn get_plugin_zip_bytes<TEnvironment: Environment>(
   })
 }
 
-fn deserialize_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
+pub fn parse_process_plugin_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
   let plugin_file: Value = match serde_json::from_slice(bytes) {
     Ok(plugin_file) => plugin_file,
     Err(err) => bail!(
@@ -213,7 +288,7 @@ fn verify_plugin_file(plugin_file: &Value) -> Result<()> {
   Ok(())
 }
 
-fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Environment) -> Result<&'a ProcessPluginPath> {
+pub fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl Environment) -> Result<&'a ProcessPluginPath> {
   let arch = environment.cpu_arch();
   let os = environment.os();
   let path = match os.as_str() {

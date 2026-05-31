@@ -21,6 +21,8 @@ In your project's directory with a dprint.json file, run:
 
 ```shellsession
 dprint add biome
+# or install from npm
+dprint add npm:@dprint/biome
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"biome"` property to add configuration:

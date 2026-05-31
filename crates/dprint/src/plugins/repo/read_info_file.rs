@@ -52,7 +52,7 @@ const SCHEMA_VERSION: u8 = 4;
 pub const REMOTE_INFO_URL: &str = "https://plugins.dprint.dev/info.json";
 
 pub async fn read_info_file(environment: &impl Environment) -> Result<InfoFile> {
-  let (_, info_file) = environment.download_file_err_404(&Url::parse(REMOTE_INFO_URL)?).await?;
+  let (_, info_file) = environment.download_file_err_404(&Url::parse(REMOTE_INFO_URL)?, None).await?;
   let info_text = String::from_utf8(info_file.content)?;
   let json_value = parse_to_value(&info_text, &Default::default())?;
   let mut obj = match json_value {

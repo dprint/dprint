@@ -74,6 +74,76 @@ pub static PROCESS_PLUGIN_ZIP_BYTES: Lazy<Vec<u8>> = Lazy::new(|| {
 });
 pub static PROCESS_PLUGIN_ZIP_CHECKSUM: Lazy<String> = Lazy::new(|| crate::utils::get_sha256_checksum(&PROCESS_PLUGIN_ZIP_BYTES));
 
+/// Raw bytes of the test process plugin executable — used by tests that
+/// stuff it into a per-platform npm tarball for the `pre_resolved_tarball`
+/// path (npm-installed process plugins ship the executable inside the
+/// tarball; dprint extracts the full tarball at setup time).
+pub static PROCESS_PLUGIN_BINARY_BYTES: Lazy<Vec<u8>> = Lazy::new(|| std::fs::read(&*TEST_PROCESS_PLUGIN_PATH).unwrap());
+
+/// Filename that a per-platform npm package would ship for the test process
+/// plugin's executable (`test-process-plugin.exe` on Windows, otherwise
+/// `test-process-plugin`).
+pub fn process_plugin_binary_filename() -> &'static str {
+  if cfg!(target_os = "windows") {
+    "test-process-plugin.exe"
+  } else {
+    "test-process-plugin"
+  }
+}
+
+/// Builds a gzipped tar with the given (path, contents) entries. Paths must
+/// share a single top-level directory (npm tarballs always wrap under `package/`).
+pub fn create_test_npm_tarball(files: &[(&str, &[u8])]) -> Vec<u8> {
+  let with_mode: Vec<_> = files.iter().map(|(p, c)| (*p, *c, 0o644u32)).collect();
+  create_test_npm_tarball_with_modes(&with_mode)
+}
+
+/// Like `create_test_npm_tarball` but each entry carries its own unix mode.
+pub fn create_test_npm_tarball_with_modes(files: &[(&str, &[u8], u32)]) -> Vec<u8> {
+  build_tarball(files, |header, path| header.set_path(path).unwrap())
+}
+
+/// Like `create_test_npm_tarball` but writes path bytes directly, bypassing
+/// the tar crate's `..` rejection in `set_path`. For exercising defenses
+/// against malicious tarballs.
+pub fn create_test_npm_tarball_raw_paths(files: &[(&str, &[u8])]) -> Vec<u8> {
+  let with_mode: Vec<_> = files.iter().map(|(p, c)| (*p, *c, 0o644u32)).collect();
+  build_tarball(&with_mode, |header, path| {
+    let bytes = path.as_bytes();
+    let name = &mut header.as_old_mut().name;
+    if bytes.len() > name.len() {
+      panic!(
+        "raw tar path is too long for the legacy tar header name field: {} bytes > {} bytes: {}",
+        bytes.len(),
+        name.len(),
+        path
+      );
+    }
+    name.fill(0);
+    name[..bytes.len()].copy_from_slice(bytes);
+  })
+}
+
+fn build_tarball(files: &[(&str, &[u8], u32)], mut set_name: impl FnMut(&mut tar::Header, &str)) -> Vec<u8> {
+  use flate2::Compression;
+  use flate2::write::GzEncoder;
+
+  let mut tar_builder = tar::Builder::new(Vec::new());
+  for (path, contents, mode) in files {
+    let mut header = tar::Header::new_gnu();
+    set_name(&mut header, path);
+    header.set_size(contents.len() as u64);
+    header.set_mode(*mode);
+    header.set_cksum();
+    tar_builder.append(&header, *contents).unwrap();
+  }
+  let tar_bytes = tar_builder.into_inner().unwrap();
+
+  let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+  std::io::Write::write_all(&mut encoder, &tar_bytes).unwrap();
+  encoder.finish().unwrap()
+}
+
 #[derive(Debug, Error)]
 #[error("{inner:#}")]
 pub struct TestAppError {

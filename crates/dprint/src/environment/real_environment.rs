@@ -4,6 +4,7 @@ use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use std::borrow::Cow;
+use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs;
 use std::hash::Hash;
@@ -14,12 +15,14 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::SystemTime;
+use sys_traits::BaseEnvVar;
 use sys_traits::BaseFsCreateDir;
 use sys_traits::BaseFsMetadata;
 use sys_traits::BaseFsOpen;
 use sys_traits::BaseFsRead;
 use sys_traits::BaseFsRemoveFile;
 use sys_traits::BaseFsRename;
+use sys_traits::BaseFsSetPermissions;
 use sys_traits::CreateDirOptions;
 use sys_traits::SystemRandom;
 use sys_traits::SystemTimeNow;
@@ -126,6 +129,12 @@ impl BaseFsCreateDir for RealEnvironment {
   }
 }
 
+impl BaseEnvVar for RealEnvironment {
+  fn base_env_var_os(&self, key: &OsStr) -> Option<OsString> {
+    RealSys.base_env_var_os(key)
+  }
+}
+
 impl BaseFsMetadata for RealEnvironment {
   type Metadata = sys_traits::impls::RealFsMetadata;
 
@@ -164,6 +173,12 @@ impl BaseFsRename for RealEnvironment {
   }
 }
 
+impl BaseFsSetPermissions for RealEnvironment {
+  fn base_fs_set_permissions(&self, path: &Path, mode: u32) -> io::Result<()> {
+    RealSys.base_fs_set_permissions(path, mode)
+  }
+}
+
 impl ThreadSleep for RealEnvironment {
   fn thread_sleep(&self, duration: std::time::Duration) {
     std::thread::sleep(duration);
@@ -186,12 +201,13 @@ impl SystemTimeNow for RealEnvironment {
 
 #[async_trait(?Send)]
 impl UrlDownloader for RealEnvironment {
-  async fn download_file_no_redirects(&self, url: &Url) -> Result<Option<DownloadedFile>> {
+  async fn download_file_no_redirects(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
     log_debug!(self, "Downloading url: {}", url);
 
     let downloader = self.url_downloader.clone();
     let url = url.clone();
-    dprint_core::async_runtime::spawn_blocking(move || downloader.download(&url)).await?
+    let auth = auth.map(|s| s.to_string());
+    dprint_core::async_runtime::spawn_blocking(move || downloader.download_with_auth(&url, auth.as_deref())).await?
   }
 }
 

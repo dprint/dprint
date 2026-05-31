@@ -11,12 +11,14 @@ use std::sync::Arc;
 use url::Url;
 
 use dprint_core::async_runtime::async_trait;
+use sys_traits::BaseEnvVar;
 use sys_traits::BaseFsCreateDir;
 use sys_traits::BaseFsMetadata;
 use sys_traits::BaseFsOpen;
 use sys_traits::BaseFsRead;
 use sys_traits::BaseFsRemoveFile;
 use sys_traits::BaseFsRename;
+use sys_traits::BaseFsSetPermissions;
 use sys_traits::SystemRandom;
 use sys_traits::SystemTimeNow;
 use sys_traits::ThreadSleep;
@@ -66,18 +68,29 @@ pub trait UrlDownloader {
   /// Downloads a file without following redirects. Returns the raw response
   /// headers and content. A redirect response will have a `location` header
   /// and empty content.
-  async fn download_file_no_redirects(&self, url: &Url) -> Result<Option<DownloadedFile>>;
+  async fn download_file_no_redirects(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>>;
 
   /// Downloads a file, following redirects, and returns `None` on 404.
-  async fn download_file<'a>(&self, url: &'a Url) -> Result<(Cow<'a, Url>, Option<DownloadedFile>)> {
+  async fn download_file<'a>(&self, url: &'a Url, auth: Option<&str>) -> Result<(Cow<'a, Url>, Option<DownloadedFile>)> {
+    let original_origin = (url.scheme().to_string(), url.host_str().map(|h| h.to_string()), url.port_or_known_default());
     let mut current_url = Cow::Borrowed(url);
+    let mut current_auth = auth;
     for _ in 0..=10 {
-      let result = match self.download_file_no_redirects(&current_url).await? {
+      let result = match self.download_file_no_redirects(&current_url, current_auth).await? {
         Some(r) => r,
         None => return Ok((current_url, None)),
       };
       if let Some(location) = result.headers.get("location") {
         current_url = Cow::Owned(current_url.join(location)?);
+        // drop the auth on a cross-origin redirect
+        let new_origin = (
+          current_url.scheme().to_string(),
+          current_url.host_str().map(|h| h.to_string()),
+          current_url.port_or_known_default(),
+        );
+        if new_origin != original_origin {
+          current_auth = None;
+        }
         continue;
       }
       return Ok((current_url, Some(result)));
@@ -86,8 +99,8 @@ pub trait UrlDownloader {
   }
 
   /// Downloads a file, following redirects, and errors when not found.
-  async fn download_file_err_404<'a>(&self, url: &'a Url) -> Result<(Cow<'a, Url>, DownloadedFile)> {
-    match self.download_file(url).await {
+  async fn download_file_err_404<'a>(&self, url: &'a Url, auth: Option<&str>) -> Result<(Cow<'a, Url>, DownloadedFile)> {
+    match self.download_file(url, auth).await {
       Ok((url, Some(value))) => Ok((url, value)),
       Ok((url, None)) => bail!("Error downloading {} - 404 Not Found", url),
       Err(err) => Err(err),
@@ -102,12 +115,14 @@ pub trait Environment:
   + Sync
   + std::fmt::Debug
   + UrlDownloader
+  + BaseEnvVar
   + BaseFsCreateDir
   + BaseFsMetadata
   + BaseFsOpen
   + BaseFsRead
   + BaseFsRemoveFile
   + BaseFsRename
+  + BaseFsSetPermissions
   + ThreadSleep
   + SystemRandom
   + SystemTimeNow

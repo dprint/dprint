@@ -375,7 +375,7 @@ fn template_expand(path_ctx: ConfigPathContext, config_map: &mut ConfigMap) -> R
             PathSource::Local(source) => {
               parts.push(Cow::Owned(source.path.parent().unwrap().to_string_lossy().to_string()));
             }
-            PathSource::Remote(_) => {
+            PathSource::Remote(_) | PathSource::Npm(_) => {
               bail!("Cannot use ${{configDir}} template in remote configuration files. Maybe use ${{originConfigDir}} instead?");
             }
           },
@@ -387,6 +387,12 @@ fn template_expand(path_ctx: ConfigPathContext, config_map: &mut ConfigMap) -> R
               bail!(
                 "Cannot use ${{originConfigDir}} template when the origin configuration file ({}) is remote.",
                 origin.url,
+              );
+            }
+            PathSource::Npm(npm) => {
+              bail!(
+                "Cannot use ${{originConfigDir}} template when the origin configuration file ({}) is an npm package.",
+                npm.specifier.display(),
               );
             }
           },

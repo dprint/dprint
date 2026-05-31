@@ -43,7 +43,7 @@ impl PluginUpdateUrlInfo {
 }
 
 pub async fn read_update_url(downloader: &impl UrlDownloader, url: &Url) -> Result<Option<PluginUpdateUrlInfo>> {
-  let info_bytes = match downloader.download_file(url).await?.1 {
+  let info_bytes = match downloader.download_file(url, None).await?.1 {
     Some(result) => result.content,
     None => return Ok(None),
   };
