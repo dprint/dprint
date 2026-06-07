@@ -67,7 +67,6 @@ pub struct PluginConfigOverride {
   files: Vec<String>,
   properties: ConfigKeyMap,
   config_id: FormatConfigId,
-  #[allow(dead_code)]
   matcher: GlobMatcher,
 }
 
@@ -150,7 +149,6 @@ impl PluginWithConfig {
     self.format_config.global.hash(hasher);
   }
 
-  #[allow(dead_code)]
   pub fn get_config_file_overrides_for_path(&self, file_path: &Path) -> ConfigKeyMap {
     let mut result = ConfigKeyMap::new();
     for override_config in &self.overrides {
@@ -163,7 +161,6 @@ impl PluginWithConfig {
     result
   }
 
-  #[allow(dead_code)]
   pub fn get_merged_overrides_for_path(&self, file_path: &Path, request_override_config: &ConfigKeyMap) -> ConfigKeyMap {
     let mut result = self.get_config_file_overrides_for_path(file_path);
     for (key, value) in request_override_config.iter() {
