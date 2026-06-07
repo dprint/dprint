@@ -8,6 +8,9 @@ pub use wasm::WASMER_COMPILER_VERSION;
 pub use wasm::WasmModuleCreator;
 pub use wasm::compile as compile_wasm;
 
+pub use process::get_os_path as get_process_plugin_os_path;
+pub use process::parse_process_plugin_file;
+
 #[cfg(test)]
 mod test {
   use std::path::PathBuf;
@@ -26,6 +29,7 @@ mod test {
   use crate::plugins::PluginCache;
   use crate::plugins::PluginResolver;
   use crate::resolution::PluginWithConfig;
+  use crate::resolution::PluginWithConfigOptions;
   use crate::resolution::PluginsScope;
 
   #[test]
@@ -51,8 +55,17 @@ mod test {
             plugin: Default::default(),
           });
           let instance = plugin.initialize().await.unwrap();
-          let file_matching_info = instance.file_matching_info(format_config.clone()).await.unwrap();
-          plugins_with_config.push(Rc::new(PluginWithConfig::new(plugin, None, format_config, file_matching_info)));
+          let file_matching = instance.file_matching_info(format_config.clone()).await.unwrap();
+          let serialized_resolved_config = instance.resolved_config(format_config.clone()).await.unwrap();
+          plugins_with_config.push(Rc::new(PluginWithConfig::new(
+            plugin,
+            PluginWithConfigOptions {
+              associations: None,
+              format_config,
+              file_matching,
+              serialized_resolved_config,
+            },
+          )));
         }
         let scope = Rc::new(PluginsScope::new(environment.clone(), plugins_with_config, config, Vec::new()).unwrap());
         let token = Arc::new(CancellationToken::new());
@@ -106,8 +119,17 @@ mod test {
             plugin: Default::default(),
           });
           let instance = plugin.initialize().await.unwrap();
-          let file_matching_info = instance.file_matching_info(format_config.clone()).await.unwrap();
-          plugins_with_config.push(Rc::new(PluginWithConfig::new(plugin, None, format_config, file_matching_info)));
+          let file_matching = instance.file_matching_info(format_config.clone()).await.unwrap();
+          let serialized_resolved_config = instance.resolved_config(format_config.clone()).await.unwrap();
+          plugins_with_config.push(Rc::new(PluginWithConfig::new(
+            plugin,
+            PluginWithConfigOptions {
+              associations: None,
+              format_config,
+              file_matching,
+              serialized_resolved_config,
+            },
+          )));
         }
         let scope = Rc::new(PluginsScope::new(environment.clone(), plugins_with_config, config, Vec::new()).unwrap());
         let token = Arc::new(CancellationToken::new());

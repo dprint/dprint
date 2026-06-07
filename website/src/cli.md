@@ -54,6 +54,14 @@ dprint fmt --staged
 
 Note: This requires that [git](https://git-scm.com/) is installed and that you use git for source control.
 
+### Ignoring .gitignore
+
+By default, dprint respects `.gitignore` files and excludes any gitignored files from formatting. To disable this behaviour, use the `--no-gitignore` flag:
+
+```sh
+dprint fmt --no-gitignore
+```
+
 ### Formatting Standard Input
 
 Use `dprint fmt --stdin <file-path/file-name/extension>` and provide the input file text to stdin. The output will be directed by the CLI to stdout.

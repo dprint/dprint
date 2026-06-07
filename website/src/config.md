@@ -105,25 +105,65 @@ To update configuration files in descendant directories, run `dprint config upda
 
 ### Using Plugins from npm
 
-Plugins can be resolved from npm packages instead of URLs. This can be useful in environments where downloading from `plugins.dprint.dev`/GitHub releases is restricted or if you're using npm and want to get your dependencies from one place.
+Plugins can be referenced by npm specifiers instead of HTTPS URLs. This is useful in environments where downloading from `plugins.dprint.dev` or other domains is restricted, or when you're already using npm and want one place to download dependencies from.
 
-First, install the plugin's npm package:
+Supported `npm:` specifier forms:
 
-```sh
-npm install @dprint/typescript
-```
-
-Then reference the `.wasm` file within the plugin by file path in your dprint configuration:
-
-```json
+```jsonc
 {
   "plugins": [
-    "./node_modules/@dprint/typescript/plugin.wasm"
-  ]
+    // resolve a pinned version from the npm registry (wasm plugin)
+    "npm:@dprint/typescript@0.95.15",
+
+    // process plugin — requires a tarball checksum
+    "npm:@dprint/prettier@0.50.0/plugin.json@<sha256>",
+
+    // resolve from your local node_modules, walking up from the config file
+    // (use this when an npm package manager manages the version)
+    "npm:@dprint/json",
+  ],
 }
 ```
 
-Available npm packages include `@dprint/typescript`, `@dprint/json`, `@dprint/markdown`, `@dprint/toml`, `@dprint/dockerfile`, `@dprint/biome`, `@dprint/oxc`, `@dprint/ruff`, `@dprint/sql`, and `@dprint/mago`.
+Behaviour:
+
+- A version after `@` makes dprint fetch the package from the npm registry and cache it. Wasm plugins don't need a checksum; process plugins do (the `@<sha256>` after the path).
+- Omitting the version (`npm:@scope/name`) tells dprint to look up the package in `node_modules` walking up from the config file's directory. Use this when you want npm and your lockfile to be the source of truth.
+- The registry is resolved from `NPM_CONFIG_REGISTRY`, then `.npmrc` files walking up from the config, then `~/.npmrc`, then the default `https://registry.npmjs.org`. Scoped registries are supported.
+- `dprint config update` will bump versioned npm specifiers to the latest published version (and compute the new checksum for process plugins). Unversioned specifiers are managed by your package manager, so they're skipped.
+- `dprint add npm:@scope/name` resolves to the latest version and writes the pinned form, unless the package is listed in a nearby `package.json` under `devDependencies` — in which case the unversioned form is written so npm/`package-lock.json` stays the source of truth.
+
+Available npm packages include `@dprint/typescript`, `@dprint/json`, `@dprint/markdown`, `@dprint/toml`, `@dprint/dockerfile`, `@dprint/biome`, `@dprint/oxc`, `@dprint/ruff`, `@dprint/sql`, `@dprint/mago`, `@dprint/jupyter`, `@dprint/exec`, `@dprint/prettier`, and `@dprint/roslyn`.
+
+You can also reference a plugin file directly in `node_modules` if you prefer (`"./node_modules/@dprint/typescript/plugin.wasm"`); the `npm:` form just removes the need for that path.
+
+#### Private npm registries
+
+dprint reads `.npmrc` files (walking up from the config, then `~/.npmrc`) to pick a registry and credentials. Both common auth schemes are supported:
+
+```
+@mycorp:registry=https://npm.mycorp.com
+//npm.mycorp.com/:_authToken=${MYCORP_NPM_TOKEN}
+```
+
+- `_authToken=…` → sent as `Authorization: Bearer …`
+- `_auth=…` (already base64-encoded user:pass) → sent as `Authorization: Basic …`
+- `${VAR}` substitution works the same as for npm itself.
+
+Credentials are dropped on cross-origin redirects (e.g. a registry that redirects tarball downloads to a CDN on a different host), so they never leak outside the configured registry.
+
+#### Process plugins distributed via npm
+
+A process plugin's `plugin.json` lists per-platform binaries; for npm-installed process plugins the `reference` field must be one of:
+
+- a relative path (`"./bin.zip"`) or `file:///…` URL — resolved against the plugin.json's directory inside the npm package. This is the simplest layout: ship `plugin.json` and `bin.zip` together in one npm package.
+- an `npm:` specifier — used when the per-platform binary lives in a separate npm package (e.g., the manifest references `npm:@scope/foo-linux-x86_64@1.0.0/plugin.zip` and the dep is installed alongside via npm `optionalDependencies`).
+
+`http://` and `https://` references are rejected for npm-installed process plugins. The whole point of installing via npm is to avoid surprise network fetches at format time, so the binary must come from the npm package(s) you already installed.
+
+#### Cache layout
+
+Resolved npm packages are extracted under `<dprint-cache>/npm/<registry-host>/<name>@<version>/`. Different registries (public vs. private mirror) get separate directories. Compiled wasm modules and extracted process-plugin binaries continue to live under `<dprint-cache>/plugins/`. `dprint clear-cache` wipes everything.
 
 ### Editing Config via CLI
 
@@ -160,6 +200,8 @@ Files that are gitignored will be excluded by default, but you can "un-exclude" 
   ]
 }
 ```
+
+Alternatively, you can disable all `.gitignore` handling with the `--no-gitignore` CLI flag (see [CLI docs](/cli#ignoring-gitignore)).
 
 ## Includes
 

@@ -4,6 +4,7 @@ mod cache_manifest;
 mod helpers;
 mod implementations;
 mod name_resolution;
+mod npm_resolution;
 mod plugin;
 mod repo;
 mod resolver;
@@ -19,3 +20,5 @@ pub use types::*;
 
 pub use implementations::compile_wasm;
 pub use name_resolution::PluginNameResolutionMaps;
+pub use npm_resolution::FetchNpmLatestInfo;
+pub use npm_resolution::fetch_npm_latest_info;

@@ -64,7 +64,7 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
     latest_version, zip_filename
   ))?;
 
-  let (_, zip_file) = environment.download_file_err_404(&zip_url).await?;
+  let (_, zip_file) = environment.download_file_err_404(&zip_url, None).await?;
   let old_executable = exe_path.with_extension("old.exe");
 
   if !environment.is_real() {

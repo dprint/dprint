@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run -A
-import { createWorkflow, expr, job, step } from "jsr:@david/gagen@0.3.2";
+import { expr, job, step, workflow } from "jsr:@david/gagen@0.4.0";
 
 const buildSteps = step(
   { name: "Checkout", uses: "actions/checkout@v6", with: { "persist-credentials": false } },
@@ -21,7 +21,7 @@ const deploy = step({
   },
 }).dependsOn(buildSteps);
 
-createWorkflow({
+workflow({
   name: "Website",
   on: {
     workflow_dispatch: {

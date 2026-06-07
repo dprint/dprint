@@ -188,9 +188,22 @@ pub struct FmtSubCommand {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ConfigSubCommand {
-  Init { global: bool },
-  Update { yes: bool },
-  Add(Vec<String>),
+  Init {
+    global: bool,
+  },
+  Update {
+    yes: bool,
+  },
+  Add {
+    names: Vec<String>,
+    /// Skip the auto-pin to `dist-tags.latest` for `npm:` specifiers and
+    /// write the unversioned form (deferring to node_modules / package.json).
+    no_version: bool,
+    /// Also update the nearest `package.json`'s `devDependencies` with the
+    /// resolved latest version (as a caret range). Implies `no_version`,
+    /// since pinning in dprint.json would just duplicate the version.
+    package_json: bool,
+  },
   Edit,
 }
 
@@ -233,6 +246,7 @@ pub struct FilePatternArgs {
   pub exclude_patterns: Vec<String>,
   pub exclude_pattern_overrides: Option<Vec<String>>,
   pub allow_node_modules: bool,
+  pub no_gitignore: bool,
   pub only_staged: bool,
 }
 
@@ -252,12 +266,19 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
   }
 
   fn parse_add(matches: &ArgMatches) -> ConfigSubCommand {
-    ConfigSubCommand::Add(
-      matches
-        .get_many::<String>("url-or-plugin-name")
-        .map(|v| v.cloned().collect())
-        .unwrap_or_default(),
-    )
+    let names = matches
+      .get_many::<String>("url-or-plugin-name")
+      .map(|v| v.cloned().collect())
+      .unwrap_or_default();
+    let package_json = matches.get_flag("package-json");
+    // --package-json implies --no-version: writing a pinned spec to
+    // dprint.json on top of a devDependencies entry would be duplication.
+    let no_version = package_json || matches.get_flag("no-version");
+    ConfigSubCommand::Add {
+      names,
+      no_version,
+      package_json,
+    }
   }
 
   // this is all done because clap doesn't output exactly how I like
@@ -434,6 +455,7 @@ fn parse_file_patterns(matches: &ArgMatches) -> Result<FilePatternArgs> {
   Ok(FilePatternArgs {
     only_staged: matches.get_flag("staged"),
     allow_node_modules: matches.get_flag("allow-node-modules"),
+    no_gitignore: matches.get_flag("no-gitignore"),
     include_patterns: file_patterns,
     include_pattern_overrides: matches.get_many("includes-override").map(values_to_vec),
     exclude_patterns: maybe_values_to_vec(matches.get_many("excludes")),
@@ -516,6 +538,22 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
           .short('g')
           .conflicts_with("config-discovery")
           .help("Add to the global dprint configuration file.")
+          .num_args(0)
+          .required(false),
+      )
+      .arg(
+        Arg::new("no-version")
+          .long("no-version")
+          .help(
+            "For npm: specifiers, write the unversioned form instead of pinning dist-tags.latest. Defers version management to node_modules / package.json.",
+          )
+          .num_args(0)
+          .required(false),
+      )
+      .arg(
+        Arg::new("package-json")
+          .long("package-json")
+          .help("Like --no-version, and also add the package to the nearest package.json's devDependencies as a caret range.")
           .num_args(0)
           .required(false),
       )
@@ -863,6 +901,12 @@ impl ClapExtensions for clap::Command {
           .help("Allows traversing node module directories (unstable - This flag will be renamed to be non-node specific in the future).")
           .num_args(0),
       )
+      .arg(
+        Arg::new("no-gitignore")
+          .long("no-gitignore")
+          .help("Disables respecting .gitignore files.")
+          .num_args(0),
+      )
   }
 
   fn add_incremental_arg(self) -> Self {
@@ -999,15 +1043,21 @@ mod test {
   fn top_level_add_alias() {
     let args = test_args(vec!["add"]).unwrap();
     match &args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Add(names)) => {
+      SubCommand::Config(ConfigSubCommand::Add {
+        names,
+        no_version,
+        package_json,
+      }) => {
         assert!(names.is_empty());
+        assert!(!no_version);
+        assert!(!package_json);
       }
       _ => unreachable!(),
     }
 
     let args = test_args(vec!["add", "typescript"]).unwrap();
     match &args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Add(names)) => {
+      SubCommand::Config(ConfigSubCommand::Add { names, .. }) => {
         assert_eq!(names, &["typescript"]);
       }
       _ => unreachable!(),
@@ -1015,8 +1065,37 @@ mod test {
 
     let args = test_args(vec!["add", "typescript", "json", "markdown"]).unwrap();
     match &args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Add(names)) => {
+      SubCommand::Config(ConfigSubCommand::Add { names, .. }) => {
         assert_eq!(names, &["typescript", "json", "markdown"]);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn add_no_version_flag() {
+    let args = test_args(vec!["add", "--no-version", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add {
+        names,
+        no_version,
+        package_json,
+      }) => {
+        assert_eq!(names, &["npm:@dprint/typescript"]);
+        assert!(*no_version);
+        assert!(!*package_json);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn add_package_json_flag_implies_no_version() {
+    let args = test_args(vec!["add", "--package-json", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { no_version, package_json, .. }) => {
+        assert!(*no_version, "--package-json should imply --no-version");
+        assert!(*package_json);
       }
       _ => unreachable!(),
     }

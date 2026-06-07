@@ -64,17 +64,30 @@ pub struct PluginWithConfig {
   pub associations: Option<Vec<String>>,
   pub format_config: Arc<FormatConfig>,
   pub file_matching: FileMatchingInfo,
+  /// The plugin's resolved configuration serialized as JSON. This is used by
+  /// the incremental hash so that values the plugin derives at resolution time
+  /// (ex. the exec plugin's `cacheKeyFiles` hash) invalidate the cache.
+  serialized_resolved_config: String,
   config_diagnostic_count: tokio::sync::Mutex<Option<usize>>,
 }
 
+pub struct PluginWithConfigOptions {
+  pub associations: Option<Vec<String>>,
+  pub format_config: Arc<FormatConfig>,
+  pub file_matching: FileMatchingInfo,
+  /// The plugin's resolved configuration serialized as JSON.
+  pub serialized_resolved_config: String,
+}
+
 impl PluginWithConfig {
-  pub fn new(plugin: Rc<PluginWrapper>, associations: Option<Vec<String>>, format_config: Arc<FormatConfig>, file_matching: FileMatchingInfo) -> Self {
+  pub fn new(plugin: Rc<PluginWrapper>, options: PluginWithConfigOptions) -> Self {
     Self {
       plugin,
-      associations,
-      format_config,
+      associations: options.associations,
+      format_config: options.format_config,
       config_diagnostic_count: Default::default(),
-      file_matching,
+      file_matching: options.file_matching,
+      serialized_resolved_config: options.serialized_resolved_config,
     }
   }
 
@@ -92,6 +105,11 @@ impl PluginWithConfig {
       hasher.write(key.as_bytes());
       value.hash(hasher);
     }
+
+    // include the plugin's resolved config so that anything it derives at
+    // resolution time but isn't present in the raw config map (ex. the exec
+    // plugin folding `cacheKeyFiles` contents into its `cacheKey`) busts the cache
+    hasher.write(self.serialized_resolved_config.as_bytes());
 
     if let Some(associations) = &self.associations {
       for association in associations {
@@ -616,12 +634,16 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
         global: global_config,
         plugin: plugin_config.properties,
       });
-      let file_matching_info = instance.file_matching_info(format_config.clone()).await?;
+      let file_matching = instance.file_matching_info(format_config.clone()).await?;
+      let serialized_resolved_config = instance.resolved_config(format_config.clone()).await?;
       Ok::<_, anyhow::Error>(Rc::new(PluginWithConfig::new(
         plugin,
-        plugin_config.associations,
-        format_config,
-        file_matching_info,
+        PluginWithConfigOptions {
+          associations: plugin_config.associations,
+          format_config,
+          file_matching,
+          serialized_resolved_config,
+        },
       )))
     }
     .boxed_local()
@@ -633,4 +655,58 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   }
 
   Ok(PluginsScope::new(environment.clone(), plugins, config, global_config_result.diagnostics)?)
+}
+
+#[cfg(test)]
+mod test {
+  use dprint_core::plugins::FileMatchingInfo;
+  use dprint_core::plugins::FormatConfigId;
+
+  use crate::plugins::FormatConfig;
+  use crate::plugins::PluginWrapper;
+  use crate::plugins::TestPlugin;
+
+  use super::*;
+
+  // a plugin can derive values at resolution time that aren't present in the
+  // raw config map (ex. the exec plugin folds the contents of `cacheKeyFiles`
+  // into its `cacheKey`). these must participate in the incremental hash so that
+  // changing one of those files invalidates the cache. see issue #1135.
+  #[test]
+  fn incremental_hash_includes_resolved_config() {
+    fn hash_with_resolved_config(resolved_config: &str) -> u64 {
+      let plugin = Rc::new(PluginWrapper::new(Box::new(TestPlugin::new("test-plugin", "test-plugin", vec!["txt"], vec![]))));
+      let format_config = Arc::new(FormatConfig {
+        id: FormatConfigId::from_raw(1),
+        global: Default::default(),
+        plugin: Default::default(),
+      });
+      let plugin_with_config = PluginWithConfig::new(
+        plugin,
+        PluginWithConfigOptions {
+          associations: None,
+          format_config,
+          file_matching: FileMatchingInfo {
+            file_extensions: vec!["txt".to_string()],
+            file_names: vec![],
+          },
+          serialized_resolved_config: resolved_config.to_string(),
+        },
+      );
+      let mut hasher = FastInsecureHasher::default();
+      plugin_with_config.incremental_hash(&mut hasher);
+      hasher.finish()
+    }
+
+    // the same raw config map but a different resolved config must produce a different hash
+    assert_ne!(
+      hash_with_resolved_config(r#"{"cacheKey":"a"}"#),
+      hash_with_resolved_config(r#"{"cacheKey":"b"}"#)
+    );
+    // and the same resolved config must produce the same hash
+    assert_eq!(
+      hash_with_resolved_config(r#"{"cacheKey":"a"}"#),
+      hash_with_resolved_config(r#"{"cacheKey":"a"}"#)
+    );
+  }
 }

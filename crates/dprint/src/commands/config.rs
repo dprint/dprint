@@ -8,6 +8,7 @@ use dprint_core::plugins;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ffi::OsString;
+use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use url::Url;
@@ -18,10 +19,12 @@ use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
+use crate::plugins::FetchNpmLatestInfo;
 use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginWrapper;
+use crate::plugins::fetch_npm_latest_info;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
 use crate::resolution::GetPluginResult;
@@ -92,6 +95,9 @@ pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environ
     PathSource::Remote(source) => {
       bail!("Cannot edit a remote configuration file '{}'", source.url)
     }
+    PathSource::Npm(source) => {
+      bail!("Cannot edit an npm configuration '{}'", source.specifier.display())
+    }
   };
 
   let args = select_editor_args(environment)
@@ -116,19 +122,47 @@ pub async fn edit_config_file<TEnvironment: Environment>(args: &CliArgs, environ
   Ok(())
 }
 
+pub struct AddPluginsOptions<'a> {
+  pub plugin_names_or_urls: &'a [String],
+  /// Skip auto-pinning `dist-tags.latest` for `npm:` specifiers — write the
+  /// unversioned form (deferring to node_modules / package.json).
+  pub no_version: bool,
+  /// In addition to writing the unversioned spec to dprint.json, add each
+  /// `npm:` package to the nearest `package.json`'s `devDependencies`
+  /// (as a caret range). Implies `no_version`.
+  pub update_package_json: bool,
+}
+
 pub async fn add_plugin_config_file<TEnvironment: Environment>(
   args: &CliArgs,
-  plugin_names_or_urls: &[String],
+  options: AddPluginsOptions<'_>,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
+  let AddPluginsOptions {
+    plugin_names_or_urls,
+    no_version,
+    update_package_json,
+  } = options;
   let config = resolve_config_from_args(args, environment).await?;
   let config_path = match config.source {
     PathSource::Local(source) => source.path,
-    PathSource::Remote(_) => bail!("Cannot update plugins in a remote configuration."),
+    PathSource::Remote(_) | PathSource::Npm(_) => bail!("Cannot update plugins in a remote configuration."),
   };
 
+  // Track npm packages we still need to write to package.json after the
+  // config update succeeds. Walked-up package.json lookup happens once at
+  // the end so a batch add only touches the file once.
+  let mut package_json_additions: Vec<(String, String)> = Vec::new();
+  // npm packages whose pre-existing config entry should be dropped before the
+  // freshly-resolved specifier is appended (so re-adding replaces rather than
+  // duplicates). Applied alongside the additions in the single read/write below.
+  let mut npm_packages_to_replace: Vec<String> = Vec::new();
+
   let plugin_urls_to_add = if plugin_names_or_urls.is_empty() {
+    if no_version || update_package_json {
+      bail!("--no-version / --package-json require an explicit `npm:` specifier.");
+    }
     let mut possible_plugins = get_possible_plugins_to_add(environment, plugin_resolver, config.plugins).await?;
     if possible_plugins.is_empty() {
       bail!("Could not find any plugins to add. Please provide one by specifying `dprint add <plugin-url>`.");
@@ -142,33 +176,110 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
   } else {
     let mut urls = Vec::with_capacity(plugin_names_or_urls.len());
     for plugin_name_or_url in plugin_names_or_urls {
-      if let Some(url) = resolve_plugin_url_to_add(plugin_name_or_url, &config_path, &config.plugins, environment, plugin_resolver).await? {
+      if let Some(url) = resolve_plugin_url_to_add(
+        ResolvePluginUrlOptions {
+          plugin_name_or_url,
+          config_path: &config_path,
+          config_plugins: &config.plugins,
+          no_version,
+          update_package_json,
+        },
+        &mut package_json_additions,
+        &mut npm_packages_to_replace,
+        environment,
+        plugin_resolver,
+      )
+      .await?
+      {
         urls.push(url);
       }
     }
     urls
   };
 
-  let mut file_text = environment.read_file(&config_path)?;
-  for plugin_url in &plugin_urls_to_add {
-    file_text = add_to_plugins_array(&file_text, plugin_url)?;
-  }
+  let file_text = environment.read_file(&config_path)?;
+  let file_text = add_plugins_to_config(&file_text, &npm_packages_to_replace, &plugin_urls_to_add)?;
   environment.write_file(&config_path, &file_text)?;
 
+  if update_package_json && !package_json_additions.is_empty() {
+    apply_package_json_additions(&config_path, &package_json_additions, environment)?;
+  }
+
   Ok(())
+}
+
+/// Inputs to [`resolve_plugin_url_to_add`]. Bundled to keep the function
+/// signature manageable; the environment and plugin resolver are passed
+/// alongside as services rather than fields here.
+struct ResolvePluginUrlOptions<'a> {
+  plugin_name_or_url: &'a str,
+  config_path: &'a CanonicalizedPathBuf,
+  config_plugins: &'a [PluginSourceReference],
+  no_version: bool,
+  update_package_json: bool,
+}
+
+/// What `resolve_npm_plugin_to_add` decided to write into the config plus
+/// (when `--package-json` was set and the package needed pinning) the
+/// devDependencies entry the caller should queue.
+#[derive(Debug)]
+struct ResolvedNpmPluginAdd {
+  url: String,
+  /// The package name, so the caller can drop any pre-existing entry for the
+  /// same package before appending this one.
+  package_name: String,
+  package_json_addition: Option<(String, String)>,
 }
 
 /// Resolves a plugin name or URL to a plugin URL to add to the config.
 ///
 /// Returns `Some(url)` for new plugins, or `None` if the plugin was already
-/// present and was updated in-place.
+/// present and was updated in-place. When the input is an `npm:` specifier
+/// resolved with `--package-json`, the caller queues the returned
+/// devDependencies entry via `package_json_additions`.
 async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
-  plugin_name_or_url: &str,
-  config_path: &CanonicalizedPathBuf,
-  config_plugins: &[PluginSourceReference],
+  options: ResolvePluginUrlOptions<'_>,
+  package_json_additions: &mut Vec<(String, String)>,
+  npm_packages_to_replace: &mut Vec<String>,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<Option<String>> {
+  let ResolvePluginUrlOptions {
+    plugin_name_or_url,
+    config_path,
+    config_plugins,
+    no_version,
+    update_package_json,
+  } = options;
+  // intercept npm: specifiers before URL parsing. For unversioned forms,
+  // defer to package.json devDependencies if present (so npm/node_modules
+  // manages the version), otherwise resolve dist-tags.latest and compute
+  // the tarball checksum for process plugins. Url::parse would otherwise
+  // accept `npm:foo` as a valid URL and pass it through without pinning.
+  if plugin_name_or_url.starts_with("npm:") {
+    let resolved = resolve_npm_plugin_to_add(
+      ResolveNpmPluginOptions {
+        text: plugin_name_or_url,
+        config_path,
+        no_version,
+        update_package_json,
+      },
+      environment,
+    )
+    .await?;
+    if let Some(addition) = resolved.package_json_addition {
+      package_json_additions.push(addition);
+    }
+    // drop any pre-existing entry for the same package (any version) so the
+    // freshly-resolved specifier replaces it rather than appending a
+    // duplicate. The caller prunes these names from the config in the same
+    // read/write that appends `resolved.url`.
+    npm_packages_to_replace.push(resolved.package_name);
+    return Ok(Some(resolved.url));
+  }
+  if no_version || update_package_json {
+    bail!("--no-version / --package-json only apply to `npm:` specifiers (got '{}').", plugin_name_or_url);
+  }
   match Url::parse(plugin_name_or_url) {
     Ok(url) => Ok(Some(url.to_string())),
     Err(_) => {
@@ -235,6 +346,217 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
   }
 }
 
+struct ResolveNpmPluginOptions<'a> {
+  text: &'a str,
+  config_path: &'a CanonicalizedPathBuf,
+  no_version: bool,
+  update_package_json: bool,
+}
+
+/// Resolves an `npm:` specifier from `dprint add` into the string to write
+/// into the config's `plugins` array, plus the devDependencies entry to
+/// queue when `--package-json` was set.
+///
+/// - `npm:foo@1.2.3[...]` (already versioned) → pass through verbatim.
+/// - `npm:foo` with `--no-version` or `--package-json` → keep unversioned.
+///   With `--package-json`, also return a `devDependencies` entry for the
+///   nearest `package.json` (caret range pinning the resolved latest).
+/// - `npm:foo` (unversioned) and the package is in a nearby `package.json`'s
+///   `devDependencies` → keep unversioned (defer to npm/node_modules).
+/// - `npm:foo` (unversioned) otherwise → resolve `dist-tags.latest` and write
+///   the pinned form, with checksum for non-wasm plugins.
+async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environment: &impl Environment) -> Result<ResolvedNpmPluginAdd> {
+  let ResolveNpmPluginOptions {
+    text,
+    config_path,
+    no_version,
+    update_package_json,
+  } = options;
+  let parsed = crate::utils::parse_npm_specifier(text)?;
+  // top-level plugin reference: enforce the same .wasm/.json constraint that
+  // parse_plugin_source_reference applies, since `dprint add` writes the
+  // result straight into the plugins array.
+  crate::utils::validate_plugin_extension(&parsed.specifier, text)?;
+
+  // a config path with no parent shouldn't happen — `resolve_config_from_args`
+  // hands us a canonicalized file path. Treat it as a hard bug rather than a
+  // soft fall-through that silently skips the package.json walk.
+  let start_dir = config_path
+    .parent()
+    .ok_or_else(|| anyhow!("Config path {} has no parent directory.", config_path.display()))?;
+  let start_dir_ref: &Path = start_dir.as_ref();
+
+  if parsed.specifier.version.is_some() {
+    if no_version {
+      bail!("--no-version cannot be combined with a versioned specifier: {}", text);
+    }
+    return Ok(ResolvedNpmPluginAdd {
+      url: text.to_string(),
+      package_name: parsed.specifier.name.clone(),
+      package_json_addition: None,
+    });
+  }
+
+  if no_version {
+    let package_json_addition = if update_package_json {
+      // Look up the latest version so we can write a caret range. If the
+      // registry is unreachable we still write the unversioned spec to
+      // dprint.json but bail on the package.json update so the user
+      // notices (rather than ending up with an out-of-sync state).
+      let info = fetch_npm_latest_info(
+        FetchNpmLatestInfo {
+          specifier: &parsed.specifier,
+          start_dir: Some(start_dir_ref),
+          want_tarball_sha: false,
+        },
+        environment,
+      )
+      .await
+      .with_context(|| format!("Resolving latest version for package.json entry of {}", parsed.specifier.name))?;
+      Some((parsed.specifier.name.clone(), format!("^{}", info.version)))
+    } else {
+      None
+    };
+    return Ok(ResolvedNpmPluginAdd {
+      url: parsed.specifier.display(),
+      package_name: parsed.specifier.name.clone(),
+      package_json_addition,
+    });
+  }
+
+  if is_in_package_json_deps(&parsed.specifier.name, start_dir_ref, environment) {
+    log_stderr_info!(
+      environment,
+      "Found {} in package.json — adding unversioned npm specifier.",
+      parsed.specifier.name
+    );
+    return Ok(ResolvedNpmPluginAdd {
+      url: parsed.specifier.display(),
+      package_name: parsed.specifier.name.clone(),
+      package_json_addition: None,
+    });
+  }
+
+  let info = fetch_npm_latest_info(
+    FetchNpmLatestInfo {
+      specifier: &parsed.specifier,
+      start_dir: Some(start_dir_ref),
+      want_tarball_sha: false,
+    },
+    environment,
+  )
+  .await?;
+  let pinned = crate::utils::NpmSpecifier {
+    name: parsed.specifier.name,
+    version: Some(info.version),
+    path: parsed.specifier.path,
+  };
+  let display = pinned.display();
+  let url = match info.tarball_sha256 {
+    Some(checksum) => format!("{}@{}", display, checksum),
+    None => display,
+  };
+  Ok(ResolvedNpmPluginAdd {
+    url,
+    package_name: pinned.name,
+    package_json_addition: None,
+  })
+}
+
+/// Writes new `devDependencies` entries into the nearest `package.json`
+/// (walking up from the dprint config). Updates an existing entry in place;
+/// appends new ones. Warns and skips the update if no `package.json` is
+/// anywhere along the walk — the dprint.json change is still saved so the
+/// user only has to add a `package.json` (or rerun with no `--package-json`)
+/// to recover; bailing would leave them with a partially-applied add.
+fn apply_package_json_additions(config_path: &CanonicalizedPathBuf, additions: &[(String, String)], environment: &impl Environment) -> Result<()> {
+  use jsonc_parser::cst::CstRootNode;
+  use jsonc_parser::json;
+
+  let start_dir = config_path
+    .parent()
+    .ok_or_else(|| anyhow!("Config path {} has no parent directory.", config_path.display()))?;
+  let mut pkg_path = None;
+  for dir in start_dir.as_ref().ancestors() {
+    let candidate = dir.join("package.json");
+    if environment.path_exists(&candidate) {
+      pkg_path = Some(candidate);
+      break;
+    }
+  }
+  let Some(pkg_path) = pkg_path else {
+    log_warn!(
+      environment,
+      "Skipped package.json update: no package.json was found at or above {}. Run `npm init -y` and re-run `dprint add --package-json` to record {} entr{}.",
+      start_dir.display(),
+      additions.len(),
+      if additions.len() == 1 { "y" } else { "ies" },
+    );
+    return Ok(());
+  };
+
+  let text = environment.read_file(&pkg_path)?;
+  let root = CstRootNode::parse(&text, &Default::default()).with_context(|| format!("Failed parsing {}", pkg_path.display()))?;
+  let root_obj = root.object_value_or_set();
+  let dev_deps = root_obj.object_value_or_set("devDependencies");
+  dev_deps.ensure_multiline();
+  for (name, range) in additions {
+    match dev_deps.get(name) {
+      Some(existing) => existing.set_value(json!(range.clone())),
+      None => {
+        dev_deps.append(name, json!(range.clone()));
+      }
+    }
+  }
+  environment.write_file(&pkg_path, &root.to_string())?;
+  log_stderr_info!(
+    environment,
+    "Updated {} with {} new devDependencies entr{}. Run `npm install` to install them.",
+    pkg_path.display(),
+    additions.len(),
+    if additions.len() == 1 { "y" } else { "ies" },
+  );
+  Ok(())
+}
+
+/// Returns true if any `package.json` found walking up from `start_dir` lists
+/// `package_name` under `dependencies` or `devDependencies`. Monorepos
+/// commonly list deps at the workspace root rather than each package, so we
+/// keep climbing past package.jsons that don't mention the plugin.
+/// Malformed `package.json`s along the way are warned about (it's almost
+/// certainly a mistake the user wants to know about) and then skipped.
+fn is_in_package_json_deps(package_name: &str, start_dir: &std::path::Path, environment: &impl Environment) -> bool {
+  use jsonc_parser::JsonValue;
+  use jsonc_parser::parse_to_value;
+
+  for dir in start_dir.ancestors() {
+    let pkg_path = dir.join("package.json");
+    let Ok(text) = environment.read_file(&pkg_path) else {
+      continue;
+    };
+    let parsed = match parse_to_value(&text, &Default::default()) {
+      Ok(Some(JsonValue::Object(obj))) => obj,
+      Ok(_) => {
+        // not an object (e.g. an array or scalar); skip but warn
+        log_warn!(environment, "Skipping {}: top-level value is not an object.", pkg_path.display());
+        continue;
+      }
+      Err(err) => {
+        log_warn!(environment, "Skipping {}: failed to parse ({:#}).", pkg_path.display(), err);
+        continue;
+      }
+    };
+    for field in ["dependencies", "devDependencies"] {
+      if let Some(JsonValue::Object(deps)) = parsed.get(field)
+        && deps.get(package_name).is_some()
+      {
+        return true;
+      }
+    }
+  }
+  false
+}
+
 async fn get_possible_plugins_to_add<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
@@ -279,6 +601,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     exclude_patterns: Vec::new(),
     exclude_pattern_overrides: None,
     allow_node_modules: false,
+    no_gitignore: false,
     only_staged: false,
   };
   let config_discovery = args.config_discovery(environment);
@@ -301,8 +624,8 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     };
     let config_path = match &config.source {
       PathSource::Local(source) => &source.path,
-      PathSource::Remote(source) => {
-        log_warn!(environment, "Skipping remote configuration file: {}", source.url);
+      PathSource::Remote(_) | PathSource::Npm(_) => {
+        log_warn!(environment, "Skipping non-local configuration file: {}", config.source.display());
         continue;
       }
     };
@@ -393,7 +716,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
     };
     let config_path = match &config.source {
       PathSource::Local(source) => &source.path,
-      PathSource::Remote(_) => {
+      PathSource::Remote(_) | PathSource::Npm(_) => {
         continue;
       }
     };
@@ -496,6 +819,55 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
       }
     };
 
+    // npm specifiers update via the npm registry (dist-tags.latest), not the
+    // plugin's update_url which would migrate us off the npm form
+    if let PathSource::Npm(npm_source) = &plugin_reference.path_source {
+      if npm_source.specifier.version.is_none() {
+        // unversioned specifiers track node_modules — versions are managed by npm/package-lock
+        log_warn!(
+          environment,
+          "Skipping {} (unversioned npm specifier — update via your package manager).",
+          plugin.info().name
+        );
+        return None;
+      }
+      let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
+      // preserve the user's checksum on update: if they pinned a checksum on
+      // the old reference, fetch a fresh one for the new version instead of
+      // carrying the stale hash (which would fail verification on next run)
+      let args = FetchNpmLatestInfo {
+        specifier: &npm_source.specifier,
+        start_dir,
+        want_tarball_sha: plugin_reference.checksum.is_some(),
+      };
+      match fetch_npm_latest_info(args, environment).await {
+        Ok(info) => {
+          let new_specifier = crate::utils::NpmSpecifier {
+            name: npm_source.specifier.name.clone(),
+            version: Some(info.version.clone()),
+            path: npm_source.specifier.path.clone(),
+          };
+          let new_reference = PluginSourceReference {
+            path_source: PathSource::new_npm(new_specifier, npm_source.base_dir.clone()),
+            checksum: info.tarball_sha256,
+          };
+          return Some(Ok(PluginUpdateInfo {
+            name: plugin.info().name.to_string(),
+            old_version: plugin.info().version.to_string(),
+            old_reference: plugin_reference,
+            new_version: info.version,
+            new_reference,
+          }));
+        }
+        Err(err) => {
+          return Some(Err(PluginUpdateError {
+            name: plugin_reference.path_source.display(),
+            error: err,
+          }));
+        }
+      }
+    }
+
     // request
     if let Some(plugin_update_url) = &plugin.info().update_url {
       match Url::parse(plugin_update_url) {
@@ -537,9 +909,19 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
   }
 
   let config_file_plugins = get_config_file_plugins(plugin_resolver, plugins).await;
-  let mut final_infos = Vec::with_capacity(config_file_plugins.len());
-  for (plugin_reference, plugin_result) in config_file_plugins {
-    let maybe_info = resolve_plugin_update_info(environment, plugin_reference, plugin_result).await;
+  // run each plugin's latest-info lookup in parallel — the network round-trip
+  // dominates and serializing them multiplies latency by the plugin count
+  let tasks = config_file_plugins
+    .into_iter()
+    .map(|(plugin_reference, plugin_result)| {
+      let environment = environment.clone();
+      dprint_core::async_runtime::spawn(async move { resolve_plugin_update_info(&environment, plugin_reference, plugin_result).await })
+    })
+    .collect::<Vec<_>>();
+
+  let mut final_infos = Vec::with_capacity(tasks.len());
+  for result in future::join_all(tasks).await {
+    let maybe_info = result.unwrap();
     if let Some(info) = maybe_info
       && info.as_ref().ok().map(|info| info.old_version != info.new_version).unwrap_or(true)
     {
@@ -647,6 +1029,7 @@ mod test {
 
   use crate::assert_contains;
   use crate::configuration::*;
+  use crate::environment::CanonicalizedPathBuf;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
@@ -2065,5 +2448,326 @@ mod test {
     let commands = environment.take_run_commands();
     let (args, _) = &commands[0];
     assert_eq!(args[args.len() - 1], "/custom.config.json");
+  }
+
+  /// Convenience for tests: most calls only vary the spec text and the
+  /// two flags, so wrap the struct-building boilerplate here.
+  async fn call_resolve_npm_plugin_to_add(
+    text: &str,
+    config_path: &CanonicalizedPathBuf,
+    no_version: bool,
+    update_package_json: bool,
+    environment: &TestEnvironment,
+  ) -> Result<super::ResolvedNpmPluginAdd> {
+    super::resolve_npm_plugin_to_add(
+      super::ResolveNpmPluginOptions {
+        text,
+        config_path,
+        no_version,
+        update_package_json,
+      },
+      environment,
+    )
+    .await
+  }
+
+  #[tokio::test]
+  async fn npm_add_pinned_passes_through() {
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:@dprint/typescript@0.95.15", &config_path, false, false, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, "npm:@dprint/typescript@0.95.15");
+    assert!(result.package_json_addition.is_none());
+  }
+
+  #[tokio::test]
+  async fn npm_add_defers_to_devdep_when_present() {
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    environment
+      .write_file("/package.json", r#"{"devDependencies": {"@dprint/typescript": "^0.95.0"}}"#)
+      .unwrap();
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:@dprint/typescript", &config_path, false, false, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, "npm:@dprint/typescript");
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[tokio::test]
+  async fn npm_add_defers_to_regular_dependency_when_present() {
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    environment
+      .write_file("/package.json", r#"{"dependencies": {"@dprint/typescript": "^0.95.0"}}"#)
+      .unwrap();
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:@dprint/typescript", &config_path, false, false, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, "npm:@dprint/typescript");
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[tokio::test]
+  async fn npm_add_defers_to_dep_listed_in_a_parent_package_json() {
+    // monorepo layout: deps are listed at the workspace root, not in the
+    // child workspace's package.json. Walk past the child package.json and
+    // find the dep at the root.
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/repo/packages/web").unwrap();
+    environment.write_file("/repo/packages/web/dprint.json", "{}").unwrap();
+    // child package.json doesn't mention the plugin
+    environment.write_file("/repo/packages/web/package.json", r#"{"name": "web"}"#).unwrap();
+    // root package.json does
+    environment
+      .write_file("/repo/package.json", r#"{"devDependencies": {"@dprint/typescript": "^0.95.0"}}"#)
+      .unwrap();
+
+    let config_path = environment.canonicalize("/repo/packages/web/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:@dprint/typescript", &config_path, false, false, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, "npm:@dprint/typescript");
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[tokio::test]
+  async fn npm_add_resolves_latest_without_devdep() {
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "1.2.3" },
+      "versions": { "1.2.3": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.2.3.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:foo", &config_path, false, false, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, "npm:foo@1.2.3");
+  }
+
+  #[tokio::test]
+  async fn npm_add_resolves_latest_with_checksum_for_process_plugin() {
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "2.0.0" },
+      "versions": { "2.0.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-2.0.0.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    let tarball_bytes = vec![9u8, 8, 7, 6];
+    let expected = crate::utils::get_sha256_checksum(&tarball_bytes);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-2.0.0.tgz", tarball_bytes);
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:foo/plugin.json", &config_path, false, false, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, format!("npm:foo@2.0.0/plugin.json@{}", expected));
+  }
+
+  #[tokio::test]
+  async fn npm_add_no_version_skips_pinning_and_skips_registry() {
+    // --no-version writes the unversioned spec without ever touching the
+    // registry (the user explicitly asked us not to pin a version).
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    // intentionally no packument mock — verifies we don't fetch it
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:@dprint/typescript", &config_path, true, false, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, "npm:@dprint/typescript");
+    assert!(result.package_json_addition.is_none());
+  }
+
+  #[tokio::test]
+  async fn npm_add_no_version_errors_on_already_versioned_specifier() {
+    // pinning is what --no-version turns off, so combining it with an
+    // already-pinned specifier is a contradiction worth surfacing.
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let err = call_resolve_npm_plugin_to_add("npm:@dprint/typescript@1.0.0", &config_path, true, false, &environment)
+      .await
+      .unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(msg.contains("--no-version cannot be combined with a versioned specifier"), "got: {msg}");
+  }
+
+  #[tokio::test]
+  async fn npm_add_package_json_returns_dev_dependency_with_caret_range() {
+    // --package-json pulls dist-tags.latest, writes the unversioned spec
+    // to dprint.json, and returns a caret-pinned devDependency entry the
+    // caller queues for the package.json update.
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "0.99.0" },
+      "versions": { "0.99.0": { "dist": { "tarball": "https://registry.npmjs.org/@dprint/typescript/-/typescript-0.99.0.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/@dprint/typescript", packument.to_string().into_bytes());
+
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:@dprint/typescript", &config_path, true, true, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, "npm:@dprint/typescript");
+    assert_eq!(result.package_json_addition, Some(("@dprint/typescript".to_string(), "^0.99.0".to_string())),);
+  }
+
+  #[tokio::test]
+  async fn apply_package_json_additions_appends_to_devdependencies() {
+    // baseline: an existing package.json without devDependencies grows a
+    // new section with the queued entries.
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    environment.write_file("/package.json", "{\n  \"name\": \"app\"\n}\n").unwrap();
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+
+    super::apply_package_json_additions(&config_path, &[("@dprint/typescript".to_string(), "^0.99.0".to_string())], &environment).unwrap();
+
+    let pkg = environment.read_file("/package.json").unwrap();
+    assert!(pkg.contains("\"devDependencies\""), "got: {pkg}");
+    assert!(pkg.contains("\"@dprint/typescript\": \"^0.99.0\""), "got: {pkg}");
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[tokio::test]
+  async fn apply_package_json_additions_overwrites_existing_entry() {
+    // if the package is already listed (different version), the entry
+    // is updated rather than duplicated.
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    environment
+      .write_file(
+        "/package.json",
+        "{\n  \"devDependencies\": {\n    \"@dprint/typescript\": \"^0.50.0\"\n  }\n}\n",
+      )
+      .unwrap();
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+
+    super::apply_package_json_additions(&config_path, &[("@dprint/typescript".to_string(), "^0.99.0".to_string())], &environment).unwrap();
+
+    let pkg = environment.read_file("/package.json").unwrap();
+    assert!(pkg.contains("\"@dprint/typescript\": \"^0.99.0\""), "got: {pkg}");
+    assert!(!pkg.contains("\"^0.50.0\""), "old version should be replaced, got: {pkg}");
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[tokio::test]
+  async fn apply_package_json_additions_walks_up_to_workspace_root() {
+    // monorepo: dprint.json sits in a child workspace, package.json is at
+    // the repo root. We should land the entry at the root rather than
+    // demand a per-workspace package.json.
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/repo/packages/web").unwrap();
+    environment.write_file("/repo/packages/web/dprint.json", "{}").unwrap();
+    environment.write_file("/repo/package.json", "{\n  \"name\": \"root\"\n}\n").unwrap();
+    let config_path = environment.canonicalize("/repo/packages/web/dprint.json").unwrap();
+
+    super::apply_package_json_additions(&config_path, &[("@dprint/typescript".to_string(), "^0.99.0".to_string())], &environment).unwrap();
+
+    let pkg = environment.read_file("/repo/package.json").unwrap();
+    assert!(pkg.contains("\"@dprint/typescript\": \"^0.99.0\""), "got: {pkg}");
+    // child workspace package.json wasn't created
+    assert!(environment.read_file("/repo/packages/web/package.json").is_err());
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[tokio::test]
+  async fn apply_package_json_additions_warns_when_no_package_json_anywhere() {
+    // dprint.json was still updated by the caller before we ran, so
+    // bailing here would leave the user with a half-applied add. Warn
+    // and continue so they can recover by adding a package.json and
+    // re-running.
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    super::apply_package_json_additions(&config_path, &[("@dprint/typescript".to_string(), "^0.99.0".to_string())], &environment).unwrap();
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr.iter().any(|m| m.contains("no package.json was found") && m.contains("npm init")),
+      "expected warn, got: {stderr:?}"
+    );
+  }
+
+  #[test]
+  fn config_add_npm_replaces_existing_entry_for_same_package() {
+    // re-adding a package that's already present should replace the existing
+    // entry (any version) rather than append a duplicate. A versioned
+    // specifier passes through without touching the registry, so no mock is
+    // needed here.
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin("npm:test-plugin@1.0.0");
+        c.add_plugin("npm:other@1.0.0");
+      })
+      .build();
+
+    run_test_cli(vec!["config", "add", "npm:test-plugin@2.0.0"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("npm:test-plugin@2.0.0"), "new version added, got: {dprint_json}");
+    assert!(!dprint_json.contains("npm:test-plugin@1.0.0"), "old entry removed, got: {dprint_json}");
+    assert!(dprint_json.contains("npm:other@1.0.0"), "unrelated entry kept, got: {dprint_json}");
+    assert_eq!(
+      dprint_json.matches("npm:test-plugin").count(),
+      1,
+      "exactly one entry for the package, got: {dprint_json}"
+    );
+    let _ = environment.take_stdout_messages();
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_update_skips_unversioned_npm_specifiers() {
+    // unversioned npm specifiers track node_modules; their versions are
+    // managed by npm/package-lock.json, so `dprint config update` shouldn't
+    // try to bump them. Surface that with a warn so the user knows we saw
+    // the entry and intentionally skipped it.
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin("npm:test-plugin");
+      })
+      .write_file("/node_modules/test-plugin/plugin.wasm", WASM_PLUGIN_BYTES)
+      .build();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr
+        .iter()
+        .any(|m| m.contains("unversioned npm specifier") && m.contains("update via your package manager")),
+      "expected skip warning, got: {stderr:?}"
+    );
+
+    // dprint.json should still carry the unversioned form (skipped, not rewritten)
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("npm:test-plugin"), "got: {dprint_json}");
+    // and no version pin snuck in
+    assert!(!dprint_json.contains("npm:test-plugin@"), "got: {dprint_json}");
+  }
+
+  #[tokio::test]
+  async fn is_in_package_json_deps_warns_on_malformed_package_json() {
+    // a corrupt package.json shouldn't be silently treated as "plugin
+    // not declared" — the user almost certainly wants to know.
+    let environment = TestEnvironment::new();
+    environment.write_file("/package.json", "{ not valid json").unwrap();
+    let found = super::is_in_package_json_deps("@dprint/typescript", std::path::Path::new("/"), &environment);
+    assert!(!found);
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr.iter().any(|m| m.contains("/package.json") && m.contains("failed to parse")),
+      "expected parse warning, got: {stderr:?}"
+    );
   }
 }
