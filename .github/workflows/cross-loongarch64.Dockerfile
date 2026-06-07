@@ -3,7 +3,6 @@
 ARG TARGET=loongarch64-unknown-linux-gnu
 ARG CROSS_BASE_IMAGE=ghcr.io/cross-rs/loongarch64-unknown-linux-gnu:main
 
-
 FROM $CROSS_BASE_IMAGE AS llvm-builder
 
 ARG TARGET
@@ -31,7 +30,6 @@ RUN cmake -G Ninja \
 RUN cmake --build build
 RUN cmake --build build --target install
 
-
 FROM $CROSS_BASE_IMAGE AS libffi-builder
 
 ARG TARGET
@@ -44,7 +42,6 @@ RUN ./configure --host=$TARGET --build=x86_64-linux-gnu --prefix=/usr/local/libf
 RUN make
 RUN make install
 
-
 FROM $CROSS_BASE_IMAGE
 
 ARG TARGET
@@ -52,6 +49,5 @@ ARG TARGET
 COPY --from=llvm-builder /usr/local/llvm /usr/local/llvm
 ENV LLVM_SYS_211_PREFIX=/usr/local/llvm
 
-COPY --from=libffi-builder /usr/local/libffi/lib/*  /x-tools/$TARGET/$TARGET/sysroot/usr/local/lib/
-COPY --from=libffi-builder /usr/local/libffi/include/*  /x-tools/$TARGET/$TARGET/sysroot/usr/local/include/
-
+COPY --from=libffi-builder /usr/local/libffi/lib/* /x-tools/$TARGET/$TARGET/sysroot/usr/local/lib/
+COPY --from=libffi-builder /usr/local/libffi/include/* /x-tools/$TARGET/$TARGET/sysroot/usr/local/include/
