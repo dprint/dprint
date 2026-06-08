@@ -229,7 +229,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
 
             let body = match result {
               Ok(text) => EditorMessageBody::FormatResponse(message.id, text),
-              Err(err) => EditorMessageBody::Error(message.id, format!("{:#}", err).into_bytes()),
+              Err(err) => EditorMessageBody::Error(message.id, dprint_core::plugins::error_to_string(&err).into_bytes()),
             };
             send_response_body(&context, body);
           });
@@ -318,6 +318,7 @@ mod test {
   use dprint_core::communication::RcIdStore;
   use dprint_core::communication::SingleThreadMessageWriter;
   use dprint_core::configuration::ConfigKeyMap;
+  use dprint_core::plugins::FormatError;
   use dprint_core::plugins::FormatRange;
   use dprint_core::plugins::FormatResult;
   use pretty_assertions::assert_eq;
@@ -480,6 +481,7 @@ mod test {
           Arc::new(token),
         )
         .await
+        .map_err(FormatError::new)
     }
 
     pub async fn exit(&self) -> Result<()> {

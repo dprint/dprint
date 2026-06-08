@@ -15,6 +15,7 @@ use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
+use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
@@ -367,7 +368,7 @@ impl InitializedWasmPluginInstanceV4 {
       WasmFormatResult::Error => {
         let len = self.wasm_functions.get_error_text()?;
         let text = self.receive_string(len)?;
-        Ok(Err(anyhow!("{}", text)))
+        Ok(Err(FormatError::new(text)))
       }
     }
   }
@@ -480,10 +481,10 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
       None
     };
     self.wasm_functions.instance.set_token(&mut self.wasm_functions.store, token);
-    self.ensure_config(config)?;
+    self.ensure_config(config).map_err(FormatError::new)?;
     match self.inner_format_text(file_path, file_bytes, range, config, override_config.as_deref()) {
       Ok(inner) => inner,
-      Err(err) => Err(CriticalFormatError(err).into()),
+      Err(err) => Err(CriticalFormatError(FormatError::new(err)).into()),
     }
   }
 }

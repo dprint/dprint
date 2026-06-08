@@ -2,7 +2,6 @@ use anyhow::Result;
 use anyhow::bail;
 use dprint_core::async_runtime::future;
 use dprint_core::configuration::ConfigKeyMap;
-use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::NullCancellationToken;
 use std::borrow::Cow;
 use std::path::PathBuf;
@@ -181,11 +180,11 @@ where
                   semaphore.close(); // stop formatting
                 }
                 RunForFilePathError::Any(err) => {
-                  if let Some(err) = err.downcast_ref::<CriticalFormatError>() {
+                  if let Some(err) = crate::plugins::maybe_critical_format_error(&err) {
                     error_logger.log_error(&format!(
-                      "Critical error formatting {}. Cannot continue. Message: {:#}",
+                      "Critical error formatting {}. Cannot continue. Message: {}",
                       file_path.display(),
-                      err
+                      dprint_core::plugins::error_to_string(err)
                     ));
                     semaphore.close(); // stop formatting
                   } else {

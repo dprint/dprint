@@ -45,7 +45,7 @@ sys_traits = { workspace = true, features = ["real"] }
 sysinfo = { version = "=0.35.1", features = ["system"], default-features = false }
 tar = "=0.4.45"
 text-size = "=1.1.1"
-thiserror = "=2.0.18"
+thiserror.workspace = true
 tokio = { workspace = true, features = ["io-std"] }
 tokio-util = { version = "=0.7.11" }
 tower-lsp = "=0.20.0"

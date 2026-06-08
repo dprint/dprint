@@ -122,7 +122,7 @@ pub mod macros {
         fn host_has_cancelled() -> i32;
       }
 
-      fn format_with_host(request: dprint_core::plugins::SyncHostFormatRequest) -> anyhow::Result<Option<Vec<u8>>> {
+      fn format_with_host(request: dprint_core::plugins::SyncHostFormatRequest) -> dprint_core::plugins::FormatResult {
         use std::borrow::Cow;
 
         #[link(wasm_import_module = "dprint")]
@@ -176,7 +176,7 @@ pub mod macros {
             // error
             let length = unsafe { host_get_error_text() };
             let error_text = get_string_from_host(length);
-            Err(anyhow::anyhow!("{}", error_text))
+            Err(error_text.into())
           }
           value => panic!("unknown host format value: {}", value),
         };
@@ -386,7 +386,7 @@ pub mod macros {
 
       #[no_mangle]
       pub fn check_config_updates() -> usize {
-        fn try_check_config_updates(bytes: &[u8]) -> anyhow::Result<serde_json::Value> {
+        fn try_check_config_updates(bytes: &[u8]) -> Result<serde_json::Value, dprint_core::plugins::FormatError> {
           let message: dprint_core::plugins::CheckConfigUpdatesMessage = serde_json::from_slice(&bytes)?;
           let result = unsafe { WASM_PLUGIN.get().check_config_updates(message) }?;
           Ok(serde_json::to_value(&result)?)

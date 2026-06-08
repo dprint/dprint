@@ -956,7 +956,6 @@ dependencies = [
 name = "dprint-core"
 version = "0.67.4"
 dependencies = [
- "anyhow",
  "async-trait",
  "bumpalo",
  "crossbeam-channel",
@@ -968,6 +967,7 @@ dependencies = [
  "rustc-hash",
  "serde",
  "serde_json",
+ "thiserror",
  "tokio",
  "tokio-util",
  "unicode-width 0.2.2",
@@ -2976,7 +2976,6 @@ dependencies = [
 name = "test-process-plugin"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "dprint-core",
  "serde",
  "serde_json",
