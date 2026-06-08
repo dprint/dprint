@@ -70,13 +70,8 @@ enum SchemaVersionError {
 /// Errors that can occur while communicating with a process plugin.
 #[derive(Debug, thiserror::Error)]
 enum CommunicatorError {
-  #[error("Error starting {executable} with args [{args}]. {source}")]
-  StartProcess {
-    executable: String,
-    args: String,
-    #[source]
-    source: std::io::Error,
-  },
+  #[error("Error starting {executable} with args [{args}]. {error}")]
+  StartProcess { executable: String, args: String, error: std::io::Error },
   #[error("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade")]
   SchemaVerification(#[from] SchemaVersionError),
   #[error(
@@ -85,11 +80,10 @@ enum CommunicatorError {
   PluginTooOld { actual: u32, expected: u32 },
   #[error("Your dprint CLI is too old to run this plugin (version was {actual}, but expected {expected}). Try running: dprint upgrade")]
   CliTooOld { actual: u32, expected: u32 },
-  #[error("Error waiting on message ({message_id}). {source}")]
+  #[error("Error waiting on message ({message_id}). {error}")]
   WaitOnMessage {
     message_id: u32,
-    #[source]
-    source: tokio::sync::oneshot::error::RecvError,
+    error: tokio::sync::oneshot::error::RecvError,
   },
   #[error("Unexpected data channel for success response: {0}")]
   UnexpectedDataForSuccess(u32),
@@ -180,7 +174,7 @@ impl ProcessPluginCommunicator {
       .map_err(|err| CommunicatorError::StartProcess {
         executable: executable_file_path.display().to_string(),
         args: args.join(" "),
-        source: err,
+        error: err,
       })?;
 
     // read and output stderr prefixed
@@ -457,7 +451,7 @@ impl ProcessPluginCommunicator {
         drop_guard.forget(); // we completed, so don't run the drop guard
         match response {
           Ok(data) => Ok(data),
-          Err(err) => Err(CommunicatorError::WaitOnMessage { message_id, source: err }.into()),
+          Err(err) => Err(CommunicatorError::WaitOnMessage { message_id, error: err }.into()),
         }
       }
     }
