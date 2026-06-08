@@ -24,6 +24,7 @@ use crate::communication::SingleThreadMessageWriter;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::GlobalConfiguration;
 use crate::plugins::AsyncPluginHandler;
+use crate::plugins::FormatConfigId;
 use crate::plugins::FormatError;
 use crate::plugins::FormatRequest;
 use crate::plugins::FormatResult;
@@ -31,6 +32,34 @@ use crate::plugins::HostFormatRequest;
 use crate::plugins::error_to_string;
 
 type Result<T> = std::result::Result<T, FormatError>;
+
+/// The detailed reason the schema establishment handshake failed.
+#[derive(Debug, thiserror::Error)]
+enum SchemaEstablishmentError {
+  #[error("Expected a schema version request of `0`.")]
+  UnexpectedRequest,
+  #[error(transparent)]
+  Io(#[from] std::io::Error),
+}
+
+/// Errors that can occur while processing messages for a process plugin.
+#[derive(Debug, thiserror::Error)]
+enum MessageProcessorError {
+  #[error("Failed estabilishing schema.")]
+  SchemaEstablishment(#[from] SchemaEstablishmentError),
+  #[error("Did not find configuration for id: {0}")]
+  ConfigNotFound(FormatConfigId),
+  #[error("Could not deserialize the check config updates message body.")]
+  DeserializeCheckConfigUpdates(#[source] serde_json::Error),
+  #[error("Cannot host format with a plugin.")]
+  CannotHostFormat,
+}
+
+impl From<MessageProcessorError> for FormatError {
+  fn from(err: MessageProcessorError) -> Self {
+    FormatError::new(err)
+  }
+}
 
 /// Handles the process' messages based on the provided handler.
 pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler: THandler) -> Result<()> {
@@ -42,7 +71,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
     let mut stdin_reader = MessageReader::new(std::io::stdin());
     let mut stdout_writer = MessageWriter::new(std::io::stdout());
 
-    schema_establishment_phase(&mut stdin_reader, &mut stdout_writer).map_err(|err| -> FormatError { format!("Failed estabilishing schema: {err}").into() })?;
+    schema_establishment_phase(&mut stdin_reader, &mut stdout_writer).map_err(MessageProcessorError::SchemaEstablishment)?;
     Ok::<_, FormatError>((stdin_reader, stdout_writer))
   })
   .await??;
@@ -140,7 +169,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           handle_message(&context, message.id, || {
             let data = match context.configs.get_cloned(config_id.as_raw()) {
               Some(config) => serde_json::to_vec(&config.file_matching)?,
-              None => return Err(format!("Did not find configuration for id: {}", config_id).into()),
+              None => return Err(MessageProcessorError::ConfigNotFound(config_id).into()),
             };
             Ok(MessageBody::DataResponse(ResponseBody { message_id: message.id, data }))
           });
@@ -149,7 +178,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           handle_message(&context, message.id, || {
             let data = match context.configs.get_cloned(config_id.as_raw()) {
               Some(config) => serde_json::to_vec(&*config.config)?,
-              None => return Err(format!("Did not find configuration for id: {}", config_id).into()),
+              None => return Err(MessageProcessorError::ConfigNotFound(config_id).into()),
             };
             Ok(MessageBody::DataResponse(ResponseBody { message_id: message.id, data }))
           });
@@ -159,8 +188,8 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
             &context,
             message.id,
             async {
-              let message_body = serde_json::from_slice::<CheckConfigUpdatesMessageBody>(&body_bytes)
-                .map_err(|err| -> FormatError { format!("Could not deserialize the check config updates message body: {err}").into() })?;
+              let message_body =
+                serde_json::from_slice::<CheckConfigUpdatesMessageBody>(&body_bytes).map_err(MessageProcessorError::DeserializeCheckConfigUpdates)?;
               let changes = handler.check_config_updates(message_body).await?;
               let response = CheckConfigUpdatesResponseBody { changes };
               let data = serde_json::to_vec(&response)?;
@@ -192,7 +221,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
                 }
               }
               None => {
-                send_error_response(&context, message.id, format!("Did not find configuration for id: {}", body.config_id).into());
+                send_error_response(&context, message.id, MessageProcessorError::ConfigNotFound(body.config_id).into());
                 continue;
               }
             },
@@ -253,7 +282,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           // ignore
         }
         MessageBody::HostFormat(_) => {
-          send_error_response(&context, message.id, "Cannot host format with a plugin.".into());
+          send_error_response(&context, message.id, MessageProcessorError::CannotHostFormat.into());
         }
         MessageBody::Unknown(message_kind) => panic!("Received unknown message kind: {}", message_kind),
       }
@@ -358,10 +387,13 @@ fn send_response_body<TConfiguration: Serialize + Clone + Send + Sync>(context: 
 }
 
 /// For backwards compatibility asking for the schema version.
-fn schema_establishment_phase<TRead: Read + Unpin, TWrite: Write + Unpin>(stdin: &mut MessageReader<TRead>, stdout: &mut MessageWriter<TWrite>) -> Result<()> {
+fn schema_establishment_phase<TRead: Read + Unpin, TWrite: Write + Unpin>(
+  stdin: &mut MessageReader<TRead>,
+  stdout: &mut MessageWriter<TWrite>,
+) -> std::result::Result<(), SchemaEstablishmentError> {
   // 1. An initial `0` (4 bytes) is sent asking for the schema version.
   if stdin.read_u32()? != 0 {
-    return Err("Expected a schema version request of `0`.".into());
+    return Err(SchemaEstablishmentError::UnexpectedRequest);
   }
 
   // 2. The client responds with `0` (4 bytes) for success

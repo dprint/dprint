@@ -52,7 +52,7 @@ type Result<T> = std::result::Result<T, FormatError>;
 
 type DprintCancellationToken = Arc<dyn super::super::CancellationToken>;
 
-/// Errors that can occur while negotiating the schema version with a process plugin.
+/// The detailed reason a schema version negotiation step failed.
 #[derive(Debug, thiserror::Error)]
 enum SchemaVersionError {
   #[error("Failed asking for schema version: {0}")]
@@ -67,42 +67,50 @@ enum SchemaVersionError {
   ReadVersion(std::io::Error),
 }
 
-/// Error for when the plugin and CLI schema versions don't match.
+/// Errors that can occur while communicating with a process plugin.
 #[derive(Debug, thiserror::Error)]
-enum SchemaVersionMismatchError {
+enum CommunicatorError {
+  #[error("Error starting {executable} with args [{args}]. {source}")]
+  StartProcess {
+    executable: String,
+    args: String,
+    #[source]
+    source: std::io::Error,
+  },
+  #[error("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade")]
+  SchemaVerification(#[from] SchemaVersionError),
   #[error(
     "This plugin is too old to run in the dprint CLI and you will need to manually upgrade it (version was {actual}, but expected {expected}).\n\nUpgrade instructions: https://github.com/dprint/dprint/issues/731"
   )]
   PluginTooOld { actual: u32, expected: u32 },
   #[error("Your dprint CLI is too old to run this plugin (version was {actual}, but expected {expected}). Try running: dprint upgrade")]
   CliTooOld { actual: u32, expected: u32 },
-}
-
-/// Error for when a response is received on an unexpected channel.
-#[derive(Debug, thiserror::Error)]
-enum UnexpectedResponseError {
+  #[error("Error waiting on message ({message_id}). {source}")]
+  WaitOnMessage {
+    message_id: u32,
+    #[source]
+    source: tokio::sync::oneshot::error::RecvError,
+  },
   #[error("Unexpected data channel for success response: {0}")]
-  DataForSuccess(u32),
+  UnexpectedDataForSuccess(u32),
   #[error("Unexpected format channel for success response: {0}")]
-  FormatForSuccess(u32),
+  UnexpectedFormatForSuccess(u32),
   #[error("Unexpected success channel for data response: {0}")]
-  SuccessForData(u32),
+  UnexpectedSuccessForData(u32),
   #[error("Unexpected format channel for data response: {0}")]
-  FormatForData(u32),
+  UnexpectedFormatForData(u32),
   #[error("Unexpected success channel for format response: {0}")]
-  SuccessForFormat(u32),
+  UnexpectedSuccessForFormat(u32),
   #[error("Unexpected data channel for format response: {0}")]
-  DataForFormat(u32),
+  UnexpectedDataForFormat(u32),
+  #[error("Unknown message kind: {0}")]
+  UnknownMessageKind(u32),
+  #[error("Could not find host format callback for message id: {0}")]
+  HostFormatCallbackNotFound(u32),
 }
 
-impl From<SchemaVersionMismatchError> for FormatError {
-  fn from(err: SchemaVersionMismatchError) -> Self {
-    FormatError::new(err)
-  }
-}
-
-impl From<UnexpectedResponseError> for FormatError {
-  fn from(err: UnexpectedResponseError) -> Self {
+impl From<CommunicatorError> for FormatError {
+  fn from(err: CommunicatorError) -> Self {
     FormatError::new(err)
   }
 }
@@ -169,7 +177,13 @@ impl ProcessPluginCommunicator {
       .stderr(Stdio::piped())
       .stdout(Stdio::piped())
       .spawn()
-      .map_err(|err| -> FormatError { format!("Error starting {} with args [{}]. {}", executable_file_path.display(), args.join(" "), err).into() })?;
+      .map_err(|err| {
+        CommunicatorError::StartProcess {
+          executable: executable_file_path.display().to_string(),
+          args: args.join(" "),
+          source: err,
+        }
+      })?;
 
     // read and output stderr prefixed
     let stderr = child.stderr.take().unwrap();
@@ -186,10 +200,7 @@ impl ProcessPluginCommunicator {
     let mut stdin_writer = MessageWriter::new(child.stdin.take().unwrap());
 
     let (mut stdout_reader, stdin_writer, schema_version) = crate::async_runtime::spawn_blocking(move || {
-      let schema_version = get_plugin_schema_version(&mut stdout_reader, &mut stdin_writer).map_err(|err| -> FormatError {
-        format!("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade: {err}")
-          .into()
-      })?;
+      let schema_version = get_plugin_schema_version(&mut stdout_reader, &mut stdin_writer).map_err(CommunicatorError::SchemaVerification)?;
       Ok::<_, FormatError>((stdout_reader, stdin_writer, schema_version))
     })
     .await??;
@@ -198,12 +209,12 @@ impl ProcessPluginCommunicator {
       // kill the child to prevent it from ouputting to stderr
       let _ = child.kill();
       let err = if schema_version < PLUGIN_SCHEMA_VERSION {
-        SchemaVersionMismatchError::PluginTooOld {
+        CommunicatorError::PluginTooOld {
           actual: schema_version,
           expected: PLUGIN_SCHEMA_VERSION,
         }
       } else {
-        SchemaVersionMismatchError::CliTooOld {
+        CommunicatorError::CliTooOld {
           actual: schema_version,
           expected: PLUGIN_SCHEMA_VERSION,
         }
@@ -448,7 +459,7 @@ impl ProcessPluginCommunicator {
         drop_guard.forget(); // we completed, so don't run the drop guard
         match response {
           Ok(data) => Ok(data),
-          Err(err) => Err(format!("Error waiting on message ({}). {}", message_id, err).into()),
+          Err(err) => Err(CommunicatorError::WaitOnMessage { message_id, source: err }.into()),
         }
       }
     }
@@ -492,22 +503,22 @@ fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -
         let _ignore = channel.send(Ok(()));
       }
       Some(MessageResponseChannel::Data(channel)) => {
-        let _ignore = channel.send(Err(UnexpectedResponseError::DataForSuccess(message_id).into()));
+        let _ignore = channel.send(Err(CommunicatorError::UnexpectedDataForSuccess(message_id).into()));
       }
       Some(MessageResponseChannel::Format(channel)) => {
-        let _ignore = channel.send(Err(UnexpectedResponseError::FormatForSuccess(message_id).into()));
+        let _ignore = channel.send(Err(CommunicatorError::UnexpectedFormatForSuccess(message_id).into()));
       }
       None => {}
     },
     MessageBody::DataResponse(response) => match context.messages.take(response.message_id) {
       Some(MessageResponseChannel::Acknowledgement(channel)) => {
-        let _ignore = channel.send(Err(UnexpectedResponseError::SuccessForData(response.message_id).into()));
+        let _ignore = channel.send(Err(CommunicatorError::UnexpectedSuccessForData(response.message_id).into()));
       }
       Some(MessageResponseChannel::Data(channel)) => {
         let _ignore = channel.send(Ok(response.data));
       }
       Some(MessageResponseChannel::Format(channel)) => {
-        let _ignore = channel.send(Err(UnexpectedResponseError::FormatForData(response.message_id).into()));
+        let _ignore = channel.send(Err(CommunicatorError::UnexpectedFormatForData(response.message_id).into()));
       }
       None => {}
     },
@@ -528,10 +539,10 @@ fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -
     }
     MessageBody::FormatResponse(response) => match context.messages.take(response.message_id) {
       Some(MessageResponseChannel::Acknowledgement(channel)) => {
-        let _ignore = channel.send(Err(UnexpectedResponseError::SuccessForFormat(response.message_id).into()));
+        let _ignore = channel.send(Err(CommunicatorError::UnexpectedSuccessForFormat(response.message_id).into()));
       }
       Some(MessageResponseChannel::Data(channel)) => {
-        let _ignore = channel.send(Err(UnexpectedResponseError::DataForFormat(response.message_id).into()));
+        let _ignore = channel.send(Err(CommunicatorError::UnexpectedDataForFormat(response.message_id).into()));
       }
       Some(MessageResponseChannel::Format(channel)) => {
         let _ignore = channel.send(Ok(response.data));
@@ -597,7 +608,7 @@ fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -
     // If encountered, process plugin should exit and
     // the CLI should kill the process plugin.
     MessageBody::Unknown(message_kind) => {
-      return Err(format!("Unknown message kind: {}", message_kind).into());
+      return Err(CommunicatorError::UnknownMessageKind(message_kind).into());
     }
   }
 
@@ -606,7 +617,7 @@ fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -
 
 async fn host_format(context: Rc<Context>, message_id: u32, body: HostFormatMessageBody) -> FormatResult {
   let Some(callback) = context.host_format_callbacks.get_cloned(body.original_message_id) else {
-    return FormatResult::Err(format!("Could not find host format callback for message id: {}", body.original_message_id).into());
+    return FormatResult::Err(CommunicatorError::HostFormatCallbackNotFound(body.original_message_id).into());
   };
 
   let token = Arc::new(CancellationToken::new());
