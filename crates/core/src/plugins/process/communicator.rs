@@ -187,7 +187,8 @@ impl ProcessPluginCommunicator {
 
     let (mut stdout_reader, stdin_writer, schema_version) = crate::async_runtime::spawn_blocking(move || {
       let schema_version = get_plugin_schema_version(&mut stdout_reader, &mut stdin_writer).map_err(|err| -> FormatError {
-        format!("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade: {err}").into()
+        format!("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade: {err}")
+          .into()
       })?;
       Ok::<_, FormatError>((stdout_reader, stdin_writer, schema_version))
     })

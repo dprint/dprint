@@ -339,11 +339,7 @@ async fn handle_async_message<TConfiguration: Serialize + Clone + Send + Sync>(
   };
 }
 
-fn send_error_response<TConfiguration: Serialize + Clone + Send + Sync>(
-  context: &ProcessContext<TConfiguration>,
-  original_message_id: u32,
-  err: FormatError,
-) {
+fn send_error_response<TConfiguration: Serialize + Clone + Send + Sync>(context: &ProcessContext<TConfiguration>, original_message_id: u32, err: FormatError) {
   let body = MessageBody::Error(ResponseBody {
     message_id: original_message_id,
     data: error_to_string(&err).into_bytes(),

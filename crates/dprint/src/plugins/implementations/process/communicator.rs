@@ -74,15 +74,30 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
   }
 
   pub async fn get_resolved_config(&self, config: &FormatConfig) -> Result<String> {
-    self.get_inner_ensure_config(config).await?.resolved_config(config.id).await.map_err(anyhow::Error::from)
+    self
+      .get_inner_ensure_config(config)
+      .await?
+      .resolved_config(config.id)
+      .await
+      .map_err(anyhow::Error::from)
   }
 
   pub async fn get_file_matching_info(&self, config: &FormatConfig) -> Result<FileMatchingInfo> {
-    self.get_inner_ensure_config(config).await?.file_matching_info(config.id).await.map_err(anyhow::Error::from)
+    self
+      .get_inner_ensure_config(config)
+      .await?
+      .file_matching_info(config.id)
+      .await
+      .map_err(anyhow::Error::from)
   }
 
   pub async fn get_config_diagnostics(&self, config: &FormatConfig) -> Result<Vec<ConfigurationDiagnostic>> {
-    self.get_inner_ensure_config(config).await?.config_diagnostics(config.id).await.map_err(anyhow::Error::from)
+    self
+      .get_inner_ensure_config(config)
+      .await?
+      .config_diagnostics(config.id)
+      .await
+      .map_err(anyhow::Error::from)
   }
 
   pub async fn check_config_updates(&self, message: &CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
