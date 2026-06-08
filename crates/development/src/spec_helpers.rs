@@ -1,4 +1,3 @@
-use anyhow::Result;
 use console::Style;
 use file_test_runner::RunOptions;
 use file_test_runner::SubTestResult;
@@ -46,7 +45,7 @@ impl Display for DiffFailedMessage<'_> {
   }
 }
 
-type FormatTextFunc = dyn (Fn(&Path, &str, &SpecConfigMap) -> Result<Option<String>>) + Send + Sync;
+type FormatTextFunc = dyn (Fn(&Path, &str, &SpecConfigMap) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>>) + Send + Sync;
 type GetTraceJsonFunc = dyn (Fn(&Path, &str, &SpecConfigMap) -> String) + Send + Sync;
 
 #[derive(Debug, Clone)]
@@ -147,7 +146,7 @@ pub fn run_specs(
     let format = |file_text: &str| -> Result<Option<String>, String> {
       match catch_unwind(AssertUnwindSafe(|| format_text(&spec_file_path_buf, file_text, &spec.config))) {
         Ok(Ok(formatted)) => Ok(formatted),
-        Ok(Err(err)) => Err(format!("Formatter error: {:#}", err)),
+        Ok(Err(err)) => Err(format!("Formatter error: {}", error_to_string(err.as_ref()))),
         Err(panic_info) => {
           let panic_msg = panic_info
             .downcast_ref::<String>()
@@ -282,4 +281,21 @@ pub fn run_specs(
       panic!("Cannot have 'fix_failures' as `true` in release mode.");
     }
   }
+}
+
+/// Formats an error and its source chain into a single string,
+/// joining each level with `: ` (similar to the alternate `{:#}` specifier).
+fn error_to_string(err: &(dyn std::error::Error + 'static)) -> String {
+  // cap the depth so a pathological error with a cyclic `source()` chain
+  // can't make this loop forever
+  const MAX_DEPTH: usize = 100;
+  let mut result = err.to_string();
+  let mut source = err.source();
+  for _ in 0..MAX_DEPTH {
+    let Some(err) = source else { break };
+    result.push_str(": ");
+    result.push_str(&err.to_string());
+    source = err.source();
+  }
+  result
 }

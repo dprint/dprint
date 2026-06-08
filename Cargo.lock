@@ -387,15 +387,14 @@ checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
 name = "console"
-version = "0.15.11"
+version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "054ccb5b10f9f2cbf51eb355ca1d05c2d279ce1804688d0db74b4733a5aeafd8"
+checksum = "d64e8af5551369d19cf50138de61f1c42074ab970f74e99be916646777f8fc87"
 dependencies = [
  "encode_unicode",
  "libc",
- "once_cell",
  "unicode-width 0.2.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -954,7 +953,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.68.0"
+version = "0.68.1"
 dependencies = [
  "async-trait",
  "bumpalo",
@@ -984,9 +983,8 @@ dependencies = [
 
 [[package]]
 name = "dprint-development"
-version = "0.10.2"
+version = "0.11.0"
 dependencies = [
- "anyhow",
  "console",
  "file_test_runner",
  "serde_json",
