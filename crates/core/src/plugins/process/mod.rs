@@ -1,5 +1,6 @@
 mod communicator;
 mod context;
+mod errors;
 mod message_processor;
 mod messages;
 mod parent_process_checker;

@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
-use anyhow::anyhow;
 use anyhow::bail;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
@@ -12,6 +11,7 @@ use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
+use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatRange;
@@ -337,7 +337,7 @@ impl InitializedWasmPluginInstanceV3 {
       WasmFormatResult::Error => {
         let len = self.wasm_functions.get_error_text()?;
         let text = self.receive_string(len)?;
-        Ok(Err(anyhow!("{}", text)))
+        Ok(Err(FormatError::new(text)))
       }
     }
   }
@@ -453,10 +453,10 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV3 {
       return Ok(None); // not supported for v3
     }
     self.wasm_functions.instance.set_token(&mut self.wasm_functions.store, token);
-    self.ensure_config(config)?;
+    self.ensure_config(config).map_err(FormatError::new)?;
     match self.inner_format_text(file_path, file_bytes, override_config) {
       Ok(inner) => inner,
-      Err(err) => Err(CriticalFormatError(err).into()),
+      Err(err) => Err(CriticalFormatError(FormatError::new(err)).into()),
     }
   }
 }
