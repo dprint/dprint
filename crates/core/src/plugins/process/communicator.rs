@@ -177,12 +177,10 @@ impl ProcessPluginCommunicator {
       .stderr(Stdio::piped())
       .stdout(Stdio::piped())
       .spawn()
-      .map_err(|err| {
-        CommunicatorError::StartProcess {
-          executable: executable_file_path.display().to_string(),
-          args: args.join(" "),
-          source: err,
-        }
+      .map_err(|err| CommunicatorError::StartProcess {
+        executable: executable_file_path.display().to_string(),
+        args: args.join(" "),
+        source: err,
       })?;
 
     // read and output stderr prefixed
