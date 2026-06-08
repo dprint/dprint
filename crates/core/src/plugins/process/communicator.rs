@@ -46,8 +46,7 @@ use crate::plugins::FormatResult;
 use crate::plugins::HostFormatRequest;
 use crate::plugins::NullCancellationToken;
 use crate::plugins::PluginInfo;
-
-use super::errors::error_to_string;
+use crate::plugins::error_to_string;
 
 type Result<T> = std::result::Result<T, FormatError>;
 
@@ -57,15 +56,15 @@ type DprintCancellationToken = Arc<dyn super::super::CancellationToken>;
 #[derive(Debug, thiserror::Error)]
 enum SchemaVersionError {
   #[error("Failed asking for schema version: {0}")]
-  Ask(#[source] std::io::Error),
+  Ask(std::io::Error),
   #[error("Failed flushing schema version request: {0}")]
-  Flush(#[source] std::io::Error),
+  Flush(std::io::Error),
   #[error("Could not read success response: {0}")]
-  ReadAcknowledgement(#[source] std::io::Error),
+  ReadAcknowledgement(std::io::Error),
   #[error("Plugin response was unexpected ({0}).")]
   UnexpectedAcknowledgement(u32),
   #[error("Could not read schema version: {0}")]
-  ReadVersion(#[source] std::io::Error),
+  ReadVersion(std::io::Error),
 }
 
 /// Error for when the plugin and CLI schema versions don't match.

@@ -2976,7 +2976,6 @@ dependencies = [
 name = "test-process-plugin"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "dprint-core",
  "serde",
  "serde_json",

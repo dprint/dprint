@@ -28,8 +28,7 @@ use crate::plugins::FormatError;
 use crate::plugins::FormatRequest;
 use crate::plugins::FormatResult;
 use crate::plugins::HostFormatRequest;
-
-use super::errors::error_to_string;
+use crate::plugins::error_to_string;
 
 type Result<T> = std::result::Result<T, FormatError>;
 

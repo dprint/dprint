@@ -182,9 +182,9 @@ where
                 RunForFilePathError::Any(err) => {
                   if let Some(err) = crate::plugins::maybe_critical_format_error(&err) {
                     error_logger.log_error(&format!(
-                      "Critical error formatting {}. Cannot continue. Message: {:#}",
+                      "Critical error formatting {}. Cannot continue. Message: {}",
                       file_path.display(),
-                      err
+                      dprint_core::plugins::error_to_string(err)
                     ));
                     semaphore.close(); // stop formatting
                   } else {
