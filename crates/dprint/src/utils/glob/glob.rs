@@ -625,6 +625,7 @@ mod test {
           config_excludes: Vec::new(),
         },
         pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+        no_gitignore: false,
       },
     )
     .unwrap();
