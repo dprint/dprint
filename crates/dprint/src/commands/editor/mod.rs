@@ -1106,6 +1106,54 @@ mod test {
     result.join().unwrap();
   }
 
+  #[test]
+  fn should_format_with_config_overrides_for_editor_service() {
+    let file_path = "/package.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .write_file(file_path, "")
+      .build();
+
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+
+          assert_eq!(communicator.check_file(&file_path).await.unwrap(), true);
+          assert_eq!(
+            communicator
+              .format_text(&file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_package"
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
   fn bytes_to_string(bytes: Vec<u8>) -> String {
     String::from_utf8(bytes).unwrap()
   }

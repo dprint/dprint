@@ -63,6 +63,7 @@ mod test {
               associations: None,
               format_config,
               file_matching,
+              overrides: Vec::new(),
               serialized_resolved_config,
             },
           )));
@@ -127,6 +128,7 @@ mod test {
               associations: None,
               format_config,
               file_matching,
+              overrides: Vec::new(),
               serialized_resolved_config,
             },
           )));

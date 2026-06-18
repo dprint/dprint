@@ -2236,6 +2236,64 @@ mod test {
   }
 
   #[test]
+  fn should_output_base_resolved_config_when_overrides_exist() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.json",
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .build();
+
+    run_test_cli(vec!["output-resolved-config"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![concat!(
+        "{\n",
+        "  \"test-plugin\": {\n",
+        "    \"ending\": \"base\",\n",
+        "    \"lineWidth\": 120\n",
+        "  }\n",
+        "}",
+      )]
+    );
+  }
+
+  #[test]
+  fn should_error_for_override_config_diagnostics() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "overrides": {
+              "files": "**/package.json",
+              "unknownProperty": true
+            }
+          }"#,
+        );
+      })
+      .build();
+
+    let err = run_test_cli(vec!["output-resolved-config"], &environment).err().unwrap();
+    assert_eq!(err.to_string(), "Plugin had 1 diagnostic(s)");
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "[test-plugin]: Unknown property in configuration (unknownProperty)",
+        "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
+      ]
+    );
+  }
+
+  #[test]
   fn should_output_resolved_config_no_plugins() {
     let environment = TestEnvironmentBuilder::new().with_default_config(|_| {}).build();
     run_test_cli(vec!["output-resolved-config"], &environment).unwrap();

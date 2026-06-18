@@ -839,6 +839,33 @@ mod test {
             }])
           );
 
+          // rewrite config with an override for package.txt
+          {
+            let mut config_file = TestConfigFileBuilder::new(environment.clone());
+            config_file.add_remote_wasm_plugin().add_config_section(
+              "test-plugin",
+              r#"{
+                "ending": "base",
+                "overrides": {
+                  "files": "**/package.txt",
+                  "ending": "package"
+                }
+              }"#,
+            );
+            environment.write_file("/dprint.json", &config_file.to_string()).unwrap();
+          }
+
+          let file_uri = Url::parse("file:///package.txt").unwrap();
+          did_open!(backend, file_uri, "text");
+          assert_format!(
+            backend,
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+              new_text: "_package".to_string()
+            }])
+          );
+
           // now ensure formatting works with a sub folder config file that has different config
           {
             let mut config_file = TestConfigFileBuilder::new(environment.clone());

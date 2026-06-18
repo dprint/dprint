@@ -265,6 +265,62 @@ In the following example, both the TypeScript plugin and Prettier plugin support
 }
 ```
 
+## Overrides
+
+The plugin `"overrides"` config changes plugin configuration for specific files
+that are already formatted by that plugin.
+
+For example:
+
+```json
+{
+  "json": {
+    "overrides": {
+      "files": ["**/package.json", "**/composer.json"],
+      "indentWidth": 4,
+      "useTabs": false
+    }
+  },
+  "plugins": [
+    "https://plugins.dprint.dev/json-x.x.x.wasm"
+  ]
+}
+```
+
+For multiple overrides, change it to an array:
+
+```json
+{
+  "json": {
+    "overrides": [
+      {
+        "files": ["**/package.json", "**/composer.json"],
+        "indentWidth": 4,
+        "useTabs": false
+      },
+      {
+        "files": "**/special-package.json",
+        "lineWidth": 80
+      }
+    ]
+  },
+  "plugins": [
+    "https://plugins.dprint.dev/json-x.x.x.wasm"
+  ]
+}
+```
+
+Each override must specify a `"files"` pattern or list of patterns. All other
+properties in the override are plugin configuration properties.
+
+Note that `"overrides"` only changes configuration. It does not include files,
+exclude files, or associate files with a plugin. File discovery still uses the
+top-level `"includes"` and `"excludes"` settings, and plugin routing still uses
+the plugin's supported file names, file extensions, and `"associations"`.
+
+When multiple override blocks match the same file, they are applied in order and
+later values win.
+
 ## Extending a Different Configuration File
 
 You may extend other configuration files by specifying an `extends` property. This may be a file path, URL, or relative path (remote configuration may extend other configuration files via a relative path).
