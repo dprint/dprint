@@ -87,21 +87,17 @@ pub struct PluginWithConfigOptions {
   pub associations: Option<Vec<String>>,
   pub format_config: Arc<FormatConfig>,
   pub file_matching: FileMatchingInfo,
+  pub overrides: Vec<PluginConfigOverride>,
   /// The plugin's resolved configuration serialized as JSON.
   pub serialized_resolved_config: String,
 }
 
 impl PluginWithConfig {
-  #[allow(dead_code)]
   pub fn new(plugin: Rc<PluginWrapper>, options: PluginWithConfigOptions) -> Self {
-    Self::new_with_overrides(plugin, options, Vec::new())
-  }
-
-  pub fn new_with_overrides(plugin: Rc<PluginWrapper>, options: PluginWithConfigOptions, overrides: Vec<PluginConfigOverride>) -> Self {
     Self {
       plugin,
       associations: options.associations,
-      overrides,
+      overrides: options.overrides,
       format_config: options.format_config,
       config_diagnostic_count: Default::default(),
       file_matching: options.file_matching,
@@ -729,15 +725,15 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
           });
           let file_matching = instance.file_matching_info(format_config.clone()).await?;
           let serialized_resolved_config = instance.resolved_config(format_config.clone()).await?;
-          Ok::<_, anyhow::Error>(Rc::new(PluginWithConfig::new_with_overrides(
+          Ok::<_, anyhow::Error>(Rc::new(PluginWithConfig::new(
             plugin,
             PluginWithConfigOptions {
               associations: plugin_config.associations,
               format_config,
               file_matching,
+              overrides,
               serialized_resolved_config,
             },
-            overrides,
           )))
         }
         .boxed_local(),
@@ -863,7 +859,7 @@ mod test {
   }
 
   fn create_plugin_with_overrides(overrides: Vec<PluginConfigOverride>) -> PluginWithConfig {
-    PluginWithConfig::new_with_overrides(
+    PluginWithConfig::new(
       Rc::new(PluginWrapper::new(Box::new(TestPlugin::new("test-plugin", "test-plugin", vec!["txt"], vec![])))),
       PluginWithConfigOptions {
         associations: None,
