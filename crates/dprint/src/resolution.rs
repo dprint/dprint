@@ -799,6 +799,7 @@ mod test {
             file_extensions: vec!["txt".to_string()],
             file_names: vec![],
           },
+          overrides: Vec::new(),
           serialized_resolved_config: resolved_config.to_string(),
         },
       );
@@ -872,9 +873,9 @@ mod test {
           file_extensions: vec!["txt".to_string()],
           file_names: Vec::new(),
         },
+        overrides,
         serialized_resolved_config: String::new(),
       },
-      overrides,
     )
   }
 }
