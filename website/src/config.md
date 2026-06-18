@@ -275,6 +275,23 @@ For example:
 ```json
 {
   "json": {
+    "overrides": {
+      "files": ["**/package.json", "**/composer.json"],
+      "indentWidth": 4,
+      "useTabs": false
+    }
+  },
+  "plugins": [
+    "https://plugins.dprint.dev/json-x.x.x.wasm"
+  ]
+}
+```
+
+For multiple overrides, change it to an array:
+
+```json
+{
+  "json": {
     "overrides": [
       {
         "files": ["**/package.json", "**/composer.json"],
