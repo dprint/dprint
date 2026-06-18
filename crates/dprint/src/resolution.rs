@@ -130,6 +130,7 @@ impl PluginWithConfig {
         hasher.write(association.as_bytes());
       }
     }
+    self.overrides.len().hash(hasher);
     for override_config in &self.overrides {
       override_config.files.len().hash(hasher);
       for file in &override_config.files {
