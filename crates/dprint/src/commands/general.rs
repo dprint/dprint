@@ -116,12 +116,13 @@ pub async fn output_file_paths<TEnvironment: Environment>(
 ///
 /// The incremental cache for each discovered configuration file is keyed by a
 /// hash of everything that affects formatting output (plugin names, plugin
-/// versions, resolved plugin config, associations, and overrides). When that
-/// hash changes the entire cache for the config is thrown away. Comparing the
-/// output of this command across two revisions tells you whether the cache
-/// would survive: if it's identical you only need to format the changed files,
-/// otherwise the whole workspace needs reformatting.
-pub async fn output_incremental_state<TEnvironment: Environment>(
+/// versions, resolved plugin config, associations, overrides, and global
+/// config). When that hash changes the entire cache for that config is thrown
+/// away. Comparing this output across two revisions tells you, per config,
+/// whether the cache would survive: if every config's hash is unchanged you
+/// only need to format the changed files, otherwise the affected configs need
+/// a full reformat.
+pub async fn incremental_state<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
@@ -738,7 +739,7 @@ SOFTWARE.
   #[test]
   fn should_output_incremental_state() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
-    run_test_cli(vec!["output-incremental-state"], &environment).unwrap();
+    run_test_cli(vec!["incremental-state"], &environment).unwrap();
     let messages = environment.take_stdout_messages();
     assert_eq!(messages.len(), 1);
     let json: serde_json::Value = serde_json::from_str(&messages[0]).unwrap();
@@ -767,7 +768,7 @@ SOFTWARE.
   #[test]
   fn incremental_state_hash_is_deterministic() {
     fn get_hash(environment: &TestEnvironment) -> String {
-      run_test_cli(vec!["output-incremental-state"], environment).unwrap();
+      run_test_cli(vec!["incremental-state"], environment).unwrap();
       let json: serde_json::Value = serde_json::from_str(&environment.take_stdout_messages()[0]).unwrap();
       json["configs"][0]["hash"].as_str().unwrap().to_string()
     }
@@ -801,7 +802,7 @@ SOFTWARE.
       })
       .write_file("/sub/file.txt", "")
       .build();
-    run_test_cli(vec!["output-incremental-state"], &environment).unwrap();
+    run_test_cli(vec!["incremental-state"], &environment).unwrap();
     let json: serde_json::Value = serde_json::from_str(&environment.take_stdout_messages()[0]).unwrap();
     let configs = json["configs"].as_array().unwrap();
     let paths = configs.iter().map(|c| c["path"].as_str().unwrap()).collect::<Vec<_>>();

@@ -248,6 +248,52 @@ Example output:
 54ms - C:\dev\my-project\build.js
 ```
 
+### Outputting incremental state (advanced, for very large repositories)
+
+When [incremental formatting](#incremental-formatting) is enabled, dprint keeps a cache and reuses it as long as nothing that affects formatting output has changed. The whole cache for a configuration file is thrown away when its plugins, plugin versions, resolved configuration, associations, overrides, or global configuration change.
+
+The `incremental-state` subcommand prints the exact signal dprint uses to make that decision, so you can compare it between two revisions and find out ahead of time whether the cache would be reused or invalidated:
+
+```sh
+dprint incremental-state
+```
+
+Example output (JSON):
+
+```json
+{
+  "configs": [
+    {
+      "path": "/home/david/dev/my-project/dprint.json",
+      "hash": "3f9c2a7b1e4d8f60",
+      "plugins": [
+        { "name": "dprint-plugin-typescript", "version": "0.95.15" },
+        { "name": "dprint-plugin-json", "version": "0.21.1" }
+      ]
+    }
+  ]
+}
+```
+
+A `configs` entry is emitted for every configuration file dprint discovers (including descendant configuration files), each with the `hash` that gates its incremental cache. The `hash` is the only thing that matters for cache invalidation—the `plugins` list is included so the output is easy to inspect when a hash changes. The output is deterministic across machines for an unchanged configuration.
+
+This is useful in CI to avoid formatting the entire repository when only a few files changed. For example, format only the files in the changeset when the cache would survive, and otherwise fall back to formatting everything:
+
+```sh
+git checkout main
+previous_state=$(dprint incremental-state)
+git checkout "$BRANCH"
+new_state=$(dprint incremental-state)
+
+if [ "$previous_state" != "$new_state" ]; then
+  # plugins or configuration changed—the cache is invalid, so format everything
+  dprint fmt
+else
+  # the cache is still valid, so only format the changed files
+  dprint fmt $(git diff --name-only main...)
+fi
+```
+
 ### Log Level
 
 To adjust your logging level, use the `--log-level` flag (defaults to `--log-level=info`).
