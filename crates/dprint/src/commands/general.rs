@@ -126,6 +126,27 @@ pub async fn output_incremental_state<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
+  #[derive(Serialize)]
+  #[serde(rename_all = "camelCase")]
+  struct IncrementalState {
+    configs: Vec<ConfigIncrementalState>,
+  }
+
+  #[derive(Serialize)]
+  #[serde(rename_all = "camelCase")]
+  struct ConfigIncrementalState {
+    path: String,
+    hash: String,
+    plugins: Vec<PluginIncrementalState>,
+  }
+
+  #[derive(Serialize)]
+  #[serde(rename_all = "camelCase")]
+  struct PluginIncrementalState {
+    name: String,
+    version: String,
+  }
+
   // traverse so that descendant config files are included in the state
   let scopes = resolve_plugins_scope_and_paths(
     args,
@@ -165,27 +186,6 @@ pub async fn output_incremental_state<TEnvironment: Environment>(
   environment.log_machine_readable(serde_json::to_string_pretty(&output)?.as_bytes());
 
   Ok(())
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct IncrementalState {
-  configs: Vec<ConfigIncrementalState>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ConfigIncrementalState {
-  path: String,
-  hash: String,
-  plugins: Vec<PluginIncrementalState>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PluginIncrementalState {
-  name: String,
-  version: String,
 }
 
 pub fn completions<TEnvironment: Environment>(shell: clap_complete::Shell, environment: &TEnvironment) -> Result<()> {
