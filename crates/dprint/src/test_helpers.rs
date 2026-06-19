@@ -340,19 +340,20 @@ USAGE:
     dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...
 
 SUBCOMMANDS:
-  init                    Initializes a configuration file in the current directory.
-  add                     Adds a plugin to the configuration file.
-  fmt                     Formats the source files and writes the result to the file system.
-  check                   Checks for any files that haven't been formatted.
-  config                  Functionality related to the configuration file.
-  output-file-paths       Prints the resolved file paths for the plugins based on the args and configuration.
-  output-resolved-config  Prints the resolved configuration for the plugins based on the args and configuration.
-  output-format-times     Prints the amount of time it takes to format each file. Use this for debugging.
-  clear-cache             Deletes the plugin cache directory.
-  upgrade                 Upgrades the dprint executable.
-  completions             Generate shell completions script for dprint
-  license                 Outputs the software license.
-  lsp                     Starts up a language server for formatting files.
+  init                      Initializes a configuration file in the current directory.
+  add                       Adds a plugin to the configuration file.
+  fmt                       Formats the source files and writes the result to the file system.
+  check                     Checks for any files that haven't been formatted.
+  config                    Functionality related to the configuration file.
+  output-file-paths         Prints the resolved file paths for the plugins based on the args and configuration.
+  output-resolved-config    Prints the resolved configuration for the plugins based on the args and configuration.
+  output-incremental-state  Prints the state used to determine whether the incremental cache would be invalidated.
+  output-format-times       Prints the amount of time it takes to format each file. Use this for debugging.
+  clear-cache               Deletes the plugin cache directory.
+  upgrade                   Upgrades the dprint executable.
+  completions               Generate shell completions script for dprint
+  license                   Outputs the software license.
+  lsp                       Starts up a language server for formatting files.
 
 More details at `dprint help <SUBCOMMAND>`
 
