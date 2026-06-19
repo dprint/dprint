@@ -95,7 +95,7 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
         if manifest.is_new_wasm_cache() {
           log_debug!(environment, "Busting plugins cache due to new wasm cache version.");
         }
-        let _ = environment.remove_dir_all(environment.get_cache_dir().join("plugins"));
+        environment.try_remove_dir_all(environment.get_cache_dir().join("plugins"));
         PluginCacheManifest::new()
       } else {
         manifest
@@ -103,7 +103,7 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
     }
     Err(err) => {
       log_debug!(environment, "Busting plugins cache due to deserialization error: {:#}", err);
-      let _ = environment.remove_dir_all(environment.get_cache_dir().join("plugins"));
+      environment.try_remove_dir_all(environment.get_cache_dir().join("plugins"));
       PluginCacheManifest::new()
     }
   };

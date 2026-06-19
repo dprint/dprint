@@ -92,7 +92,7 @@ where
         let registry = self.manifest.resolve_registry_url(&npm_source.specifier.name, start_dir);
         let registry_segment = npm_resolution::registry_dir_segment(&registry);
         let extract_dir = npm_resolution::get_npm_extract_dir(&registry_segment, &npm_source.specifier.name, version, &self.environment);
-        let _ = self.environment.remove_dir_all(&extract_dir);
+        self.environment.try_remove_dir_all(&extract_dir);
       }
     }
 

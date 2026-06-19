@@ -69,7 +69,7 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
       Ok(result) => Ok(result),
       Err(err) => {
         log_debug!(environment, "Failed setting up process plugin. {:#}", err);
-        let _ignore = environment.remove_dir_all(&plugin_cache_dir_path);
+        environment.try_remove_dir_all(&plugin_cache_dir_path);
         Err(err)
       }
     };
@@ -85,7 +85,7 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
     Err(err) => {
       log_debug!(environment, "Failed setting up process plugin. {:#}", err);
       // failed, so delete the dir if it exists
-      let _ignore = environment.remove_dir_all(&plugin_cache_dir_path);
+      environment.try_remove_dir_all(&plugin_cache_dir_path);
       Err(err)
     }
   }
@@ -104,17 +104,23 @@ async fn setup_from_zip<TEnvironment: Environment>(
   let temp_dir = get_atomic_path(environment, plugin_cache_dir_path);
   environment.mk_dir_all(&temp_dir)?;
   if let Err(err) = extract_zip(&format!("Extracting zip for {}", plugin_name), zip_bytes, &temp_dir, environment) {
-    let _ = environment.remove_dir_all(&temp_dir);
+    environment.try_remove_dir_all(&temp_dir);
     return Err(err);
   }
   let temp_executable = get_plugin_executable_file_path(&temp_dir, &plugin_name);
   if !environment.path_exists(&temp_executable) {
-    let _ = environment.remove_dir_all(&temp_dir);
+    environment.try_remove_dir_all(&temp_dir);
     bail!("Plugin zip file did not contain required executable at: {}", temp_executable.display(),);
   }
-  let _ = environment.remove_dir_all(plugin_cache_dir_path);
+  // remove any existing directory before moving the staged extract into place.
+  // surface a removal failure directly — otherwise the rename below fails with
+  // a confusing "directory not empty" error that hides the real cause.
+  if let Err(err) = environment.remove_dir_all(plugin_cache_dir_path) {
+    environment.try_remove_dir_all(&temp_dir);
+    return Err(err.into());
+  }
   if let Err(err) = environment.rename(&temp_dir, plugin_cache_dir_path) {
-    let _ = environment.remove_dir_all(&temp_dir);
+    environment.try_remove_dir_all(&temp_dir);
     return Err(err.into());
   }
 
