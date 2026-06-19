@@ -170,12 +170,14 @@ source /usr/local/etc/bash_completion.d/dprint.bash
 
 ## Diagnostic Commands and Flags
 
+Note: The `file-paths`, `resolved-config`, and `format-times` subcommands were previously named `output-file-paths`, `output-resolved-config`, and `output-format-times`. The `output-` prefixed names continue to work as aliases.
+
 ### Outputting file paths
 
-Sometimes you may not be sure what files dprint is picking up and formatting. To check, use the `output-file-paths` subcommand to see all the resolved file paths for the current plugins based on the CLI arguments and configuration.
+Sometimes you may not be sure what files dprint is picking up and formatting. To check, use the `file-paths` subcommand to see all the resolved file paths for the current plugins based on the CLI arguments and configuration.
 
 ```sh
-dprint output-file-paths
+dprint file-paths
 ```
 
 Example output:
@@ -195,7 +197,7 @@ C:\dev\my-project\website\playground\src\components\Spinner.tsx
 When diagnosing configuration issues it might be useful to find out what the internal lower level configuration used by the plugins is. To see that, use the following command:
 
 ```sh
-dprint output-resolved-config
+dprint resolved-config
 ```
 
 Example output (JSON):
@@ -230,7 +232,7 @@ Example output (JSON):
 It can be useful to know what files take a long time to format as you may consider skipping them. To see this information, use the following command:
 
 ```sh
-dprint output-format-times
+dprint format-times
 ```
 
 Example output:
