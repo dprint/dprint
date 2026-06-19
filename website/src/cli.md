@@ -170,8 +170,6 @@ source /usr/local/etc/bash_completion.d/dprint.bash
 
 ## Diagnostic Commands and Flags
 
-Note: The `file-paths`, `resolved-config`, and `format-times` subcommands were previously named `output-file-paths`, `output-resolved-config`, and `output-format-times`. The `output-` prefixed names continue to work as aliases.
-
 ### Outputting file paths
 
 Sometimes you may not be sure what files dprint is picking up and formatting. To check, use the `file-paths` subcommand to see all the resolved file paths for the current plugins based on the CLI arguments and configuration.
