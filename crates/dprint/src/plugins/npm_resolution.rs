@@ -558,7 +558,7 @@ fn extract_tarball_to_dir(tarball_bytes: &[u8], dest_dir: &Path, environment: &i
   environment.mk_dir_all(&temp_dir)?;
 
   if let Err(err) = extract_tarball_to_dir_inner(tarball_bytes, &temp_dir, environment) {
-    let _ = environment.remove_dir_all(&temp_dir);
+    environment.try_remove_dir_all(&temp_dir);
     return Err(err);
   }
 
@@ -568,10 +568,10 @@ fn extract_tarball_to_dir(tarball_bytes: &[u8], dest_dir: &Path, environment: &i
       if environment.path_exists(dest_dir) {
         // another concurrent extract finished first — discard our copy and
         // use theirs (immutable name@version means contents are equivalent)
-        let _ = environment.remove_dir_all(&temp_dir);
+        environment.try_remove_dir_all(&temp_dir);
         Ok(())
       } else {
-        let _ = environment.remove_dir_all(&temp_dir);
+        environment.try_remove_dir_all(&temp_dir);
         Err(err.into())
       }
     }
@@ -593,13 +593,19 @@ pub(in crate::plugins) fn extract_tarball_replacing(tarball_bytes: &[u8], dest_d
   environment.mk_dir_all(&temp_dir)?;
 
   if let Err(err) = extract_tarball_to_dir_inner(tarball_bytes, &temp_dir, environment) {
-    let _ = environment.remove_dir_all(&temp_dir);
+    environment.try_remove_dir_all(&temp_dir);
     return Err(err);
   }
 
-  let _ = environment.remove_dir_all(dest_dir);
+  // remove any existing directory before moving the staged extract into place.
+  // surface a removal failure directly — otherwise the rename below fails with
+  // a confusing "directory not empty" error that hides the real cause.
+  if let Err(err) = environment.remove_dir_all(dest_dir) {
+    environment.try_remove_dir_all(&temp_dir);
+    return Err(err.into());
+  }
   if let Err(err) = environment.rename(&temp_dir, dest_dir) {
-    let _ = environment.remove_dir_all(&temp_dir);
+    environment.try_remove_dir_all(&temp_dir);
     return Err(err.into());
   }
   Ok(())

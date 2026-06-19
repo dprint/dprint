@@ -108,119 +108,6 @@ pub trait UrlDownloader {
   }
 }
 
-#[async_trait]
-pub trait Environment:
-  Clone
-  + Send
-  + Sync
-  + std::fmt::Debug
-  + UrlDownloader
-  + BaseEnvVar
-  + BaseFsCreateDir
-  + BaseFsMetadata
-  + BaseFsOpen
-  + BaseFsRead
-  + BaseFsRemoveFile
-  + BaseFsRename
-  + BaseFsSetPermissions
-  + ThreadSleep
-  + SystemRandom
-  + SystemTimeNow
-  + 'static
-{
-  fn is_real(&self) -> bool;
-
-  fn env_var(&self, name: &str) -> Option<OsString>;
-
-  fn get_staged_files(&self) -> Result<Vec<PathBuf>>;
-  fn read_file(&self, file_path: impl AsRef<Path>) -> io::Result<String>;
-  fn maybe_read_file(&self, file_path: impl AsRef<Path>) -> io::Result<Option<String>> {
-    match self.read_file(file_path) {
-      Ok(value) => Ok(Some(value)),
-      Err(err) => match err.kind() {
-        std::io::ErrorKind::NotFound => Ok(None),
-        _ => Err(err),
-      },
-    }
-  }
-  fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> io::Result<Vec<u8>>;
-  fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> io::Result<()> {
-    self.write_file_bytes(file_path, file_text.as_bytes())
-  }
-  fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()>;
-  /// An atomic write, which will write to a temporary file and then rename it to the destination.
-  fn atomic_write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
-    crate::utils::fs::atomic_write_file_with_retries(self, file_path.as_ref(), bytes, 0o644)
-  }
-  fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()>;
-  fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()>;
-  fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()>;
-  fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>>;
-  fn path_exists(&self, path: impl AsRef<Path>) -> bool;
-  fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf>;
-  fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool;
-  fn file_permissions(&self, path: impl AsRef<Path>) -> io::Result<FilePermissions>;
-  fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> io::Result<()>;
-  fn mk_dir_all(&self, path: impl AsRef<Path>) -> io::Result<()>;
-  fn cwd(&self) -> CanonicalizedPathBuf;
-  fn current_exe(&self) -> io::Result<PathBuf>;
-  /// Don't ever call this directly in the code. That's why this has this weird name.
-  fn __log__(&self, text: &str);
-  /// Don't ever call this directly in the code. That's why this has this weird name.
-  fn __log_stderr__(&self, text: &str) {
-    self.log_stderr_with_context(text, "dprint");
-  }
-  /// Logs an error to the console providing the context name.
-  /// This will cause the logger to output the context name when appropriate.
-  /// Ex. Will log the dprint process plugin name.
-  fn log_stderr_with_context(&self, text: &str, context_name: &str);
-  /// Information to force output when the environment is in "machine readable mode".
-  fn log_machine_readable(&self, bytes: &[u8]);
-  fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
-    &self,
-    message: &str,
-    action: TCreate,
-    total_size: usize,
-  ) -> TResult;
-  fn get_cache_dir(&self) -> CanonicalizedPathBuf;
-  fn get_config_dir(&self) -> Option<PathBuf>;
-  fn get_home_dir(&self) -> Option<CanonicalizedPathBuf>;
-  /// Gets the CPU architecture.
-  fn cpu_arch(&self) -> String;
-  /// Gets the operating system.
-  fn os(&self) -> String;
-  fn max_threads(&self) -> usize;
-  /// Gets the CLI version
-  fn cli_version(&self) -> String;
-  fn get_time_secs(&self) -> u64;
-  fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize>;
-  fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>>;
-  fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool> {
-    self.confirm_with_strategy(&BasicShowConfirmStrategy {
-      prompt: prompt_message,
-      default_value,
-    })
-  }
-  fn confirm_with_strategy(&self, strategy: &dyn ShowConfirmStrategy) -> Result<bool>;
-  fn run_command_get_status(&self, args: Vec<OsString>) -> io::Result<Option<i32>>;
-  fn is_ci(&self) -> bool;
-  fn is_terminal_interactive(&self) -> bool;
-  fn log_level(&self) -> LogLevel;
-  fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult>;
-  fn wasm_cache_key(&self) -> String;
-  /// Returns the current CPU usage as a value from 0-100.
-  async fn cpu_usage(&self) -> u8;
-  fn stdout(&self) -> Box<dyn Write + Send>;
-  fn stdin(&self) -> Box<dyn Read + Send>;
-  fn progress_bars(&self) -> Option<&Arc<ProgressBars>> {
-    None
-  }
-  #[cfg(windows)]
-  fn ensure_system_path(&self, directory_path: &str) -> io::Result<()>;
-  #[cfg(windows)]
-  fn remove_system_path(&self, directory_path: &str) -> io::Result<()>;
-}
-
 // use a macro here so the expression provided is only evaluated when in debug mode
 macro_rules! log_debug {
   ($logger:expr, $($arg:tt)*) => {
@@ -291,4 +178,126 @@ macro_rules! log_all {
   ($logger:expr, $($arg:tt)*) => {
     $logger.__log_stderr__(&format!($($arg)*));
   }
+}
+
+#[async_trait]
+pub trait Environment:
+  Clone
+  + Send
+  + Sync
+  + std::fmt::Debug
+  + UrlDownloader
+  + BaseEnvVar
+  + BaseFsCreateDir
+  + BaseFsMetadata
+  + BaseFsOpen
+  + BaseFsRead
+  + BaseFsRemoveFile
+  + BaseFsRename
+  + BaseFsSetPermissions
+  + ThreadSleep
+  + SystemRandom
+  + SystemTimeNow
+  + 'static
+{
+  fn is_real(&self) -> bool;
+
+  fn env_var(&self, name: &str) -> Option<OsString>;
+
+  fn get_staged_files(&self) -> Result<Vec<PathBuf>>;
+  fn read_file(&self, file_path: impl AsRef<Path>) -> io::Result<String>;
+  fn maybe_read_file(&self, file_path: impl AsRef<Path>) -> io::Result<Option<String>> {
+    match self.read_file(file_path) {
+      Ok(value) => Ok(Some(value)),
+      Err(err) => match err.kind() {
+        std::io::ErrorKind::NotFound => Ok(None),
+        _ => Err(err),
+      },
+    }
+  }
+  fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> io::Result<Vec<u8>>;
+  fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> io::Result<()> {
+    self.write_file_bytes(file_path, file_text.as_bytes())
+  }
+  fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()>;
+  /// An atomic write, which will write to a temporary file and then rename it to the destination.
+  fn atomic_write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
+    crate::utils::fs::atomic_write_file_with_retries(self, file_path.as_ref(), bytes, 0o644)
+  }
+  fn rename(&self, path_from: impl AsRef<Path>, path_to: impl AsRef<Path>) -> io::Result<()>;
+  fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()>;
+  fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()>;
+  /// Removes a directory and all of its contents as best-effort cleanup,
+  /// logging any failure at debug level rather than returning it. Use this
+  /// for cleanup that shouldn't abort the surrounding operation, while still
+  /// surfacing the cause in `--log-level=debug` output.
+  fn try_remove_dir_all(&self, dir_path: impl AsRef<Path>) {
+    if let Err(err) = self.remove_dir_all(dir_path) {
+      log_debug!(self, "{:#}", err);
+    }
+  }
+  fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>>;
+  fn path_exists(&self, path: impl AsRef<Path>) -> bool;
+  fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf>;
+  fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool;
+  fn file_permissions(&self, path: impl AsRef<Path>) -> io::Result<FilePermissions>;
+  fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> io::Result<()>;
+  fn mk_dir_all(&self, path: impl AsRef<Path>) -> io::Result<()>;
+  fn cwd(&self) -> CanonicalizedPathBuf;
+  fn current_exe(&self) -> io::Result<PathBuf>;
+  /// Don't ever call this directly in the code. That's why this has this weird name.
+  fn __log__(&self, text: &str);
+  /// Don't ever call this directly in the code. That's why this has this weird name.
+  fn __log_stderr__(&self, text: &str) {
+    self.log_stderr_with_context(text, "dprint");
+  }
+  /// Logs an error to the console providing the context name.
+  /// This will cause the logger to output the context name when appropriate.
+  /// Ex. Will log the dprint process plugin name.
+  fn log_stderr_with_context(&self, text: &str, context_name: &str);
+  /// Information to force output when the environment is in "machine readable mode".
+  fn log_machine_readable(&self, bytes: &[u8]);
+  fn log_action_with_progress<TResult: Send + Sync, TCreate: FnOnce(Box<dyn Fn(usize)>) -> TResult + Send + Sync>(
+    &self,
+    message: &str,
+    action: TCreate,
+    total_size: usize,
+  ) -> TResult;
+  fn get_cache_dir(&self) -> CanonicalizedPathBuf;
+  fn get_config_dir(&self) -> Option<PathBuf>;
+  fn get_home_dir(&self) -> Option<CanonicalizedPathBuf>;
+  /// Gets the CPU architecture.
+  fn cpu_arch(&self) -> String;
+  /// Gets the operating system.
+  fn os(&self) -> String;
+  fn max_threads(&self) -> usize;
+  /// Gets the CLI version
+  fn cli_version(&self) -> String;
+  fn get_time_secs(&self) -> u64;
+  fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize>;
+  fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>>;
+  fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool> {
+    self.confirm_with_strategy(&BasicShowConfirmStrategy {
+      prompt: prompt_message,
+      default_value,
+    })
+  }
+  fn confirm_with_strategy(&self, strategy: &dyn ShowConfirmStrategy) -> Result<bool>;
+  fn run_command_get_status(&self, args: Vec<OsString>) -> io::Result<Option<i32>>;
+  fn is_ci(&self) -> bool;
+  fn is_terminal_interactive(&self) -> bool;
+  fn log_level(&self) -> LogLevel;
+  fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult>;
+  fn wasm_cache_key(&self) -> String;
+  /// Returns the current CPU usage as a value from 0-100.
+  async fn cpu_usage(&self) -> u8;
+  fn stdout(&self) -> Box<dyn Write + Send>;
+  fn stdin(&self) -> Box<dyn Read + Send>;
+  fn progress_bars(&self) -> Option<&Arc<ProgressBars>> {
+    None
+  }
+  #[cfg(windows)]
+  fn ensure_system_path(&self, directory_path: &str) -> io::Result<()>;
+  #[cfg(windows)]
+  fn remove_system_path(&self, directory_path: &str) -> io::Result<()>;
 }
