@@ -150,6 +150,7 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
     SubCommand::Version => commands::output_version(environment),
     SubCommand::StdInFmt(cmd) => commands::stdin_fmt(cmd, args, environment, plugin_resolver).await,
     SubCommand::OutputResolvedConfig => commands::output_resolved_config(args, environment, plugin_resolver).await,
+    SubCommand::IncrementalState => commands::incremental_state(args, environment, plugin_resolver).await,
     SubCommand::OutputFilePaths(cmd) => commands::output_file_paths(cmd, args, environment, plugin_resolver).await,
     SubCommand::OutputFormatTimes(cmd) => commands::output_format_times(cmd, args, environment, plugin_resolver).await,
     SubCommand::Check(cmd) => commands::check(cmd, args, environment, plugin_resolver).await,

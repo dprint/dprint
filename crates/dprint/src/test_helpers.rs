@@ -347,6 +347,7 @@ SUBCOMMANDS:
   config                  Functionality related to the configuration file.
   output-file-paths       Prints the resolved file paths for the plugins based on the args and configuration.
   output-resolved-config  Prints the resolved configuration for the plugins based on the args and configuration.
+  incremental-state       Prints the state used to determine whether the incremental cache would be invalidated.
   output-format-times     Prints the amount of time it takes to format each file. Use this for debugging.
   clear-cache             Deletes the plugin cache directory.
   upgrade                 Upgrades the dprint executable.

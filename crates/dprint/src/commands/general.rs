@@ -1,9 +1,11 @@
 use std::rc::Rc;
 
 use anyhow::Result;
+use serde::Serialize;
 
 use crate::arg_parser::CliArgParserKind;
 use crate::arg_parser::CliArgs;
+use crate::arg_parser::FilePatternArgs;
 use crate::arg_parser::OutputFilePathsSubCommand;
 use crate::arg_parser::create_cli_parser;
 use crate::environment::Environment;
@@ -107,6 +109,83 @@ pub async fn output_file_paths<TEnvironment: Environment>(
   for file_path in file_paths {
     log_stdout_info!(environment, "{}", file_path.display())
   }
+  Ok(())
+}
+
+/// Outputs the signals that determine whether the incremental cache is invalidated.
+///
+/// The incremental cache for each discovered configuration file is keyed by a
+/// hash of everything that affects formatting output (plugin names, plugin
+/// versions, resolved plugin config, associations, overrides, and global
+/// config). When that hash changes the entire cache for that config is thrown
+/// away. Comparing this output across two revisions tells you, per config,
+/// whether the cache would survive: if every config's hash is unchanged you
+/// only need to format the changed files, otherwise the affected configs need
+/// a full reformat.
+pub async fn incremental_state<TEnvironment: Environment>(
+  args: &CliArgs,
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+) -> Result<()> {
+  #[derive(Serialize)]
+  #[serde(rename_all = "camelCase")]
+  struct IncrementalState {
+    configs: Vec<ConfigIncrementalState>,
+  }
+
+  #[derive(Serialize)]
+  #[serde(rename_all = "camelCase")]
+  struct ConfigIncrementalState {
+    path: String,
+    hash: String,
+    plugins: Vec<PluginIncrementalState>,
+  }
+
+  #[derive(Serialize)]
+  #[serde(rename_all = "camelCase")]
+  struct PluginIncrementalState {
+    name: String,
+    version: String,
+  }
+
+  // traverse so that descendant config files are included in the state
+  let scopes = resolve_plugins_scope_and_paths(
+    args,
+    &FilePatternArgs::default(),
+    environment,
+    plugin_resolver,
+    ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
+  )
+  .await?;
+
+  let mut configs = Vec::new();
+  for scope_and_paths in scopes.iter() {
+    let scope = &scope_and_paths.scope;
+    let Some(config) = scope.config.as_ref() else {
+      continue;
+    };
+    scope.ensure_valid_for_cli_args(args)?;
+    configs.push(ConfigIncrementalState {
+      path: config.source.to_string(),
+      // format as fixed width hex so the value is stable and easy to diff
+      hash: format!("{:016x}", scope.plugins_hash()),
+      plugins: scope
+        .plugins
+        .values()
+        .map(|plugin| PluginIncrementalState {
+          name: plugin.name().to_string(),
+          version: plugin.info().version.to_string(),
+        })
+        .collect(),
+    });
+  }
+
+  // sort by path so the output is deterministic regardless of traversal order
+  configs.sort_by(|a, b| a.path.cmp(&b.path));
+
+  let output = IncrementalState { configs };
+  environment.log_machine_readable(serde_json::to_string_pretty(&output)?.as_bytes());
+
   Ok(())
 }
 
@@ -655,5 +734,79 @@ SOFTWARE.
       assert_eq!(logged_messages.len(), 1);
       assert!(!logged_messages[0].contains("hidden"));
     }
+  }
+
+  #[test]
+  fn should_output_incremental_state() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
+    run_test_cli(vec!["incremental-state"], &environment).unwrap();
+    let messages = environment.take_stdout_messages();
+    assert_eq!(messages.len(), 1);
+    let json: serde_json::Value = serde_json::from_str(&messages[0]).unwrap();
+    let configs = json["configs"].as_array().unwrap();
+    assert_eq!(configs.len(), 1);
+    let config = &configs[0];
+    assert_eq!(config["path"], "/dprint.json");
+    // the hash is a stable 16 character hex string
+    assert_eq!(config["hash"].as_str().unwrap().len(), 16);
+    let mut plugins = config["plugins"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .map(|p| (p["name"].as_str().unwrap().to_string(), p["version"].as_str().unwrap().to_string()))
+      .collect::<Vec<_>>();
+    plugins.sort();
+    assert_eq!(
+      plugins,
+      vec![
+        ("test-plugin".to_string(), "0.2.0".to_string()),
+        ("test-process-plugin".to_string(), "0.1.0".to_string()),
+      ]
+    );
+  }
+
+  #[test]
+  fn incremental_state_hash_is_deterministic() {
+    fn get_hash(environment: &TestEnvironment) -> String {
+      run_test_cli(vec!["incremental-state"], environment).unwrap();
+      let json: serde_json::Value = serde_json::from_str(&environment.take_stdout_messages()[0]).unwrap();
+      json["configs"][0]["hash"].as_str().unwrap().to_string()
+    }
+
+    // same config produces the same hash across runs
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin().build();
+    assert_eq!(get_hash(&environment), get_hash(&environment));
+
+    // a config change (different plugin config) produces a different hash
+    let environment_changed = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "different"
+          }"#,
+        );
+      })
+      .build();
+    assert_ne!(get_hash(&environment), get_hash(&environment_changed));
+  }
+
+  #[test]
+  fn incremental_state_with_descendant_config() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      .with_local_config("/sub/dprint.json", |c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt");
+      })
+      .write_file("/sub/file.txt", "")
+      .build();
+    run_test_cli(vec!["incremental-state"], &environment).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&environment.take_stdout_messages()[0]).unwrap();
+    let configs = json["configs"].as_array().unwrap();
+    let paths = configs.iter().map(|c| c["path"].as_str().unwrap()).collect::<Vec<_>>();
+    // sorted by path and includes both the root and descendant config
+    assert_eq!(paths, vec!["/dprint.json", "/sub/dprint.json"]);
   }
 }

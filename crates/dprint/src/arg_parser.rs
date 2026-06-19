@@ -79,7 +79,7 @@ impl CliArgs {
     // these output json or other text that's read by stdout
     matches!(
       self.sub_command,
-      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig | SubCommand::Completions(..)
+      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig | SubCommand::IncrementalState | SubCommand::Completions(..)
     )
   }
 
@@ -118,6 +118,7 @@ pub enum SubCommand {
   ClearCache,
   OutputFilePaths(OutputFilePathsSubCommand),
   OutputResolvedConfig,
+  IncrementalState,
   OutputFormatTimes(OutputFormatTimesSubCommand),
   Version,
   License,
@@ -151,6 +152,7 @@ impl SubCommand {
       SubCommand::Config(_)
       | SubCommand::ClearCache
       | SubCommand::OutputResolvedConfig
+      | SubCommand::IncrementalState
       | SubCommand::Version
       | SubCommand::License
       | SubCommand::Help(_)
@@ -397,6 +399,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       patterns: parse_file_patterns(matches)?,
     }),
     ("output-resolved-config", _) => SubCommand::OutputResolvedConfig,
+    ("incremental-state", _) => SubCommand::IncrementalState,
     ("output-format-times", matches) => SubCommand::OutputFormatTimes(OutputFormatTimesSubCommand {
       patterns: parse_file_patterns(matches)?,
       allow_no_files: matches.get_flag("allow-no-files"),
@@ -753,6 +756,10 @@ EXAMPLES:
     .subcommand(
       Command::new("output-resolved-config")
         .about("Prints the resolved configuration for the plugins based on the args and configuration.")
+    )
+    .subcommand(
+      Command::new("incremental-state")
+        .about("Prints the state used to determine whether the incremental cache would be invalidated.")
     )
     .subcommand(
       Command::new("output-format-times")
