@@ -4,7 +4,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-/** @type {string | undefined} */
+/** @type {boolean | undefined} */
 let cachedIsMusl = undefined;
 
 module.exports = {
@@ -91,8 +91,8 @@ function getLinuxFamily() {
   return getIsMusl() ? "musl" : "glibc";
 
   function getIsMusl() {
-    // code adapted from https://github.com/lovell/detect-libc
-    // Copyright Apache 2.0 license, the detect-libc maintainers
+    // code adapted from https://github.com/napi-rs/package-template/blob/main/index.js
+    // which is in turn based on https://github.com/lovell/detect-libc (Apache 2.0 license)
     if (cachedIsMusl == null) {
       cachedIsMusl = innerGet();
     }
@@ -103,7 +103,14 @@ function getLinuxFamily() {
         if (os.platform() !== "linux") {
           return false;
         }
-        return isProcessReportMusl() || isConfMusl();
+        let musl = isMuslFromFilesystem();
+        if (musl == null) {
+          musl = isMuslFromReport();
+        }
+        if (musl == null) {
+          musl = isMuslFromChildProcess();
+        }
+        return musl;
       } catch (err) {
         // just in case
         console.warn("Error checking if musl.", err);
@@ -111,31 +118,51 @@ function getLinuxFamily() {
       }
     }
 
-    function isProcessReportMusl() {
-      if (!process.report) {
-        return false;
-      }
-      const rawReport = process.report.getReport();
-      const report = typeof rawReport === "string" ? JSON.parse(rawReport) : rawReport;
-      if (!report || !(report.sharedObjects instanceof Array)) {
-        return false;
-      }
-      return report.sharedObjects.some(o => o.includes("libc.musl-") || o.includes("ld-musl-"));
-    }
-
-    function isConfMusl() {
-      const output = getCommandOutput();
-      const [_, ldd1] = output.split(/[\r\n]+/);
-      return ldd1 && ldd1.includes("musl");
-    }
-
-    function getCommandOutput() {
+    function isMuslFromFilesystem() {
       try {
-        const command = "getconf GNU_LIBC_VERSION 2>&1 || true; ldd --version 2>&1 || true";
-        return require("child_process").execSync(command, { encoding: "utf8" });
-      } catch (_err) {
-        return "";
+        return fs.readFileSync("/usr/bin/ldd", "utf-8").includes("musl");
+      } catch {
+        return null;
       }
+    }
+
+    function isMuslFromReport() {
+      if (typeof process.report?.getReport !== "function") {
+        return null;
+      }
+      // excludeNetwork avoids a slow reverse DNS lookup while generating the
+      // report, but it's a global flag so restore it once we're done
+      const originalExcludeNetwork = process.report.excludeNetwork;
+      let rawReport;
+      try {
+        process.report.excludeNetwork = true;
+        rawReport = process.report.getReport();
+      } finally {
+        process.report.excludeNetwork = originalExcludeNetwork;
+      }
+      const report = typeof rawReport === "string" ? JSON.parse(rawReport) : rawReport;
+      if (!report) {
+        return null;
+      }
+      if (report.header && report.header.glibcVersionRuntime) {
+        return false;
+      }
+      if (Array.isArray(report.sharedObjects)) {
+        return report.sharedObjects.some(isFileMusl);
+      }
+      return false;
+    }
+
+    function isMuslFromChildProcess() {
+      try {
+        return require("child_process").execSync("ldd --version", { encoding: "utf8" }).includes("musl");
+      } catch {
+        return false;
+      }
+    }
+
+    function isFileMusl(f) {
+      return f.includes("libc.musl-") || f.includes("ld-musl-");
     }
   }
 }
