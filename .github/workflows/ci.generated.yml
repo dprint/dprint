@@ -138,8 +138,8 @@ jobs:
           file: .github/workflows/cross-loongarch64.Dockerfile
           tags: "dprint-cross-base-${{ matrix.target }}"
           load: true
-          cache-from: "type=gha,scope=dprint-cross-base-${{ matrix.target }}"
-          cache-to: "type=gha,mode=max,scope=dprint-cross-base-${{ matrix.target }}"
+          cache-from: 'type=gha,scope=dprint-cross-base-${{ matrix.target }}-${{ hashFiles(''Cargo.lock'') }}'
+          cache-to: 'type=gha,mode=max,scope=dprint-cross-base-${{ matrix.target }}-${{ hashFiles(''Cargo.lock'') }}'
           build-args: |-
             CROSS_BASE_IMAGE=ghcr.io/cross-rs/${{ matrix.target }}:main
             TARGET=${{ matrix.target }}

@@ -178,6 +178,8 @@ const setupBuildx = step({
 // Bypass cross and build images with GHA cache enabled
 const crossImageBaseName = "dprint-cross-base";
 const crossImageName = `${crossImageBaseName}-${matrix.target}`;
+// bust the docker layer cache when Cargo.lock changes (ex. updated llvm-sys)
+const crossImageCacheScope = `${crossImageName}-${expr("hashFiles('Cargo.lock')")}`;
 const loongarch64ImageEnv = Object.fromEntries(
   profiles.filter((profile) => profile.target.startsWith("loongarch64"))
     .map((
@@ -194,8 +196,8 @@ const buildAndCacheCrossImages = step({
     file: ".github/workflows/cross-loongarch64.Dockerfile",
     tags: crossImageName,
     load: true,
-    "cache-from": `type=gha,scope=${crossImageName}`,
-    "cache-to": `type=gha,mode=max,scope=${crossImageName}`,
+    "cache-from": `type=gha,scope=${crossImageCacheScope}`,
+    "cache-to": `type=gha,mode=max,scope=${crossImageCacheScope}`,
     "build-args": `CROSS_BASE_IMAGE=ghcr.io/cross-rs/${matrix.target}:main\nTARGET=${matrix.target}`,
   },
 }).dependsOn(setupBuildx);
