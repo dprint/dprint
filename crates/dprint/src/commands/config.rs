@@ -3,6 +3,7 @@ use anyhow::Error;
 use anyhow::Result;
 use anyhow::anyhow;
 use anyhow::bail;
+use deno_terminal::colors;
 use dprint_core::async_runtime::future;
 use dprint_core::plugins;
 use std::collections::HashMap;
@@ -676,7 +677,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
               format!(" in {}", config_path.display())
             };
             if dry_run {
-              log_stderr_info!(environment, "Would update {} {}{} to {}.", info.name, info.old_version, in_config, info.new_version);
+              log_stderr_info!(environment, "Would update {} {}{} to {}.", colors::bold(&info.name), info.old_version, in_config, info.new_version);
             } else {
               log_stderr_info!(environment, "Updating {} {}{} to {}...", info.name, info.old_version, in_config, info.new_version);
             }
@@ -793,13 +794,13 @@ async fn preview_plugin_config_updates<TEnvironment: Environment>(
       }
     }
 
-    log_stdout_info!(environment, "\n{} would be updated to:\n{}", config_path.display(), file_text);
+    log_stdout_info!(environment, "\n{}\n{}", colors::bold(format!("{} would be updated to:", config_path.display())), file_text);
   }
 
   if any_updates {
-    log_stderr_info!(environment, "\nThis was a dry run. No files were changed.");
+    log_stderr_info!(environment, "\n{}", colors::gray("This was a dry run. No files were changed."));
   } else {
-    log_stderr_info!(environment, "No plugin updates available.");
+    log_stderr_info!(environment, "{}", colors::gray("No plugin updates available."));
   }
 
   Ok(())
@@ -1136,6 +1137,7 @@ mod test {
   use std::path::Path;
 
   use anyhow::Result;
+  use deno_terminal::colors;
   use once_cell::sync::Lazy;
   use pretty_assertions::assert_eq;
   use serde_json::json;
@@ -2177,19 +2179,19 @@ mod test {
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
-        "Would update test-plugin 0.1.0 to 0.2.0.".to_string(),
-        "Would update test-process-plugin 0.1.0 to 0.3.0.".to_string(),
-        "Would update test-process-plugin 0.1.0 in /sub_folder/dprint.json to 0.3.0.".to_string(),
-        "Would update test-plugin 0.1.0 in /sub_folder/dprint.json to 0.2.0.".to_string(),
+        format!("Would update {} 0.1.0 to 0.2.0.", colors::bold("test-plugin")),
+        format!("Would update {} 0.1.0 to 0.3.0.", colors::bold("test-process-plugin")),
+        format!("Would update {} 0.1.0 in /sub_folder/dprint.json to 0.3.0.", colors::bold("test-process-plugin")),
+        format!("Would update {} 0.1.0 in /sub_folder/dprint.json to 0.2.0.", colors::bold("test-plugin")),
         "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string(),
         "Extracting zip for test-process-plugin".to_string(),
-        "\nThis was a dry run. No files were changed.".to_string(),
+        format!("\n{}", colors::gray("This was a dry run. No files were changed.")),
       ]
     );
 
     // the preview output shows the would-be config (with migrated sections and bumped plugin urls)
     let stdout = environment.take_stdout_messages().join("\n");
-    assert_contains!(stdout, "/dprint.json would be updated to:");
+    assert_contains!(stdout, &colors::bold("/dprint.json would be updated to:").to_string());
     assert_contains!(stdout, "\"should_add\": \"new_value\"");
     assert_contains!(stdout, "\"should_add\": \"new_value_wasm\"");
     assert_contains!(stdout, "https://plugins.dprint.dev/test-plugin.wasm");
