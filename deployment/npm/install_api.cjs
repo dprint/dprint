@@ -21,11 +21,18 @@ module.exports = {
     }
 
     const target = getTarget();
-    const sourcePackagePath = path.dirname(require.resolve("@dprint/" + target + "/package.json"));
-    const sourceExecutablePath = path.join(sourcePackagePath, dprintFileName);
+    const sourceExecutablePath = resolveSourceExecutablePath(target, dprintFileName);
 
-    if (!fs.existsSync(sourceExecutablePath)) {
-      throw new Error("Could not find executable for @dprint/" + target + " at " + sourceExecutablePath);
+    if (sourceExecutablePath == null) {
+      // the @dprint/<target> optional dependency isn't installed (for example
+      // the user ran `npm install --omit=optional`), so download the binary
+      // directly from the registry like esbuild does
+      downloadExecutable(target, dprintFileName, targetExecutablePath);
+      if (os.platform() !== "win32") {
+        // chmod +x
+        chmodX(targetExecutablePath);
+      }
+      return targetExecutablePath;
     }
 
     try {
@@ -58,6 +65,158 @@ module.exports = {
     }
   },
 };
+
+/**
+ * Resolves the path to the executable provided by the @dprint/<target>
+ * optional dependency, or undefined when that package isn't installed.
+ * @param target {string}
+ * @param dprintFileName {string}
+ * @returns {string | undefined}
+ */
+function resolveSourceExecutablePath(target, dprintFileName) {
+  let sourcePackagePath;
+  try {
+    sourcePackagePath = path.dirname(require.resolve("@dprint/" + target + "/package.json"));
+  } catch {
+    // the optional dependency wasn't installed
+    return undefined;
+  }
+  const sourceExecutablePath = path.join(sourcePackagePath, dprintFileName);
+  return fs.existsSync(sourceExecutablePath) ? sourceExecutablePath : undefined;
+}
+
+/**
+ * Downloads the binary tarball for the target from the registry and extracts
+ * the executable to the destination path.
+ * @param target {string}
+ * @param dprintFileName {string}
+ * @param destinationPath {string}
+ */
+function downloadExecutable(target, dprintFileName, destinationPath) {
+  const version = require("./package.json").version;
+  const registry = (process.env.npm_config_registry || "https://registry.npmjs.org")
+    .replace(/\/+$/, "");
+  // npm tarball urls drop the scope from the file name (e.g.
+  // https://registry.npmjs.org/@dprint/win32-x64/-/win32-x64-1.0.0.tgz)
+  const tarballUrl = registry + "/@dprint/" + target + "/-/" + target + "-" + version + ".tgz";
+  console.error("[dprint] Optional dependency @dprint/" + target + " was not installed. Downloading from " + tarballUrl);
+  const tarballBuffer = downloadBufferSync(tarballUrl);
+  // files inside an npm tarball live under the "package/" directory
+  const executableBuffer = extractFileFromTarGzip(tarballBuffer, "package/" + dprintFileName);
+  verifyExecutableHash(target, executableBuffer);
+  atomicWriteFile(destinationPath, executableBuffer);
+}
+
+/**
+ * Verifies the downloaded executable against the hash recorded at build time
+ * so that we only ever run the exact binary that was published.
+ * @param target {string}
+ * @param buffer {Buffer}
+ */
+function verifyExecutableHash(target, buffer) {
+  let hashes;
+  try {
+    hashes = require("./hashes.json");
+  } catch (err) {
+    throw new Error("Could not load hashes.json to verify the downloaded binary: " + (err && err.message || err));
+  }
+  const expected = hashes[target];
+  if (typeof expected !== "string") {
+    throw new Error("No known hash for @dprint/" + target + " to verify the download against.");
+  }
+  const actual = require("crypto").createHash("sha256").update(buffer).digest("hex");
+  if (actual !== expected) {
+    throw new Error(
+      "Integrity check failed for the downloaded @dprint/" + target + " binary.\n"
+        + "  Expected sha256: " + expected + "\n"
+        + "  Actual sha256:   " + actual,
+    );
+  }
+}
+
+/**
+ * Downloads a url to a buffer synchronously. Node has no synchronous https
+ * client, so spawn a child node process that streams the response to stdout.
+ * @param url {string}
+ * @returns {Buffer}
+ */
+function downloadBufferSync(url) {
+  const script = "const https=require('https');"
+    + "function f(u){https.get(u,r=>{"
+    + "const s=r.statusCode;"
+    + "if((s===301||s===302||s===303||s===307||s===308)&&r.headers.location){f(new URL(r.headers.location,u).toString());return;}"
+    + "if(s!==200){console.error('[dprint] Unexpected status code '+s+' downloading '+u);process.exit(1);}"
+    + "r.pipe(process.stdout);"
+    + "}).on('error',e=>{console.error(String(e&&e.message||e));process.exit(1);});}"
+    + "f(process.argv[1]);";
+  return require("child_process").execFileSync(
+    process.execPath,
+    ["-e", script, url],
+    { maxBuffer: 512 * 1024 * 1024 },
+  );
+}
+
+/**
+ * Extracts a single file from a gzipped tarball buffer.
+ * @param buffer {Buffer}
+ * @param subpath {string}
+ * @returns {Buffer}
+ */
+function extractFileFromTarGzip(buffer, subpath) {
+  const zlib = require("zlib");
+  let tar;
+  try {
+    tar = zlib.gunzipSync(buffer);
+  } catch (err) {
+    throw new Error("Invalid gzip data in downloaded tarball: " + (err && err.message || err));
+  }
+  let offset = 0;
+  while (offset < tar.length) {
+    const name = readTarString(tar, offset, 100);
+    const size = parseInt(readTarString(tar, offset + 124, 12).trim(), 8);
+    offset += 512;
+    if (!isNaN(size)) {
+      if (name === subpath) {
+        return tar.subarray(offset, offset + size);
+      }
+      // entries are padded to 512 byte boundaries
+      offset += (size + 511) & ~511;
+    }
+  }
+  throw new Error("Could not find " + JSON.stringify(subpath) + " in downloaded tarball");
+}
+
+/**
+ * @param buffer {Buffer}
+ * @param offset {number}
+ * @param length {number}
+ */
+function readTarString(buffer, offset, length) {
+  return buffer.toString("utf8", offset, offset + length).replace(/\0.*$/, "");
+}
+
+/**
+ * @param destinationPath {string}
+ * @param buffer {Buffer}
+ */
+function atomicWriteFile(destinationPath, buffer) {
+  const crypto = require("crypto");
+  const rand = crypto.randomBytes(4).toString("hex");
+  const tempFilePath = destinationPath + "." + rand;
+  fs.writeFileSync(tempFilePath, buffer);
+  try {
+    fs.renameSync(tempFilePath, destinationPath);
+  } catch (err) {
+    // will maybe throw when another process had already done this
+    // so just ignore and delete the created temporary file
+    try {
+      fs.unlinkSync(tempFilePath);
+    } catch (_err2) {
+      // ignore
+    }
+    throw err;
+  }
+}
 
 /** @filePath {string} */
 function chmodX(filePath) {
