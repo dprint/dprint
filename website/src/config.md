@@ -349,6 +349,48 @@ Referencing multiple configuration files is also supported. These should be orde
 
 Note: The `includes` property of extended _remote_ configuration is ignored for security reasons out of an abundance of caution (to disallow the dprint cli pulling in sensitive files) and additionally non-Wasm plugins are ignored in remote configuration because they don't run sandboxed.
 
+## Directory Specific Configuration
+
+Useful for monorepos, you may place additional configuration files in descendant directories. When dprint searches for files to format, it stops descending into a directory once it discovers a configuration file there and uses that configuration file for the files in that subtree instead (see [changing config discovery](/cli#changing-config-discovery)).
+
+By default a nested configuration file is completely independent—it does not pick up the plugins or configuration of the ancestor configuration file:
+
+<!-- dprint-ignore -->
+
+```json
+// ./sub-project/dprint.json
+{
+  // only TOML files in ./sub-project will be formatted
+  "plugins": [
+    "https://plugins.dprint.dev/toml-x.x.x.wasm"
+  ]
+}
+```
+
+To instead inherit the plugins and configuration of the ancestor configuration file, specify `"inherit": true`:
+
+<!-- dprint-ignore -->
+
+```json
+// ./sub-project/dprint.json
+{
+  "inherit": true,
+  "typescript": {
+    // inherits the ancestor's TypeScript config, but overrides the indent width
+    "indentWidth": 2
+  }
+}
+```
+
+When inheriting:
+
+- Plugins specified in the nested configuration file have precedence over the ancestor's plugins. Any plugins not specified are inherited from the ancestor.
+- Plugin configuration is merged with the nested configuration file winning on conflicts.
+- The ancestor's `excludes` are combined with the nested configuration file's `excludes`.
+- The ancestor's `includes` are _not_ inherited as they're relative to the ancestor's directory.
+
+Inheriting is opt-in (rather than opt-out) so that adding a configuration file higher up in the directory structure does not unexpectedly start affecting a nested configuration file.
+
 ## Incremental
 
 By default, dprint will only format files that have changed since the last time you formatted the code in order to drastically improve performance.

@@ -35,6 +35,7 @@ use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_global_config;
 use crate::configuration::get_plugin_config_map;
+use crate::configuration::inherit_config;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::resolve_config_from_path_with_bytes;
 use crate::environment::CanonicalizedPathBuf;
@@ -631,6 +632,10 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
         is_first_download: false,
       };
       let mut config = resolve_config_from_path_with_bytes(&config_path, self.environment).await?;
+      // when the nested config opts into inheriting, merge in the ancestor config
+      if config.inherit == Some(true) {
+        config = inherit_config(config, parent_config)?;
+      }
       if !self.args.plugins.is_empty() {
         config.plugins.clone_from(&parent_config.plugins);
       }

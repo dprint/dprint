@@ -38,6 +38,9 @@ pub struct ResolvedConfig {
   pub excludes: Option<Vec<String>>,
   pub plugins: Vec<PluginSourceReference>,
   pub incremental: Option<bool>,
+  /// Whether a nested (directory specific) configuration file should inherit
+  /// the plugins and configuration of its ancestor configuration file.
+  pub inherit: Option<bool>,
   pub config_map: ConfigMap,
 }
 
@@ -119,6 +122,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
           excludes: None,
           includes: None,
           incremental: None,
+          inherit: None,
           plugins: Vec::new(),
         }
       } else if args.config_discovery(environment).traverse_ancestors() {
@@ -185,6 +189,7 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   let excludes = take_array_from_config_map(&mut config_map, "excludes")?;
 
   let incremental = take_bool_from_config_map(&mut config_map, "incremental")?;
+  let inherit = take_bool_from_config_map(&mut config_map, "inherit")?;
   config_map.shift_remove("projectType"); // this was an old config property that's no longer used
   let extends = take_extends(&mut config_map)?;
   let resolved_config = ResolvedConfig {
@@ -195,10 +200,41 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
     excludes,
     plugins,
     incremental,
+    inherit,
   };
 
   // resolve extends
   Ok(resolve_extends(resolved_config, extends, base_source, environment.clone()).await?)
+}
+
+/// Merges the ancestor (`parent`) configuration into a nested configuration
+/// file that has specified `"inherit": true`.
+///
+/// The nested config's values take precedence. Plugins specified in the nested
+/// config have precedence over the ancestor's plugins, the ancestor's excludes
+/// are combined with the nested config's excludes, and plugin configurations are
+/// merged with the nested config winning on conflicts.
+pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Result<ResolvedConfig> {
+  // plugins specified in the nested config have precedence over the ancestor's
+  config.plugins.extend(parent.plugins.iter().cloned());
+  config.plugins = filter_duplicate_plugin_sources(std::mem::take(&mut config.plugins));
+
+  // combine excludes (nested config's excludes have precedence)
+  if let Some(parent_excludes) = &parent.excludes {
+    match &mut config.excludes {
+      Some(excludes) => excludes.extend(parent_excludes.iter().cloned()),
+      None => config.excludes = Some(parent_excludes.clone()),
+    }
+  }
+
+  // inherit the incremental flag when not specified in the nested config
+  if config.incremental.is_none() {
+    config.incremental = parent.incremental;
+  }
+
+  merge_config_map_into(&mut config.config_map, parent.config_map.clone())?;
+
+  Ok(config)
 }
 
 fn resolve_extends<TEnvironment: Environment>(
@@ -270,19 +306,32 @@ async fn handle_config_file<TEnvironment: Environment>(
   // combine plugins
   resolved_config.plugins.extend(plugins);
 
-  for (key, value) in new_config_map {
+  merge_config_map_into(&mut resolved_config.config_map, new_config_map)?;
+
+  resolve_extends(resolved_config, extends, config_path_and_text.source.parent(), environment.clone()).await
+}
+
+/// Merges the lower precedence `source` config map into the higher precedence
+/// `target` config map. Values already present in `target` win, while plugin
+/// configurations have their properties and overrides combined.
+///
+/// This is used both when resolving `extends` (the extended config is the lower
+/// precedence `source`) and when a nested config `inherit`s its ancestor (the
+/// ancestor config is the lower precedence `source`).
+fn merge_config_map_into(target: &mut ConfigMap, source: ConfigMap) -> Result<()> {
+  for (key, value) in source {
     match value {
       ConfigMapValue::KeyValue(key_value) => {
-        resolved_config.config_map.entry(key).or_insert(ConfigMapValue::KeyValue(key_value));
+        target.entry(key).or_insert(ConfigMapValue::KeyValue(key_value));
       }
       ConfigMapValue::Vec(items) => {
-        resolved_config.config_map.entry(key).or_insert(ConfigMapValue::Vec(items));
+        target.entry(key).or_insert(ConfigMapValue::Vec(items));
       }
       ConfigMapValue::PluginConfig(obj) => {
-        if let Some(resolved_config_obj) = resolved_config.config_map.get_mut(&key) {
-          if let ConfigMapValue::PluginConfig(resolved_config_obj) = resolved_config_obj {
+        if let Some(target_obj) = target.get_mut(&key) {
+          if let ConfigMapValue::PluginConfig(target_obj) = target_obj {
             // check for locked configuration
-            if obj.locked && (!resolved_config_obj.properties.is_empty() || !resolved_config_obj.overrides.is_empty()) {
+            if obj.locked && (!target_obj.properties.is_empty() || !target_obj.overrides.is_empty()) {
               bail!(
                 concat!(
                   "The configuration for \"{}\" was locked, but a parent configuration specified it. ",
@@ -294,30 +343,29 @@ async fn handle_config_file<TEnvironment: Environment>(
 
             // now the properties
             for (key, value) in obj.properties {
-              resolved_config_obj.properties.entry(key).or_insert(value);
+              target_obj.properties.entry(key).or_insert(value);
             }
 
             if !obj.overrides.is_empty() {
               let mut overrides = obj.overrides;
-              overrides.append(&mut resolved_config_obj.overrides);
-              resolved_config_obj.overrides = overrides;
+              overrides.append(&mut target_obj.overrides);
+              target_obj.overrides = overrides;
             }
 
-            // Set the associations if they aren't overwritten in the parent
-            // config. This is ok to do because process plugins and includes/excludes
-            // aren't inherited from other config.
-            if resolved_config_obj.associations.is_none() {
-              resolved_config_obj.associations = obj.associations;
+            // Set the associations if they aren't overwritten in the higher
+            // precedence config. This is ok to do because process plugins and
+            // includes/excludes aren't inherited from other config.
+            if target_obj.associations.is_none() {
+              target_obj.associations = obj.associations;
             }
           }
         } else {
-          resolved_config.config_map.insert(key, ConfigMapValue::PluginConfig(obj));
+          target.insert(key, ConfigMapValue::PluginConfig(obj));
         }
       }
     }
   }
-
-  resolve_extends(resolved_config, extends, config_path_and_text.source.parent(), environment.clone()).await
+  Ok(())
 }
 
 fn take_extends(config_map: &mut ConfigMap) -> Result<Vec<String>> {
@@ -557,6 +605,67 @@ mod tests {
     )
     .unwrap();
     resolve_config_from_args(&args, environment).await
+  }
+
+  async fn resolve_local_config(path: &str, environment: &TestEnvironment) -> ResolvedConfig {
+    let canonical = environment.canonicalize(path).unwrap();
+    let config_path = ResolvedConfigPathWithText {
+      content: environment.read_file(&canonical).unwrap(),
+      base_path: canonical.parent().unwrap(),
+      source: PathSource::new_local(canonical),
+      is_global_config: false,
+      is_first_download: false,
+    };
+    resolve_config_from_path_with_bytes(&config_path, environment).await.unwrap()
+  }
+
+  #[test]
+  fn inherit_config_should_keep_config_dir_relative_to_each_config_file() {
+    // ${configDir} is expanded when each config file is parsed (before the inherit
+    // merge), so an inherited value keeps the ancestor's directory rather than being
+    // re-based to the nested config file's directory.
+    let environment = TestEnvironmentBuilder::new()
+      .write_file(
+        "/a/dprint.json",
+        r#"{
+            "test": {
+              "fromAncestor": "${configDir}/value"
+            }
+        }"#,
+      )
+      .write_file(
+        "/a/b/dprint.json",
+        r#"{
+            "inherit": true,
+            "test": {
+              "fromNested": "${configDir}/value"
+            }
+        }"#,
+      )
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let parent = resolve_local_config("/a/dprint.json", &environment).await;
+      let child = resolve_local_config("/a/b/dprint.json", &environment).await;
+      let result = inherit_config(child, &parent).unwrap();
+      assert_eq!(
+        result.config_map,
+        ConfigMap::from([(
+          "test".to_string(),
+          ConfigMapValue::PluginConfig(RawPluginConfig {
+            locked: false,
+            associations: None,
+            overrides: Vec::new(),
+            properties: ConfigKeyMap::from([
+              // the nested config file's ${configDir} points at its own directory...
+              ("fromNested".to_string(), ConfigKeyValue::from_str("/a/b/value")),
+              // ...while the inherited value still points at the ancestor's directory
+              ("fromAncestor".to_string(), ConfigKeyValue::from_str("/a/value")),
+            ]),
+          }),
+        )])
+      );
+    });
   }
 
   #[test]
@@ -1686,6 +1795,163 @@ mod tests {
       assert_eq!(environment.take_stdout_messages().len(), 0);
       assert_eq!(result.incremental, Some(false));
     });
+  }
+
+  #[test]
+  fn should_parse_inherit_property() {
+    let environment = TestEnvironment::new();
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{
+            "inherit": true,
+            "plugins": ["./testing/asdf.wasm"],
+        }"#,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(result.inherit, Some(true));
+      // should not leak into the config map (which would cause an unknown property diagnostic)
+      assert_eq!(result.config_map.contains_key("inherit"), false);
+    });
+  }
+
+  #[test]
+  fn inherit_config_should_merge_ancestor_config() {
+    let parent = ResolvedConfig {
+      source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/dprint.json")),
+      base_path: CanonicalizedPathBuf::new_for_testing("/"),
+      includes: Some(vec!["**/*.txt".to_string()]),
+      excludes: Some(vec!["root-excludes".to_string()]),
+      plugins: vec![
+        PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+        PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/json.wasm"),
+      ],
+      incremental: Some(true),
+      inherit: None,
+      config_map: ConfigMap::from([
+        ("lineWidth".to_string(), ConfigMapValue::from_i32(80)),
+        (
+          "test".to_string(),
+          ConfigMapValue::PluginConfig(RawPluginConfig {
+            locked: false,
+            associations: None,
+            overrides: Vec::new(),
+            properties: ConfigKeyMap::from([
+              ("indentWidth".to_string(), ConfigKeyValue::from_i32(4)),
+              ("newLineKind".to_string(), ConfigKeyValue::from_str("crlf")),
+            ]),
+          }),
+        ),
+      ]),
+    };
+    let child = ResolvedConfig {
+      source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/sub/dprint.json")),
+      base_path: CanonicalizedPathBuf::new_for_testing("/sub"),
+      includes: None,
+      excludes: Some(vec!["sub-excludes".to_string()]),
+      // a plugin specified in the child has precedence over the ancestor's
+      plugins: vec![PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm")],
+      incremental: None,
+      inherit: Some(true),
+      config_map: ConfigMap::from([(
+        "test".to_string(),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: false,
+          associations: None,
+          overrides: Vec::new(),
+          properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(2))]),
+        }),
+      )]),
+    };
+
+    let result = inherit_config(child, &parent).unwrap();
+    // child plugins first, then ancestor's, with duplicates removed
+    assert_eq!(
+      result.plugins,
+      vec![
+        PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+        PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/json.wasm"),
+      ]
+    );
+    // excludes are combined (child's first)
+    assert_eq!(result.excludes, Some(vec!["sub-excludes".to_string(), "root-excludes".to_string()]));
+    // includes are not inherited (they're relative to the ancestor's directory)
+    assert_eq!(result.includes, None);
+    // incremental is inherited when not specified
+    assert_eq!(result.incremental, Some(true));
+    assert_eq!(
+      result.config_map,
+      ConfigMap::from([
+        (
+          "test".to_string(),
+          ConfigMapValue::PluginConfig(RawPluginConfig {
+            locked: false,
+            associations: None,
+            overrides: Vec::new(),
+            properties: ConfigKeyMap::from([
+              // child wins on conflicts...
+              ("indentWidth".to_string(), ConfigKeyValue::from_i32(2)),
+              // ...but inherits values it didn't override
+              ("newLineKind".to_string(), ConfigKeyValue::from_str("crlf")),
+            ]),
+          }),
+        ),
+        ("lineWidth".to_string(), ConfigMapValue::from_i32(80)),
+      ])
+    );
+  }
+
+  #[test]
+  fn inherit_config_should_error_overriding_locked_ancestor_config() {
+    let parent = ResolvedConfig {
+      source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/dprint.json")),
+      base_path: CanonicalizedPathBuf::new_for_testing("/"),
+      includes: None,
+      excludes: None,
+      plugins: Vec::new(),
+      incremental: None,
+      inherit: None,
+      config_map: ConfigMap::from([(
+        "test".to_string(),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: true,
+          associations: None,
+          overrides: Vec::new(),
+          properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(4))]),
+        }),
+      )]),
+    };
+    let child = ResolvedConfig {
+      source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/sub/dprint.json")),
+      base_path: CanonicalizedPathBuf::new_for_testing("/sub"),
+      includes: None,
+      excludes: None,
+      plugins: Vec::new(),
+      incremental: None,
+      inherit: Some(true),
+      config_map: ConfigMap::from([(
+        "test".to_string(),
+        ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: false,
+          associations: None,
+          overrides: Vec::new(),
+          properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(2))]),
+        }),
+      )]),
+    };
+
+    let err = inherit_config(child, &parent).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      concat!(
+        "The configuration for \"test\" was locked, but a parent configuration specified it. ",
+        "Locked configurations cannot have their properties overridden."
+      )
+    );
   }
 
   #[test]

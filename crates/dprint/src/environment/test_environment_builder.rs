@@ -13,6 +13,7 @@ use crate::utils::get_sha256_checksum;
 pub struct TestConfigFileBuilder {
   environment: TestEnvironment,
   incremental: Option<bool>,
+  inherit: Option<bool>,
   includes: Option<Vec<String>>,
   excludes: Option<Vec<String>>,
   plugins: Option<Vec<String>>,
@@ -24,6 +25,7 @@ impl TestConfigFileBuilder {
     TestConfigFileBuilder {
       environment,
       incremental: None,
+      inherit: None,
       includes: None,
       excludes: None,
       plugins: None,
@@ -33,6 +35,9 @@ impl TestConfigFileBuilder {
 
   pub fn to_string(&self) -> String {
     let mut parts = Vec::new();
+    if let Some(inherit) = self.inherit.as_ref() {
+      parts.push(format!(r#""inherit": {}"#, inherit));
+    }
     for (key, value) in self.sections.iter() {
       parts.push(format!("\"{}\": {}", key, value));
     }
@@ -60,6 +65,11 @@ impl TestConfigFileBuilder {
 
   pub fn set_incremental(&mut self, value: bool) -> &mut Self {
     self.incremental = Some(value);
+    self
+  }
+
+  pub fn set_inherit(&mut self, value: bool) -> &mut Self {
+    self.inherit = Some(value);
     self
   }
 
