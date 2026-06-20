@@ -333,13 +333,13 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         SubCommand::StdInFmt(StdInFmtSubCommand {
           file_name_or_path,
           file_bytes: std_in_reader.read()?,
-          patterns: parse_file_patterns(matches)?,
+          patterns: parse_file_patterns(matches, &std_in_reader)?,
         })
       } else {
         let enable_stable_format = !matches.get_flag("skip-stable-format");
         SubCommand::Fmt(FmtSubCommand {
           diff: matches.get_flag("diff"),
-          patterns: parse_file_patterns(matches)?,
+          patterns: parse_file_patterns(matches, &std_in_reader)?,
           incremental: if enable_stable_format { parse_incremental(matches) } else { Some(false) },
           enable_stable_format,
           allow_no_files: if matches.get_flag("staged") {
@@ -363,7 +363,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       };
 
       SubCommand::Check(CheckSubCommand {
-        patterns: parse_file_patterns(matches)?,
+        patterns: parse_file_patterns(matches, &std_in_reader)?,
         incremental: parse_incremental(matches),
         only_staged: matches.get_flag("staged"),
         list_different: matches.get_flag("list-different"),
@@ -399,12 +399,12 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     }),
     ("clear-cache", _) => SubCommand::ClearCache,
     ("file-paths", matches) => SubCommand::OutputFilePaths(OutputFilePathsSubCommand {
-      patterns: parse_file_patterns(matches)?,
+      patterns: parse_file_patterns(matches, &std_in_reader)?,
     }),
     ("resolved-config", _) => SubCommand::OutputResolvedConfig,
     ("incremental-state", _) => SubCommand::IncrementalState,
     ("format-times", matches) => SubCommand::OutputFormatTimes(OutputFormatTimesSubCommand {
-      patterns: parse_file_patterns(matches)?,
+      patterns: parse_file_patterns(matches, &std_in_reader)?,
       allow_no_files: matches.get_flag("allow-no-files"),
     }),
     ("version", _) => SubCommand::Version,
@@ -450,9 +450,13 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
   })
 }
 
-fn parse_file_patterns(matches: &ArgMatches) -> Result<FilePatternArgs> {
+fn parse_file_patterns<TStdInReader: StdInReader>(matches: &ArgMatches, std_in_reader: &TStdInReader) -> Result<FilePatternArgs> {
   let plugins = maybe_values_to_vec(matches.get_many("plugins"));
-  let file_patterns = maybe_values_to_vec(matches.get_many("files"));
+  let mut file_patterns = maybe_values_to_vec(matches.get_many("files"));
+
+  if matches.get_flag("stdin-files") {
+    file_patterns.extend(std_in_reader.read_non_empty_lines()?);
+  }
 
   if !plugins.is_empty() && file_patterns.is_empty() {
     validate_plugin_args_when_no_files(&plugins)?;
@@ -658,6 +662,7 @@ EXAMPLES:
             .long("stdin")
             .value_name("extension/file-name/file-path")
             .help("Format stdin and output the result to stdout. Provide an absolute file path to apply the inclusion and exclusion rules or an extension or file name to always format the text.")
+            .conflicts_with("stdin-files")
             .required(false)
             .num_args(1)
         )
@@ -897,6 +902,15 @@ impl ClapExtensions for clap::Command {
           .num_args(1..),
       )
       .arg(
+        Arg::new("stdin-files")
+          .long("stdin-files")
+          .help("Read a newline-separated list of file paths to format from stdin instead of from the command line arguments.")
+          .conflicts_with("files")
+          .conflicts_with("staged")
+          .num_args(0)
+          .required(false),
+      )
+      .arg(
         Arg::new("includes-override")
           .long("includes-override")
           .value_name("patterns")
@@ -1058,6 +1072,31 @@ mod test {
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--skip-stable-format", "--incremental=true"]).unwrap();
     assert_eq!(fmt_cmd.enable_stable_format, false);
     assert_eq!(fmt_cmd.incremental, Some(false));
+  }
+
+  #[test]
+  fn stdin_files_arg() {
+    let stdin_reader = TestStdInReader::from("/file1.txt\n\n/sub dir/file 2.txt\n");
+    let args = parse_args(vec!["".to_string(), "fmt".to_string(), "--stdin-files".to_string()], stdin_reader).unwrap();
+    match args.sub_command {
+      SubCommand::Fmt(cmd) => {
+        // blank lines are skipped and paths with spaces are preserved
+        assert_eq!(cmd.patterns.include_patterns, vec!["/file1.txt".to_string(), "/sub dir/file 2.txt".to_string()]);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn stdin_files_conflicts_with_file_patterns() {
+    let stdin_reader = TestStdInReader::from("/file1.txt\n");
+    let err = parse_args(
+      vec!["".to_string(), "fmt".to_string(), "--stdin-files".to_string(), "other.txt".to_string()],
+      stdin_reader,
+    )
+    .err()
+    .unwrap();
+    assert!(err.to_string().contains("cannot be used with"));
   }
 
   #[test]

@@ -68,6 +68,20 @@ Use `dprint fmt --stdin <file-path/file-name/extension>` and provide the input f
 
 Provide a full file path to format with inclusion/exclusion rules of your dprint configuration file or provide only a file name or extension to always format the file.
 
+### Formatting a list of files from Standard Input
+
+Requires dprint >= 0.55.0
+
+Use the `--stdin-files` flag to read a newline-separated list of file paths to format from stdin instead of passing them as command line arguments. This is useful when piping the output of another tool into dprint:
+
+```sh
+generate_files | dprint fmt --stdin-files
+```
+
+Unlike piping through `xargs`, this handles file paths containing spaces since the only delimiter is the newline (blank lines are ignored). It also avoids the command line length limits that apply when passing many paths as arguments.
+
+The paths are resolved against the inclusion/exclusion rules of your dprint configuration file, the same way file patterns passed on the command line are. This flag is also available for the `check`, `file-paths`, and `format-times` subcommands.
+
 ## Checking What Files Aren't Formatted
 
 Instead of formatting files, you can get a report of any files that aren't formatted by running:
