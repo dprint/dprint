@@ -2561,6 +2561,117 @@ mod test {
   }
 
   #[test]
+  fn should_inherit_ancestor_config_in_nested_config() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/sub_dir/file.txt";
+    let file_path3 = "/sub_dir/nested/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "root" }"#);
+      })
+      // inherits the ancestor's plugin, but overrides its configuration
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true).add_config_section("test-plugin", r#"{ "ending": "sub" }"#);
+      })
+      // inherits without overriding anything, so it uses the ancestor's configuration
+      .with_local_config("/sub_dir/nested/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text")
+      .write_file(&file_path3, "text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_root");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text_sub");
+    // the nested config inherits the merged ancestor config (sub_dir, then root)
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text_sub");
+  }
+
+  #[test]
+  fn should_inherit_ancestor_excludes_in_nested_config() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/sub_dir/file.txt";
+    let file_path3 = "/sub_dir/skip/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin().add_excludes("**/skip");
+      })
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text")
+      .write_file(&file_path3, "text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text_formatted");
+    // the ancestor's "**/skip" exclude is inherited and still matches in the nested scope
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text");
+  }
+
+  #[test]
+  fn should_not_inherit_ancestor_plugins_without_inherit_true() {
+    // inheriting is opt-in, so a nested config without `"inherit": true`
+    // and without any plugins of its own should error
+    let file_path1 = "/file.txt";
+    let file_path2 = "/sub_dir/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.add_config_section("test-plugin", r#"{ "ending": "sub" }"#);
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text")
+      .build();
+    let err = run_test_cli(vec!["fmt"], &environment).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      "No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file."
+    );
+    err.assert_exit_code(13);
+  }
+
+  #[test]
+  fn should_combine_nested_config_plugins_with_inherited_plugins() {
+    // a nested config that inherits gets the ancestor's plugins in addition
+    // to any plugins it specifies itself (issue #711, project-c)
+    let file_path1 = "/file.txt";
+    let file_path2 = "/sub_dir/file.txt";
+    let file_path3 = "/sub_dir/file.txt_ps";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      // additionally pulls in the process plugin while inheriting the wasm plugin
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true).add_remote_process_plugin();
+      })
+      .initialize()
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text")
+      .write_file(&file_path3, "text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    // the process plugin is only used in the nested scope, so it's extracted lazily there
+    assert_eq!(environment.take_stderr_messages(), vec!["Extracting zip for test-process-plugin"]);
+    // only the wasm plugin in the root scope
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
+    // the nested scope inherits the wasm plugin
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text_formatted");
+    // ...and additionally has the process plugin it specified (handles .txt_ps)
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text_formatted_process");
+  }
+
+  #[test]
   fn should_not_error_nested_config_no_matching_files_in_scope_cli_args() {
     let file_path1 = "/sub_dir/file.txt";
     let file_path2 = "/sub_dir/sub_dir/file.txt";

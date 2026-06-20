@@ -14,6 +14,11 @@
       "type": "boolean",
       "default": true
     },
+    "inherit": {
+      "description": "For a nested (directory specific) configuration file, whether to inherit the plugins and configuration of the ancestor configuration file. Has no effect on a root configuration file.",
+      "type": "boolean",
+      "default": false
+    },
     "extends": {
       "description": "Configurations to extend.",
       "anyOf": [{
