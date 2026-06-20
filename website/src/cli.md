@@ -62,6 +62,18 @@ By default, dprint respects `.gitignore` files (as well as a repository's `.git/
 dprint fmt --no-gitignore
 ```
 
+### Respecting a global .gitignore
+
+By default, dprint does not respect git's global excludes file (`core.excludesFile`, defaulting to `$XDG_CONFIG_HOME/git/ignore`). This is opt-in because it's specific to your machine and won't exist on other machines or CI, so enabling it could cause formatting results to differ between environments.
+
+To opt in, set the `DPRINT_GLOBAL_GITIGNORE` environment variable to `1`:
+
+```sh
+DPRINT_GLOBAL_GITIGNORE=1 dprint fmt
+```
+
+The global excludes file has the lowest precedence, so a repository's `.gitignore` or `.git/info/exclude` can re-include files it ignores. Using `--no-gitignore` disables it along with all other gitignore handling.
+
 ### Formatting Standard Input
 
 Use `dprint fmt --stdin <file-path/file-name/extension>` and provide the input file text to stdin. The output will be directed by the CLI to stdout.

@@ -104,6 +104,18 @@ impl RealEnvironment {
     Ok(environment)
   }
 
+  /// Expands a leading `~` to the user's home directory, mirroring how git
+  /// expands `core.excludesFile`.
+  fn expand_user_path(&self, value: &str) -> Option<PathBuf> {
+    if value == "~" {
+      Some(self.get_home_dir()?.into_path_buf())
+    } else if let Some(rest) = value.strip_prefix("~/") {
+      Some(self.get_home_dir()?.join(rest))
+    } else {
+      Some(PathBuf::from(value))
+    }
+  }
+
   #[cfg(test)]
   pub fn run_test_with_real_env(run_with_env: impl Fn(RealEnvironment) -> dprint_core::async_runtime::LocalBoxFuture<'static, ()>) {
     let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
@@ -253,6 +265,31 @@ impl Environment for RealEnvironment {
       .output()?;
 
     Ok(String::from_utf8_lossy(&output.stdout).lines().map(PathBuf::from).collect())
+  }
+
+  fn global_gitignore_path(&self) -> Option<PathBuf> {
+    // prefer the path configured via `git config core.excludesFile`
+    let configured = Command::new("git")
+      .arg("config")
+      .arg("--get")
+      .arg("core.excludesFile")
+      .output()
+      .ok()
+      .filter(|output| output.status.success())
+      .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+      .filter(|value| !value.is_empty());
+
+    match configured {
+      Some(value) => self.expand_user_path(&value),
+      None => {
+        // git's default location when `core.excludesFile` is unset
+        let base = match std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
+          Some(xdg) => PathBuf::from(xdg),
+          None => self.get_home_dir()?.join(".config"),
+        };
+        Some(base.join("git").join("ignore"))
+      }
+    }
   }
 
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {

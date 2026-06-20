@@ -695,6 +695,41 @@ mod test {
   }
 
   #[test]
+  fn global_gitignore_env_var() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      // a `.git` dir makes the root a repository, where the global excludes apply
+      .write_file("/.git/HEAD", "")
+      .write_file("/global_ignore", "ignored.txt")
+      .write_file("/file.txt", "")
+      .write_file("/ignored.txt", "")
+      .write_file("/sub/ignored.txt", "")
+      .build();
+    environment.set_global_gitignore_path("/global_ignore");
+
+    // without the env var, the global excludes file is ignored
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.txt", "/ignored.txt", "/sub/ignored.txt"]);
+
+    // with the env var, the global excludes apply to the repo and its descendants
+    environment.set_env_var("DPRINT_GLOBAL_GITIGNORE", Some("1"));
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.txt"]);
+
+    // `--no-gitignore` disables it even when the env var is set
+    run_test_cli(vec!["output-file-paths", "--no-gitignore"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.txt", "/ignored.txt", "/sub/ignored.txt"]);
+  }
+
+  #[test]
   fn should_clear_cache_directory() {
     let environment = TestEnvironment::new();
     environment.mk_dir_all("/cache").unwrap();

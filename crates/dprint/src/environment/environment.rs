@@ -205,6 +205,12 @@ pub trait Environment:
   fn env_var(&self, name: &str) -> Option<OsString>;
 
   fn get_staged_files(&self) -> Result<Vec<PathBuf>>;
+  /// Resolves the path to git's global excludes file (the `core.excludesFile`
+  /// config value, falling back to `$XDG_CONFIG_HOME/git/ignore`). Used only when
+  /// global gitignore support is opted into via `DPRINT_GLOBAL_GITIGNORE`. The
+  /// path is not guaranteed to exist; the caller handles a missing file when
+  /// reading it. Returns `None` only when no path can be resolved at all.
+  fn global_gitignore_path(&self) -> Option<PathBuf>;
   fn read_file(&self, file_path: impl AsRef<Path>) -> io::Result<String>;
   fn maybe_read_file(&self, file_path: impl AsRef<Path>) -> io::Result<Option<String>> {
     match self.read_file(file_path) {

@@ -378,6 +378,9 @@ ENVIRONMENT VARIABLES:
                        to ignore all certificates or a comma separated list of specific
                        hosts to ignore (ex. dprint.dev,localhost,[::],127.0.0.1)
   DPRINT_EDITOR        Editor used for editing config files.
+  DPRINT_GLOBAL_GITIGNORE
+                       Set to "1" to also respect git's global excludes file
+                       (core.excludesFile). Disabled by default.
   HTTPS_PROXY          Proxy to use when downloading plugins or configuration
                        files (also supports HTTP_PROXY and NO_PROXY).
   NO_COLOR             Disables coloured output.

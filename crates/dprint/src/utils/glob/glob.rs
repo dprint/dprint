@@ -13,6 +13,8 @@ use crate::environment::DirEntry;
 use crate::environment::Environment;
 use crate::utils::gitignore::DirEntriesHint;
 use crate::utils::gitignore::GitIgnoreTree;
+use crate::utils::gitignore::GitIgnoreTreeOptions;
+use crate::utils::gitignore::resolve_global_gitignore_lines;
 
 use super::ExcludeMatchDetail;
 use super::GlobMatcher;
@@ -59,7 +61,13 @@ pub fn glob(environment: &impl Environment, opts: GlobOptions) -> Result<GlobOut
   let git_ignore_tree = if opts.no_gitignore {
     None
   } else {
-    Some(GitIgnoreTree::new(environment.clone(), opts.file_patterns.include_paths()))
+    Some(GitIgnoreTree::new(
+      environment.clone(),
+      GitIgnoreTreeOptions {
+        include_paths: opts.file_patterns.include_paths(),
+        global_gitignore_lines: resolve_global_gitignore_lines(environment),
+      },
+    ))
   };
   let glob_matcher = GlobMatcher::new(
     opts.file_patterns,
@@ -510,6 +518,110 @@ mod test {
     let mut result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
     result.sort();
     assert_eq!(result, vec!["/included.txt", "/sub/included.txt"]);
+  }
+
+  #[tokio::test]
+  async fn should_respect_global_gitignore_when_opted_in() {
+    let environment = TestEnvironmentBuilder::new()
+      // a `.git` dir makes `/` the repository root, where the global excludes apply
+      .write_file("/.git/HEAD", "")
+      .write_file("/global_ignore", "globally_excluded.txt")
+      .write_file("/included.txt", "")
+      .write_file("/globally_excluded.txt", "")
+      .write_file("/sub/included.txt", "")
+      .write_file("/sub/globally_excluded.txt", "")
+      .build();
+    environment.set_env_var("DPRINT_GLOBAL_GITIGNORE", Some("1"));
+    environment.set_global_gitignore_path("/global_ignore");
+    let root_dir = environment.canonicalize("/").unwrap();
+    let result = glob(
+      &environment,
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        config_discovery: ConfigDiscovery::Default,
+        file_patterns: GlobPatterns {
+          arg_includes: None,
+          config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
+          arg_excludes: None,
+          config_excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+        no_gitignore: false,
+      },
+    )
+    .unwrap();
+
+    let mut result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    result.sort();
+    // the global excludes apply at the repo root and to its descendants
+    assert_eq!(result, vec!["/included.txt", "/sub/included.txt"]);
+  }
+
+  #[tokio::test]
+  async fn should_ignore_global_gitignore_when_not_opted_in() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/.git/HEAD", "")
+      .write_file("/global_ignore", "globally_excluded.txt")
+      .write_file("/included.txt", "")
+      .write_file("/globally_excluded.txt", "")
+      .build();
+    // note: env var not set, so the global excludes file is ignored
+    environment.set_global_gitignore_path("/global_ignore");
+    let root_dir = environment.canonicalize("/").unwrap();
+    let result = glob(
+      &environment,
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        config_discovery: ConfigDiscovery::Default,
+        file_patterns: GlobPatterns {
+          arg_includes: None,
+          config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
+          arg_excludes: None,
+          config_excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+        no_gitignore: false,
+      },
+    )
+    .unwrap();
+
+    let mut result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    result.sort();
+    assert_eq!(result, vec!["/globally_excluded.txt", "/included.txt"]);
+  }
+
+  #[tokio::test]
+  async fn no_gitignore_should_override_global_gitignore() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/.git/HEAD", "")
+      .write_file("/global_ignore", "globally_excluded.txt")
+      .write_file("/included.txt", "")
+      .write_file("/globally_excluded.txt", "")
+      .build();
+    environment.set_env_var("DPRINT_GLOBAL_GITIGNORE", Some("1"));
+    environment.set_global_gitignore_path("/global_ignore");
+    let root_dir = environment.canonicalize("/").unwrap();
+    let result = glob(
+      &environment,
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        config_discovery: ConfigDiscovery::Default,
+        file_patterns: GlobPatterns {
+          arg_includes: None,
+          config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
+          arg_excludes: None,
+          config_excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+        // `--no-gitignore` disables all gitignore handling, including the global file
+        no_gitignore: true,
+      },
+    )
+    .unwrap();
+
+    let mut result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    result.sort();
+    assert_eq!(result, vec!["/globally_excluded.txt", "/included.txt"]);
   }
 
   #[tokio::test]
