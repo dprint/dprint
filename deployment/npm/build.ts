@@ -127,6 +127,7 @@ if (!args["publish-only"]) {
     dprintDir.join(".npmignore").writeTextSync("dprint\ndprint.exe\n");
 
     // setup each binary package
+    const executableHashes: Record<string, string> = {};
     for (const pkg of packages) {
       const pkgName = getPackageNameNoScope(pkg);
       $.logStep(`Setting up @dprint/${pkgName}...`);
@@ -140,6 +141,11 @@ if (!args["publish-only"]) {
       await $.request(zipUrl).showProgress().pipeToPath(zipPath);
       await decompress(zipPath.toString(), pkgDir.toString());
       zipPath.removeSync();
+
+      // record the executable's hash so the dprint package can verify it when
+      // downloading the binary as a fallback (e.g. for `npm install --omit=optional`)
+      const executableName = pkg.os === "win32" ? "dprint.exe" : "dprint";
+      executableHashes[pkgName] = await sha256Hex(pkgDir.join(executableName).toString());
 
       // create the package.json and readme
       pkgDir.join("README.md").writeTextSync(`# @dprint/${pkgName}\n\n${pkgName} distribution of dprint.\n`);
@@ -164,6 +170,10 @@ if (!args["publish-only"]) {
         libc: pkg.libc == null ? undefined : [pkg.libc],
       });
     }
+
+    // write the executable hashes into the dprint package so the download
+    // fallback can verify the binary it fetches from the registry
+    dprintDir.join("hashes.json").writeJsonPrettySync(executableHashes);
   }
 
   // verify that the package is created correctly
@@ -224,6 +234,14 @@ if (args.publish || args["publish-only"]) {
 
   $.logStep(`Publishing dprint...`);
   await $`cd ${dprintDir} && npm publish --provenance --access public`;
+}
+
+async function sha256Hex(filePath: string) {
+  const data = await Deno.readFile(filePath);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function getPackageNameNoScope(name: Package) {
