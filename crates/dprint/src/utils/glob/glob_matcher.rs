@@ -142,16 +142,8 @@ impl GlobMatcher {
       ExcludeMatchDetail::NotExcluded => GlobMatchesDetail::Matched,
     };
 
-    if self
-      .arg_include_matcher
-      .as_ref()
-      .map(|m| m.include.is_match(&path))
-      .unwrap_or(true)
-      && self
-        .config_include_matcher
-        .as_ref()
-        .map(|m| m.is_match(&path))
-        .unwrap_or(true)
+    if self.arg_include_matcher.as_ref().map(|m| m.include.is_match(&path)).unwrap_or(true)
+      && self.config_include_matcher.as_ref().map(|m| m.is_match(&path)).unwrap_or(true)
     {
       matched_result
     } else {
