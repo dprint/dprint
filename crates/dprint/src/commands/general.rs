@@ -8,6 +8,7 @@ use crate::arg_parser::CliArgs;
 use crate::arg_parser::FilePatternArgs;
 use crate::arg_parser::OutputFilePathsSubCommand;
 use crate::arg_parser::create_cli_parser;
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
 use crate::resolution::ResolvePluginsScopeAndPathsOptions;
@@ -86,9 +87,35 @@ pub async fn output_license<TEnvironment: Environment>(
 
 pub fn clear_cache(environment: &impl Environment) -> Result<()> {
   let cache_dir = environment.get_cache_dir();
-  environment.remove_dir_all(&cache_dir)?;
+  remove_cache_dir_killing_processes(environment, &cache_dir)?;
   log_stdout_info!(environment, "Deleted {}", cache_dir.display());
   Ok(())
+}
+
+/// Removes the cache directory, killing running process plugins that block the
+/// deletion. A process plugin's executable can't be deleted while the process is
+/// still running (e.g. on Windows), so on failure we kill any process using a
+/// file in the directory and try again. The retry budget is twice the number of
+/// processes killed (and at least one) so that an editor such as the dprint
+/// VSCode extension restarting its process plugins between attempts is absorbed,
+/// while a process that never stays dead still terminates with the error surfaced.
+fn remove_cache_dir_killing_processes(environment: &impl Environment, cache_dir: &CanonicalizedPathBuf) -> std::io::Result<()> {
+  let mut err = match environment.remove_dir_all(cache_dir) {
+    Ok(()) => return Ok(()),
+    Err(err) => err,
+  };
+  let retries = std::cmp::max(1, environment.kill_processes_using_dir(cache_dir) * 2);
+  for _ in 0..retries {
+    match environment.remove_dir_all(cache_dir) {
+      Ok(()) => return Ok(()),
+      Err(e) => {
+        log_debug!(environment, "Failed deleting cache directory. Killing running processes and retrying. {:#}", e);
+        err = e;
+        environment.kill_processes_using_dir(cache_dir);
+      }
+    }
+  }
+  Err(err)
 }
 
 pub async fn output_file_paths<TEnvironment: Environment>(
@@ -675,6 +702,62 @@ mod test {
     run_test_cli(vec!["clear-cache"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
     assert_eq!(environment.path_exists("/cache"), false);
+  }
+
+  #[test]
+  fn should_clear_cache_directory_killing_running_process_plugins() {
+    let environment = TestEnvironment::new();
+    let plugin_exe = "/cache/plugins/test-plugin/0.1.0/x86_64/test-plugin.exe";
+    environment.mk_dir_all("/cache/plugins/test-plugin/0.1.0/x86_64").unwrap();
+    environment.write_file(plugin_exe, "").unwrap();
+    // pretend the process plugin is running, which locks its executable so the
+    // first deletion attempt fails until the process is killed
+    environment.add_running_process(plugin_exe);
+    run_test_cli(vec!["clear-cache"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
+    assert_eq!(environment.path_exists("/cache"), false);
+    assert_eq!(environment.is_process_running(plugin_exe), false);
+  }
+
+  #[test]
+  fn should_clear_cache_directory_retrying_when_process_plugin_restarts() {
+    let environment = TestEnvironment::new();
+    let plugin_exe = "/cache/plugins/test-plugin/0.1.0/x86_64/test-plugin.exe";
+    environment.mk_dir_all("/cache/plugins/test-plugin/0.1.0/x86_64").unwrap();
+    environment.write_file(plugin_exe, "").unwrap();
+    // the editor respawns the plugin once after it's killed before it stays
+    // dead, which the retry budget (twice the processes killed) absorbs
+    environment.add_running_process_with_restarts(plugin_exe, 1);
+    run_test_cli(vec!["clear-cache"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
+    assert_eq!(environment.path_exists("/cache"), false);
+    assert_eq!(environment.is_process_running(plugin_exe), false);
+  }
+
+  #[test]
+  fn should_clear_cache_directory_retrying_once_on_transient_failure() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/cache").unwrap();
+    // a single transient deletion failure with nothing to kill should still
+    // succeed thanks to the minimum of one retry
+    environment.set_remove_dir_all_failures(1);
+    run_test_cli(vec!["clear-cache"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
+    assert_eq!(environment.path_exists("/cache"), false);
+  }
+
+  #[test]
+  fn should_error_clearing_cache_when_process_plugin_keeps_restarting() {
+    let environment = TestEnvironment::new();
+    let plugin_exe = "/cache/plugins/test-plugin/0.1.0/x86_64/test-plugin.exe";
+    environment.mk_dir_all("/cache/plugins/test-plugin/0.1.0/x86_64").unwrap();
+    environment.write_file(plugin_exe, "").unwrap();
+    // the plugin keeps coming back after every kill, so we exhaust our retries
+    // and surface the deletion error rather than looping forever
+    environment.add_running_process_with_restarts(plugin_exe, usize::MAX);
+    let err = run_test_cli(vec!["clear-cache"], &environment).err().unwrap();
+    assert!(err.to_string().contains("a process is using a file within it"), "{}", err);
+    assert_eq!(environment.path_exists("/cache"), true);
   }
 
   #[test]

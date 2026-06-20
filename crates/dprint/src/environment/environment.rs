@@ -237,6 +237,12 @@ pub trait Environment:
     }
   }
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>>;
+  /// Kills any running process whose executable lives under the given directory
+  /// and returns how many were killed. Used when clearing the cache so a process
+  /// plugin that's still running can't stop its executable from being deleted
+  /// (e.g. on Windows a running executable can't be removed). This is best-effort
+  /// and never fails.
+  fn kill_processes_using_dir(&self, dir_path: impl AsRef<Path>) -> usize;
   fn path_exists(&self, path: impl AsRef<Path>) -> bool;
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf>;
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool;

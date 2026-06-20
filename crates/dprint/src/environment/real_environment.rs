@@ -309,6 +309,28 @@ impl Environment for RealEnvironment {
     }
   }
 
+  fn kill_processes_using_dir(&self, dir_path: impl AsRef<Path>) -> usize {
+    let dir_path = dir_path.as_ref();
+    let mut system = self.system.lock();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let mut killed = 0;
+    for process in system.processes().values() {
+      let Some(exe) = process.exe() else {
+        continue;
+      };
+      if exe.starts_with(dir_path) {
+        log_debug!(self, "Killing process {} using executable: {}", process.pid(), exe.display());
+        if process.kill() {
+          killed += 1;
+        }
+        // wait for the process to actually exit so its executable is no longer
+        // locked before we attempt to delete it again
+        process.wait();
+      }
+    }
+    killed
+  }
+
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
     let mut entries = Vec::new();
 
