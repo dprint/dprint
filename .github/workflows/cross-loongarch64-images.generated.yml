@@ -11,7 +11,7 @@ on:
       - .github/workflows/cross-loongarch64-images.generated.yml
 jobs:
   build:
-    name: '${{ matrix.target }}'
+    name: "${{ matrix.target }}"
     if: github.repository == 'dprint/dprint'
     runs-on: ubuntu-22.04
     permissions:
@@ -35,8 +35,8 @@ jobs:
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
-          username: '${{ github.actor }}'
-          password: '${{ secrets.GITHUB_TOKEN }}'
+          username: "${{ github.actor }}"
+          password: "${{ secrets.GITHUB_TOKEN }}"
       - name: Build and push
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
@@ -45,8 +45,8 @@ jobs:
           tags: |-
             ghcr.io/dprint/dprint-cross-base-${{ matrix.target }}:7efd4907cac7
             ghcr.io/dprint/dprint-cross-base-${{ matrix.target }}:latest
-          cache-from: 'type=gha,scope=dprint-cross-base-${{ matrix.target }}-7efd4907cac7'
-          cache-to: 'type=gha,mode=max,scope=dprint-cross-base-${{ matrix.target }}-7efd4907cac7'
+          cache-from: "type=gha,scope=dprint-cross-base-${{ matrix.target }}-7efd4907cac7"
+          cache-to: "type=gha,mode=max,scope=dprint-cross-base-${{ matrix.target }}-7efd4907cac7"
           build-args: |-
             CROSS_BASE_IMAGE=ghcr.io/cross-rs/${{ matrix.target }}:main
             TARGET=${{ matrix.target }}
