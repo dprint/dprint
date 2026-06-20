@@ -1,6 +1,5 @@
 use std::str::FromStr;
 
-use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use clap::ArgMatches;
@@ -456,7 +455,7 @@ fn parse_file_patterns<TStdInReader: StdInReader>(matches: &ArgMatches, std_in_r
   let mut file_patterns = maybe_values_to_vec(matches.get_many("files"));
 
   if matches.get_flag("stdin-files") {
-    file_patterns.extend(read_stdin_file_paths(std_in_reader)?);
+    file_patterns.extend(std_in_reader.read_non_empty_lines()?);
   }
 
   if !plugins.is_empty() && file_patterns.is_empty() {
@@ -472,13 +471,6 @@ fn parse_file_patterns<TStdInReader: StdInReader>(matches: &ArgMatches, std_in_r
     exclude_patterns: maybe_values_to_vec(matches.get_many("excludes")),
     exclude_pattern_overrides: matches.get_many("excludes-override").map(values_to_vec),
   })
-}
-
-/// Reads a newline-separated list of file paths from stdin. Blank lines are ignored.
-fn read_stdin_file_paths<TStdInReader: StdInReader>(std_in_reader: &TStdInReader) -> Result<Vec<String>> {
-  let bytes = std_in_reader.read()?;
-  let text = String::from_utf8(bytes).context("Failed reading file paths from stdin as UTF-8.")?;
-  Ok(text.lines().filter(|line| !line.is_empty()).map(String::from).collect())
 }
 
 fn parse_incremental(matches: &ArgMatches) -> Option<bool> {
