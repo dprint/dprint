@@ -27,3 +27,7 @@ For example:
 curl -fsSL https://dprint.dev/install.sh | sh -s X.X.X > /dev/null 2>&1
 $HOME/.dprint/bin/dprint check
 ```
+
+## Coloured Output
+
+dprint colours its output by default, including in CI logs. Set `NO_COLOR` to turn colours off, or `FORCE_COLOR` to turn them back on in an environment that sets `NO_COLOR`. See [Coloured Output](/cli#coloured-output) for details.
