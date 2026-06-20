@@ -57,6 +57,10 @@ use crate::utils::show_select;
 
 // cache the cwd because it's much faster than looking it up each time
 static CACHED_CWD: OnceCell<CanonicalizedPathBuf> = OnceCell::new();
+// cache the global gitignore path because resolving it spawns a git subprocess
+// and the path is stable for the process (used by the lsp and editor-service,
+// which rebuild their file matchers on every config change)
+static CACHED_GLOBAL_GITIGNORE_PATH: OnceCell<Option<PathBuf>> = OnceCell::new();
 
 pub struct RealEnvironmentOptions {
   pub log_level: LogLevel,
@@ -113,6 +117,34 @@ impl RealEnvironment {
       Some(self.get_home_dir()?.join(rest))
     } else {
       Some(PathBuf::from(value))
+    }
+  }
+
+  /// Resolves git's global excludes file path. Prefer the cached
+  /// `global_gitignore_path` over calling this directly, as this spawns a git
+  /// subprocess.
+  fn resolve_global_gitignore_path(&self) -> Option<PathBuf> {
+    // prefer the path configured via `git config core.excludesFile`
+    let configured = Command::new("git")
+      .arg("config")
+      .arg("--get")
+      .arg("core.excludesFile")
+      .output()
+      .ok()
+      .filter(|output| output.status.success())
+      .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+      .filter(|value| !value.is_empty());
+
+    match configured {
+      Some(value) => self.expand_user_path(&value),
+      None => {
+        // git's default location when `core.excludesFile` is unset
+        let base = match std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
+          Some(xdg) => PathBuf::from(xdg),
+          None => self.get_home_dir()?.join(".config"),
+        };
+        Some(base.join("git").join("ignore"))
+      }
     }
   }
 
@@ -268,28 +300,7 @@ impl Environment for RealEnvironment {
   }
 
   fn global_gitignore_path(&self) -> Option<PathBuf> {
-    // prefer the path configured via `git config core.excludesFile`
-    let configured = Command::new("git")
-      .arg("config")
-      .arg("--get")
-      .arg("core.excludesFile")
-      .output()
-      .ok()
-      .filter(|output| output.status.success())
-      .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-      .filter(|value| !value.is_empty());
-
-    match configured {
-      Some(value) => self.expand_user_path(&value),
-      None => {
-        // git's default location when `core.excludesFile` is unset
-        let base = match std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
-          Some(xdg) => PathBuf::from(xdg),
-          None => self.get_home_dir()?.join(".config"),
-        };
-        Some(base.join("git").join("ignore"))
-      }
-    }
+    CACHED_GLOBAL_GITIGNORE_PATH.get_or_init(|| self.resolve_global_gitignore_path()).clone()
   }
 
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
