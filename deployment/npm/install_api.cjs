@@ -135,12 +135,54 @@ function verifyExecutableHash(target, buffer) {
 }
 
 /**
- * Downloads a url to a buffer synchronously. Node has no synchronous https
- * client, so spawn a child node process that streams the response to stdout.
+ * Downloads a url to a buffer synchronously. Prefer curl since it transparently
+ * supports proxies (http_proxy/https_proxy/no_proxy and npm's proxy config),
+ * redirects and TLS, then fall back to node for environments without curl.
  * @param url {string}
  * @returns {Buffer}
  */
 function downloadBufferSync(url) {
+  const fromCurl = downloadBufferWithCurl(url);
+  return fromCurl != null ? fromCurl : downloadBufferWithNode(url);
+}
+
+/**
+ * @param url {string}
+ * @returns {Buffer | undefined} undefined when curl isn't available
+ */
+function downloadBufferWithCurl(url) {
+  // -f: fail on http errors, -s: silent, -S: still show errors, -L: follow redirects
+  const args = ["-fsSL"];
+  const proxy = process.env.npm_config_https_proxy
+    || process.env.npm_config_proxy
+    || process.env.HTTPS_PROXY
+    || process.env.https_proxy;
+  if (proxy) {
+    args.push("--proxy", proxy);
+  }
+  const noProxy = process.env.npm_config_noproxy || process.env.NO_PROXY || process.env.no_proxy;
+  if (noProxy) {
+    args.push("--noproxy", noProxy);
+  }
+  args.push("-o", "-", url);
+  try {
+    return require("child_process").execFileSync("curl", args, { maxBuffer: 512 * 1024 * 1024 });
+  } catch (err) {
+    if (err && err.code === "ENOENT") {
+      // curl isn't installed, fall back to node
+      return undefined;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Node has no synchronous https client, so spawn a child node process that
+ * streams the response to stdout. Does not support proxies.
+ * @param url {string}
+ * @returns {Buffer}
+ */
+function downloadBufferWithNode(url) {
   const script = "const https=require('https');"
     + "function f(u){https.get(u,r=>{"
     + "const s=r.statusCode;"
