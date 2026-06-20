@@ -343,7 +343,7 @@ struct ConfigPathContext<'a> {
 fn get_config_map_from_path(path: ConfigPathContext) -> Result<ConfigMap> {
   let mut result = match deserialize_config(path.current.content) {
     Ok(map) => map,
-    Err(e) => bail!("Error deserializing. {}", e.to_string()),
+    Err(e) => bail!("Error deserializing. {}", e),
   };
   template_expand(path, &mut result)?;
 

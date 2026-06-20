@@ -35,7 +35,7 @@ pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap> {
             "Expected property '{}' with value '{}' to be convertible to a signed integer. {}",
             property_name,
             value,
-            err.to_string()
+            err
           )
         }
       }),

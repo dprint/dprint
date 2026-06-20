@@ -11,6 +11,7 @@ use crate::arg_parser::ConfigDiscovery;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DirEntry;
 use crate::environment::Environment;
+use crate::utils::gitignore::DirEntriesHint;
 use crate::utils::gitignore::GitIgnoreTree;
 
 use super::ExcludeMatchDetail;
@@ -104,6 +105,31 @@ enum DirOrConfigEntry {
   File(PathBuf),
   // todo: get rid of this from here probably
   Config(PathBuf),
+}
+
+/// Derives a gitignore resolution hint from an already-read directory listing.
+fn dir_entries_hint(entries: &[DirOrConfigEntry]) -> DirEntriesHint {
+  let mut hint = DirEntriesHint {
+    has_git: false,
+    has_gitignore: false,
+  };
+  for entry in entries {
+    match entry {
+      DirOrConfigEntry::Dir(path) | DirOrConfigEntry::File(path) => {
+        match path.file_name().and_then(|f| f.to_str()) {
+          // `.gitignore` is a file and `.git` is usually a directory (a file in worktrees)
+          Some(".gitignore") => hint.has_gitignore = true,
+          Some(".git") => hint.has_git = true,
+          _ => continue,
+        }
+      }
+      DirOrConfigEntry::Config(_) => continue,
+    }
+    if hint.has_gitignore && hint.has_git {
+      break; // nothing left to learn
+    }
+  }
+  hint
 }
 
 const PUSH_DIR_ENTRIES_BATCH_COUNT: usize = 500;
@@ -264,10 +290,12 @@ impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
         Err(err) => return Err(err), // error
         Ok(Some(entries)) => {
           for dir in entries.into_iter().flatten() {
+            // reuse the directory listing we already have to avoid extra file system calls
+            let dir_hint = dir_entries_hint(&dir.entries);
             let gitignore = self
               .git_ignore_tree
               .as_mut()
-              .and_then(|t| t.get_resolved_git_ignore_for_dir_children(&dir.path));
+              .and_then(|t| t.get_resolved_git_ignore_for_dir_children(&dir.path, dir_hint));
             for entry in dir.entries {
               match entry {
                 DirOrConfigEntry::Dir(path) => {
@@ -450,6 +478,38 @@ mod test {
     result.sort();
     expected_matches.sort();
     assert_eq!(result, expected_matches);
+  }
+
+  #[tokio::test]
+  async fn should_respect_git_info_exclude() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/.git/info/exclude", "excluded.txt")
+      .write_file("/included.txt", "")
+      .write_file("/excluded.txt", "")
+      .write_file("/sub/included.txt", "")
+      .write_file("/sub/excluded.txt", "")
+      .build();
+    let root_dir = environment.canonicalize("/").unwrap();
+    let result = glob(
+      &environment,
+      GlobOptions {
+        start_dir: PathBuf::from("/"),
+        config_discovery: ConfigDiscovery::Default,
+        file_patterns: GlobPatterns {
+          arg_includes: None,
+          config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
+          arg_excludes: None,
+          config_excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+        no_gitignore: false,
+      },
+    )
+    .unwrap();
+
+    let mut result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    result.sort();
+    assert_eq!(result, vec!["/included.txt", "/sub/included.txt"]);
   }
 
   #[tokio::test]

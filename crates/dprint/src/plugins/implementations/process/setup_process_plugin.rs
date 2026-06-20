@@ -265,7 +265,7 @@ pub fn parse_process_plugin_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
     Ok(plugin_file) => plugin_file,
     Err(err) => bail!(
       "Error deserializing plugin file: {}\n\nThis might mean you're using an old version of dprint.",
-      err.to_string()
+      err
     ),
   };
 
