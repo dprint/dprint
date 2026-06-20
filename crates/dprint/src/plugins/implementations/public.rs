@@ -9,6 +9,7 @@ use super::wasm;
 use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
+use crate::plugins::PluginCacheItem;
 use crate::plugins::PluginSourceReference;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
@@ -70,22 +71,25 @@ pub async fn create_plugin<TEnvironment: Environment>(
 
   match cache_item.plugin_kind {
     PluginKind::Wasm => {
-      let file_bytes = match environment.read_file_bytes(&cache_item.file_path) {
-        Ok(file_bytes) => file_bytes,
+      // The cached compiled module can fail to read or deserialize (ex. it was
+      // compiled for a CPU with different features, or by a different
+      // wasmer/rustc version, or the cache file is corrupt). When that happens,
+      // forget the cache, recompile from source, and try once more.
+      let plugin = match create_wasm_plugin(&environment, &cache_item, wasm_module_creator) {
+        Ok(plugin) => plugin,
         Err(err) => {
           log_debug!(
             environment,
-            "Error reading plugin file bytes. Forgetting from cache and retrying. Message: {}",
-            err.to_string()
+            "Error loading Wasm plugin from cache. Forgetting from cache and retrying. Message: {:#}",
+            err
           );
 
           // forget and try again
           let cache_item = plugin_cache.forget_and_recreate(plugin_reference).await?;
-          environment.read_file_bytes(cache_item.file_path)?
+          create_wasm_plugin(&environment, &cache_item, wasm_module_creator)?
         }
       };
-
-      Ok(Box::new(wasm::WasmPlugin::new(&file_bytes, cache_item.info, wasm_module_creator, environment)?))
+      Ok(Box::new(plugin))
     }
     PluginKind::Process => {
       let cache_item = if !environment.path_exists(&cache_item.file_path) {
@@ -104,5 +108,48 @@ pub async fn create_plugin<TEnvironment: Environment>(
       let executable_path = super::process::get_test_safe_executable_path(cache_item.file_path, &environment);
       Ok(Box::new(process::ProcessPlugin::new(environment, executable_path, cache_item.info)))
     }
+  }
+}
+
+/// Reads the cached compiled Wasm module and loads it, verifying it can run on
+/// this machine. Returns an error when the cache is unreadable or the module
+/// can't be loaded so the caller can recompile from source.
+fn create_wasm_plugin<TEnvironment: Environment>(
+  environment: &TEnvironment,
+  cache_item: &PluginCacheItem,
+  wasm_module_creator: &WasmModuleCreator,
+) -> Result<wasm::WasmPlugin<TEnvironment>> {
+  let file_bytes = environment.read_file_bytes(&cache_item.file_path)?;
+  wasm::WasmPlugin::new(&file_bytes, cache_item.info.clone(), wasm_module_creator, environment.clone())
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+  use crate::environment::TestEnvironment;
+  use crate::test_helpers::WASM_PLUGIN_BYTES;
+
+  // https://github.com/dprint/dprint/issues/734
+  #[tokio::test]
+  async fn should_recompile_when_cached_wasm_module_fails_to_load() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file("https://plugins.dprint.dev/test.wasm", WASM_PLUGIN_BYTES);
+    let plugin_cache = PluginCache::new(environment.clone());
+    let wasm_module_creator = WasmModuleCreator::default();
+    let plugin_reference = PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test.wasm");
+
+    // populate the cache (compiles the plugin)
+    let cache_item = plugin_cache.get_plugin_cache_item(&plugin_reference).await.unwrap();
+    assert_eq!(environment.take_stderr_messages(), vec!["Compiling https://plugins.dprint.dev/test.wasm"]);
+
+    // corrupt the cached compiled module so it can't be deserialized/instantiated
+    environment.write_file_bytes(&cache_item.file_path, b"corrupt").unwrap();
+
+    // creating the plugin should recompile from source instead of failing
+    let plugin = create_plugin(&plugin_cache, environment.clone(), &plugin_reference, &wasm_module_creator)
+      .await
+      .unwrap();
+    assert_eq!(plugin.info().name, "test-plugin");
+    assert_eq!(environment.take_stderr_messages(), vec!["Compiling https://plugins.dprint.dev/test.wasm"]);
   }
 }
