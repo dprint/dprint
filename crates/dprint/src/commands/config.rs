@@ -585,13 +585,20 @@ async fn get_possible_plugins_to_add<TEnvironment: Environment>(
   )
 }
 
+pub struct UpdatePluginsOptions {
+  /// Upgrade process plugins without prompting to confirm their new checksums.
+  pub yes_to_prompts: bool,
+  /// Print the updates that would be made without modifying any files.
+  pub dry_run: bool,
+}
+
 pub async fn update_plugins_config_file<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
-  yes_to_prompts: bool,
-  dry_run: bool,
+  options: UpdatePluginsOptions,
 ) -> Result<()> {
+  let UpdatePluginsOptions { yes_to_prompts, dry_run } = options;
   if !args.plugins.is_empty() {
     bail!("Cannot specify plugins for this sub command. Sorry, too much work for me.");
   }
