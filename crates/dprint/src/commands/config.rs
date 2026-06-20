@@ -677,9 +677,23 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
               format!(" in {}", config_path.display())
             };
             if dry_run {
-              log_stderr_info!(environment, "Would update {} {}{} to {}.", colors::bold(&info.name), info.old_version, in_config, info.new_version);
+              log_stderr_info!(
+                environment,
+                "Would update {} {}{} to {}.",
+                colors::bold(&info.name),
+                info.old_version,
+                in_config,
+                info.new_version
+              );
             } else {
-              log_stderr_info!(environment, "Updating {} {}{} to {}...", info.name, info.old_version, in_config, info.new_version);
+              log_stderr_info!(
+                environment,
+                "Updating {} {}{} to {}...",
+                info.name,
+                info.old_version,
+                in_config,
+                info.new_version
+              );
             }
             file_text = update_plugin_in_config(&file_text, &info);
             updated_plugins.push(info);
@@ -794,7 +808,12 @@ async fn preview_plugin_config_updates<TEnvironment: Environment>(
       }
     }
 
-    log_stdout_info!(environment, "\n{}\n{}", colors::bold(format!("{} would be updated to:", config_path.display())), file_text);
+    log_stdout_info!(
+      environment,
+      "\n{}\n{}",
+      colors::bold(format!("{} would be updated to:", config_path.display())),
+      file_text
+    );
   }
 
   if any_updates {
@@ -2181,7 +2200,10 @@ mod test {
       vec![
         format!("Would update {} 0.1.0 to 0.2.0.", colors::bold("test-plugin")),
         format!("Would update {} 0.1.0 to 0.3.0.", colors::bold("test-process-plugin")),
-        format!("Would update {} 0.1.0 in /sub_folder/dprint.json to 0.3.0.", colors::bold("test-process-plugin")),
+        format!(
+          "Would update {} 0.1.0 in /sub_folder/dprint.json to 0.3.0.",
+          colors::bold("test-process-plugin")
+        ),
         format!("Would update {} 0.1.0 in /sub_folder/dprint.json to 0.2.0.", colors::bold("test-plugin")),
         "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string(),
         "Extracting zip for test-process-plugin".to_string(),
@@ -2195,7 +2217,10 @@ mod test {
     assert_contains!(stdout, "\"should_add\": \"new_value\"");
     assert_contains!(stdout, "\"should_add\": \"new_value_wasm\"");
     assert_contains!(stdout, "https://plugins.dprint.dev/test-plugin.wasm");
-    assert_contains!(stdout, &format!("https://plugins.dprint.dev/test-plugin-3.json@{}", NEW_PROCESS_PLUGIN_FILE.checksum()));
+    assert_contains!(
+      stdout,
+      &format!("https://plugins.dprint.dev/test-plugin-3.json@{}", NEW_PROCESS_PLUGIN_FILE.checksum())
+    );
 
     // the files on disk must be untouched
     assert_eq!(environment.read_file("./dprint.json").unwrap(), root_before);
