@@ -43,10 +43,10 @@ jobs:
           file: .github/workflows/cross-loongarch64.Dockerfile
           push: true
           tags: |-
-            ghcr.io/dprint/dprint-cross-base-${{ matrix.target }}:7efd4907cac7
+            ghcr.io/dprint/dprint-cross-base-${{ matrix.target }}:9cce198f067c
             ghcr.io/dprint/dprint-cross-base-${{ matrix.target }}:latest
-          cache-from: "type=gha,scope=dprint-cross-base-${{ matrix.target }}-7efd4907cac7"
-          cache-to: "type=gha,mode=max,scope=dprint-cross-base-${{ matrix.target }}-7efd4907cac7"
+          cache-from: "type=gha,scope=dprint-cross-base-${{ matrix.target }}-9cce198f067c"
+          cache-to: "type=gha,mode=max,scope=dprint-cross-base-${{ matrix.target }}-9cce198f067c"
           build-args: |-
             CROSS_BASE_IMAGE=ghcr.io/cross-rs/${{ matrix.target }}:main
             TARGET=${{ matrix.target }}
