@@ -373,6 +373,40 @@ mod test {
   }
 
   #[test]
+  fn should_format_files_from_stdin_files() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/sub dir/file with space.txt";
+    let file_path3 = "/not-included.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text2")
+      .write_file(&file_path3, "text3")
+      .build();
+    // include a blank line and a path containing spaces to ensure both are handled
+    let test_std_in = TestStdInReader::from(format!("{}\n\n{}\n", file_path1, file_path2));
+    run_test_cli_with_stdin(vec!["fmt", "--stdin-files"], &environment, test_std_in).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted");
+    // wasn't in the list, so it's left untouched
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text3");
+  }
+
+  #[test]
+  fn should_check_files_from_stdin_files() {
+    let file_path1 = "/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(&file_path1, "text")
+      .build();
+    let test_std_in = TestStdInReader::from(format!("{}\n", file_path1));
+    let error_message = run_test_cli_with_stdin(vec!["check", "--stdin-files", "--list-different"], &environment, test_std_in)
+      .err()
+      .unwrap();
+    error_message.assert_exit_code(20);
+    assert_eq!(environment.take_stdout_messages(), vec![file_path1.to_string()]);
+  }
+
+  #[test]
   fn should_format_only_staged_files() {
     let file_path1 = "/file.txt";
     let file_path2 = "/file.txt_ps";
