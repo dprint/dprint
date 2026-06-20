@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use anyhow::Result;
-use crossterm::style::Stylize;
+use deno_terminal::colors;
 use once_cell::sync::Lazy;
 use thiserror::Error;
 
@@ -304,26 +304,22 @@ impl TestProcessPluginFileBuilder {
 }
 
 pub fn get_singular_formatted_text() -> String {
-  format!("Formatted {} file.", "1".bold().to_string())
+  format!("Formatted {} file.", colors::bold("1"))
 }
 
 pub fn get_plural_formatted_text(count: usize) -> String {
-  format!("Formatted {} files.", count.to_string().bold().to_string())
+  format!("Formatted {} files.", colors::bold(count.to_string()))
 }
 
 pub fn get_singular_check_text() -> String {
-  format!(
-    "Found {} not formatted file. Run {} to fix.",
-    "1".bold().to_string(),
-    "dprint fmt".bold().to_string()
-  )
+  format!("Found {} not formatted file. Run {} to fix.", colors::bold("1"), colors::bold("dprint fmt"))
 }
 
 pub fn get_plural_check_text(count: usize) -> String {
   format!(
     "Found {} not formatted files. Run {} to fix.",
-    count.to_string().bold().to_string(),
-    "dprint fmt".bold().to_string()
+    colors::bold(count.to_string()),
+    colors::bold("dprint fmt")
   )
 }
 
