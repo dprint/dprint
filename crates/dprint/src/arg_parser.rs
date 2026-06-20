@@ -395,12 +395,12 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       _ => unreachable!(),
     }),
     ("clear-cache", _) => SubCommand::ClearCache,
-    ("output-file-paths", matches) => SubCommand::OutputFilePaths(OutputFilePathsSubCommand {
+    ("file-paths", matches) => SubCommand::OutputFilePaths(OutputFilePathsSubCommand {
       patterns: parse_file_patterns(matches)?,
     }),
-    ("output-resolved-config", _) => SubCommand::OutputResolvedConfig,
+    ("resolved-config", _) => SubCommand::OutputResolvedConfig,
     ("incremental-state", _) => SubCommand::IncrementalState,
-    ("output-format-times", matches) => SubCommand::OutputFormatTimes(OutputFormatTimesSubCommand {
+    ("format-times", matches) => SubCommand::OutputFormatTimes(OutputFormatTimesSubCommand {
       patterns: parse_file_patterns(matches)?,
       allow_no_files: matches.get_flag("allow-no-files"),
     }),
@@ -748,13 +748,16 @@ EXAMPLES:
         )
     )
     .subcommand(
-      Command::new("output-file-paths")
+      // `output-` prefixed names are kept as hidden aliases for backwards compatibility
+      Command::new("file-paths")
+        .alias("output-file-paths")
         .about("Prints the resolved file paths for the plugins based on the args and configuration.")
         .add_resolve_file_path_args()
         .add_only_staged_arg()
     )
     .subcommand(
-      Command::new("output-resolved-config")
+      Command::new("resolved-config")
+        .alias("output-resolved-config")
         .about("Prints the resolved configuration for the plugins based on the args and configuration.")
     )
     .subcommand(
@@ -762,7 +765,8 @@ EXAMPLES:
         .about("Prints the state used to determine whether the incremental cache would be invalidated.")
     )
     .subcommand(
-      Command::new("output-format-times")
+      Command::new("format-times")
+        .alias("output-format-times")
         .about("Prints the amount of time it takes to format each file. Use this for debugging.")
         .add_resolve_file_path_args()
         .add_allow_no_files_arg()
@@ -956,6 +960,20 @@ mod test {
   use crate::utils::TestStdInReader;
 
   use super::*;
+
+  #[test]
+  fn output_prefixed_command_aliases() {
+    // the `output-` prefixed names are kept as hidden aliases for backwards compatibility
+    fn sub_command(args: Vec<&str>) -> SubCommand {
+      test_args(args).unwrap().sub_command
+    }
+    assert!(matches!(sub_command(vec!["file-paths"]), SubCommand::OutputFilePaths(_)));
+    assert!(matches!(sub_command(vec!["output-file-paths"]), SubCommand::OutputFilePaths(_)));
+    assert!(matches!(sub_command(vec!["resolved-config"]), SubCommand::OutputResolvedConfig));
+    assert!(matches!(sub_command(vec!["output-resolved-config"]), SubCommand::OutputResolvedConfig));
+    assert!(matches!(sub_command(vec!["format-times"]), SubCommand::OutputFormatTimes(_)));
+    assert!(matches!(sub_command(vec!["output-format-times"]), SubCommand::OutputFormatTimes(_)));
+  }
 
   #[test]
   fn plugins_with_file_paths_no_dash_at_first() {
