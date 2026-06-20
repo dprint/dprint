@@ -155,6 +155,17 @@ pub struct TestEnvironment {
   current_exe_path: Arc<Mutex<PathBuf>>,
   is_terminal_interactive: Arc<Mutex<bool>>,
   run_command_results: Arc<Mutex<Vec<(Vec<OsString>, io::Result<Option<i32>>)>>>,
+  /// Executables of processes that are pretending to be running, each paired
+  /// with the number of times it will "restart" (re-lock its directory) after
+  /// being killed. A directory containing one of these can't be removed
+  /// (simulating a locked executable) until the process stays killed via
+  /// `kill_processes_using_dir`. The restart count models an editor such as the
+  /// VSCode extension respawning its process plugins.
+  running_processes: Arc<Mutex<Vec<(PathBuf, usize)>>>,
+  /// Number of times `remove_dir_all` should fail with a transient error before
+  /// succeeding, independent of any running process. Models a flaky deletion
+  /// (e.g. a file briefly locked) that succeeds on retry.
+  remove_dir_all_failures: Arc<Mutex<usize>>,
 }
 
 impl TestEnvironment {
@@ -189,6 +200,8 @@ impl TestEnvironment {
       current_exe_path: Arc::new(Mutex::new(PathBuf::from("/dprint"))),
       is_terminal_interactive: Arc::new(Mutex::new(true)),
       run_command_results: Default::default(),
+      running_processes: Default::default(),
+      remove_dir_all_failures: Default::default(),
     };
     env.mk_dir_all("/").unwrap();
     env
@@ -309,6 +322,30 @@ impl TestEnvironment {
 
   pub fn set_run_command_result(&self, result: io::Result<Option<i32>>) {
     self.run_command_results.lock().push((Vec::new(), result));
+  }
+
+  /// Simulates a running process whose executable is at the given path. A
+  /// directory containing it can't be removed until the process is killed.
+  pub fn add_running_process(&self, exe_path: impl AsRef<Path>) {
+    self.add_running_process_with_restarts(exe_path, 0);
+  }
+
+  /// Like [`Self::add_running_process`], but the process re-locks its directory
+  /// `restarts` times after being killed before it stays dead — simulating an
+  /// editor respawning its process plugins between delete attempts.
+  pub fn add_running_process_with_restarts(&self, exe_path: impl AsRef<Path>, restarts: usize) {
+    self.running_processes.lock().push((self.clean_path(exe_path), restarts));
+  }
+
+  pub fn is_process_running(&self, exe_path: impl AsRef<Path>) -> bool {
+    let exe_path = self.clean_path(exe_path);
+    self.running_processes.lock().iter().any(|(p, _)| *p == exe_path)
+  }
+
+  /// Makes the next `count` `remove_dir_all` calls fail with a transient error
+  /// before succeeding, regardless of any running process.
+  pub fn set_remove_dir_all_failures(&self, count: usize) {
+    *self.remove_dir_all_failures.lock() = count;
   }
 
   pub fn take_run_commands(&self) -> Vec<(Vec<OsString>, io::Result<Option<i32>>)> {
@@ -498,7 +535,44 @@ impl Environment for TestEnvironment {
 
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()> {
     let dir_path = self.clean_path(dir_path);
+    {
+      let mut failures = self.remove_dir_all_failures.lock();
+      if *failures > 0 {
+        *failures -= 1;
+        return Err(io::Error::new(
+          io::ErrorKind::PermissionDenied,
+          format!("Error deleting directory '{}': transient failure", dir_path.display()),
+        ));
+      }
+    }
+    // simulate a running process locking its executable (e.g. on Windows)
+    if self.running_processes.lock().iter().any(|(exe, _)| exe.starts_with(&dir_path)) {
+      return Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!("Error deleting directory '{}': a process is using a file within it", dir_path.display()),
+      ));
+    }
     self.sys.fs_remove_dir_all(dir_path)
+  }
+
+  fn kill_processes_using_dir(&self, dir_path: impl AsRef<Path>) -> usize {
+    let dir_path = self.clean_path(dir_path);
+    let mut killed = 0;
+    self.running_processes.lock().retain_mut(|(exe, restarts)| {
+      if !exe.starts_with(&dir_path) {
+        return true;
+      }
+      killed += 1;
+      // simulate an editor restarting the plugin: it stays "running" while it
+      // still has restarts left, otherwise the kill sticks
+      if *restarts > 0 {
+        *restarts -= 1;
+        true
+      } else {
+        false
+      }
+    });
+    killed
   }
 
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
