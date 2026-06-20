@@ -189,7 +189,7 @@ mod test {
   }
 
   #[test]
-  fn honors_git_info_exclude() {
+  fn honours_git_info_exclude() {
     let env = TestEnvironment::new();
     env.write_file("/.gitignore", "from_gitignore.txt").unwrap();
     env.mk_dir_all("/.git/info").unwrap();
@@ -210,7 +210,7 @@ mod test {
 
   #[test]
   fn git_info_exclude_without_gitignore() {
-    // a repo with only `.git/info/exclude` and no `.gitignore` should still be honored
+    // a repo with only `.git/info/exclude` and no `.gitignore` should still be honoured
     let env = TestEnvironment::new();
     env.mk_dir_all("/.git/info").unwrap();
     env.write_file("/.git/info/exclude", "ignored.txt").unwrap();
