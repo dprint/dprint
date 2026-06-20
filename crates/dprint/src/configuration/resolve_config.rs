@@ -19,6 +19,7 @@ use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::parse_plugin_source_reference;
+use crate::utils::GlobPattern;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::ResolvedFilePathWithText;
@@ -214,18 +215,15 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
 /// config have precedence over the ancestor's plugins, the ancestor's excludes
 /// are combined with the nested config's excludes, and plugin configurations are
 /// merged with the nested config winning on conflicts.
+///
+/// Note: `includes` are not inherited.
 pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Result<ResolvedConfig> {
   // plugins specified in the nested config have precedence over the ancestor's
   config.plugins.extend(parent.plugins.iter().cloned());
   config.plugins = filter_duplicate_plugin_sources(std::mem::take(&mut config.plugins));
 
-  // combine excludes (nested config's excludes have precedence)
-  if let Some(parent_excludes) = &parent.excludes {
-    match &mut config.excludes {
-      Some(excludes) => excludes.extend(parent_excludes.iter().cloned()),
-      None => config.excludes = Some(parent_excludes.clone()),
-    }
-  }
+  // combine excludes, rebasing the ancestor's patterns onto this config's directory
+  config.excludes = inherit_excludes(config.excludes, parent.excludes.as_deref(), &parent.base_path, &config.base_path);
 
   // inherit the incremental flag when not specified in the nested config
   if config.incremental.is_none() {
@@ -235,6 +233,36 @@ pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Re
   merge_config_map_into(&mut config.config_map, parent.config_map.clone())?;
 
   Ok(config)
+}
+
+/// Combines a nested config's own excludes with its ancestor's, rebasing each
+/// ancestor pattern from the ancestor's directory onto the nested config's
+/// directory. Ancestor patterns that don't reach into the nested directory are
+/// dropped.
+///
+/// The ancestor's patterns are ordered first so the nested config's own excludes
+/// can opt back out of them (ex. with a `!` pattern).
+fn inherit_excludes(
+  own: Option<Vec<String>>,
+  ancestor: Option<&[String]>,
+  ancestor_base: &CanonicalizedPathBuf,
+  new_base: &CanonicalizedPathBuf,
+) -> Option<Vec<String>> {
+  let Some(ancestor) = ancestor else {
+    return own;
+  };
+  let mut result = ancestor
+    .iter()
+    .filter_map(|pattern| {
+      GlobPattern::new(pattern.clone(), ancestor_base.clone())
+        .into_new_base(new_base.clone())
+        .map(|p| p.relative_pattern)
+    })
+    .collect::<Vec<_>>();
+  if let Some(own) = own {
+    result.extend(own);
+  }
+  if result.is_empty() { None } else { Some(result) }
 }
 
 fn resolve_extends<TEnvironment: Environment>(
@@ -1825,7 +1853,9 @@ mod tests {
       source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/dprint.json")),
       base_path: CanonicalizedPathBuf::new_for_testing("/"),
       includes: Some(vec!["**/*.txt".to_string()]),
-      excludes: Some(vec!["root-excludes".to_string()]),
+      // "**/node_modules" rebases into the nested directory, but the anchored
+      // "dist" points outside it and is dropped
+      excludes: Some(vec!["**/node_modules".to_string(), "dist".to_string()]),
       plugins: vec![
         PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
         PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/json.wasm"),
@@ -1877,9 +1907,9 @@ mod tests {
         PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/json.wasm"),
       ]
     );
-    // excludes are combined (child's first)
-    assert_eq!(result.excludes, Some(vec!["sub-excludes".to_string(), "root-excludes".to_string()]));
-    // includes are not inherited (they're relative to the ancestor's directory)
+    // ancestor excludes (rebased, droppable) come first, then the nested config's own
+    assert_eq!(result.excludes, Some(vec!["**/node_modules".to_string(), "sub-excludes".to_string()]));
+    // includes are not inherited
     assert_eq!(result.includes, None);
     // incremental is inherited when not specified
     assert_eq!(result.incremental, Some(true));
@@ -1902,6 +1932,35 @@ mod tests {
         ),
         ("lineWidth".to_string(), ConfigMapValue::from_i32(80)),
       ])
+    );
+  }
+
+  #[test]
+  fn inherit_config_should_rebase_ancestor_excludes_onto_nested_directory() {
+    fn inherited_excludes(ancestor: &[&str], ancestor_base: &str, new_base: &str) -> Option<Vec<String>> {
+      inherit_excludes(
+        None,
+        Some(&ancestor.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
+        &CanonicalizedPathBuf::new_for_testing(ancestor_base),
+        &CanonicalizedPathBuf::new_for_testing(new_base),
+      )
+    }
+
+    // depth-relative patterns keep matching within the nested directory
+    assert_eq!(inherited_excludes(&["**/node_modules"], "/", "/sub"), Some(vec!["**/node_modules".to_string()]));
+    // a pattern anchored into the nested directory is rebased to be relative to it
+    assert_eq!(inherited_excludes(&["sub/dist"], "/", "/sub"), Some(vec!["dist".to_string()]));
+    // an anchored pattern that points outside the nested directory is dropped
+    assert_eq!(inherited_excludes(&["other/dist"], "/", "/sub"), None);
+    // dropping leaves the nested config's own excludes intact
+    assert_eq!(
+      inherit_excludes(
+        Some(vec!["own".to_string()]),
+        Some(&["other/dist".to_string()]),
+        &CanonicalizedPathBuf::new_for_testing("/"),
+        &CanonicalizedPathBuf::new_for_testing("/sub"),
+      ),
+      Some(vec!["own".to_string()])
     );
   }
 

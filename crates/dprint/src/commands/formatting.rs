@@ -2590,6 +2590,30 @@ mod test {
   }
 
   #[test]
+  fn should_inherit_ancestor_excludes_in_nested_config() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/sub_dir/file.txt";
+    let file_path3 = "/sub_dir/skip/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin().add_excludes("**/skip");
+      })
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text")
+      .write_file(&file_path3, "text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text_formatted");
+    // the ancestor's "**/skip" exclude is inherited and still matches in the nested scope
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text");
+  }
+
+  #[test]
   fn should_not_inherit_ancestor_plugins_without_inherit_true() {
     // inheriting is opt-in, so a nested config without `"inherit": true`
     // and without any plugins of its own should error

@@ -387,7 +387,7 @@ When inheriting:
 - Plugins specified in the nested configuration file have precedence over the ancestor's plugins. Any plugins not specified are inherited from the ancestor.
 - Plugin configuration is merged with the nested configuration file winning on conflicts.
 - The ancestor's `excludes` are combined with the nested configuration file's `excludes`.
-- The ancestor's `includes` are _not_ inherited as they're relative to the ancestor's directory.
+- The ancestor's `includes` are _not_ inherited.
 
 Inheriting is opt-in (rather than opt-out) so that adding a configuration file higher up in the directory structure does not unexpectedly start affecting a nested configuration file.
 
