@@ -9,7 +9,6 @@ use crate::environment::Environment;
 use crate::utils::ExcludeMatchDetail;
 use crate::utils::GitIgnoreTree;
 use crate::utils::GitIgnoreTreeOptions;
-use crate::utils::resolve_global_gitignore_lines;
 use crate::utils::GlobMatcher;
 use crate::utils::GlobMatcherOptions;
 use crate::utils::GlobMatchesDetail;
@@ -17,6 +16,7 @@ use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
 use crate::utils::is_absolute_pattern;
 use crate::utils::is_negated_glob;
+use crate::utils::resolve_global_gitignore_lines;
 
 pub struct FileMatcher<TEnvironment: Environment> {
   glob_matcher: GlobMatcher,
