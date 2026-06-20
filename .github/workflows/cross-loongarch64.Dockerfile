@@ -15,9 +15,10 @@ RUN git clone https://github.com/llvm/llvm-project.git --branch llvmorg-$LLVM_VE
 WORKDIR /root/llvm
 RUN cmake -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
-        # wasmer's LLVM backend only JITs wasm to the host arch (loongarch64),
-        # so the LoongArch backend is the only one we need to build
-        -DLLVM_TARGETS_TO_BUILD='LoongArch' \
+        # inkwell (used by wasmer's LLVM backend) references the LLVMInitialize*
+        # symbols for each of these targets, so they must all be built or linking
+        # the loongarch64 dprint binary fails with undefined references
+        -DLLVM_TARGETS_TO_BUILD='AArch64;LoongArch;RISCV;X86' \
         -DLLVM_ENABLE_PROJECTS=llvm \
         -DLLVM_ENABLE_RUNTIMES='' \
         -DLLVM_BUILD_TOOLS=ON \
