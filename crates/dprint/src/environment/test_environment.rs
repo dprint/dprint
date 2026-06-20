@@ -134,6 +134,7 @@ pub struct TestEnvironment {
   log_level: Arc<Mutex<LogLevel>>,
   sys: Arc<InMemorySys>,
   staged_files: Arc<Mutex<Vec<PathBuf>>>,
+  global_gitignore_path: Arc<Mutex<Option<PathBuf>>>,
   stdout_messages: Arc<Mutex<Vec<String>>>,
   stderr_messages: Arc<Mutex<Vec<String>>>,
   remote_files: Arc<Mutex<HashMap<String, Result<Vec<u8>>>>>,
@@ -174,6 +175,7 @@ impl TestEnvironment {
       log_level: Arc::new(Mutex::new(LogLevel::Info)),
       sys: Default::default(),
       staged_files: Default::default(),
+      global_gitignore_path: Default::default(),
       stdout_messages: Default::default(),
       stderr_messages: Default::default(),
       remote_files: Default::default(),
@@ -299,6 +301,9 @@ impl TestEnvironment {
 
   pub fn set_staged_file(&self, file: impl AsRef<Path>) {
     self.staged_files.lock().push(file.as_ref().to_path_buf())
+  }
+  pub fn set_global_gitignore_path(&self, path: impl AsRef<Path>) {
+    *self.global_gitignore_path.lock() = Some(path.as_ref().to_path_buf());
   }
   pub fn set_dir_info_error(&self, err: io::Error) {
     *self.dir_info_error.lock() = Some(err);
@@ -505,6 +510,10 @@ impl Environment for TestEnvironment {
 
   fn get_staged_files(&self) -> Result<Vec<PathBuf>> {
     Ok(self.staged_files.lock().clone())
+  }
+
+  fn global_gitignore_path(&self) -> Option<PathBuf> {
+    self.global_gitignore_path.lock().clone()
   }
 
   fn read_file(&self, file_path: impl AsRef<Path>) -> io::Result<String> {
