@@ -11,7 +11,7 @@ on:
         description: Version
         type: string
       dry_run:
-        description: "Dry run (build and test npm, but skip publishing)"
+        description: 'Dry run (build and test npm, but skip publishing)'
         type: boolean
         default: true
 permissions:
@@ -23,13 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - uses: dsherret/rust-toolchain-file@3551321aa44dd44a0393eb3b6bdfbc5d25ecf621
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: dsherret/rust-toolchain-file@3551321aa44dd44a0393eb3b6bdfbc5d25ecf621 # v1
       - id: auth
-        uses: rust-lang/crates-io-auth-action@b7e9a28eded4986ec6b1fa40eeee8f8f165559ec
+        uses: rust-lang/crates-io-auth-action@b7e9a28eded4986ec6b1fa40eeee8f8f165559ec # v1
       - name: Cargo publish
         env:
-          CARGO_REGISTRY_TOKEN: "${{ steps.auth.outputs.token }}"
+          CARGO_REGISTRY_TOKEN: '${{ steps.auth.outputs.token }}'
         run: |-
           cd crates/dprint
           cargo publish ${{ (inputs.dry_run || false) && '--dry-run' || '' }}
@@ -40,23 +40,23 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2
       - name: Build npm packages
         run: 'deno run -A deployment/npm/build.ts ${{ inputs.version || '''' }}'
       - name: Tar npm dist (preserves permissions)
         run: tar cf deployment/npm/dist.tar -C deployment/npm --exclude='node_modules' dist
       - name: Upload artifact npm-dist
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: npm-dist
           path: deployment/npm/dist.tar
           retention-days: 1
   test-npm:
-    name: "npm test (${{ matrix.runner }})"
+    name: 'npm test (${{ matrix.runner }})'
     needs:
       - build-npm
-    runs-on: "${{ matrix.runner }}"
+    runs-on: '${{ matrix.runner }}'
     timeout-minutes: 15
     defaults:
       run:
@@ -70,13 +70,13 @@ jobs:
       fail-fast: false
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Install Node
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: 24.x
       - name: Download artifact npm-dist
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: npm-dist
           path: deployment/npm
@@ -185,22 +185,22 @@ jobs:
     needs:
       - build-npm
       - test-npm
-    if: "!(inputs.dry_run || false)"
+    if: '!(inputs.dry_run || false)'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2
       - name: Install Node
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: 24.x
-          registry-url: "https://registry.npmjs.org"
+          registry-url: 'https://registry.npmjs.org'
       - name: Download artifact npm-dist
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: npm-dist
           path: deployment/npm
@@ -208,11 +208,3 @@ jobs:
         run: tar xf deployment/npm/dist.tar -C deployment/npm
       - name: Publish to npm
         run: 'deno run -A deployment/npm/build.ts ${{ inputs.version || '''' }} --publish-only'
-
-# gagen:pin actions/checkout@v6 = de0fac2e4500dabe0009e67214ff5f5447ce83dd
-# gagen:pin actions/download-artifact@v6 = 018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
-# gagen:pin actions/setup-node@v6 = 53b83947a5a98c8d113130e565377fae1a50d02f
-# gagen:pin actions/upload-artifact@v6 = b7c566a772e6b6bfb58ed0dc250532a479d7789f
-# gagen:pin denoland/setup-deno@v2 = 667a34cdef165d8d2b2e98dde39547c9daac7282
-# gagen:pin dsherret/rust-toolchain-file@v1 = 3551321aa44dd44a0393eb3b6bdfbc5d25ecf621
-# gagen:pin rust-lang/crates-io-auth-action@v1 = b7e9a28eded4986ec6b1fa40eeee8f8f165559ec

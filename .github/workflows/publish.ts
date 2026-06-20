@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run -A
-import { artifact, defineMatrix, expr, job, step, workflow } from "jsr:@david/gagen@0.4.0";
+import { artifact, defineMatrix, expr, job, step, workflow } from "jsr:@david/gagen@0.5.0";
 
 const isDprintRepo = "github.repository == 'dprint/dprint'";
 const npmDist = artifact("npm-dist");

@@ -19,10 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
-      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282
+      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2
         with:
           cache: true
           deno-version: canary
@@ -31,16 +31,12 @@ jobs:
       - name: Build playground
         run: (cd website/playground && deno task build)
       - name: Build website
-        run: "(cd website && deno task build:ci)"
+        run: '(cd website && deno task build:ci)'
       - name: Deploy
-        uses: JamesIves/github-pages-deploy-action@132898c54c57c7cc6b80eb3a89968de8fc283505
+        uses: JamesIves/github-pages-deploy-action@132898c54c57c7cc6b80eb3a89968de8fc283505 # releases/v3
         if: github.event_name == 'workflow_dispatch' && inputs.deploy
         with:
-          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
           BRANCH: gh-pages
           FOLDER: website/_site
           single-commit: true
-
-# gagen:pin JamesIves/github-pages-deploy-action@releases/v3 = 132898c54c57c7cc6b80eb3a89968de8fc283505
-# gagen:pin actions/checkout@v6 = de0fac2e4500dabe0009e67214ff5f5447ce83dd
-# gagen:pin denoland/setup-deno@v2 = 667a34cdef165d8d2b2e98dde39547c9daac7282

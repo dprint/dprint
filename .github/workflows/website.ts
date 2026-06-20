@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run -A
-import { expr, job, step, workflow } from "jsr:@david/gagen@0.4.0";
+import { expr, job, step, workflow } from "jsr:@david/gagen@0.5.0";
 
 const buildSteps = step(
   { name: "Checkout", uses: "actions/checkout@v6", with: { "persist-credentials": false } },
