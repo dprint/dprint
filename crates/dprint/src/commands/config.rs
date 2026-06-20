@@ -590,6 +590,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   yes_to_prompts: bool,
+  dry_run: bool,
 ) -> Result<()> {
   if !args.plugins.is_empty() {
     bail!("Cannot specify plugins for this sub command. Sorry, too much work for me.");
@@ -617,6 +618,10 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   .await?;
   let mut plugin_responses = HashMap::new();
   let mut updates_per_scope = HashMap::with_capacity(scopes.len());
+  // for `--dry-run`: the would-be config text per scope (plugin urls bumped),
+  // kept in memory so the config-update preview can run against it without
+  // touching disk.
+  let mut dry_run_texts = HashMap::new();
   for (i, scope) in scopes.iter().enumerate() {
     let is_main_config = i == 0;
     let Some(config) = &scope.scope.config else {
@@ -637,7 +642,9 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     for result in plugins_to_update {
       match result {
         Ok(info) => {
-          let should_update = if info.is_wasm() || yes_to_prompts {
+          // in a dry run nothing is written, so don't prompt to confirm
+          // process plugin checksums — just report everything that would update
+          let should_update = if info.is_wasm() || yes_to_prompts || dry_run {
             true
           } else if let Some(previous_response) = plugin_responses.get(&info.new_reference) {
             *previous_response
@@ -656,18 +663,16 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
           };
 
           if should_update {
-            log_stderr_info!(
-              environment,
-              "Updating {} {}{} to {}...",
-              info.name,
-              info.old_version,
-              if is_main_config {
-                String::new()
-              } else {
-                format!(" in {}", config_path.display())
-              },
-              info.new_version
-            );
+            let in_config = if is_main_config {
+              String::new()
+            } else {
+              format!(" in {}", config_path.display())
+            };
+            if dry_run {
+              log_stderr_info!(environment, "Would update {} {}{} to {}.", info.name, info.old_version, in_config, info.new_version);
+            } else {
+              log_stderr_info!(environment, "Updating {} {}{} to {}...", info.name, info.old_version, in_config, info.new_version);
+            }
             file_text = update_plugin_in_config(&file_text, &info);
             updated_plugins.push(info);
           }
@@ -680,7 +685,15 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
 
     updates_per_scope.insert(config_path.clone(), updated_plugins);
 
-    environment.write_file(config_path, &file_text)?;
+    if dry_run {
+      dry_run_texts.insert(config_path.clone(), file_text);
+    } else {
+      environment.write_file(config_path, &file_text)?;
+    }
+  }
+
+  if dry_run {
+    return preview_plugin_config_updates(environment, plugin_resolver, &updates_per_scope, &dry_run_texts).await;
   }
 
   // now resolve the plugins again in every scope and run their config updates
@@ -688,6 +701,99 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   run_plugin_config_updates(environment, args, &file_pattern_args, plugin_resolver, &updates_per_scope)
     .await
     .with_context(|| "Failed running plugin config updates.".to_string())?;
+
+  Ok(())
+}
+
+/// Dry-run counterpart of [`run_plugin_config_updates`]: resolves each updated
+/// plugin's new reference, asks it what config changes it would make, applies
+/// them to the in-memory (already plugin-url-bumped) config text, then prints
+/// the resulting file instead of writing it. No files are modified.
+async fn preview_plugin_config_updates<TEnvironment: Environment>(
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  updates_per_scope: &HashMap<CanonicalizedPathBuf, Vec<PluginUpdateInfo>>,
+  dry_run_texts: &HashMap<CanonicalizedPathBuf, String>,
+) -> Result<()> {
+  let mut any_updates = false;
+  // sort for deterministic output — `updates_per_scope` is a HashMap
+  let mut config_paths = updates_per_scope.keys().collect::<Vec<_>>();
+  config_paths.sort_by_key(|p| p.display().to_string());
+  for config_path in config_paths {
+    let updated_plugins = &updates_per_scope[config_path];
+    if updated_plugins.is_empty() {
+      continue;
+    }
+    any_updates = true;
+    let Some(mut file_text) = dry_run_texts.get(config_path).cloned() else {
+      continue;
+    };
+    let config_map = match deserialize_config_raw(&file_text) {
+      Ok(map) => map,
+      Err(err) => {
+        log_warn!(environment, "Failed deserializing config file '{}': {:#}", config_path.display(), err);
+        continue;
+      }
+    };
+    let mut all_diagnostics = Vec::new();
+    for update_info in updated_plugins {
+      let plugin = match plugin_resolver.resolve_plugin(update_info.new_reference.clone()).await {
+        Ok(plugin) => plugin,
+        Err(err) => {
+          log_warn!(environment, "Failed resolving {}. {:#}", update_info.name, err);
+          continue;
+        }
+      };
+      let config_key = &plugin.info().config_key;
+      let Some(plugin_config) = config_map.get(config_key).and_then(|c| c.as_object()).cloned() else {
+        continue;
+      };
+      let initialized_plugin = match plugin.initialize().await {
+        Ok(plugin) => plugin,
+        Err(err) => {
+          log_warn!(environment, "Failed initializing {}. {:#}", update_info.name, err);
+          continue;
+        }
+      };
+
+      let changes = match initialized_plugin
+        .check_config_updates(plugins::CheckConfigUpdatesMessage {
+          old_version: Some(update_info.old_version.clone()),
+          config: plugin_config,
+        })
+        .await
+      {
+        Ok(changes) => changes,
+        Err(err) => {
+          log_warn!(environment, "Failed applying update config changes for {}. {:#}", update_info.name, err);
+          continue;
+        }
+      };
+
+      if changes.is_empty() {
+        continue;
+      }
+
+      let result = apply_config_changes(&file_text, config_key, &changes);
+      all_diagnostics.extend(result.diagnostics);
+      file_text = result.new_text;
+    }
+
+    if !all_diagnostics.is_empty() {
+      log_warn!(environment, "Had diagnostics applying update config changes for {}:", config_path.display());
+      for diagnostic in &all_diagnostics {
+        log_warn!(environment, "* {}", diagnostic);
+      }
+    }
+
+    log_stdout_info!(environment, "\n{} would be updated to:\n{}", config_path.display(), file_text);
+  }
+
+  if any_updates {
+    log_stderr_info!(environment, "\nThis was a dry run. No files were changed.");
+  } else {
+    log_stderr_info!(environment, "No plugin updates available.");
+  }
 
   Ok(())
 }
@@ -753,7 +859,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
       let initialized_plugin = match plugin.initialize().await {
         Ok(plugin) => plugin,
         Err(err) => {
-          log_warn!(environment, "Failed initializing {}. {:#}", plugin.name(), err);
+          log_warn!(environment, "Failed initializing {}. {:#}", update_info.name, err);
           continue;
         }
       };
@@ -767,7 +873,7 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
       {
         Ok(changes) => changes,
         Err(err) => {
-          log_warn!(environment, "Failed applying update config changes for {}. {:#}", plugin.name(), err);
+          log_warn!(environment, "Failed applying update config changes for {}. {:#}", update_info.name, err);
           continue;
         }
       };
@@ -2003,6 +2109,88 @@ mod test {
         old_ps_checksum
       )
     );
+  }
+
+  #[test]
+  fn config_update_dry_run_does_not_modify_files() {
+    let mut builder = get_setup_builder(SetupEnvOptions {
+      config_has_wasm: true,
+      config_has_wasm_checksum: false,
+      config_has_process: true,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: true,
+    });
+    builder.with_default_config(|config| {
+      config.add_config_section(
+        "testProcessPlugin",
+        r#"{
+  "should_add": {
+  },
+  "should_set": "other",
+  "should_remove": {},
+  "should_set_past_version": ""
+}"#,
+      );
+      config.add_config_section(
+        "test-plugin",
+        r#"{
+  "should_add": {
+  },
+  "should_set": "other",
+  "should_remove": {},
+  "should_set_past_version": ""
+}"#,
+      );
+    });
+    builder.with_local_config("/sub_folder/dprint.json", |config| {
+      config
+        .add_remote_process_plugin()
+        .add_remote_wasm_plugin_0_1_0()
+        .add_config_section(
+          "testProcessPlugin",
+          r#"{
+  "should_set": "asdf"
+}"#,
+        )
+        .add_config_section(
+          "test-plugin",
+          r#"{
+  "should_set": "asdf"
+}"#,
+        );
+    });
+    let environment = builder.initialize().build();
+
+    let root_before = environment.read_file("./dprint.json").unwrap();
+    let sub_before = environment.read_file("./sub_folder/dprint.json").unwrap();
+
+    run_test_cli(vec!["config", "update", "--recursive", "--dry-run"], &environment).unwrap();
+
+    // it should report what would change, but make no edits to the files
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "Would update test-plugin 0.1.0 to 0.2.0.".to_string(),
+        "Would update test-process-plugin 0.1.0 to 0.3.0.".to_string(),
+        "Would update test-process-plugin 0.1.0 in /sub_folder/dprint.json to 0.3.0.".to_string(),
+        "Would update test-plugin 0.1.0 in /sub_folder/dprint.json to 0.2.0.".to_string(),
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm".to_string(),
+        "Extracting zip for test-process-plugin".to_string(),
+        "\nThis was a dry run. No files were changed.".to_string(),
+      ]
+    );
+
+    // the preview output shows the would-be config (with migrated sections and bumped plugin urls)
+    let stdout = environment.take_stdout_messages().join("\n");
+    assert_contains!(stdout, "/dprint.json would be updated to:");
+    assert_contains!(stdout, "\"should_add\": \"new_value\"");
+    assert_contains!(stdout, "\"should_add\": \"new_value_wasm\"");
+    assert_contains!(stdout, "https://plugins.dprint.dev/test-plugin.wasm");
+    assert_contains!(stdout, &format!("https://plugins.dprint.dev/test-plugin-3.json@{}", NEW_PROCESS_PLUGIN_FILE.checksum()));
+
+    // the files on disk must be untouched
+    assert_eq!(environment.read_file("./dprint.json").unwrap(), root_before);
+    assert_eq!(environment.read_file("./sub_folder/dprint.json").unwrap(), sub_before);
   }
 
   struct TestUpdateOptions {

@@ -103,6 +103,8 @@ dprint config update
 
 To update configuration files in descendant directories, run `dprint config update --recursive`.
 
+To preview the updates that would be made without modifying any files, run `dprint config update --dry-run`.
+
 ### Using Plugins from npm
 
 Plugins can be referenced by npm specifiers instead of HTTPS URLs. This is useful in environments where downloading from `plugins.dprint.dev` or other domains is restricted, or when you're already using npm and want one place to download dependencies from.

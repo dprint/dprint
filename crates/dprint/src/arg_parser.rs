@@ -195,6 +195,8 @@ pub enum ConfigSubCommand {
   },
   Update {
     yes: bool,
+    /// Print the updates that would be made without modifying any files.
+    dry_run: bool,
   },
   Add {
     names: Vec<String>,
@@ -386,6 +388,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         is_config_update = true;
         ConfigSubCommand::Update {
           yes: *matches.get_one::<bool>("yes").unwrap(),
+          dry_run: *matches.get_one::<bool>("dry-run").unwrap(),
         }
       }
       ("edit", matches) => {
@@ -712,6 +715,12 @@ EXAMPLES:
             .alias("upgrade")
             .about("Updates the plugins in the configuration file.")
             .arg(Arg::new("yes").help("Upgrade process plugins without prompting to confirm checksums.").short('y').long("yes").action(clap::ArgAction::SetTrue))
+            .arg(
+              Arg::new("dry-run")
+                .long("dry-run")
+                .help("Print the updates that would be made without modifying any files.")
+                .action(clap::ArgAction::SetTrue),
+            )
             .arg(
               Arg::new("global")
                 .long("global")
@@ -1130,8 +1139,21 @@ mod test {
   fn config_upgrade_alias() {
     let args = test_args(vec!["config", "upgrade"]).unwrap();
     match args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Update { yes }) => {
+      SubCommand::Config(ConfigSubCommand::Update { yes, dry_run }) => {
         assert!(!yes);
+        assert!(!dry_run);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn config_update_dry_run_arg() {
+    let args = test_args(vec!["config", "update", "--dry-run"]).unwrap();
+    match args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Update { yes, dry_run }) => {
+        assert!(!yes);
+        assert!(dry_run);
       }
       _ => unreachable!(),
     }
