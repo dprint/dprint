@@ -619,7 +619,9 @@ ENVIRONMENT VARIABLES:
                        hosts to ignore (ex. dprint.dev,localhost,[::],127.0.0.1)
   DPRINT_EDITOR        Editor used for editing config files.
   HTTPS_PROXY          Proxy to use when downloading plugins or configuration
-                       files (also supports HTTP_PROXY and NO_PROXY).{after-help}"#)
+                       files (also supports HTTP_PROXY and NO_PROXY).
+  NO_COLOR             Disables coloured output.
+  FORCE_COLOR          Forces coloured output, even when NO_COLOR is set.{after-help}"#)
     .after_help(
             r#"GETTING STARTED:
   1. Navigate to the root directory of a code repository.

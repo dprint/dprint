@@ -1,5 +1,5 @@
 use anyhow::Result;
-use crossterm::style::Stylize;
+use deno_terminal::colors;
 use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
@@ -150,7 +150,7 @@ pub fn resolve_global_config_dir(environment: &impl Environment) -> std::io::Res
       log_warn!(
         environment,
         "{} Could not resolve DPRINT_CONFIG_DIR value '{}'. Falling back to system configuration directory.",
-        "Warning".yellow(),
+        colors::yellow("Warning"),
         folder.display(),
       );
       log_debug!(environment, "Reason: {:#}", err);

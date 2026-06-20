@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use anyhow::bail;
-use crossterm::style::Stylize;
+use deno_terminal::colors;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigKeyValue;
@@ -47,7 +47,7 @@ pub enum ResolveConfigError {
   #[error(
     "No config file found at {}. Did you mean to create (dprint init) or specify one (--config <path>)?\n\n{}",
     .config_path.display(),
-    "Note: dprint now supports global configuration. Set it up with `dprint init --global` then edit with `dprint config edit --global`".grey()
+    colors::gray("Note: dprint now supports global configuration. Set it up with `dprint init --global` then edit with `dprint config edit --global`")
   )]
   NotFound {
     config_path: CanonicalizedPathBuf,
@@ -68,7 +68,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
     fn render(&self, selected: Option<bool>) -> String {
       format!(
         "{} You're not in a dprint project. Format '{}' anyway? {}{}",
-        "Warning".yellow(),
+        colors::yellow("Warning"),
         self.directory.display(),
         match selected {
           Some(true) => "Y",
@@ -76,8 +76,8 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
           None => "(Y/n) \u{2588}",
         },
         match selected {
-          Some(_) => "".stylize(),
-          None => "\n\nHint: Specify the directory to bypass this prompt in the future (ex. `dprint fmt .`)".grey(),
+          Some(_) => colors::gray(""),
+          None => colors::gray("\n\nHint: Specify the directory to bypass this prompt in the future (ex. `dprint fmt .`)"),
         },
       )
     }
@@ -513,12 +513,15 @@ fn filter_non_wasm_plugins(plugins: Vec<PluginSourceReference>, environment: &im
 fn get_warn_includes_message() -> String {
   format!(
     "{} The 'includes' property is ignored for security reasons on remote configuration.",
-    "Note: ".bold(),
+    colors::bold("Note: "),
   )
 }
 
 fn get_warn_non_wasm_plugins_message() -> String {
-  format!("{} Non-wasm plugins are ignored for security reasons on remote configuration.", "Note: ".bold(),)
+  format!(
+    "{} Non-wasm plugins are ignored for security reasons on remote configuration.",
+    colors::bold("Note: "),
+  )
 }
 
 fn filter_duplicate_plugin_sources(plugin_sources: Vec<PluginSourceReference>) -> Vec<PluginSourceReference> {

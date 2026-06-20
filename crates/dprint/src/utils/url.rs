@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use anyhow::Result;
 use anyhow::bail;
-use crossterm::style::Stylize;
+use deno_terminal::colors;
 use parking_lot::Mutex;
 use url::Url;
 
@@ -93,7 +93,7 @@ impl<TProxyUrlProvider: ProxyProvider> AgentStore<TProxyUrlProvider> {
           log_warn!(
             self.logger,
             "{} Unsafely ignoring {} TLS certificates!",
-            "Warning".yellow(),
+            colors::yellow("Warning"),
             if ignored.0.is_empty() { "all" } else { "some" }
           );
         }

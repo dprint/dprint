@@ -1,5 +1,5 @@
 use anyhow::Result;
-use crossterm::style::Stylize;
+use deno_terminal::colors;
 use dprint_core::communication::AtomicFlag;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
@@ -119,9 +119,9 @@ pub async fn output_format_times<TEnvironment: Environment>(
 #[error("{}", match self {
   Self::Files { count } => format!(
     "Found {} not formatted {}. Run {} to fix.",
-    count.to_string().bold(),
+    colors::bold(count.to_string()),
     if *count == 1 { "file" } else { "files" },
-    "dprint fmt".bold(),
+    colors::bold("dprint fmt"),
   ),
   Self::DisplayNone => "".to_string(), // no output
 })]
@@ -238,7 +238,7 @@ fn output_difference(file_path: &Path, file_bytes: &[u8], formatted_bytes: &[u8]
     }
   };
   let difference_text = get_difference(&file_text, &formatted_text);
-  log_stdout_info!(environment, "{} {}:\n{}\n--", "from".bold().red(), file_path.display(), difference_text);
+  log_stdout_info!(environment, "{} {}:\n{}\n--", colors::red_bold("from"), file_path.display(), difference_text);
 }
 
 pub async fn format<TEnvironment: Environment>(
@@ -303,7 +303,7 @@ pub async fn format<TEnvironment: Environment>(
   let formatted_files_count = formatted_files_count.get();
   if formatted_files_count > 0 {
     let suffix = if formatted_files_count == 1 { "file" } else { "files" };
-    log_stdout_info!(environment, "Formatted {} {}.", formatted_files_count.to_string().bold(), suffix);
+    log_stdout_info!(environment, "Formatted {} {}.", colors::bold(formatted_files_count.to_string()), suffix);
     if cmd.fail_on_change {
       return Err(CheckError::Files { count: formatted_files_count }.into());
     }
@@ -314,7 +314,7 @@ pub async fn format<TEnvironment: Environment>(
 
 #[cfg(test)]
 mod test {
-  use crossterm::style::Stylize;
+  use deno_terminal::colors;
   use pretty_assertions::assert_eq;
 
   use crate::environment::Environment;
@@ -759,11 +759,10 @@ mod test {
           "Did you mean to create (dprint init) or specify one (--config <path>)?",
           "\n\n{}",
         ),
-        concat!(
+        colors::gray(concat!(
           "Note: dprint now supports global configuration. Set it up with ",
           "`dprint init --global` then edit with `dprint config edit --global`",
-        )
-        .grey()
+        ))
       )
     );
   }
@@ -1965,7 +1964,7 @@ mod test {
       vec![
         format!(
           "{}\n{}\n--",
-          format!("{} /file.txt:", "from".bold().red().to_string()),
+          format!("{} /file.txt:", colors::red_bold("from").to_string()),
           get_difference("const t=4;", "const t=4;_formatted"),
         ),
         get_singular_formatted_text()
@@ -1994,7 +1993,7 @@ mod test {
       environment.take_stdout_messages(),
       vec![format!(
         "{}\n{}\n--",
-        format!("{} /file.txt:", "from".bold().red().to_string()),
+        format!("{} /file.txt:", colors::red_bold("from").to_string()),
         get_difference("const t=4;", "const t=4;_formatted"),
       ),]
     );
@@ -2017,12 +2016,12 @@ mod test {
       vec![
         format!(
           "{}\n{}\n--",
-          format!("{} /file1.txt:", "from".bold().red().to_string()),
+          format!("{} /file1.txt:", colors::red_bold("from").to_string()),
           get_difference("const t=4;", "const t=4;_formatted"),
         ),
         format!(
           "{}\n{}\n--",
-          format!("{} /file2.txt:", "from".bold().red().to_string()),
+          format!("{} /file2.txt:", colors::red_bold("from").to_string()),
           get_difference("const t=5;", "const t=5;_formatted"),
         ),
       ]
