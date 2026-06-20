@@ -20,9 +20,9 @@ fn set_windows_delay_load_dlls() {
     "crypt32",  // TLS certificate store—only needed when downloading plugins
     "combase",  // COM/OLE—off the common startup path
     "oleaut32", // COM/OLE—off the common startup path
-    "pdh",      // sysinfo (CPU/process usage)—only needed while formatting
-    "powrprof", // sysinfo (CPU/process usage)—only needed while formatting
-    "psapi",    // sysinfo (process refresh)—only needed while formatting
+    "pdh",      // sysinfo CPU usage—only while throttling CPU during a long format run
+    "powrprof", // sysinfo CPU usage—only while throttling CPU during a long format run
+    "psapi",    // sysinfo process info—only during plugin cache cleanup of a locked dir
   ];
   for dll in dlls {
     println!("cargo:rustc-link-arg-bin=dprint=/delayload:{dll}.dll");
