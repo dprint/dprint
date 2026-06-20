@@ -1,6 +1,7 @@
 #!/usr/bin/env -S deno run -A
 import $ from "jsr:@david/dax@0.45.0";
-import { conditions, defineMatrix, expr, type ExpressionValue, isLinting, job, step, workflow } from "jsr:@david/gagen@0.4.0";
+import { conditions, defineMatrix, expr, type ExpressionValue, isLinting, job, step, workflow } from "jsr:@david/gagen@0.5.0";
+import { crossImageRegistry, crossImageTag } from "./cross_image.ts";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
@@ -152,6 +153,7 @@ const lint = step.if(isLinuxGnu.and(isNotTag))(
     name: "Lint CI Generation",
     run: [
       "./.github/workflows/ci.ts --lint",
+      "./.github/workflows/cross-loongarch64-images.ts --lint",
       "./.github/workflows/publish.ts --lint",
       "./.github/workflows/publish_crate_core.ts --lint",
       "./.github/workflows/publish_crate_core-macros.ts --lint",
@@ -175,11 +177,13 @@ const setupBuildx = step({
   uses: "docker/setup-buildx-action@v4",
 }).dependsOn(setupQemu);
 
-// Bypass cross and build images with GHA cache enabled
+// Bypass cross and use a prebuilt image that bundles a loongarch64 build of
+// LLVM (see cross-loongarch64-images.ts). Pull it instead of rebuilding LLVM,
+// falling back to a local build for the PR that first changes the Dockerfile
+// (before the matching image tag has been published).
 const crossImageBaseName = "dprint-cross-base";
 const crossImageName = `${crossImageBaseName}-${matrix.target}`;
-// bust the docker layer cache when Cargo.lock changes (ex. updated llvm-sys)
-const crossImageCacheScope = `${crossImageName}-${expr("hashFiles('Cargo.lock')")}`;
+const crossImageRef = `${crossImageRegistry}/${crossImageName}:${crossImageTag}`;
 const loongarch64ImageEnv = Object.fromEntries(
   profiles.filter((profile) => profile.target.startsWith("loongarch64"))
     .map((
@@ -189,18 +193,39 @@ const loongarch64ImageEnv = Object.fromEntries(
       `${crossImageBaseName}-${profile.target}`,
     ]),
 );
-const buildAndCacheCrossImages = step({
+const isLoongarchCross = matrix.target.startsWith("loongarch64").and(isCross);
+const pullCrossImage = step({
+  name: "Pull cross image",
+  id: "cross_image",
+  if: isLoongarchCross,
+  run: [
+    `IMAGE="${crossImageRef}"`,
+    `if docker pull "$IMAGE"; then`,
+    `  echo "Using prebuilt cross image $IMAGE"`,
+    `  docker tag "$IMAGE" "${crossImageName}"`,
+    `  echo "found=true" >> "$GITHUB_OUTPUT"`,
+    `else`,
+    `  echo "Prebuilt image $IMAGE not found; building locally"`,
+    `  echo "found=false" >> "$GITHUB_OUTPUT"`,
+    `fi`,
+  ],
+  outputs: ["found"] as const,
+}).dependsOn(setupBuildx);
+// fallback build for the PR that first changes the Dockerfile, before the
+// image-build workflow has published the matching tag on main
+const buildCrossImageFallback = step({
+  name: "Build cross image (fallback)",
   uses: "docker/build-push-action@v7",
-  if: matrix.target.startsWith("loongarch64").and(isCross),
+  if: isLoongarchCross.and(pullCrossImage.outputs.found.notEquals("true")),
   with: {
     file: ".github/workflows/cross-loongarch64.Dockerfile",
     tags: crossImageName,
     load: true,
-    "cache-from": `type=gha,scope=${crossImageCacheScope}`,
-    "cache-to": `type=gha,mode=max,scope=${crossImageCacheScope}`,
+    "cache-from": `type=gha,scope=${crossImageName}-${crossImageTag}`,
+    "cache-to": `type=gha,mode=max,scope=${crossImageName}-${crossImageTag}`,
     "build-args": `CROSS_BASE_IMAGE=ghcr.io/cross-rs/${matrix.target}:main\nTARGET=${matrix.target}`,
   },
-}).dependsOn(setupBuildx);
+}).dependsOn(pullCrossImage);
 
 const buildDebug = step({
   name: "Build (Debug)",
@@ -212,7 +237,7 @@ const buildDebug = step({
   if: isCross,
   env: loongarch64ImageEnv,
   run: `cross build -p dprint --locked --target ${matrix.target}`,
-}).dependsOn(setupRust, buildAndCacheCrossImages);
+}).dependsOn(setupRust, buildCrossImageFallback);
 const buildRelease = step({
   name: "Build (Release)",
   if: isCross.not(),
@@ -223,7 +248,7 @@ const buildRelease = step({
   if: isCross,
   env: loongarch64ImageEnv,
   run: `cross build -p dprint --locked --target ${matrix.target} --release`,
-}).dependsOn(setupRust, buildAndCacheCrossImages);
+}).dependsOn(setupRust, buildCrossImageFallback);
 
 const tests = step(
   // debug
