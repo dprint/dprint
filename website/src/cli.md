@@ -138,6 +138,21 @@ Starting in dprint 0.50, you can change the way dprint discovers configuration f
 
 Note this can also be set via the `DPRINT_CONFIG_DISCOVERY` environment variable (ex. `DPRINT_CONFIG_DISCOVERY=false`, `DPRINT_CONFIG_DISCOVERY=global`, etc.)
 
+## Coloured Output
+
+By default, dprint colours its output (for example, the diffs shown by `dprint check` and `dprint fmt --diff`). Unlike many tools, it emits colours regardless of whether the output is a terminal, so colours show up in CI logs as well. This is controlled by two environment variables:
+
+- `NO_COLOR` - Set to any non-empty value to disable coloured output. See [no-color.org](https://no-color.org/).
+- `FORCE_COLOR` - Set to any non-empty value to force coloured output on, even when `NO_COLOR` is set. Takes precedence over `NO_COLOR`.
+
+```sh
+# disable colours
+NO_COLOR=1 dprint check
+
+# re-enable colours in an environment that sets NO_COLOR
+FORCE_COLOR=1 dprint check
+```
+
 ## Exit codes
 
 - `0` - Success

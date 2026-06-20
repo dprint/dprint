@@ -917,6 +917,7 @@ dependencies = [
  "console_static_text",
  "crossterm",
  "deno_npmrc",
+ "deno_terminal",
  "dirs",
  "dissimilar",
  "dprint-core",
