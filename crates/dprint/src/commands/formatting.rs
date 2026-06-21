@@ -1804,6 +1804,57 @@ mod test {
   }
 
   #[test]
+  fn should_check_config_diagnostics_when_config_changes_with_incremental() {
+    // regression test for https://github.com/dprint/dprint/issues/403
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file(&file_path1, "text1")
+      .build();
+
+    // first run with a valid config -- caches the file as formatted
+    run_test_cli(vec!["fmt", "--incremental"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
+
+    // now introduce a config diagnostic (unknown property)
+    environment
+      .write_file(
+        "./dprint.json",
+        r#"{
+          "test-plugin": { "non-existent": 25 },
+          "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#,
+      )
+      .unwrap();
+
+    // the diagnostic should be reported even though the file is unchanged and cached
+    let err = run_test_cli(vec!["fmt", "--incremental"], &environment).err().unwrap();
+    assert_eq!(err.to_string(), "Had 1 error formatting.");
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "[test-plugin]: Unknown property in configuration (non-existent)",
+        "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
+      ]
+    );
+
+    // running again with the same invalid config should report the diagnostic again
+    // (the invalid config must never get cached as "formatted")
+    let err = run_test_cli(vec!["fmt", "--incremental"], &environment).err().unwrap();
+    assert_eq!(err.to_string(), "Had 1 error formatting.");
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "[test-plugin]: Unknown property in configuration (non-existent)",
+        "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
+      ]
+    );
+  }
+
+  #[test]
   fn should_format_incrementally_when_specified_via_config() {
     let file_path1 = "/file1.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
