@@ -246,23 +246,23 @@ For example:
 
 Note that first the `"includes"`/`"excludes"` file resolution occurs and then the associations is used to map those files to a plugin. Specifying associations may also be useful for formatting a file with multiple plugins or forcing a file to be formatted with a specific plugin.
 
-Specifying `"associations"` with a pattern to match _replaces_ the file extensions and file names the plugin matches by default. For example, a plugin that formats `.ts` and `.js` files by default will only format `.myconfig` files once `"associations": ["**/*.myconfig"]` is set. To keep the defaults and add to them, use [`"appendAssociations"`](#appending-to-a-plugins-associations).
+Specifying `"associations"` with a pattern to match _replaces_ the file extensions and file names the plugin matches by default. For example, a plugin that formats `.ts` and `.js` files by default will only format `.myconfig` files once `"associations": ["**/*.myconfig"]` is set.
 
 ### Appending to a plugin's associations
 
-Use `"appendAssociations"` to associate additional file patterns with a plugin while keeping the file extensions and file names it matches by default. This is useful when a plugin supports many extensions and you only want to add one more.
+Use `"appendAssociations"` to associate additional file patterns with a plugin while keeping the file extensions and file names it matches by default. This is useful when a plugin supports many extensions and you only want to add more.
 
-```json
+```jsonc
 {
   "prettier": {
-    // format `.myconfig` files with prettier in addition to
-    // all the extensions prettier already supports
+    // format `.myconfigrc` files as json in addition to
+    // all the extensions the plugin already supports
     "appendAssociations": [
-      "**/*.myconfig"
+      ".myconfigrc",
     ]
   },
   "plugins": [
-    "https://plugins.dprint.dev/prettier-x.x.x.json@..."
+    "https://plugins.dprint.dev/json-x.x.x.wasm"
   ]
 }
 ```
