@@ -79,7 +79,7 @@ impl CliArgs {
     // these output json or other text that's read by stdout
     matches!(
       self.sub_command,
-      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig | SubCommand::IncrementalState | SubCommand::Completions(..)
+      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig(..) | SubCommand::IncrementalState | SubCommand::Completions(..)
     )
   }
 
@@ -117,7 +117,7 @@ pub enum SubCommand {
   Config(ConfigSubCommand),
   ClearCache,
   OutputFilePaths(OutputFilePathsSubCommand),
-  OutputResolvedConfig,
+  OutputResolvedConfig(OutputResolvedConfigSubCommand),
   IncrementalState,
   OutputFormatTimes(OutputFormatTimesSubCommand),
   Version,
@@ -151,7 +151,7 @@ impl SubCommand {
       SubCommand::OutputFormatTimes(a) => Some(&a.patterns),
       SubCommand::Config(_)
       | SubCommand::ClearCache
-      | SubCommand::OutputResolvedConfig
+      | SubCommand::OutputResolvedConfig(_)
       | SubCommand::IncrementalState
       | SubCommand::Version
       | SubCommand::License
@@ -214,6 +214,12 @@ pub enum ConfigSubCommand {
 #[derive(Debug, PartialEq, Eq)]
 pub struct OutputFilePathsSubCommand {
   pub patterns: FilePatternArgs,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct OutputResolvedConfigSubCommand {
+  /// When set, limits the output to only the plugins that would format this file.
+  pub file_path: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -401,7 +407,9 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("file-paths", matches) => SubCommand::OutputFilePaths(OutputFilePathsSubCommand {
       patterns: parse_file_patterns(matches, &std_in_reader)?,
     }),
-    ("resolved-config", _) => SubCommand::OutputResolvedConfig,
+    ("resolved-config", matches) => SubCommand::OutputResolvedConfig(OutputResolvedConfigSubCommand {
+      file_path: matches.get_one::<String>("file").map(String::from),
+    }),
     ("incremental-state", _) => SubCommand::IncrementalState,
     ("format-times", matches) => SubCommand::OutputFormatTimes(OutputFormatTimesSubCommand {
       patterns: parse_file_patterns(matches, &std_in_reader)?,
@@ -778,6 +786,14 @@ EXAMPLES:
       Command::new("resolved-config")
         .alias("output-resolved-config")
         .about("Prints the resolved configuration for the plugins based on the args and configuration.")
+        .arg(
+          Arg::new("file")
+            .long("file")
+            .value_name("file")
+            .help("Limit the output to only the plugins that would format this file.")
+            .num_args(1)
+            .required(false)
+        )
     )
     .subcommand(
       Command::new("incremental-state")
@@ -997,10 +1013,26 @@ mod test {
     }
     assert!(matches!(sub_command(vec!["file-paths"]), SubCommand::OutputFilePaths(_)));
     assert!(matches!(sub_command(vec!["output-file-paths"]), SubCommand::OutputFilePaths(_)));
-    assert!(matches!(sub_command(vec!["resolved-config"]), SubCommand::OutputResolvedConfig));
-    assert!(matches!(sub_command(vec!["output-resolved-config"]), SubCommand::OutputResolvedConfig));
+    assert!(matches!(sub_command(vec!["resolved-config"]), SubCommand::OutputResolvedConfig(_)));
+    assert!(matches!(sub_command(vec!["output-resolved-config"]), SubCommand::OutputResolvedConfig(_)));
     assert!(matches!(sub_command(vec!["format-times"]), SubCommand::OutputFormatTimes(_)));
     assert!(matches!(sub_command(vec!["output-format-times"]), SubCommand::OutputFormatTimes(_)));
+  }
+
+  #[test]
+  fn resolved_config_file_path_arg() {
+    fn file_path(args: Vec<&str>) -> Option<String> {
+      match test_args(args).unwrap().sub_command {
+        SubCommand::OutputResolvedConfig(cmd) => cmd.file_path,
+        _ => unreachable!(),
+      }
+    }
+    assert_eq!(file_path(vec!["resolved-config"]), None);
+    assert_eq!(file_path(vec!["resolved-config", "--file", "src/main.py"]), Some("src/main.py".to_string()));
+    assert_eq!(
+      file_path(vec!["output-resolved-config", "--file", "src/main.py"]),
+      Some("src/main.py".to_string())
+    );
   }
 
   #[test]
