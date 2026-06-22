@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-#[cfg(not(wasm_interpreter))]
-use anyhow::bail;
 use dprint_core::plugins::CancellationToken;
 use wasmer::ExportError;
 use wasmer::Instance;
@@ -35,7 +33,7 @@ pub fn compile(wasm_bytes: &[u8]) -> Result<CompilationResult> {
   #[cfg(not(wasm_interpreter))]
   let bytes: Vec<u8> = match module.inner().serialize() {
     Ok(bytes) => bytes.into(),
-    Err(err) => bail!("Error serializing wasm module: {:#}", err),
+    Err(err) => anyhow::bail!("Error serializing wasm module: {:#}", err),
   };
   #[cfg(wasm_interpreter)]
   let bytes: Vec<u8> = wasm_bytes.to_vec();
