@@ -207,7 +207,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
           }
           Ok(None) => continue,
           Err(err) => {
-            self.finish_with_error(err, all_entries);
+            self.finish_with_error(err);
             return;
           }
         }
@@ -307,22 +307,21 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     if !entries.is_empty() {
       state.pending_entries.push(entries);
     }
-    state.reading_count -= 1;
+    state.finish_reading();
     cvar.notify_all();
   }
 
-  fn finish_with_error(&self, error: Error, entries: Vec<DirEntries>) {
+  /// Aborts the whole walk: records the error (first one wins) and marks this
+  /// reader as no longer reading. Any entries this reader had already read are
+  /// dropped — the matching thread surfaces the error rather than a partial result.
+  fn finish_with_error(&self, error: Error) {
     let (lock, cvar) = &self.shared_state.inner;
     let mut state = lock.lock();
-    // keep any entries read before the error so a partial result isn't silently dropped
-    if !entries.is_empty() {
-      state.pending_entries.push(entries);
-    }
     if state.error.is_none() {
       state.error = Some(error);
     }
     state.shutdown = true;
-    state.reading_count -= 1;
+    state.finish_reading();
     cvar.notify_all();
   }
 }
@@ -334,7 +333,9 @@ const READ_DIR_CHUNK_SIZE: usize = 8;
 
 /// Hands out a share of the pending directories to a reader, while keeping the
 /// chunk small enough that the matching thread stays fed and the readers stay
-/// balanced across a wide directory level.
+/// balanced across a wide directory level. Note that a single very large
+/// directory is still read by one thread (a `read_dir` isn't splittable), so
+/// this balances across directories, not within one.
 fn read_dir_chunk_size(pending_len: usize, thread_count: usize) -> usize {
   (pending_len / thread_count.max(1)).clamp(1, READ_DIR_CHUNK_SIZE)
 }
@@ -470,6 +471,16 @@ struct SharedStateInternal {
   shutdown: bool,
 }
 
+impl SharedStateInternal {
+  /// Records that a reader has stopped reading the chunk it acquired. Every
+  /// acquired chunk decrements exactly once, so this should never underflow;
+  /// guard it anyway because an underflow would silently hang the walk (the
+  /// `reading_count == 0` termination check could never become true).
+  fn finish_reading(&mut self) {
+    self.reading_count = self.reading_count.checked_sub(1).expect("reading_count underflow");
+  }
+}
+
 struct SharedState {
   inner: (Mutex<SharedStateInternal>, Condvar),
 }
@@ -549,6 +560,57 @@ mod test {
     result.sort();
     expected_matches.sort();
     assert_eq!(result, expected_matches);
+  }
+
+  #[tokio::test]
+  async fn should_match_same_files_regardless_of_read_thread_count() {
+    // build a wide + deep tree (with a gitignore at the root) so the work is
+    // split across many readers and fed back in several waves, then assert the
+    // matched set is identical whether globbing with a single reader or a pool
+    // of readers. only ordering and speed should differ — if reordered
+    // traversal ever changed which files matched (e.g. a gitignore resolution
+    // order dependency) this would catch it.
+    let mut builder = TestEnvironmentBuilder::new();
+    builder.write_file("/.git/HEAD", "");
+    builder.write_file("/.gitignore", "ignored\n");
+    for i in 0..200 {
+      builder.write_file(format!("/dir{}/a.txt", i), "");
+      builder.write_file(format!("/dir{}/nested/deep/b.txt", i), "");
+      // excluded by the root .gitignore
+      builder.write_file(format!("/dir{}/ignored/c.txt", i), "");
+    }
+    let environment = builder.build();
+    let root_dir = environment.canonicalize("/").unwrap();
+    let run = |read_threads: &str| {
+      environment.set_env_var("DPRINT_GLOB_READ_THREADS", Some(read_threads));
+      let result = glob(
+        &environment,
+        GlobOptions {
+          start_dir: PathBuf::from("/"),
+          config_discovery: ConfigDiscovery::Default,
+          file_patterns: GlobPatterns {
+            arg_includes: None,
+            config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
+            arg_excludes: None,
+            config_excludes: Vec::new(),
+          },
+          pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+          no_gitignore: false,
+        },
+      )
+      .unwrap();
+      let mut result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+      result.sort();
+      result
+    };
+
+    let serial = run("1");
+    let parallel = run("16");
+    assert_eq!(serial, parallel);
+    // sanity: matched a.txt and nested/deep/b.txt for each dir, and the
+    // gitignored files were excluded
+    assert_eq!(serial.len(), 400);
+    assert!(serial.iter().all(|p| !p.contains("ignored")));
   }
 
   #[tokio::test]
