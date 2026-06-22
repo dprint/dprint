@@ -18,6 +18,7 @@ else
 		"Linux aarch64") target="aarch64-unknown-linux" ;;
 		"Linux loongarch64") target="loongarch64-unknown-linux" ;;
 		"Linux riscv64") target="riscv64gc-unknown-linux-gnu" ;; # riscv64 build only has a GNU libc variant.
+		"Linux ppc64le") target="powerpc64le-unknown-linux-gnu" ;; # ppc64le build only has a GNU libc variant.
 		*) target="x86_64-unknown-linux" ;;
 	esac
 fi

@@ -63,6 +63,10 @@ jobs:
             run_tests: "false"
             target: loongarch64-unknown-linux-musl
             cross: "true"
+          - os: ubuntu-22.04
+            run_tests: "false"
+            target: powerpc64le-unknown-linux-gnu
+            cross: "true"
     env:
       CARGO_INCREMENTAL: 0
       RUST_BACKTRACE: full
@@ -78,6 +82,7 @@ jobs:
       ZIP_CHECKSUM_RISCV64GC_UNKNOWN_LINUX_GNU: "${{ steps.pre_release_riscv64gc_unknown_linux_gnu.outputs.ZIP_CHECKSUM }}"
       ZIP_CHECKSUM_LOONGARCH64_UNKNOWN_LINUX_GNU: "${{ steps.pre_release_loongarch64_unknown_linux_gnu.outputs.ZIP_CHECKSUM }}"
       ZIP_CHECKSUM_LOONGARCH64_UNKNOWN_LINUX_MUSL: "${{ steps.pre_release_loongarch64_unknown_linux_musl.outputs.ZIP_CHECKSUM }}"
+      ZIP_CHECKSUM_POWERPC64LE_UNKNOWN_LINUX_GNU: "${{ steps.pre_release_powerpc64le_unknown_linux_gnu.outputs.ZIP_CHECKSUM }}"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -179,12 +184,12 @@ jobs:
         if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'') && matrix.target == ''x86_64-unknown-linux-gnu'''
         run: "cargo run -p dprint --locked --target ${{ matrix.target }} -- check"
       - name: Build (Release)
-        if: 'startsWith(github.ref, ''refs/tags/'') && (matrix.run_tests == ''true'' || matrix.target == ''x86_64-apple-darwin'' || matrix.target == ''aarch64-apple-darwin'' || matrix.target == ''x86_64-pc-windows-msvc'' || matrix.target == ''x86_64-unknown-linux-gnu'' || matrix.target == ''x86_64-unknown-linux-musl'' || matrix.target == ''aarch64-unknown-linux-gnu'' || matrix.target == ''aarch64-unknown-linux-musl'' || matrix.target == ''riscv64gc-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-musl'') && matrix.cross != ''true'''
+        if: 'startsWith(github.ref, ''refs/tags/'') && (matrix.run_tests == ''true'' || matrix.target == ''x86_64-apple-darwin'' || matrix.target == ''aarch64-apple-darwin'' || matrix.target == ''x86_64-pc-windows-msvc'' || matrix.target == ''x86_64-unknown-linux-gnu'' || matrix.target == ''x86_64-unknown-linux-musl'' || matrix.target == ''aarch64-unknown-linux-gnu'' || matrix.target == ''aarch64-unknown-linux-musl'' || matrix.target == ''riscv64gc-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-musl'' || matrix.target == ''powerpc64le-unknown-linux-gnu'') && matrix.cross != ''true'''
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: "cargo build -p dprint --locked --target ${{ matrix.target }} --release"
       - name: Build cross (Release)
-        if: 'startsWith(github.ref, ''refs/tags/'') && (matrix.run_tests == ''true'' || matrix.target == ''x86_64-apple-darwin'' || matrix.target == ''aarch64-apple-darwin'' || matrix.target == ''x86_64-pc-windows-msvc'' || matrix.target == ''x86_64-unknown-linux-gnu'' || matrix.target == ''x86_64-unknown-linux-musl'' || matrix.target == ''aarch64-unknown-linux-gnu'' || matrix.target == ''aarch64-unknown-linux-musl'' || matrix.target == ''riscv64gc-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-musl'') && matrix.cross == ''true'''
+        if: 'startsWith(github.ref, ''refs/tags/'') && (matrix.run_tests == ''true'' || matrix.target == ''x86_64-apple-darwin'' || matrix.target == ''aarch64-apple-darwin'' || matrix.target == ''x86_64-pc-windows-msvc'' || matrix.target == ''x86_64-unknown-linux-gnu'' || matrix.target == ''x86_64-unknown-linux-musl'' || matrix.target == ''aarch64-unknown-linux-gnu'' || matrix.target == ''aarch64-unknown-linux-musl'' || matrix.target == ''riscv64gc-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-musl'' || matrix.target == ''powerpc64le-unknown-linux-gnu'') && matrix.cross == ''true'''
         env:
           CROSS_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_IMAGE: dprint-cross-base-loongarch64-unknown-linux-gnu
           CROSS_TARGET_LOONGARCH64_UNKNOWN_LINUX_MUSL_IMAGE: dprint-cross-base-loongarch64-unknown-linux-musl
@@ -333,6 +338,19 @@ jobs:
         with:
           name: loongarch64-unknown-linux-musl-artifacts
           path: target/loongarch64-unknown-linux-musl/release/dprint-loongarch64-unknown-linux-musl.zip
+      - name: Pre-release (powerpc64le-unknown-linux-gnu)
+        id: pre_release_powerpc64le_unknown_linux_gnu
+        if: 'matrix.target == ''powerpc64le-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        run: |-
+          cd target/powerpc64le-unknown-linux-gnu/release
+          zip -r dprint-powerpc64le-unknown-linux-gnu.zip dprint
+          echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-powerpc64le-unknown-linux-gnu.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
+      - name: Upload artifacts (powerpc64le-unknown-linux-gnu)
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: 'matrix.target == ''powerpc64le-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
+        with:
+          name: powerpc64le-unknown-linux-gnu-artifacts
+          path: target/powerpc64le-unknown-linux-gnu/release/dprint-powerpc64le-unknown-linux-gnu.zip
       - name: Test shell installer
         if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.run_tests == ''true'' && !startsWith(github.ref, ''refs/tags/'')'
         run: |-
@@ -372,6 +390,7 @@ jobs:
           echo "dprint-riscv64gc-unknown-linux-gnu.zip: ${{ needs.build.outputs.ZIP_CHECKSUM_RISCV64GC_UNKNOWN_LINUX_GNU }}"
           echo "dprint-loongarch64-unknown-linux-gnu.zip: ${{ needs.build.outputs.ZIP_CHECKSUM_LOONGARCH64_UNKNOWN_LINUX_GNU }}"
           echo "dprint-loongarch64-unknown-linux-musl.zip: ${{ needs.build.outputs.ZIP_CHECKSUM_LOONGARCH64_UNKNOWN_LINUX_MUSL }}"
+          echo "dprint-powerpc64le-unknown-linux-gnu.zip: ${{ needs.build.outputs.ZIP_CHECKSUM_POWERPC64LE_UNKNOWN_LINUX_GNU }}"
       - name: Create SHASUMS256.txt file
         run: |-
           echo "${{ needs.build.outputs.ZIP_CHECKSUM_X86_64_APPLE_DARWIN }} dprint-x86_64-apple-darwin.zip" > SHASUMS256.txt
@@ -385,6 +404,7 @@ jobs:
           echo "${{ needs.build.outputs.ZIP_CHECKSUM_RISCV64GC_UNKNOWN_LINUX_GNU }} dprint-riscv64gc-unknown-linux-gnu.zip" >> SHASUMS256.txt
           echo "${{ needs.build.outputs.ZIP_CHECKSUM_LOONGARCH64_UNKNOWN_LINUX_GNU }} dprint-loongarch64-unknown-linux-gnu.zip" >> SHASUMS256.txt
           echo "${{ needs.build.outputs.ZIP_CHECKSUM_LOONGARCH64_UNKNOWN_LINUX_MUSL }} dprint-loongarch64-unknown-linux-musl.zip" >> SHASUMS256.txt
+          echo "${{ needs.build.outputs.ZIP_CHECKSUM_POWERPC64LE_UNKNOWN_LINUX_GNU }} dprint-powerpc64le-unknown-linux-gnu.zip" >> SHASUMS256.txt
       - name: Draft release
         uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
         env:
@@ -402,6 +422,7 @@ jobs:
             riscv64gc-unknown-linux-gnu-artifacts/dprint-riscv64gc-unknown-linux-gnu.zip
             loongarch64-unknown-linux-gnu-artifacts/dprint-loongarch64-unknown-linux-gnu.zip
             loongarch64-unknown-linux-musl-artifacts/dprint-loongarch64-unknown-linux-musl.zip
+            powerpc64le-unknown-linux-gnu-artifacts/dprint-powerpc64le-unknown-linux-gnu.zip
             SHASUMS256.txt
           body: |
             ## Changes
@@ -427,4 +448,5 @@ jobs:
             |dprint-riscv64gc-unknown-linux-gnu.zip|${{ needs.build.outputs.ZIP_CHECKSUM_RISCV64GC_UNKNOWN_LINUX_GNU }}|
             |dprint-loongarch64-unknown-linux-gnu.zip|${{ needs.build.outputs.ZIP_CHECKSUM_LOONGARCH64_UNKNOWN_LINUX_GNU }}|
             |dprint-loongarch64-unknown-linux-musl.zip|${{ needs.build.outputs.ZIP_CHECKSUM_LOONGARCH64_UNKNOWN_LINUX_MUSL }}|
+            |dprint-powerpc64le-unknown-linux-gnu.zip|${{ needs.build.outputs.ZIP_CHECKSUM_POWERPC64LE_UNKNOWN_LINUX_GNU }}|
           draft: true

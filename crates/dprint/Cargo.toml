@@ -68,11 +68,26 @@ webpki-roots = "=0.26.7"
 rkyv = "=0.8.15"
 wasmer-compiler = "=7.1.0"
 
-[target.'cfg(not(target_arch = "loongarch64"))'.dependencies]
+# most targets use the default compiler backend (Cranelift)
+[target.'cfg(not(any(target_arch = "loongarch64", target_arch = "powerpc64")))'.dependencies]
 wasmer = "=7.1.0"
 
+# Cranelift has no loongarch64 backend, so use wasmer's LLVM backend (see the
+# cross image that bundles a loongarch64 LLVM build)
 [target.'cfg(target_arch = "loongarch64")'.dependencies]
 wasmer = { version = "=7.1.0", features = ["llvm"] }
+
+# neither Cranelift nor wasmer's LLVM backend can target powerpc64, so fall back
+# to the architecture-independent wasmi interpreter (see the `wasm_interpreter`
+# cfg in build.rs)
+[target.'cfg(target_arch = "powerpc64")'.dependencies]
+wasmer = { version = "=7.1.0", default-features = false, features = ["wasmi"] }
+
+[features]
+# Forces the wasmi interpreter backend on any architecture. Only needed to
+# build and test the powerpc64 code path on other architectures; powerpc64
+# selects the interpreter automatically.
+wasm-interpreter = ["wasmer/wasmi"]
 
 [target.'cfg(windows)'.dependencies]
 winreg = "=0.55.0"

@@ -57,6 +57,13 @@ const profileDataItems: ProfileData[] = [{
   os: OperatingSystem.Linux,
   target: "loongarch64-unknown-linux-musl",
   cross: true,
+}, {
+  // ppc64le: built with cross. unlike loongarch64 it needs no prebuilt LLVM
+  // image because the wasmi interpreter backend is pure Rust (see the
+  // `wasm_interpreter` cfg in crates/dprint/build.rs).
+  os: OperatingSystem.Linux,
+  target: "powerpc64le-unknown-linux-gnu",
+  cross: true,
 }];
 
 const profiles = profileDataItems.map(profile => {

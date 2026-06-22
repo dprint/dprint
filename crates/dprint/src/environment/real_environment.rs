@@ -623,13 +623,18 @@ impl Environment for RealEnvironment {
 
   fn wasm_cache_key(&self) -> String {
     let cpu = self.cpu_arch();
-    // need to also hash on the CPU features
-    // https://github.com/dprint/dprint/issues/735
     let mut hash = FastInsecureHasher::default();
-    let mut features = wasmer::sys::CpuFeature::for_host().into_iter().map(|c| c.to_string()).collect::<Vec<_>>();
-    features.sort(); // ensure this is stable
-    for feature in features {
-      feature.hash(&mut hash);
+    // the compiler backends generate native code tuned to the host CPU
+    // features, so the cache must bust when those change. the interpreter
+    // caches portable wasm bytes, so CPU features don't affect it.
+    // https://github.com/dprint/dprint/issues/735
+    #[cfg(not(wasm_interpreter))]
+    {
+      let mut features = wasmer::sys::CpuFeature::for_host().into_iter().map(|c| c.to_string()).collect::<Vec<_>>();
+      features.sort(); // ensure this is stable
+      for feature in features {
+        feature.hash(&mut hash);
+      }
     }
     // include the rustc version in the hash because wasmer's deserialization
     // of wasm plugins sometimes breaks with a rust upgrade

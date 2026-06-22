@@ -228,7 +228,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
   async fn create_instance(&self) -> Result<WasmPluginSenderWithState> {
     let start_instant = Instant::now();
     log_debug!(self.environment, "Creating instance of {}", self.name);
-    let mut store = wasmer::Store::default();
+    let mut store = self.module.new_store();
 
     let (host_format_tx, mut host_format_rx) = tokio::sync::mpsc::unbounded_channel::<(HostFormatRequest, std::sync::mpsc::Sender<FormatResult>)>();
     let instance_state_cell: Rc<RefCell<Option<InstanceState>>> = Default::default();
