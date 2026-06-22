@@ -62,10 +62,15 @@ rustls-pemfile = "=2.1.2"
 ureq = { version = "=2.12.1", features = ["gzip", "socks-proxy", "tls"], default-features = false }
 webpki-roots = "=0.26.7"
 
-# pin these to prevent them changing with `cargo install` because
-# patch version increases of rkyv may cause panics when deserializing
-# data serialized with older versions
+# pin this to prevent it changing with `cargo install` because patch version
+# increases of rkyv may cause panics when deserializing data serialized with
+# older versions
 rkyv = "=0.8.15"
+
+# only needed where a compiler backend is used. powerpc64 uses the wasmi
+# interpreter, and pulling wasmer-compiler there would drag in wasmer-vm ->
+# corosensei, which doesn't build on stable for powerpc64.
+[target.'cfg(not(target_arch = "powerpc64"))'.dependencies]
 wasmer-compiler = "=7.1.0"
 
 # most targets use the default compiler backend (Cranelift)
