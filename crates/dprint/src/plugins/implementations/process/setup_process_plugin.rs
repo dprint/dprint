@@ -210,6 +210,10 @@ pub struct ProcessPluginFile {
   pub linux_loongarch64: Option<ProcessPluginPath>,
   #[serde(rename = "linux-loongarch64-musl")]
   pub linux_loongarch64_musl: Option<ProcessPluginPath>,
+  #[serde(rename = "linux-powerpc64")]
+  pub linux_powerpc64: Option<ProcessPluginPath>,
+  #[serde(rename = "linux-powerpc64-musl")]
+  pub linux_powerpc64_musl: Option<ProcessPluginPath>,
   #[serde(rename = "darwin-x86_64")]
   pub darwin_x86_64: Option<ProcessPluginPath>,
   #[serde(rename = "darwin-aarch64")]
@@ -303,6 +307,7 @@ pub fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl En
       "aarch64" => plugin_file.linux_aarch64.as_ref().or(plugin_file.linux_x86_64.as_ref()),
       "riscv64" => plugin_file.linux_riscv64.as_ref(),
       "loongarch64" => plugin_file.linux_loongarch64.as_ref(),
+      "powerpc64" => plugin_file.linux_powerpc64.as_ref(),
       _ => None,
     },
     "linux-musl" => match arch.as_str() {
@@ -310,6 +315,7 @@ pub fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl En
       "aarch64" => plugin_file.linux_aarch64_musl.as_ref().or(plugin_file.linux_x86_64_musl.as_ref()),
       "riscv64" => plugin_file.linux_riscv64_musl.as_ref(),
       "loongarch64" => plugin_file.linux_loongarch64_musl.as_ref(),
+      "powerpc64" => plugin_file.linux_powerpc64_musl.as_ref(),
       _ => None,
     },
     "macos" => match arch.as_str() {

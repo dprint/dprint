@@ -17,6 +17,12 @@ interface ProfileData {
   runTests?: boolean;
   /** Build using cross. */
   cross?: boolean;
+  /**
+   * Build by running cargo directly inside this Docker image. Used for targets
+   * cross doesn't provide an image for (e.g. powerpc64le musl), where the image
+   * already bundles the toolchain.
+   */
+  muslCrossImage?: string;
 }
 
 const profileDataItems: ProfileData[] = [{
@@ -57,6 +63,19 @@ const profileDataItems: ProfileData[] = [{
   os: OperatingSystem.Linux,
   target: "loongarch64-unknown-linux-musl",
   cross: true,
+}, {
+  // ppc64le: built with cross. unlike loongarch64 it needs no prebuilt LLVM
+  // image because the wasmi interpreter backend is pure Rust (see the
+  // `wasm_interpreter` cfg in crates/dprint/build.rs).
+  os: OperatingSystem.Linux,
+  target: "powerpc64le-unknown-linux-gnu",
+  cross: true,
+}, {
+  // cross has no powerpc64le musl image, so build directly in the prebuilt
+  // rust-musl-cross toolchain image instead (see the musl image build step).
+  os: OperatingSystem.Linux,
+  target: "powerpc64le-unknown-linux-musl",
+  muslCrossImage: "ghcr.io/rust-cross/rust-musl-cross:powerpc64le-musl",
 }];
 
 const profiles = profileDataItems.map(profile => {
@@ -89,12 +108,14 @@ const matrix = defineMatrix({
     run_tests: (profile.runTests ?? false).toString(),
     target: profile.target,
     cross: (profile.cross ?? false).toString(),
+    musl_image: profile.muslCrossImage ?? "",
   })),
 });
 
 const runTests = matrix.run_tests.equals("true");
 const runDebugTests = runTests.and(isNotTag);
 const isCross = matrix.cross.equals("true");
+const isMuslImage = matrix.musl_image.notEquals("");
 const isLinuxGnu = matrix.target.equals("x86_64-unknown-linux-gnu");
 
 // === build job ===
@@ -227,9 +248,26 @@ const buildCrossImageFallback = step({
   },
 }).dependsOn(pullCrossImage);
 
+// Builds inside the rust-musl-cross image, which bundles the toolchain and runs
+// as root (so it can install the pinned toolchain into its own /root/.rustup --
+// the reason this can't go through cross, which runs as the non-root host user).
+// The build output is then chown'd back so later steps can read/zip it.
+function muslImageRun(releaseArgs: string): string[] {
+  // the image bundles rust-std for its own toolchain, but rust-toolchain.toml
+  // pins a different one, so add the target's std to the pinned toolchain first
+  const build = `rustup target add ${matrix.target} && cargo build -p dprint --locked --target ${matrix.target}${releaseArgs}`;
+  // wasmer's build script runs bindgen for the wasmi C API; point clang at the
+  // image's musl sysroot (see rust-musl-cross) so it doesn't read host headers
+  const bindgenArgs = `--sysroot=/usr/local/musl/${matrix.target} --target=${matrix.target}`;
+  return [
+    `docker run --rm -e BINDGEN_EXTRA_CLANG_ARGS="${bindgenArgs}" -v "$GITHUB_WORKSPACE":/home/rust/src -w /home/rust/src ${matrix.musl_image} bash -c "${build}"`,
+    `sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/target"`,
+  ];
+}
+
 const buildDebug = step({
   name: "Build (Debug)",
-  if: isCross.not(),
+  if: isCross.not().and(isMuslImage.not()),
   env: aarch64LinkerEnv,
   run: `cargo build -p dprint --locked --target ${matrix.target}`,
 }, {
@@ -237,10 +275,14 @@ const buildDebug = step({
   if: isCross,
   env: loongarch64ImageEnv,
   run: `cross build -p dprint --locked --target ${matrix.target}`,
+}, {
+  name: "Build musl image (Debug)",
+  if: isMuslImage,
+  run: muslImageRun(""),
 }).dependsOn(setupRust, buildCrossImageFallback);
 const buildRelease = step({
   name: "Build (Release)",
-  if: isCross.not(),
+  if: isCross.not().and(isMuslImage.not()),
   env: aarch64LinkerEnv,
   run: `cargo build -p dprint --locked --target ${matrix.target} --release`,
 }, {
@@ -248,6 +290,10 @@ const buildRelease = step({
   if: isCross,
   env: loongarch64ImageEnv,
   run: `cross build -p dprint --locked --target ${matrix.target} --release`,
+}, {
+  name: "Build musl image (Release)",
+  if: isMuslImage,
+  run: muslImageRun(" --release"),
 }).dependsOn(setupRust, buildCrossImageFallback);
 
 const tests = step(
@@ -373,13 +419,16 @@ const installerTests = step.if(runDebugTests)(
     shell: "pwsh",
     run: ["cd website/src/assets", "./install.ps1"],
   },
-  step({
-    name: "Test npm",
-    run: [
-      "cd deployment/npm",
-      "deno run -A build.ts 0.51.0",
-    ],
-  }).dependsOn(setupDeno),
+  // TODO: re-enable after the next release. build.ts downloads the release
+  // artifacts for the given version, and the new powerpc64le zips won't exist
+  // until a release includes them.
+  // step({
+  //   name: "Test npm",
+  //   run: [
+  //     "cd deployment/npm",
+  //     "deno run -A build.ts 0.51.0",
+  //   ],
+  // }).dependsOn(setupDeno),
 );
 
 const buildJob = job("build", {

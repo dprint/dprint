@@ -2,7 +2,22 @@
 fn main() {
   println!("cargo:rustc-env=TARGET={}", std::env::var("TARGET").unwrap());
   println!("cargo:rustc-env=RUSTC_VERSION_TEXT={}", get_rustc_version());
+  set_wasm_backend_cfg();
   set_windows_delay_load_dlls();
+}
+
+// Select the wasm plugin backend. The default compiler backends (Cranelift /
+// LLVM) can't target powerpc64, so it uses the portable wasmi interpreter
+// instead. The `wasm-interpreter` feature forces the same path on other
+// architectures so the interpreter code can be built and tested there.
+#[allow(clippy::disallowed_methods)]
+fn set_wasm_backend_cfg() {
+  println!("cargo:rustc-check-cfg=cfg(wasm_interpreter)");
+  let is_powerpc64 = std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("powerpc64");
+  let forced = std::env::var("CARGO_FEATURE_WASM_INTERPRETER").is_ok();
+  if is_powerpc64 || forced {
+    println!("cargo:rustc-cfg=wasm_interpreter");
+  }
 }
 
 // delay load DLLs that aren't needed on the common startup path so they

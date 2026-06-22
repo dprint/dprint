@@ -7,7 +7,7 @@ import decompress from "npm:decompress@4.2.1";
 interface Package {
   zipFileName: string;
   os: "win32" | "darwin" | "linux";
-  cpu: "x64" | "arm64" | "riscv64" | "loong64";
+  cpu: "x64" | "arm64" | "riscv64" | "loong64" | "ppc64";
   libc?: "glibc" | "musl";
 }
 
@@ -65,6 +65,17 @@ const packages: Package[] = [{
   zipFileName: "dprint-loongarch64-unknown-linux-musl.zip",
   os: "linux",
   cpu: "loong64",
+  libc: "musl",
+}, {
+  // Node reports ppc64le as "ppc64"
+  zipFileName: "dprint-powerpc64le-unknown-linux-gnu.zip",
+  os: "linux",
+  cpu: "ppc64",
+  libc: "glibc",
+}, {
+  zipFileName: "dprint-powerpc64le-unknown-linux-musl.zip",
+  os: "linux",
+  cpu: "ppc64",
   libc: "musl",
 }];
 

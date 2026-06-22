@@ -8,7 +8,13 @@ use crate::environment::Environment;
 
 use super::super::SetupPluginResult;
 
+#[cfg(not(wasm_interpreter))]
 pub const WASMER_COMPILER_VERSION: &str = wasmer_compiler::VERSION;
+// the interpreter caches portable wasm rather than a version-specific native
+// artifact, so this is just a stable cache-busting key. keep it dot-numeric so
+// `version_gt` can parse it; matches the pinned wasmer version.
+#[cfg(wasm_interpreter)]
+pub const WASMER_COMPILER_VERSION: &str = "7.1.0";
 
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> PathBuf {
   let cache_dir_path = environment.get_cache_dir();
