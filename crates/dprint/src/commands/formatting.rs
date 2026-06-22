@@ -1058,6 +1058,36 @@ mod test {
   }
 
   #[test]
+  fn should_format_files_with_append_associations() {
+    let file_path1 = "/file1.txt"; // matched by default extension
+    let file_path2 = "/file2.other"; // matched via appendAssociations
+    let file_path3 = "/file3.asdf"; // not matched by anything
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+              "appendAssociations": [
+                "**/*.other"
+              ],
+              "ending": "wasm"
+            }"#,
+        );
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text2")
+      .write_file(&file_path3, "text3")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_wasm"); // default extension kept
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_wasm"); // added via appendAssociations
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text3"); // not matched
+  }
+
+  #[test]
   fn should_allow_using_config_to_get_file_matching_info() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt_ps";

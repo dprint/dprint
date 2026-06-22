@@ -61,6 +61,7 @@ fn json_obj_to_raw_plugin_config(parent_prop_name: &str, obj: JsonObject) -> Res
   let mut properties = ConfigKeyMap::new();
   let mut locked = false;
   let mut associations = None;
+  let mut append_associations = None;
   let mut overrides = Vec::new();
 
   for (key, value) in obj.into_iter() {
@@ -76,24 +77,13 @@ fn json_obj_to_raw_plugin_config(parent_prop_name: &str, obj: JsonObject) -> Res
     }
 
     if property_name == "associations" {
-      match value {
-        JsonValue::Array(value) => {
-          let mut items = Vec::new();
-          for value in value.into_iter() {
-            match value {
-              JsonValue::String(value) => items.push(value.into_owned()),
-              _ => bail!("The 'associations' array in a plugin configuration must contain only strings."),
-            }
-          }
-          associations = Some(items);
-          continue;
-        }
-        JsonValue::String(value) => {
-          associations = Some(vec![value.into_owned()]);
-          continue;
-        }
-        _ => bail!("The 'associations' property in a plugin configuration must be a string or an array of strings."),
-      }
+      associations = Some(json_value_to_associations(&property_name, value)?);
+      continue;
+    }
+
+    if property_name == "appendAssociations" {
+      append_associations = Some(json_value_to_associations(&property_name, value)?);
+      continue;
     }
 
     if property_name == "overrides" {
@@ -124,9 +114,30 @@ fn json_obj_to_raw_plugin_config(parent_prop_name: &str, obj: JsonObject) -> Res
   Ok(RawPluginConfig {
     locked,
     associations,
+    append_associations,
     overrides,
     properties,
   })
+}
+
+fn json_value_to_associations(property_name: &str, value: JsonValue) -> Result<Vec<String>> {
+  match value {
+    JsonValue::Array(value) => {
+      let mut items = Vec::new();
+      for value in value.into_iter() {
+        match value {
+          JsonValue::String(value) => items.push(value.into_owned()),
+          _ => bail!("The '{}' array in a plugin configuration must contain only strings.", property_name),
+        }
+      }
+      Ok(items)
+    }
+    JsonValue::String(value) => Ok(vec![value.into_owned()]),
+    _ => bail!(
+      "The '{}' property in a plugin configuration must be a string or an array of strings.",
+      property_name
+    ),
+  }
 }
 
 fn json_obj_to_raw_plugin_config_override(obj: JsonObject) -> Result<RawPluginConfigOverride> {
@@ -264,6 +275,7 @@ mod tests {
       ConfigMapValue::PluginConfig(RawPluginConfig {
         locked: false,
         associations: None,
+        append_associations: None,
         overrides: Vec::new(),
         properties: ConfigKeyMap::from([
           (String::from("lineWidth"), ConfigKeyValue::from_i32(40)),
@@ -294,6 +306,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: true,
           associations: Some(vec!["test".to_string()]),
+          append_associations: None,
           overrides: Vec::new(),
           properties: ConfigKeyMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(40))]),
         }),
@@ -303,13 +316,14 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: Some(vec!["other".to_string(), "test".to_string()]),
+          append_associations: Some(vec!["append".to_string()]),
           overrides: Vec::new(),
           properties: ConfigKeyMap::new(),
         }),
       ),
     ]);
     assert_deserializes(
-      "{'typescript': { 'lineWidth': 40, locked: true, associations: 'test' }, 'other': { 'locked': false, 'associations': ['other', 'test'] }}",
+      "{'typescript': { 'lineWidth': 40, locked: true, associations: 'test' }, 'other': { 'locked': false, 'associations': ['other', 'test'], 'appendAssociations': 'append' }}",
       expected_props,
     );
   }
@@ -337,6 +351,7 @@ mod tests {
       ConfigMapValue::PluginConfig(RawPluginConfig {
         locked: false,
         associations: None,
+        append_associations: None,
         overrides: vec![RawPluginConfigOverride {
           files: vec!["**/package.json".to_string(), "**/composer.json".to_string()],
           properties: ConfigKeyMap::from([
@@ -361,6 +376,7 @@ mod tests {
       ConfigMapValue::PluginConfig(RawPluginConfig {
         locked: false,
         associations: None,
+        append_associations: None,
         overrides: vec![
           RawPluginConfigOverride {
             files: vec!["**/package.json".to_string()],

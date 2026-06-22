@@ -158,6 +158,15 @@ fn get_plugin_patterns<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>) 
         }
       }
     }
+    // appendAssociations always add globs and, unlike associations, never
+    // suppress the plugin's default file extensions and names
+    if let Some(append_associations) = plugin.append_associations.as_ref() {
+      for pattern in process_config_patterns(append_associations) {
+        if !is_negated_glob(&pattern) {
+          association_globs.push(pattern);
+        }
+      }
+    }
     if !had_positive_association {
       file_names.extend(&plugin.file_matching.file_names);
       file_exts.extend(&plugin.file_matching.file_extensions);

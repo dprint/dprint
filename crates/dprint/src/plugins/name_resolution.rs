@@ -18,7 +18,16 @@ pub struct PluginNameResolutionMaps {
   /// Associations matchers ordered by precedence.
   association_matchers: Vec<(String, Rc<GlobMatcher>)>,
   /// Associations matchers in a map.
-  association_matchers_map: HashMap<String, Rc<GlobMatcher>>,
+  association_matchers_map: HashMap<String, PluginAssociationMatcher>,
+}
+
+struct PluginAssociationMatcher {
+  matcher: Rc<GlobMatcher>,
+  /// Whether the plugin still matches files by its default file extensions and
+  /// file names. This is `false` only when `associations` replaces the defaults
+  /// (i.e. it has at least one non-negated pattern). `appendAssociations` keeps
+  /// the defaults and adds to them.
+  keep_default_matching: bool,
 }
 
 impl PluginNameResolutionMaps {
@@ -42,10 +51,16 @@ impl PluginNameResolutionMaps {
           .push(plugin_name.to_string());
       }
 
-      if let Some(matcher) = get_plugin_association_glob_matcher(plugin, config_base_path)? {
+      if let Some((matcher, keep_default_matching)) = get_plugin_association_glob_matcher(plugin, config_base_path)? {
         let matcher = Rc::new(matcher);
         plugin_name_maps.association_matchers.push((plugin_name.to_string(), matcher.clone()));
-        plugin_name_maps.association_matchers_map.insert(plugin_name.to_string(), matcher);
+        plugin_name_maps.association_matchers_map.insert(
+          plugin_name.to_string(),
+          PluginAssociationMatcher {
+            matcher,
+            keep_default_matching,
+          },
+        );
       }
     }
     Ok(plugin_name_maps)
@@ -88,18 +103,41 @@ impl PluginNameResolutionMaps {
   }
 
   fn is_not_associations_excluded(&self, plugin_name: &str, file_path: &Path) -> bool {
-    if let Some(matcher) = self.association_matchers_map.get(plugin_name) {
-      matcher.has_only_excludes() && matcher.matches_detail(file_path) == GlobMatchesDetail::NotMatched
-    } else {
-      true
+    match self.association_matchers_map.get(plugin_name) {
+      // keep matching by default extension/file name unless `associations`
+      // replaced the defaults, but still honour any negated association patterns
+      Some(association) => association.keep_default_matching && association.matcher.matches_detail(file_path) != GlobMatchesDetail::Excluded,
+      None => true,
     }
   }
 }
 
-fn get_plugin_association_glob_matcher(plugin: &PluginWithConfig, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>> {
-  Ok(if let Some(associations) = plugin.associations.as_ref() {
-    Some(get_patterns_as_glob_matcher(associations, config_base_path)?)
-  } else {
-    None
-  })
+/// Builds the combined glob matcher for a plugin's `associations` and
+/// `appendAssociations`, returning it along with whether the plugin keeps
+/// matching its default file extensions and file names.
+///
+/// `associations` replaces the default matching when it specifies a pattern to
+/// match (i.e. anything other than only negated excludes), whereas
+/// `appendAssociations` only ever adds and always keeps the defaults.
+fn get_plugin_association_glob_matcher(plugin: &PluginWithConfig, config_base_path: &CanonicalizedPathBuf) -> Result<Option<(GlobMatcher, bool)>> {
+  let associations = plugin.associations.as_deref();
+  let append_associations = plugin.append_associations.as_deref();
+  match (associations, append_associations) {
+    (None, None) => Ok(None),
+    (Some(associations), None) => {
+      let matcher = get_patterns_as_glob_matcher(associations, config_base_path)?;
+      let keep_default_matching = matcher.has_only_excludes();
+      Ok(Some((matcher, keep_default_matching)))
+    }
+    (None, Some(append_associations)) => {
+      let matcher = get_patterns_as_glob_matcher(append_associations, config_base_path)?;
+      Ok(Some((matcher, true)))
+    }
+    (Some(associations), Some(append_associations)) => {
+      let keep_default_matching = get_patterns_as_glob_matcher(associations, config_base_path)?.has_only_excludes();
+      let patterns = associations.iter().chain(append_associations.iter()).cloned().collect::<Vec<_>>();
+      let matcher = get_patterns_as_glob_matcher(&patterns, config_base_path)?;
+      Ok(Some((matcher, keep_default_matching)))
+    }
+  }
 }

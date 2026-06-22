@@ -97,7 +97,18 @@
         "type": "boolean"
       },
       "associations": {
-        "description": "File patterns to associate with this plugin.",
+        "description": "File patterns to associate with this plugin. This replaces the file extensions and file names the plugin matches by default.",
+        "anyOf": [{
+          "type": "string"
+        }, {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }]
+      },
+      "appendAssociations": {
+        "description": "File patterns to associate with this plugin in addition to the file extensions and file names it matches by default.",
         "anyOf": [{
           "type": "string"
         }, {

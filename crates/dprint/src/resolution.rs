@@ -74,6 +74,7 @@ pub struct PluginConfigOverride {
 pub struct PluginWithConfig {
   pub plugin: Rc<PluginWrapper>,
   pub associations: Option<Vec<String>>,
+  pub append_associations: Option<Vec<String>>,
   pub overrides: Vec<PluginConfigOverride>,
   pub format_config: Arc<FormatConfig>,
   pub file_matching: FileMatchingInfo,
@@ -86,6 +87,7 @@ pub struct PluginWithConfig {
 
 pub struct PluginWithConfigOptions {
   pub associations: Option<Vec<String>>,
+  pub append_associations: Option<Vec<String>>,
   pub format_config: Arc<FormatConfig>,
   pub file_matching: FileMatchingInfo,
   pub overrides: Vec<PluginConfigOverride>,
@@ -98,6 +100,7 @@ impl PluginWithConfig {
     Self {
       plugin,
       associations: options.associations,
+      append_associations: options.append_associations,
       overrides: options.overrides,
       format_config: options.format_config,
       config_diagnostic_count: Default::default(),
@@ -128,6 +131,11 @@ impl PluginWithConfig {
 
     if let Some(associations) = &self.associations {
       for association in associations {
+        hasher.write(association.as_bytes());
+      }
+    }
+    if let Some(append_associations) = &self.append_associations {
+      for association in append_associations {
         hasher.write(association.as_bytes());
       }
     }
@@ -735,6 +743,7 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
             plugin,
             PluginWithConfigOptions {
               associations: plugin_config.associations,
+              append_associations: plugin_config.append_associations,
               format_config,
               file_matching,
               overrides,
@@ -800,6 +809,7 @@ mod test {
         plugin,
         PluginWithConfigOptions {
           associations: None,
+          append_associations: None,
           format_config,
           file_matching: FileMatchingInfo {
             file_extensions: vec!["txt".to_string()],
@@ -870,6 +880,7 @@ mod test {
       Rc::new(PluginWrapper::new(Box::new(TestPlugin::new("test-plugin", "test-plugin", vec!["txt"], vec![])))),
       PluginWithConfigOptions {
         associations: None,
+        append_associations: None,
         format_config: Arc::new(FormatConfig {
           id: FormatConfigId::from_raw(1),
           plugin: ConfigKeyMap::from([("ending".to_string(), "base".into())]),

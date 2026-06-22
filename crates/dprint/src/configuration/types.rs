@@ -12,6 +12,7 @@ pub struct RawPluginConfigOverride {
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct RawPluginConfig {
   pub associations: Option<Vec<String>>,
+  pub append_associations: Option<Vec<String>>,
   pub locked: bool,
   pub overrides: Vec<RawPluginConfigOverride>,
   pub properties: ConfigKeyMap,

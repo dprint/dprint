@@ -61,6 +61,7 @@ mod test {
             plugin,
             PluginWithConfigOptions {
               associations: None,
+              append_associations: None,
               format_config,
               file_matching,
               overrides: Vec::new(),
@@ -126,6 +127,7 @@ mod test {
             plugin,
             PluginWithConfigOptions {
               associations: None,
+              append_associations: None,
               format_config,
               file_matching,
               overrides: Vec::new(),
