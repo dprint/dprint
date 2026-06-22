@@ -17,6 +17,12 @@ interface ProfileData {
   runTests?: boolean;
   /** Build using cross. */
   cross?: boolean;
+  /**
+   * Build by running cargo directly inside this Docker image. Used for targets
+   * cross doesn't provide an image for (e.g. powerpc64le musl), where the image
+   * already bundles the toolchain.
+   */
+  muslCrossImage?: string;
 }
 
 const profileDataItems: ProfileData[] = [{
@@ -65,11 +71,11 @@ const profileDataItems: ProfileData[] = [{
   target: "powerpc64le-unknown-linux-gnu",
   cross: true,
 }, {
-  // cross has no powerpc64le musl image, so point it at the prebuilt
-  // rust-musl-cross toolchain image (see crossImageEnv)
+  // cross has no powerpc64le musl image, so build directly in the prebuilt
+  // rust-musl-cross toolchain image instead (see the musl image build step).
   os: OperatingSystem.Linux,
   target: "powerpc64le-unknown-linux-musl",
-  cross: true,
+  muslCrossImage: "ghcr.io/rust-cross/rust-musl-cross:powerpc64le-musl",
 }];
 
 const profiles = profileDataItems.map(profile => {
@@ -102,12 +108,14 @@ const matrix = defineMatrix({
     run_tests: (profile.runTests ?? false).toString(),
     target: profile.target,
     cross: (profile.cross ?? false).toString(),
+    musl_image: profile.muslCrossImage ?? "",
   })),
 });
 
 const runTests = matrix.run_tests.equals("true");
 const runDebugTests = runTests.and(isNotTag);
 const isCross = matrix.cross.equals("true");
+const isMuslImage = matrix.musl_image.notEquals("");
 const isLinuxGnu = matrix.target.equals("x86_64-unknown-linux-gnu");
 
 // === build job ===
@@ -206,13 +214,6 @@ const loongarch64ImageEnv = Object.fromEntries(
       `${crossImageBaseName}-${profile.target}`,
     ]),
 );
-// ppc64le musl isn't one of cross's targets, so build it in the prebuilt
-// rust-musl-cross toolchain image. cross only reads the CROSS_TARGET_*_IMAGE
-// var matching the target being built, so this is ignored by every other build.
-const crossImageEnv = {
-  ...loongarch64ImageEnv,
-  CROSS_TARGET_POWERPC64LE_UNKNOWN_LINUX_MUSL_IMAGE: "ghcr.io/rust-cross/rust-musl-cross:powerpc64le-musl",
-};
 const isLoongarchCross = matrix.target.startsWith("loongarch64").and(isCross);
 const pullCrossImage = step({
   name: "Pull cross image",
@@ -247,27 +248,46 @@ const buildCrossImageFallback = step({
   },
 }).dependsOn(pullCrossImage);
 
+// Builds inside the rust-musl-cross image, which bundles the toolchain and runs
+// as root (so it can install the pinned toolchain into its own /root/.rustup --
+// the reason this can't go through cross, which runs as the non-root host user).
+// The build output is then chown'd back so later steps can read/zip it.
+function muslImageRun(releaseArgs: string): string[] {
+  return [
+    `docker run --rm -v "$GITHUB_WORKSPACE":/home/rust/src -w /home/rust/src ${matrix.musl_image} cargo build -p dprint --locked --target ${matrix.target}${releaseArgs}`,
+    `sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/target"`,
+  ];
+}
+
 const buildDebug = step({
   name: "Build (Debug)",
-  if: isCross.not(),
+  if: isCross.not().and(isMuslImage.not()),
   env: aarch64LinkerEnv,
   run: `cargo build -p dprint --locked --target ${matrix.target}`,
 }, {
   name: "Build cross (Debug)",
   if: isCross,
-  env: crossImageEnv,
+  env: loongarch64ImageEnv,
   run: `cross build -p dprint --locked --target ${matrix.target}`,
+}, {
+  name: "Build musl image (Debug)",
+  if: isMuslImage,
+  run: muslImageRun(""),
 }).dependsOn(setupRust, buildCrossImageFallback);
 const buildRelease = step({
   name: "Build (Release)",
-  if: isCross.not(),
+  if: isCross.not().and(isMuslImage.not()),
   env: aarch64LinkerEnv,
   run: `cargo build -p dprint --locked --target ${matrix.target} --release`,
 }, {
   name: "Build cross (Release)",
   if: isCross,
-  env: crossImageEnv,
+  env: loongarch64ImageEnv,
   run: `cross build -p dprint --locked --target ${matrix.target} --release`,
+}, {
+  name: "Build musl image (Release)",
+  if: isMuslImage,
+  run: muslImageRun(" --release"),
 }).dependsOn(setupRust, buildCrossImageFallback);
 
 const tests = step(
