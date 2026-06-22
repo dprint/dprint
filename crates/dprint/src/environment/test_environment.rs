@@ -12,6 +12,7 @@ use std::future::Future;
 use std::io;
 use std::io::Read;
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -716,8 +717,8 @@ impl Environment for TestEnvironment {
     self.os.lock().clone()
   }
 
-  fn max_threads(&self) -> usize {
-    *self.max_threads_count.lock()
+  fn available_parallelism(&self) -> Option<NonZeroUsize> {
+    NonZeroUsize::new(*self.max_threads_count.lock())
   }
 
   fn cli_version(&self) -> String {

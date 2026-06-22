@@ -518,9 +518,8 @@ impl Environment for RealEnvironment {
     }
   }
 
-  fn max_threads(&self) -> usize {
-    #[allow(clippy::disallowed_methods)]
-    resolve_max_threads(std::env::var("DPRINT_MAX_THREADS").ok(), std::thread::available_parallelism().ok())
+  fn available_parallelism(&self) -> Option<NonZeroUsize> {
+    std::thread::available_parallelism().ok()
   }
 
   fn cli_version(&self) -> String {
@@ -682,22 +681,6 @@ impl Environment for RealEnvironment {
   }
 }
 
-fn resolve_max_threads(env_var: Option<String>, available_parallelism: Option<NonZeroUsize>) -> usize {
-  fn maybe_specified_threads(env_var: Option<String>) -> Option<usize> {
-    let value = env_var?.parse::<usize>().ok()?;
-    if value > 0 { Some(value) } else { None }
-  }
-
-  let maybe_actual_count = available_parallelism.map(|p| p.get());
-  match maybe_specified_threads(env_var) {
-    Some(specified_count) => match maybe_actual_count {
-      Some(actual_count) if specified_count > actual_count => actual_count,
-      _ => specified_count,
-    },
-    _ => maybe_actual_count.unwrap_or(4),
-  }
-}
-
 fn canonicalize_path(path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
   // use this to avoid //?//C:/etc... like paths on windows (UNC)
   match dunce::canonicalize(path.as_ref()) {
@@ -766,16 +749,5 @@ mod test {
       result.unwrap().to_string(),
       "The DPRINT_CACHE_DIR environment variable must specify an absolute path."
     );
-  }
-
-  #[test]
-  fn should_resolve_num_threads() {
-    assert_eq!(resolve_max_threads(None, None), 4);
-    assert_eq!(resolve_max_threads(None, NonZeroUsize::new(1)), 1);
-    assert_eq!(resolve_max_threads(None, NonZeroUsize::new(4)), 4);
-    assert_eq!(resolve_max_threads(Some("2".to_string()), NonZeroUsize::new(4)), 2);
-    assert_eq!(resolve_max_threads(Some("0".to_string()), NonZeroUsize::new(4)), 4);
-    assert_eq!(resolve_max_threads(Some("5".to_string()), NonZeroUsize::new(4)), 4);
-    assert_eq!(resolve_max_threads(Some("4".to_string()), NonZeroUsize::new(4)), 4);
   }
 }
