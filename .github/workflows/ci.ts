@@ -253,8 +253,11 @@ const buildCrossImageFallback = step({
 // the reason this can't go through cross, which runs as the non-root host user).
 // The build output is then chown'd back so later steps can read/zip it.
 function muslImageRun(releaseArgs: string): string[] {
+  // the image bundles rust-std for its own toolchain, but rust-toolchain.toml
+  // pins a different one, so add the target's std to the pinned toolchain first
+  const build = `rustup target add ${matrix.target} && cargo build -p dprint --locked --target ${matrix.target}${releaseArgs}`;
   return [
-    `docker run --rm -v "$GITHUB_WORKSPACE":/home/rust/src -w /home/rust/src ${matrix.musl_image} cargo build -p dprint --locked --target ${matrix.target}${releaseArgs}`,
+    `docker run --rm -v "$GITHUB_WORKSPACE":/home/rust/src -w /home/rust/src ${matrix.musl_image} bash -c "${build}"`,
     `sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/target"`,
   ];
 }
