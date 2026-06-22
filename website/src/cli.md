@@ -54,6 +54,20 @@ dprint fmt --staged
 
 Note: This requires that [git](https://git-scm.com/) is installed and that you use git for source control.
 
+### Formatting only git working directory files
+
+Requires dprint >= 0.55.0
+
+To format only the files with uncommitted changes in the git working directory—staged, unstaged, and untracked (but not gitignored) files—use the `--dirty` flag:
+
+```sh
+dprint fmt --dirty
+```
+
+This is useful in editors such as the JetBrains IDEs where the staging area isn't surfaced and you want to format everything you've touched but not yet committed.
+
+Note: This requires that [git](https://git-scm.com/) is installed and that you use git for source control.
+
 ### Ignoring .gitignore
 
 By default, dprint respects `.gitignore` files (as well as a repository's `.git/info/exclude` file) and excludes any gitignored files from formatting. To disable this behaviour, use the `--no-gitignore` flag:

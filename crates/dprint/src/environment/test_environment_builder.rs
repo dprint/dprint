@@ -349,6 +349,11 @@ impl TestEnvironmentBuilder {
     self
   }
 
+  pub fn add_dirty_file(&mut self, file_path: impl AsRef<Path>) -> &mut Self {
+    self.environment.set_dirty_file(file_path);
+    self
+  }
+
   pub fn add_remote_file(&mut self, path: &str, text: &str) -> &mut Self {
     self.environment.add_remote_file_bytes(path, text.to_string().into_bytes());
     self

@@ -4,6 +4,7 @@ use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs;
@@ -297,6 +298,35 @@ impl Environment for RealEnvironment {
       .output()?;
 
     Ok(String::from_utf8_lossy(&output.stdout).lines().map(PathBuf::from).collect())
+  }
+
+  fn get_dirty_files(&self) -> Result<Vec<PathBuf>> {
+    // collect every file with uncommitted changes in the working directory:
+    // unstaged tracked changes, staged tracked changes, and untracked files
+    // that aren't gitignored. each is gathered the same way `get_staged_files`
+    // gathers staged files so the behaviour (e.g. renamed files yielding their
+    // new path, deletions being skipped) stays consistent.
+    fn git_lines(args: &[&str]) -> Result<Vec<PathBuf>> {
+      let output = Command::new("git").args(args).output()?;
+      Ok(String::from_utf8_lossy(&output.stdout).lines().map(PathBuf::from).collect())
+    }
+
+    let mut files = Vec::new();
+    let mut seen = HashSet::new();
+    let groups = [
+      // unstaged tracked changes
+      git_lines(&["diff", "--name-only", "--relative", "--diff-filter=ACMR"])?,
+      // staged tracked changes
+      git_lines(&["diff", "--name-only", "--relative", "--staged", "--diff-filter=ACMR"])?,
+      // untracked files that aren't gitignored
+      git_lines(&["ls-files", "--others", "--exclude-standard"])?,
+    ];
+    for file in groups.into_iter().flatten() {
+      if seen.insert(file.clone()) {
+        files.push(file);
+      }
+    }
+    Ok(files)
   }
 
   fn global_gitignore_path(&self) -> Option<PathBuf> {

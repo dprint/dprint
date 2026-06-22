@@ -206,6 +206,9 @@ pub trait Environment:
   fn env_var(&self, name: &str) -> Option<OsString>;
 
   fn get_staged_files(&self) -> Result<Vec<PathBuf>>;
+  /// Resolves the files that have uncommitted changes in the git working
+  /// directory: staged, unstaged, and untracked (but not gitignored) files.
+  fn get_dirty_files(&self) -> Result<Vec<PathBuf>>;
   /// Resolves the path to git's global excludes file (the `core.excludesFile`
   /// config value, falling back to `$XDG_CONFIG_HOME/git/ignore`). Used only when
   /// global gitignore support is opted into via `DPRINT_GLOBAL_GITIGNORE`. The
