@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use std::io;
 use std::io::Read;
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -282,7 +283,13 @@ pub trait Environment:
   fn cpu_arch(&self) -> String;
   /// Gets the operating system.
   fn os(&self) -> String;
-  fn max_threads(&self) -> usize;
+  fn available_parallelism(&self) -> Option<NonZeroUsize>;
+  fn max_threads(&self) -> usize {
+    resolve_max_threads(
+      self.env_var("DPRINT_MAX_THREADS").as_deref().and_then(|s| s.to_str()),
+      self.available_parallelism(),
+    )
+  }
   /// Gets the CLI version
   fn cli_version(&self) -> String;
   fn get_time_secs(&self) -> u64;
@@ -312,4 +319,36 @@ pub trait Environment:
   fn ensure_system_path(&self, directory_path: &str) -> io::Result<()>;
   #[cfg(windows)]
   fn remove_system_path(&self, directory_path: &str) -> io::Result<()>;
+}
+
+fn resolve_max_threads(env_var: Option<&str>, available_parallelism: Option<NonZeroUsize>) -> usize {
+  fn maybe_specified_threads(env_var: Option<&str>) -> Option<usize> {
+    let value = env_var?.parse::<usize>().ok()?;
+    if value > 0 { Some(value) } else { None }
+  }
+
+  let maybe_actual_count = available_parallelism.map(|p| p.get());
+  match maybe_specified_threads(env_var) {
+    Some(specified_count) => match maybe_actual_count {
+      Some(actual_count) if specified_count > actual_count => actual_count,
+      _ => specified_count,
+    },
+    _ => maybe_actual_count.unwrap_or(4),
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn should_resolve_num_threads() {
+    assert_eq!(resolve_max_threads(None, None), 4);
+    assert_eq!(resolve_max_threads(None, NonZeroUsize::new(1)), 1);
+    assert_eq!(resolve_max_threads(None, NonZeroUsize::new(4)), 4);
+    assert_eq!(resolve_max_threads(Some("2"), NonZeroUsize::new(4)), 2);
+    assert_eq!(resolve_max_threads(Some("0"), NonZeroUsize::new(4)), 4);
+    assert_eq!(resolve_max_threads(Some("5"), NonZeroUsize::new(4)), 4);
+    assert_eq!(resolve_max_threads(Some("4"), NonZeroUsize::new(4)), 4);
+  }
 }
