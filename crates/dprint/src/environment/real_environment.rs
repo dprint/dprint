@@ -361,7 +361,7 @@ impl Environment for RealEnvironment {
     let dir_path = dir_path.as_ref();
     let mut system = self.system.lock();
     system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    let mut killed = 0;
+    let mut killed_pids = Vec::new();
     for process in system.processes().values() {
       let Some(exe) = process.exe() else {
         continue;
@@ -369,14 +369,28 @@ impl Environment for RealEnvironment {
       if exe.starts_with(dir_path) {
         log_debug!(self, "Killing process {} using executable: {}", process.pid(), exe.display());
         if process.kill() {
-          killed += 1;
+          killed_pids.push(process.pid());
         }
-        // wait for the process to actually exit so its executable is no longer
-        // locked before we attempt to delete it again
-        process.wait();
       }
     }
-    killed
+
+    // wait for the killed processes to actually exit so their executables are no
+    // longer locked before the caller tries to delete them again. poll with a
+    // timeout rather than `Process::wait`, which blocks indefinitely (e.g. on a
+    // process we couldn't kill, or a zombie its real parent hasn't reaped yet).
+    if !killed_pids.is_empty() {
+      let mut remaining_polls = 100; // ~2s at 20ms per poll
+      while remaining_polls > 0 {
+        system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&killed_pids), true);
+        if killed_pids.iter().all(|pid| system.process(*pid).is_none()) {
+          break;
+        }
+        remaining_polls -= 1;
+        std::thread::sleep(std::time::Duration::from_millis(20));
+      }
+    }
+
+    killed_pids.len()
   }
 
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
