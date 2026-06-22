@@ -67,11 +67,16 @@ const packages: Package[] = [{
   cpu: "loong64",
   libc: "musl",
 }, {
-  // Node reports ppc64le as "ppc64"; the build is glibc-only
+  // Node reports ppc64le as "ppc64"
   zipFileName: "dprint-powerpc64le-unknown-linux-gnu.zip",
   os: "linux",
   cpu: "ppc64",
   libc: "glibc",
+}, {
+  zipFileName: "dprint-powerpc64le-unknown-linux-musl.zip",
+  os: "linux",
+  cpu: "ppc64",
+  libc: "musl",
 }];
 
 const markdownText = `# dprint
