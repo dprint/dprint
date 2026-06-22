@@ -393,21 +393,12 @@ const C: char = \"メ メ\";
   #[test]
   fn test_normalize_to_source_line_endings() {
     // source LF, formatted CRLF -> formatted becomes LF
-    assert_eq!(
-      normalize_to_source_line_endings("a\nb\n", "a\r\nb\r\nc\r\n".to_string()),
-      "a\nb\nc\n"
-    );
+    assert_eq!(normalize_to_source_line_endings("a\nb\n", "a\r\nb\r\nc\r\n".to_string()), "a\nb\nc\n");
     // source CRLF, formatted LF -> formatted becomes CRLF
-    assert_eq!(
-      normalize_to_source_line_endings("a\r\nb\r\n", "a\nb\nc\n".to_string()),
-      "a\r\nb\r\nc\r\n"
-    );
+    assert_eq!(normalize_to_source_line_endings("a\r\nb\r\n", "a\nb\nc\n".to_string()), "a\r\nb\r\nc\r\n");
     // matching line endings are left untouched (no allocation churn issues)
     assert_eq!(normalize_to_source_line_endings("a\nb\n", "a\nb\n".to_string()), "a\nb\n");
-    assert_eq!(
-      normalize_to_source_line_endings("a\r\nb\r\n", "a\r\nb\r\n".to_string()),
-      "a\r\nb\r\n"
-    );
+    assert_eq!(normalize_to_source_line_endings("a\r\nb\r\n", "a\r\nb\r\n".to_string()), "a\r\nb\r\n");
     // no line endings in source -> leave formatted as-is
     assert_eq!(normalize_to_source_line_endings("abc", "abc\r\n".to_string()), "abc\r\n");
     // leading newline still detects the source kind
