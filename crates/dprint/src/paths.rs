@@ -101,6 +101,12 @@ pub async fn get_and_resolve_file_paths<'a>(
       staged_files.into_iter().map(|path| path.to_string_lossy().into_owned()).collect(),
       cwd.clone(),
     ));
+  } else if args.only_dirty {
+    let dirty_files = environment.get_dirty_files().context("Failed running git status.")?;
+    file_patterns.arg_includes = Some(GlobPattern::new_vec(
+      dirty_files.into_iter().map(|path| path.to_string_lossy().into_owned()).collect(),
+      cwd.clone(),
+    ));
   }
 
   if file_patterns.config_includes.is_none() {

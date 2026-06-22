@@ -174,6 +174,7 @@ pub struct CheckSubCommand {
   pub list_different: bool,
   pub allow_no_files: bool,
   pub only_staged: bool,
+  pub only_dirty: bool,
   pub fail_fast: bool,
 }
 
@@ -186,6 +187,7 @@ pub struct FmtSubCommand {
   pub allow_no_files: bool,
   pub fail_on_change: bool,
   pub only_staged: bool,
+  pub only_dirty: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -258,6 +260,7 @@ pub struct FilePatternArgs {
   pub allow_node_modules: bool,
   pub no_gitignore: bool,
   pub only_staged: bool,
+  pub only_dirty: bool,
 }
 
 #[derive(Debug, Error)]
@@ -348,13 +351,14 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
           patterns: parse_file_patterns(matches, &std_in_reader)?,
           incremental: if enable_stable_format { parse_incremental(matches) } else { Some(false) },
           enable_stable_format,
-          allow_no_files: if matches.get_flag("staged") {
+          allow_no_files: if matches.get_flag("staged") || matches.get_flag("dirty") {
             true
           } else {
             matches.get_flag("allow-no-files")
           },
           fail_on_change: matches.get_flag("fail-on-change"),
           only_staged: matches.get_flag("staged"),
+          only_dirty: matches.get_flag("dirty"),
         })
       }
     }
@@ -372,6 +376,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         patterns: parse_file_patterns(matches, &std_in_reader)?,
         incremental: parse_incremental(matches),
         only_staged: matches.get_flag("staged"),
+        only_dirty: matches.get_flag("dirty"),
         list_different: matches.get_flag("list-different"),
         allow_no_files: matches.get_flag("allow-no-files"),
         fail_fast,
@@ -472,6 +477,7 @@ fn parse_file_patterns<TStdInReader: StdInReader>(matches: &ArgMatches, std_in_r
 
   Ok(FilePatternArgs {
     only_staged: matches.get_flag("staged"),
+    only_dirty: matches.get_flag("dirty"),
     allow_node_modules: matches.get_flag("allow-node-modules"),
     no_gitignore: matches.get_flag("no-gitignore"),
     include_patterns: file_patterns,
@@ -688,6 +694,7 @@ EXAMPLES:
             .required(false)
         )
         .add_only_staged_arg()
+        .add_only_dirty_arg()
         .add_allow_no_files_arg()
         .arg(
           Arg::new("skip-stable-format")
@@ -711,6 +718,7 @@ EXAMPLES:
         .add_incremental_arg()
         .add_allow_no_files_arg()
         .add_only_staged_arg()
+        .add_only_dirty_arg()
         .arg(
           Arg::new("list-different")
             .long("list-different")
@@ -784,6 +792,7 @@ EXAMPLES:
         .about("Prints the resolved file paths for the plugins based on the args and configuration.")
         .add_resolve_file_path_args()
         .add_only_staged_arg()
+        .add_only_dirty_arg()
     )
     .subcommand(
       Command::new("resolved-config")
@@ -809,6 +818,7 @@ EXAMPLES:
         .add_resolve_file_path_args()
         .add_allow_no_files_arg()
         .add_only_staged_arg()
+        .add_only_dirty_arg()
     )
     .subcommand(
       Command::new("clear-cache")
@@ -912,6 +922,7 @@ trait ClapExtensions {
   fn add_incremental_arg(self) -> Self;
   fn add_allow_no_files_arg(self) -> Self;
   fn add_only_staged_arg(self) -> Self;
+  fn add_only_dirty_arg(self) -> Self;
 }
 
 impl ClapExtensions for clap::Command {
@@ -929,6 +940,7 @@ impl ClapExtensions for clap::Command {
           .help("Read a newline-separated list of file paths to format from stdin instead of from the command line arguments.")
           .conflicts_with("files")
           .conflicts_with("staged")
+          .conflicts_with("dirty")
           .num_args(0)
           .required(false),
       )
@@ -996,6 +1008,18 @@ impl ClapExtensions for clap::Command {
       Arg::new("staged")
         .long("staged")
         .help("Format only the staged files.")
+        .num_args(0)
+        .required(false),
+    )
+  }
+
+  fn add_only_dirty_arg(self) -> Self {
+    use clap::Arg;
+    self.arg(
+      Arg::new("dirty")
+        .long("dirty")
+        .help("Format only the files with uncommitted changes in the git working directory (staged, unstaged, and untracked).")
+        .conflicts_with("staged")
         .num_args(0)
         .required(false),
     )
@@ -1146,9 +1170,26 @@ mod test {
   }
 
   #[test]
+  fn dirty_arg() {
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt"]).unwrap();
+    assert_eq!(fmt_cmd.only_dirty, false);
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--dirty"]).unwrap();
+    assert_eq!(fmt_cmd.only_dirty, true);
+  }
+
+  #[test]
+  fn staged_and_dirty_conflict() {
+    let err = parse_fmt_sub_command(vec!["fmt", "--staged", "--dirty"]).err().unwrap();
+    assert!(err.to_string().contains("cannot be used with"));
+  }
+
+  #[test]
   fn no_files_arg() {
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--staged"]).unwrap();
     assert_eq!(fmt_cmd.only_staged, true);
+    assert_eq!(fmt_cmd.allow_no_files, true);
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--dirty"]).unwrap();
+    assert_eq!(fmt_cmd.only_dirty, true);
     assert_eq!(fmt_cmd.allow_no_files, true);
   }
 
