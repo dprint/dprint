@@ -2519,8 +2519,8 @@ mod test {
 
   #[test]
   fn should_output_resolved_config_for_file_path_with_associations() {
-    // an `associations` entry that doesn't include a file's extension means the
-    // plugin won't format it — the file-path filter reflects that (issue #794)
+    // associations are additive, so the plugin keeps matching its default `.txt`
+    // extension and also matches the associated `.special` files (issues #794, #841)
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
         c.add_remote_wasm_plugin().add_config_section(
@@ -2532,23 +2532,26 @@ mod test {
       })
       .build();
 
-    // the plugin is now associated only with `.special`, so a `.txt` file is unhandled
-    run_test_cli(vec!["resolved-config", "--file", "file.txt"], &environment).unwrap();
+    let expected_handled = vec![concat!(
+      "{\n",
+      "  \"test-plugin\": {\n",
+      "    \"ending\": \"formatted\",\n",
+      "    \"lineWidth\": 120\n",
+      "  }\n",
+      "}",
+    )];
+
+    // a file matching neither the defaults nor the associations is unhandled
+    run_test_cli(vec!["resolved-config", "--file", "file.asdf"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["{}"]);
 
-    // but a `.special` file is handled by the plugin
+    // the plugin still formats its default `.txt` extension
+    run_test_cli(vec!["resolved-config", "--file", "file.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), expected_handled.clone());
+
+    // and also the associated `.special` files
     run_test_cli(vec!["resolved-config", "--file", "file.special"], &environment).unwrap();
-    assert_eq!(
-      environment.take_stdout_messages(),
-      vec![concat!(
-        "{\n",
-        "  \"test-plugin\": {\n",
-        "    \"ending\": \"formatted\",\n",
-        "    \"lineWidth\": 120\n",
-        "  }\n",
-        "}",
-      )]
-    );
+    assert_eq!(environment.take_stdout_messages(), expected_handled);
   }
 
   #[test]

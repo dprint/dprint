@@ -97,18 +97,7 @@
         "type": "boolean"
       },
       "associations": {
-        "description": "File patterns to associate with this plugin. This replaces the file extensions and file names the plugin matches by default.",
-        "anyOf": [{
-          "type": "string"
-        }, {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }]
-      },
-      "appendAssociations": {
-        "description": "File patterns to associate with this plugin in addition to the file extensions and file names it matches by default.",
+        "description": "File patterns to associate with this plugin, in addition to the file extensions and file names it matches by default. Use a negated glob (ex. \"!**/*.js\") to stop matching a default extension or file name.",
         "anyOf": [{
           "type": "string"
         }, {

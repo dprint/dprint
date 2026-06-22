@@ -386,9 +386,6 @@ fn merge_config_map_into(target: &mut ConfigMap, source: ConfigMap) -> Result<()
             if target_obj.associations.is_none() {
               target_obj.associations = obj.associations;
             }
-            if target_obj.append_associations.is_none() {
-              target_obj.append_associations = obj.append_associations;
-            }
           }
         } else {
           target.insert(key, ConfigMapValue::PluginConfig(obj));
@@ -686,7 +683,6 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
-            append_associations: None,
             overrides: Vec::new(),
             properties: ConfigKeyMap::from([
               // the nested config file's ${configDir} points at its own directory...
@@ -875,7 +871,6 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
-            append_associations: None,
             overrides: Vec::new(),
             properties: ConfigKeyMap::from([
               (String::from("prop"), ConfigKeyValue::from_i32(5)),
@@ -888,7 +883,6 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
-            append_associations: None,
             overrides: Vec::new(),
             properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
           }),
@@ -972,7 +966,6 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
-            append_associations: None,
             overrides: Vec::new(),
             properties: ConfigKeyMap::from([
               (String::from("prop"), ConfigKeyValue::from_i32(5)),
@@ -985,7 +978,6 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
-            append_associations: None,
             overrides: Vec::new(),
             properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
           }),
@@ -1077,7 +1069,6 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
-            append_associations: None,
             overrides: Vec::new(),
             properties: ConfigKeyMap::from([
               (String::from("prop"), ConfigKeyValue::from_i32(5)),
@@ -1090,7 +1081,6 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
-            append_associations: None,
             overrides: Vec::new(),
             properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(2))]),
           }),
@@ -1350,7 +1340,6 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: true,
           associations: None,
-          append_associations: None,
           overrides: Vec::new(),
           properties: ConfigKeyMap::from([
             (String::from("prop"), ConfigKeyValue::from_i32(6)),
@@ -1397,7 +1386,6 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: true,
           associations: None,
-          append_associations: None,
           overrides: Vec::new(),
           properties: ConfigKeyMap::from([
             (String::from("prop"), ConfigKeyValue::from_i32(7)),
@@ -1442,7 +1430,6 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: None,
-          append_associations: None,
           overrides: Vec::new(),
           properties: ConfigKeyMap::from([
             (String::from("prop"), ConfigKeyValue::from_i32(6)),
@@ -1488,7 +1475,6 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: None,
-          append_associations: None,
           overrides: vec![RawPluginConfigOverride {
             files: vec!["**/package.json".to_string()],
             properties: ConfigKeyMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(80))]),
@@ -1539,7 +1525,6 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: None,
-          append_associations: None,
           overrides: vec![
             RawPluginConfigOverride {
               files: vec!["**/*.json".to_string()],
@@ -1629,7 +1614,6 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: Some(vec!["test".to_string()]),
-          append_associations: None,
           overrides: Vec::new(),
           properties: ConfigKeyMap::new(),
         }),
@@ -1671,7 +1655,6 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: Some(vec!["test1".to_string(), "test2".to_string()]),
-          append_associations: None,
           overrides: Vec::new(),
           properties: ConfigKeyMap::new(),
         }),
@@ -1886,7 +1869,6 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
-            append_associations: None,
             overrides: Vec::new(),
             properties: ConfigKeyMap::from([
               ("indentWidth".to_string(), ConfigKeyValue::from_i32(4)),
@@ -1910,7 +1892,6 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: None,
-          append_associations: None,
           overrides: Vec::new(),
           properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(2))]),
         }),
@@ -1940,7 +1921,6 @@ mod tests {
           ConfigMapValue::PluginConfig(RawPluginConfig {
             locked: false,
             associations: None,
-            append_associations: None,
             overrides: Vec::new(),
             properties: ConfigKeyMap::from([
               // child wins on conflicts...
@@ -1999,7 +1979,6 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: true,
           associations: None,
-          append_associations: None,
           overrides: Vec::new(),
           properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(4))]),
         }),
@@ -2018,7 +1997,6 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: None,
-          append_associations: None,
           overrides: Vec::new(),
           properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(2))]),
         }),
@@ -2175,7 +2153,6 @@ mod tests {
             ConfigMapValue::PluginConfig(RawPluginConfig {
               locked: false,
               associations: None,
-              append_associations: None,
               overrides: Vec::new(),
               properties: ConfigKeyMap::from([(String::from("value"), ConfigKeyValue::from_str("/dir/test && /dir/other"))]),
             }),
@@ -2185,7 +2162,6 @@ mod tests {
             ConfigMapValue::PluginConfig(RawPluginConfig {
               locked: false,
               associations: None,
-              append_associations: None,
               overrides: Vec::new(),
               properties: ConfigKeyMap::from([(String::from("value"), ConfigKeyValue::from_str("/dir/origin"))]),
             }),
@@ -2195,7 +2171,6 @@ mod tests {
             ConfigMapValue::PluginConfig(RawPluginConfig {
               locked: false,
               associations: None,
-              append_associations: None,
               overrides: Vec::new(),
               properties: ConfigKeyMap::from([(String::from("value"), ConfigKeyValue::from_str("/dir/final && ${configDir}/escaped"))]),
             }),

@@ -872,8 +872,9 @@ mod test {
 
     run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
 
-    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(5)]);
-    assert_eq!(environment.read_file(&file_path1).unwrap(), "text"); // not matched in any associations
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(6)]);
+    // associations are additive, so the test plugin still matches its default `.txt` extension
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_wasm");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_wasm");
     assert_eq!(environment.read_file(&file_path3).unwrap(), "text3_ps");
     assert_eq!(environment.read_file(&file_path4).unwrap(), "text4_ps");
@@ -1058,16 +1059,16 @@ mod test {
   }
 
   #[test]
-  fn should_format_files_with_append_associations() {
+  fn should_format_files_associations_are_additive_to_defaults() {
     let file_path1 = "/file1.txt"; // matched by default extension
-    let file_path2 = "/file2.other"; // matched via appendAssociations
+    let file_path2 = "/file2.other"; // added via associations
     let file_path3 = "/file3.asdf"; // not matched by anything
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .with_local_config("/config.json", |c| {
         c.add_remote_wasm_plugin().add_config_section(
           "test-plugin",
           r#"{
-              "appendAssociations": [
+              "associations": [
                 "**/*.other"
               ],
               "ending": "wasm"
@@ -1083,8 +1084,36 @@ mod test {
 
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_wasm"); // default extension kept
-    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_wasm"); // added via appendAssociations
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_wasm"); // added via associations
     assert_eq!(environment.read_file(&file_path3).unwrap(), "text3"); // not matched
+  }
+
+  #[test]
+  fn should_cancel_default_extension_with_negated_association() {
+    let file_path1 = "/file1.txt"; // default extension, but cancelled by the negated glob
+    let file_path2 = "/file2.other"; // added via associations
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+              "associations": [
+                "**/*.other",
+                "!**/*.txt"
+              ],
+              "ending": "wasm"
+            }"#,
+        );
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text2")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text"); // default `.txt` cancelled by `!**/*.txt`
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_wasm"); // added via associations
   }
 
   #[test]
@@ -1210,7 +1239,8 @@ mod test {
             }"#,
           );
       })
-      .write_file("/test.txt", "text")
+      // `.asdf` isn't matched by any plugin's defaults or associations
+      .write_file("/test.asdf", "text")
       .write_file("/shared_file", "text")
       .build();
 
@@ -1224,7 +1254,7 @@ mod test {
         "[test-process-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
       ]
     );
-    assert_eq!(environment.read_file("/test.txt").unwrap(), "text");
+    assert_eq!(environment.read_file("/test.asdf").unwrap(), "text");
     assert_eq!(environment.read_file("/shared_file").unwrap(), "text");
   }
 
