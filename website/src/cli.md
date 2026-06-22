@@ -266,6 +266,12 @@ Example output (JSON):
 }
 ```
 
+Optionally use the `--file` flag to limit the output to only the plugins that would format that file. This is useful for verifying which plugins are actually associated with a file:
+
+```sh
+dprint resolved-config --file path/to/file.py
+```
+
 ### Outputting format times
 
 It can be useful to know what files take a long time to format as you may consider skipping them. To see this information, use the following command:

@@ -16,6 +16,7 @@ use url::Url;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::FilePatternArgs;
+use crate::arg_parser::OutputResolvedConfigSubCommand;
 use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
 use crate::environment::CanonicalizedPathBuf;
@@ -1065,6 +1066,7 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
 }
 
 pub async fn output_resolved_config<TEnvironment: Environment>(
+  cmd: &OutputResolvedConfigSubCommand,
   args: &CliArgs,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
@@ -1073,8 +1075,26 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
   let plugins_scope = resolve_plugins_scope(config, environment, plugin_resolver).await?;
   plugins_scope.ensure_no_global_config_diagnostics()?;
 
+  // when a file path is provided, limit the output to only the plugins that
+  // would format that file (resolving associations, file names, and extensions
+  // the same way `dprint fmt` does). this helps debug why a plugin isn't
+  // running on a file (ex. a missing `associations` entry — see issue #794).
+  let included_plugin_names = cmd.file_path.as_ref().map(|file_path| {
+    let file_path = environment.cwd().join(file_path);
+    plugins_scope
+      .plugin_name_maps
+      .get_plugin_names_from_file_path(&file_path)
+      .into_iter()
+      .collect::<HashSet<_>>()
+  });
+
   let mut plugin_jsons = Vec::new();
   for plugin in plugins_scope.plugins.values() {
+    if let Some(included_plugin_names) = &included_plugin_names
+      && !included_plugin_names.contains(plugin.name())
+    {
+      continue;
+    }
     let config_key = &plugin.info().config_key;
 
     // output its diagnostics
@@ -2450,6 +2470,80 @@ mod test {
         "  },\n",
         "  \"testProcessPlugin\": {\n",
         "    \"ending\": \"formatted_process\",\n",
+        "    \"lineWidth\": 120\n",
+        "  }\n",
+        "}",
+      )]
+    );
+  }
+
+  #[test]
+  fn should_output_resolved_config_for_file_path() {
+    // the wasm plugin formats `.txt`, the process plugin formats `.txt_ps` —
+    // passing a file path limits the output to the plugin that handles it
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
+    run_test_cli(vec!["resolved-config", "--file", "file.txt"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![concat!(
+        "{\n",
+        "  \"test-plugin\": {\n",
+        "    \"ending\": \"formatted\",\n",
+        "    \"lineWidth\": 120\n",
+        "  }\n",
+        "}",
+      )]
+    );
+
+    run_test_cli(vec!["resolved-config", "--file", "file.txt_ps"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![concat!(
+        "{\n",
+        "  \"testProcessPlugin\": {\n",
+        "    \"ending\": \"formatted_process\",\n",
+        "    \"lineWidth\": 120\n",
+        "  }\n",
+        "}",
+      )]
+    );
+  }
+
+  #[test]
+  fn should_output_empty_resolved_config_for_unhandled_file_path() {
+    // a file no plugin handles outputs an empty object rather than every plugin
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
+    run_test_cli(vec!["resolved-config", "--file", "file.unknown_ext"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["{}"]);
+  }
+
+  #[test]
+  fn should_output_resolved_config_for_file_path_with_associations() {
+    // an `associations` entry that doesn't include a file's extension means the
+    // plugin won't format it — the file-path filter reflects that (issue #794)
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "associations": ["**/*.special"]
+          }"#,
+        );
+      })
+      .build();
+
+    // the plugin is now associated only with `.special`, so a `.txt` file is unhandled
+    run_test_cli(vec!["resolved-config", "--file", "file.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["{}"]);
+
+    // but a `.special` file is handled by the plugin
+    run_test_cli(vec!["resolved-config", "--file", "file.special"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![concat!(
+        "{\n",
+        "  \"test-plugin\": {\n",
+        "    \"ending\": \"formatted\",\n",
         "    \"lineWidth\": 120\n",
         "  }\n",
         "}",
