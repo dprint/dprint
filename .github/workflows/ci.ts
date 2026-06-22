@@ -256,8 +256,11 @@ function muslImageRun(releaseArgs: string): string[] {
   // the image bundles rust-std for its own toolchain, but rust-toolchain.toml
   // pins a different one, so add the target's std to the pinned toolchain first
   const build = `rustup target add ${matrix.target} && cargo build -p dprint --locked --target ${matrix.target}${releaseArgs}`;
+  // wasmer's build script runs bindgen for the wasmi C API; point clang at the
+  // image's musl sysroot (see rust-musl-cross) so it doesn't read host headers
+  const bindgenArgs = `--sysroot=/usr/local/musl/${matrix.target} --target=${matrix.target}`;
   return [
-    `docker run --rm -v "$GITHUB_WORKSPACE":/home/rust/src -w /home/rust/src ${matrix.musl_image} bash -c "${build}"`,
+    `docker run --rm -e BINDGEN_EXTRA_CLANG_ARGS="${bindgenArgs}" -v "$GITHUB_WORKSPACE":/home/rust/src -w /home/rust/src ${matrix.musl_image} bash -c "${build}"`,
     `sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/target"`,
   ];
 }
