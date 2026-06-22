@@ -46,6 +46,7 @@ use self::config::LspPluginsScopeContainer;
 use self::documents::Documents;
 use self::text::LineIndex;
 use self::text::get_edits;
+use self::text::normalize_to_source_line_endings;
 
 mod client;
 mod config;
@@ -183,6 +184,9 @@ async fn handle_format_request<TEnvironment: Environment>(
   };
   dprint_core::async_runtime::spawn_blocking(move || {
     let new_text = String::from_utf8(result).context("Failed converting formatted text to utf-8.")?;
+    // the editor owns the document's line endings, so match them rather than
+    // imposing the plugin's configured newline kind (see #965)
+    let new_text = normalize_to_source_line_endings(&request.file_text, new_text);
     let line_index = request.maybe_line_index.unwrap_or_else(|| LineIndex::new(&request.file_text));
     Ok(Some(get_edits(&request.file_text, &new_text, &line_index)))
   })

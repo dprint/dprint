@@ -133,6 +133,37 @@ impl LineIndex {
   }
 }
 
+/// Normalizes the line endings of the formatted text to match those of the
+/// source text.
+///
+/// Editors own the line endings of a document, so the language server should
+/// not change them based on the plugin's configured newline kind. Doing so
+/// produced spurious edits that some editors mishandled, resulting in doubled
+/// or garbled newlines (see https://github.com/dprint/dprint/issues/965).
+pub fn normalize_to_source_line_endings(source: &str, formatted: String) -> String {
+  let Some(source_uses_crlf) = detect_crlf(source) else {
+    return formatted; // can't tell what the source uses, so leave it alone
+  };
+  if Some(source_uses_crlf) == detect_crlf(&formatted) {
+    return formatted;
+  }
+  if source_uses_crlf {
+    formatted.replace("\r\n", "\n").replace('\n', "\r\n")
+  } else {
+    formatted.replace("\r\n", "\n")
+  }
+}
+
+/// Determines whether the text uses `\r\n` line endings based on the first line
+/// ending found. Returns `None` when there are no line endings.
+fn detect_crlf(text: &str) -> Option<bool> {
+  match text.find('\n') {
+    None => None,
+    Some(0) => Some(false),
+    Some(index) => Some(text.as_bytes()[index - 1] == b'\r'),
+  }
+}
+
 /// Compare two strings and return a vector of text edit records which are
 /// supported by the Language Server Protocol.
 pub fn get_edits(a: &str, b: &str, line_index: &LineIndex) -> Vec<TextEdit> {
@@ -357,6 +388,30 @@ const C: char = \"メ メ\";
         },
       ]
     );
+  }
+
+  #[test]
+  fn test_normalize_to_source_line_endings() {
+    // source LF, formatted CRLF -> formatted becomes LF
+    assert_eq!(normalize_to_source_line_endings("a\nb\n", "a\r\nb\r\nc\r\n".to_string()), "a\nb\nc\n");
+    // source CRLF, formatted LF -> formatted becomes CRLF
+    assert_eq!(normalize_to_source_line_endings("a\r\nb\r\n", "a\nb\nc\n".to_string()), "a\r\nb\r\nc\r\n");
+    // matching line endings are left untouched (no allocation churn issues)
+    assert_eq!(normalize_to_source_line_endings("a\nb\n", "a\nb\n".to_string()), "a\nb\n");
+    assert_eq!(normalize_to_source_line_endings("a\r\nb\r\n", "a\r\nb\r\n".to_string()), "a\r\nb\r\n");
+    // no line endings in source -> leave formatted as-is
+    assert_eq!(normalize_to_source_line_endings("abc", "abc\r\n".to_string()), "abc\r\n");
+    // leading newline still detects the source kind
+    assert_eq!(normalize_to_source_line_endings("\nabc", "\r\nabc".to_string()), "\nabc");
+  }
+
+  #[test]
+  fn test_get_edits_after_normalizing_line_endings() {
+    // when only the line endings differ, normalizing should produce no edits (#965)
+    let a = "line1\nline2\nline3\n";
+    let formatted = "line1\r\nline2\r\nline3\r\n".to_string();
+    let new_text = normalize_to_source_line_endings(a, formatted);
+    assert_eq!(get_edits(a, &new_text, &LineIndex::new(a)), vec![]);
   }
 
   #[test]
