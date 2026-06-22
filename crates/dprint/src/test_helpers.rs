@@ -362,6 +362,9 @@ OPTIONS:
 ENVIRONMENT VARIABLES:
   DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
                        formatting (ex. DPRINT_MAX_THREADS=4).
+  DPRINT_GLOB_READ_THREADS
+                       Number of threads used to read directories while
+                       discovering files (ex. DPRINT_GLOB_READ_THREADS=8).
   DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
                        directory may be periodically deleted by the CLI.
   DPRINT_CONFIG_DIR    Global config directory to store a global dprint.json file.

@@ -113,13 +113,19 @@ pub fn glob(environment: &impl Environment, opts: GlobOptions) -> Result<GlobOut
   Ok(results)
 }
 
+/// Default number of threads used for reading directories.
+///
+/// Reading is I/O bound rather than CPU bound, so this is a small fixed value
+/// instead of a function of the CPU count: a handful of threads saturate the
+/// disk even on a machine with few cores, while going much higher regresses
+/// (see the measurements in issue #1001). It's deliberately independent of
+/// `DPRINT_MAX_THREADS`, which limits the CPU threads used for formatting.
+const DEFAULT_READ_DIR_THREAD_COUNT: usize = 8;
+
 /// Resolves how many threads to use for reading directories.
 ///
-/// Reading is I/O bound, so using a handful of threads helps saturate the disk,
-/// but there are diminishing returns (and eventually regressions) past a small
-/// number — see the measurements in issue #1001. The default is capped well
-/// below the CPU count for this reason, and can be overridden for experimentation
-/// via the `DPRINT_GLOB_READ_THREADS` environment variable.
+/// Defaults to [`DEFAULT_READ_DIR_THREAD_COUNT`] and can be overridden via the
+/// `DPRINT_GLOB_READ_THREADS` environment variable.
 fn resolve_read_dir_thread_count(environment: &impl Environment) -> usize {
   if let Some(count) = environment
     .env_var("DPRINT_GLOB_READ_THREADS")
@@ -127,7 +133,7 @@ fn resolve_read_dir_thread_count(environment: &impl Environment) -> usize {
   {
     return count.max(1);
   }
-  environment.max_threads().clamp(1, 8)
+  DEFAULT_READ_DIR_THREAD_COUNT
 }
 
 struct DirEntries {
