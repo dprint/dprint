@@ -76,6 +76,18 @@ const profileDataItems: ProfileData[] = [{
   os: OperatingSystem.Linux,
   target: "powerpc64le-unknown-linux-musl",
   muslCrossImage: "ghcr.io/rust-cross/rust-musl-cross:powerpc64le-musl",
+}, {
+  // android (Termux): built with cross using its built-in NDK image. Like
+  // powerpc64le it uses the pure-Rust wasmi interpreter backend (see the
+  // `wasm_interpreter` cfg in crates/dprint/build.rs), since wasmer-vm's
+  // signal-based trap handling is unreliable in the Android sandbox.
+  os: OperatingSystem.Linux,
+  target: "aarch64-linux-android",
+  cross: true,
+}, {
+  os: OperatingSystem.Linux,
+  target: "x86_64-linux-android",
+  cross: true,
 }];
 
 const profiles = profileDataItems.map(profile => {

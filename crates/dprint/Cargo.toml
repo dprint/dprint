@@ -67,14 +67,15 @@ webpki-roots = "=0.26.7"
 # older versions
 rkyv = "=0.8.15"
 
-# only needed where a compiler backend is used. powerpc64 uses the wasmi
-# interpreter, and pulling wasmer-compiler there would drag in wasmer-vm ->
-# corosensei, which doesn't build on stable for powerpc64.
-[target.'cfg(not(target_arch = "powerpc64"))'.dependencies]
+# only needed where a compiler backend is used. powerpc64 and android use the
+# wasmi interpreter, and pulling wasmer-compiler there would drag in wasmer-vm
+# -> corosensei, which doesn't build on stable for powerpc64 and relies on
+# signal-based trap handling that's unreliable in the Android sandbox.
+[target.'cfg(not(any(target_arch = "powerpc64", target_os = "android")))'.dependencies]
 wasmer-compiler = "=7.1.0"
 
 # most targets use the default compiler backend (Cranelift)
-[target.'cfg(not(any(target_arch = "loongarch64", target_arch = "powerpc64")))'.dependencies]
+[target.'cfg(not(any(target_arch = "loongarch64", target_arch = "powerpc64", target_os = "android")))'.dependencies]
 wasmer = "=7.1.0"
 
 # Cranelift has no loongarch64 backend, so use wasmer's LLVM backend (see the
@@ -82,16 +83,17 @@ wasmer = "=7.1.0"
 [target.'cfg(target_arch = "loongarch64")'.dependencies]
 wasmer = { version = "=7.1.0", features = ["llvm"] }
 
-# neither Cranelift nor wasmer's LLVM backend can target powerpc64, so fall back
-# to the architecture-independent wasmi interpreter (see the `wasm_interpreter`
-# cfg in build.rs)
-[target.'cfg(target_arch = "powerpc64")'.dependencies]
+# powerpc64: neither Cranelift nor wasmer's LLVM backend can target it.
+# android: wasmer-vm's signal-based trap handling and executable memory are
+# unreliable in the Termux/Android sandbox. both fall back to the portable,
+# pure-Rust wasmi interpreter (see the `wasm_interpreter` cfg in build.rs).
+[target.'cfg(any(target_arch = "powerpc64", target_os = "android"))'.dependencies]
 wasmer = { version = "=7.1.0", default-features = false, features = ["wasmi"] }
 
 [features]
 # Forces the wasmi interpreter backend on any architecture. Only needed to
-# build and test the powerpc64 code path on other architectures; powerpc64
-# selects the interpreter automatically.
+# build and test the interpreter code path on other architectures; powerpc64
+# and android select the interpreter automatically.
 wasm-interpreter = ["wasmer/wasmi"]
 
 [target.'cfg(windows)'.dependencies]
