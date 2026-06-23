@@ -1,6 +1,6 @@
-use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::bail;
 use dprint_core::async_runtime::future;
 use dprint_core::communication::IdGenerator;
 use dprint_core::plugins::FormatConfigId;
@@ -9,9 +9,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use super::implementations::create_plugin;
-use super::implementations::WasmModuleCreator;
 use super::InitializedPlugin;
+use super::implementations::WasmModuleCreator;
+use super::implementations::create_plugin;
 use crate::environment::Environment;
 use crate::plugins::Plugin;
 use crate::plugins::PluginCache;

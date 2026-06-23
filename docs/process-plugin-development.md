@@ -39,13 +39,13 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
    use std::path::PathBuf;
 
    use anyhow::Result;
-   use dprint_core::async_runtime::async_trait;
    use dprint_core::async_runtime::LocalBoxFuture;
-   use dprint_core::configuration::get_unknown_property_diagnostics;
-   use dprint_core::configuration::get_value;
+   use dprint_core::async_runtime::async_trait;
    use dprint_core::configuration::ConfigKeyMap;
    use dprint_core::configuration::GlobalConfiguration;
    use dprint_core::configuration::ResolveConfigurationResult;
+   use dprint_core::configuration::get_unknown_property_diagnostics;
+   use dprint_core::configuration::get_value;
    use dprint_core::plugins::AsyncPluginHandler;
    use dprint_core::plugins::FileMatchingInfo;
    use dprint_core::plugins::FormatRequest;
@@ -134,13 +134,13 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
        handle_process_stdio_messages(MyPluginHandler).await
      })
    }
-   ````
+   ```
 5. Finally, use your created plugin handler to start reading and writing to stdin and stdout (as also shown above):
 
    <!-- dprint-ignore -->
    ```rust
    handle_process_stdio_messages(MyPluginHandler).await
-   ````
+   ```
 
 ## Schema Version 5 Overview
 

@@ -47,6 +47,10 @@ dprint init --config .dprint.jsonc
 dprint init --config path/to/dprint.json
 ```
 
+## Global Config File
+
+See [global configuration](/global-config)
+
 ## Custom Cache Directory
 
 By default, dprint stores information in the current system user's cache directory (`~/.cache/dprint` on Linux, `~/Library/Caches/dprint` on Mac, and `%LOCALAPPDATA%/dprint` on Windows) such as cached plugins and incremental formatting information. If you would like to store the cache in a custom location, then specify a `DPRINT_CACHE_DIR` environment variable. Note that this directory may be periodically deleted by the CLI, so if you set it please make sure it's set correctly and you're ok with the custom directory being deleted.
@@ -55,7 +59,7 @@ By default, dprint stores information in the current system user's cache directo
 
 You may specify a proxy for dprint to use when downloading plugins or configuration files by setting the `HTTPS_PROXY`/`https_proxy` and `HTTP_PROXY`/`http_proxy` environment variables.
 
-Additionally, dprint 0.48+ supports the `NO_PROXY`/`no_proxy` environment variable, which is a comma-separated list of hosts which should not use the proxy.
+Additionally, the `NO_PROXY`/`no_proxy` environment variable can be set, which is a comma-separated list of hosts which should not use the proxy.
 
 ## TLS Certificates
 
@@ -70,7 +74,7 @@ Requires dprint >= 0.46.0
 
 ### Unsafely ignoring certificates
 
-Starting in dprint 0.49.0, you can unsafely ignore all or some TLS certificates via the `DPRINT_IGNORE_CERTS` environment variable:
+You can unsafely ignore all or some TLS certificates via the `DPRINT_IGNORE_CERTS` environment variable:
 
 - `DPRINT_IGNORE_CERTS=1` - Ignore all TLS certificates.
 - `DPRINT_IGNORE_CERTS=dprint.dev,localhost,[::],127.0.0.1` - Ignore certs from the specified hosts.
@@ -80,5 +84,7 @@ This is very unsafe to do and not recommended. A warning will be displayed on fi
 ## Limiting Parallelism
 
 By default, dprint only runs for a short period of time and so it will try to take advantage of as many CPU cores as it can. This might be an issue in some scenarios, and so you can limit the amount of parallelism by setting the `DPRINT_MAX_THREADS` environment variable in version 0.32 and up (ex. `DPRINT_MAX_THREADS=4`).
+
+Separately, dprint reads directories on several threads when discovering files in order to better saturate the disk. This is I/O bound, so the number of read threads is independent of `DPRINT_MAX_THREADS`. You can override it with the `DPRINT_GLOB_READ_THREADS` environment variable (ex. `DPRINT_GLOB_READ_THREADS=8`), though the default is suitable for most setups.
 
 Next step: [Configuration](/config)

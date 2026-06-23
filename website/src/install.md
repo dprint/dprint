@@ -44,24 +44,23 @@ Install using one of the methods below.
 
 - [Deno](https://deno.land):
 
-  For just your project, add a [deno task](https://deno.land/manual/tools/task_runner) to your deno.json file:
+  For just your project, run `deno install npm:dprint` then you can configure a task like so:
 
   ```json
   {
     "tasks": {
-      "fmt": "deno task dprint fmt",
-      "fmt:check": "deno task dprint check",
-      "dprint": "deno run -A npm:dprint"
+      "fmt": "dprint fmt",
+      "fmt:check": "dprint check"
     }
   }
   ```
 
   Then run `deno task dprint init` to initialize and format by running: `deno task fmt`
 
-  Also, you could install it globally via Deno, but like npm it has a startup and memory cost since it needs to run Deno then run dprint. It's recommended to install it globally via another method.
+  Also, you could install it globally via Deno:
 
   ```sh
-  deno install -A npm:dprint
+  deno install -g -A npm:dprint
   dprint help
   ```
 
@@ -72,7 +71,7 @@ Install using one of the methods below.
   npm install dprint
   npx dprint help
 
-  # or install globally (not recommended because it has a startup and memory cost)
+  # or install globally
   npm install -g dprint
   dprint help
   ```
@@ -112,6 +111,6 @@ For binaries and source, see the [GitHub releases](https://github.com/dprint/dpr
 - [Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=dprint.dprint)
 - [IntelliJ](https://plugins.jetbrains.com/plugin/18192-dprint) - Thanks to the developers at [Canva](https://canva.com)
 - Neovim with [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig/blob/master/doc/server_configurations.md#dprint)
-- The `dprint lsp` subcommand (requires dprint 0.45+) provides code formatting over the language server protocol. This can be used to format in other editors.
+- The `dprint lsp` subcommand provides code formatting over the language server protocol. This can be used to format in other editors.
 
 Next step: [Setup](/setup)

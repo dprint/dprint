@@ -1,5 +1,5 @@
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigKeyValue;
 use jsonc_parser::JsonArray;
@@ -9,6 +9,7 @@ use jsonc_parser::JsonValue;
 use super::ConfigMap;
 use super::ConfigMapValue;
 use super::RawPluginConfig;
+use super::RawPluginConfigOverride;
 
 pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap> {
   let value = jsonc_parser::parse_to_value(config_file_text, &Default::default())?;
@@ -34,7 +35,7 @@ pub fn deserialize_config(config_file_text: &str) -> Result<ConfigMap> {
             "Expected property '{}' with value '{}' to be convertible to a signed integer. {}",
             property_name,
             value,
-            err.to_string()
+            err
           )
         }
       }),
@@ -60,6 +61,7 @@ fn json_obj_to_raw_plugin_config(parent_prop_name: &str, obj: JsonObject) -> Res
   let mut properties = ConfigKeyMap::new();
   let mut locked = false;
   let mut associations = None;
+  let mut overrides = Vec::new();
 
   for (key, value) in obj.into_iter() {
     let property_name = key;
@@ -94,6 +96,24 @@ fn json_obj_to_raw_plugin_config(parent_prop_name: &str, obj: JsonObject) -> Res
       }
     }
 
+    if property_name == "overrides" {
+      overrides = match value {
+        JsonValue::Object(value) => vec![json_obj_to_raw_plugin_config_override(value)?],
+        JsonValue::Array(value) => {
+          let mut items = Vec::new();
+          for value in value.into_iter() {
+            match value {
+              JsonValue::Object(value) => items.push(json_obj_to_raw_plugin_config_override(value)?),
+              _ => bail!("The 'overrides' property in a plugin configuration must be an object or an array of objects."),
+            }
+          }
+          items
+        }
+        _ => bail!("The 'overrides' property in a plugin configuration must be an object or an array of objects."),
+      };
+      continue;
+    }
+
     let property_value = match value_to_plugin_config_key_value(value) {
       Ok(result) => result,
       Err(err) => bail!("{} in object property '{} -> {}'", err, parent_prop_name, property_name),
@@ -104,8 +124,52 @@ fn json_obj_to_raw_plugin_config(parent_prop_name: &str, obj: JsonObject) -> Res
   Ok(RawPluginConfig {
     locked,
     associations,
+    overrides,
     properties,
   })
+}
+
+fn json_obj_to_raw_plugin_config_override(obj: JsonObject) -> Result<RawPluginConfigOverride> {
+  let mut files = None;
+  let mut properties = ConfigKeyMap::new();
+
+  for (key, value) in obj.into_iter() {
+    if key == "files" {
+      files = Some(match value {
+        JsonValue::Array(value) => {
+          let mut items = Vec::new();
+          for value in value.into_iter() {
+            match value {
+              JsonValue::String(value) => items.push(value.into_owned()),
+              _ => bail!("The 'files' array in a plugin configuration override must contain only strings."),
+            }
+          }
+          items
+        }
+        JsonValue::String(value) => vec![value.into_owned()],
+        _ => bail!("The 'files' property in a plugin configuration override must be a string or an array of strings."),
+      });
+    } else {
+      let property_value = match value_to_plugin_config_key_value(value) {
+        Ok(result) => result,
+        Err(err) => bail!("{} in plugin configuration override property '{}'", err, key),
+      };
+      properties.insert(key, property_value);
+    }
+  }
+
+  let files = match files {
+    Some(files) => files,
+    None => bail!("A plugin configuration override must specify a 'files' property."),
+  };
+  if files.is_empty() {
+    bail!("A plugin configuration override must specify at least one file pattern.");
+  }
+  if properties.is_empty() {
+    bail!("A plugin configuration override must specify at least one configuration property.");
+  }
+
+  Ok(RawPluginConfigOverride { files, properties })
 }
 
 fn json_array_to_vec(parent_prop_name: &str, array: JsonArray) -> Result<Vec<String>> {
@@ -164,6 +228,7 @@ mod tests {
   use crate::configuration::ConfigMap;
   use crate::configuration::ConfigMapValue;
   use crate::configuration::RawPluginConfig;
+  use crate::configuration::RawPluginConfigOverride;
 
   use dprint_core::configuration::ConfigKeyMap;
   use dprint_core::configuration::ConfigKeyValue;
@@ -199,6 +264,7 @@ mod tests {
       ConfigMapValue::PluginConfig(RawPluginConfig {
         locked: false,
         associations: None,
+        overrides: Vec::new(),
         properties: ConfigKeyMap::from([
           (String::from("lineWidth"), ConfigKeyValue::from_i32(40)),
           (String::from("preferSingleLine"), ConfigKeyValue::from_bool(true)),
@@ -228,6 +294,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: true,
           associations: Some(vec!["test".to_string()]),
+          overrides: Vec::new(),
           properties: ConfigKeyMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(40))]),
         }),
       ),
@@ -236,6 +303,7 @@ mod tests {
         ConfigMapValue::PluginConfig(RawPluginConfig {
           locked: false,
           associations: Some(vec!["other".to_string(), "test".to_string()]),
+          overrides: Vec::new(),
           properties: ConfigKeyMap::new(),
         }),
       ),
@@ -263,13 +331,92 @@ mod tests {
   }
 
   #[test]
+  fn should_deserialize_plugin_config_overrides() {
+    let expected_props = ConfigMap::from([(
+      "typescript".to_string(),
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: false,
+        associations: None,
+        overrides: vec![RawPluginConfigOverride {
+          files: vec!["**/package.json".to_string(), "**/composer.json".to_string()],
+          properties: ConfigKeyMap::from([
+            ("indentWidth".to_string(), ConfigKeyValue::from_i32(4)),
+            ("useTabs".to_string(), ConfigKeyValue::from_bool(false)),
+          ]),
+        }],
+        properties: ConfigKeyMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(80))]),
+      }),
+    )]);
+
+    assert_deserializes(
+      "{'typescript': { 'lineWidth': 80, 'overrides': { 'files': ['**/package.json', '**/composer.json'], 'indentWidth': 4, 'useTabs': false } }}",
+      expected_props,
+    );
+  }
+
+  #[test]
+  fn should_deserialize_plugin_config_overrides_array() {
+    let expected_props = ConfigMap::from([(
+      "typescript".to_string(),
+      ConfigMapValue::PluginConfig(RawPluginConfig {
+        locked: false,
+        associations: None,
+        overrides: vec![
+          RawPluginConfigOverride {
+            files: vec!["**/package.json".to_string()],
+            properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(4))]),
+          },
+          RawPluginConfigOverride {
+            files: vec!["**/special-package.json".to_string()],
+            properties: ConfigKeyMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(80))]),
+          },
+        ],
+        properties: ConfigKeyMap::new(),
+      }),
+    )]);
+
+    assert_deserializes(
+      "{'typescript': { 'overrides': [{ 'files': '**/package.json', 'indentWidth': 4 }, { 'files': ['**/special-package.json'], 'lineWidth': 80 }] }}",
+      expected_props,
+    );
+  }
+
+  #[test]
+  fn error_invalid_plugin_config_overrides() {
+    assert_error(
+      "{'typescript': { 'overrides': 5 }}",
+      "The 'overrides' property in a plugin configuration must be an object or an array of objects.",
+    );
+    assert_error(
+      "{'typescript': { 'overrides': [{ 'files': [1], 'indentWidth': 4 }] }}",
+      "The 'files' array in a plugin configuration override must contain only strings.",
+    );
+    assert_error(
+      "{'typescript': { 'overrides': [{ 'files': 5, 'indentWidth': 4 }] }}",
+      "The 'files' property in a plugin configuration override must be a string or an array of strings.",
+    );
+    assert_error(
+      "{'typescript': { 'overrides': [{ 'indentWidth': 4 }] }}",
+      "A plugin configuration override must specify a 'files' property.",
+    );
+    assert_error(
+      "{'typescript': { 'overrides': [{ 'files': [], 'indentWidth': 4 }] }}",
+      "A plugin configuration override must specify at least one file pattern.",
+    );
+    assert_error(
+      "{'typescript': { 'overrides': [{ 'files': '**/package.json' }] }}",
+      "A plugin configuration override must specify at least one configuration property.",
+    );
+  }
+
+  #[test]
   fn should_have_stable_deserialization_of_config_properties() {
     for _ in 0..10 {
       let config = deserialize_config(
         r#"{
         "exec": {
           "commands": [{
-            "command": "rustfmt --edition 2021 --config imports_granularity=item",
+            "command": "rustfmt --edition 2024 --config imports_granularity=item",
             "exts": ["rs"]
           }]
         }

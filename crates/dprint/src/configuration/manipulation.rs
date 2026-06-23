@@ -1,7 +1,7 @@
-use anyhow::anyhow;
-use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::anyhow;
+use anyhow::bail;
 use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::ConfigChangeKind;
@@ -15,7 +15,9 @@ use jsonc_parser::cst::CstRootNode;
 use jsonc_parser::json;
 
 use crate::plugins::PluginSourceReference;
+use crate::utils::PathSource;
 use crate::utils::PluginKind;
+use crate::utils::parse_npm_specifier;
 
 #[derive(Debug)]
 pub struct PluginUpdateInfo {
@@ -44,15 +46,106 @@ impl PluginUpdateInfo {
 
 pub fn update_plugin_in_config(file_text: &str, info: &PluginUpdateInfo) -> String {
   let new_url = info.get_full_new_config_url();
+  // npm references normalize their display form (the default `/plugin.wasm`
+  // path is stripped), so `info.old_reference.to_string()` is often a strict
+  // prefix of the original config text. A naive `replace` would leave the
+  // `/plugin.wasm[@checksum]` suffix glued to the new version. For npm we
+  // always go through the CST path so we never fall back to the buggy
+  // prefix-replace; if the entry isn't in this file (e.g. it lives in an
+  // `extends`ed config) we return the file unchanged.
+  if let PathSource::Npm(_) = &info.old_reference.path_source {
+    return replace_npm_plugin_in_config(file_text, &info.old_reference, &new_url);
+  }
   file_text.replace(&info.old_reference.to_string(), &new_url)
 }
 
-pub fn add_to_plugins_array(file_text: &str, url: &str) -> Result<String> {
+fn replace_npm_plugin_in_config(file_text: &str, old_reference: &PluginSourceReference, new_url: &str) -> String {
+  let PathSource::Npm(npm_source) = &old_reference.path_source else {
+    return file_text.to_string();
+  };
+  let Ok(root) = CstRootNode::parse(file_text, &Default::default()) else {
+    // unparseable config — don't risk corrupting it via prefix-replace
+    return file_text.to_string();
+  };
+  let Some(plugins) = root.object_value().and_then(|obj| obj.array_value("plugins")) else {
+    // no plugins array in this file (e.g. plugins come from an extends);
+    // nothing to rewrite here
+    return file_text.to_string();
+  };
+  // collect every matching string lit first, then replace each. The
+  // PluginUpdateInfo passed in identifies a single logical entry, but the
+  // same string can appear more than once in the array (e.g. via copy/paste);
+  // leaving a stale duplicate around would just make the next config update
+  // flag it again.
+  let mut matches = Vec::new();
+  for element in plugins.elements() {
+    let CstNode::Leaf(CstLeafNode::StringLit(string_lit)) = element else {
+      continue;
+    };
+    // a string with an invalid JSON escape isn't ours to interpret; skip it
+    // and keep scanning the rest of the array.
+    let Ok(entry_text) = string_lit.decoded_value() else {
+      continue;
+    };
+    let Ok(parsed) = parse_npm_specifier(&entry_text) else {
+      continue;
+    };
+    if parsed.specifier == npm_source.specifier && parsed.checksum == old_reference.checksum {
+      matches.push(string_lit);
+    }
+  }
+  if matches.is_empty() {
+    return file_text.to_string();
+  }
+  for string_lit in matches {
+    string_lit.replace_with(json!(new_url));
+  }
+  root.to_string()
+}
+
+/// Adds `urls_to_add` to the config's `plugins` array, first dropping every
+/// existing npm entry whose package name appears in `npm_packages_to_replace`
+/// (regardless of version, path, or checksum) so re-adding a package replaces
+/// it rather than appending a duplicate. The whole operation runs on a single
+/// CST parse, so the file is parsed and serialized only once no matter how
+/// many entries are removed or added.
+///
+/// A package in `npm_packages_to_replace` with no matching entry (e.g. it
+/// lives in an `extends`ed config) is simply a no-op for the removal step.
+pub fn add_plugins_to_config(file_text: &str, npm_packages_to_replace: &[String], urls_to_add: &[String]) -> Result<String> {
   let root_node = CstRootNode::parse(file_text, &Default::default()).context("Failed parsing config file.")?;
-  let root_obj = root_node.object_value_or_set();
-  let plugins = root_obj.array_value_or_set("plugins");
-  plugins.ensure_multiline();
-  plugins.append(json!(url));
+
+  // drop pre-existing npm entries for the packages being (re-)added
+  if !npm_packages_to_replace.is_empty()
+    && let Some(plugins) = root_node.object_value().and_then(|obj| obj.array_value("plugins"))
+  {
+    for element in plugins.elements() {
+      let CstNode::Leaf(CstLeafNode::StringLit(string_lit)) = &element else {
+        continue;
+      };
+      // a string with an invalid JSON escape isn't ours to interpret; skip it
+      let Ok(entry_text) = string_lit.decoded_value() else {
+        continue;
+      };
+      let Ok(parsed) = parse_npm_specifier(&entry_text) else {
+        continue;
+      };
+      if npm_packages_to_replace.contains(&parsed.specifier.name) {
+        element.remove();
+      }
+    }
+  }
+
+  // append the new specifiers
+  if !urls_to_add.is_empty() {
+    let root_obj = root_node.object_value_or_set();
+    let plugins = root_obj.array_value_or_set("plugins");
+    plugins.ensure_multiline();
+    for url in urls_to_add {
+      plugins.append(json!(url.as_str()));
+    }
+  }
+
   Ok(root_node.to_string())
 }
 
@@ -300,11 +393,12 @@ mod test {
 
   #[test]
   pub fn add_plugins_array_empty() {
-    let final_text = add_to_plugins_array(
+    let final_text = add_plugins_to_config(
       r#"{
   "plugins": []
 }"#,
-      "value",
+      &[],
+      &["value".to_string()],
     )
     .unwrap();
 
@@ -320,13 +414,14 @@ mod test {
 
   #[test]
   pub fn add_plugins_array_empty_comment() {
-    let final_text = add_to_plugins_array(
+    let final_text = add_plugins_to_config(
       r#"{
   "plugins": [
     // some comment
   ]
 }"#,
-      "value",
+      &[],
+      &["value".to_string()],
     )
     .unwrap();
 
@@ -343,13 +438,14 @@ mod test {
 
   #[test]
   pub fn add_plugins_not_empty() {
-    let final_text = add_to_plugins_array(
+    let final_text = add_plugins_to_config(
       r#"{
   "plugins": [
     "some_value"
   ]
 }"#,
-      "value",
+      &[],
+      &["value".to_string()],
     )
     .unwrap();
 
@@ -366,13 +462,14 @@ mod test {
 
   #[test]
   pub fn add_plugins_trailing_comma() {
-    let final_text = add_to_plugins_array(
+    let final_text = add_plugins_to_config(
       r#"{
   "plugins": [
     "some_value",
   ]
 }"#,
-      "value",
+      &[],
+      &["value".to_string()],
     )
     .unwrap();
 
@@ -389,13 +486,14 @@ mod test {
 
   #[test]
   pub fn add_plugins_trailing_comment() {
-    let final_text = add_to_plugins_array(
+    let final_text = add_plugins_to_config(
       r#"{
   "plugins": [
     "some_value" // comment
   ]
 }"#,
-      "value",
+      &[],
+      &["value".to_string()],
     )
     .unwrap();
 
@@ -408,6 +506,247 @@ mod test {
   ]
 }"#
     );
+  }
+
+  #[test]
+  fn update_plugin_in_config_npm_rewrites_explicit_default_path_entry() {
+    // user wrote `npm:foo@1.0.0/plugin.wasm` (explicit default path). The
+    // PluginSourceReference normalizes the path to "plugin.wasm" and
+    // display() strips it, so a naive string replace would leave a stale
+    // `/plugin.wasm` suffix. The structural update should replace the whole
+    // entry cleanly.
+    use crate::plugins::PluginSourceReference;
+    use crate::utils::NpmSpecifier;
+    let npm = |v: &str| PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "foo".to_string(),
+          version: Some(v.to_string()),
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+    let info = PluginUpdateInfo {
+      name: "foo".to_string(),
+      old_version: "1.0.0".to_string(),
+      old_reference: npm("1.0.0"),
+      new_version: "1.1.0".to_string(),
+      new_reference: npm("1.1.0"),
+    };
+    let input = r#"{
+  "plugins": [
+    "npm:foo@1.0.0/plugin.wasm"
+  ]
+}"#;
+    let expected = r#"{
+  "plugins": [
+    "npm:foo@1.1.0"
+  ]
+}"#;
+    assert_eq!(update_plugin_in_config(input, &info), expected);
+  }
+
+  #[test]
+  fn update_plugin_in_config_npm_rewrites_process_plugin_with_checksum() {
+    // process plugins always carry a checksum; both the path and the
+    // checksum need to be replaced as a single unit.
+    use crate::plugins::PluginSourceReference;
+    use crate::utils::NpmSpecifier;
+    let npm = |v: &str, csum: &str| PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "foo".to_string(),
+          version: Some(v.to_string()),
+          path: "plugin.json".to_string(),
+        },
+        None,
+      ),
+      checksum: Some(csum.to_string()),
+    };
+    let info = PluginUpdateInfo {
+      name: "foo".to_string(),
+      old_version: "1.0.0".to_string(),
+      old_reference: npm("1.0.0", "oldsum"),
+      new_version: "1.1.0".to_string(),
+      new_reference: npm("1.1.0", "newsum"),
+    };
+    let input = r#"{
+  "plugins": [
+    "npm:foo@1.0.0/plugin.json@oldsum"
+  ]
+}"#;
+    let expected = r#"{
+  "plugins": [
+    "npm:foo@1.1.0/plugin.json@newsum"
+  ]
+}"#;
+    assert_eq!(update_plugin_in_config(input, &info), expected);
+  }
+
+  #[test]
+  fn update_plugin_in_config_npm_rewrites_duplicate_entries() {
+    // a plugins array with two identical npm references — both should be
+    // bumped, not just the first. Otherwise the next dprint config update
+    // would flag the stale duplicate again.
+    use crate::plugins::PluginSourceReference;
+    use crate::utils::NpmSpecifier;
+    let npm = |v: &str| PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "foo".to_string(),
+          version: Some(v.to_string()),
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+    let info = PluginUpdateInfo {
+      name: "foo".to_string(),
+      old_version: "1.0.0".to_string(),
+      old_reference: npm("1.0.0"),
+      new_version: "1.1.0".to_string(),
+      new_reference: npm("1.1.0"),
+    };
+    let input = r#"{
+  "plugins": [
+    "npm:foo@1.0.0",
+    "npm:foo@1.0.0"
+  ]
+}"#;
+    let expected = r#"{
+  "plugins": [
+    "npm:foo@1.1.0",
+    "npm:foo@1.1.0"
+  ]
+}"#;
+    assert_eq!(update_plugin_in_config(input, &info), expected);
+  }
+
+  #[test]
+  fn update_plugin_in_config_npm_returns_file_unchanged_when_no_plugins_array() {
+    // e.g. the plugin reference lives in an `extends`ed file, so this file
+    // has no plugins array of its own. The previous fallback to file_text
+    // .replace would search for the normalized display ("npm:foo@1.0.0")
+    // anywhere in the text — including comments or other strings — and
+    // potentially corrupt them.
+    use crate::plugins::PluginSourceReference;
+    use crate::utils::NpmSpecifier;
+    let npm = |v: &str| PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "foo".to_string(),
+          version: Some(v.to_string()),
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+    let info = PluginUpdateInfo {
+      name: "foo".to_string(),
+      old_version: "1.0.0".to_string(),
+      old_reference: npm("1.0.0"),
+      new_version: "1.1.0".to_string(),
+      new_reference: npm("1.1.0"),
+    };
+    let input = r#"{
+  "extends": "./shared.json",
+  "//": "would have been corrupted by a textual replace of npm:foo@1.0.0"
+}"#;
+    assert_eq!(update_plugin_in_config(input, &info), input);
+  }
+
+  #[test]
+  fn update_plugin_in_config_npm_leaves_other_entries_alone() {
+    // a similarly-prefixed but distinct entry (different path) must not be
+    // touched. A naive prefix-replace would have rewritten both.
+    use crate::plugins::PluginSourceReference;
+    use crate::utils::NpmSpecifier;
+    let npm_wasm = |v: &str| PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "foo".to_string(),
+          version: Some(v.to_string()),
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+    let info = PluginUpdateInfo {
+      name: "foo".to_string(),
+      old_version: "1.0.0".to_string(),
+      old_reference: npm_wasm("1.0.0"),
+      new_version: "1.1.0".to_string(),
+      new_reference: npm_wasm("1.1.0"),
+    };
+    let input = r#"{
+  "plugins": [
+    "npm:foo@1.0.0",
+    "npm:foo@1.0.0/plugin.json@somesum"
+  ]
+}"#;
+    let expected = r#"{
+  "plugins": [
+    "npm:foo@1.1.0",
+    "npm:foo@1.0.0/plugin.json@somesum"
+  ]
+}"#;
+    assert_eq!(update_plugin_in_config(input, &info), expected);
+  }
+
+  #[test]
+  fn add_plugins_to_config_replaces_all_matching_npm_entries() {
+    // every existing entry for a replaced package (any version/path/checksum)
+    // is dropped and the new specifier appended, while a different package and
+    // a non-npm entry are left untouched — all in one parse.
+    let input = r#"{
+  "plugins": [
+    "npm:foo@1.0.0",
+    "https://plugins.dprint.dev/other.wasm",
+    "npm:foo@2.0.0/plugin.json@abc",
+    "npm:bar@1.0.0"
+  ]
+}"#;
+    let expected = r#"{
+  "plugins": [
+    "https://plugins.dprint.dev/other.wasm",
+    "npm:bar@1.0.0",
+    "npm:foo@3.0.0"
+  ]
+}"#;
+    assert_eq!(
+      add_plugins_to_config(input, &["foo".to_string()], &["npm:foo@3.0.0".to_string()]).unwrap(),
+      expected
+    );
+  }
+
+  #[test]
+  fn add_plugins_to_config_replace_with_no_match_only_appends() {
+    let input = r#"{
+  "plugins": [
+    "npm:bar@1.0.0"
+  ]
+}"#;
+    let expected = r#"{
+  "plugins": [
+    "npm:bar@1.0.0",
+    "npm:foo@1.0.0"
+  ]
+}"#;
+    assert_eq!(
+      add_plugins_to_config(input, &["foo".to_string()], &["npm:foo@1.0.0".to_string()]).unwrap(),
+      expected
+    );
+    // a replaced package whose only entry lives in an `extends`ed config (no
+    // local plugins array) — nothing to remove and nothing to add, unchanged
+    let extends = r#"{
+  "extends": "./shared.json"
+}"#;
+    assert_eq!(add_plugins_to_config(extends, &["foo".to_string()], &[]).unwrap(), extends);
   }
 
   #[test]

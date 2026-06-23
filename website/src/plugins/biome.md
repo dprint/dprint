@@ -20,7 +20,9 @@ Adapter plugin that formats JavaScript, TypeScript, and JSON files via [Biome](h
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint config add biome
+dprint add biome
+# or install from npm
+dprint add npm:@dprint/biome
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"biome"` property to add configuration:
@@ -43,3 +45,7 @@ See [Configuration](/plugins/biome/config)
 ## Playground
 
 See [Playground](https://dprint.dev/playground#plugin/biome)
+
+## Source
+
+See https://github.com/dprint/dprint-plugin-biome

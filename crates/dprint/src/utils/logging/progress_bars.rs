@@ -1,5 +1,4 @@
-use crossterm::style::Stylize;
-use crossterm::tty::IsTty;
+use deno_terminal::colors;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -7,6 +6,7 @@ use std::time::Duration;
 use std::time::SystemTime;
 
 use crate::utils::get_terminal_size;
+use crate::utils::is_terminal_interactive;
 
 use super::Logger;
 use super::LoggerRefreshItemKind;
@@ -79,7 +79,7 @@ struct InternalState {
 impl ProgressBars {
   /// Checks if progress bars are supported
   pub fn are_supported() -> bool {
-    std::io::stderr().is_tty() && get_terminal_size().is_some()
+    is_terminal_interactive()
   }
 
   /// Creates a new ProgressBars or returns None when not supported.
@@ -185,11 +185,11 @@ fn get_progress_bar_text(terminal_width: u16, pos: usize, total: usize, pb_style
   text.push_str(" [");
   if completed_bars != total_bars {
     if completed_bars > 0 {
-      text.push_str(&format!("{}", format!("{}{}", "#".repeat(completed_bars - 1), ">").cyan()))
+      text.push_str(&format!("{}", colors::cyan(format!("{}{}", "#".repeat(completed_bars - 1), ">"))))
     }
-    text.push_str(&format!("{}", "-".repeat(total_bars - completed_bars).blue()))
+    text.push_str(&format!("{}", colors::intense_blue("-".repeat(total_bars - completed_bars))))
   } else {
-    text.push_str(&format!("{}", "#".repeat(completed_bars).cyan()))
+    text.push_str(&format!("{}", colors::cyan("#".repeat(completed_bars))))
   }
   text.push(']');
 

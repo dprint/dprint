@@ -1,4 +1,3 @@
-use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -51,24 +50,81 @@ impl CancellationToken for NullCancellationToken {
 
 pub type FormatRange = Option<std::ops::Range<usize>>;
 
+/// An error returned by formatting operations.
+///
+/// This can hold any error, allowing plugins to return their own error types,
+/// while still implementing [`std::error::Error`] so that consumers can convert
+/// it into their own error type.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct FormatError(Box<dyn std::error::Error + Send + Sync + 'static>);
+
+impl FormatError {
+  /// Creates a new error from anything that can be turned into a boxed error
+  /// (for example a `String`, `&str`, or any [`std::error::Error`]).
+  pub fn new(error: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>) -> Self {
+    FormatError(error.into())
+  }
+
+  /// Attempts to downcast the underlying error to a concrete type
+  /// (ex. to check for a [`CriticalFormatError`]).
+  pub fn downcast_ref<E: std::error::Error + 'static>(&self) -> Option<&E> {
+    self.0.downcast_ref::<E>()
+  }
+}
+
+/// Formats an error and its source chain into a single string,
+/// joining each level with `: ` (equivalent to formatting an
+/// `anyhow` error with the alternate `{:#}` specifier).
+pub fn error_to_string(err: &(dyn std::error::Error + 'static)) -> String {
+  // cap the depth so a pathological error with a cyclic `source()` chain
+  // can't make this loop forever
+  const MAX_DEPTH: usize = 100;
+  let mut result = err.to_string();
+  let mut source = err.source();
+  for _ in 0..MAX_DEPTH {
+    let Some(err) = source else { break };
+    result.push_str(": ");
+    result.push_str(&err.to_string());
+    source = err.source();
+  }
+  result
+}
+
+macro_rules! impl_format_error_from {
+  ($($t:ty),* $(,)?) => {
+    $(
+      impl From<$t> for FormatError {
+        fn from(error: $t) -> Self {
+          FormatError(error.into())
+        }
+      }
+    )*
+  };
+}
+
+impl_format_error_from!(
+  String,
+  &str,
+  Box<dyn std::error::Error + Send + Sync + 'static>,
+  std::io::Error,
+  std::string::FromUtf8Error,
+  CriticalFormatError,
+);
+
+#[cfg(feature = "serde_json")]
+impl_format_error_from!(serde_json::Error);
+
+#[cfg(feature = "async_runtime")]
+impl_format_error_from!(tokio::task::JoinError, tokio::sync::oneshot::error::RecvError);
+
 /// A formatting error where the plugin cannot recover.
 ///
 /// Return one of these to signal to the dprint CLI that
 /// it should recreate the plugin.
-#[derive(Debug)]
-pub struct CriticalFormatError(pub anyhow::Error);
-
-impl std::fmt::Display for CriticalFormatError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    self.0.fmt(f)
-  }
-}
-
-impl std::error::Error for CriticalFormatError {
-  fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-    self.0.source()
-  }
-}
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct CriticalFormatError(pub FormatError);
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -103,7 +159,7 @@ pub struct SyncHostFormatRequest<'a> {
 /// `Ok(Some(text))` - Changes due to the format.
 /// `Ok(None)` - No changes.
 /// `Err(err)` - Error formatting. Use a `CriticalError` to signal that the plugin can't recover.
-pub type FormatResult = Result<Option<Vec<u8>>>;
+pub type FormatResult = Result<Option<Vec<u8>>, FormatError>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawFormatConfig {
@@ -229,7 +285,7 @@ pub trait AsyncPluginHandler: 'static {
   async fn resolve_config(&self, config: ConfigKeyMap, global_config: GlobalConfiguration) -> PluginResolveConfigurationResult<Self::Configuration>;
   /// Updates the config key map. This will be called after the CLI has upgraded the
   /// plugin in `dprint config update`.
-  async fn check_config_updates(&self, _message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+  async fn check_config_updates(&self, _message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>, FormatError> {
     Ok(Vec::new())
   }
   /// Formats the provided file text based on the provided file path and configuration.
@@ -251,7 +307,7 @@ pub trait SyncPluginHandler<TConfiguration: Clone + serde::Serialize> {
   fn license_text(&mut self) -> String;
   /// Updates the config key map. This will be called after the CLI has upgraded the
   /// plugin in `dprint config update`.
-  fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>>;
+  fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>, FormatError>;
   /// Formats the provided file text based on the provided file path and configuration.
   fn format(&mut self, request: SyncFormatRequest<TConfiguration>, format_with_host: impl FnMut(SyncHostFormatRequest) -> FormatResult) -> FormatResult;
 }

@@ -10,7 +10,7 @@ const exePath = path.join(__dirname, os.platform() === "win32" ? "dprint.exe" : 
 
 if (!fs.existsSync(exePath)) {
   try {
-    const resolvedExePath = require("./install_api").runInstall();
+    const resolvedExePath = require("./install_api.cjs").runInstall();
     runDprintExe(resolvedExePath);
   } catch (err) {
     if (err !== undefined && typeof err.message === "string") {
@@ -32,16 +32,14 @@ function runDprintExe(exePath) {
     { stdio: "inherit" },
   );
   if (result.error) {
+    if (!fs.existsSync(exePath)) {
+      throw new Error(
+        "Could not find exe at path '" + exePath
+          + "'. Maybe try installing dprint again.",
+      );
+    }
     throw result.error;
   }
 
-  throwIfNoExePath();
-
-  process.exitCode = result.status;
-
-  function throwIfNoExePath() {
-    if (!fs.existsSync(exePath)) {
-      throw new Error("Could not find exe at path '" + exePath + "'. Maybe try running dprint again.");
-    }
-  }
+  process.exit(result.status ?? 1);
 }

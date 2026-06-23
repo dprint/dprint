@@ -2,9 +2,10 @@ use std::path::Path;
 use std::process::Command;
 use std::process::Stdio;
 
-use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::bail;
+use url::Url;
 
 use crate::environment::Environment;
 use crate::environment::FilePermissions;
@@ -58,9 +59,12 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
     _ => bail!("Not implemented operating system: {}", os),
   };
   let zip_filename = format!("dprint-{}-{}.zip", arch, zip_suffix);
-  let zip_url = format!("https://github.com/dprint/dprint/releases/download/{}/{}", latest_version, zip_filename);
+  let zip_url = Url::parse(&format!(
+    "https://github.com/dprint/dprint/releases/download/{}/{}",
+    latest_version, zip_filename
+  ))?;
 
-  let zip_bytes = environment.download_file_err_404(&zip_url).await?;
+  let (_, zip_file) = environment.download_file_err_404(&zip_url, None).await?;
   let old_executable = exe_path.with_extension("old.exe");
 
   if !environment.is_real() {
@@ -78,7 +82,7 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
   }
 
   let maybe_reinstall_message = "You may need to reinstall dprint from scratch. Sorry!";
-  if let Err(err) = try_upgrade(&exe_path, &zip_bytes, permissions, environment) {
+  if let Err(err) = try_upgrade(&exe_path, &zip_file.content, permissions, environment) {
     if cfg!(windows) {
       // try to rename it back
       environment.rename(&old_executable, &exe_path).with_context(|| {
@@ -155,6 +159,8 @@ mod test {
   #[test]
   fn should_upgrade_and_fail_readonly() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.current_exe().unwrap().parent().unwrap()).unwrap();
+    environment.write_file(environment.current_exe().unwrap(), "").unwrap();
     environment
       .set_file_permissions(
         environment.current_exe().unwrap(),
@@ -228,6 +234,8 @@ mod test {
   #[test]
   fn should_upgrade_and_fail_different_version_no_remote_zip() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.current_exe().unwrap().parent().unwrap()).unwrap();
+    environment.write_file(environment.current_exe().unwrap(), "").unwrap();
     environment
       .set_file_permissions(environment.current_exe().unwrap(), FilePermissions::Test(Default::default()))
       .unwrap();

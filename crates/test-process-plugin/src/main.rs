@@ -1,33 +1,32 @@
 use std::path::PathBuf;
 
-use anyhow::bail;
-use anyhow::Result;
-use dprint_core::async_runtime::async_trait;
 use dprint_core::async_runtime::LocalBoxFuture;
-use dprint_core::configuration::get_nullable_vec;
-use dprint_core::configuration::get_unknown_property_diagnostics;
-use dprint_core::configuration::get_value;
+use dprint_core::async_runtime::async_trait;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
-use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
-use dprint_core::plugins::process::handle_process_stdio_messages;
-use dprint_core::plugins::process::start_parent_process_checker_task;
+use dprint_core::configuration::get_nullable_vec;
+use dprint_core::configuration::get_unknown_property_diagnostics;
+use dprint_core::configuration::get_value;
 use dprint_core::plugins::AsyncPluginHandler;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::ConfigChangeKind;
 use dprint_core::plugins::FileMatchingInfo;
+use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatRequest;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::PluginResolveConfigurationResult;
+use dprint_core::plugins::process::get_parent_process_id_from_cli_args;
+use dprint_core::plugins::process::handle_process_stdio_messages;
+use dprint_core::plugins::process::start_parent_process_checker_task;
 use serde::Deserialize;
 use serde::Serialize;
 
-fn main() -> Result<()> {
+fn main() -> Result<(), FormatError> {
   let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
   rt.block_on(async move {
     if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
@@ -115,7 +114,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
     }
   }
 
-  async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+  async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>, FormatError> {
     let mut changes = Vec::new();
     if message.config.contains_key("should_add") {
       changes.extend([
@@ -218,7 +217,7 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
         result.map(|r| String::from_utf8(r).unwrap()).unwrap_or_else(|| new_text.to_string())
       )
     } else if file_text == "should_error" {
-      bail!("Did error.")
+      return Err("Did error.".into());
     } else {
       file_text.to_string()
     };

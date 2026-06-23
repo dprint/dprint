@@ -152,8 +152,8 @@ impl<TEnvironment: Environment> Drop for LaxSingleProcessFsFlagInner<TEnvironmen
 mod test {
   use std::sync::Arc;
 
-  use dprint_core::async_runtime::future;
   use dprint_core::async_runtime::FutureExt;
+  use dprint_core::async_runtime::future;
   use parking_lot::Mutex;
   use tempfile::TempDir;
   use tokio::sync::Notify;

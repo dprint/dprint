@@ -15,6 +15,7 @@ use utils::LogLevel;
 use utils::RealStdInReader;
 
 mod arg_parser;
+mod cache;
 mod commands;
 mod configuration;
 mod format;

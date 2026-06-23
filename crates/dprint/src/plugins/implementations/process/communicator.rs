@@ -4,13 +4,14 @@ use crate::plugins::InitializedPluginFormatRequest;
 use crate::utils::AsyncMutex;
 use anyhow::Result;
 use dprint_core::configuration::ConfigurationDiagnostic;
-use dprint_core::plugins::process::ProcessPluginCommunicator;
-use dprint_core::plugins::process::ProcessPluginCommunicatorFormatRequest;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
+use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatResult;
+use dprint_core::plugins::process::ProcessPluginCommunicator;
+use dprint_core::plugins::process::ProcessPluginCommunicatorFormatRequest;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -69,29 +70,45 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
   }
 
   pub async fn get_license_text(&self) -> Result<String> {
-    self.get_inner().await.license_text().await
+    self.get_inner().await.license_text().await.map_err(anyhow::Error::from)
   }
 
   pub async fn get_resolved_config(&self, config: &FormatConfig) -> Result<String> {
-    self.get_inner_ensure_config(config).await?.resolved_config(config.id).await
+    self
+      .get_inner_ensure_config(config)
+      .await?
+      .resolved_config(config.id)
+      .await
+      .map_err(anyhow::Error::from)
   }
 
   pub async fn get_file_matching_info(&self, config: &FormatConfig) -> Result<FileMatchingInfo> {
-    self.get_inner_ensure_config(config).await?.file_matching_info(config.id).await
+    self
+      .get_inner_ensure_config(config)
+      .await?
+      .file_matching_info(config.id)
+      .await
+      .map_err(anyhow::Error::from)
   }
 
   pub async fn get_config_diagnostics(&self, config: &FormatConfig) -> Result<Vec<ConfigurationDiagnostic>> {
-    self.get_inner_ensure_config(config).await?.config_diagnostics(config.id).await
+    self
+      .get_inner_ensure_config(config)
+      .await?
+      .config_diagnostics(config.id)
+      .await
+      .map_err(anyhow::Error::from)
   }
 
   pub async fn check_config_updates(&self, message: &CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
-    self.get_inner().await.check_config_updates(message).await
+    self.get_inner().await.check_config_updates(message).await.map_err(anyhow::Error::from)
   }
 
   pub async fn format_text(&self, request: InitializedPluginFormatRequest) -> FormatResult {
     match self
       .get_inner_ensure_config(&request.config)
-      .await?
+      .await
+      .map_err(FormatError::new)?
       .format_text(ProcessPluginCommunicatorFormatRequest {
         file_path: request.file_path,
         file_bytes: request.file_text,
@@ -112,7 +129,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
         } else {
           *inner = InnerState {
             registered_configs: Default::default(),
-            communicator: Rc::new(create_new_communicator(&self.restart_info).await?),
+            communicator: Rc::new(create_new_communicator(&self.restart_info).await.map_err(FormatError::new)?),
           };
           Err(err)
         }
@@ -155,8 +172,8 @@ mod test {
   use std::sync::Arc;
   use std::time::Duration;
 
-  use dprint_core::async_runtime::future;
   use dprint_core::async_runtime::FutureExt;
+  use dprint_core::async_runtime::future;
   use dprint_core::configuration::ConfigKeyMap;
   use dprint_core::plugins::NullCancellationToken;
   use tokio_util::sync::CancellationToken;

@@ -68,7 +68,7 @@ impl EditorMessage {
             return Err(std::io::Error::new(
               ErrorKind::InvalidData,
               format!("Unknown format response kind: {}", response_kind),
-            ))
+            ));
           }
         };
         EditorMessageBody::FormatResponse(message_id, data)

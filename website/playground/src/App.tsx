@@ -1,9 +1,7 @@
 import type { FileMatchingInfo, PluginInfo } from "@dprint/formatter";
-import React, { useEffect, useState } from "react";
-import ReactDOM from "react-dom";
+import { useEffect, useState } from "react";
 import { Spinner } from "./components";
 import * as formatterWorker from "./FormatterWorker";
-import "./index.css";
 import { Playground } from "./Playground";
 import { getPluginDefaultConfig, getPluginShortNameFromPluginUrl, getPluginUrls } from "./plugins";
 import { UrlSaver } from "./utils";
@@ -12,11 +10,12 @@ const urlSaver = new UrlSaver();
 const initialUrl = urlSaver.getUrlInfo();
 let isFirstLoad = true;
 
-function Loader() {
+export default function App() {
   const [pluginUrls, setPluginUrls] = useState<string[]>([]);
   const [pluginUrl, setPluginUrl] = useState(initialUrl.pluginUrl);
   const [pluginInfo, setPluginInfo] = useState<PluginInfo | undefined>();
   const [fileMatchingInfo, setFileMatchingInfo] = useState<FileMatchingInfo | undefined>();
+  const [fileExtension, setFileExtension] = useState(initialUrl.ext ?? "");
   const [text, setText] = useState(initialUrl.text);
   const [configText, setConfigText] = useState(initialUrl.configText ?? "");
   const [defaultConfigText, setDefaultConfigText] = useState("");
@@ -85,8 +84,9 @@ function Loader() {
       text,
       configText: configText === defaultConfigText ? undefined : configText,
       plugin: isBuiltInLanguage ? shortName : pluginUrl,
+      ext: fileMatchingInfo?.fileExtensions.indexOf(fileExtension) === 0 ? undefined : fileExtension,
     });
-  }, [text, configText, pluginUrl, defaultConfigText]);
+  }, [text, configText, pluginUrl, defaultConfigText, fileExtension, fileMatchingInfo]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -137,6 +137,8 @@ function Loader() {
       onTextChanged={setText}
       configText={configText}
       onConfigTextChanged={setConfigText}
+      fileExtension={fileExtension}
+      onFileExtensionChanged={setFileExtension}
       formattedText={formattedText}
       pluginUrls={pluginUrls}
       selectedPluginUrl={pluginUrl}
@@ -153,5 +155,3 @@ function Loader() {
     />
   );
 }
-
-ReactDOM.render(<Loader />, document.getElementById("root"));

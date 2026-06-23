@@ -8,8 +8,9 @@ use dprint_core::plugins::PluginInfo;
 
 use super::implementations::WASMER_COMPILER_VERSION;
 use crate::environment::Environment;
+use crate::utils::PluginKind;
 
-const PLUGIN_CACHE_SCHEMA_VERSION: usize = 8;
+const PLUGIN_CACHE_SCHEMA_VERSION: usize = 9;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -54,14 +55,14 @@ fn version_gt(file: &str, current: &str) -> bool {
   use std::cmp::Ordering;
 
   for (file, current) in file.split('.').zip(current.split('.')) {
-    if let Ok(file) = file.parse::<usize>() {
-      if let Ok(current) = current.parse::<usize>() {
-        match current.cmp(&file) {
-          Ordering::Greater => return true,
-          Ordering::Less => return false,
-          Ordering::Equal => {
-            // keep searching
-          }
+    if let Ok(file) = file.parse::<usize>()
+      && let Ok(current) = current.parse::<usize>()
+    {
+      match current.cmp(&file) {
+        Ordering::Greater => return true,
+        Ordering::Less => return false,
+        Ordering::Equal => {
+          // keep searching
         }
       }
     }
@@ -76,6 +77,11 @@ pub struct PluginCacheManifestItem {
   pub created_time: u64,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub file_hash: Option<u64>,
+  /// The plugin kind. Optional for backwards compatibility with older cache entries
+  /// where the kind was inferred from the file extension.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default)]
+  pub plugin_kind: Option<PluginKind>,
   pub info: PluginInfo,
 }
 
@@ -89,7 +95,7 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
         if manifest.is_new_wasm_cache() {
           log_debug!(environment, "Busting plugins cache due to new wasm cache version.");
         }
-        let _ = environment.remove_dir_all(environment.get_cache_dir().join("plugins"));
+        environment.try_remove_dir_all(environment.get_cache_dir().join("plugins"));
         PluginCacheManifest::new()
       } else {
         manifest
@@ -97,7 +103,7 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
     }
     Err(err) => {
       log_debug!(environment, "Busting plugins cache due to deserialization error: {:#}", err);
-      let _ = environment.remove_dir_all(environment.get_cache_dir().join("plugins"));
+      environment.try_remove_dir_all(environment.get_cache_dir().join("plugins"));
       PluginCacheManifest::new()
     }
   };
@@ -114,7 +120,7 @@ pub fn read_manifest(environment: &impl Environment) -> PluginCacheManifest {
 pub fn write_manifest(manifest: &PluginCacheManifest, environment: &impl Environment) -> Result<()> {
   let file_path = get_manifest_file_path(environment);
   let serialized_manifest = serde_json::to_string(&manifest)?;
-  environment.atomic_write_file_bytes(file_path, serialized_manifest.as_bytes())
+  Ok(environment.atomic_write_file_bytes(file_path, serialized_manifest.as_bytes())?)
 }
 
 fn get_manifest_file_path(environment: &impl Environment) -> PathBuf {
@@ -131,11 +137,12 @@ mod test {
   #[test]
   fn should_read_ok_manifest() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
     environment
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
         r#"{
-    "schemaVersion": 8,
+    "schemaVersion": 9,
     "wasmCacheVersion": "99.9.9",
     "plugins": {
         "a": {
@@ -184,6 +191,7 @@ mod test {
       PluginCacheManifestItem {
         created_time: 123,
         file_hash: None,
+        plugin_kind: None,
         info: PluginInfo {
           name: "dprint-plugin-typescript".to_string(),
           version: "0.1.0".to_string(),
@@ -199,6 +207,7 @@ mod test {
       PluginCacheManifestItem {
         created_time: 456,
         file_hash: Some(10),
+        plugin_kind: None,
         info: PluginInfo {
           name: "dprint-plugin-json".to_string(),
           version: "0.2.0".to_string(),
@@ -214,6 +223,7 @@ mod test {
       PluginCacheManifestItem {
         created_time: 210530,
         file_hash: Some(1226),
+        plugin_kind: None,
         info: PluginInfo {
           name: "dprint-plugin-cargo".to_string(),
           version: "0.2.1".to_string(),
@@ -231,11 +241,12 @@ mod test {
   #[test]
   fn should_cache_bust_for_old_wasm_cache_version() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
     environment
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
         r#"{
-    "schemaVersion": 8,
+    "schemaVersion": 9,
     "wasmCacheVersion": "0.1.0",
     "plugins": {
         "a": {
@@ -261,6 +272,7 @@ mod test {
   #[test]
   fn should_not_error_for_old_manifest() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
     environment
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
@@ -289,6 +301,7 @@ mod test {
   #[test]
   fn should_have_empty_manifest_for_deserialization_error() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
     environment
       .write_file(
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
@@ -310,12 +323,14 @@ mod test {
   #[test]
   fn it_save_manifest() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
     let mut manifest = PluginCacheManifest::new();
     manifest.add_item(
       String::from("a"),
       PluginCacheManifestItem {
         created_time: 456,
         file_hash: Some(256),
+        plugin_kind: None,
         info: PluginInfo {
           name: "dprint-plugin-typescript".to_string(),
           version: "0.1.0".to_string(),
@@ -331,6 +346,7 @@ mod test {
       PluginCacheManifestItem {
         created_time: 456,
         file_hash: None,
+        plugin_kind: None,
         info: PluginInfo {
           name: "dprint-plugin-json".to_string(),
           version: "0.2.0".to_string(),
@@ -367,5 +383,80 @@ mod test {
     assert!(manifest.is_new_wasm_cache());
     manifest.wasm_cache_version = "100.0.1".to_string();
     assert!(!manifest.is_new_wasm_cache());
+  }
+
+  #[test]
+  fn should_roundtrip_plugin_kind() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
+    let mut manifest = PluginCacheManifest::new();
+    manifest.add_item(
+      String::from("npm:@dprint/typescript@0.23.0"),
+      PluginCacheManifestItem {
+        created_time: 100,
+        file_hash: None,
+        plugin_kind: Some(PluginKind::Wasm),
+        info: PluginInfo {
+          name: "dprint-plugin-typescript".to_string(),
+          version: "0.23.0".to_string(),
+          config_key: "typescript".to_string(),
+          help_url: "help url".to_string(),
+          config_schema_url: "schema url".to_string(),
+          update_url: None,
+        },
+      },
+    );
+    manifest.add_item(
+      String::from("npm:@dprint/prettier@1.0.0"),
+      PluginCacheManifestItem {
+        created_time: 200,
+        file_hash: None,
+        plugin_kind: Some(PluginKind::Process),
+        info: PluginInfo {
+          name: "dprint-plugin-prettier".to_string(),
+          version: "1.0.0".to_string(),
+          config_key: "prettier".to_string(),
+          help_url: "help url 2".to_string(),
+          config_schema_url: "schema url 2".to_string(),
+          update_url: None,
+        },
+      },
+    );
+    write_manifest(&manifest, &environment).unwrap();
+    assert_eq!(read_manifest(&environment), manifest);
+  }
+
+  #[test]
+  fn should_read_manifest_without_plugin_kind() {
+    // backwards compat: old cache entries won't have pluginKind
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
+    environment
+      .write_file(
+        &environment.get_cache_dir().join("plugin-cache-manifest.json"),
+        &serde_json::json!({
+          "schemaVersion": 9,
+          "wasmCacheVersion": WASMER_COMPILER_VERSION,
+          "plugins": {
+            "remote:https://example.com/test.wasm": {
+              "createdTime": 123,
+              "info": {
+                "name": "test-plugin",
+                "version": "0.1.0",
+                "configKey": "test",
+                "helpUrl": "help",
+                "configSchemaUrl": "schema"
+              }
+            }
+          }
+        })
+        .to_string(),
+      )
+      .unwrap();
+
+    let manifest = read_manifest(&environment);
+    let item = manifest.get_item("remote:https://example.com/test.wasm").unwrap();
+    assert_eq!(item.plugin_kind, None);
+    assert_eq!(item.info.name, "test-plugin");
   }
 }

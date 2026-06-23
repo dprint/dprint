@@ -1,7 +1,3 @@
-use anyhow::anyhow;
-use anyhow::bail;
-use anyhow::Context as AnyhowContext;
-use anyhow::Result;
 use serde::de::DeserializeOwned;
 use std::cell::RefCell;
 use std::io::BufRead;
@@ -20,6 +16,7 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
+use super::PLUGIN_SCHEMA_VERSION;
 use super::messages::CheckConfigUpdatesMessageBody;
 use super::messages::CheckConfigUpdatesResponseBody;
 use super::messages::FormatMessageBody;
@@ -28,7 +25,6 @@ use super::messages::MessageBody;
 use super::messages::ProcessPluginMessage;
 use super::messages::RegisterConfigMessageBody;
 use super::messages::ResponseBody;
-use super::PLUGIN_SCHEMA_VERSION;
 use crate::async_runtime::DropGuardAction;
 use crate::async_runtime::LocalBoxFuture;
 use crate::communication::AtomicFlag;
@@ -44,13 +40,74 @@ use crate::plugins::ConfigChange;
 use crate::plugins::CriticalFormatError;
 use crate::plugins::FileMatchingInfo;
 use crate::plugins::FormatConfigId;
+use crate::plugins::FormatError;
 use crate::plugins::FormatRange;
 use crate::plugins::FormatResult;
 use crate::plugins::HostFormatRequest;
 use crate::plugins::NullCancellationToken;
 use crate::plugins::PluginInfo;
+use crate::plugins::error_to_string;
+
+type Result<T> = std::result::Result<T, FormatError>;
 
 type DprintCancellationToken = Arc<dyn super::super::CancellationToken>;
+
+/// The detailed reason a schema version negotiation step failed.
+#[derive(Debug, thiserror::Error)]
+enum SchemaVersionError {
+  #[error("Failed asking for schema version: {0}")]
+  Ask(std::io::Error),
+  #[error("Failed flushing schema version request: {0}")]
+  Flush(std::io::Error),
+  #[error("Could not read success response: {0}")]
+  ReadAcknowledgement(std::io::Error),
+  #[error("Plugin response was unexpected ({0}).")]
+  UnexpectedAcknowledgement(u32),
+  #[error("Could not read schema version: {0}")]
+  ReadVersion(std::io::Error),
+}
+
+/// Errors that can occur while communicating with a process plugin.
+#[derive(Debug, thiserror::Error)]
+enum CommunicatorError {
+  #[error("Error starting {executable} with args [{args}]. {error}")]
+  StartProcess { executable: String, args: String, error: std::io::Error },
+  #[error("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade")]
+  SchemaVerification(#[from] SchemaVersionError),
+  #[error(
+    "This plugin is too old to run in the dprint CLI and you will need to manually upgrade it (version was {actual}, but expected {expected}).\n\nUpgrade instructions: https://github.com/dprint/dprint/issues/731"
+  )]
+  PluginTooOld { actual: u32, expected: u32 },
+  #[error("Your dprint CLI is too old to run this plugin (version was {actual}, but expected {expected}). Try running: dprint upgrade")]
+  CliTooOld { actual: u32, expected: u32 },
+  #[error("Error waiting on message ({message_id}). {error}")]
+  WaitOnMessage {
+    message_id: u32,
+    error: tokio::sync::oneshot::error::RecvError,
+  },
+  #[error("Unexpected data channel for success response: {0}")]
+  UnexpectedDataForSuccess(u32),
+  #[error("Unexpected format channel for success response: {0}")]
+  UnexpectedFormatForSuccess(u32),
+  #[error("Unexpected success channel for data response: {0}")]
+  UnexpectedSuccessForData(u32),
+  #[error("Unexpected format channel for data response: {0}")]
+  UnexpectedFormatForData(u32),
+  #[error("Unexpected success channel for format response: {0}")]
+  UnexpectedSuccessForFormat(u32),
+  #[error("Unexpected data channel for format response: {0}")]
+  UnexpectedDataForFormat(u32),
+  #[error("Unknown message kind: {0}")]
+  UnknownMessageKind(u32),
+  #[error("Could not find host format callback for message id: {0}")]
+  HostFormatCallbackNotFound(u32),
+}
+
+impl From<CommunicatorError> for FormatError {
+  fn from(err: CommunicatorError) -> Self {
+    FormatError::new(err)
+  }
+}
 
 pub type HostFormatCallback = Rc<dyn Fn(HostFormatRequest) -> LocalBoxFuture<'static, FormatResult>>;
 
@@ -114,7 +171,11 @@ impl ProcessPluginCommunicator {
       .stderr(Stdio::piped())
       .stdout(Stdio::piped())
       .spawn()
-      .map_err(|err| anyhow!("Error starting {} with args [{}]. {:#}", executable_file_path.display(), args.join(" "), err))?;
+      .map_err(|err| CommunicatorError::StartProcess {
+        executable: executable_file_path.display().to_string(),
+        args: args.join(" "),
+        error: err,
+      })?;
 
     // read and output stderr prefixed
     let stderr = child.stderr.take().unwrap();
@@ -131,28 +192,26 @@ impl ProcessPluginCommunicator {
     let mut stdin_writer = MessageWriter::new(child.stdin.take().unwrap());
 
     let (mut stdout_reader, stdin_writer, schema_version) = crate::async_runtime::spawn_blocking(move || {
-      let schema_version = get_plugin_schema_version(&mut stdout_reader, &mut stdin_writer)
-        .context("Failed plugin schema verification. This may indicate you are using an old version of the dprint CLI or plugin and should upgrade")?;
-      Ok::<_, anyhow::Error>((stdout_reader, stdin_writer, schema_version))
+      let schema_version = get_plugin_schema_version(&mut stdout_reader, &mut stdin_writer).map_err(CommunicatorError::SchemaVerification)?;
+      Ok::<_, FormatError>((stdout_reader, stdin_writer, schema_version))
     })
     .await??;
 
     if schema_version != PLUGIN_SCHEMA_VERSION {
       // kill the child to prevent it from ouputting to stderr
       let _ = child.kill();
-      if schema_version < PLUGIN_SCHEMA_VERSION {
-        bail!(
-          "This plugin is too old to run in the dprint CLI and you will need to manually upgrade it (version was {}, but expected {}).\n\nUpgrade instructions: https://github.com/dprint/dprint/issues/731",
-          schema_version,
-          PLUGIN_SCHEMA_VERSION
-        );
+      let err = if schema_version < PLUGIN_SCHEMA_VERSION {
+        CommunicatorError::PluginTooOld {
+          actual: schema_version,
+          expected: PLUGIN_SCHEMA_VERSION,
+        }
       } else {
-        bail!(
-          "Your dprint CLI is too old to run this plugin (version was {}, but expected {}). Try running: dprint upgrade",
-          schema_version,
-          PLUGIN_SCHEMA_VERSION
-        );
-      }
+        CommunicatorError::CliTooOld {
+          actual: schema_version,
+          expected: PLUGIN_SCHEMA_VERSION,
+        }
+      };
+      return Err(err.into());
     }
 
     let stdin_writer = SingleThreadMessageWriter::for_stdin(stdin_writer);
@@ -392,24 +451,25 @@ impl ProcessPluginCommunicator {
         drop_guard.forget(); // we completed, so don't run the drop guard
         match response {
           Ok(data) => Ok(data),
-          Err(err) => {
-            bail!("Error waiting on message ({}). {:#}", message_id, err)
-          }
+          Err(err) => Err(CommunicatorError::WaitOnMessage { message_id, error: err }.into()),
         }
       }
     }
   }
 }
 
-fn get_plugin_schema_version<TRead: Read + Unpin, TWrite: Write + Unpin>(reader: &mut MessageReader<TRead>, writer: &mut MessageWriter<TWrite>) -> Result<u32> {
-  // since this is the setup, use a lot of contexts to find exactly where it failed
-  writer.send_u32(0).context("Failed asking for schema version.")?; // ask for schema version
-  writer.flush().context("Failed flushing schema version request.")?;
-  let acknowledgement_response = reader.read_u32().context("Could not read success response.")?;
+fn get_plugin_schema_version<TRead: Read + Unpin, TWrite: Write + Unpin>(
+  reader: &mut MessageReader<TRead>,
+  writer: &mut MessageWriter<TWrite>,
+) -> std::result::Result<u32, SchemaVersionError> {
+  // since this is the setup, identify exactly where it failed
+  writer.send_u32(0).map_err(SchemaVersionError::Ask)?; // ask for schema version
+  writer.flush().map_err(SchemaVersionError::Flush)?;
+  let acknowledgement_response = reader.read_u32().map_err(SchemaVersionError::ReadAcknowledgement)?;
   if acknowledgement_response != 0 {
-    bail!("Plugin response was unexpected ({acknowledgement_response}).");
+    return Err(SchemaVersionError::UnexpectedAcknowledgement(acknowledgement_response));
   }
-  reader.read_u32().context("Could not read schema version.")
+  reader.read_u32().map_err(SchemaVersionError::ReadVersion)
 }
 
 fn std_err_redirect(shutdown_flag: Arc<AtomicFlag>, stderr: ChildStderr, on_std_err: impl Fn(String) + Send + Sync + 'static) {
@@ -435,27 +495,27 @@ fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -
         let _ignore = channel.send(Ok(()));
       }
       Some(MessageResponseChannel::Data(channel)) => {
-        let _ignore = channel.send(Err(anyhow!("Unexpected data channel for success response: {}", message_id)));
+        let _ignore = channel.send(Err(CommunicatorError::UnexpectedDataForSuccess(message_id).into()));
       }
       Some(MessageResponseChannel::Format(channel)) => {
-        let _ignore = channel.send(Err(anyhow!("Unexpected format channel for success response: {}", message_id)));
+        let _ignore = channel.send(Err(CommunicatorError::UnexpectedFormatForSuccess(message_id).into()));
       }
       None => {}
     },
     MessageBody::DataResponse(response) => match context.messages.take(response.message_id) {
       Some(MessageResponseChannel::Acknowledgement(channel)) => {
-        let _ignore = channel.send(Err(anyhow!("Unexpected success channel for data response: {}", response.message_id)));
+        let _ignore = channel.send(Err(CommunicatorError::UnexpectedSuccessForData(response.message_id).into()));
       }
       Some(MessageResponseChannel::Data(channel)) => {
         let _ignore = channel.send(Ok(response.data));
       }
       Some(MessageResponseChannel::Format(channel)) => {
-        let _ignore = channel.send(Err(anyhow!("Unexpected format channel for data response: {}", response.message_id)));
+        let _ignore = channel.send(Err(CommunicatorError::UnexpectedFormatForData(response.message_id).into()));
       }
       None => {}
     },
     MessageBody::Error(response) => {
-      let err = anyhow!("{}", String::from_utf8_lossy(&response.data));
+      let err: FormatError = String::from_utf8_lossy(&response.data).into_owned().into();
       match context.messages.take(response.message_id) {
         Some(MessageResponseChannel::Acknowledgement(channel)) => {
           let _ignore = channel.send(Err(err));
@@ -471,10 +531,10 @@ fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -
     }
     MessageBody::FormatResponse(response) => match context.messages.take(response.message_id) {
       Some(MessageResponseChannel::Acknowledgement(channel)) => {
-        let _ignore = channel.send(Err(anyhow!("Unexpected success channel for format response: {}", response.message_id)));
+        let _ignore = channel.send(Err(CommunicatorError::UnexpectedSuccessForFormat(response.message_id).into()));
       }
       Some(MessageResponseChannel::Data(channel)) => {
-        let _ignore = channel.send(Err(anyhow!("Unexpected data channel for format response: {}", response.message_id)));
+        let _ignore = channel.send(Err(CommunicatorError::UnexpectedDataForFormat(response.message_id).into()));
       }
       Some(MessageResponseChannel::Format(channel)) => {
         let _ignore = channel.send(Ok(response.data));
@@ -506,7 +566,7 @@ fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -
             }),
             Err(err) => MessageBody::Error(ResponseBody {
               message_id: message.id,
-              data: format!("{:#}", err).into_bytes(),
+              data: error_to_string(&err).into_bytes(),
             }),
           },
         });
@@ -540,7 +600,7 @@ fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -
     // If encountered, process plugin should exit and
     // the CLI should kill the process plugin.
     MessageBody::Unknown(message_kind) => {
-      bail!("Unknown message kind: {}", message_kind);
+      return Err(CommunicatorError::UnknownMessageKind(message_kind).into());
     }
   }
 
@@ -549,7 +609,7 @@ fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -
 
 async fn host_format(context: Rc<Context>, message_id: u32, body: HostFormatMessageBody) -> FormatResult {
   let Some(callback) = context.host_format_callbacks.get_cloned(body.original_message_id) else {
-    return FormatResult::Err(anyhow!("Could not find host format callback for message id: {}", body.original_message_id));
+    return FormatResult::Err(CommunicatorError::HostFormatCallbackNotFound(body.original_message_id).into());
   };
 
   let token = Arc::new(CancellationToken::new());

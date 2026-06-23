@@ -2,8 +2,6 @@ use std::borrow::Cow;
 use std::cell::UnsafeCell;
 use std::rc::Rc;
 
-use super::collections::GraphNode;
-use super::collections::NodeStackNode;
 use super::Condition;
 use super::ConditionResolver;
 use super::PrintNodeCell;
@@ -11,6 +9,8 @@ use super::SavePoint;
 use super::StringContainer;
 use super::UnsafePrintLifetime;
 use super::WriteItem;
+use super::collections::GraphNode;
+use super::collections::NodeStackNode;
 
 #[derive(Default)]
 pub struct Counts {

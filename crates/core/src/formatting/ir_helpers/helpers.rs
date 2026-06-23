@@ -269,10 +269,10 @@ pub fn text_has_dprint_ignore(text: &str, searching_text: &str) -> bool {
   }
 
   fn is_alpha_numeric_at_pos(text: &str, pos: usize) -> bool {
-    if let Some(chars_after) = text.get(pos..) {
-      if let Some(char_after) = chars_after.chars().next() {
-        return char_after.is_alphanumeric();
-      }
+    if let Some(chars_after) = text.get(pos..)
+      && let Some(char_after) = chars_after.chars().next()
+    {
+      return char_after.is_alphanumeric();
     }
     false
   }

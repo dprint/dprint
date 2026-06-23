@@ -6,10 +6,10 @@ use std::rc::Rc;
 use crate::environment::CanonicalizedPathBuf;
 use crate::patterns::get_patterns_as_glob_matcher;
 use crate::resolution::PluginWithConfig;
-use crate::utils::get_lowercase_file_extension;
-use crate::utils::get_lowercase_file_name;
 use crate::utils::GlobMatcher;
 use crate::utils::GlobMatchesDetail;
+use crate::utils::get_lowercase_file_extension;
+use crate::utils::get_lowercase_file_name;
 
 #[derive(Default)]
 pub struct PluginNameResolutionMaps {
@@ -64,22 +64,22 @@ impl PluginNameResolutionMaps {
       return plugin_names;
     }
 
-    if let Some(file_name) = get_lowercase_file_name(file_path) {
-      if let Some(plugin_names) = self.file_name_to_plugin_names_map.get(&file_name) {
-        for plugin_name in plugin_names {
-          if self.is_not_associations_excluded(plugin_name, file_path) {
-            return vec![plugin_name.clone()];
-          }
+    if let Some(file_name) = get_lowercase_file_name(file_path)
+      && let Some(plugin_names) = self.file_name_to_plugin_names_map.get(&file_name)
+    {
+      for plugin_name in plugin_names {
+        if self.is_not_associations_excluded(plugin_name, file_path) {
+          return vec![plugin_name.clone()];
         }
       }
     }
 
-    if let Some(ext) = get_lowercase_file_extension(file_path) {
-      if let Some(plugin_names) = self.extension_to_plugin_names_map.get(&ext) {
-        for plugin_name in plugin_names {
-          if self.is_not_associations_excluded(plugin_name, file_path) {
-            return vec![plugin_name.clone()];
-          }
+    if let Some(ext) = get_lowercase_file_extension(file_path)
+      && let Some(plugin_names) = self.extension_to_plugin_names_map.get(&ext)
+    {
+      for plugin_name in plugin_names {
+        if self.is_not_associations_excluded(plugin_name, file_path) {
+          return vec![plugin_name.clone()];
         }
       }
     }

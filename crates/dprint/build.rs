@@ -2,6 +2,50 @@
 fn main() {
   println!("cargo:rustc-env=TARGET={}", std::env::var("TARGET").unwrap());
   println!("cargo:rustc-env=RUSTC_VERSION_TEXT={}", get_rustc_version());
+  set_wasm_backend_cfg();
+  set_windows_delay_load_dlls();
+}
+
+// Select the wasm plugin backend. The default compiler backends (Cranelift /
+// LLVM) can't target powerpc64, and on android wasmer-vm's trap handling is
+// unreliable in the sandbox, so both use the portable wasmi interpreter
+// instead. The `wasm-interpreter` feature forces the same path on other
+// architectures so the interpreter code can be built and tested there.
+#[allow(clippy::disallowed_methods)]
+fn set_wasm_backend_cfg() {
+  println!("cargo:rustc-check-cfg=cfg(wasm_interpreter)");
+  let is_powerpc64 = std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("powerpc64");
+  let is_android = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("android");
+  let forced = std::env::var("CARGO_FEATURE_WASM_INTERPRETER").is_ok();
+  if is_powerpc64 || is_android || forced {
+    println!("cargo:rustc-cfg=wasm_interpreter");
+  }
+}
+
+// delay load DLLs that aren't needed on the common startup path so they
+// don't slow down Windows startup. these are only resolved on first use.
+// the `windows_dll_imports` test verifies the eager/delay split.
+#[allow(clippy::disallowed_methods)]
+fn set_windows_delay_load_dlls() {
+  let is_windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+  if !is_windows_msvc {
+    return;
+  }
+
+  let dlls = [
+    "ws2_32",   // networking—only needed when downloading plugins
+    "crypt32",  // TLS certificate store—only needed when downloading plugins
+    "combase",  // COM/OLE—off the common startup path
+    "oleaut32", // COM/OLE—off the common startup path
+    "pdh",      // sysinfo CPU usage—only while throttling CPU during a long format run
+    "powrprof", // sysinfo CPU usage—only while throttling CPU during a long format run
+    "psapi",    // sysinfo process info—only during plugin cache cleanup of a locked dir
+  ];
+  for dll in dlls {
+    println!("cargo:rustc-link-arg-bin=dprint=/delayload:{dll}.dll");
+  }
+  // link the delay load helper that the above flags require
+  println!("cargo:rustc-link-arg-bin=dprint=delayimp.lib");
 }
 
 fn get_rustc_version() -> String {

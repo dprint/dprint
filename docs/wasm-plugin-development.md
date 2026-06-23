@@ -38,10 +38,10 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
 
    ```rust
    use anyhow::Result;
-   use dprint_core::configuration::get_unknown_property_diagnostics;
-   use dprint_core::configuration::get_value;
    use dprint_core::configuration::ConfigKeyMap;
    use dprint_core::configuration::GlobalConfiguration;
+   use dprint_core::configuration::get_unknown_property_diagnostics;
+   use dprint_core::configuration::get_value;
    use dprint_core::generate_plugin_code;
    use dprint_core::plugins::FileMatchingInfo;
    use dprint_core::plugins::PluginInfo;

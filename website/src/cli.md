@@ -54,11 +54,59 @@ dprint fmt --staged
 
 Note: This requires that [git](https://git-scm.com/) is installed and that you use git for source control.
 
+### Formatting only git working directory files
+
+Requires dprint >= 0.55.0
+
+To format only the files with uncommitted changes in the git working directory—staged, unstaged, and untracked (but not gitignored) files—use the `--dirty` flag:
+
+```sh
+dprint fmt --dirty
+```
+
+This is useful in editors such as the JetBrains IDEs where the staging area isn't surfaced and you want to format everything you've touched but not yet committed.
+
+Note: This requires that [git](https://git-scm.com/) is installed and that you use git for source control.
+
+### Ignoring .gitignore
+
+By default, dprint respects `.gitignore` files (as well as a repository's `.git/info/exclude` file) and excludes any gitignored files from formatting. To disable this behaviour, use the `--no-gitignore` flag:
+
+```sh
+dprint fmt --no-gitignore
+```
+
+### Respecting a global .gitignore
+
+By default, dprint does not respect git's global excludes file (`core.excludesFile`, defaulting to `$XDG_CONFIG_HOME/git/ignore`). This is opt-in because it's specific to your machine and won't exist on other machines or CI, so enabling it could cause formatting results to differ between environments.
+
+To opt in, set the `DPRINT_GLOBAL_GITIGNORE` environment variable to `1`:
+
+```sh
+DPRINT_GLOBAL_GITIGNORE=1 dprint fmt
+```
+
+The global excludes file has the lowest precedence, so a repository's `.gitignore` or `.git/info/exclude` can re-include files it ignores. Using `--no-gitignore` disables it along with all other gitignore handling.
+
 ### Formatting Standard Input
 
 Use `dprint fmt --stdin <file-path/file-name/extension>` and provide the input file text to stdin. The output will be directed by the CLI to stdout.
 
 Provide a full file path to format with inclusion/exclusion rules of your dprint configuration file or provide only a file name or extension to always format the file.
+
+### Formatting a list of files from Standard Input
+
+Requires dprint >= 0.55.0
+
+Use the `--stdin-files` flag to read a newline-separated list of file paths to format from stdin instead of passing them as command line arguments. This is useful when piping the output of another tool into dprint:
+
+```sh
+generate_files | dprint fmt --stdin-files
+```
+
+Unlike piping through `xargs`, this handles file paths containing spaces since the only delimiter is the newline (blank lines are ignored). It also avoids the command line length limits that apply when passing many paths as arguments.
+
+The paths are resolved against the inclusion/exclusion rules of your dprint configuration file, the same way file patterns passed on the command line are. This flag is also available for the `check`, `file-paths`, and `format-times` subcommands.
 
 ## Checking What Files Aren't Formatted
 
@@ -72,7 +120,21 @@ Example output:
 
 ![Example of dprint check output.](/images/check-example.png "Example of dprint check output.")
 
-If you wish to only output the file paths and not any diffs, dprint 0.42 and above supports the `--list-different` flag.
+### List file paths only
+
+Use the `--list-different` flag to display only the file paths that aren't formatted.
+
+```sh
+dprint check --list-different
+```
+
+### `--fail-fast` (dprint 0.51+)
+
+Instead of checking every file, you can have the CLI stop on the first failure:
+
+```sh
+dprint check --fail-fast
+```
 
 ## Incremental Formatting
 
@@ -111,9 +173,25 @@ Starting in dprint 0.50, you can change the way dprint discovers configuration f
 
 - `--config-discovery=default` (default) - Discovers configuration files in the current directory, ancestor directories, and descendant directories while searching for files to format.
 - `--config-discovery=ignore-descendants` - Discovers configuration files in the current directory and ancestor directories only.
+- `--config-discovery=global` - Use the global config file only (dprint 0.51+)
 - `--config-discovery=false` - Disables all configuration discovery (specify either `--config=<path>` or `--plugins <url-or-path>`).
 
-Note this can also be set via the `DPRINT_CONFIG_DISCOVERY` environment variable (ex. `DPRINT_CONFIG_DISCOVERY=false`)
+Note this can also be set via the `DPRINT_CONFIG_DISCOVERY` environment variable (ex. `DPRINT_CONFIG_DISCOVERY=false`, `DPRINT_CONFIG_DISCOVERY=global`, etc.)
+
+## Coloured Output
+
+By default, dprint colours its output (for example, the diffs shown by `dprint check` and `dprint fmt --diff`). Unlike many tools, it emits colours regardless of whether the output is a terminal, so colours show up in CI logs as well. This is controlled by two environment variables:
+
+- `NO_COLOR` - Set to any non-empty value to disable coloured output. See [no-color.org](https://no-color.org/).
+- `FORCE_COLOR` - Set to any non-empty value to force coloured output on, even when `NO_COLOR` is set. Takes precedence over `NO_COLOR`.
+
+```sh
+# disable colours
+NO_COLOR=1 dprint check
+
+# re-enable colours in an environment that sets NO_COLOR
+FORCE_COLOR=1 dprint check
+```
 
 ## Exit codes
 
@@ -124,11 +202,11 @@ Note this can also be set via the `DPRINT_CONFIG_DISCOVERY` environment variable
 - `12` - Plugin resolution error
 - `13` - No plugins found error
 - `14` - No files found error (or suppress to `0` with `--allow-no-files` in dprint >= 0.43)
-- `20` - `dprint check` found non-formatted files
+- `20` - `dprint check` found non-formatted files, or `dprint fmt --fail-on-change` formatted files
 
 ## Shell completions
 
-Shell completions can be generated by running `dprint completions <shell>` in dprint 0.39+.
+Shell completions can be generated by running `dprint completions <shell>`.
 
 Supported shells:
 
@@ -149,10 +227,10 @@ source /usr/local/etc/bash_completion.d/dprint.bash
 
 ### Outputting file paths
 
-Sometimes you may not be sure what files dprint is picking up and formatting. To check, use the `output-file-paths` subcommand to see all the resolved file paths for the current plugins based on the CLI arguments and configuration.
+Sometimes you may not be sure what files dprint is picking up and formatting. To check, use the `file-paths` subcommand to see all the resolved file paths for the current plugins based on the CLI arguments and configuration.
 
 ```sh
-dprint output-file-paths
+dprint file-paths
 ```
 
 Example output:
@@ -172,7 +250,7 @@ C:\dev\my-project\website\playground\src\components\Spinner.tsx
 When diagnosing configuration issues it might be useful to find out what the internal lower level configuration used by the plugins is. To see that, use the following command:
 
 ```sh
-dprint output-resolved-config
+dprint resolved-config
 ```
 
 Example output (JSON):
@@ -202,12 +280,18 @@ Example output (JSON):
 }
 ```
 
+Optionally use the `--file` flag to limit the output to only the plugins that would format that file. This is useful for verifying which plugins are actually associated with a file:
+
+```sh
+dprint resolved-config --file path/to/file.py
+```
+
 ### Outputting format times
 
 It can be useful to know what files take a long time to format as you may consider skipping them. To see this information, use the following command:
 
 ```sh
-dprint output-format-times
+dprint format-times
 ```
 
 Example output:
@@ -223,6 +307,52 @@ Example output:
 16ms - C:\dev\my-project\my-file.ts
 46ms - C:\dev\my-project\docs\overview.md
 54ms - C:\dev\my-project\build.js
+```
+
+### Outputting incremental state (advanced, for very large repositories)
+
+When [incremental formatting](#incremental-formatting) is enabled, dprint keeps a cache and reuses it as long as nothing that affects formatting output has changed. The whole cache for a configuration file is thrown away when its plugins, plugin versions, resolved configuration, associations, overrides, or global configuration change.
+
+The `incremental-state` subcommand prints the exact signal dprint uses to make that decision, so you can compare it between two revisions and find out ahead of time whether the cache would be reused or invalidated:
+
+```sh
+dprint incremental-state
+```
+
+Example output (JSON):
+
+```json
+{
+  "configs": [
+    {
+      "path": "/home/david/dev/my-project/dprint.json",
+      "hash": "3f9c2a7b1e4d8f60",
+      "plugins": [
+        { "name": "dprint-plugin-typescript", "version": "0.95.15" },
+        { "name": "dprint-plugin-json", "version": "0.21.1" }
+      ]
+    }
+  ]
+}
+```
+
+A `configs` entry is emitted for every configuration file dprint discovers (including descendant configuration files), each with the `hash` that gates its incremental cache. The `hash` is the only thing that matters for cache invalidation—the `plugins` list is included so the output is easy to inspect when a hash changes. The output is deterministic across machines for an unchanged configuration.
+
+This is useful in CI to avoid formatting the entire repository when only a few files changed. For example, format only the files in the changeset when the cache would survive, and otherwise fall back to formatting everything:
+
+```sh
+git checkout main
+previous_state=$(dprint incremental-state)
+git checkout "$BRANCH"
+new_state=$(dprint incremental-state)
+
+if [ "$previous_state" != "$new_state" ]; then
+  # plugins or configuration changed—the cache is invalid, so format everything
+  dprint fmt
+else
+  # the cache is still valid, so only format the changed files
+  dprint fmt $(git diff --name-only main...)
+fi
 ```
 
 ### Log Level
@@ -252,7 +382,7 @@ Example output:
 [DEBUG] Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\cache-manifest.json
 [DEBUG] Checking path exists: ./dprint.json
 [DEBUG] Reading file: V:\dev\my-project\dprint.json
-[DEBUG] Globbing: ["**/*.{ts,tsx,js,jsx,json}", "!website/playground/build", "!scripts/build-website", "!**/dist", "!**/target", "!**/wasm", "!**/*-lock.json", "!**/node_modules"]
+[DEBUG] Globbing: ["**/*.{ts,tsx,js,jsx,json}", "!website/playground/dist", "!scripts/build-website", "!**/dist", "!**/target", "!**/wasm", "!**/*-lock.json", "!**/node_modules"]
 [DEBUG] Finished globbing in 12ms
 [DEBUG] Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\typescript-0.19.2.compiled_wasm
 [DEBUG] Reading file: C:\Users\user\AppData\Local\Dprint\Dprint\cache\json-0.4.1.compiled_wasm

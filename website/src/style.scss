@@ -281,6 +281,50 @@ h6 > a {
   list-style-type: square;
 }
 
+// documentation sidebar
+
+.doc-sidebar {
+  @media (max-width: $tablet - 1) {
+    display: none;
+  }
+}
+
+.doc-menu-mobile {
+  display: none;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid $grey-light;
+
+  @media (max-width: $tablet - 1) {
+    display: block;
+  }
+
+  .menu-label {
+    color: $menu-label-color;
+    font-size: 0.75em;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-top: 1em;
+    margin-bottom: 0.5em;
+  }
+
+  .menu-list {
+    list-style: none;
+    padding-left: 0;
+
+    li {
+      a {
+        display: block;
+        padding: 0.5em 0.75em;
+        border-radius: 2px;
+
+        &:hover {
+          background-color: $menu-item-hover-background-color;
+        }
+      }
+    }
+  }
+}
+
 // sponsor
 
 #sponsor {

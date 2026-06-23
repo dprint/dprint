@@ -4,17 +4,17 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use anyhow::Result;
-use crossterm::style::Stylize;
+use deno_terminal::colors;
 use once_cell::sync::Lazy;
 use thiserror::Error;
 
+use crate::AppError;
 use crate::arg_parser::parse_args;
 use crate::environment::TestEnvironment;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginResolver;
 use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
-use crate::AppError;
 
 // macro lifted from Deno's codebase
 #[macro_export]
@@ -73,6 +73,76 @@ pub static PROCESS_PLUGIN_ZIP_BYTES: Lazy<Vec<u8>> = Lazy::new(|| {
   zip.finish().unwrap().into_inner()
 });
 pub static PROCESS_PLUGIN_ZIP_CHECKSUM: Lazy<String> = Lazy::new(|| crate::utils::get_sha256_checksum(&PROCESS_PLUGIN_ZIP_BYTES));
+
+/// Raw bytes of the test process plugin executable — used by tests that
+/// stuff it into a per-platform npm tarball for the `pre_resolved_tarball`
+/// path (npm-installed process plugins ship the executable inside the
+/// tarball; dprint extracts the full tarball at setup time).
+pub static PROCESS_PLUGIN_BINARY_BYTES: Lazy<Vec<u8>> = Lazy::new(|| std::fs::read(&*TEST_PROCESS_PLUGIN_PATH).unwrap());
+
+/// Filename that a per-platform npm package would ship for the test process
+/// plugin's executable (`test-process-plugin.exe` on Windows, otherwise
+/// `test-process-plugin`).
+pub fn process_plugin_binary_filename() -> &'static str {
+  if cfg!(target_os = "windows") {
+    "test-process-plugin.exe"
+  } else {
+    "test-process-plugin"
+  }
+}
+
+/// Builds a gzipped tar with the given (path, contents) entries. Paths must
+/// share a single top-level directory (npm tarballs always wrap under `package/`).
+pub fn create_test_npm_tarball(files: &[(&str, &[u8])]) -> Vec<u8> {
+  let with_mode: Vec<_> = files.iter().map(|(p, c)| (*p, *c, 0o644u32)).collect();
+  create_test_npm_tarball_with_modes(&with_mode)
+}
+
+/// Like `create_test_npm_tarball` but each entry carries its own unix mode.
+pub fn create_test_npm_tarball_with_modes(files: &[(&str, &[u8], u32)]) -> Vec<u8> {
+  build_tarball(files, |header, path| header.set_path(path).unwrap())
+}
+
+/// Like `create_test_npm_tarball` but writes path bytes directly, bypassing
+/// the tar crate's `..` rejection in `set_path`. For exercising defenses
+/// against malicious tarballs.
+pub fn create_test_npm_tarball_raw_paths(files: &[(&str, &[u8])]) -> Vec<u8> {
+  let with_mode: Vec<_> = files.iter().map(|(p, c)| (*p, *c, 0o644u32)).collect();
+  build_tarball(&with_mode, |header, path| {
+    let bytes = path.as_bytes();
+    let name = &mut header.as_old_mut().name;
+    if bytes.len() > name.len() {
+      panic!(
+        "raw tar path is too long for the legacy tar header name field: {} bytes > {} bytes: {}",
+        bytes.len(),
+        name.len(),
+        path
+      );
+    }
+    name.fill(0);
+    name[..bytes.len()].copy_from_slice(bytes);
+  })
+}
+
+fn build_tarball(files: &[(&str, &[u8], u32)], mut set_name: impl FnMut(&mut tar::Header, &str)) -> Vec<u8> {
+  use flate2::Compression;
+  use flate2::write::GzEncoder;
+
+  let mut tar_builder = tar::Builder::new(Vec::new());
+  for (path, contents, mode) in files {
+    let mut header = tar::Header::new_gnu();
+    set_name(&mut header, path);
+    header.set_size(contents.len() as u64);
+    header.set_mode(*mode);
+    header.set_cksum();
+    tar_builder.append(&header, *contents).unwrap();
+  }
+  let tar_bytes = tar_builder.into_inner().unwrap();
+
+  let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+  std::io::Write::write_all(&mut encoder, &tar_bytes).unwrap();
+  encoder.finish().unwrap()
+}
 
 #[derive(Debug, Error)]
 #[error("{inner:#}")]
@@ -234,19 +304,23 @@ impl TestProcessPluginFileBuilder {
 }
 
 pub fn get_singular_formatted_text() -> String {
-  format!("Formatted {} file.", "1".bold().to_string())
+  format!("Formatted {} file.", colors::bold("1"))
 }
 
 pub fn get_plural_formatted_text(count: usize) -> String {
-  format!("Formatted {} files.", count.to_string().bold().to_string())
+  format!("Formatted {} files.", colors::bold(count.to_string()))
 }
 
 pub fn get_singular_check_text() -> String {
-  format!("Found {} not formatted file.", "1".bold().to_string())
+  format!("Found {} not formatted file. Run {} to fix.", colors::bold("1"), colors::bold("dprint fmt"))
 }
 
 pub fn get_plural_check_text(count: usize) -> String {
-  format!("Found {} not formatted files.", count.to_string().bold().to_string())
+  format!(
+    "Found {} not formatted files. Run {} to fix.",
+    colors::bold(count.to_string()),
+    colors::bold("dprint fmt")
+  )
 }
 
 pub fn get_expected_help_text() -> &'static str {
@@ -262,34 +336,43 @@ USAGE:
     dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...
 
 SUBCOMMANDS:
-  init                    Initializes a configuration file in the current directory.
-  fmt                     Formats the source files and writes the result to the file system.
-  check                   Checks for any files that haven't been formatted.
-  config                  Functionality related to the configuration file.
-  output-file-paths       Prints the resolved file paths for the plugins based on the args and configuration.
-  output-resolved-config  Prints the resolved configuration for the plugins based on the args and configuration.
-  output-format-times     Prints the amount of time it takes to format each file. Use this for debugging.
-  clear-cache             Deletes the plugin cache directory.
-  upgrade                 Upgrades the dprint executable.
-  completions             Generate shell completions script for dprint
-  license                 Outputs the software license.
-  lsp                     Starts up a language server for formatting files.
+  init               Initializes a configuration file in the current directory.
+  add                Adds a plugin to the configuration file.
+  fmt                Formats the source files and writes the result to the file system.
+  check              Checks for any files that haven't been formatted.
+  config             Functionality related to the configuration file.
+  file-paths         Prints the resolved file paths for the plugins based on the args and configuration.
+  resolved-config    Prints the resolved configuration for the plugins based on the args and configuration.
+  incremental-state  Prints the state used to determine whether the incremental cache would be invalidated.
+  format-times       Prints the amount of time it takes to format each file. Use this for debugging.
+  clear-cache        Deletes the plugin cache directory.
+  upgrade            Upgrades the dprint executable.
+  completions        Generate shell completions script for dprint
+  license            Outputs the software license.
+  lsp                Starts up a language server for formatting files.
 
 More details at `dprint help <SUBCOMMAND>`
 
 OPTIONS:
   -c, --config <config>             Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.
-      --config-discovery=<BOOLEAN>  Sets the config discovery mode. Set to `false` to completely disable.
+      --config-discovery=<BOOLEAN>  Sets the config discovery mode. Set to `false` to completely disable, `ignore-descendants` to avoid finding config files in child directories, or `global` to only use the global config file.
       --plugins <urls/files>...     List of urls or file paths of plugins to use. This overrides what is specified in the config file.
   -L, --log-level <log-level>       Set log level [default: info] [possible values: debug, info, warn, error, silent]
 
 ENVIRONMENT VARIABLES:
-  DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
-                       directory may be periodically deleted by the CLI.
   DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
                        formatting (ex. DPRINT_MAX_THREADS=4).
+  DPRINT_GLOB_READ_THREADS
+                       Number of threads used to read directories while
+                       discovering files (ex. DPRINT_GLOB_READ_THREADS=8).
+  DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
+                       directory may be periodically deleted by the CLI.
+  DPRINT_CONFIG_DIR    Global config directory to store a global dprint.json file.
+                       Defaults to the dprint sub folder in the system configuration
+                       directory.
   DPRINT_CONFIG_DISCOVERY
-                       Sets the config discovery mode. Set to "false"/"0" to disable.
+                       Sets the config discovery mode. Set to "false"/"0" to disable
+                       or "global" to always use the global config file.
   DPRINT_CERT          Load certificate authority from PEM encoded file.
   DPRINT_TLS_CA_STORE  Comma-separated list of order dependent certificate stores.
                        Possible values: "mozilla" and "system".
@@ -297,8 +380,14 @@ ENVIRONMENT VARIABLES:
   DPRINT_IGNORE_CERTS  Unsafe way to get dprint to ignore certificates. Specify 1
                        to ignore all certificates or a comma separated list of specific
                        hosts to ignore (ex. dprint.dev,localhost,[::],127.0.0.1)
+  DPRINT_EDITOR        Editor used for editing config files.
+  DPRINT_GLOBAL_GITIGNORE
+                       Set to "1" to also respect git's global excludes file
+                       (core.excludesFile). Disabled by default.
   HTTPS_PROXY          Proxy to use when downloading plugins or configuration
                        files (also supports HTTP_PROXY and NO_PROXY).
+  NO_COLOR             Disables coloured output.
+  FORCE_COLOR          Forces coloured output, even when NO_COLOR is set.
 
 GETTING STARTED:
   1. Navigate to the root directory of a code repository.

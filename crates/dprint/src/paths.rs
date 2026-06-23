@@ -15,12 +15,12 @@ use crate::patterns::get_all_file_patterns;
 use crate::patterns::process_config_patterns;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::resolution::PluginWithConfig;
-use crate::utils::glob;
-use crate::utils::is_negated_glob;
 use crate::utils::GlobOptions;
 use crate::utils::GlobOutput;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
+use crate::utils::glob;
+use crate::utils::is_negated_glob;
 
 /// Struct that allows using plugin names as a key
 /// in a hash map.
@@ -101,6 +101,12 @@ pub async fn get_and_resolve_file_paths<'a>(
       staged_files.into_iter().map(|path| path.to_string_lossy().into_owned()).collect(),
       cwd.clone(),
     ));
+  } else if args.only_dirty {
+    let dirty_files = environment.get_dirty_files().context("Failed running git status.")?;
+    file_patterns.arg_includes = Some(GlobPattern::new_vec(
+      dirty_files.into_iter().map(|path| path.to_string_lossy().into_owned()).collect(),
+      cwd.clone(),
+    ));
   }
 
   if file_patterns.config_includes.is_none() {
@@ -110,12 +116,13 @@ pub async fn get_and_resolve_file_paths<'a>(
     file_patterns.config_includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), cwd.clone()));
   }
 
-  get_and_resolve_file_patterns(config, file_patterns, config_discovery, environment).await
+  get_and_resolve_file_patterns(config, file_patterns, args.no_gitignore, config_discovery, environment).await
 }
 
 async fn get_and_resolve_file_patterns(
   config: &ResolvedConfig,
   file_patterns: GlobPatterns,
+  no_gitignore: bool,
   config_discovery: ConfigDiscovery,
   environment: &impl Environment,
 ) -> Result<GlobOutput> {
@@ -135,6 +142,7 @@ async fn get_and_resolve_file_patterns(
         file_patterns,
         pattern_base,
         config_discovery,
+        no_gitignore,
       },
     )
   })

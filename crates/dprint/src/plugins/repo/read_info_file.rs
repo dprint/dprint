@@ -1,9 +1,10 @@
-use anyhow::bail;
 use anyhow::Result;
-use jsonc_parser::parse_to_value;
+use anyhow::bail;
 use jsonc_parser::JsonArray;
 use jsonc_parser::JsonObject;
 use jsonc_parser::JsonValue;
+use jsonc_parser::parse_to_value;
+use url::Url;
 
 use crate::environment::Environment;
 
@@ -43,11 +44,7 @@ impl InfoFilePluginInfo {
   }
 
   pub fn full_url_no_wasm_checksum(&self) -> String {
-    if self.is_wasm() {
-      self.url.to_string()
-    } else {
-      self.full_url()
-    }
+    if self.is_wasm() { self.url.to_string() } else { self.full_url() }
   }
 }
 
@@ -55,8 +52,8 @@ const SCHEMA_VERSION: u8 = 4;
 pub const REMOTE_INFO_URL: &str = "https://plugins.dprint.dev/info.json";
 
 pub async fn read_info_file(environment: &impl Environment) -> Result<InfoFile> {
-  let info_bytes = environment.download_file_err_404(REMOTE_INFO_URL).await?;
-  let info_text = String::from_utf8(info_bytes.to_vec())?;
+  let (_, info_file) = environment.download_file_err_404(&Url::parse(REMOTE_INFO_URL)?, None).await?;
+  let info_text = String::from_utf8(info_file.content)?;
   let json_value = parse_to_value(&info_text, &Default::default())?;
   let mut obj = match json_value {
     Some(JsonValue::Object(obj)) => obj,

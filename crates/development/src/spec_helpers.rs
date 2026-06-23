@@ -1,15 +1,14 @@
-use anyhow::Result;
 use console::Style;
-use file_test_runner::collection::CollectOptions;
 use file_test_runner::RunOptions;
 use file_test_runner::SubTestResult;
 use file_test_runner::TestResult;
+use file_test_runner::collection::CollectOptions;
 use similar::ChangeTag;
 use similar::TextDiff;
 use std::fmt::Display;
 use std::fs;
-use std::panic::catch_unwind;
 use std::panic::AssertUnwindSafe;
+use std::panic::catch_unwind;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -46,7 +45,7 @@ impl Display for DiffFailedMessage<'_> {
   }
 }
 
-type FormatTextFunc = dyn (Fn(&Path, &str, &SpecConfigMap) -> Result<Option<String>>) + Send + Sync;
+type FormatTextFunc = dyn (Fn(&Path, &str, &SpecConfigMap) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>>) + Send + Sync;
 type GetTraceJsonFunc = dyn (Fn(&Path, &str, &SpecConfigMap) -> String) + Send + Sync;
 
 #[derive(Debug, Clone)]
@@ -74,8 +73,8 @@ pub fn run_specs(
       filter_override: None,
       strategy: Box::new(file_test_runner::collection::strategies::TestPerFileCollectionStrategy { file_pattern: None }),
     },
-    RunOptions { parallel: true },
-    Arc::new(move |test| {
+    RunOptions::default(),
+    move |test| {
       let file_text = test.read_to_string().unwrap();
       let specs = parse_specs(file_text, &parse_spec_options);
       let specs = if specs.iter().any(|s| s.is_only) {
@@ -125,15 +124,15 @@ pub fn run_specs(
               ));
             }
             output.extend(failed_message.as_bytes());
-            TestResult::Failed { output }
+            TestResult::Failed { duration: None, output }
           } else {
-            TestResult::Passed
+            TestResult::Passed { duration: None }
           },
         });
       }
 
-      TestResult::SubTests(sub_tests)
-    }),
+      TestResult::SubTests { duration: None, sub_tests }
+    },
   );
 
   fn run_spec(
@@ -144,13 +143,19 @@ pub fn run_specs(
     get_trace_json: &Arc<GetTraceJsonFunc>,
   ) -> Option<FailedTestResult> {
     let spec_file_path_buf = PathBuf::from(&spec.file_name);
-    let format = |file_text: &str| {
-      let result = catch_unwind(AssertUnwindSafe(|| format_text(&spec_file_path_buf, file_text, &spec.config)));
-      if result.is_err() {
-        eprintln!("Panic in spec '{}' in {}\n", spec.message, test_file_path.display());
+    let format = |file_text: &str| -> Result<Option<String>, String> {
+      match catch_unwind(AssertUnwindSafe(|| format_text(&spec_file_path_buf, file_text, &spec.config))) {
+        Ok(Ok(formatted)) => Ok(formatted),
+        Ok(Err(err)) => Err(format!("Formatter error: {}", error_to_string(err.as_ref()))),
+        Err(panic_info) => {
+          let panic_msg = panic_info
+            .downcast_ref::<String>()
+            .map(|s| s.as_str())
+            .or_else(|| panic_info.downcast_ref::<&str>().copied())
+            .unwrap_or("unknown panic");
+          Err(format!("Formatter panicked: {}", panic_msg))
+        }
       }
-      let result = result.unwrap();
-      result.unwrap_or_else(|err| panic!("Could not parse spec '{}' in {}\nMessage: {:#}", spec.message, test_file_path.display(), err,))
     };
 
     if spec.is_trace {
@@ -158,7 +163,18 @@ pub fn run_specs(
       handle_trace(spec, &trace_json);
       None
     } else {
-      let result = format(&spec.file_text).unwrap_or_else(|| spec.file_text.to_string());
+      let result = match format(&spec.file_text) {
+        Ok(formatted) => formatted.unwrap_or_else(|| spec.file_text.to_string()),
+        Err(err_msg) => {
+          return Some(FailedTestResult {
+            expected: spec.expected_text.clone(),
+            actual: format!("{}\n\nInput:\n{}", err_msg, spec.file_text),
+            actual_second: None,
+            message: spec.message.clone(),
+          });
+        }
+      };
+
       if result != spec.expected_text {
         if run_spec_options.fix_failures {
           // very rough, but good enough
@@ -176,7 +192,17 @@ pub fn run_specs(
         }
       } else if run_spec_options.format_twice && !spec.skip_format_twice {
         // ensure no changes when formatting twice
-        let twice_result = format(&result).unwrap_or_else(|| result.to_string());
+        let twice_result = match format(&result) {
+          Ok(formatted) => formatted.unwrap_or_else(|| result.to_string()),
+          Err(err_msg) => {
+            return Some(FailedTestResult {
+              expected: spec.expected_text.clone(),
+              actual: result,
+              actual_second: Some(format!("ERROR on second format: {}", err_msg)),
+              message: spec.message.clone(),
+            });
+          }
+        };
         if twice_result != spec.expected_text {
           Some(FailedTestResult {
             expected: spec.expected_text.clone(),
@@ -255,4 +281,21 @@ pub fn run_specs(
       panic!("Cannot have 'fix_failures' as `true` in release mode.");
     }
   }
+}
+
+/// Formats an error and its source chain into a single string,
+/// joining each level with `: ` (similar to the alternate `{:#}` specifier).
+fn error_to_string(err: &(dyn std::error::Error + 'static)) -> String {
+  // cap the depth so a pathological error with a cyclic `source()` chain
+  // can't make this loop forever
+  const MAX_DEPTH: usize = 100;
+  let mut result = err.to_string();
+  let mut source = err.source();
+  for _ in 0..MAX_DEPTH {
+    let Some(err) = source else { break };
+    result.push_str(": ");
+    result.push_str(&err.to_string());
+    source = err.source();
+  }
+  result
 }

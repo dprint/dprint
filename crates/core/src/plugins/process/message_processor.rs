@@ -1,7 +1,3 @@
-use anyhow::anyhow;
-use anyhow::bail;
-use anyhow::Context;
-use anyhow::Result;
 use serde::Serialize;
 use std::io::Read;
 use std::io::Write;
@@ -9,6 +5,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
+use super::PLUGIN_SCHEMA_VERSION;
 use super::context::ProcessContext;
 use super::context::StoredConfig;
 use super::messages::CheckConfigUpdatesMessageBody;
@@ -18,7 +15,6 @@ use super::messages::MessageBody;
 use super::messages::ProcessPluginMessage;
 use super::messages::ResponseBody;
 use super::utils::setup_exit_process_panic_hook;
-use super::PLUGIN_SCHEMA_VERSION;
 
 use crate::async_runtime::FutureExt;
 use crate::async_runtime::LocalBoxFuture;
@@ -28,9 +24,42 @@ use crate::communication::SingleThreadMessageWriter;
 use crate::configuration::ConfigKeyMap;
 use crate::configuration::GlobalConfiguration;
 use crate::plugins::AsyncPluginHandler;
+use crate::plugins::FormatConfigId;
+use crate::plugins::FormatError;
 use crate::plugins::FormatRequest;
 use crate::plugins::FormatResult;
 use crate::plugins::HostFormatRequest;
+use crate::plugins::error_to_string;
+
+type Result<T> = std::result::Result<T, FormatError>;
+
+/// The detailed reason the schema establishment handshake failed.
+#[derive(Debug, thiserror::Error)]
+enum SchemaEstablishmentError {
+  #[error("Expected a schema version request of `0`.")]
+  UnexpectedRequest,
+  #[error(transparent)]
+  Io(#[from] std::io::Error),
+}
+
+/// Errors that can occur while processing messages for a process plugin.
+#[derive(Debug, thiserror::Error)]
+enum MessageProcessorError {
+  #[error("Failed estabilishing schema.")]
+  SchemaEstablishment(#[from] SchemaEstablishmentError),
+  #[error("Did not find configuration for id: {0}")]
+  ConfigNotFound(FormatConfigId),
+  #[error("Could not deserialize the check config updates message body.")]
+  DeserializeCheckConfigUpdates(#[source] serde_json::Error),
+  #[error("Cannot host format with a plugin.")]
+  CannotHostFormat,
+}
+
+impl From<MessageProcessorError> for FormatError {
+  fn from(err: MessageProcessorError) -> Self {
+    FormatError::new(err)
+  }
+}
 
 /// Handles the process' messages based on the provided handler.
 pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler: THandler) -> Result<()> {
@@ -42,21 +71,23 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
     let mut stdin_reader = MessageReader::new(std::io::stdin());
     let mut stdout_writer = MessageWriter::new(std::io::stdout());
 
-    schema_establishment_phase(&mut stdin_reader, &mut stdout_writer).context("Failed estabilishing schema.")?;
-    Ok::<_, anyhow::Error>((stdin_reader, stdout_writer))
+    schema_establishment_phase(&mut stdin_reader, &mut stdout_writer).map_err(MessageProcessorError::SchemaEstablishment)?;
+    Ok::<_, FormatError>((stdin_reader, stdout_writer))
   })
   .await??;
 
   // now start reading messages
   let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<std::io::Result<ProcessPluginMessage>>();
-  crate::async_runtime::spawn_blocking(move || loop {
-    let message_result = ProcessPluginMessage::read(&mut stdin_reader);
-    let is_err = message_result.is_err();
-    if tx.send(message_result).is_err() {
-      return; // disconnected
-    }
-    if is_err {
-      return; // shut down
+  crate::async_runtime::spawn_blocking(move || {
+    loop {
+      let message_result = ProcessPluginMessage::read(&mut stdin_reader);
+      let is_err = message_result.is_err();
+      if tx.send(message_result).is_err() {
+        return; // disconnected
+      }
+      if is_err {
+        return; // shut down
+      }
     }
   });
 
@@ -138,7 +169,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           handle_message(&context, message.id, || {
             let data = match context.configs.get_cloned(config_id.as_raw()) {
               Some(config) => serde_json::to_vec(&config.file_matching)?,
-              None => bail!("Did not find configuration for id: {}", config_id),
+              None => return Err(MessageProcessorError::ConfigNotFound(config_id).into()),
             };
             Ok(MessageBody::DataResponse(ResponseBody { message_id: message.id, data }))
           });
@@ -147,7 +178,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           handle_message(&context, message.id, || {
             let data = match context.configs.get_cloned(config_id.as_raw()) {
               Some(config) => serde_json::to_vec(&*config.config)?,
-              None => bail!("Did not find configuration for id: {}", config_id),
+              None => return Err(MessageProcessorError::ConfigNotFound(config_id).into()),
             };
             Ok(MessageBody::DataResponse(ResponseBody { message_id: message.id, data }))
           });
@@ -157,8 +188,8 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
             &context,
             message.id,
             async {
-              let message_body = serde_json::from_slice::<CheckConfigUpdatesMessageBody>(&body_bytes)
-                .with_context(|| "Could not deserialize the check config updates message body.".to_string())?;
+              let message_body =
+                serde_json::from_slice::<CheckConfigUpdatesMessageBody>(&body_bytes).map_err(MessageProcessorError::DeserializeCheckConfigUpdates)?;
               let changes = handler.check_config_updates(message_body).await?;
               let response = CheckConfigUpdatesResponseBody { changes };
               let data = serde_json::to_vec(&response)?;
@@ -190,7 +221,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
                 }
               }
               None => {
-                send_error_response(&context, message.id, anyhow!("Did not find configuration for id: {}", body.config_id));
+                send_error_response(&context, message.id, MessageProcessorError::ConfigNotFound(body.config_id).into());
                 continue;
               }
             },
@@ -219,7 +250,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
                 }),
                 Err(err) => MessageBody::Error(ResponseBody {
                   message_id: message.id,
-                  data: format!("{:#}", err).into_bytes(),
+                  data: error_to_string(&err).into_bytes(),
                 }),
               };
               send_response_body(&context, body)
@@ -234,7 +265,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
         MessageBody::Error(body) => {
           let text = String::from_utf8_lossy(&body.data);
           if let Some(sender) = context.format_host_senders.take(body.message_id) {
-            sender.send(Err(anyhow!("{}", text))).unwrap();
+            sender.send(Err(text.into_owned().into())).unwrap();
           } else {
             #[allow(clippy::print_stderr)]
             {
@@ -251,7 +282,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
           // ignore
         }
         MessageBody::HostFormat(_) => {
-          send_error_response(&context, message.id, anyhow!("Cannot host format with a plugin."));
+          send_error_response(&context, message.id, MessageProcessorError::CannotHostFormat.into());
         }
         MessageBody::Unknown(message_kind) => panic!("Received unknown message kind: {}", message_kind),
       }
@@ -337,14 +368,10 @@ async fn handle_async_message<TConfiguration: Serialize + Clone + Send + Sync>(
   };
 }
 
-fn send_error_response<TConfiguration: Serialize + Clone + Send + Sync>(
-  context: &ProcessContext<TConfiguration>,
-  original_message_id: u32,
-  err: anyhow::Error,
-) {
+fn send_error_response<TConfiguration: Serialize + Clone + Send + Sync>(context: &ProcessContext<TConfiguration>, original_message_id: u32, err: FormatError) {
   let body = MessageBody::Error(ResponseBody {
     message_id: original_message_id,
-    data: format!("{:#}", err).into_bytes(),
+    data: error_to_string(&err).into_bytes(),
   });
   send_response_body(context, body)
 }
@@ -360,10 +387,13 @@ fn send_response_body<TConfiguration: Serialize + Clone + Send + Sync>(context: 
 }
 
 /// For backwards compatibility asking for the schema version.
-fn schema_establishment_phase<TRead: Read + Unpin, TWrite: Write + Unpin>(stdin: &mut MessageReader<TRead>, stdout: &mut MessageWriter<TWrite>) -> Result<()> {
+fn schema_establishment_phase<TRead: Read + Unpin, TWrite: Write + Unpin>(
+  stdin: &mut MessageReader<TRead>,
+  stdout: &mut MessageWriter<TWrite>,
+) -> std::result::Result<(), SchemaEstablishmentError> {
   // 1. An initial `0` (4 bytes) is sent asking for the schema version.
   if stdin.read_u32()? != 0 {
-    bail!("Expected a schema version request of `0`.");
+    return Err(SchemaEstablishmentError::UnexpectedRequest);
   }
 
   // 2. The client responds with `0` (4 bytes) for success

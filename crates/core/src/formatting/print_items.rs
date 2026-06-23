@@ -395,10 +395,10 @@ impl PrintNode {
   fn set_next(&mut self, new_next: Option<PrintItemPath>) {
     let past_next = mem::replace(&mut self.next, new_next);
 
-    if let Some(past_next) = past_next {
-      if let Some(new_next) = new_next {
-        new_next.get_last_next().unwrap_or(new_next).set_next(Some(past_next));
-      }
+    if let Some(past_next) = past_next
+      && let Some(new_next) = new_next
+    {
+      new_next.get_last_next().unwrap_or(new_next).set_next(Some(past_next));
     }
   }
 }
@@ -436,11 +436,11 @@ impl PrintNodeCell {
   pub(super) fn get_last_next(&self) -> Option<PrintItemPath> {
     let mut current = self.get_next();
     loop {
-      if let Some(last) = &current {
-        if let Some(next) = last.get_next() {
-          current.replace(next);
-          continue;
-        }
+      if let Some(last) = &current
+        && let Some(next) = last.get_next()
+      {
+        current.replace(next);
+        continue;
       }
       break;
     }

@@ -1,5 +1,5 @@
-use anyhow::anyhow;
 use anyhow::Result;
+use anyhow::anyhow;
 use dprint_core::communication::IdGenerator;
 use dprint_core::communication::MessageReader;
 use dprint_core::communication::MessageWriter;
@@ -18,13 +18,13 @@ mod messages;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::EditorServiceSubCommand;
-use crate::configuration::resolve_config_from_args;
 use crate::configuration::ResolvedConfig;
+use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
+use crate::resolution::PluginsScope;
 use crate::resolution::get_plugins_scope_from_args;
 use crate::resolution::resolve_plugins_scope;
-use crate::resolution::PluginsScope;
 use crate::utils::Semaphore;
 
 use self::messages::EditorMessage;
@@ -229,7 +229,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
 
             let body = match result {
               Ok(text) => EditorMessageBody::FormatResponse(message.id, text),
-              Err(err) => EditorMessageBody::Error(message.id, format!("{:#}", err).into_bytes()),
+              Err(err) => EditorMessageBody::Error(message.id, dprint_core::plugins::error_to_string(&err).into_bytes()),
             };
             send_response_body(&context, body);
           });
@@ -308,16 +308,17 @@ fn send_response_body(context: &EditorContext, body: EditorMessageBody) {
 
 #[cfg(test)]
 mod test {
-  use anyhow::anyhow;
   use anyhow::Result;
-  use dprint_core::async_runtime::future;
+  use anyhow::anyhow;
   use dprint_core::async_runtime::DropGuardAction;
+  use dprint_core::async_runtime::future;
   use dprint_core::communication::IdGenerator;
   use dprint_core::communication::MessageReader;
   use dprint_core::communication::MessageWriter;
   use dprint_core::communication::RcIdStore;
   use dprint_core::communication::SingleThreadMessageWriter;
   use dprint_core::configuration::ConfigKeyMap;
+  use dprint_core::plugins::FormatError;
   use dprint_core::plugins::FormatRange;
   use dprint_core::plugins::FormatResult;
   use pretty_assertions::assert_eq;
@@ -351,6 +352,34 @@ mod test {
       })
       .build(); // build only, don't initialize
     run_test_cli(vec!["editor-info"], &environment).unwrap();
+    let mut final_output = r#"{"schemaVersion":5,"cliVersion":""#.to_string();
+    final_output.push_str(&environment.cli_version());
+    final_output.push_str(r#"","configSchemaUrl":"https://dprint.dev/schemas/v0.json","plugins":["#);
+    final_output
+      .push_str(r#"{"name":"test-plugin","version":"0.2.0","configKey":"test-plugin","fileExtensions":["txt"],"fileNames":[],"configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","helpUrl":"https://dprint.dev/plugins/test","updateUrl":"https://plugins.dprint.dev/dprint/test-plugin/latest.json"},"#);
+    final_output.push_str(r#"{"name":"test-process-plugin","version":"0.1.0","configKey":"testProcessPlugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"],"helpUrl":"https://dprint.dev/plugins/test-process","updateUrl":"https://plugins.dprint.dev/dprint/test-process-plugin/latest.json"}]}"#);
+    assert_eq!(environment.take_stdout_messages(), vec![final_output]);
+    let mut stderr_messages = environment.take_stderr_messages();
+    stderr_messages.sort();
+    assert_eq!(
+      stderr_messages,
+      vec![
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm",
+        "Extracting zip for test-process-plugin"
+      ]
+    );
+  }
+
+  #[test]
+  fn should_output_editor_plugin_info_with_global_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin().add_remote_process_plugin();
+      })
+      .build();
+    run_test_cli(vec!["editor-info", "--config-discovery=global"], &environment).unwrap();
     let mut final_output = r#"{"schemaVersion":5,"cliVersion":""#.to_string();
     final_output.push_str(&environment.cli_version());
     final_output.push_str(r#"","configSchemaUrl":"https://dprint.dev/schemas/v0.json","plugins":["#);
@@ -452,6 +481,7 @@ mod test {
           Arc::new(token),
         )
         .await
+        .map_err(FormatError::new)
     }
 
     pub async fn exit(&self) -> Result<()> {
@@ -899,6 +929,52 @@ mod test {
   }
 
   #[test]
+  fn should_format_for_editor_service_with_global_config() {
+    let txt_file_path = PathBuf::from("/file.txt");
+    let ignored_file_path = PathBuf::from("/ignored_file.txt");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt").add_excludes("ignored_file.txt");
+      })
+      .write_file(&txt_file_path, "")
+      .write_file(&ignored_file_path, "text")
+      .initialize()
+      .build();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+
+          // Verify that global config is being used
+          assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true);
+          assert_eq!(communicator.check_file(&ignored_file_path).await.unwrap(), false);
+
+          // Test formatting with global config
+          assert_eq!(
+            communicator
+              .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_formatted"
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid, "--config-discovery=global"], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
   fn should_format_with_config_associations_for_editor_service() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt_ps";
@@ -1026,6 +1102,54 @@ mod test {
     });
 
     run_test_cli(vec!["editor-service", "--parent-pid", &std::process::id().to_string()], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_format_with_config_overrides_for_editor_service() {
+    let file_path = "/package.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .write_file(file_path, "")
+      .build();
+
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+
+          assert_eq!(communicator.check_file(&file_path).await.unwrap(), true);
+          assert_eq!(
+            communicator
+              .format_text(&file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_package"
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
 
     result.join().unwrap();
   }

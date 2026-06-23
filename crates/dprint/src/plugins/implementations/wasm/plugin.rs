@@ -1,17 +1,18 @@
-use anyhow::anyhow;
 use anyhow::Result;
-use dprint_core::async_runtime::async_trait;
+use anyhow::anyhow;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
-use dprint_core::plugins::process::HostFormatCallback;
+use dprint_core::async_runtime::async_trait;
 use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
+use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
+use dprint_core::plugins::process::HostFormatCallback;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -22,18 +23,18 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::PluginInfo;
 
+use super::WasmHostFormatSender;
+use super::WasmModuleCreator;
 use super::create_pools_import_object;
 use super::load_instance;
 use super::load_instance::WasmInstance;
 use super::load_instance::WasmModule;
-use super::WasmHostFormatSender;
-use super::WasmModuleCreator;
 use crate::environment::Environment;
-use crate::plugins::implementations::wasm::create_wasm_plugin_instance;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
+use crate::plugins::implementations::wasm::create_wasm_plugin_instance;
 
 pub struct WasmPlugin<TEnvironment: Environment> {
   module: WasmModule,
@@ -162,7 +163,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
   ) -> Result<T> {
     let plugin = match self.get_or_create_instance(instance_state.clone()).await {
       Ok(instance) => instance,
-      Err(err) => return Err(CriticalFormatError(err).into()),
+      Err(err) => return Err(CriticalFormatError(FormatError::new(err)).into()),
     };
     let result = action(plugin.sender.clone()).await;
     match result {
@@ -170,10 +171,10 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
         self.release_instance(plugin);
         Ok(result)
       }
-      Err(original_err) if original_err.downcast_ref::<CriticalFormatError>().is_some() => {
+      Err(original_err) if crate::plugins::maybe_critical_format_error(&original_err).is_some() => {
         let plugin = match self.get_or_create_instance(instance_state).await {
           Ok(plugin) => plugin,
-          Err(err) => return Err(CriticalFormatError(err).into()),
+          Err(err) => return Err(CriticalFormatError(FormatError::new(err)).into()),
         };
 
         // try again
@@ -183,8 +184,8 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
             self.release_instance(plugin);
             Ok(result)
           }
-          Err(reinitialize_err) if original_err.downcast_ref::<CriticalFormatError>().is_some() => Err(
-            CriticalFormatError(anyhow!(
+          Err(reinitialize_err) if crate::plugins::maybe_critical_format_error(&original_err).is_some() => Err(
+            CriticalFormatError(FormatError::new(anyhow!(
               concat!(
                 "Originally panicked in {}, then failed reinitialize. ",
                 "This may be a bug in the plugin, the dprint cli is out of date, or the ",
@@ -193,7 +194,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
               self.name,
               original_err,
               reinitialize_err,
-            ))
+            )))
             .into(),
           ),
           Err(err) => {
@@ -227,7 +228,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
   async fn create_instance(&self) -> Result<WasmPluginSenderWithState> {
     let start_instant = Instant::now();
     log_debug!(self.environment, "Creating instance of {}", self.name);
-    let mut store = wasmer::Store::default();
+    let mut store = self.module.new_store();
 
     let (host_format_tx, mut host_format_rx) = tokio::sync::mpsc::unbounded_channel::<(HostFormatRequest, std::sync::mpsc::Sender<FormatResult>)>();
     let instance_state_cell: Rc<RefCell<Option<InstanceState>>> = Default::default();
@@ -245,7 +246,7 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
               }
             }
             None => {
-              if sender.send(Err(anyhow!("Host format callback was not set."))).is_err() {
+              if sender.send(Err(FormatError::new("Host format callback was not set."))).is_err() {
                 return; // disconnected
               }
             }
@@ -438,11 +439,12 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
         async move {
           let (tx, rx) = tokio::sync::oneshot::channel();
           plugin_sender.send(WasmPluginMessage::FormatRequest(message, tx))?;
-          rx.await?
+          rx.await?.map_err(anyhow::Error::from)
         }
         .boxed_local()
       })
       .await
+      .map_err(crate::plugins::anyhow_to_format_error)
   }
 
   async fn shutdown(&self) {

@@ -20,7 +20,7 @@ Adapter plugin that formats YAML files via [Pretty YAML](https://github.com/g-pl
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint config add g-plane/pretty_yaml
+dprint add g-plane/pretty_yaml
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"yaml"` property to add configuration:

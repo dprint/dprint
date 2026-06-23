@@ -1,12 +1,14 @@
-import { tgz } from "https://deno.land/x/compress@v0.4.1/mod.ts";
+import { tgz } from "compress";
 import lume from "lume/mod.ts";
 import codeHighlight from "lume/plugins/code_highlight.ts";
 import date from "lume/plugins/date.ts";
 import esbuild from "lume/plugins/esbuild.ts";
+import nunjucks from "lume/plugins/nunjucks.ts";
 import sass from "lume/plugins/sass.ts";
-import anchor from "npm:markdown-it-anchor@8.6.7";
+import anchor from "markdown-it-anchor";
 
 await buildSass();
+await copyConfigSchema();
 
 const site = lume({
   src: "./src",
@@ -24,9 +26,10 @@ const site = lume({
 });
 
 site
+  .use(nunjucks())
   .use(sass())
-  .use(codeHighlight())
   .use(date())
+  .use(codeHighlight())
   .use(esbuild({
     options: {
       bundle: true,
@@ -36,11 +39,22 @@ site
       entryPoints: ["scripts.js"],
     },
   }))
-  // need to ignore this for some reason
-  .ignore("scripts")
+  .add("scripts.js")
+  .add("style.scss")
   .copy("assets", ".");
 
 export default site;
+
+async function copyConfigSchema() {
+  // the dprint CLI crate is the source of truth for the config schema (it
+  // embeds the file at compile time for LSP completions). Pull it in here so
+  // it's served at https://dprint.dev/schemas/v0.json. This generated file is
+  // gitignored.
+  const source = new URL("../crates/dprint/src/commands/lsp/config_schema.json", import.meta.url);
+  const destDir = new URL("./src/assets/schemas/", import.meta.url);
+  await Deno.mkdir(destDir, { recursive: true });
+  await Deno.copyFile(source, new URL("v0.json", destDir));
+}
 
 async function buildSass() {
   // sass doesn't support remote urls and I'm too lazy to switch away

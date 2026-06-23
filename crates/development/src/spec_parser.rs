@@ -124,11 +124,7 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
   }
 
   fn get_message_separator(file_name: &str) -> &'static str {
-    if file_name.ends_with(".md") {
-      "!!"
-    } else {
-      "=="
-    }
+    if file_name.ends_with(".md") { "!!" } else { "==" }
   }
 }
 

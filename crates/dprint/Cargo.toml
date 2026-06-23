@@ -1,10 +1,10 @@
 [package]
 name = "dprint"
-version = "0.50.2"
+version = "0.54.0"
 authors = ["dprint code formatting <david@dprint.dev>"]
 categories = ["development-tools"]
 default-run = "dprint"
-edition = "2021"
+edition = "2024"
 keywords = ["code-formatter", "formatter"]
 license = "MIT"
 repository = "https://github.com/dprint/dprint"
@@ -14,37 +14,44 @@ description = "Binary for dprint code formatter—a pluggable and configurable c
 # all these deps are pinned because `cargo install dprint` doesn't lock deps
 # without the `--locked` flag so this helps reduce the chance of a dep being
 # released that breaks compiling dprint
-anyhow = "=1.0.98"
+anyhow.workspace = true
+base64 = "=0.22.1"
 clap = "=4.5.4"
 clap_complete = "=4.5.2"
-console_static_text = "=0.8.3"
+console_static_text = "=0.9.0"
 crossterm = "=0.27.0" # manually retest everything when bumping this crate
+deno_npmrc = "=0.9.0"
+deno_terminal = "=0.2.3"
 dirs = "=6.0.0"
-dissimilar = "=1.0.10"
-dprint-core = { path = "../core", version = "=0.67.4", features = ["process", "wasm"] }
+dprint-core = { path = "../core", version = "=0.68.2", features = ["process", "wasm"] }
 dunce = "=1.0.4"
+flate2 = "=1.1.9"
 fs3 = "=0.5.0"
 ignore = "=0.4.23"
-indexmap = { version = "=2.9.0", features = ["serde"] }
+indexmap.workspace = true
 ipnet = "2.11.0"
-jsonc-parser = { version = "=0.26.2", features = ["cst", "preserve_order"] }
+jsonc-parser = { version = "=0.32.4", features = ["cst", "preserve_order"] }
+monch = "=0.6.0"
 once_cell = "=1.21.3"
 parking_lot = "=0.12.3"
 percent-encoding = "=2.3.1"
 rand = "=0.9.1"
-serde = { version = "=1.0.219", features = ["derive"] }
-serde_json = { version = "=1.0.140", features = ["preserve_order"] }
+serde.workspace = true
+serde_json.workspace = true
 sha2 = "=0.10.9"
-similar = { version = "=2.7.0", features = ["inline"] }
+similar = { workspace = true, features = ["inline"] }
+sys_traits = { workspace = true, features = ["real"] }
 # disable the multi-threading feature of this crate
 sysinfo = { version = "=0.35.1", features = ["system"], default-features = false }
+tar = "=0.4.45"
 text-size = "=1.1.1"
-thiserror = "=2.0.12"
-tokio = { version = "=1.37.0", features = ["rt", "time", "macros", "rt-multi-thread", "io-std"] }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-std"] }
 tokio-util = { version = "=0.7.11" }
 tower-lsp = "=0.20.0"
 twox-hash = "=2.1.0"
 url = "=2.5.4"
+which = "=8.0.0"
 zip = "=2.4.1"
 
 # keep these in sync
@@ -54,12 +61,39 @@ rustls-pemfile = "=2.1.2"
 ureq = { version = "=2.12.1", features = ["gzip", "socks-proxy", "tls"], default-features = false }
 webpki-roots = "=0.26.7"
 
-# pin these to prevent them changing with `cargo install` because
-# patch version increases of rkyv may cause panics when deserializing
-# data serialized with older versions
-rkyv = "=0.8.10"
-wasmer = "=6.1.0-rc.3"
-wasmer-compiler = "=6.1.0-rc.3"
+# pin this to prevent it changing with `cargo install` because patch version
+# increases of rkyv may cause panics when deserializing data serialized with
+# older versions
+rkyv = "=0.8.15"
+
+# only needed where a compiler backend is used. powerpc64 and android use the
+# wasmi interpreter, and pulling wasmer-compiler there would drag in wasmer-vm
+# -> corosensei, which doesn't build on stable for powerpc64 and relies on
+# signal-based trap handling that's unreliable in the Android sandbox.
+[target.'cfg(not(any(target_arch = "powerpc64", target_os = "android")))'.dependencies]
+wasmer-compiler = "=7.1.0"
+
+# most targets use the default compiler backend (Cranelift)
+[target.'cfg(not(any(target_arch = "loongarch64", target_arch = "powerpc64", target_os = "android")))'.dependencies]
+wasmer = "=7.1.0"
+
+# Cranelift has no loongarch64 backend, so use wasmer's LLVM backend (see the
+# cross image that bundles a loongarch64 LLVM build)
+[target.'cfg(target_arch = "loongarch64")'.dependencies]
+wasmer = { version = "=7.1.0", features = ["llvm"] }
+
+# powerpc64: neither Cranelift nor wasmer's LLVM backend can target it.
+# android: wasmer-vm's signal-based trap handling and executable memory are
+# unreliable in the Termux/Android sandbox. both fall back to the portable,
+# pure-Rust wasmi interpreter (see the `wasm_interpreter` cfg in build.rs).
+[target.'cfg(any(target_arch = "powerpc64", target_os = "android"))'.dependencies]
+wasmer = { version = "=7.1.0", default-features = false, features = ["wasmi"] }
+
+[features]
+# Forces the wasmi interpreter backend on any architecture. Only needed to
+# build and test the interpreter code path on other architectures; powerpc64
+# and android select the interpreter automatically.
+wasm-interpreter = ["wasmer/wasmi"]
 
 [target.'cfg(windows)'.dependencies]
 winreg = "=0.55.0"
@@ -68,4 +102,5 @@ winreg = "=0.55.0"
 # stay on this version because it's good enough and makes the output the same on all platforms
 path-clean = "0.1.0"
 pretty_assertions = "1.4.0"
+sys_traits = { workspace = true, features = ["memory"] }
 tempfile = "3.20"

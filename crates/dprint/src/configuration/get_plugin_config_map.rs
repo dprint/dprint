@@ -1,5 +1,5 @@
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 
 use super::ConfigMap;
 use super::ConfigMapValue;
@@ -43,6 +43,7 @@ mod tests {
     let ts_plugin = RawPluginConfig {
       associations: None,
       locked: false,
+      overrides: Vec::new(),
       properties: ConfigKeyMap::from([("lineWidth".to_string(), ConfigKeyValue::from_i32(40))]),
     };
     config_map.insert(String::from("lineWidth"), ConfigMapValue::from_i32(80));

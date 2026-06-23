@@ -2,7 +2,6 @@ use indexmap::IndexMap;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
-use std::path::PathBuf;
 
 use super::Environment;
 use super::TestEnvironment;
@@ -14,6 +13,7 @@ use crate::utils::get_sha256_checksum;
 pub struct TestConfigFileBuilder {
   environment: TestEnvironment,
   incremental: Option<bool>,
+  inherit: Option<bool>,
   includes: Option<Vec<String>>,
   excludes: Option<Vec<String>>,
   plugins: Option<Vec<String>>,
@@ -25,6 +25,7 @@ impl TestConfigFileBuilder {
     TestConfigFileBuilder {
       environment,
       incremental: None,
+      inherit: None,
       includes: None,
       excludes: None,
       plugins: None,
@@ -34,6 +35,9 @@ impl TestConfigFileBuilder {
 
   pub fn to_string(&self) -> String {
     let mut parts = Vec::new();
+    if let Some(inherit) = self.inherit.as_ref() {
+      parts.push(format!(r#""inherit": {}"#, inherit));
+    }
     for (key, value) in self.sections.iter() {
       parts.push(format!("\"{}\": {}", key, value));
     }
@@ -61,6 +65,11 @@ impl TestConfigFileBuilder {
 
   pub fn set_incremental(&mut self, value: bool) -> &mut Self {
     self.incremental = Some(value);
+    self
+  }
+
+  pub fn set_inherit(&mut self, value: bool) -> &mut Self {
+    self.inherit = Some(value);
     self
   }
 
@@ -294,6 +303,17 @@ impl TestEnvironmentBuilder {
     self.add_remote_file(url, &config_file_text)
   }
 
+  pub fn with_global_config(&mut self, func: impl FnMut(&mut TestConfigFileBuilder)) -> &mut Self {
+    // Set up the global config directory
+    let global_config_dir = "/global-config";
+    self.environment.set_env_var("DPRINT_CONFIG_DIR", Some(global_config_dir));
+
+    // Create the global config file
+    let config_file_text = self.with_config_get_text("__global_config__", func);
+    let global_config_path = format!("{}/dprint.json", global_config_dir);
+    self.write_file(&global_config_path, &config_file_text)
+  }
+
   fn with_config_get_text(&mut self, key: &str, mut func: impl FnMut(&mut TestConfigFileBuilder)) -> String {
     let config_file = self.config_files.entry(key.to_string()).or_insert_with({
       let environment = self.environment.clone();
@@ -315,8 +335,12 @@ impl TestEnvironmentBuilder {
     self
   }
 
-  pub fn write_file(&mut self, file_path: impl AsRef<Path>, text: &str) -> &mut Self {
-    self.environment.write_file(file_path, text).unwrap();
+  pub fn write_file(&mut self, file_path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> &mut Self {
+    let file_path = self.environment.clean_path(file_path);
+    if let Some(parent) = file_path.parent() {
+      self.environment.mk_dir_all(parent).unwrap();
+    }
+    self.environment.write_file_bytes(file_path, bytes.as_ref()).unwrap();
     self
   }
 
@@ -325,8 +349,18 @@ impl TestEnvironmentBuilder {
     self
   }
 
+  pub fn add_dirty_file(&mut self, file_path: impl AsRef<Path>) -> &mut Self {
+    self.environment.set_dirty_file(file_path);
+    self
+  }
+
   pub fn add_remote_file(&mut self, path: &str, text: &str) -> &mut Self {
     self.environment.add_remote_file_bytes(path, text.to_string().into_bytes());
+    self
+  }
+
+  pub fn add_remote_file_bytes(&mut self, path: &str, bytes: impl Into<Vec<u8>>) -> &mut Self {
+    self.environment.add_remote_file_bytes(path, bytes.into());
     self
   }
 
@@ -336,11 +370,7 @@ impl TestEnvironmentBuilder {
   }
 
   pub fn add_local_wasm_plugin(&mut self) -> &mut Self {
-    self
-      .environment
-      .write_file_bytes(&PathBuf::from("/plugins/test-plugin.wasm"), test_helpers::WASM_PLUGIN_BYTES)
-      .unwrap();
-    self
+    self.write_file("/plugins/test-plugin.wasm", test_helpers::WASM_PLUGIN_BYTES)
   }
 
   pub fn add_remote_process_plugin(&mut self) -> &mut Self {

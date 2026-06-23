@@ -3,19 +3,20 @@ use std::io::Read;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-use anyhow::bail;
 use anyhow::Result;
-use crossterm::style::Stylize;
+use anyhow::bail;
+use deno_terminal::colors;
 use parking_lot::Mutex;
 use url::Url;
 
 use self::unsafe_certs::NoCertificateVerification;
 
+use super::Logger;
 use super::certs::get_root_cert_store;
 use super::logging::ProgressBarStyle;
 use super::logging::ProgressBars;
 use super::no_proxy::NoProxy;
-use super::Logger;
+use crate::environment::DownloadedFile;
 
 const MAX_RETRIES: u8 = 2;
 
@@ -92,7 +93,7 @@ impl<TProxyUrlProvider: ProxyProvider> AgentStore<TProxyUrlProvider> {
           log_warn!(
             self.logger,
             "{} Unsafely ignoring {} TLS certificates!",
-            "Warning".yellow(),
+            colors::yellow("Warning"),
             if ignored.0.is_empty() { "all" } else { "some" }
           );
         }
@@ -112,6 +113,7 @@ impl<TProxyUrlProvider: ProxyProvider> AgentStore<TProxyUrlProvider> {
       }
       agent = agent.tls_config(Arc::new(config));
     }
+    agent = agent.redirects(0);
     if let Some(proxy) = proxy {
       agent = agent.proxy(ureq::Proxy::new(proxy)?);
     }
@@ -142,14 +144,14 @@ mod unsafe_certs {
   use std::net::IpAddr;
   use std::sync::Arc;
 
+  use rustls::DigitallySignedStruct;
+  use rustls::RootCertStore;
+  use rustls::client::WebPkiServerVerifier;
   use rustls::client::danger::HandshakeSignatureValid;
   use rustls::client::danger::ServerCertVerified;
   use rustls::client::danger::ServerCertVerifier;
-  use rustls::client::WebPkiServerVerifier;
   use rustls::pki_types::ServerName;
   use rustls::server::VerifierBuilderError;
-  use rustls::DigitallySignedStruct;
-  use rustls::RootCertStore;
 
   // Below code copied and adapted from https://github.com/denoland/deno/blob/540fe7d9e46d6e734af1ce737adf90e8fc00dff8/ext/tls/lib.rs#L68
   // Copyright 2018-2025 the Deno authors. MIT license.
@@ -262,15 +264,15 @@ impl RealUrlDownloader {
     })
   }
 
-  pub fn download(&self, url: &str) -> Result<Option<Vec<u8>>> {
-    let (agent, url) = self.get_agent_and_url(url)?;
-    self.download_with_retries(&url, &agent)
+  pub fn download_with_auth(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
+    let agent = self.get_agent(url)?;
+    self.download_with_retries(url, auth, &agent)
   }
 
-  fn download_with_retries(&self, url: &Url, agent: &ureq::Agent) -> Result<Option<Vec<u8>>> {
+  fn download_with_retries(&self, url: &Url, auth: Option<&str>, agent: &ureq::Agent) -> Result<Option<DownloadedFile>> {
     let mut last_error = None;
     for retry_count in 0..(MAX_RETRIES + 1) {
-      match self.inner_download(url, retry_count, agent) {
+      match self.inner_download(url, auth, retry_count, agent) {
         Ok(result) => return Ok(result),
         Err(err) => {
           if retry_count < MAX_RETRIES {
@@ -285,24 +287,27 @@ impl RealUrlDownloader {
 
   #[cfg(test)]
   pub fn download_no_retries_for_testing(&self, url: &str) -> Result<Option<Vec<u8>>> {
-    let (agent, url) = self.get_agent_and_url(url)?;
-    self.inner_download(&url, 0, &agent)
+    let url = Url::parse(url)?;
+    let agent = self.get_agent(&url)?;
+    Ok(self.inner_download(&url, None, 0, &agent)?.map(|r| r.content))
   }
 
-  fn get_agent_and_url(&self, url: &str) -> Result<(ureq::Agent, Url)> {
-    let url = Url::parse(url)?;
+  fn get_agent(&self, url: &Url) -> Result<ureq::Agent> {
     let kind = match url.scheme() {
       "https" => AgentKind::Https,
       "http" => AgentKind::Http,
       _ => bail!("Not implemented url scheme: {}", url),
     };
     // this is expensive, but we're already in a blocking task here
-    let agent = self.agent_store.get(kind, &url)?;
-    Ok((agent, url))
+    self.agent_store.get(kind, url)
   }
 
-  fn inner_download(&self, url: &Url, retry_count: u8, agent: &ureq::Agent) -> Result<Option<Vec<u8>>> {
-    let resp = match agent.request_url("GET", url).call() {
+  fn inner_download(&self, url: &Url, auth: Option<&str>, retry_count: u8, agent: &ureq::Agent) -> Result<Option<DownloadedFile>> {
+    let mut request = agent.request_url("GET", url);
+    if let Some(auth) = auth {
+      request = request.set("Authorization", auth);
+    }
+    let resp = match request.call() {
       Ok(resp) => resp,
       Err(ureq::Error::Status(404, _)) => {
         return Ok(None);
@@ -312,10 +317,21 @@ impl RealUrlDownloader {
       }
     };
 
-    let total_size = resp.header("Content-Length").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
+    let status = resp.status();
+    let headers: HashMap<String, String> = resp
+      .headers_names()
+      .into_iter()
+      .filter_map(|name| resp.header(&name).map(|value| (name, value.to_string())))
+      .collect();
+
+    if (300..400).contains(&status) {
+      return Ok(Some(DownloadedFile { headers, content: vec![] }));
+    }
+
+    let total_size = headers.get("content-length").and_then(|s| s.parse::<usize>().ok()).unwrap_or(0);
     let mut reader = resp.into_reader();
     match read_response(url, retry_count, &mut reader, total_size, self.progress_bars.as_deref()) {
-      Ok(result) => Ok(Some(result)),
+      Ok(content) => Ok(Some(DownloadedFile { headers, content })),
       Err(err) => bail!("Error downloading {} - {:#}", url, err),
     }
   }
@@ -355,11 +371,11 @@ mod test {
   use std::sync::Arc;
   use std::time::Duration;
 
-  use crate::utils::url::ProxyProvider;
   use crate::utils::LogLevel;
   use crate::utils::Logger;
   use crate::utils::LoggerOptions;
   use crate::utils::NoProxy;
+  use crate::utils::url::ProxyProvider;
 
   use super::AgentStore;
   use super::RealUrlDownloader;

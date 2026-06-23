@@ -2,9 +2,10 @@ use std::fmt;
 
 use url::Url;
 
+use super::NpmSpecifier;
 use crate::environment::CanonicalizedPathBuf;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum PluginKind {
   Process,
   Wasm,
@@ -16,6 +17,8 @@ pub enum PathSource {
   Local(LocalPathSource),
   /// From the internet.
   Remote(RemotePathSource),
+  /// From an npm package.
+  Npm(NpmPathSource),
 }
 
 impl PathSource {
@@ -32,6 +35,25 @@ impl PathSource {
     PathSource::Remote(RemotePathSource { url: Url::parse(url).unwrap() })
   }
 
+  pub fn new_npm(specifier: NpmSpecifier, base_dir: Option<CanonicalizedPathBuf>) -> PathSource {
+    PathSource::Npm(NpmPathSource { specifier, base_dir })
+  }
+
+  pub fn is_local(&self) -> bool {
+    match self {
+      PathSource::Local(_) => true,
+      PathSource::Remote(_) | PathSource::Npm(_) => false,
+    }
+  }
+
+  #[cfg(test)]
+  pub fn is_remote(&self) -> bool {
+    match self {
+      PathSource::Remote(_) => true,
+      PathSource::Local(_) | PathSource::Npm(_) => false,
+    }
+  }
+
   pub fn parent(&self) -> PathSource {
     match self {
       PathSource::Local(local) => {
@@ -46,16 +68,18 @@ impl PathSource {
         parent_url.set_query(None);
         PathSource::new_remote(parent_url)
       }
+      PathSource::Npm(_) => self.clone(),
     }
   }
 
   pub fn maybe_local_path(&self) -> Option<&CanonicalizedPathBuf> {
     match self {
       PathSource::Local(local) => Some(&local.path),
-      PathSource::Remote(_) => None,
+      PathSource::Remote(_) | PathSource::Npm(_) => None,
     }
   }
 
+  #[cfg(test)]
   pub fn unwrap_local(&self) -> LocalPathSource {
     if let PathSource::Local(local_path_source) = self {
       local_path_source.clone()
@@ -64,6 +88,7 @@ impl PathSource {
     }
   }
 
+  #[cfg(test)]
   pub fn unwrap_remote(&self) -> RemotePathSource {
     if let PathSource::Remote(remote_path_source) = self {
       remote_path_source.clone()
@@ -76,17 +101,35 @@ impl PathSource {
     match self {
       PathSource::Local(local) => local.path.display().to_string(),
       PathSource::Remote(remote) => remote.url.to_string(),
+      PathSource::Npm(npm) => npm.specifier.display(),
     }
   }
 
   pub fn plugin_kind(&self) -> Option<PluginKind> {
-    let lowercase_path = self.display().to_lowercase();
-    if lowercase_path.ends_with(".wasm") {
-      Some(PluginKind::Wasm)
-    } else if lowercase_path.ends_with(".json") {
-      Some(PluginKind::Process)
-    } else {
-      None
+    fn plugin_kind_from_path(path: &std::path::Path) -> Option<PluginKind> {
+      let ext = path.extension()?.to_str()?;
+      plugin_kind_from_ext(ext)
+    }
+
+    fn plugin_kind_from_str(s: &str) -> Option<PluginKind> {
+      let (_, ext) = s.rsplit_once('.')?;
+      plugin_kind_from_ext(ext)
+    }
+
+    fn plugin_kind_from_ext(ext: &str) -> Option<PluginKind> {
+      if ext.eq_ignore_ascii_case("wasm") {
+        Some(PluginKind::Wasm)
+      } else if ext.eq_ignore_ascii_case("json") {
+        Some(PluginKind::Process)
+      } else {
+        None
+      }
+    }
+
+    match self {
+      PathSource::Npm(npm) => Some(npm.specifier.plugin_kind()),
+      PathSource::Local(local) => plugin_kind_from_path(local.path.as_ref()),
+      PathSource::Remote(remote) => plugin_kind_from_str(remote.url.path()),
     }
   }
 }
@@ -99,6 +142,7 @@ impl fmt::Display for PathSource {
       match self {
         PathSource::Local(local) => local.path.to_string_lossy().to_string(),
         PathSource::Remote(remote) => remote.url.to_string(),
+        PathSource::Npm(npm) => npm.specifier.display(),
       }
     )
   }
@@ -112,6 +156,14 @@ pub struct LocalPathSource {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RemotePathSource {
   pub url: Url,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct NpmPathSource {
+  pub specifier: NpmSpecifier,
+  /// The directory containing the config file that referenced this npm plugin.
+  /// Used as the starting point for node_modules resolution.
+  pub base_dir: Option<CanonicalizedPathBuf>,
 }
 
 #[cfg(test)]

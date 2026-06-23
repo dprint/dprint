@@ -1,8 +1,8 @@
 use std::io::Cursor;
 
 use indexmap::IndexSet;
-use rustls::pki_types::CertificateDer;
 use rustls::RootCertStore;
+use rustls::pki_types::CertificateDer;
 use thiserror::Error;
 
 use super::Logger;

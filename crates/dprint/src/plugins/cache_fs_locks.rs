@@ -4,9 +4,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::environment::Environment;
-use crate::utils::get_bytes_hash;
 use crate::utils::LaxSingleProcessFsFlag;
 use crate::utils::PathSource;
+use crate::utils::get_bytes_hash;
 
 struct CacheFsLockGuardInner<TEnvironment: Environment> {
   id: u64,

@@ -1,8 +1,6 @@
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use dprint_core::async_runtime::future;
-use dprint_core::configuration::ConfigKeyMap;
-use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::NullCancellationToken;
 use std::borrow::Cow;
 use std::path::PathBuf;
@@ -10,6 +8,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
+use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
 use crate::environment::Environment;
@@ -32,18 +31,46 @@ struct TaskWork {
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct EnsureStableFormat(pub bool);
 
+#[derive(Debug, Error)]
+pub enum RunForFilePathError {
+  #[error("")]
+  Stop,
+  #[error(transparent)]
+  TokioJoin(#[from] tokio::task::JoinError),
+  #[error(transparent)]
+  Any(#[from] anyhow::Error),
+  #[error(transparent)]
+  Io(#[from] std::io::Error),
+}
+
+#[derive(Debug, Error)]
+#[error("Had {} error{} formatting.", error_count, if *error_count == 1 { "" } else { "s" })]
+pub struct RunParallelizedFailedError {
+  pub error_count: usize,
+}
+
+#[derive(Debug, Error)]
+pub enum RunParallelizedError {
+  #[error(transparent)]
+  Any(#[from] anyhow::Error),
+  #[error(transparent)]
+  Failed(#[from] RunParallelizedFailedError),
+  #[error(transparent)]
+  Io(#[from] std::io::Error),
+}
+
 pub async fn run_parallelized<F, TEnvironment: Environment>(
   scope_and_paths: PluginsScopeAndPaths<TEnvironment>,
   environment: &TEnvironment,
   incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
   ensure_stable_format: EnsureStableFormat,
   f: F,
-) -> Result<()>
+) -> Result<(), RunParallelizedError>
 where
-  F: Fn(PathBuf, Vec<u8>, Vec<u8>, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
+  F: Fn(PathBuf, Vec<u8>, Vec<u8>, Instant, TEnvironment) -> Result<(), RunForFilePathError> + 'static + Clone + Send + Sync,
 {
   if let Some(config) = &scope_and_paths.scope.config {
-    log_debug!(environment, "Running for config: {}", config.resolved_path.file_path.display());
+    log_debug!(environment, "Running for config: {}", config.source.display());
   }
 
   let max_threads = environment.max_threads();
@@ -109,7 +136,7 @@ where
               error_logger.add_error_count(count);
               return;
             }
-            GetPluginResult::Success(plugin) => plugin,
+            GetPluginResult::Success(initialized_plugin) => (plugin, initialized_plugin),
           })
         }
 
@@ -147,15 +174,25 @@ where
             let result = run_for_file_path(environment, incremental_file, scope, plugins, file_path.clone(), ensure_stable_format, f).await;
             long_format_token.cancel();
             if let Err(err) = result {
-              if let Some(err) = err.downcast_ref::<CriticalFormatError>() {
-                error_logger.log_error(&format!(
-                  "Critical error formatting {}. Cannot continue. Message: {:#}",
-                  file_path.display(),
-                  err
-                ));
-                semaphore.close(); // stop formatting
-              } else {
-                error_logger.log_error(&format!("Error formatting {}. Message: {:#}", file_path.display(), err));
+              match err {
+                RunForFilePathError::Stop => {
+                  semaphore.close(); // stop formatting
+                }
+                RunForFilePathError::Any(err) => {
+                  if let Some(err) = crate::plugins::maybe_critical_format_error(&err) {
+                    error_logger.log_error(&format!(
+                      "Critical error formatting {}. Cannot continue. Message: {}",
+                      file_path.display(),
+                      dprint_core::plugins::error_to_string(err)
+                    ));
+                    semaphore.close(); // stop formatting
+                  } else {
+                    error_logger.log_error(&format!("Error formatting {}. Message: {:#}", file_path.display(), err));
+                  }
+                }
+                RunForFilePathError::TokioJoin(_) | RunForFilePathError::Io(_) => {
+                  error_logger.log_error(&format!("Error formatting {}. Message: {:#}", file_path.display(), err));
+                }
               }
             }
             // drop the semaphore permit when we're all done
@@ -174,7 +211,7 @@ where
   return if error_count == 0 {
     Ok(())
   } else {
-    bail!("Had {} error{} formatting.", error_count, if error_count == 1 { "" } else { "s" })
+    Err(RunParallelizedError::Failed(RunParallelizedFailedError { error_count }))
   };
 
   #[inline]
@@ -182,28 +219,27 @@ where
     environment: TEnvironment,
     incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
     scope: Rc<PluginsScope<TEnvironment>>,
-    plugins: Rc<Vec<InitializedPluginWithConfig>>,
+    plugins: Rc<Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>>,
     file_path: PathBuf,
     ensure_stable_format: EnsureStableFormat,
     f: F,
-  ) -> Result<()>
+  ) -> Result<(), RunForFilePathError>
   where
-    F: Fn(PathBuf, Vec<u8>, Vec<u8>, Instant, TEnvironment) -> Result<()> + 'static + Clone + Send + Sync,
+    F: Fn(PathBuf, Vec<u8>, Vec<u8>, Instant, TEnvironment) -> Result<(), RunForFilePathError> + 'static + Clone + Send + Sync,
   {
     // it's a big perf improvement to do this work on a blocking thread
     let result = dprint_core::async_runtime::spawn_blocking(move || {
       let file_text = environment.read_file_bytes(&file_path)?;
 
-      if let Some(incremental_file) = &incremental_file {
-        if incremental_file.is_file_known_formatted(&file_text) {
-          log_debug!(environment, "No change: {}", file_path.display());
-          return Ok::<_, anyhow::Error>(None);
-        }
+      if let Some(incremental_file) = &incremental_file
+        && incremental_file.is_file_known_formatted(&file_text)
+      {
+        log_debug!(environment, "No change: {}", file_path.display());
+        return Ok::<_, std::io::Error>(None);
       }
       Ok(Some((file_path, file_text, environment)))
     })
-    .await
-    .unwrap()?;
+    .await??;
 
     let Some((file_path, file_text, environment)) = result else {
       return Ok(());
@@ -226,7 +262,7 @@ where
   async fn get_stabilized_format_text<TEnvironment: Environment>(
     environment: TEnvironment,
     scope: Rc<PluginsScope<TEnvironment>>,
-    plugins: Rc<Vec<InitializedPluginWithConfig>>,
+    plugins: Rc<Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>>,
     file_path: PathBuf,
     mut formatted_text: Vec<u8>,
   ) -> Result<Vec<u8>> {
@@ -269,7 +305,7 @@ where
   async fn run_single_pass_for_file_path<TEnvironment: Environment>(
     environment: TEnvironment,
     scope: Rc<PluginsScope<TEnvironment>>,
-    plugins: Rc<Vec<InitializedPluginWithConfig>>,
+    plugins: Rc<Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>>,
     file_path: PathBuf,
     file_text: &[u8],
   ) -> Result<(Instant, Vec<u8>)> {
@@ -277,14 +313,14 @@ where
     let original_text = file_text;
     let mut file_text = Cow::Borrowed(file_text);
     let plugins_len = plugins.len();
-    for (i, plugin) in plugins.iter().enumerate() {
+    for (i, (plugin, initialized_plugin)) in plugins.iter().enumerate() {
       let start_instant = Instant::now();
-      let format_text_result = plugin
+      let format_text_result = initialized_plugin
         .format_text(InitializedPluginWithConfigFormatRequest {
           file_path: file_path.to_path_buf(),
           file_bytes: file_text.to_vec(),
           range: None,
-          override_config: ConfigKeyMap::new(),
+          override_config: plugin.get_config_file_overrides_for_path(&file_path),
           on_host_format: scope.create_host_format_callback(),
           token: Arc::new(NullCancellationToken),
         })

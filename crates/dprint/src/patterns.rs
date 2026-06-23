@@ -6,33 +6,43 @@ use crate::arg_parser::FilePatternArgs;
 use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
-use crate::utils::is_absolute_pattern;
-use crate::utils::is_negated_glob;
 use crate::utils::ExcludeMatchDetail;
 use crate::utils::GitIgnoreTree;
+use crate::utils::GitIgnoreTreeOptions;
 use crate::utils::GlobMatcher;
 use crate::utils::GlobMatcherOptions;
 use crate::utils::GlobMatchesDetail;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
+use crate::utils::is_absolute_pattern;
+use crate::utils::is_negated_glob;
+use crate::utils::resolve_global_gitignore_lines;
 
 pub struct FileMatcher<TEnvironment: Environment> {
   glob_matcher: GlobMatcher,
-  gitignores: GitIgnoreTree<TEnvironment>,
+  gitignores: Option<GitIgnoreTree<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
   pub fn new(environment: TEnvironment, config: &ResolvedConfig, args: &FilePatternArgs, root_dir: &CanonicalizedPathBuf) -> Result<Self> {
     let patterns = get_all_file_patterns(config, args, root_dir);
-    let gitignores = GitIgnoreTree::new(
-      environment,
-      // explicitly specified paths should override what's in the gitignore
-      patterns.include_paths(),
-    );
+    let gitignores = if args.no_gitignore {
+      None
+    } else {
+      let global_gitignore_lines = resolve_global_gitignore_lines(&environment);
+      Some(GitIgnoreTree::new(
+        environment,
+        GitIgnoreTreeOptions {
+          // explicitly specified paths should override what's in the gitignore
+          include_paths: patterns.include_paths(),
+          global_gitignore_lines,
+        },
+      ))
+    };
     let glob_matcher = GlobMatcher::new(
       patterns,
       &GlobMatcherOptions {
-        case_sensitive: !cfg!(windows),
+        case_sensitive: true,
         base_dir: config.base_path.clone(),
       },
     )?;
@@ -81,7 +91,10 @@ impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
   }
 
   fn is_gitignored(&mut self, path: &Path, is_dir: bool) -> bool {
-    let Some(gitignore) = self.gitignores.get_resolved_git_ignore_for_file(path) else {
+    let Some(gitignores) = self.gitignores.as_mut() else {
+      return false;
+    };
+    let Some(gitignore) = gitignores.get_resolved_git_ignore_for_file(path) else {
       return false;
     };
     gitignore.is_ignored(path, is_dir)
@@ -102,7 +115,7 @@ pub fn get_patterns_as_glob_matcher(patterns: &[String], config_base_path: &Cano
         .collect(),
     },
     &GlobMatcherOptions {
-      case_sensitive: !cfg!(windows),
+      case_sensitive: true,
       base_dir: config_base_path.clone(),
     },
   )
@@ -208,6 +221,9 @@ fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf) -> String
     )
   } else if file_pattern.starts_with("./") || file_pattern.starts_with("!./") {
     file_pattern
+  } else if file_pattern == "." {
+    // format everything in the current directory
+    "**".to_string()
   } else {
     // make all cli specified patterns relative
     if is_negated_glob(&file_pattern) {
@@ -302,7 +318,7 @@ mod test {
     .unwrap();
     let mut file_matcher = FileMatcher {
       glob_matcher,
-      gitignores: GitIgnoreTree::new(environment, vec![]),
+      gitignores: Some(GitIgnoreTree::new(environment, GitIgnoreTreeOptions::default())),
     };
     assert_matches_dir_and_not_ignored(&mut file_matcher, "/testing/dir/match.ts", true);
     assert_matches_dir_and_not_ignored(&mut file_matcher, "/testing/dir/other/match.ts", true);
@@ -315,6 +331,7 @@ mod test {
     let environment = TestEnvironment::new();
     let base_dir = CanonicalizedPathBuf::new_for_testing("/");
     let cwd = CanonicalizedPathBuf::new_for_testing("/sub-dir");
+    environment.mk_dir_all(&cwd).unwrap();
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
         arg_includes: None,
@@ -332,7 +349,7 @@ mod test {
     .unwrap();
     let mut file_matcher = FileMatcher {
       glob_matcher,
-      gitignores: GitIgnoreTree::new(environment, vec![]),
+      gitignores: Some(GitIgnoreTree::new(environment, GitIgnoreTreeOptions::default())),
     };
     assert_matches_dir_and_not_ignored(&mut file_matcher, "/sub-dir/dir/match.ts", true);
     assert_matches_dir_and_not_ignored(&mut file_matcher, "/sub-dir/dir/other/match.ts", true);

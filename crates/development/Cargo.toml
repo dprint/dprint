@@ -1,15 +1,14 @@
 [package]
 name = "dprint-development"
-version = "0.10.1"
+version = "0.11.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
-edition = "2021"
+edition = "2024"
 license = "MIT"
 repository = "https://github.com/dprint/dprint"
 description = "Helper functions for testing dprint plugins."
 
 [dependencies]
-anyhow = "1.0.66"
-console = "0.15.2"
-file_test_runner = "0.5.1"
-serde_json = { version = "1.0.104", features = ["preserve_order"] }
-similar = "2.2.1"
+console = "0.16.3"
+file_test_runner = "0.12.1"
+serde_json.workspace = true
+similar.workspace = true

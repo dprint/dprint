@@ -2,7 +2,7 @@
 name = "dprint-core-macros"
 version = "0.1.0"
 authors = ["David Sherret <dsherret@gmail.com>"]
-edition = "2021"
+edition = "2024"
 homepage = "https://github.com/dprint/dprint/tree/main/crates/core-macros"
 license = "MIT"
 repository = "https://github.com/dprint/dprint"

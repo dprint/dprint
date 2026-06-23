@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use clap::ArgMatches;
 use thiserror::Error;
 
@@ -12,6 +12,7 @@ use crate::utils::StdInReader;
 #[derive(Debug, Clone, Copy)]
 pub enum ConfigDiscovery {
   Default,
+  Global,
   IgnoreDescendants,
   Disabled,
 }
@@ -23,6 +24,7 @@ impl std::str::FromStr for ConfigDiscovery {
     match s.to_ascii_lowercase().as_str() {
       "default" | "true" | "1" => Ok(ConfigDiscovery::Default),
       "false" | "0" => Ok(ConfigDiscovery::Disabled),
+      "global" => Ok(ConfigDiscovery::Global),
       "ignore-descendants" => Ok(ConfigDiscovery::IgnoreDescendants),
       _ => Err(format!("expected 'default', 'ignore-descendants' or 'false', got '{s}'")),
     }
@@ -30,10 +32,15 @@ impl std::str::FromStr for ConfigDiscovery {
 }
 
 impl ConfigDiscovery {
+  pub fn is_global(&self) -> bool {
+    matches!(self, ConfigDiscovery::Global)
+  }
+
   pub fn traverse_ancestors(&self) -> bool {
     match self {
       ConfigDiscovery::Default => true,
       ConfigDiscovery::IgnoreDescendants => true,
+      ConfigDiscovery::Global => false,
       ConfigDiscovery::Disabled => false,
     }
   }
@@ -42,6 +49,7 @@ impl ConfigDiscovery {
     match self {
       ConfigDiscovery::Default => true,
       ConfigDiscovery::IgnoreDescendants => false,
+      ConfigDiscovery::Global => false,
       ConfigDiscovery::Disabled => false,
     }
   }
@@ -71,7 +79,7 @@ impl CliArgs {
     // these output json or other text that's read by stdout
     matches!(
       self.sub_command,
-      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig | SubCommand::Completions(..)
+      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig(..) | SubCommand::IncrementalState | SubCommand::Completions(..)
     )
   }
 
@@ -83,6 +91,10 @@ impl CliArgs {
       plugins: Vec::new(),
       config_discovery: None,
     }
+  }
+
+  pub fn config_discovery_arg_set(&self) -> bool {
+    self.config_discovery.is_some()
   }
 
   pub fn config_discovery(&self, env: &impl Environment) -> ConfigDiscovery {
@@ -105,7 +117,8 @@ pub enum SubCommand {
   Config(ConfigSubCommand),
   ClearCache,
   OutputFilePaths(OutputFilePathsSubCommand),
-  OutputResolvedConfig,
+  OutputResolvedConfig(OutputResolvedConfigSubCommand),
+  IncrementalState,
   OutputFormatTimes(OutputFormatTimesSubCommand),
   Version,
   License,
@@ -138,7 +151,8 @@ impl SubCommand {
       SubCommand::OutputFormatTimes(a) => Some(&a.patterns),
       SubCommand::Config(_)
       | SubCommand::ClearCache
-      | SubCommand::OutputResolvedConfig
+      | SubCommand::OutputResolvedConfig(_)
+      | SubCommand::IncrementalState
       | SubCommand::Version
       | SubCommand::License
       | SubCommand::Help(_)
@@ -160,6 +174,8 @@ pub struct CheckSubCommand {
   pub list_different: bool,
   pub allow_no_files: bool,
   pub only_staged: bool,
+  pub only_dirty: bool,
+  pub fail_fast: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -169,19 +185,43 @@ pub struct FmtSubCommand {
   pub incremental: Option<bool>,
   pub enable_stable_format: bool,
   pub allow_no_files: bool,
+  pub fail_on_change: bool,
   pub only_staged: bool,
+  pub only_dirty: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ConfigSubCommand {
-  Init,
-  Update { yes: bool },
-  Add(Option<String>),
+  Init {
+    global: bool,
+  },
+  Update {
+    yes: bool,
+    /// Print the updates that would be made without modifying any files.
+    dry_run: bool,
+  },
+  Add {
+    names: Vec<String>,
+    /// Skip the auto-pin to `dist-tags.latest` for `npm:` specifiers and
+    /// write the unversioned form (deferring to node_modules / package.json).
+    no_version: bool,
+    /// Also update the nearest `package.json`'s `devDependencies` with the
+    /// resolved latest version (as a caret range). Implies `no_version`,
+    /// since pinning in dprint.json would just duplicate the version.
+    package_json: bool,
+  },
+  Edit,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct OutputFilePathsSubCommand {
   pub patterns: FilePatternArgs,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct OutputResolvedConfigSubCommand {
+  /// When set, limits the output to only the plugins that would format this file.
+  pub file_path: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -218,7 +258,9 @@ pub struct FilePatternArgs {
   pub exclude_patterns: Vec<String>,
   pub exclude_pattern_overrides: Option<Vec<String>>,
   pub allow_node_modules: bool,
+  pub no_gitignore: bool,
   pub only_staged: bool,
+  pub only_dirty: bool,
 }
 
 #[derive(Debug, Error)]
@@ -230,6 +272,28 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
 }
 
 fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: TStdInReader) -> Result<CliArgs> {
+  fn parse_init(matches: &ArgMatches) -> ConfigSubCommand {
+    ConfigSubCommand::Init {
+      global: matches.get_flag("global"),
+    }
+  }
+
+  fn parse_add(matches: &ArgMatches) -> ConfigSubCommand {
+    let names = matches
+      .get_many::<String>("url-or-plugin-name")
+      .map(|v| v.cloned().collect())
+      .unwrap_or_default();
+    let package_json = matches.get_flag("package-json");
+    // --package-json implies --no-version: writing a pinned spec to
+    // dprint.json on top of a devDependencies entry would be duplication.
+    let no_version = package_json || matches.get_flag("no-version");
+    ConfigSubCommand::Add {
+      names,
+      no_version,
+      package_json,
+    }
+  }
+
   // this is all done because clap doesn't output exactly how I like
   if args.len() == 1 || (args.len() == 2 && (args[1] == "help" || args[1] == "--help")) {
     let mut cli_parser = create_cli_parser(CliArgParserKind::ForOutputtingMainHelp);
@@ -246,6 +310,26 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     Err(err) => return Err(err.into()),
   };
 
+  let mut is_global_config = false;
+  let mut config_update_recursive = false;
+  let mut is_config_update = false;
+
+  // determine log level early so we can use it when parsing subcommands
+  let log_level = if matches.get_flag("verbose") {
+    LogLevel::Debug
+  } else if let Some(log_level) = matches.get_one::<String>("log-level") {
+    match log_level.as_str() {
+      "debug" => LogLevel::Debug,
+      "info" => LogLevel::Info,
+      "warn" => LogLevel::Warn,
+      "error" => LogLevel::Error,
+      "silent" => LogLevel::Silent,
+      _ => unreachable!(),
+    }
+  } else {
+    LogLevel::Info
+  };
+
   let sub_command = match matches.subcommand().unwrap() {
     ("fmt", matches) => {
       if let Some(file_name_path_or_extension) = matches.get_one::<String>("stdin").map(String::from) {
@@ -258,46 +342,82 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         SubCommand::StdInFmt(StdInFmtSubCommand {
           file_name_or_path,
           file_bytes: std_in_reader.read()?,
-          patterns: parse_file_patterns(matches)?,
+          patterns: parse_file_patterns(matches, &std_in_reader)?,
         })
       } else {
+        let enable_stable_format = !matches.get_flag("skip-stable-format");
         SubCommand::Fmt(FmtSubCommand {
           diff: matches.get_flag("diff"),
-          patterns: parse_file_patterns(matches)?,
-          incremental: parse_incremental(matches),
-          enable_stable_format: !matches.get_flag("skip-stable-format"),
-          allow_no_files: if matches.get_flag("staged") {
+          patterns: parse_file_patterns(matches, &std_in_reader)?,
+          incremental: if enable_stable_format { parse_incremental(matches) } else { Some(false) },
+          enable_stable_format,
+          allow_no_files: if matches.get_flag("staged") || matches.get_flag("dirty") {
             true
           } else {
             matches.get_flag("allow-no-files")
           },
+          fail_on_change: matches.get_flag("fail-on-change"),
           only_staged: matches.get_flag("staged"),
+          only_dirty: matches.get_flag("dirty"),
         })
       }
     }
-    ("check", matches) => SubCommand::Check(CheckSubCommand {
-      patterns: parse_file_patterns(matches)?,
-      incremental: parse_incremental(matches),
-      only_staged: matches.get_flag("staged"),
-      list_different: matches.get_flag("list-different"),
-      allow_no_files: matches.get_flag("allow-no-files"),
-    }),
-    ("init", _) => SubCommand::Config(ConfigSubCommand::Init),
+    ("check", matches) => {
+      // when log level is silent, default fail_fast to true unless explicitly provided by user
+      let fail_fast = if let Some(value) = matches.get_one::<String>("fail-fast") {
+        value != "false"
+      } else if matches.contains_id("fail-fast") {
+        true
+      } else {
+        log_level == LogLevel::Silent
+      };
+
+      SubCommand::Check(CheckSubCommand {
+        patterns: parse_file_patterns(matches, &std_in_reader)?,
+        incremental: parse_incremental(matches),
+        only_staged: matches.get_flag("staged"),
+        only_dirty: matches.get_flag("dirty"),
+        list_different: matches.get_flag("list-different"),
+        allow_no_files: matches.get_flag("allow-no-files"),
+        fail_fast,
+      })
+    }
+    ("init", matches) => SubCommand::Config(parse_init(matches)),
+    ("add", matches) => {
+      is_global_config = matches.get_flag("global");
+      SubCommand::Config(parse_add(matches))
+    }
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
-      ("init", _) => ConfigSubCommand::Init,
-      ("add", matches) => ConfigSubCommand::Add(matches.get_one::<String>("url-or-plugin-name").map(String::from)),
-      ("update", matches) => ConfigSubCommand::Update {
-        yes: *matches.get_one::<bool>("yes").unwrap(),
-      },
+      ("init", matches) => parse_init(matches),
+      ("add", matches) => {
+        is_global_config = matches.get_flag("global");
+        parse_add(matches)
+      }
+      ("update", matches) => {
+        is_global_config = matches.get_flag("global");
+        config_update_recursive = matches.get_flag("recursive");
+        is_config_update = true;
+        ConfigSubCommand::Update {
+          yes: *matches.get_one::<bool>("yes").unwrap(),
+          dry_run: *matches.get_one::<bool>("dry-run").unwrap(),
+        }
+      }
+      ("edit", matches) => {
+        is_global_config = matches.get_flag("global");
+        ConfigSubCommand::Edit
+      }
       _ => unreachable!(),
     }),
     ("clear-cache", _) => SubCommand::ClearCache,
-    ("output-file-paths", matches) => SubCommand::OutputFilePaths(OutputFilePathsSubCommand {
-      patterns: parse_file_patterns(matches)?,
+    ("file-paths", matches) => SubCommand::OutputFilePaths(OutputFilePathsSubCommand {
+      patterns: parse_file_patterns(matches, &std_in_reader)?,
     }),
-    ("output-resolved-config", _) => SubCommand::OutputResolvedConfig,
-    ("output-format-times", matches) => SubCommand::OutputFormatTimes(OutputFormatTimesSubCommand {
-      patterns: parse_file_patterns(matches)?,
+    ("resolved-config", matches) => SubCommand::OutputResolvedConfig(OutputResolvedConfigSubCommand {
+      file_path: matches.get_one::<String>("file").map(String::from),
+    }),
+    ("incremental-state", _) => SubCommand::IncrementalState,
+    ("format-times", matches) => SubCommand::OutputFormatTimes(OutputFormatTimesSubCommand {
+      patterns: parse_file_patterns(matches, &std_in_reader)?,
       allow_no_files: matches.get_flag("allow-no-files"),
     }),
     ("version", _) => SubCommand::Version,
@@ -322,29 +442,34 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
 
   Ok(CliArgs {
     sub_command,
-    log_level: if matches.get_flag("verbose") {
-      LogLevel::Debug
-    } else if let Some(log_level) = matches.get_one::<String>("log-level") {
-      match log_level.as_str() {
-        "debug" => LogLevel::Debug,
-        "info" => LogLevel::Info,
-        "warn" => LogLevel::Warn,
-        "error" => LogLevel::Error,
-        "silent" => LogLevel::Silent,
-        _ => unreachable!(),
+    log_level,
+    config: matches.get_one::<String>("config").map(String::from),
+    config_discovery: if is_global_config {
+      Some(ConfigDiscovery::Global)
+    } else if is_config_update {
+      // For config update, default to ignore-descendants unless --recursive is provided
+      if config_update_recursive {
+        matches.get_one::<ConfigDiscovery>("config-discovery").copied()
+      } else {
+        matches
+          .get_one::<ConfigDiscovery>("config-discovery")
+          .copied()
+          .or(Some(ConfigDiscovery::IgnoreDescendants))
       }
     } else {
-      LogLevel::Info
+      matches.get_one::<ConfigDiscovery>("config-discovery").copied()
     },
-    config: matches.get_one::<String>("config").map(String::from),
-    config_discovery: matches.get_one::<ConfigDiscovery>("config-discovery").copied(),
     plugins: maybe_values_to_vec(matches.get_many("plugins")),
   })
 }
 
-fn parse_file_patterns(matches: &ArgMatches) -> Result<FilePatternArgs> {
+fn parse_file_patterns<TStdInReader: StdInReader>(matches: &ArgMatches, std_in_reader: &TStdInReader) -> Result<FilePatternArgs> {
   let plugins = maybe_values_to_vec(matches.get_many("plugins"));
-  let file_patterns = maybe_values_to_vec(matches.get_many("files"));
+  let mut file_patterns = maybe_values_to_vec(matches.get_many("files"));
+
+  if matches.get_flag("stdin-files") {
+    file_patterns.extend(std_in_reader.read_non_empty_lines()?);
+  }
 
   if !plugins.is_empty() && file_patterns.is_empty() {
     validate_plugin_args_when_no_files(&plugins)?;
@@ -352,7 +477,9 @@ fn parse_file_patterns(matches: &ArgMatches) -> Result<FilePatternArgs> {
 
   Ok(FilePatternArgs {
     only_staged: matches.get_flag("staged"),
+    only_dirty: matches.get_flag("dirty"),
     allow_node_modules: matches.get_flag("allow-node-modules"),
+    no_gitignore: matches.get_flag("no-gitignore"),
     include_patterns: file_patterns,
     include_pattern_overrides: matches.get_many("includes-override").map(values_to_vec),
     exclude_patterns: maybe_values_to_vec(matches.get_many("excludes")),
@@ -413,6 +540,49 @@ pub enum CliArgParserKind {
 }
 
 pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
+  fn init_command() -> Command {
+    Command::new("init").about("Initializes a configuration file in the current directory.").arg(
+      Arg::new("global")
+        .long("global")
+        .short('g')
+        .conflicts_with("config-discovery")
+        .help("Initialize the global dprint configuration file.")
+        .num_args(0)
+        .required(false),
+    )
+  }
+
+  fn add_command() -> Command {
+    Command::new("add")
+      .about("Adds a plugin to the configuration file.")
+      .arg(Arg::new("url-or-plugin-name").required(false).num_args(1..))
+      .arg(
+        Arg::new("global")
+          .long("global")
+          .short('g')
+          .conflicts_with("config-discovery")
+          .help("Add to the global dprint configuration file.")
+          .num_args(0)
+          .required(false),
+      )
+      .arg(
+        Arg::new("no-version")
+          .long("no-version")
+          .help(
+            "For npm: specifiers, write the unversioned form instead of pinning dist-tags.latest. Defers version management to node_modules / package.json.",
+          )
+          .num_args(0)
+          .required(false),
+      )
+      .arg(
+        Arg::new("package-json")
+          .long("package-json")
+          .help("Like --no-version, and also add the package to the nearest package.json's devDependencies as a caret range.")
+          .num_args(0)
+          .required(false),
+      )
+  }
+
   use clap::Arg;
   use clap::Command;
 
@@ -448,12 +618,19 @@ OPTIONS:
 {options}
 
 ENVIRONMENT VARIABLES:
-  DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
-                       directory may be periodically deleted by the CLI.
   DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
                        formatting (ex. DPRINT_MAX_THREADS=4).
+  DPRINT_GLOB_READ_THREADS
+                       Number of threads used to read directories while
+                       discovering files (ex. DPRINT_GLOB_READ_THREADS=8).
+  DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
+                       directory may be periodically deleted by the CLI.
+  DPRINT_CONFIG_DIR    Global config directory to store a global dprint.json file.
+                       Defaults to the dprint sub folder in the system configuration
+                       directory.
   DPRINT_CONFIG_DISCOVERY
-                       Sets the config discovery mode. Set to "false"/"0" to disable.
+                       Sets the config discovery mode. Set to "false"/"0" to disable
+                       or "global" to always use the global config file.
   DPRINT_CERT          Load certificate authority from PEM encoded file.
   DPRINT_TLS_CA_STORE  Comma-separated list of order dependent certificate stores.
                        Possible values: "mozilla" and "system".
@@ -461,8 +638,14 @@ ENVIRONMENT VARIABLES:
   DPRINT_IGNORE_CERTS  Unsafe way to get dprint to ignore certificates. Specify 1
                        to ignore all certificates or a comma separated list of specific
                        hosts to ignore (ex. dprint.dev,localhost,[::],127.0.0.1)
+  DPRINT_EDITOR        Editor used for editing config files.
+  DPRINT_GLOBAL_GITIGNORE
+                       Set to "1" to also respect git's global excludes file
+                       (core.excludesFile). Disabled by default.
   HTTPS_PROXY          Proxy to use when downloading plugins or configuration
-                       files (also supports HTTP_PROXY and NO_PROXY).{after-help}"#)
+                       files (also supports HTTP_PROXY and NO_PROXY).
+  NO_COLOR             Disables coloured output.
+  FORCE_COLOR          Forces coloured output, even when NO_COLOR is set.{after-help}"#)
     .after_help(
             r#"GETTING STARTED:
   1. Navigate to the root directory of a code repository.
@@ -487,10 +670,8 @@ EXAMPLES:
 
     dprint fmt "**/*.{ts,tsx,js,jsx,json}""#,
     )
-    .subcommand(
-      Command::new("init")
-        .about("Initializes a configuration file in the current directory.")
-    )
+    .subcommand(init_command())
+    .subcommand(add_command())
     .subcommand(
       Command::new("fmt")
         .about("Formats the source files and writes the result to the file system.")
@@ -501,6 +682,7 @@ EXAMPLES:
             .long("stdin")
             .value_name("extension/file-name/file-path")
             .help("Format stdin and output the result to stdout. Provide an absolute file path to apply the inclusion and exclusion rules or an extension or file name to always format the text.")
+            .conflicts_with("stdin-files")
             .required(false)
             .num_args(1)
         )
@@ -512,13 +694,19 @@ EXAMPLES:
             .required(false)
         )
         .add_only_staged_arg()
+        .add_only_dirty_arg()
         .add_allow_no_files_arg()
         .arg(
           Arg::new("skip-stable-format")
             .long("skip-stable-format")
             .help("Whether to skip formatting a file multiple times until the output is stable")
-            // hidden because this needs more thought and probably shouldn't be allowed with incremental
-            .hide(true)
+            .num_args(0)
+            .required(false)
+        )
+        .arg(
+          Arg::new("fail-on-change")
+            .long("fail-on-change")
+            .help("Exit with exit code 20 if files were formatted.")
             .num_args(0)
             .required(false)
         )
@@ -530,52 +718,107 @@ EXAMPLES:
         .add_incremental_arg()
         .add_allow_no_files_arg()
         .add_only_staged_arg()
+        .add_only_dirty_arg()
         .arg(
           Arg::new("list-different")
             .long("list-different")
             .help("Only outputs file paths that aren't formatted and doesn't output diffs.")
             .num_args(0)
         )
+        .arg(
+          Arg::new("fail-fast")
+            .long("fail-fast")
+            .help("Stop checking files and exit on the first file that isn't formatted.")
+            .num_args(0..=1)
+            .value_parser(["true", "false"])
+            .require_equals(true)
+        )
     )
     .subcommand(
       Command::new("config")
         .about("Functionality related to the configuration file.")
         .subcommand_required(true)
-        .subcommand(
-          Command::new("init")
-            .about("Initializes a configuration file in the current directory.")
-        )
+        .subcommand(init_command())
         .subcommand(
           Command::new("update")
+            .alias("upgrade")
             .about("Updates the plugins in the configuration file.")
             .arg(Arg::new("yes").help("Upgrade process plugins without prompting to confirm checksums.").short('y').long("yes").action(clap::ArgAction::SetTrue))
-        )
-        .subcommand(
-          Command::new("add")
-            .about("Adds a plugin to the configuration file.")
             .arg(
-              Arg::new("url-or-plugin-name")
+              Arg::new("dry-run")
+                .long("dry-run")
+                .help("Print the updates that would be made without modifying any files.")
+                .action(clap::ArgAction::SetTrue),
+            )
+            .arg(
+              Arg::new("global")
+                .long("global")
+                .short('g')
+                .conflicts_with("config-discovery")
+                .help("Update the global dprint configuration file.")
+                .num_args(0)
                 .required(false)
-                .num_args(1)
-          )
+            )
+            .arg(
+              Arg::new("recursive")
+                .long("recursive")
+                .short('r')
+                .conflicts_with("config-discovery")
+                .conflicts_with("global")
+                .help("Update configuration files in the current directory and all descendant directories.")
+                .num_args(0)
+                .required(false)
+            )
+        )
+        .subcommand(add_command())
+        .subcommand(
+          Command::new("edit")
+            .about("Opens the configuration file in an editor.")
+            .arg(
+              Arg::new("global")
+                .long("global")
+                .short('g')
+                .conflicts_with("config-discovery")
+                .help("Edit the global dprint configuration file.")
+                .num_args(0)
+                .required(false)
+            )
         )
     )
     .subcommand(
-      Command::new("output-file-paths")
+      // `output-` prefixed names are kept as hidden aliases for backwards compatibility
+      Command::new("file-paths")
+        .alias("output-file-paths")
         .about("Prints the resolved file paths for the plugins based on the args and configuration.")
         .add_resolve_file_path_args()
         .add_only_staged_arg()
+        .add_only_dirty_arg()
     )
     .subcommand(
-      Command::new("output-resolved-config")
+      Command::new("resolved-config")
+        .alias("output-resolved-config")
         .about("Prints the resolved configuration for the plugins based on the args and configuration.")
+        .arg(
+          Arg::new("file")
+            .long("file")
+            .value_name("file")
+            .help("Limit the output to only the plugins that would format this file.")
+            .num_args(1)
+            .required(false)
+        )
     )
     .subcommand(
-      Command::new("output-format-times")
+      Command::new("incremental-state")
+        .about("Prints the state used to determine whether the incremental cache would be invalidated.")
+    )
+    .subcommand(
+      Command::new("format-times")
+        .alias("output-format-times")
         .about("Prints the amount of time it takes to format each file. Use this for debugging.")
         .add_resolve_file_path_args()
         .add_allow_no_files_arg()
         .add_only_staged_arg()
+        .add_only_dirty_arg()
     )
     .subcommand(
       Command::new("clear-cache")
@@ -626,7 +869,7 @@ EXAMPLES:
     .arg(
       Arg::new("config-discovery")
         .long("config-discovery")
-        .help("Sets the config discovery mode. Set to `false` to completely disable.")
+        .help("Sets the config discovery mode. Set to `false` to completely disable, `ignore-descendants` to avoid finding config files in child directories, or `global` to only use the global config file.")
         .global(true)
         .value_parser(clap::value_parser!(ConfigDiscovery))
         .value_name("BOOLEAN")
@@ -679,6 +922,7 @@ trait ClapExtensions {
   fn add_incremental_arg(self) -> Self;
   fn add_allow_no_files_arg(self) -> Self;
   fn add_only_staged_arg(self) -> Self;
+  fn add_only_dirty_arg(self) -> Self;
 }
 
 impl ClapExtensions for clap::Command {
@@ -689,6 +933,16 @@ impl ClapExtensions for clap::Command {
         Arg::new("files")
           .help("List of file patterns in quotes to format. This can be a subset of what is found in the config file.")
           .num_args(1..),
+      )
+      .arg(
+        Arg::new("stdin-files")
+          .long("stdin-files")
+          .help("Read a newline-separated list of file paths to format from stdin instead of from the command line arguments.")
+          .conflicts_with("files")
+          .conflicts_with("staged")
+          .conflicts_with("dirty")
+          .num_args(0)
+          .required(false),
       )
       .arg(
         Arg::new("includes-override")
@@ -715,6 +969,12 @@ impl ClapExtensions for clap::Command {
         Arg::new("allow-node-modules")
           .long("allow-node-modules")
           .help("Allows traversing node module directories (unstable - This flag will be renamed to be non-node specific in the future).")
+          .num_args(0),
+      )
+      .arg(
+        Arg::new("no-gitignore")
+          .long("no-gitignore")
+          .help("Disables respecting .gitignore files.")
           .num_args(0),
       )
   }
@@ -752,6 +1012,18 @@ impl ClapExtensions for clap::Command {
         .required(false),
     )
   }
+
+  fn add_only_dirty_arg(self) -> Self {
+    use clap::Arg;
+    self.arg(
+      Arg::new("dirty")
+        .long("dirty")
+        .help("Format only the files with uncommitted changes in the git working directory (staged, unstaged, and untracked).")
+        .conflicts_with("staged")
+        .num_args(0)
+        .required(false),
+    )
+  }
 }
 
 #[cfg(test)]
@@ -759,6 +1031,36 @@ mod test {
   use crate::utils::TestStdInReader;
 
   use super::*;
+
+  #[test]
+  fn output_prefixed_command_aliases() {
+    // the `output-` prefixed names are kept as hidden aliases for backwards compatibility
+    fn sub_command(args: Vec<&str>) -> SubCommand {
+      test_args(args).unwrap().sub_command
+    }
+    assert!(matches!(sub_command(vec!["file-paths"]), SubCommand::OutputFilePaths(_)));
+    assert!(matches!(sub_command(vec!["output-file-paths"]), SubCommand::OutputFilePaths(_)));
+    assert!(matches!(sub_command(vec!["resolved-config"]), SubCommand::OutputResolvedConfig(_)));
+    assert!(matches!(sub_command(vec!["output-resolved-config"]), SubCommand::OutputResolvedConfig(_)));
+    assert!(matches!(sub_command(vec!["format-times"]), SubCommand::OutputFormatTimes(_)));
+    assert!(matches!(sub_command(vec!["output-format-times"]), SubCommand::OutputFormatTimes(_)));
+  }
+
+  #[test]
+  fn resolved_config_file_path_arg() {
+    fn file_path(args: Vec<&str>) -> Option<String> {
+      match test_args(args).unwrap().sub_command {
+        SubCommand::OutputResolvedConfig(cmd) => cmd.file_path,
+        _ => unreachable!(),
+      }
+    }
+    assert_eq!(file_path(vec!["resolved-config"]), None);
+    assert_eq!(file_path(vec!["resolved-config", "--file", "src/main.py"]), Some("src/main.py".to_string()));
+    assert_eq!(
+      file_path(vec!["output-resolved-config", "--file", "src/main.py"]),
+      Some("src/main.py".to_string())
+    );
+  }
 
   #[test]
   fn plugins_with_file_paths_no_dash_at_first() {
@@ -809,6 +1111,57 @@ mod test {
   }
 
   #[test]
+  fn skip_stable_format_disables_incremental() {
+    // without --skip-stable-format, incremental follows what's specified
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt"]).unwrap();
+    assert_eq!(fmt_cmd.enable_stable_format, true);
+    assert_eq!(fmt_cmd.incremental, None);
+
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--incremental"]).unwrap();
+    assert_eq!(fmt_cmd.enable_stable_format, true);
+    assert_eq!(fmt_cmd.incremental, Some(true));
+
+    // with --skip-stable-format, incremental is forced to false
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--skip-stable-format"]).unwrap();
+    assert_eq!(fmt_cmd.enable_stable_format, false);
+    assert_eq!(fmt_cmd.incremental, Some(false));
+
+    // even if --incremental is explicitly set, --skip-stable-format forces it to false
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--skip-stable-format", "--incremental"]).unwrap();
+    assert_eq!(fmt_cmd.enable_stable_format, false);
+    assert_eq!(fmt_cmd.incremental, Some(false));
+
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--skip-stable-format", "--incremental=true"]).unwrap();
+    assert_eq!(fmt_cmd.enable_stable_format, false);
+    assert_eq!(fmt_cmd.incremental, Some(false));
+  }
+
+  #[test]
+  fn stdin_files_arg() {
+    let stdin_reader = TestStdInReader::from("/file1.txt\n\n/sub dir/file 2.txt\n");
+    let args = parse_args(vec!["".to_string(), "fmt".to_string(), "--stdin-files".to_string()], stdin_reader).unwrap();
+    match args.sub_command {
+      SubCommand::Fmt(cmd) => {
+        // blank lines are skipped and paths with spaces are preserved
+        assert_eq!(cmd.patterns.include_patterns, vec!["/file1.txt".to_string(), "/sub dir/file 2.txt".to_string()]);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn stdin_files_conflicts_with_file_patterns() {
+    let stdin_reader = TestStdInReader::from("/file1.txt\n");
+    let err = parse_args(
+      vec!["".to_string(), "fmt".to_string(), "--stdin-files".to_string(), "other.txt".to_string()],
+      stdin_reader,
+    )
+    .err()
+    .unwrap();
+    assert!(err.to_string().contains("cannot be used with"));
+  }
+
+  #[test]
   fn staged_arg() {
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt"]).unwrap();
     assert_eq!(fmt_cmd.only_staged, false);
@@ -817,10 +1170,149 @@ mod test {
   }
 
   #[test]
+  fn dirty_arg() {
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt"]).unwrap();
+    assert_eq!(fmt_cmd.only_dirty, false);
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--dirty"]).unwrap();
+    assert_eq!(fmt_cmd.only_dirty, true);
+  }
+
+  #[test]
+  fn staged_and_dirty_conflict() {
+    let err = parse_fmt_sub_command(vec!["fmt", "--staged", "--dirty"]).err().unwrap();
+    assert!(err.to_string().contains("cannot be used with"));
+  }
+
+  #[test]
   fn no_files_arg() {
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--staged"]).unwrap();
     assert_eq!(fmt_cmd.only_staged, true);
     assert_eq!(fmt_cmd.allow_no_files, true);
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--dirty"]).unwrap();
+    assert_eq!(fmt_cmd.only_dirty, true);
+    assert_eq!(fmt_cmd.allow_no_files, true);
+  }
+
+  #[test]
+  fn top_level_add_alias() {
+    let args = test_args(vec!["add"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add {
+        names,
+        no_version,
+        package_json,
+      }) => {
+        assert!(names.is_empty());
+        assert!(!no_version);
+        assert!(!package_json);
+      }
+      _ => unreachable!(),
+    }
+
+    let args = test_args(vec!["add", "typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { names, .. }) => {
+        assert_eq!(names, &["typescript"]);
+      }
+      _ => unreachable!(),
+    }
+
+    let args = test_args(vec!["add", "typescript", "json", "markdown"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { names, .. }) => {
+        assert_eq!(names, &["typescript", "json", "markdown"]);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn add_no_version_flag() {
+    let args = test_args(vec!["add", "--no-version", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add {
+        names,
+        no_version,
+        package_json,
+      }) => {
+        assert_eq!(names, &["npm:@dprint/typescript"]);
+        assert!(*no_version);
+        assert!(!*package_json);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn add_package_json_flag_implies_no_version() {
+    let args = test_args(vec!["add", "--package-json", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { no_version, package_json, .. }) => {
+        assert!(*no_version, "--package-json should imply --no-version");
+        assert!(*package_json);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn config_upgrade_alias() {
+    let args = test_args(vec!["config", "upgrade"]).unwrap();
+    match args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Update { yes, dry_run }) => {
+        assert!(!yes);
+        assert!(!dry_run);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn config_update_dry_run_arg() {
+    let args = test_args(vec!["config", "update", "--dry-run"]).unwrap();
+    match args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Update { yes, dry_run }) => {
+        assert!(!yes);
+        assert!(dry_run);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn check_fail_fast_arg() {
+    let check_cmd = parse_check_sub_command(vec!["check"]).unwrap();
+    assert_eq!(check_cmd.fail_fast, false);
+    let check_cmd = parse_check_sub_command(vec!["check", "--fail-fast"]).unwrap();
+    assert_eq!(check_cmd.fail_fast, true);
+  }
+
+  #[test]
+  fn check_fail_fast_defaults_to_true_with_silent_log_level() {
+    {
+      let check_cmd = parse_check_sub_command(vec!["check"]).unwrap();
+      assert_eq!(check_cmd.fail_fast, false);
+    }
+    {
+      let check_cmd = parse_check_sub_command(vec!["check", "--log-level=silent"]).unwrap();
+      assert_eq!(check_cmd.fail_fast, true);
+    }
+    {
+      let check_cmd = parse_check_sub_command(vec!["check", "--log-level=silent", "--fail-fast"]).unwrap();
+      assert_eq!(check_cmd.fail_fast, true);
+    }
+    {
+      let check_cmd = parse_check_sub_command(vec!["check", "--log-level=silent", "--fail-fast=false"]).unwrap();
+      assert_eq!(check_cmd.fail_fast, false);
+    }
+  }
+
+  fn parse_check_sub_command(args: Vec<&str>) -> Result<CheckSubCommand, ParseArgsError> {
+    let args = test_args(args)?;
+    match args.sub_command {
+      SubCommand::Check(cmd) => Ok(cmd),
+      _ => unreachable!(),
+    }
   }
 
   fn parse_fmt_sub_command(args: Vec<&str>) -> Result<FmtSubCommand, ParseArgsError> {

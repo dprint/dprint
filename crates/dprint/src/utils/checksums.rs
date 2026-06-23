@@ -1,5 +1,5 @@
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 
 pub fn get_sha256_checksum(bytes: &[u8]) -> String {
   use sha2::Digest;

@@ -2,9 +2,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::anyhow;
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
@@ -14,6 +13,7 @@ use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
+use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
@@ -34,9 +34,9 @@ use wasmer::TypedFunction;
 use wasmer::WasmPtr;
 use wasmer::WasmTypeList;
 
+use crate::plugins::FormatConfig;
 use crate::plugins::implementations::wasm::WasmHostFormatSender;
 use crate::plugins::implementations::wasm::WasmInstance;
-use crate::plugins::FormatConfig;
 
 use super::ImportObjectEnvironment;
 use super::InitializedWasmPluginInstance;
@@ -337,7 +337,7 @@ impl InitializedWasmPluginInstanceV3 {
       WasmFormatResult::Error => {
         let len = self.wasm_functions.get_error_text()?;
         let text = self.receive_string(len)?;
-        Ok(Err(anyhow!("{}", text)))
+        Ok(Err(FormatError::new(text)))
       }
     }
   }
@@ -453,10 +453,10 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV3 {
       return Ok(None); // not supported for v3
     }
     self.wasm_functions.instance.set_token(&mut self.wasm_functions.store, token);
-    self.ensure_config(config)?;
+    self.ensure_config(config).map_err(FormatError::new)?;
     match self.inner_format_text(file_path, file_bytes, override_config) {
       Ok(inner) => inner,
-      Err(err) => Err(CriticalFormatError(err).into()),
+      Err(err) => Err(CriticalFormatError(FormatError::new(err)).into()),
     }
   }
 }
@@ -541,7 +541,7 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn get_memory_view(&self) -> MemoryView {
+  pub fn get_memory_view(&self) -> MemoryView<'_> {
     self.memory.view(&self.store)
   }
 

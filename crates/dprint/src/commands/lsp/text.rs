@@ -3,11 +3,13 @@
 // The following code is lifted from Deno's codebase.
 // https://github.com/denoland/deno/blob/35f028daf27bb40e86829e7b7cc19aa72a62c0a0/cli/lsp/text.rs
 
-use anyhow::bail;
 use anyhow::Result;
-use dissimilar::diff;
-use dissimilar::Chunk;
+use anyhow::bail;
+use similar::ChangeTag;
+use similar::TextDiff;
 use std::collections::HashMap;
+use std::time::Duration;
+use std::time::Instant;
 use text_size::TextRange;
 use text_size::TextSize;
 use tower_lsp::lsp_types as lsp;
@@ -25,11 +27,7 @@ impl Utf16Char {
   }
 
   fn len_utf16(&self) -> usize {
-    if self.len() == TextSize::from(4) {
-      2
-    } else {
-      1
-    }
+    if self.len() == TextSize::from(4) { 2 } else { 1 }
   }
 }
 
@@ -137,23 +135,67 @@ impl LineIndex {
   }
 }
 
+/// Normalizes the line endings of the formatted text to match those of the
+/// source text.
+///
+/// Editors own the line endings of a document, so the language server should
+/// not change them based on the plugin's configured newline kind. Doing so
+/// produced spurious edits that some editors mishandled, resulting in doubled
+/// or garbled newlines (see https://github.com/dprint/dprint/issues/965).
+pub fn normalize_to_source_line_endings(source: &str, formatted: String) -> String {
+  let Some(source_uses_crlf) = detect_crlf(source) else {
+    return formatted; // can't tell what the source uses, so leave it alone
+  };
+  if Some(source_uses_crlf) == detect_crlf(&formatted) {
+    return formatted;
+  }
+  if source_uses_crlf {
+    formatted.replace("\r\n", "\n").replace('\n', "\r\n")
+  } else {
+    formatted.replace("\r\n", "\n")
+  }
+}
+
+/// Determines whether the text uses `\r\n` line endings based on the first line
+/// ending found. Returns `None` when there are no line endings.
+fn detect_crlf(text: &str) -> Option<bool> {
+  match text.find('\n') {
+    None => None,
+    Some(0) => Some(false),
+    Some(index) => Some(text.as_bytes()[index - 1] == b'\r'),
+  }
+}
+
 /// Compare two strings and return a vector of text edit records which are
 /// supported by the Language Server Protocol.
 pub fn get_edits(a: &str, b: &str, line_index: &LineIndex) -> Vec<TextEdit> {
   if a == b {
     return vec![];
   }
-  // Heuristic to detect things like minified files. `diff()` is expensive.
+  // Heuristic to detect things like minified files. Diffing is expensive.
   if b.chars().filter(|c| *c == '\n').count() > line_index.utf8_offsets.len() * 3 {
-    return vec![TextEdit {
-      range: lsp::Range {
-        start: lsp::Position::new(0, 0),
-        end: line_index.position_utf16(TextSize::from(a.len() as u32)),
-      },
-      new_text: b.to_string(),
-    }];
+    return vec![replace_whole_file(a, b, line_index)];
   }
-  let chunks = diff(a, b);
+  // diff at the character level, coalescing consecutive changes of the same
+  // kind into runs so the edit construction below can work a chunk at a time.
+  // Within a replacement similar always yields the deletions before the insertions.
+  //
+  // A deadline bounds pathological inputs. similar bails out and returns a valid
+  // (but non-minimal) diff when it's hit, which would produce a large pile of
+  // scattered edits, so in that case fall back to replacing the whole file.
+  let deadline = Instant::now() + Duration::from_millis(500);
+  let diff = TextDiff::configure().deadline(deadline).diff_chars(a, b);
+  if Instant::now() >= deadline {
+    return vec![replace_whole_file(a, b, line_index)];
+  }
+  let mut chunks: Vec<(ChangeTag, String)> = Vec::new();
+  for change in diff.iter_all_changes() {
+    match chunks.last_mut() {
+      Some((tag, text)) if *tag == change.tag() => text.push_str(change.value()),
+      _ => chunks.push((change.tag(), change.value().to_string())),
+    }
+  }
+
   let mut text_edits = Vec::<TextEdit>::new();
   let mut iter = chunks.iter().peekable();
   let mut a_pos = TextSize::from(0);
@@ -161,16 +203,16 @@ pub fn get_edits(a: &str, b: &str, line_index: &LineIndex) -> Vec<TextEdit> {
     let chunk = iter.next();
     match chunk {
       None => break,
-      Some(Chunk::Equal(e)) => {
+      Some((ChangeTag::Equal, e)) => {
         a_pos += TextSize::from(e.encode_utf16().count() as u32);
       }
-      Some(Chunk::Delete(d)) => {
+      Some((ChangeTag::Delete, d)) => {
         let start = line_index.position_utf16(a_pos);
         a_pos += TextSize::from(d.encode_utf16().count() as u32);
         let end = line_index.position_utf16(a_pos);
         let range = lsp::Range { start, end };
         match iter.peek() {
-          Some(Chunk::Insert(i)) => {
+          Some((ChangeTag::Insert, i)) => {
             iter.next();
             text_edits.push(TextEdit {
               range,
@@ -183,7 +225,7 @@ pub fn get_edits(a: &str, b: &str, line_index: &LineIndex) -> Vec<TextEdit> {
           }),
         }
       }
-      Some(Chunk::Insert(i)) => {
+      Some((ChangeTag::Insert, i)) => {
         let pos = line_index.position_utf16(a_pos);
         let range = lsp::Range { start: pos, end: pos };
         text_edits.push(TextEdit {
@@ -195,6 +237,17 @@ pub fn get_edits(a: &str, b: &str, line_index: &LineIndex) -> Vec<TextEdit> {
   }
 
   text_edits
+}
+
+/// A single edit that replaces the entire document with `new_text`.
+fn replace_whole_file(old_text: &str, new_text: &str, line_index: &LineIndex) -> TextEdit {
+  TextEdit {
+    range: lsp::Range {
+      start: lsp::Position::new(0, 0),
+      end: line_index.position_utf16(TextSize::from(old_text.len() as u32)),
+    },
+    new_text: new_text.to_string(),
+  }
 }
 
 fn partition_point<T, P>(slice: &[T], mut predicate: P) -> usize
@@ -348,9 +401,30 @@ const C: char = \"メ メ\";
         TextEdit {
           range: lsp::Range {
             start: lsp::Position { line: 0, character: 1 },
+            end: lsp::Position { line: 0, character: 1 }
+          },
+          new_text: "\n".to_string()
+        },
+        TextEdit {
+          range: lsp::Range {
+            start: lsp::Position { line: 0, character: 2 },
+            end: lsp::Position { line: 0, character: 2 }
+          },
+          new_text: "\n".to_string()
+        },
+        TextEdit {
+          range: lsp::Range {
+            start: lsp::Position { line: 0, character: 3 },
+            end: lsp::Position { line: 0, character: 4 }
+          },
+          new_text: "hij".to_string()
+        },
+        TextEdit {
+          range: lsp::Range {
+            start: lsp::Position { line: 0, character: 5 },
             end: lsp::Position { line: 0, character: 5 }
           },
-          new_text: "\nb\nchije\n".to_string()
+          new_text: "\n".to_string()
         },
         TextEdit {
           range: lsp::Range {
@@ -361,6 +435,30 @@ const C: char = \"メ メ\";
         },
       ]
     );
+  }
+
+  #[test]
+  fn test_normalize_to_source_line_endings() {
+    // source LF, formatted CRLF -> formatted becomes LF
+    assert_eq!(normalize_to_source_line_endings("a\nb\n", "a\r\nb\r\nc\r\n".to_string()), "a\nb\nc\n");
+    // source CRLF, formatted LF -> formatted becomes CRLF
+    assert_eq!(normalize_to_source_line_endings("a\r\nb\r\n", "a\nb\nc\n".to_string()), "a\r\nb\r\nc\r\n");
+    // matching line endings are left untouched (no allocation churn issues)
+    assert_eq!(normalize_to_source_line_endings("a\nb\n", "a\nb\n".to_string()), "a\nb\n");
+    assert_eq!(normalize_to_source_line_endings("a\r\nb\r\n", "a\r\nb\r\n".to_string()), "a\r\nb\r\n");
+    // no line endings in source -> leave formatted as-is
+    assert_eq!(normalize_to_source_line_endings("abc", "abc\r\n".to_string()), "abc\r\n");
+    // leading newline still detects the source kind
+    assert_eq!(normalize_to_source_line_endings("\nabc", "\r\nabc".to_string()), "\nabc");
+  }
+
+  #[test]
+  fn test_get_edits_after_normalizing_line_endings() {
+    // when only the line endings differ, normalizing should produce no edits (#965)
+    let a = "line1\nline2\nline3\n";
+    let formatted = "line1\r\nline2\r\nline3\r\n".to_string();
+    let new_text = normalize_to_source_line_endings(a, formatted);
+    assert_eq!(get_edits(a, &new_text, &LineIndex::new(a)), vec![]);
   }
 
   #[test]
@@ -381,9 +479,16 @@ const C: char = \"メ メ\";
         TextEdit {
           range: lsp::Range {
             start: lsp::Position { line: 1, character: 23 },
+            end: lsp::Position { line: 1, character: 24 }
+          },
+          new_text: "\"".to_string()
+        },
+        TextEdit {
+          range: lsp::Range {
+            start: lsp::Position { line: 1, character: 25 },
             end: lsp::Position { line: 1, character: 25 }
           },
-          new_text: "\");".to_string()
+          new_text: ";".to_string()
         },
       ]
     )

@@ -7,6 +7,8 @@ export const knownPlugins = new Set([
   "toml",
   "dockerfile",
   "biome",
+  "oxc",
+  "mago",
   "ruff",
   // third party plugins, but user name is removed because there can't be `/` in the url
   "malva",
@@ -22,6 +24,7 @@ export class UrlSaver {
     return {
       text: getText(),
       configText: getConfigText(),
+      ext: getExtension(),
       ...getPlugin(),
     };
 
@@ -80,6 +83,20 @@ export class UrlSaver {
       }
     }
 
+    function getExtension(): string | undefined {
+      const matches = /ext\/([^/]+)/.exec(locationHash);
+      if (matches == null || matches.length !== 2) {
+        return undefined;
+      }
+
+      try {
+        return matches[1];
+      } catch (err) {
+        console.error(err);
+        return undefined;
+      }
+    }
+
     function getLegacyLanguage(): string {
       const matches = /language\/([^/]+)/.exec(locationHash);
       if (matches == null || matches.length !== 2) {
@@ -99,10 +116,11 @@ export class UrlSaver {
     }
   }
 
-  updateUrl({ text, configText, plugin }: {
+  updateUrl({ text, configText, plugin, ext }: {
     text: string;
     configText?: string;
     plugin?: string;
+    ext?: string;
   }) {
     let url = `#code/${compressToEncodedURIComponent(text)}`;
     if (configText != null) {
@@ -110,6 +128,9 @@ export class UrlSaver {
     }
     if (plugin != null) {
       url += `/plugin/${knownPlugins.has(plugin) ? plugin : compressToEncodedURIComponent(plugin)}`;
+    }
+    if (ext != null) {
+      url += `/ext/${ext}`;
     }
     window.history.replaceState(
       undefined,

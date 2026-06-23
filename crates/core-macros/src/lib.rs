@@ -1,8 +1,8 @@
 extern crate proc_macro;
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::parse_macro_input;
 use syn::LitStr;
+use syn::parse_macro_input;
 
 #[proc_macro]
 pub fn sc(input: TokenStream) -> TokenStream {

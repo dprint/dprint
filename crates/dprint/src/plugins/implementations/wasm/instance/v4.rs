@@ -3,24 +3,25 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Result;
 use anyhow::anyhow;
 use anyhow::bail;
-use anyhow::Result;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::configuration::GlobalConfiguration;
-use dprint_core::plugins::wasm::JsonResponse;
 use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
+use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
 use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::wasm::JsonResponse;
 use parking_lot::Mutex;
 use wasmer::AsStoreRef;
 use wasmer::ExportError;
@@ -36,10 +37,10 @@ use wasmer::WasmPtr;
 use wasmer::WasmTypeList;
 
 use crate::environment::Environment;
+use crate::plugins::FormatConfig;
 use crate::plugins::implementations::wasm::ImportObjectEnvironment;
 use crate::plugins::implementations::wasm::WasmHostFormatSender;
 use crate::plugins::implementations::wasm::WasmInstance;
-use crate::plugins::FormatConfig;
 
 use super::InitializedWasmPluginInstance;
 
@@ -263,11 +264,7 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
   }
 
   fn host_has_cancelled<TEnvironment: Environment>(env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>) -> i32 {
-    if env.data().token.as_ref().is_cancelled() {
-      1
-    } else {
-      0
-    }
+    if env.data().token.as_ref().is_cancelled() { 1 } else { 0 }
   }
 
   let env = ImportObjectEnvironmentV4 {
@@ -371,7 +368,7 @@ impl InitializedWasmPluginInstanceV4 {
       WasmFormatResult::Error => {
         let len = self.wasm_functions.get_error_text()?;
         let text = self.receive_string(len)?;
-        Ok(Err(anyhow!("{}", text)))
+        Ok(Err(FormatError::new(text)))
       }
     }
   }
@@ -438,7 +435,9 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
   fn check_config_updates(&mut self, message: &CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
     let bytes = serde_json::to_vec(&message)?;
     self.send_bytes(&bytes)?;
-    let len = self.wasm_functions.check_config_updates()?;
+    let Some(len) = self.wasm_functions.check_config_updates()? else {
+      return Ok(Vec::new());
+    };
     let bytes = self.receive_bytes(len)?;
     let result: JsonResponse = serde_json::from_slice(&bytes)?;
     match result {
@@ -482,10 +481,10 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
       None
     };
     self.wasm_functions.instance.set_token(&mut self.wasm_functions.store, token);
-    self.ensure_config(config)?;
+    self.ensure_config(config).map_err(FormatError::new)?;
     match self.inner_format_text(file_path, file_bytes, range, config, override_config.as_deref()) {
       Ok(inner) => inner,
-      Err(err) => Err(CriticalFormatError(err).into()),
+      Err(err) => Err(CriticalFormatError(FormatError::new(err)).into()),
     }
   }
 }
@@ -522,11 +521,11 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn check_config_updates(&mut self) -> Result<usize> {
+  pub fn check_config_updates(&mut self) -> Result<Option<usize>> {
     let maybe_func = self.get_maybe_export::<(), u32>("check_config_updates")?;
     match maybe_func {
-      Some(func) => Ok(func.call(&mut self.store).map(|value| value as usize)?),
-      None => Ok(0), // ignore, the plugin doesn't have this defined
+      Some(func) => Ok(Some(func.call(&mut self.store).map(|value| value as usize)?)),
+      None => Ok(None), // ignore, the plugin doesn't have this defined
     }
   }
 
@@ -595,7 +594,7 @@ impl WasmFunctions {
   }
 
   #[inline]
-  pub fn get_memory_view(&self) -> MemoryView {
+  pub fn get_memory_view(&self) -> MemoryView<'_> {
     self.memory.view(&self.store)
   }
 

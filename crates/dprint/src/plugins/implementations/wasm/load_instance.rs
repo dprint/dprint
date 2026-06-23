@@ -1,10 +1,8 @@
 use std::sync::Arc;
 
-use anyhow::bail;
 use anyhow::Result;
+use anyhow::bail;
 use dprint_core::plugins::CancellationToken;
-use wasmer::sys::Cranelift;
-use wasmer::sys::EngineBuilder;
 use wasmer::EngineRef;
 use wasmer::ExportError;
 use wasmer::Function;
@@ -13,10 +11,12 @@ use wasmer::Instance;
 use wasmer::Memory;
 use wasmer::Module;
 use wasmer::Store;
+#[cfg(not(wasm_interpreter))]
+use wasmer::sys::EngineBuilder;
 
-use super::instance::get_current_plugin_schema_version;
 use super::ImportObjectEnvironment;
 use super::PluginSchemaVersion;
+use super::instance::get_current_plugin_schema_version;
 
 pub struct WasmInstance {
   inner: wasmer::Instance,
@@ -82,8 +82,17 @@ impl WasmModule {
     self.version
   }
 
+  // only the compiler backends serialize the module; the interpreter caches raw
+  // wasm instead
+  #[cfg(not(wasm_interpreter))]
   pub fn inner(&self) -> &wasmer::Module {
     &self.inner
+  }
+
+  /// Creates a store backed by the same engine as this module so that the
+  /// module and the store it's instantiated in always use the same backend.
+  pub fn new_store(&self) -> Store {
+    Store::new(self.engine.clone())
   }
 }
 
@@ -94,10 +103,7 @@ pub struct WasmModuleCreator {
 
 impl Default for WasmModuleCreator {
   fn default() -> Self {
-    let compiler = Cranelift::default();
-    let engine = EngineBuilder::new(compiler).engine();
-    let engine: wasmer::Engine = engine.into();
-    Self { engine }
+    Self { engine: new_engine() }
   }
 }
 
@@ -108,13 +114,39 @@ impl WasmModuleCreator {
     WasmModule::new(module, self.engine.clone())
   }
 
+  /// Creates a module from the bytes cached by `compile`. The compiler backends
+  /// cache a serialized native artifact; the interpreter has no artifact to
+  /// cache so it stores the raw wasm bytes and parses them here.
   pub fn create_from_serialized(&self, compiled_module_bytes: &[u8]) -> Result<WasmModule> {
-    unsafe {
-      let engine_ref = EngineRef::new(&self.engine);
-      match Module::deserialize(&engine_ref, compiled_module_bytes) {
-        Ok(module) => WasmModule::new(module, self.engine.clone()),
-        Err(err) => bail!("Error deserializing compiled wasm module: {:#}", err),
+    #[cfg(wasm_interpreter)]
+    {
+      self.create_from_wasm_bytes(compiled_module_bytes)
+    }
+    #[cfg(not(wasm_interpreter))]
+    {
+      unsafe {
+        let engine_ref = EngineRef::new(&self.engine);
+        match Module::deserialize(&engine_ref, compiled_module_bytes) {
+          Ok(module) => WasmModule::new(module, self.engine.clone()),
+          Err(err) => bail!("Error deserializing compiled wasm module: {:#}", err),
+        }
       }
     }
   }
+}
+
+#[cfg(not(wasm_interpreter))]
+fn new_engine() -> wasmer::Engine {
+  #[cfg(not(target_arch = "loongarch64"))]
+  let compiler = wasmer::sys::Cranelift::default();
+  #[cfg(target_arch = "loongarch64")]
+  let compiler = wasmer::sys::LLVM::default();
+  EngineBuilder::new(compiler).engine().into()
+}
+
+// wasmi is a portable pure-Rust interpreter used on targets the compiler
+// backends can't reach (e.g. powerpc64)
+#[cfg(wasm_interpreter)]
+fn new_engine() -> wasmer::Engine {
+  wasmer::wasmi::engine::Engine::default().into()
 }

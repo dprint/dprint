@@ -20,7 +20,7 @@ Adapter plugin that formats HTML, Vue, Svelte, Astro, Angular, Jinja, Twig, Nunj
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint config add g-plane/markup_fmt
+dprint add g-plane/markup_fmt
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"markup"` property (not `"markup_fmt"`) to add configuration:
