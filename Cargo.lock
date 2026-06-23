@@ -3430,7 +3430,7 @@ dependencies = [
 [[package]]
 name = "wasmer"
 version = "7.1.0"
-source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#f6b3c89c4e0d03b410a93638a3fe290d448bd0ce"
+source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#ee610b458942eb44bd8e4dec5b1bf9fc22d32d36"
 dependencies = [
  "bindgen",
  "bytes",
@@ -3465,7 +3465,7 @@ dependencies = [
 [[package]]
 name = "wasmer-compiler"
 version = "7.1.0"
-source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#f6b3c89c4e0d03b410a93638a3fe290d448bd0ce"
+source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#ee610b458942eb44bd8e4dec5b1bf9fc22d32d36"
 dependencies = [
  "backtrace",
  "bytes",
@@ -3500,7 +3500,7 @@ dependencies = [
 [[package]]
 name = "wasmer-compiler-cranelift"
 version = "7.1.0"
-source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#f6b3c89c4e0d03b410a93638a3fe290d448bd0ce"
+source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#ee610b458942eb44bd8e4dec5b1bf9fc22d32d36"
 dependencies = [
  "cranelift-codegen",
  "cranelift-entity",
@@ -3521,7 +3521,7 @@ dependencies = [
 [[package]]
 name = "wasmer-compiler-llvm"
 version = "7.1.0"
-source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#f6b3c89c4e0d03b410a93638a3fe290d448bd0ce"
+source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#ee610b458942eb44bd8e4dec5b1bf9fc22d32d36"
 dependencies = [
  "byteorder",
  "cc",
@@ -3548,7 +3548,7 @@ dependencies = [
 [[package]]
 name = "wasmer-derive"
 version = "7.1.0"
-source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#f6b3c89c4e0d03b410a93638a3fe290d448bd0ce"
+source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#ee610b458942eb44bd8e4dec5b1bf9fc22d32d36"
 dependencies = [
  "proc-macro-error2",
  "proc-macro2",
@@ -3559,7 +3559,7 @@ dependencies = [
 [[package]]
 name = "wasmer-types"
 version = "7.1.0"
-source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#f6b3c89c4e0d03b410a93638a3fe290d448bd0ce"
+source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#ee610b458942eb44bd8e4dec5b1bf9fc22d32d36"
 dependencies = [
  "bytecheck",
  "enum-iterator",
@@ -3577,7 +3577,7 @@ dependencies = [
 [[package]]
 name = "wasmer-vm"
 version = "7.1.0"
-source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#f6b3c89c4e0d03b410a93638a3fe290d448bd0ce"
+source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#ee610b458942eb44bd8e4dec5b1bf9fc22d32d36"
 dependencies = [
  "backtrace",
  "bytesize",
@@ -3767,7 +3767,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
