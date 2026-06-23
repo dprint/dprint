@@ -3430,8 +3430,7 @@ dependencies = [
 [[package]]
 name = "wasmer"
 version = "7.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57bf3ce47ae9ef62e35c0b23e89b72250548d6d960d0832a5638b05a701769a8"
+source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#f6b3c89c4e0d03b410a93638a3fe290d448bd0ce"
 dependencies = [
  "bindgen",
  "bytes",
@@ -3466,8 +3465,7 @@ dependencies = [
 [[package]]
 name = "wasmer-compiler"
 version = "7.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1998787df9de3e84b66616766fb795e9aab954a8ca1e40eb92ef759e325bc782"
+source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#f6b3c89c4e0d03b410a93638a3fe290d448bd0ce"
 dependencies = [
  "backtrace",
  "bytes",
@@ -3502,8 +3500,7 @@ dependencies = [
 [[package]]
 name = "wasmer-compiler-cranelift"
 version = "7.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "757fd205d4e2aac6662fc75f4859e6675ab51f4436b86086d47bfa83439c8931"
+source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#f6b3c89c4e0d03b410a93638a3fe290d448bd0ce"
 dependencies = [
  "cranelift-codegen",
  "cranelift-entity",
@@ -3524,8 +3521,7 @@ dependencies = [
 [[package]]
 name = "wasmer-compiler-llvm"
 version = "7.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c1094c344efb6dac36fdbebb417159491282efaac74e565d57562332af71233"
+source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#f6b3c89c4e0d03b410a93638a3fe290d448bd0ce"
 dependencies = [
  "byteorder",
  "cc",
@@ -3552,8 +3548,7 @@ dependencies = [
 [[package]]
 name = "wasmer-derive"
 version = "7.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80beffc36bead448bac84e1145d860523729c4e34e441332d56076a8a16b2d64"
+source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#f6b3c89c4e0d03b410a93638a3fe290d448bd0ce"
 dependencies = [
  "proc-macro-error2",
  "proc-macro2",
@@ -3564,8 +3559,7 @@ dependencies = [
 [[package]]
 name = "wasmer-types"
 version = "7.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c805281d86063190ad76fbc12d6397aaf33ba60a5c9834e98ee0dcb8f889df7d"
+source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#f6b3c89c4e0d03b410a93638a3fe290d448bd0ce"
 dependencies = [
  "bytecheck",
  "enum-iterator",
@@ -3583,8 +3577,7 @@ dependencies = [
 [[package]]
 name = "wasmer-vm"
 version = "7.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2be14431ae698689440eadaa3d9563e266da4f889adda2749743f317680daa20"
+source = "git+https://github.com/dsherret/wasmer?branch=feat_windows_arm_7.1.0#f6b3c89c4e0d03b410a93638a3fe290d448bd0ce"
 dependencies = [
  "backtrace",
  "bytesize",
@@ -3774,7 +3767,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -27,7 +27,12 @@ tokio = { version = "1.37.0", features = ["rt", "time", "macros", "rt-multi-thre
 inherits = "release"
 debug = true
 
-# TEMP: test the Windows on ARM support in corosensei (pulled in by wasmer-vm)
-# before it is released to crates.io.
+# TEMP: test the Windows on ARM support in corosensei and the matching wasmer-vm
+# trap-handling change before either is released to crates.io. The wasmer crates
+# come from a 7.1.0 worktree of the wasmer fork with the trap-handling fix
+# cherry-picked onto it (the fork's main is 7.2.0-alpha.3, which drops the wasmi
+# backend dprint needs); its internal path deps pull the rest of wasmer.
 [patch.crates-io]
 corosensei = { git = "https://github.com/dsherret/corosensei", branch = "feat_windows_arm" }
+wasmer = { git = "https://github.com/dsherret/wasmer", branch = "feat_windows_arm_7.1.0" }
+wasmer-compiler = { git = "https://github.com/dsherret/wasmer", branch = "feat_windows_arm_7.1.0" }
