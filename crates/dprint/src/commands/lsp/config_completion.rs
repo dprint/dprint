@@ -726,10 +726,7 @@ fn analyze(tokens: &[Tok], offset: usize) -> Option<Analysis> {
       TokKind::Comment => {}
       TokKind::Str(_) | TokKind::Word(_) | TokKind::Scalar(_) => {
         if let Some(Frame::Object {
-          last_key,
-          after_colon,
-          keys,
-          ..
+          last_key, after_colon, keys, ..
         }) = stack.last_mut()
         {
           if *after_colon {
@@ -831,7 +828,11 @@ fn value_items(schema: &CompositeSchema, analysis: &Analysis, range: lsp::Range,
     .value_options(&analysis.container_path, key)
     .into_iter()
     .map(|option| {
-      let filter_text = if analysis.in_string { option.insert_text.clone() } else { option.display.clone() };
+      let filter_text = if analysis.in_string {
+        option.insert_text.clone()
+      } else {
+        option.display.clone()
+      };
       lsp::CompletionItem {
         label: option.display,
         kind: Some(lsp::CompletionItemKind::VALUE),
@@ -958,7 +959,10 @@ mod test {
   }
 
   fn item<'a>(items: &'a [lsp::CompletionItem], label: &str) -> &'a lsp::CompletionItem {
-    items.iter().find(|i| i.label == label).unwrap_or_else(|| panic!("missing completion: {}", label))
+    items
+      .iter()
+      .find(|i| i.label == label)
+      .unwrap_or_else(|| panic!("missing completion: {}", label))
   }
 
   #[test]
