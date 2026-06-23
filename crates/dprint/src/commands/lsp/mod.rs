@@ -694,10 +694,20 @@ mod test {
             .await;
           assert_eq!(
             result.unwrap().unwrap(),
-            vec![TextEdit {
-              range: Range::new(Position::new(0, 1), Position::new(0, 7)),
-              new_text: "_formatted_process_sting_formatted_process".to_string()
-            }]
+            vec![
+              TextEdit {
+                range: Range::new(Position::new(0, 1), Position::new(0, 1)),
+                new_text: "_formatted_proc".to_string()
+              },
+              TextEdit {
+                range: Range::new(Position::new(0, 3), Position::new(0, 3)),
+                new_text: "s_s".to_string()
+              },
+              TextEdit {
+                range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+                new_text: "_formatted_process".to_string()
+              },
+            ]
           );
 
           // cancellation via a drop

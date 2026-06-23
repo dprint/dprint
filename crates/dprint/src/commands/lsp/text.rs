@@ -5,9 +5,11 @@
 
 use anyhow::Result;
 use anyhow::bail;
-use dissimilar::Chunk;
-use dissimilar::diff;
+use similar::ChangeTag;
+use similar::TextDiff;
 use std::collections::HashMap;
+use std::time::Duration;
+use std::time::Instant;
 use text_size::TextRange;
 use text_size::TextSize;
 use tower_lsp::lsp_types as lsp;
@@ -170,17 +172,30 @@ pub fn get_edits(a: &str, b: &str, line_index: &LineIndex) -> Vec<TextEdit> {
   if a == b {
     return vec![];
   }
-  // Heuristic to detect things like minified files. `diff()` is expensive.
+  // Heuristic to detect things like minified files. Diffing is expensive.
   if b.chars().filter(|c| *c == '\n').count() > line_index.utf8_offsets.len() * 3 {
-    return vec![TextEdit {
-      range: lsp::Range {
-        start: lsp::Position::new(0, 0),
-        end: line_index.position_utf16(TextSize::from(a.len() as u32)),
-      },
-      new_text: b.to_string(),
-    }];
+    return vec![replace_whole_file(a, b, line_index)];
   }
-  let chunks = diff(a, b);
+  // diff at the character level, coalescing consecutive changes of the same
+  // kind into runs so the edit construction below can work a chunk at a time.
+  // Within a replacement similar always yields the deletions before the insertions.
+  //
+  // A deadline bounds pathological inputs. similar bails out and returns a valid
+  // (but non-minimal) diff when it's hit, which would produce a large pile of
+  // scattered edits, so in that case fall back to replacing the whole file.
+  let deadline = Instant::now() + Duration::from_millis(500);
+  let diff = TextDiff::configure().deadline(deadline).diff_chars(a, b);
+  if Instant::now() >= deadline {
+    return vec![replace_whole_file(a, b, line_index)];
+  }
+  let mut chunks: Vec<(ChangeTag, String)> = Vec::new();
+  for change in diff.iter_all_changes() {
+    match chunks.last_mut() {
+      Some((tag, text)) if *tag == change.tag() => text.push_str(change.value()),
+      _ => chunks.push((change.tag(), change.value().to_string())),
+    }
+  }
+
   let mut text_edits = Vec::<TextEdit>::new();
   let mut iter = chunks.iter().peekable();
   let mut a_pos = TextSize::from(0);
@@ -188,16 +203,16 @@ pub fn get_edits(a: &str, b: &str, line_index: &LineIndex) -> Vec<TextEdit> {
     let chunk = iter.next();
     match chunk {
       None => break,
-      Some(Chunk::Equal(e)) => {
+      Some((ChangeTag::Equal, e)) => {
         a_pos += TextSize::from(e.encode_utf16().count() as u32);
       }
-      Some(Chunk::Delete(d)) => {
+      Some((ChangeTag::Delete, d)) => {
         let start = line_index.position_utf16(a_pos);
         a_pos += TextSize::from(d.encode_utf16().count() as u32);
         let end = line_index.position_utf16(a_pos);
         let range = lsp::Range { start, end };
         match iter.peek() {
-          Some(Chunk::Insert(i)) => {
+          Some((ChangeTag::Insert, i)) => {
             iter.next();
             text_edits.push(TextEdit {
               range,
@@ -210,7 +225,7 @@ pub fn get_edits(a: &str, b: &str, line_index: &LineIndex) -> Vec<TextEdit> {
           }),
         }
       }
-      Some(Chunk::Insert(i)) => {
+      Some((ChangeTag::Insert, i)) => {
         let pos = line_index.position_utf16(a_pos);
         let range = lsp::Range { start: pos, end: pos };
         text_edits.push(TextEdit {
@@ -222,6 +237,17 @@ pub fn get_edits(a: &str, b: &str, line_index: &LineIndex) -> Vec<TextEdit> {
   }
 
   text_edits
+}
+
+/// A single edit that replaces the entire document with `new_text`.
+fn replace_whole_file(old_text: &str, new_text: &str, line_index: &LineIndex) -> TextEdit {
+  TextEdit {
+    range: lsp::Range {
+      start: lsp::Position::new(0, 0),
+      end: line_index.position_utf16(TextSize::from(old_text.len() as u32)),
+    },
+    new_text: new_text.to_string(),
+  }
 }
 
 fn partition_point<T, P>(slice: &[T], mut predicate: P) -> usize
@@ -375,9 +401,30 @@ const C: char = \"メ メ\";
         TextEdit {
           range: lsp::Range {
             start: lsp::Position { line: 0, character: 1 },
+            end: lsp::Position { line: 0, character: 1 }
+          },
+          new_text: "\n".to_string()
+        },
+        TextEdit {
+          range: lsp::Range {
+            start: lsp::Position { line: 0, character: 2 },
+            end: lsp::Position { line: 0, character: 2 }
+          },
+          new_text: "\n".to_string()
+        },
+        TextEdit {
+          range: lsp::Range {
+            start: lsp::Position { line: 0, character: 3 },
+            end: lsp::Position { line: 0, character: 4 }
+          },
+          new_text: "hij".to_string()
+        },
+        TextEdit {
+          range: lsp::Range {
+            start: lsp::Position { line: 0, character: 5 },
             end: lsp::Position { line: 0, character: 5 }
           },
-          new_text: "\nb\nchije\n".to_string()
+          new_text: "\n".to_string()
         },
         TextEdit {
           range: lsp::Range {
@@ -432,9 +479,16 @@ const C: char = \"メ メ\";
         TextEdit {
           range: lsp::Range {
             start: lsp::Position { line: 1, character: 23 },
+            end: lsp::Position { line: 1, character: 24 }
+          },
+          new_text: "\"".to_string()
+        },
+        TextEdit {
+          range: lsp::Range {
+            start: lsp::Position { line: 1, character: 25 },
             end: lsp::Position { line: 1, character: 25 }
           },
-          new_text: "\");".to_string()
+          new_text: ";".to_string()
         },
       ]
     )
