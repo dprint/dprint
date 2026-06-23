@@ -20,15 +20,23 @@ use tower_lsp::LanguageServer;
 use tower_lsp::LspService;
 use tower_lsp::Server;
 use tower_lsp::jsonrpc::Result as LspResult;
+use tower_lsp::lsp_types::CompletionItem;
+use tower_lsp::lsp_types::CompletionOptions;
+use tower_lsp::lsp_types::CompletionParams;
+use tower_lsp::lsp_types::CompletionResponse;
 use tower_lsp::lsp_types::DidChangeTextDocumentParams;
 use tower_lsp::lsp_types::DidCloseTextDocumentParams;
 use tower_lsp::lsp_types::DidOpenTextDocumentParams;
 use tower_lsp::lsp_types::DocumentFormattingParams;
 use tower_lsp::lsp_types::DocumentRangeFormattingParams;
+use tower_lsp::lsp_types::Hover;
+use tower_lsp::lsp_types::HoverParams;
+use tower_lsp::lsp_types::HoverProviderCapability;
 use tower_lsp::lsp_types::InitializeParams;
 use tower_lsp::lsp_types::InitializeResult;
 use tower_lsp::lsp_types::InitializedParams;
 use tower_lsp::lsp_types::OneOf;
+use tower_lsp::lsp_types::Position;
 use tower_lsp::lsp_types::ServerCapabilities;
 use tower_lsp::lsp_types::ServerInfo;
 use tower_lsp::lsp_types::TextDocumentSyncCapability;
@@ -43,6 +51,8 @@ use crate::plugins::PluginResolver;
 
 use self::client::ClientWrapper;
 use self::config::LspPluginsScopeContainer;
+use self::config_completion::ConfigCompletions;
+use self::config_completion::is_config_uri;
 use self::documents::Documents;
 use self::text::LineIndex;
 use self::text::get_edits;
@@ -50,6 +60,7 @@ use self::text::normalize_to_source_line_endings;
 
 mod client;
 mod config;
+mod config_completion;
 mod documents;
 mod text;
 
@@ -132,8 +143,16 @@ struct EditorFormatRequest {
   pub token: Arc<CancellationToken>,
 }
 
+struct ConfigEditorRequest {
+  pub file_path: PathBuf,
+  pub file_text: String,
+  pub position: Position,
+}
+
 enum ChannelMessage {
   Format(EditorFormatRequest, oneshot::Sender<Result<Option<Vec<TextEdit>>>>),
+  Completion(ConfigEditorRequest, oneshot::Sender<Option<Vec<CompletionItem>>>),
+  Hover(ConfigEditorRequest, oneshot::Sender<Option<Hover>>),
   Shutdown(oneshot::Sender<()>),
   /// This message is used for testing.
   #[cfg(test)]
@@ -232,6 +251,7 @@ fn start_message_handler<TEnvironment: Environment>(
   let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
   let environment = environment.clone();
   let scope_container = Rc::new(LspPluginsScopeContainer::new(environment.clone(), plugin_resolver.clone(), config_override));
+  let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
   dprint_core::async_runtime::spawn(async move {
     let mut pending_tokens = PendingTokens::default();
     while let Some(message) = rx.recv().await {
@@ -246,6 +266,20 @@ fn start_message_handler<TEnvironment: Environment>(
             let result = handle_format_request(request, scope_container, &environment).await;
             let _ = sender.send(result);
             drop(token_guard); // remove the token from the pending tokens
+          });
+        }
+        ChannelMessage::Completion(request, sender) => {
+          let config_completions = config_completions.clone();
+          dprint_core::async_runtime::spawn(async move {
+            let result = config_completions.completions(&request.file_path, &request.file_text, request.position).await;
+            let _ = sender.send(result);
+          });
+        }
+        ChannelMessage::Hover(request, sender) => {
+          let config_completions = config_completions.clone();
+          dprint_core::async_runtime::spawn(async move {
+            let result = config_completions.hover(&request.file_path, &request.file_text, request.position).await;
+            let _ = sender.send(result);
           });
         }
         ChannelMessage::Shutdown(sender) => {
@@ -350,6 +384,12 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         })),
         document_formatting_provider: Some(OneOf::Left(true)),
         document_range_formatting_provider: Some(OneOf::Left(true)),
+        completion_provider: Some(CompletionOptions {
+          // `"` opens a property/value string, `:` moves to a value position
+          trigger_characters: Some(vec!["\"".to_string(), ":".to_string()]),
+          ..Default::default()
+        }),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
         ..ServerCapabilities::default()
       },
     })
@@ -417,6 +457,52 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         },
       )
       .await
+  }
+
+  async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
+    let uri = params.text_document_position.text_document.uri;
+    if !is_config_uri(&uri) {
+      return Ok(None);
+    }
+    let Some(file_path) = url_to_file_path(&uri) else {
+      return Ok(None);
+    };
+    let Some((file_text, _)) = self.state.lock().documents.get_content(&uri) else {
+      return Ok(None);
+    };
+    let (sender, receiver) = oneshot::channel();
+    let request = ConfigEditorRequest {
+      file_path,
+      file_text,
+      position: params.text_document_position.position,
+    };
+    if self.sender.send(ChannelMessage::Completion(request, sender)).is_err() {
+      return Ok(None);
+    }
+    Ok(receiver.await.ok().flatten().map(CompletionResponse::Array))
+  }
+
+  async fn hover(&self, params: HoverParams) -> LspResult<Option<Hover>> {
+    let uri = params.text_document_position_params.text_document.uri;
+    if !is_config_uri(&uri) {
+      return Ok(None);
+    }
+    let Some(file_path) = url_to_file_path(&uri) else {
+      return Ok(None);
+    };
+    let Some((file_text, _)) = self.state.lock().documents.get_content(&uri) else {
+      return Ok(None);
+    };
+    let (sender, receiver) = oneshot::channel();
+    let request = ConfigEditorRequest {
+      file_path,
+      file_text,
+      position: params.text_document_position_params.position,
+    };
+    if self.sender.send(ChannelMessage::Hover(request, sender)).is_err() {
+      return Ok(None);
+    }
+    Ok(receiver.await.ok().flatten())
   }
 
   async fn shutdown(&self) -> LspResult<()> {
