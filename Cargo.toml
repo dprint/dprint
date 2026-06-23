@@ -26,3 +26,8 @@ tokio = { version = "1.37.0", features = ["rt", "time", "macros", "rt-multi-thre
 [profile.release-with-debug]
 inherits = "release"
 debug = true
+
+# TEMP: test the Windows on ARM support in corosensei (pulled in by wasmer-vm)
+# before it is released to crates.io.
+[patch.crates-io]
+corosensei = { git = "https://github.com/dsherret/corosensei", branch = "feat_windows_arm" }
