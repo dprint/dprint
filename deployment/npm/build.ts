@@ -6,7 +6,7 @@ import decompress from "npm:decompress@4.2.1";
 
 interface Package {
   zipFileName: string;
-  os: "win32" | "darwin" | "linux";
+  os: "win32" | "darwin" | "linux" | "android";
   cpu: "x64" | "arm64" | "riscv64" | "loong64" | "ppc64";
   libc?: "glibc" | "musl";
 }
@@ -77,6 +77,16 @@ const packages: Package[] = [{
   os: "linux",
   cpu: "ppc64",
   libc: "musl",
+}, {
+  // android (Termux): Node reports the platform as "android" and the arch as
+  // "arm64"/"x64". bionic libc, so no libc field (npm only knows glibc/musl).
+  zipFileName: "dprint-aarch64-linux-android.zip",
+  os: "android",
+  cpu: "arm64",
+}, {
+  zipFileName: "dprint-x86_64-linux-android.zip",
+  os: "android",
+  cpu: "x64",
 }];
 
 const markdownText = `# dprint

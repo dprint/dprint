@@ -214,6 +214,10 @@ pub struct ProcessPluginFile {
   pub linux_powerpc64: Option<ProcessPluginPath>,
   #[serde(rename = "linux-powerpc64-musl")]
   pub linux_powerpc64_musl: Option<ProcessPluginPath>,
+  #[serde(rename = "android-x86_64")]
+  pub android_x86_64: Option<ProcessPluginPath>,
+  #[serde(rename = "android-aarch64")]
+  pub android_aarch64: Option<ProcessPluginPath>,
   #[serde(rename = "darwin-x86_64")]
   pub darwin_x86_64: Option<ProcessPluginPath>,
   #[serde(rename = "darwin-aarch64")]
@@ -316,6 +320,12 @@ pub fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl En
       "riscv64" => plugin_file.linux_riscv64_musl.as_ref(),
       "loongarch64" => plugin_file.linux_loongarch64_musl.as_ref(),
       "powerpc64" => plugin_file.linux_powerpc64_musl.as_ref(),
+      _ => None,
+    },
+    // android (Termux) uses bionic libc, so it's neither linux nor linux-musl
+    "android" => match arch.as_str() {
+      "x86_64" => plugin_file.android_x86_64.as_ref(),
+      "aarch64" => plugin_file.android_aarch64.as_ref().or(plugin_file.android_x86_64.as_ref()),
       _ => None,
     },
     "macos" => match arch.as_str() {

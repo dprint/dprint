@@ -15,7 +15,21 @@ else
 	case $(uname -sm) in
 		"Darwin x86_64") target="x86_64-apple-darwin" ;;
 		"Darwin arm64") target="aarch64-apple-darwin" ;;
-		"Linux aarch64") target="aarch64-unknown-linux" ;;
+		# Termux reports "Linux aarch64"/"Linux x86_64" but uses Android's bionic libc, so check uname -o.
+		"Linux aarch64")
+			if [ "$(uname -o 2>/dev/null)" = "Android" ]; then
+				target="aarch64-linux-android"
+			else
+				target="aarch64-unknown-linux"
+			fi
+			;;
+		"Linux x86_64")
+			if [ "$(uname -o 2>/dev/null)" = "Android" ]; then
+				target="x86_64-linux-android"
+			else
+				target="x86_64-unknown-linux"
+			fi
+			;;
 		"Linux loongarch64") target="loongarch64-unknown-linux" ;;
 		"Linux riscv64") target="riscv64gc-unknown-linux-gnu" ;; # riscv64 build only has a GNU libc variant.
 		"Linux ppc64le") target="powerpc64le-unknown-linux" ;;
