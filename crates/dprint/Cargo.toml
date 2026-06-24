@@ -66,34 +66,21 @@ webpki-roots = "=0.26.7"
 # older versions
 rkyv = "=0.8.15"
 
-# only needed where a compiler backend is used. powerpc64 and android use the
-# wasmi interpreter, and pulling wasmer-compiler there would drag in wasmer-vm
-# -> corosensei, which doesn't build on stable for powerpc64 and relies on
-# signal-based trap handling that's unreliable in the Android sandbox.
-[target.'cfg(not(any(target_arch = "powerpc64", target_os = "android")))'.dependencies]
-wasmer-compiler = "=7.1.0"
+# wasm plugin runtime (wasmtime). default features are disabled to keep the
+# binary small — we only need to compile and run modules synchronously;
+# component-model, async, winch, the wat parser, wasm GC, the on-disk cache and
+# the pooling allocator are all unused.
 
-# most targets use the default compiler backend (Cranelift)
-[target.'cfg(not(any(target_arch = "loongarch64", target_arch = "powerpc64", target_os = "android")))'.dependencies]
-wasmer = "=7.1.0"
+# most targets: native Cranelift codegen.
+[target.'cfg(not(any(target_arch = "powerpc64", target_arch = "loongarch64", target_os = "android")))'.dependencies]
+wasmtime = { version = "=43.0.2", default-features = false, features = ["cranelift", "runtime", "std", "anyhow", "demangle", "addr2line"] }
 
-# Cranelift has no loongarch64 backend, so use wasmer's LLVM backend (see the
-# cross image that bundles a loongarch64 LLVM build)
-[target.'cfg(target_arch = "loongarch64")'.dependencies]
-wasmer = { version = "=7.1.0", features = ["llvm"] }
-
-# powerpc64: neither Cranelift nor wasmer's LLVM backend can target it.
-# android: wasmer-vm's signal-based trap handling and executable memory are
-# unreliable in the Termux/Android sandbox. both fall back to the portable,
-# pure-Rust wasmi interpreter (see the `wasm_interpreter` cfg in build.rs).
-[target.'cfg(any(target_arch = "powerpc64", target_os = "android"))'.dependencies]
-wasmer = { version = "=7.1.0", default-features = false, features = ["wasmi"] }
-
-[features]
-# Forces the wasmi interpreter backend on any architecture. Only needed to
-# build and test the interpreter code path on other architectures; powerpc64
-# and android select the interpreter automatically.
-wasm-interpreter = ["wasmer/wasmi"]
+# powerpc64/loongarch64 have no native Cranelift backend, and the Android sandbox
+# lacks the signal-based traps native code needs, so these compile to Pulley
+# bytecode (still via Cranelift) and interpret it. the `pulley` feature adds the
+# bytecode emitter; the interpreter is already part of `runtime`.
+[target.'cfg(any(target_arch = "powerpc64", target_arch = "loongarch64", target_os = "android"))'.dependencies]
+wasmtime = { version = "=43.0.2", default-features = false, features = ["cranelift", "runtime", "std", "anyhow", "demangle", "addr2line", "pulley"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "=0.55.0"

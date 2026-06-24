@@ -22,27 +22,22 @@ use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::wasm::JsonResponse;
-use parking_lot::Mutex;
-use wasmer::AsStoreRef;
-use wasmer::ExportError;
-use wasmer::Function;
-use wasmer::FunctionEnv;
-use wasmer::FunctionEnvMut;
-use wasmer::Instance;
-use wasmer::Memory;
-use wasmer::MemoryView;
-use wasmer::Store;
-use wasmer::TypedFunction;
-use wasmer::WasmPtr;
-use wasmer::WasmTypeList;
+use wasmtime::Caller;
+use wasmtime::Engine;
+use wasmtime::Memory;
+use wasmtime::TypedFunc;
+use wasmtime::WasmParams;
+use wasmtime::WasmResults;
 
 use crate::environment::Environment;
 use crate::plugins::FormatConfig;
-use crate::plugins::implementations::wasm::ImportObjectEnvironment;
 use crate::plugins::implementations::wasm::WasmHostFormatSender;
 use crate::plugins::implementations::wasm::WasmInstance;
 
 use super::InitializedWasmPluginInstance;
+use super::Linker;
+use super::Store;
+use super::WasmHostState;
 
 enum WasmFormatResult {
   NoChange,
@@ -50,250 +45,209 @@ enum WasmFormatResult {
   Error,
 }
 
-pub fn create_identity_import_object(store: &mut Store) -> wasmer::Imports {
-  let host_write_buffer = |_: u32| {};
-  let host_format = |_: u32, _: u32, _: u32, _: u32, _: u32, _: u32, _: u32, _: u32| -> u32 { 0 }; // no change
-  let host_get_formatted_text = || -> u32 { 0 }; // zero length
-  let host_get_error_text = || -> u32 { 0 }; // zero length
-  let host_has_cancelled = || -> u32 { 0 }; // false
-  let fd_write = |_: u32, _: u32, _: u32, _: u32| 0; // ignore
+/// A callback that logs plugin stderr output. Kept as a boxed callback rather
+/// than storing the whole `Environment` + plugin name in the host state, which
+/// would make the store data generic over the environment type.
+pub type LogFn = Arc<dyn Fn(&str) + Send + Sync>;
 
-  wasmer::imports! {
-    "env" => {
-      "fd_write" => Function::new_typed(store, fd_write),
-    },
-    "dprint" => {
-      "host_write_buffer" => Function::new_typed(store, host_write_buffer),
-      "host_format" => Function::new_typed(store, host_format),
-      "host_get_formatted_text" => Function::new_typed(store, host_get_formatted_text),
-      "host_get_error_text" => Function::new_typed(store, host_get_error_text),
-      "host_has_cancelled" => Function::new_typed(store, host_has_cancelled),
-    }
-  }
+/// The host state for a v4 plugin, stored in the wasmtime `Store` data.
+pub struct ImportObjectEnvironmentV4 {
+  pub memory: Option<Memory>,
+  pub token: Arc<dyn CancellationToken>,
+  log: LogFn,
+  formatted_text_store: Vec<u8>,
+  shared_bytes: Vec<u8>,
+  error_text_store: String,
+  host_format_sender: WasmHostFormatSender,
+}
+
+pub fn add_identity_imports(linker: &mut Linker) -> Result<()> {
+  linker.func_wrap("env", "fd_write", |_: u32, _: u32, _: u32, _: u32| -> u32 { 0 })?; // ignore
+  linker.func_wrap("dprint", "host_write_buffer", |_: u32| {})?;
+  linker.func_wrap(
+    "dprint",
+    "host_format",
+    |_: u32, _: u32, _: u32, _: u32, _: u32, _: u32, _: u32, _: u32| -> u32 { 0 },
+  )?; // no change
+  linker.func_wrap("dprint", "host_get_formatted_text", || -> u32 { 0 })?; // zero length
+  linker.func_wrap("dprint", "host_get_error_text", || -> u32 { 0 })?; // zero length
+  linker.func_wrap("dprint", "host_has_cancelled", || -> i32 { 0 })?; // false
+  Ok(())
 }
 
 pub fn create_pools_import_object<TEnvironment: Environment>(
   environment: TEnvironment,
   plugin_name: String,
-  store: &mut Store,
+  engine: &Engine,
   host_format_sender: WasmHostFormatSender,
-) -> (wasmer::Imports, Box<dyn ImportObjectEnvironment>) {
-  struct ImportObjectEnvironmentV4<TEnvironment: Environment> {
-    environment: TEnvironment,
-    plugin_name: String,
-    memory: Option<Memory>,
-    formatted_text_store: Vec<u8>,
-    shared_bytes: Mutex<Vec<u8>>,
-    error_text_store: String,
-    token: Arc<dyn CancellationToken>,
-    host_format_sender: WasmHostFormatSender,
+) -> Result<(Linker, WasmHostState)> {
+  let log: LogFn = Arc::new(move |text: &str| environment.log_stderr_with_context(text, &plugin_name));
+  let state = ImportObjectEnvironmentV4 {
+    memory: None,
+    token: Arc::new(NullCancellationToken),
+    log,
+    formatted_text_store: Default::default(),
+    shared_bytes: Default::default(),
+    error_text_store: Default::default(),
+    host_format_sender,
+  };
+  let mut linker = Linker::new(engine);
+  linker.func_wrap("env", "fd_write", fd_write)?;
+  linker.func_wrap("dprint", "host_write_buffer", host_write_buffer)?;
+  linker.func_wrap("dprint", "host_format", host_format)?;
+  linker.func_wrap("dprint", "host_get_formatted_text", host_get_formatted_text)?;
+  linker.func_wrap("dprint", "host_get_error_text", host_get_error_text)?;
+  linker.func_wrap("dprint", "host_has_cancelled", host_has_cancelled)?;
+  Ok((linker, WasmHostState::V4(state)))
+}
+
+fn env<'a>(caller: &'a Caller<'_, WasmHostState>) -> &'a ImportObjectEnvironmentV4 {
+  match caller.data() {
+    WasmHostState::V4(state) => state,
+    _ => unreachable!("expected v4 host state"),
   }
+}
 
-  impl<TEnvironment: Environment> ImportObjectEnvironment for FunctionEnv<ImportObjectEnvironmentV4<TEnvironment>> {
-    fn initialize(&self, store: &mut Store, instance: &Instance) -> Result<(), ExportError> {
-      self.as_mut(store).memory = Some(instance.exports.get_memory("memory")?.clone());
-      Ok(())
-    }
-
-    fn set_token(&self, store: &mut Store, token: Arc<dyn CancellationToken>) {
-      self.as_mut(store).token = token;
-    }
+fn env_mut<'a>(caller: &'a mut Caller<'_, WasmHostState>) -> &'a mut ImportObjectEnvironmentV4 {
+  match caller.data_mut() {
+    WasmHostState::V4(state) => state,
+    _ => unreachable!("expected v4 host state"),
   }
+}
 
-  fn fd_write<TEnvironment: Environment>(
-    env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>,
-    fd: u32,
-    iovs_ptr: u32,
-    iovs_len: u32,
-    nwritten: WasmPtr<u32>,
-  ) -> u32 {
-    #[derive(Copy, Clone)]
-    #[repr(C)]
-    struct Iovec {
-      buf: u32,
-      buf_len: u32,
+fn fd_write(mut caller: Caller<'_, WasmHostState>, fd: u32, iovs_ptr: u32, iovs_len: u32, nwritten_ptr: u32) -> u32 {
+  let memory = env(&caller).memory.unwrap();
+  let log = env(&caller).log.clone();
+
+  let mut total_written: u32 = 0;
+  for i in 0..iovs_len {
+    let iovec_offset = (iovs_ptr + i * 8) as usize;
+    let mut iovec = [0u8; 8];
+    if memory.read(&caller, iovec_offset, &mut iovec).is_err() {
+      return 1;
     }
+    let buf_addr = u32::from_le_bytes(iovec[0..4].try_into().unwrap());
+    let buf_len = u32::from_le_bytes(iovec[4..8].try_into().unwrap());
 
-    unsafe impl wasmer::ValueType for Iovec {
-      fn zero_padding_bytes(&self, _bytes: &mut [std::mem::MaybeUninit<u8>]) {}
-    }
-
-    let env_data = env.data();
-    let memory = env_data.memory.as_ref().unwrap();
-    let store_ref = env.as_store_ref();
-    let memory_view = memory.view(&store_ref);
-
-    let mut total_written = 0;
-
-    for i in 0..iovs_len {
-      let iovec_ptr = WasmPtr::<Iovec>::new(iovs_ptr + i * std::mem::size_of::<Iovec>() as u32);
-      let Ok(iovec) = iovec_ptr.deref(&memory_view).read() else {
-        return 1;
-      };
-
-      let buf_addr = iovec.buf;
-      let buf_len = iovec.buf_len;
-
-      let mut bytes = vec![0; buf_len as usize];
-      let success = memory_view.read(buf_addr as u64, &mut bytes).is_ok();
-      if !success {
-        return 1;
-      }
-
-      if matches!(fd, 1 | 2) {
-        let text = String::from_utf8_lossy(&bytes);
-        env_data.environment.log_stderr_with_context(&text, &env_data.plugin_name);
-      } else {
-        return 1; // Indicate error for unsupported fd
-      }
-
-      total_written += buf_len;
-    }
-
-    let nwritten = nwritten.deref(&memory_view);
-    let success = nwritten.write(total_written).is_ok();
-    if !success {
+    let mut bytes = vec![0u8; buf_len as usize];
+    if memory.read(&caller, buf_addr as usize, &mut bytes).is_err() {
       return 1;
     }
 
-    0
-  }
-
-  fn host_write_buffer<TEnvironment: Environment>(env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>, buffer_pointer: u32) {
-    let buffer_pointer: wasmer::WasmPtr<u32> = wasmer::WasmPtr::new(buffer_pointer);
-    let env_data = env.data();
-    let memory = env_data.memory.as_ref().unwrap();
-    let store_ref = env.as_store_ref();
-    let memory_view = memory.view(&store_ref);
-    let shared_bytes = env_data.shared_bytes.lock();
-    memory_view.write(buffer_pointer.offset() as u64, &shared_bytes).unwrap();
-  }
-
-  #[allow(clippy::too_many_arguments)]
-  fn host_format<TEnvironment: Environment>(
-    mut env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>,
-    file_path_ptr: u32,
-    file_path_len: u32,
-    range_start: u32,
-    range_end: u32,
-    override_cfg_ptr: u32,
-    override_cfg_len: u32,
-    file_bytes_ptr: u32,
-    file_bytes_len: u32,
-  ) -> u32 {
-    let env_data = env.data();
-    let memory = env_data.memory.as_ref().unwrap();
-    let store_ref = env.as_store_ref();
-    let memory_view = memory.view(&store_ref);
-    let override_config = {
-      if override_cfg_len == 0 {
-        Default::default()
-      } else {
-        let mut buf = vec![0; override_cfg_len as usize];
-        memory_view.read(override_cfg_ptr as u64, &mut buf).unwrap();
-        serde_json::from_slice::<ConfigKeyMap>(&buf).unwrap()
-      }
-    };
-    let file_path = {
-      let mut buf = vec![0; file_path_len as usize];
-      memory_view.read(file_path_ptr as u64, &mut buf).unwrap();
-      PathBuf::from(String::from_utf8(buf).unwrap())
-    };
-    let file_bytes = {
-      let mut buf = vec![0; file_bytes_len as usize];
-      memory_view.read(file_bytes_ptr as u64, &mut buf).unwrap();
-      buf
-    };
-    let range = if range_start == 0 && range_end == file_bytes_len {
-      None
+    if matches!(fd, 1 | 2) {
+      log(&String::from_utf8_lossy(&bytes));
     } else {
-      Some(range_start as usize..range_end as usize)
-    };
-    let env = env.data_mut();
-    let request = HostFormatRequest {
-      file_path,
-      file_bytes,
-      range,
-      override_config,
-      token: env.token.clone(),
-    };
-    // todo: worth it to use a oneshot channel library here?
-    let (tx, rx) = std::sync::mpsc::channel();
-    let send_result = env.host_format_sender.send((request, tx));
-    let result = match send_result {
-      Ok(()) => match rx.recv() {
-        Ok(result) => result,
-        Err(_) => {
-          Ok(None) // receive error
-        }
-      },
-      Err(_) => Ok(None), // send error
-    };
+      return 1; // unsupported fd
+    }
 
-    match result {
-      Ok(Some(formatted_text)) => {
-        //let mut env = env.data_mut();
-        env.formatted_text_store = formatted_text;
-        1 // change
-      }
-      Ok(None) => {
-        0 // no change
-      }
-      // ignore critical error as we can just continue formatting
-      Err(err) => {
-        env.error_text_store = err.to_string();
-        2 // error
-      }
+    total_written += buf_len;
+  }
+
+  if memory.write(&mut caller, nwritten_ptr as usize, &total_written.to_le_bytes()).is_err() {
+    return 1;
+  }
+
+  0
+}
+
+fn host_write_buffer(mut caller: Caller<'_, WasmHostState>, buffer_pointer: u32) {
+  let memory = env(&caller).memory.unwrap();
+  let bytes = std::mem::take(&mut env_mut(&mut caller).shared_bytes);
+  memory.write(&mut caller, buffer_pointer as usize, &bytes).unwrap();
+  env_mut(&mut caller).shared_bytes = bytes;
+}
+
+#[allow(clippy::too_many_arguments)]
+fn host_format(
+  mut caller: Caller<'_, WasmHostState>,
+  file_path_ptr: u32,
+  file_path_len: u32,
+  range_start: u32,
+  range_end: u32,
+  override_cfg_ptr: u32,
+  override_cfg_len: u32,
+  file_bytes_ptr: u32,
+  file_bytes_len: u32,
+) -> u32 {
+  let memory = env(&caller).memory.unwrap();
+  let override_config = if override_cfg_len == 0 {
+    ConfigKeyMap::default()
+  } else {
+    let mut buf = vec![0u8; override_cfg_len as usize];
+    memory.read(&caller, override_cfg_ptr as usize, &mut buf).unwrap();
+    serde_json::from_slice::<ConfigKeyMap>(&buf).unwrap()
+  };
+  let file_path = {
+    let mut buf = vec![0u8; file_path_len as usize];
+    memory.read(&caller, file_path_ptr as usize, &mut buf).unwrap();
+    PathBuf::from(String::from_utf8(buf).unwrap())
+  };
+  let file_bytes = {
+    let mut buf = vec![0u8; file_bytes_len as usize];
+    memory.read(&caller, file_bytes_ptr as usize, &mut buf).unwrap();
+    buf
+  };
+  let range = if range_start == 0 && range_end == file_bytes_len {
+    None
+  } else {
+    Some(range_start as usize..range_end as usize)
+  };
+  let (token, host_format_sender) = {
+    let env = env(&caller);
+    (env.token.clone(), env.host_format_sender.clone())
+  };
+  let request = HostFormatRequest {
+    file_path,
+    file_bytes,
+    range,
+    override_config,
+    token,
+  };
+  // todo: worth it to use a oneshot channel library here?
+  let (tx, rx) = std::sync::mpsc::channel();
+  let result = match host_format_sender.send((request, tx)) {
+    Ok(()) => match rx.recv() {
+      Ok(result) => result,
+      Err(_) => Ok(None), // receive error
+    },
+    Err(_) => Ok(None), // send error
+  };
+
+  let env = env_mut(&mut caller);
+  match result {
+    Ok(Some(formatted_text)) => {
+      env.formatted_text_store = formatted_text;
+      1 // change
+    }
+    Ok(None) => {
+      0 // no change
+    }
+    // ignore critical error as we can just continue formatting
+    Err(err) => {
+      env.error_text_store = err.to_string();
+      2 // error
     }
   }
+}
 
-  fn host_get_formatted_text<TEnvironment: Environment>(mut env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>) -> u32 {
-    let env = env.data_mut();
-    let formatted_bytes = std::mem::take(&mut env.formatted_text_store);
-    let len = formatted_bytes.len();
-    *env.shared_bytes.lock() = formatted_bytes;
-    len as u32
-  }
+fn host_get_formatted_text(mut caller: Caller<'_, WasmHostState>) -> u32 {
+  let env = env_mut(&mut caller);
+  let formatted_bytes = std::mem::take(&mut env.formatted_text_store);
+  let len = formatted_bytes.len();
+  env.shared_bytes = formatted_bytes;
+  len as u32
+}
 
-  fn host_get_error_text<TEnvironment: Environment>(mut env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>) -> u32 {
-    let env = env.data_mut();
-    let error_text = std::mem::take(&mut env.error_text_store);
-    let len = error_text.len();
-    *env.shared_bytes.lock() = error_text.into_bytes();
-    len as u32
-  }
+fn host_get_error_text(mut caller: Caller<'_, WasmHostState>) -> u32 {
+  let env = env_mut(&mut caller);
+  let error_text = std::mem::take(&mut env.error_text_store);
+  let len = error_text.len();
+  env.shared_bytes = error_text.into_bytes();
+  len as u32
+}
 
-  fn host_has_cancelled<TEnvironment: Environment>(env: FunctionEnvMut<ImportObjectEnvironmentV4<TEnvironment>>) -> i32 {
-    if env.data().token.as_ref().is_cancelled() { 1 } else { 0 }
-  }
-
-  let env = ImportObjectEnvironmentV4 {
-    environment,
-    plugin_name,
-    memory: None,
-    shared_bytes: Default::default(),
-    formatted_text_store: Default::default(),
-    error_text_store: Default::default(),
-    token: Arc::new(NullCancellationToken),
-    host_format_sender,
-  };
-  let env = FunctionEnv::new(store, env);
-
-  (
-    wasmer::imports! {
-      "env" => {
-        "fd_write" => Function::new_typed_with_env(store, &env, fd_write),
-      },
-      "dprint" => {
-        "host_write_buffer" => Function::new_typed_with_env(store, &env, host_write_buffer),
-        "host_format" => Function::new_typed_with_env(store, &env, host_format),
-        "host_get_formatted_text" => Function::new_typed_with_env(store, &env, host_get_formatted_text),
-        "host_get_error_text" => Function::new_typed_with_env(store, &env, host_get_error_text),
-        "host_has_cancelled" => Function::new_typed_with_env(store, &env, host_has_cancelled),
-      }
-    },
-    Box::new(env),
-  )
+fn host_has_cancelled(caller: Caller<'_, WasmHostState>) -> i32 {
+  if env(&caller).token.as_ref().is_cancelled() { 1 } else { 0 }
 }
 
 pub struct InitializedWasmPluginInstanceV4 {
@@ -394,8 +348,7 @@ impl InitializedWasmPluginInstanceV4 {
 
   fn send_bytes(&mut self, bytes: &[u8]) -> Result<()> {
     let shared_bytes_ptr = self.wasm_functions.clear_shared_bytes(bytes.len())?;
-    let memory_view = self.wasm_functions.get_memory_view();
-    memory_view.write(shared_bytes_ptr.offset() as u64, bytes)?;
+    self.wasm_functions.write_memory(shared_bytes_ptr as usize, bytes)?;
     Ok(())
   }
 
@@ -414,8 +367,7 @@ impl InitializedWasmPluginInstanceV4 {
 
   fn read_bytes_from_shared_bytes(&mut self, bytes: &mut [u8]) -> Result<()> {
     let wasm_buffer_pointer = self.wasm_functions.get_shared_bytes_ptr()?;
-    let memory_view = self.wasm_functions.get_memory_view();
-    memory_view.read(wasm_buffer_pointer.offset() as u64, bytes)?;
+    self.wasm_functions.read_memory(wasm_buffer_pointer as usize, bytes)?;
     Ok(())
   }
 }
@@ -496,9 +448,10 @@ struct WasmFunctions {
 }
 
 impl WasmFunctions {
-  pub fn new(store: Store, instance: WasmInstance) -> Result<Self> {
-    let memory = instance.get_memory("memory")?.clone();
-
+  pub fn new(mut store: Store, instance: WasmInstance) -> Result<Self> {
+    let memory = instance
+      .get_memory(&mut store, "memory")
+      .ok_or_else(|| anyhow!("Could not find memory export in plugin."))?;
     Ok(WasmFunctions { instance, memory, store })
   }
 
@@ -511,20 +464,20 @@ impl WasmFunctions {
   #[inline]
   pub fn get_plugin_info(&mut self) -> Result<usize> {
     let func = self.get_export::<(), u32>("get_plugin_info")?;
-    Ok(func.call(&mut self.store).map(|value| value as usize)?)
+    Ok(func.call(&mut self.store, ()).map(|value| value as usize)?)
   }
 
   #[inline]
   pub fn get_license_text(&mut self) -> Result<usize> {
     let func = self.get_export::<(), u32>("get_license_text")?;
-    Ok(func.call(&mut self.store).map(|value| value as usize)?)
+    Ok(func.call(&mut self.store, ()).map(|value| value as usize)?)
   }
 
   #[inline]
   pub fn check_config_updates(&mut self) -> Result<Option<usize>> {
     let maybe_func = self.get_maybe_export::<(), u32>("check_config_updates")?;
     match maybe_func {
-      Some(func) => Ok(Some(func.call(&mut self.store).map(|value| value as usize)?)),
+      Some(func) => Ok(Some(func.call(&mut self.store, ()).map(|value| value as usize)?)),
       None => Ok(None), // ignore, the plugin doesn't have this defined
     }
   }
@@ -549,30 +502,30 @@ impl WasmFunctions {
 
   #[inline]
   pub fn set_override_config(&mut self) -> Result<()> {
-    let set_override_config_func = self.get_export::<(), ()>("set_override_config")?;
-    Ok(set_override_config_func.call(&mut self.store)?)
+    let func = self.get_export::<(), ()>("set_override_config")?;
+    Ok(func.call(&mut self.store, ())?)
   }
 
   #[inline]
   pub fn set_file_path(&mut self) -> Result<()> {
     let func = self.get_export::<(), ()>("set_file_path")?;
-    Ok(func.call(&mut self.store)?)
+    Ok(func.call(&mut self.store, ())?)
   }
 
   #[inline]
   pub fn format(&mut self, config_id: FormatConfigId) -> Result<WasmFormatResult> {
-    let func = self.get_export::<u32, u8>("format")?;
-    Ok(func.call(&mut self.store, config_id.as_raw()).map(u8_to_format_result)?)
+    let func = self.get_export::<u32, u32>("format")?;
+    Ok(func.call(&mut self.store, config_id.as_raw()).map(|value| u8_to_format_result(value as u8))?)
   }
 
   #[inline]
   pub fn format_range(&mut self, config_id: FormatConfigId, range: std::ops::Range<usize>) -> Result<WasmFormatResult> {
-    let maybe_func = self.get_maybe_export::<(u32, u32, u32), u8>("format_range")?;
+    let maybe_func = self.get_maybe_export::<(u32, u32, u32), u32>("format_range")?;
     match maybe_func {
       Some(func) => Ok(
         func
-          .call(&mut self.store, config_id.as_raw(), range.start as u32, range.end as u32)
-          .map(u8_to_format_result)?,
+          .call(&mut self.store, (config_id.as_raw(), range.start as u32, range.end as u32))
+          .map(|value| u8_to_format_result(value as u8))?,
       ),
       None => {
         // not supported
@@ -584,60 +537,63 @@ impl WasmFunctions {
   #[inline]
   pub fn get_formatted_text(&mut self) -> Result<usize> {
     let func = self.get_export::<(), u32>("get_formatted_text")?;
-    Ok(func.call(&mut self.store).map(|value| value as usize)?)
+    Ok(func.call(&mut self.store, ()).map(|value| value as usize)?)
   }
 
   #[inline]
   pub fn get_error_text(&mut self) -> Result<usize> {
     let func = self.get_export::<(), u32>("get_error_text")?;
-    Ok(func.call(&mut self.store).map(|value| value as usize)?)
+    Ok(func.call(&mut self.store, ()).map(|value| value as usize)?)
   }
 
   #[inline]
-  pub fn get_memory_view(&self) -> MemoryView<'_> {
-    self.memory.view(&self.store)
+  pub fn clear_shared_bytes(&mut self, capacity: usize) -> Result<u32> {
+    let func = self.get_export::<u32, u32>("clear_shared_bytes")?;
+    Ok(func.call(&mut self.store, capacity as u32)?)
   }
 
   #[inline]
-  pub fn clear_shared_bytes(&mut self, capacity: usize) -> Result<WasmPtr<u32>> {
-    let clear_shared_bytes_func = self.get_export::<u32, WasmPtr<u32>>("clear_shared_bytes")?;
-    Ok(clear_shared_bytes_func.call(&mut self.store, capacity as u32)?)
+  pub fn get_shared_bytes_ptr(&mut self) -> Result<u32> {
+    let func = self.get_export::<(), u32>("get_shared_bytes_ptr")?;
+    Ok(func.call(&mut self.store, ())?)
   }
 
   #[inline]
-  pub fn get_shared_bytes_ptr(&mut self) -> Result<WasmPtr<u32>> {
-    let func = self.get_export::<(), WasmPtr<u32>>("get_shared_bytes_ptr")?;
-    Ok(func.call(&mut self.store)?)
+  fn write_memory(&mut self, offset: usize, bytes: &[u8]) -> Result<()> {
+    let memory = self.memory;
+    memory.write(&mut self.store, offset, bytes)?;
+    Ok(())
   }
 
-  fn get_export<Args, Rets>(&mut self, name: &str) -> Result<TypedFunction<Args, Rets>>
+  #[inline]
+  fn read_memory(&mut self, offset: usize, bytes: &mut [u8]) -> Result<()> {
+    let memory = self.memory;
+    memory.read(&self.store, offset, bytes)?;
+    Ok(())
+  }
+
+  fn get_export<P, R>(&mut self, name: &str) -> Result<TypedFunc<P, R>>
   where
-    Args: WasmTypeList,
-    Rets: WasmTypeList,
+    P: WasmParams,
+    R: WasmResults,
   {
-    let maybe_export = self.get_maybe_export(name)?;
-    match maybe_export {
+    match self.get_maybe_export(name)? {
       Some(export) => Ok(export),
       None => bail!("Could not find export '{}' in plugin.", name),
     }
   }
 
-  fn get_maybe_export<Args, Rets>(&mut self, name: &str) -> Result<Option<TypedFunction<Args, Rets>>>
+  fn get_maybe_export<P, R>(&mut self, name: &str) -> Result<Option<TypedFunc<P, R>>>
   where
-    Args: WasmTypeList,
-    Rets: WasmTypeList,
+    P: WasmParams,
+    R: WasmResults,
   {
-    match self.instance.get_function(name) {
-      Ok(func) => match func.typed::<Args, Rets>(&self.store) {
-        Ok(native_func) => Ok(Some(native_func)),
+    match self.instance.get_function(&mut self.store, name) {
+      Some(func) => match func.typed::<P, R>(&self.store) {
+        Ok(typed_func) => Ok(Some(typed_func)),
         Err(err) => bail!("Error creating function '{}'. Message: {:#}", name, err),
       },
-      Err(err) => match err {
-        ExportError::IncompatibleType => {
-          bail!("Export '{}'. {:#}", name, err)
-        }
-        ExportError::Missing(_) => Ok(None),
-      },
+      None => Ok(None),
     }
   }
 }

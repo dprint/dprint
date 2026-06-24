@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use dprint_core::plugins::PluginInfo;
 
-use super::implementations::WASMER_COMPILER_VERSION;
+use super::implementations::WASM_CACHE_VERSION;
 use crate::environment::Environment;
 use crate::utils::PluginKind;
 
@@ -24,7 +24,7 @@ impl PluginCacheManifest {
   pub(super) fn new() -> PluginCacheManifest {
     PluginCacheManifest {
       schema_version: PLUGIN_CACHE_SCHEMA_VERSION,
-      wasm_cache_version: WASMER_COMPILER_VERSION.to_string(),
+      wasm_cache_version: WASM_CACHE_VERSION.to_string(),
       plugins: HashMap::new(),
     }
   }
@@ -47,7 +47,7 @@ impl PluginCacheManifest {
 
   fn is_new_wasm_cache(&self) -> bool {
     // bust when upgrading, but not downgrading
-    version_gt(&self.wasm_cache_version, WASMER_COMPILER_VERSION)
+    version_gt(&self.wasm_cache_version, WASM_CACHE_VERSION)
   }
 }
 
@@ -436,7 +436,7 @@ mod test {
         &environment.get_cache_dir().join("plugin-cache-manifest.json"),
         &serde_json::json!({
           "schemaVersion": 9,
-          "wasmCacheVersion": WASMER_COMPILER_VERSION,
+          "wasmCacheVersion": WASM_CACHE_VERSION,
           "plugins": {
             "remote:https://example.com/test.wasm": {
               "createdTime": 123,
