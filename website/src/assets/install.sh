@@ -10,7 +10,10 @@ if ! command -v unzip >/dev/null; then
 fi
 
 if [ "$OS" = "Windows_NT" ]; then
-	target="x86_64-pc-windows-msvc"
+	case "$PROCESSOR_ARCHITECTURE" in
+		ARM64) target="aarch64-pc-windows-msvc" ;;
+		*) target="x86_64-pc-windows-msvc" ;;
+	esac
 else
 	case $(uname -sm) in
 		"Darwin x86_64") target="x86_64-apple-darwin" ;;
@@ -63,9 +66,9 @@ exe="$bin_dir/dprint"
 zip="$exe.zip"
 
 # append .exe for Windows
-if [ "$target" = "x86_64-pc-windows-msvc" ]; then
-	exe="$exe.exe"
-fi
+case "$target" in
+	*-pc-windows-msvc) exe="$exe.exe" ;;
+esac
 
 # download
 curl --fail --location --progress-bar --output "$zip" "$dprint_uri"

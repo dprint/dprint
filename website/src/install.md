@@ -14,9 +14,6 @@ Install using one of the methods below.
   curl -fsSL https://dprint.dev/install.sh | sh
   ```
 
-- Windows Installer
-
-  [Download](https://github.com/dprint/dprint/releases/latest/download/dprint-x86_64-pc-windows-msvc-installer.exe)
 - Powershell (Windows):
 
   ```sh

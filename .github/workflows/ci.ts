@@ -6,6 +6,7 @@ enum OperatingSystem {
   Mac = "macOS-latest",
   MacX86 = "macos-15-intel",
   Windows = "windows-latest",
+  WindowsArm = "windows-11-arm",
   Linux = "ubuntu-22.04",
   LinuxArm = "ubuntu-24.04-arm",
 }
@@ -35,6 +36,10 @@ const profileDataItems: ProfileData[] = [{
 }, {
   os: OperatingSystem.Windows,
   target: "x86_64-pc-windows-msvc",
+  runTests: true,
+}, {
+  os: OperatingSystem.WindowsArm,
+  target: "aarch64-pc-windows-msvc",
   runTests: true,
 }, {
   os: OperatingSystem.Linux,
@@ -291,6 +296,7 @@ function getPreReleaseStepForProfile(profile: typeof profiles[0]) {
           `zip -r ${profile.zipFileName} dprint`,
           `echo "ZIP_CHECKSUM=$(shasum -a 256 ${profile.zipFileName} | awk '{print $1}')" >> $GITHUB_OUTPUT`,
         ];
+      case OperatingSystem.WindowsArm:
       case OperatingSystem.Windows: {
         const installerSteps = profile.target === "x86_64-pc-windows-msvc"
           ? [
