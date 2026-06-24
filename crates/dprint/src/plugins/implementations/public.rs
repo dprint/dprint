@@ -17,6 +17,20 @@ use crate::utils::PluginKind;
 pub struct SetupPluginResult {
   pub file_path: PathBuf,
   pub plugin_info: PluginInfo,
+  /// For process plugins, the executable's path relative to its extract dir.
+  /// Stored in the cache meta so the file path can be re-derived on a hit
+  /// without re-extracting. `None` for wasm plugins.
+  pub executable_sub_path: Option<String>,
+}
+
+/// Where a freshly set-up plugin's artifact should be written. Both paths are
+/// derived from the plugin's cache hash so the layout stays flat — wasm plugins
+/// write a single file and never need a per-plugin directory.
+pub struct SetupPluginDest {
+  /// File to write the compiled module to (wasm plugins).
+  pub wasm_file_path: PathBuf,
+  /// Directory to extract into (process plugins).
+  pub process_dir_path: PathBuf,
 }
 
 pub async fn setup_plugin<TEnvironment: Environment>(
@@ -24,28 +38,14 @@ pub async fn setup_plugin<TEnvironment: Environment>(
   file_bytes: Vec<u8>,
   plugin_kind: PluginKind,
   pre_resolved_tarball: Option<crate::plugins::npm_resolution::PreResolvedProcessPluginTarball>,
+  dest: &SetupPluginDest,
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
   // pass the resolved source to setup functions so process plugins can
   // resolve relative paths in their manifest after a redirect
   match plugin_kind {
-    PluginKind::Wasm => wasm::setup_wasm_plugin(resolved_source, file_bytes, environment).await,
-    PluginKind::Process => process::setup_process_plugin(resolved_source, &file_bytes, pre_resolved_tarball, environment).await,
-  }
-}
-
-pub fn get_file_path_from_plugin_info<TEnvironment: Environment>(plugin_kind: PluginKind, plugin_info: &PluginInfo, environment: &TEnvironment) -> PathBuf {
-  match plugin_kind {
-    PluginKind::Wasm => wasm::get_file_path_from_plugin_info(plugin_info, environment),
-    PluginKind::Process => process::get_file_path_from_plugin_info(plugin_info, environment),
-  }
-}
-
-/// Deletes the plugin from the cache.
-pub fn cleanup_plugin<TEnvironment: Environment>(plugin_kind: PluginKind, plugin_info: &PluginInfo, environment: &TEnvironment) -> Result<()> {
-  match plugin_kind {
-    PluginKind::Wasm => wasm::cleanup_wasm_plugin(plugin_info, environment),
-    PluginKind::Process => process::cleanup_process_plugin(plugin_info, environment),
+    PluginKind::Wasm => wasm::setup_wasm_plugin(resolved_source, file_bytes, &dest.wasm_file_path, environment).await,
+    PluginKind::Process => process::setup_process_plugin(resolved_source, &file_bytes, pre_resolved_tarball, &dest.process_dir_path, environment).await,
   }
 }
 
@@ -105,7 +105,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
         cache_item
       };
 
-      let executable_path = super::process::get_test_safe_executable_path(cache_item.file_path, &environment);
+      let executable_path = super::process::get_test_safe_executable_path(&cache_item.info.version, cache_item.file_path, &environment);
       Ok(Box::new(process::ProcessPlugin::new(environment, executable_path, cache_item.info)))
     }
   }
