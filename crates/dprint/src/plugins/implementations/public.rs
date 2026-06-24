@@ -73,7 +73,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
     PluginKind::Wasm => {
       // The cached compiled module can fail to read or deserialize (ex. it was
       // compiled for a CPU with different features, or by a different
-      // wasmer/rustc version, or the cache file is corrupt). When that happens,
+      // wasm engine/rustc version, or the cache file is corrupt). When that happens,
       // forget the cache, recompile from source, and try once more.
       let plugin = match create_wasm_plugin(&environment, &cache_item, wasm_module_creator) {
         Ok(plugin) => plugin,

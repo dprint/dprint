@@ -8,19 +8,17 @@ use crate::environment::Environment;
 
 use super::super::SetupPluginResult;
 
-#[cfg(not(wasm_interpreter))]
-pub const WASMER_COMPILER_VERSION: &str = wasmer_compiler::VERSION;
-// the interpreter caches portable wasm rather than a version-specific native
-// artifact, so this is just a stable cache-busting key. keep it dot-numeric so
-// `version_gt` can parse it; matches the pinned wasmer version.
-#[cfg(wasm_interpreter)]
-pub const WASMER_COMPILER_VERSION: &str = "7.1.0";
+// cache-busting key for the serialized wasmtime artifact. wasmtime additionally
+// validates engine/CPU compatibility on deserialize (recompiling on mismatch),
+// so this only needs to bump when the wasm engine changes. keep it dot-numeric
+// so `version_gt` can parse it; tracks the pinned wasmtime version.
+pub const WASM_CACHE_VERSION: &str = "43.0.2";
 
 pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> PathBuf {
   let cache_dir_path = environment.get_cache_dir();
   let plugin_cache_dir_path = cache_dir_path.join("plugins").join(&plugin_info.name);
-  // this is keyed on both the wasmer compiler version and system cache key
-  plugin_cache_dir_path.join(format!("{}-{}-{}", plugin_info.version, WASMER_COMPILER_VERSION, environment.wasm_cache_key()))
+  // this is keyed on both the wasm cache version and system cache key
+  plugin_cache_dir_path.join(format!("{}-{}-{}", plugin_info.version, WASM_CACHE_VERSION, environment.wasm_cache_key()))
 }
 
 pub async fn setup_wasm_plugin<TEnvironment: Environment>(

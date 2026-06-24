@@ -1,7 +1,6 @@
 #!/usr/bin/env -S deno run -A
 import $ from "jsr:@david/dax@0.45.0";
 import { conditions, defineMatrix, expr, type ExpressionValue, isLinting, job, step, workflow } from "jsr:@david/gagen@0.5.0";
-import { crossImageRegistry, crossImageTag } from "./cross_image.ts";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
@@ -64,9 +63,9 @@ const profileDataItems: ProfileData[] = [{
   target: "loongarch64-unknown-linux-musl",
   cross: true,
 }, {
-  // ppc64le: built with cross. unlike loongarch64 it needs no prebuilt LLVM
-  // image because the wasmi interpreter backend is pure Rust (see the
-  // `wasm_interpreter` cfg in crates/dprint/build.rs).
+  // ppc64le: built with cross. Cranelift has no native ppc64 backend, so this
+  // compiles to wasmtime's portable Pulley bytecode (see the `use_pulley` cfg in
+  // crates/dprint/build.rs).
   os: OperatingSystem.Linux,
   target: "powerpc64le-unknown-linux-gnu",
   cross: true,
@@ -77,10 +76,10 @@ const profileDataItems: ProfileData[] = [{
   target: "powerpc64le-unknown-linux-musl",
   muslCrossImage: "ghcr.io/rust-cross/rust-musl-cross:powerpc64le-musl",
 }, {
-  // android (Termux): built with cross using its built-in NDK image. Like
-  // powerpc64le it uses the pure-Rust wasmi interpreter backend (see the
-  // `wasm_interpreter` cfg in crates/dprint/build.rs), since wasmer-vm's
-  // signal-based trap handling is unreliable in the Android sandbox.
+  // android (Termux): built with cross using its built-in NDK image. The
+  // sandbox lacks the signal-based trap handling native code relies on, so it
+  // compiles to wasmtime's portable Pulley bytecode (see the `use_pulley` cfg in
+  // crates/dprint/build.rs).
   os: OperatingSystem.Linux,
   target: "aarch64-linux-android",
   cross: true,
@@ -186,7 +185,6 @@ const lint = step.if(isLinuxGnu.and(isNotTag))(
     name: "Lint CI Generation",
     run: [
       "./.github/workflows/ci.ts --lint",
-      "./.github/workflows/cross-loongarch64-images.ts --lint",
       "./.github/workflows/publish.ts --lint",
       "./.github/workflows/publish_crate_core.ts --lint",
       "./.github/workflows/publish_crate_core-macros.ts --lint",
@@ -201,65 +199,6 @@ const aarch64LinkerEnv = {
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc",
 };
 
-// llvm-sys uses cross-compiled llvm-config to detect LLVM
-const setupQemu = step({
-  uses: "docker/setup-qemu-action@v4",
-  if: matrix.target.startsWith("loongarch64").and(isCross),
-}).comesAfter(setupRust);
-const setupBuildx = step({
-  uses: "docker/setup-buildx-action@v4",
-}).dependsOn(setupQemu);
-
-// Bypass cross and use a prebuilt image that bundles a loongarch64 build of
-// LLVM (see cross-loongarch64-images.ts). Pull it instead of rebuilding LLVM,
-// falling back to a local build for the PR that first changes the Dockerfile
-// (before the matching image tag has been published).
-const crossImageBaseName = "dprint-cross-base";
-const crossImageName = `${crossImageBaseName}-${matrix.target}`;
-const crossImageRef = `${crossImageRegistry}/${crossImageName}:${crossImageTag}`;
-const loongarch64ImageEnv = Object.fromEntries(
-  profiles.filter((profile) => profile.target.startsWith("loongarch64"))
-    .map((
-      profile,
-    ) => [
-      `CROSS_TARGET_${profile.target.toUpperCase().replaceAll("-", "_")}_IMAGE`,
-      `${crossImageBaseName}-${profile.target}`,
-    ]),
-);
-const isLoongarchCross = matrix.target.startsWith("loongarch64").and(isCross);
-const pullCrossImage = step({
-  name: "Pull cross image",
-  id: "cross_image",
-  if: isLoongarchCross,
-  run: [
-    `IMAGE="${crossImageRef}"`,
-    `if docker pull "$IMAGE"; then`,
-    `  echo "Using prebuilt cross image $IMAGE"`,
-    `  docker tag "$IMAGE" "${crossImageName}"`,
-    `  echo "found=true" >> "$GITHUB_OUTPUT"`,
-    `else`,
-    `  echo "Prebuilt image $IMAGE not found; building locally"`,
-    `  echo "found=false" >> "$GITHUB_OUTPUT"`,
-    `fi`,
-  ],
-  outputs: ["found"] as const,
-}).dependsOn(setupBuildx);
-// fallback build for the PR that first changes the Dockerfile, before the
-// image-build workflow has published the matching tag on main
-const buildCrossImageFallback = step({
-  name: "Build cross image (fallback)",
-  uses: "docker/build-push-action@v7",
-  if: isLoongarchCross.and(pullCrossImage.outputs.found.notEquals("true")),
-  with: {
-    file: ".github/workflows/cross-loongarch64.Dockerfile",
-    tags: crossImageName,
-    load: true,
-    "cache-from": `type=gha,scope=${crossImageName}-${crossImageTag}`,
-    "cache-to": `type=gha,mode=max,scope=${crossImageName}-${crossImageTag}`,
-    "build-args": `CROSS_BASE_IMAGE=ghcr.io/cross-rs/${matrix.target}:main\nTARGET=${matrix.target}`,
-  },
-}).dependsOn(pullCrossImage);
-
 // Builds inside the rust-musl-cross image, which bundles the toolchain and runs
 // as root (so it can install the pinned toolchain into its own /root/.rustup --
 // the reason this can't go through cross, which runs as the non-root host user).
@@ -268,11 +207,8 @@ function muslImageRun(releaseArgs: string): string[] {
   // the image bundles rust-std for its own toolchain, but rust-toolchain.toml
   // pins a different one, so add the target's std to the pinned toolchain first
   const build = `rustup target add ${matrix.target} && cargo build -p dprint --locked --target ${matrix.target}${releaseArgs}`;
-  // wasmer's build script runs bindgen for the wasmi C API; point clang at the
-  // image's musl sysroot (see rust-musl-cross) so it doesn't read host headers
-  const bindgenArgs = `--sysroot=/usr/local/musl/${matrix.target} --target=${matrix.target}`;
   return [
-    `docker run --rm -e BINDGEN_EXTRA_CLANG_ARGS="${bindgenArgs}" -v "$GITHUB_WORKSPACE":/home/rust/src -w /home/rust/src ${matrix.musl_image} bash -c "${build}"`,
+    `docker run --rm -v "$GITHUB_WORKSPACE":/home/rust/src -w /home/rust/src ${matrix.musl_image} bash -c "${build}"`,
     `sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/target"`,
   ];
 }
@@ -285,13 +221,12 @@ const buildDebug = step({
 }, {
   name: "Build cross (Debug)",
   if: isCross,
-  env: loongarch64ImageEnv,
   run: `cross build -p dprint --locked --target ${matrix.target}`,
 }, {
   name: "Build musl image (Debug)",
   if: isMuslImage,
   run: muslImageRun(""),
-}).dependsOn(setupRust, buildCrossImageFallback);
+}).dependsOn(setupRust);
 const buildRelease = step({
   name: "Build (Release)",
   if: isCross.not().and(isMuslImage.not()),
@@ -300,13 +235,12 @@ const buildRelease = step({
 }, {
   name: "Build cross (Release)",
   if: isCross,
-  env: loongarch64ImageEnv,
   run: `cross build -p dprint --locked --target ${matrix.target} --release`,
 }, {
   name: "Build musl image (Release)",
   if: isMuslImage,
   run: muslImageRun(" --release"),
-}).dependsOn(setupRust, buildCrossImageFallback);
+}).dependsOn(setupRust);
 
 const tests = step(
   // debug
