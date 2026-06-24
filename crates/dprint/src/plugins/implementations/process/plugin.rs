@@ -6,6 +6,7 @@ use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
+use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -31,7 +32,7 @@ pub fn get_test_safe_executable_path(version: &str, executable_file_path: PathBu
     return executable_file_path;
   }
 
-  static CREATED_TEMP_FILES: once_cell::sync::Lazy<std::sync::Mutex<std::collections::HashSet<PathBuf>>> = once_cell::sync::Lazy::new(Default::default);
+  static CREATED_TEMP_FILES: once_cell::sync::Lazy<Mutex<std::collections::HashSet<PathBuf>>> = once_cell::sync::Lazy::new(Default::default);
 
   let tmp_dir = PathBuf::from("temp");
   let file_name = if cfg!(target_os = "windows") {
@@ -43,7 +44,7 @@ pub fn get_test_safe_executable_path(version: &str, executable_file_path: PathBu
 
   // create the per-version temp executable once, from the (identical across
   // every test process plugin) binary bytes
-  let mut created = CREATED_TEMP_FILES.lock().unwrap();
+  let mut created = CREATED_TEMP_FILES.lock();
   if created.insert(temp_file.clone()) {
     #[allow(clippy::disallowed_methods)]
     let _ = std::fs::create_dir(&tmp_dir);
