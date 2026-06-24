@@ -54,11 +54,25 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
 
   #[cfg(test)]
   pub async fn new_test_plugin_communicator(environment: TEnvironment) -> Self {
-    use crate::plugins::implementations::process::get_file_path_from_name_and_version;
+    use crate::environment::DirEntry;
     use crate::plugins::implementations::process::get_test_safe_executable_path;
 
-    let plugin_file_path = get_file_path_from_name_and_version("test-process-plugin", "0.1.0", &environment);
-    let test_plugin_file_path = get_test_safe_executable_path(plugin_file_path, &environment);
+    // find the test process plugin's extracted executable in the flat cache
+    // layout (plugins/<hash>/test-process-plugin[.exe]); get_test_safe_executable_path
+    // needs a real in-memory file to copy out and launch.
+    let exe_name = if cfg!(windows) { "test-process-plugin.exe" } else { "test-process-plugin" };
+    let plugins_dir = environment.get_cache_dir().join("plugins");
+    let plugin_file_path = environment
+      .dir_info(&plugins_dir)
+      .unwrap_or_default()
+      .into_iter()
+      .find_map(|entry| match entry {
+        DirEntry::Directory(dir) if environment.path_exists(dir.join(exe_name)) => Some(dir.join(exe_name)),
+        _ => None,
+      })
+      .expect("expected the test process plugin to be set up in the cache");
+    // the builder sets up the default (0.1.0) test process plugin
+    let test_plugin_file_path = get_test_safe_executable_path("0.1.0", plugin_file_path, &environment);
 
     Self::new("test-process-plugin".to_string(), test_plugin_file_path, environment.clone())
       .await

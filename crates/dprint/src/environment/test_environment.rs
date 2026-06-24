@@ -281,6 +281,15 @@ impl TestEnvironment {
     self.sys.env_set_current_dir(new_path).unwrap();
   }
 
+  /// Pins the in-memory filesystem clock so subsequent writes get a
+  /// deterministic modification time. Advancing it between writes lets tests
+  /// exercise mtime-based cache invalidation without depending on wall-clock.
+  pub fn set_fs_time(&self, secs_since_epoch: u64) {
+    self
+      .sys
+      .set_time(Some(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs_since_epoch)));
+  }
+
   pub fn set_stdout_machine_readable(&self, value: bool) {
     *self.is_stdout_machine_readable.lock() = value;
   }

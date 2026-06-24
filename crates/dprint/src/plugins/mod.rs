@@ -1,6 +1,6 @@
 mod cache;
 mod cache_fs_locks;
-mod cache_manifest;
+mod cache_meta;
 mod helpers;
 mod implementations;
 mod name_resolution;
@@ -11,7 +11,6 @@ mod resolver;
 mod types;
 
 pub use cache::*;
-use cache_manifest::*;
 pub use helpers::*;
 pub use plugin::*;
 pub use repo::*;
