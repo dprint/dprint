@@ -38,7 +38,6 @@ const profileDataItems: ProfileData[] = [{
   target: "x86_64-pc-windows-msvc",
   runTests: true,
 }, {
-  // Windows on ARM: native Cranelift aarch64 codegen (no Pulley needed).
   os: OperatingSystem.WindowsArm,
   target: "aarch64-pc-windows-msvc",
   runTests: true,
