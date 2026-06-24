@@ -42,7 +42,15 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
   if let Some(tarball) = pre_resolved_tarball {
-    let result = setup_from_tarball(dest_dir_path, tarball.name, tarball.version, tarball.tarball_bytes, &tarball.executable_sub_path, environment).await;
+    let result = setup_from_tarball(
+      dest_dir_path,
+      tarball.name,
+      tarball.version,
+      tarball.tarball_bytes,
+      &tarball.executable_sub_path,
+      environment,
+    )
+    .await;
     return match result {
       Ok(result) => Ok(result),
       Err(err) => {

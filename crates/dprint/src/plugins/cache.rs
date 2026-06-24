@@ -176,7 +176,15 @@ where
     // npm-versioned content is pinned by name@version, so there are no local
     // stamps — a present entry is always a hit.
     self
-      .setup_and_store(&hash, &cache_key, &resolved.local_path, resolved.plugin_bytes, resolved.plugin_kind, resolved.pre_resolved_tarball, None)
+      .setup_and_store(
+        &hash,
+        &cache_key,
+        &resolved.local_path,
+        resolved.plugin_bytes,
+        resolved.plugin_kind,
+        resolved.pre_resolved_tarball,
+        None,
+      )
       .await
       .with_context(|| format!("Setting up {}", specifier.display()))
   }
@@ -212,9 +220,23 @@ where
     // whose per-platform reference points to a *local* archive (relative path /
     // file://), `build_local_stamps` also stamps that archive so editing it
     // invalidates the cache.
-    let local_stamps = self.build_local_stamps(primary_stamp, &source_reference.path_source, &file_bytes, plugin_kind, pre_resolved_tarball.as_ref());
+    let local_stamps = self.build_local_stamps(
+      primary_stamp,
+      &source_reference.path_source,
+      &file_bytes,
+      plugin_kind,
+      pre_resolved_tarball.as_ref(),
+    );
     self
-      .setup_and_store(&hash, &cache_key, &source_reference.path_source, file_bytes, plugin_kind, pre_resolved_tarball, local_stamps)
+      .setup_and_store(
+        &hash,
+        &cache_key,
+        &source_reference.path_source,
+        file_bytes,
+        plugin_kind,
+        pre_resolved_tarball,
+        local_stamps,
+      )
       .await
   }
 

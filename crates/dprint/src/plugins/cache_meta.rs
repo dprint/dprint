@@ -19,6 +19,16 @@ use std::hash::Hasher;
 /// rather than busting the whole cache.
 const PLUGIN_CACHE_SCHEMA_VERSION: usize = 10;
 
+/// Size + modification time of a local file, captured at setup. A cache hit
+/// requires every stamp to still match (cheap stat, no read/hash).
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalStamp {
+  pub path: String,
+  pub len: u64,
+  pub modified_ms: u64,
+}
+
 /// Sidecar describing a single cached plugin. Lives next to its artifact at
 /// `plugins/<hash>.json`, where `<hash>` is derived from the plugin's source
 /// (see [`entry_hash`]). Replaces the old global `plugin-cache-manifest.json`
@@ -50,16 +60,6 @@ pub struct PluginCacheMeta {
   /// remote and versioned-npm sources, whose mere presence is a cache hit.
   #[serde(skip_serializing_if = "Option::is_none", default)]
   pub local_stamps: Option<Vec<LocalStamp>>,
-}
-
-/// Size + modification time of a local file, captured at setup. A cache hit
-/// requires every stamp to still match (cheap stat, no read/hash).
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct LocalStamp {
-  pub path: String,
-  pub len: u64,
-  pub modified_ms: u64,
 }
 
 impl PluginCacheMeta {
