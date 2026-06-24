@@ -18,6 +18,7 @@ pub use repo::*;
 pub use resolver::*;
 pub use types::*;
 
+pub use implementations::WASM_PLUGIN_THREAD_STACK_SIZE;
 pub use implementations::compile_wasm;
 pub use name_resolution::PluginNameResolutionMaps;
 pub use npm_resolution::FetchNpmLatestInfo;

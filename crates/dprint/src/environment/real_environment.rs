@@ -151,7 +151,11 @@ impl RealEnvironment {
 
   #[cfg(test)]
   pub fn run_test_with_real_env(run_with_env: impl Fn(RealEnvironment) -> dprint_core::async_runtime::LocalBoxFuture<'static, ()>) {
-    let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+      .enable_time()
+      .thread_stack_size(crate::plugins::WASM_PLUGIN_THREAD_STACK_SIZE)
+      .build()
+      .unwrap();
     let env = RealEnvironment::new(RealEnvironmentOptions {
       log_level: LogLevel::Info,
       is_stdout_machine_readable: false,

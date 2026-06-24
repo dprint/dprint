@@ -126,10 +126,17 @@ impl WasmModuleCreator {
 
 /// The amount of wasm stack the plugin may use. wasmtime's default is 512KB,
 /// which overflows on deeply nested source files (the formatter recurses over
-/// the AST); 1 MiB handles them. The worker thread that runs the instance is
-/// given a larger native stack to accommodate this (see `WASM_WORKER_STACK_SIZE`
-/// in plugin.rs).
+/// the AST); 1 MiB handles them. The thread that runs the instance needs a
+/// native stack at least this large (see `WASM_PLUGIN_THREAD_STACK_SIZE`).
 pub const MAX_WASM_STACK_SIZE: usize = 1024 * 1024;
+
+/// Native stack size for the (tokio blocking) thread that runs a wasm plugin
+/// instance. wasmtime executes wasm on this native stack up to
+/// `MAX_WASM_STACK_SIZE`, so it must exceed that with headroom for host frames.
+/// Applied via the tokio runtime's `thread_stack_size` since the instance loop
+/// runs on `spawn_blocking` (tokio's default blocking-thread stack is too small
+/// on some platforms, e.g. Windows).
+pub const WASM_PLUGIN_THREAD_STACK_SIZE: usize = MAX_WASM_STACK_SIZE + 16 * 1024 * 1024;
 
 fn new_engine() -> wasmtime::Engine {
   let mut config = Config::new();

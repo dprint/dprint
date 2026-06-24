@@ -28,7 +28,6 @@ use super::WasmModuleCreator;
 use super::create_pools_import_object;
 use super::instance::Store;
 use super::load_instance;
-use super::load_instance::MAX_WASM_STACK_SIZE;
 use super::load_instance::WasmInstance;
 use super::load_instance::WasmModule;
 use crate::environment::Environment;
@@ -37,11 +36,6 @@ use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
 use crate::plugins::implementations::wasm::create_wasm_plugin_instance;
-
-/// Native stack size for the thread that runs a wasm instance. Must exceed
-/// `MAX_WASM_STACK_SIZE` (which wasmtime executes on this same native stack)
-/// with headroom for the host frames around the wasm call.
-const WASM_WORKER_STACK_SIZE: usize = MAX_WASM_STACK_SIZE + 16 * 1024 * 1024;
 
 pub struct WasmPlugin<TEnvironment: Environment> {
   module: WasmModule,
@@ -266,84 +260,80 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     let (tx, rx) = std::sync::mpsc::channel::<WasmPluginMessage>();
     let (initialize_tx, initialize_rx) = tokio::sync::oneshot::channel::<Result<(), anyhow::Error>>();
 
-    // spawn the wasm instance on a dedicated thread to reduce issues. use an
-    // explicit large stack: wasmtime runs wasm on this native stack and allows
-    // it up to MAX_WASM_STACK_SIZE, so the thread needs room for that plus the
-    // host frames (tokio blocking threads are too small for this on Windows).
-    std::thread::Builder::new()
-      .name(format!("dprint-wasm-{}", self.name))
-      .stack_size(WASM_WORKER_STACK_SIZE)
-      .spawn({
-        let load_instance = self.load_instance.clone();
-        let module = self.module.clone();
-        move || {
-          let initialize = || {
-            let (store, instance) = (load_instance)(&module, host_format_tx)?;
-            let instance = create_wasm_plugin_instance(store, instance)?;
-            Ok(instance)
-          };
-          let mut instance = match initialize() {
-            Ok(instance) => {
-              if initialize_tx.send(Ok(())).is_err() {
-                return; // disconnected
-              }
-              instance
+    // spawn the wasm instance on a dedicated blocking thread to reduce issues.
+    // the runtime gives its blocking threads a large stack (see
+    // WASM_PLUGIN_THREAD_STACK_SIZE) so wasmtime can run wasm on this native
+    // stack, up to MAX_WASM_STACK_SIZE.
+    dprint_core::async_runtime::spawn_blocking({
+      let load_instance = self.load_instance.clone();
+      let module = self.module.clone();
+      move || {
+        let initialize = || {
+          let (store, instance) = (load_instance)(&module, host_format_tx)?;
+          let instance = create_wasm_plugin_instance(store, instance)?;
+          Ok(instance)
+        };
+        let mut instance = match initialize() {
+          Ok(instance) => {
+            if initialize_tx.send(Ok(())).is_err() {
+              return; // disconnected
             }
-            Err(err) => {
-              let _ = initialize_tx.send(Err(err));
-              return; // quit
+            instance
+          }
+          Err(err) => {
+            let _ = initialize_tx.send(Err(err));
+            return; // quit
+          }
+        };
+        while let Ok(message) = rx.recv() {
+          match message {
+            WasmPluginMessage::LicenseText(response) => {
+              let result = instance.license_text();
+              if response.send(result).is_err() {
+                break; // disconnected
+              }
             }
-          };
-          while let Ok(message) = rx.recv() {
-            match message {
-              WasmPluginMessage::LicenseText(response) => {
-                let result = instance.license_text();
-                if response.send(result).is_err() {
-                  break; // disconnected
-                }
+            WasmPluginMessage::CheckConfigUpdates(message, response) => {
+              let result = instance.check_config_updates(&message);
+              if response.send(result).is_err() {
+                break; // disconnected
               }
-              WasmPluginMessage::CheckConfigUpdates(message, response) => {
-                let result = instance.check_config_updates(&message);
-                if response.send(result).is_err() {
-                  break; // disconnected
-                }
+            }
+            WasmPluginMessage::ConfigDiagnostics(config, response) => {
+              let result = instance.config_diagnostics(&config);
+              if response.send(result).is_err() {
+                break; // disconnected
               }
-              WasmPluginMessage::ConfigDiagnostics(config, response) => {
-                let result = instance.config_diagnostics(&config);
-                if response.send(result).is_err() {
-                  break; // disconnected
-                }
+            }
+            WasmPluginMessage::FileMatchingInfo(config, response) => {
+              let result = instance.file_matching_info(&config);
+              if response.send(result).is_err() {
+                break; // disconnected
               }
-              WasmPluginMessage::FileMatchingInfo(config, response) => {
-                let result = instance.file_matching_info(&config);
-                if response.send(result).is_err() {
-                  break; // disconnected
-                }
+            }
+            WasmPluginMessage::ResolvedConfig(config, response) => {
+              let result = instance.resolved_config(&config);
+              if response.send(result).is_err() {
+                break; // disconnected
               }
-              WasmPluginMessage::ResolvedConfig(config, response) => {
-                let result = instance.resolved_config(&config);
-                if response.send(result).is_err() {
-                  break; // disconnected
-                }
-              }
-              WasmPluginMessage::FormatRequest(request, response) => {
-                let result = instance.format_text(
-                  &request.file_path,
-                  &request.file_bytes,
-                  request.range.clone(),
-                  &request.config,
-                  &request.override_config,
-                  request.token.clone(),
-                );
-                if response.send(result).is_err() {
-                  break; // disconnected
-                }
+            }
+            WasmPluginMessage::FormatRequest(request, response) => {
+              let result = instance.format_text(
+                &request.file_path,
+                &request.file_bytes,
+                request.range.clone(),
+                &request.config,
+                &request.override_config,
+                request.token.clone(),
+              );
+              if response.send(result).is_err() {
+                break; // disconnected
               }
             }
           }
         }
-      })
-      .expect("failed to spawn wasm worker thread");
+      }
+    });
 
     // wait for initialization
     initialize_rx.await??;
