@@ -246,9 +246,11 @@ For example:
 
 Note that first the `"includes"`/`"excludes"` file resolution occurs and then the associations is used to map those files to a plugin. Specifying associations may also be useful for formatting a file with multiple plugins or forcing a file to be formatted with a specific plugin.
 
+Associations are _additive_: the patterns you specify are matched **in addition to** the file extensions and file names the plugin matches by default. For example, a plugin that formats `.json` files by default will also format `.myconfig` files once `"associations": ["**/*.myconfig"]` is set—`.json` files keep being formatted. To stop matching a default extension or file name, use a negated glob (see below).
+
 ### Excluding paths from plugin
 
-Only providing negated globs as an association can be a way to exclude a file extension or path from being formatted with a certain plugin, but continue using file extensions to match a plugin otherwise.
+A negated glob (`!`) is the way to stop a plugin from matching a file it would otherwise format by default—whether that's a default file extension, a default file name, or a path.
 
 In the following example, both the TypeScript plugin and Prettier plugin support formatting `.js` and `.ts` files. Say we want to only format `.ts` files with the TypeScript plugin and `.js` files with the prettier plugin. To do that, we can place the typescript plugin to have higher precedence in the "plugins" array, then add an excludes for only `!**/*.js`. This will cause the TypeScript plugin to match based on the file extension for `.ts` files, but then be excluded from matching on `.js` files.
 

@@ -88,18 +88,19 @@ impl PluginNameResolutionMaps {
   }
 
   fn is_not_associations_excluded(&self, plugin_name: &str, file_path: &Path) -> bool {
-    if let Some(matcher) = self.association_matchers_map.get(plugin_name) {
-      matcher.has_only_excludes() && matcher.matches_detail(file_path) == GlobMatchesDetail::NotMatched
-    } else {
-      true
+    // `associations` add to the plugin's default file matching, so a plugin
+    // keeps matching by its default extension/file name unless a negated
+    // association pattern explicitly excludes the file
+    match self.association_matchers_map.get(plugin_name) {
+      Some(matcher) => matcher.matches_detail(file_path) != GlobMatchesDetail::Excluded,
+      None => true,
     }
   }
 }
 
 fn get_plugin_association_glob_matcher(plugin: &PluginWithConfig, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>> {
-  Ok(if let Some(associations) = plugin.associations.as_ref() {
-    Some(get_patterns_as_glob_matcher(associations, config_base_path)?)
-  } else {
-    None
-  })
+  match plugin.associations.as_deref() {
+    Some(associations) => Ok(Some(get_patterns_as_glob_matcher(associations, config_base_path)?)),
+    None => Ok(None),
+  }
 }

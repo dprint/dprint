@@ -109,13 +109,6 @@ impl GlobMatcher {
     &self.base_dir
   }
 
-  /// Gets if the matcher only has excludes patterns.
-  pub fn has_only_excludes(&self) -> bool {
-    (self.config_include_matcher.as_ref().map(|m| m.is_empty()).unwrap_or(true)
-      && self.arg_include_matcher.as_ref().map(|m| m.include.is_empty()).unwrap_or(true))
-      && (!self.config_exclude_matcher.is_empty() || !self.arg_exclude_matcher.as_ref().map(|m| m.is_empty()).unwrap_or(true))
-  }
-
   pub fn matches(&self, path: impl AsRef<Path>) -> bool {
     matches!(
       self.matches_detail(path),
@@ -205,10 +198,6 @@ impl IncludeMatcher {
   fn is_match(&self, path: &Path) -> bool {
     self.literal_paths.contains(path) || matches!(self.matcher.matched(path, false), Match::Whitelist(_))
   }
-
-  fn is_empty(&self) -> bool {
-    self.literal_paths.is_empty() && self.matcher.is_empty()
-  }
 }
 
 /// Matches exclude patterns, with literal (non-glob) paths pulled into a hash
@@ -228,10 +217,6 @@ impl ExcludeMatcher {
       Match::Ignore(_) => ExcludeMatchDetail::Excluded,
       Match::Whitelist(_) => ExcludeMatchDetail::OptedOutExclude,
     }
-  }
-
-  fn is_empty(&self) -> bool {
-    self.literal_paths.is_empty() && self.matcher.is_empty()
   }
 }
 
@@ -385,7 +370,6 @@ mod test {
     assert_eq!(glob_matcher.matches_detail("/testing/dir/match.ts"), GlobMatchesDetail::Matched);
     assert_eq!(glob_matcher.matches_detail("/testing/dir/other/match.ts"), GlobMatchesDetail::Matched);
     assert_eq!(glob_matcher.matches_detail("/testing/dir/no-match.ts"), GlobMatchesDetail::Excluded);
-    assert!(!glob_matcher.has_only_excludes());
   }
 
   #[test]
@@ -411,7 +395,6 @@ mod test {
     assert_eq!(glob_matcher.matches_detail("/testing/dir/src/no-match.ts"), GlobMatchesDetail::Excluded);
     assert_eq!(glob_matcher.matches_detail("/testing/dir/src/no-match2.ts"), GlobMatchesDetail::Excluded);
     assert_eq!(glob_matcher.matches_detail("/testing/dir/src/no-match3.ts"), GlobMatchesDetail::Matched);
-    assert!(!glob_matcher.has_only_excludes());
   }
 
   #[test]
@@ -435,7 +418,6 @@ mod test {
       },
     )
     .unwrap();
-    assert!(!glob_matcher.has_only_excludes());
     assert_eq!(glob_matcher.matches_detail("/testing/dir/a.ts"), GlobMatchesDetail::Matched);
     assert_eq!(glob_matcher.matches_detail("/testing/dir/sub/b.ts"), GlobMatchesDetail::Matched);
     assert_eq!(glob_matcher.matches_detail("/testing/dir/glob/c.ts"), GlobMatchesDetail::Matched);
@@ -494,7 +476,6 @@ mod test {
       },
     )
     .unwrap();
-    assert!(!glob_matcher.has_only_excludes());
     assert_eq!(glob_matcher.matches_detail("/testing/dir/a.ts"), GlobMatchesDetail::Matched);
     assert_eq!(glob_matcher.matches_detail("/testing/dir/sub/b.ts"), GlobMatchesDetail::Matched);
     assert_eq!(glob_matcher.matches_detail("/testing/dir/sub/c.ts"), GlobMatchesDetail::Excluded);
