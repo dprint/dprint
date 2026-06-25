@@ -135,6 +135,7 @@ pub struct TestEnvironment {
   log_level: Arc<Mutex<LogLevel>>,
   sys: Arc<InMemorySys>,
   staged_files: Arc<Mutex<Vec<PathBuf>>>,
+  dirty_files: Arc<Mutex<Vec<PathBuf>>>,
   global_gitignore_path: Arc<Mutex<Option<PathBuf>>>,
   stdout_messages: Arc<Mutex<Vec<String>>>,
   stderr_messages: Arc<Mutex<Vec<String>>>,
@@ -176,6 +177,7 @@ impl TestEnvironment {
       log_level: Arc::new(Mutex::new(LogLevel::Info)),
       sys: Default::default(),
       staged_files: Default::default(),
+      dirty_files: Default::default(),
       global_gitignore_path: Default::default(),
       stdout_messages: Default::default(),
       stderr_messages: Default::default(),
@@ -279,6 +281,15 @@ impl TestEnvironment {
     self.sys.env_set_current_dir(new_path).unwrap();
   }
 
+  /// Pins the in-memory filesystem clock so subsequent writes get a
+  /// deterministic modification time. Advancing it between writes lets tests
+  /// exercise mtime-based cache invalidation without depending on wall-clock.
+  pub fn set_fs_time(&self, secs_since_epoch: u64) {
+    self
+      .sys
+      .set_time(Some(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs_since_epoch)));
+  }
+
   pub fn set_stdout_machine_readable(&self, value: bool) {
     *self.is_stdout_machine_readable.lock() = value;
   }
@@ -302,6 +313,9 @@ impl TestEnvironment {
 
   pub fn set_staged_file(&self, file: impl AsRef<Path>) {
     self.staged_files.lock().push(file.as_ref().to_path_buf())
+  }
+  pub fn set_dirty_file(&self, file: impl AsRef<Path>) {
+    self.dirty_files.lock().push(file.as_ref().to_path_buf())
   }
   pub fn set_global_gitignore_path(&self, path: impl AsRef<Path>) {
     *self.global_gitignore_path.lock() = Some(path.as_ref().to_path_buf());
@@ -360,7 +374,11 @@ impl TestEnvironment {
 
   /// Remember to drop the plugins collection manually if using this with one.
   pub fn run_in_runtime<T>(&self, future: impl Future<Output = T>) -> T {
-    let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+      .enable_time()
+      .thread_stack_size(crate::plugins::WASM_PLUGIN_THREAD_STACK_SIZE)
+      .build()
+      .unwrap();
     rt.block_on(future)
   }
 
@@ -511,6 +529,10 @@ impl Environment for TestEnvironment {
 
   fn get_staged_files(&self) -> Result<Vec<PathBuf>> {
     Ok(self.staged_files.lock().clone())
+  }
+
+  fn get_dirty_files(&self) -> Result<Vec<PathBuf>> {
+    Ok(self.dirty_files.lock().clone())
   }
 
   fn global_gitignore_path(&self) -> Option<PathBuf> {

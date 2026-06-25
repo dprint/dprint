@@ -23,7 +23,6 @@ crossterm = "=0.27.0" # manually retest everything when bumping this crate
 deno_npmrc = "=0.9.0"
 deno_terminal = "=0.2.3"
 dirs = "=6.0.0"
-dissimilar = "=1.0.10"
 dprint-core = { path = "../core", version = "=0.68.2", features = ["process", "wasm"] }
 dunce = "=1.0.4"
 flate2 = "=1.1.9"
@@ -62,17 +61,26 @@ rustls-pemfile = "=2.1.2"
 ureq = { version = "=2.12.1", features = ["gzip", "socks-proxy", "tls"], default-features = false }
 webpki-roots = "=0.26.7"
 
-# pin these to prevent them changing with `cargo install` because
-# patch version increases of rkyv may cause panics when deserializing
-# data serialized with older versions
+# pin this to prevent it changing with `cargo install` because patch version
+# increases of rkyv may cause panics when deserializing data serialized with
+# older versions
 rkyv = "=0.8.15"
-wasmer-compiler = "=7.1.0"
 
-[target.'cfg(not(target_arch = "loongarch64"))'.dependencies]
-wasmer = "=7.1.0"
+# wasm plugin runtime (wasmtime). default features are disabled to keep the
+# binary small — we only need to compile and run modules synchronously;
+# component-model, async, winch, the wat parser, wasm GC, the on-disk cache and
+# the pooling allocator are all unused.
 
-[target.'cfg(target_arch = "loongarch64")'.dependencies]
-wasmer = { version = "=7.1.0", features = ["llvm"] }
+# most targets: native Cranelift codegen.
+[target.'cfg(not(any(target_arch = "powerpc64", target_arch = "loongarch64", target_os = "android")))'.dependencies]
+wasmtime = { version = "=43.0.2", default-features = false, features = ["cranelift", "runtime", "std", "anyhow", "demangle", "addr2line"] }
+
+# powerpc64/loongarch64 have no native Cranelift backend, and the Android sandbox
+# lacks the signal-based traps native code needs, so these compile to Pulley
+# bytecode (still via Cranelift) and interpret it. the `pulley` feature adds the
+# bytecode emitter; the interpreter is already part of `runtime`.
+[target.'cfg(any(target_arch = "powerpc64", target_arch = "loongarch64", target_os = "android"))'.dependencies]
+wasmtime = { version = "=43.0.2", default-features = false, features = ["cranelift", "runtime", "std", "anyhow", "demangle", "addr2line", "pulley"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "=0.55.0"

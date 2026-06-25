@@ -26,6 +26,7 @@ use dprint_core::plugins::PluginInfo;
 use super::WasmHostFormatSender;
 use super::WasmModuleCreator;
 use super::create_pools_import_object;
+use super::instance::Store;
 use super::load_instance;
 use super::load_instance::WasmInstance;
 use super::load_instance::WasmModule;
@@ -70,9 +71,11 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
       plugin_name.clone(),
       self.module.clone(),
       Arc::new({
-        move |store, module, host_format_sender| {
-          let (import_object, env) = create_pools_import_object(environment.clone(), &plugin_name, module.version(), store, host_format_sender);
-          load_instance(store, module, env, &import_object)
+        move |module: &WasmModule, host_format_sender| {
+          let (linker, host_state) = create_pools_import_object(environment.clone(), &plugin_name, module.version(), module.engine(), host_format_sender)?;
+          let mut store = module.new_store(host_state);
+          let instance = load_instance(&mut store, module, &linker)?;
+          Ok((store, instance))
         }
       }),
       self.environment.clone(),
@@ -114,7 +117,7 @@ struct WasmPluginSenderWithState {
   instance_state_cell: Rc<RefCell<Option<InstanceState>>>,
 }
 
-type LoadInstanceFn = dyn Fn(&mut wasmer::Store, &WasmModule, WasmHostFormatSender) -> Result<WasmInstance> + Send + Sync;
+type LoadInstanceFn = dyn Fn(&WasmModule, WasmHostFormatSender) -> Result<(Store, WasmInstance)> + Send + Sync;
 
 pub struct InitializedWasmPlugin<TEnvironment: Environment> {
   name: String,
@@ -228,7 +231,6 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
   async fn create_instance(&self) -> Result<WasmPluginSenderWithState> {
     let start_instant = Instant::now();
     log_debug!(self.environment, "Creating instance of {}", self.name);
-    let mut store = wasmer::Store::default();
 
     let (host_format_tx, mut host_format_rx) = tokio::sync::mpsc::unbounded_channel::<(HostFormatRequest, std::sync::mpsc::Sender<FormatResult>)>();
     let instance_state_cell: Rc<RefCell<Option<InstanceState>>> = Default::default();
@@ -258,13 +260,16 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
     let (tx, rx) = std::sync::mpsc::channel::<WasmPluginMessage>();
     let (initialize_tx, initialize_rx) = tokio::sync::oneshot::channel::<Result<(), anyhow::Error>>();
 
-    // spawn the wasm instance on a dedicated thread to reduce issues
+    // spawn the wasm instance on a dedicated blocking thread to reduce issues.
+    // the runtime gives its blocking threads a large stack (see
+    // WASM_PLUGIN_THREAD_STACK_SIZE) so wasmtime can run wasm on this native
+    // stack, up to MAX_WASM_STACK_SIZE.
     dprint_core::async_runtime::spawn_blocking({
       let load_instance = self.load_instance.clone();
       let module = self.module.clone();
       move || {
         let initialize = || {
-          let instance = (load_instance)(&mut store, &module, host_format_tx)?;
+          let (store, instance) = (load_instance)(&module, host_format_tx)?;
           let instance = create_wasm_plugin_instance(store, instance)?;
           Ok(instance)
         };

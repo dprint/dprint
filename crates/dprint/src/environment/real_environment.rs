@@ -4,6 +4,7 @@ use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs;
@@ -150,7 +151,11 @@ impl RealEnvironment {
 
   #[cfg(test)]
   pub fn run_test_with_real_env(run_with_env: impl Fn(RealEnvironment) -> dprint_core::async_runtime::LocalBoxFuture<'static, ()>) {
-    let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+      .enable_time()
+      .thread_stack_size(crate::plugins::WASM_PLUGIN_THREAD_STACK_SIZE)
+      .build()
+      .unwrap();
     let env = RealEnvironment::new(RealEnvironmentOptions {
       log_level: LogLevel::Info,
       is_stdout_machine_readable: false,
@@ -297,6 +302,35 @@ impl Environment for RealEnvironment {
       .output()?;
 
     Ok(String::from_utf8_lossy(&output.stdout).lines().map(PathBuf::from).collect())
+  }
+
+  fn get_dirty_files(&self) -> Result<Vec<PathBuf>> {
+    // collect every file with uncommitted changes in the working directory:
+    // unstaged tracked changes, staged tracked changes, and untracked files
+    // that aren't gitignored. each is gathered the same way `get_staged_files`
+    // gathers staged files so the behaviour (e.g. renamed files yielding their
+    // new path, deletions being skipped) stays consistent.
+    fn git_lines(args: &[&str]) -> Result<Vec<PathBuf>> {
+      let output = Command::new("git").args(args).output()?;
+      Ok(String::from_utf8_lossy(&output.stdout).lines().map(PathBuf::from).collect())
+    }
+
+    let mut files = Vec::new();
+    let mut seen = HashSet::new();
+    let groups = [
+      // unstaged tracked changes
+      git_lines(&["diff", "--name-only", "--relative", "--diff-filter=ACMR"])?,
+      // staged tracked changes
+      git_lines(&["diff", "--name-only", "--relative", "--staged", "--diff-filter=ACMR"])?,
+      // untracked files that aren't gitignored
+      git_lines(&["ls-files", "--others", "--exclude-standard"])?,
+    ];
+    for file in groups.into_iter().flatten() {
+      if seen.insert(file.clone()) {
+        files.push(file);
+      }
+    }
+    Ok(files)
   }
 
   fn global_gitignore_path(&self) -> Option<PathBuf> {
@@ -593,16 +627,12 @@ impl Environment for RealEnvironment {
 
   fn wasm_cache_key(&self) -> String {
     let cpu = self.cpu_arch();
-    // need to also hash on the CPU features
-    // https://github.com/dprint/dprint/issues/735
     let mut hash = FastInsecureHasher::default();
-    let mut features = wasmer::sys::CpuFeature::for_host().into_iter().map(|c| c.to_string()).collect::<Vec<_>>();
-    features.sort(); // ensure this is stable
-    for feature in features {
-      feature.hash(&mut hash);
-    }
-    // include the rustc version in the hash because wasmer's deserialization
-    // of wasm plugins sometimes breaks with a rust upgrade
+    // wasmtime tunes native code to the host CPU features and embeds a
+    // compatibility check in the serialized artifact, refusing to deserialize an
+    // incompatible one (the caller then recompiles). that covers CPU-feature
+    // drift; we still hash the rustc version because deserialization can break
+    // across a rust upgrade. https://github.com/dprint/dprint/issues/735
     env!("RUSTC_VERSION_TEXT").hash(&mut hash);
     format!("{}-{}", cpu, hash.finish())
   }

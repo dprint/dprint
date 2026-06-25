@@ -1,12 +1,12 @@
 #!/usr/bin/env -S deno run -A
 import $ from "jsr:@david/dax@0.45.0";
 import { conditions, defineMatrix, expr, type ExpressionValue, isLinting, job, step, workflow } from "jsr:@david/gagen@0.5.0";
-import { crossImageRegistry, crossImageTag } from "./cross_image.ts";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
   MacX86 = "macos-15-intel",
   Windows = "windows-latest",
+  WindowsArm = "windows-11-arm",
   Linux = "ubuntu-22.04",
   LinuxArm = "ubuntu-24.04-arm",
 }
@@ -17,6 +17,12 @@ interface ProfileData {
   runTests?: boolean;
   /** Build using cross. */
   cross?: boolean;
+  /**
+   * Build by running cargo directly inside this Docker image. Used for targets
+   * cross doesn't provide an image for (e.g. powerpc64le musl), where the image
+   * already bundles the toolchain.
+   */
+  muslCrossImage?: string;
 }
 
 const profileDataItems: ProfileData[] = [{
@@ -30,6 +36,10 @@ const profileDataItems: ProfileData[] = [{
 }, {
   os: OperatingSystem.Windows,
   target: "x86_64-pc-windows-msvc",
+  runTests: true,
+}, {
+  os: OperatingSystem.WindowsArm,
+  target: "aarch64-pc-windows-msvc",
   runTests: true,
 }, {
   os: OperatingSystem.Linux,
@@ -56,6 +66,31 @@ const profileDataItems: ProfileData[] = [{
 }, {
   os: OperatingSystem.Linux,
   target: "loongarch64-unknown-linux-musl",
+  cross: true,
+}, {
+  // ppc64le: built with cross. Cranelift has no native ppc64 backend, so this
+  // compiles to wasmtime's portable Pulley bytecode (see the `use_pulley` cfg in
+  // crates/dprint/build.rs).
+  os: OperatingSystem.Linux,
+  target: "powerpc64le-unknown-linux-gnu",
+  cross: true,
+}, {
+  // cross has no powerpc64le musl image, so build directly in the prebuilt
+  // rust-musl-cross toolchain image instead (see the musl image build step).
+  os: OperatingSystem.Linux,
+  target: "powerpc64le-unknown-linux-musl",
+  muslCrossImage: "ghcr.io/rust-cross/rust-musl-cross:powerpc64le-musl",
+}, {
+  // android (Termux): built with cross using its built-in NDK image. The
+  // sandbox lacks the signal-based trap handling native code relies on, so it
+  // compiles to wasmtime's portable Pulley bytecode (see the `use_pulley` cfg in
+  // crates/dprint/build.rs).
+  os: OperatingSystem.Linux,
+  target: "aarch64-linux-android",
+  cross: true,
+}, {
+  os: OperatingSystem.Linux,
+  target: "x86_64-linux-android",
   cross: true,
 }];
 
@@ -89,12 +124,14 @@ const matrix = defineMatrix({
     run_tests: (profile.runTests ?? false).toString(),
     target: profile.target,
     cross: (profile.cross ?? false).toString(),
+    musl_image: profile.muslCrossImage ?? "",
   })),
 });
 
 const runTests = matrix.run_tests.equals("true");
 const runDebugTests = runTests.and(isNotTag);
 const isCross = matrix.cross.equals("true");
+const isMuslImage = matrix.musl_image.notEquals("");
 const isLinuxGnu = matrix.target.equals("x86_64-unknown-linux-gnu");
 
 // === build job ===
@@ -153,7 +190,6 @@ const lint = step.if(isLinuxGnu.and(isNotTag))(
     name: "Lint CI Generation",
     run: [
       "./.github/workflows/ci.ts --lint",
-      "./.github/workflows/cross-loongarch64-images.ts --lint",
       "./.github/workflows/publish.ts --lint",
       "./.github/workflows/publish_crate_core.ts --lint",
       "./.github/workflows/publish_crate_core-macros.ts --lint",
@@ -168,87 +204,48 @@ const aarch64LinkerEnv = {
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc",
 };
 
-// llvm-sys uses cross-compiled llvm-config to detect LLVM
-const setupQemu = step({
-  uses: "docker/setup-qemu-action@v4",
-  if: matrix.target.startsWith("loongarch64").and(isCross),
-}).comesAfter(setupRust);
-const setupBuildx = step({
-  uses: "docker/setup-buildx-action@v4",
-}).dependsOn(setupQemu);
-
-// Bypass cross and use a prebuilt image that bundles a loongarch64 build of
-// LLVM (see cross-loongarch64-images.ts). Pull it instead of rebuilding LLVM,
-// falling back to a local build for the PR that first changes the Dockerfile
-// (before the matching image tag has been published).
-const crossImageBaseName = "dprint-cross-base";
-const crossImageName = `${crossImageBaseName}-${matrix.target}`;
-const crossImageRef = `${crossImageRegistry}/${crossImageName}:${crossImageTag}`;
-const loongarch64ImageEnv = Object.fromEntries(
-  profiles.filter((profile) => profile.target.startsWith("loongarch64"))
-    .map((
-      profile,
-    ) => [
-      `CROSS_TARGET_${profile.target.toUpperCase().replaceAll("-", "_")}_IMAGE`,
-      `${crossImageBaseName}-${profile.target}`,
-    ]),
-);
-const isLoongarchCross = matrix.target.startsWith("loongarch64").and(isCross);
-const pullCrossImage = step({
-  name: "Pull cross image",
-  id: "cross_image",
-  if: isLoongarchCross,
-  run: [
-    `IMAGE="${crossImageRef}"`,
-    `if docker pull "$IMAGE"; then`,
-    `  echo "Using prebuilt cross image $IMAGE"`,
-    `  docker tag "$IMAGE" "${crossImageName}"`,
-    `  echo "found=true" >> "$GITHUB_OUTPUT"`,
-    `else`,
-    `  echo "Prebuilt image $IMAGE not found; building locally"`,
-    `  echo "found=false" >> "$GITHUB_OUTPUT"`,
-    `fi`,
-  ],
-  outputs: ["found"] as const,
-}).dependsOn(setupBuildx);
-// fallback build for the PR that first changes the Dockerfile, before the
-// image-build workflow has published the matching tag on main
-const buildCrossImageFallback = step({
-  name: "Build cross image (fallback)",
-  uses: "docker/build-push-action@v7",
-  if: isLoongarchCross.and(pullCrossImage.outputs.found.notEquals("true")),
-  with: {
-    file: ".github/workflows/cross-loongarch64.Dockerfile",
-    tags: crossImageName,
-    load: true,
-    "cache-from": `type=gha,scope=${crossImageName}-${crossImageTag}`,
-    "cache-to": `type=gha,mode=max,scope=${crossImageName}-${crossImageTag}`,
-    "build-args": `CROSS_BASE_IMAGE=ghcr.io/cross-rs/${matrix.target}:main\nTARGET=${matrix.target}`,
-  },
-}).dependsOn(pullCrossImage);
+// Builds inside the rust-musl-cross image, which bundles the toolchain and runs
+// as root (so it can install the pinned toolchain into its own /root/.rustup --
+// the reason this can't go through cross, which runs as the non-root host user).
+// The build output is then chown'd back so later steps can read/zip it.
+function muslImageRun(releaseArgs: string): string[] {
+  // the image bundles rust-std for its own toolchain, but rust-toolchain.toml
+  // pins a different one, so add the target's std to the pinned toolchain first
+  const build = `rustup target add ${matrix.target} && cargo build -p dprint --locked --target ${matrix.target}${releaseArgs}`;
+  return [
+    `docker run --rm -v "$GITHUB_WORKSPACE":/home/rust/src -w /home/rust/src ${matrix.musl_image} bash -c "${build}"`,
+    `sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/target"`,
+  ];
+}
 
 const buildDebug = step({
   name: "Build (Debug)",
-  if: isCross.not(),
+  if: isCross.not().and(isMuslImage.not()),
   env: aarch64LinkerEnv,
   run: `cargo build -p dprint --locked --target ${matrix.target}`,
 }, {
   name: "Build cross (Debug)",
   if: isCross,
-  env: loongarch64ImageEnv,
   run: `cross build -p dprint --locked --target ${matrix.target}`,
-}).dependsOn(setupRust, buildCrossImageFallback);
+}, {
+  name: "Build musl image (Debug)",
+  if: isMuslImage,
+  run: muslImageRun(""),
+}).dependsOn(setupRust);
 const buildRelease = step({
   name: "Build (Release)",
-  if: isCross.not(),
+  if: isCross.not().and(isMuslImage.not()),
   env: aarch64LinkerEnv,
   run: `cargo build -p dprint --locked --target ${matrix.target} --release`,
 }, {
   name: "Build cross (Release)",
   if: isCross,
-  env: loongarch64ImageEnv,
   run: `cross build -p dprint --locked --target ${matrix.target} --release`,
-}).dependsOn(setupRust, buildCrossImageFallback);
+}, {
+  name: "Build musl image (Release)",
+  if: isMuslImage,
+  run: muslImageRun(" --release"),
+}).dependsOn(setupRust);
 
 const tests = step(
   // debug
@@ -299,6 +296,7 @@ function getPreReleaseStepForProfile(profile: typeof profiles[0]) {
           `zip -r ${profile.zipFileName} dprint`,
           `echo "ZIP_CHECKSUM=$(shasum -a 256 ${profile.zipFileName} | awk '{print $1}')" >> $GITHUB_OUTPUT`,
         ];
+      case OperatingSystem.WindowsArm:
       case OperatingSystem.Windows: {
         const installerSteps = profile.target === "x86_64-pc-windows-msvc"
           ? [
@@ -373,13 +371,16 @@ const installerTests = step.if(runDebugTests)(
     shell: "pwsh",
     run: ["cd website/src/assets", "./install.ps1"],
   },
-  step({
-    name: "Test npm",
-    run: [
-      "cd deployment/npm",
-      "deno run -A build.ts 0.51.0",
-    ],
-  }).dependsOn(setupDeno),
+  // TODO: re-enable after the next release. build.ts downloads the release
+  // artifacts for the given version, and the new powerpc64le zips won't exist
+  // until a release includes them.
+  // step({
+  //   name: "Test npm",
+  //   run: [
+  //     "cd deployment/npm",
+  //     "deno run -A build.ts 0.51.0",
+  //   ],
+  // }).dependsOn(setupDeno),
 );
 
 const buildJob = job("build", {

@@ -14,9 +14,8 @@ use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION;
-use wasmer::ExportError;
-use wasmer::Instance;
-use wasmer::Store;
+use wasmtime::Engine;
+use wasmtime::Memory;
 
 use crate::environment::Environment;
 use crate::plugins::FormatConfig;
@@ -28,15 +27,42 @@ mod v4;
 
 pub type WasmHostFormatSender = tokio::sync::mpsc::UnboundedSender<(HostFormatRequest, std::sync::mpsc::Sender<FormatResult>)>;
 
+/// The data carried by the wasmtime `Store`. Host state lives inside the store
+/// and host functions reach it through `Caller::data`/`data_mut`. A given store
+/// only ever runs one schema version, so the host functions match on their variant.
+pub enum WasmHostState {
+  /// Used for the identity import object (compilation / plugin-info probing)
+  /// where the host functions are no-ops, so no state is needed.
+  Empty,
+  V3(v3::ImportObjectEnvironmentV3),
+  V4(v4::ImportObjectEnvironmentV4),
+}
+
+impl WasmHostState {
+  pub fn set_memory(&mut self, memory: Memory) {
+    match self {
+      WasmHostState::Empty => {}
+      WasmHostState::V3(state) => state.memory = Some(memory),
+      WasmHostState::V4(state) => state.memory = Some(memory),
+    }
+  }
+
+  pub fn set_token(&mut self, token: Arc<dyn CancellationToken>) {
+    match self {
+      WasmHostState::Empty => {}
+      WasmHostState::V3(state) => state.token = token,
+      WasmHostState::V4(state) => state.token = token,
+    }
+  }
+}
+
+pub type Store = wasmtime::Store<WasmHostState>;
+pub type Linker = wasmtime::Linker<WasmHostState>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PluginSchemaVersion {
   V3,
   V4,
-}
-
-pub trait ImportObjectEnvironment {
-  fn initialize(&self, store: &mut Store, instance: &Instance) -> Result<(), ExportError>;
-  fn set_token(&self, store: &mut Store, token: Arc<dyn CancellationToken>);
 }
 
 pub trait InitializedWasmPluginInstance {
@@ -64,30 +90,34 @@ pub fn create_wasm_plugin_instance(store: Store, instance: WasmInstance) -> Resu
   }
 }
 
-/// Use this when the plugins don't need to format via a plugin pool.
-pub fn create_identity_import_object(version: PluginSchemaVersion, store: &mut Store) -> wasmer::Imports {
+/// Builds a linker whose host functions are no-ops. Used when the plugin doesn't
+/// need to format via a plugin pool (compilation and plugin-info probing).
+pub fn create_identity_import_object(version: PluginSchemaVersion, engine: &Engine) -> Result<Linker> {
+  let mut linker = Linker::new(engine);
   match version {
-    PluginSchemaVersion::V3 => v3::create_identity_import_object(store),
-    PluginSchemaVersion::V4 => v4::create_identity_import_object(store),
+    PluginSchemaVersion::V3 => v3::add_identity_imports(&mut linker)?,
+    PluginSchemaVersion::V4 => v4::add_identity_imports(&mut linker)?,
   }
+  Ok(linker)
 }
 
-/// Create an import object that formats text using plugins from the plugin pool
+/// Builds a linker plus the initial store state for an instance that formats
+/// text using plugins from the plugin pool.
 pub fn create_pools_import_object<TEnvironment: Environment>(
   environment: TEnvironment,
   plugin_name: &str,
   version: PluginSchemaVersion,
-  store: &mut Store,
+  engine: &Engine,
   host_format_sender: WasmHostFormatSender,
-) -> (wasmer::Imports, Box<dyn ImportObjectEnvironment>) {
+) -> Result<(Linker, WasmHostState)> {
   match version {
-    PluginSchemaVersion::V3 => v3::create_pools_import_object(store, host_format_sender),
-    PluginSchemaVersion::V4 => v4::create_pools_import_object(environment, plugin_name.to_string(), store, host_format_sender),
+    PluginSchemaVersion::V3 => v3::create_pools_import_object(engine, host_format_sender),
+    PluginSchemaVersion::V4 => v4::create_pools_import_object(environment, plugin_name.to_string(), engine, host_format_sender),
   }
 }
 
-pub fn get_current_plugin_schema_version(module: &wasmer::Module) -> Result<PluginSchemaVersion> {
-  fn from_exports(module: &wasmer::Module) -> Result<u32> {
+pub fn get_current_plugin_schema_version(module: &wasmtime::Module) -> Result<PluginSchemaVersion> {
+  fn from_exports(module: &wasmtime::Module) -> Result<u32> {
     for export in module.exports() {
       let name = export.name();
       if matches!(name, "get_plugin_schema_version") {

@@ -1,2 +1,5 @@
 _site
 src/_includes/css/bulma
+
+# generated from crates/dprint/src/commands/lsp/config_schema.json by _config.ts
+src/assets/schemas/v0.json

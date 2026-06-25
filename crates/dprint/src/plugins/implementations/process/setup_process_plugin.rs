@@ -1,6 +1,5 @@
 use anyhow::Result;
 use anyhow::bail;
-use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use serde::Deserialize;
 use serde::Serialize;
@@ -19,32 +18,18 @@ use crate::utils::fs::get_atomic_path;
 use crate::utils::resolve_url_or_file_path_to_path_source;
 use crate::utils::verify_sha256_checksum;
 
-pub fn get_file_path_from_plugin_info(plugin_info: &PluginInfo, environment: &impl Environment) -> PathBuf {
-  get_file_path_from_name_and_version(&plugin_info.name, &plugin_info.version, environment)
-}
-
-pub fn get_file_path_from_name_and_version(name: &str, version: &str, environment: &impl Environment) -> PathBuf {
-  let dir_path = get_plugin_dir_path(name, version, environment);
-  get_plugin_executable_file_path(&dir_path, name)
-}
-
-fn get_plugin_dir_path(name: &str, version: &str, environment: &impl Environment) -> PathBuf {
-  let cache_dir_path = environment.get_cache_dir();
-  cache_dir_path.join("plugins").join(name).join(version).join(environment.cpu_arch())
-}
-
-fn get_plugin_executable_file_path(dir_path: &Path, plugin_name: &str) -> PathBuf {
-  dir_path.join(if cfg!(target_os = "windows") {
+fn get_plugin_executable_file_name(plugin_name: &str) -> String {
+  if cfg!(target_os = "windows") {
     format!("{}.exe", plugin_name)
   } else {
     plugin_name.to_string()
-  })
+  }
 }
 
-/// Takes a url or file path and extracts the plugin to a cache folder.
+/// Takes a url or file path and extracts the plugin into `dest_dir_path`.
 /// Returns the executable file path once complete.
 /// If `pre_resolved_tarball` is provided (npm-installed process plugins), the
-/// full per-platform tarball is extracted into the plugin cache directory so
+/// full per-platform tarball is extracted into the destination directory so
 /// the executable can sit alongside any sibling files it ships. Otherwise
 /// the reference inside `plugin_file_bytes` is fetched as a zip and
 /// extracted. Both paths stage the extract in a sibling temp dir and rename
@@ -53,13 +38,14 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
   url_or_file_path: &PathSource,
   plugin_file_bytes: &[u8],
   pre_resolved_tarball: Option<crate::plugins::npm_resolution::PreResolvedProcessPluginTarball>,
+  dest_dir_path: &Path,
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
   if let Some(tarball) = pre_resolved_tarball {
-    let plugin_cache_dir_path = get_plugin_dir_path(&tarball.name, &tarball.version, environment);
     let result = setup_from_tarball(
-      &plugin_cache_dir_path,
+      dest_dir_path,
       tarball.name,
+      tarball.version,
       tarball.tarball_bytes,
       &tarball.executable_sub_path,
       environment,
@@ -69,23 +55,29 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
       Ok(result) => Ok(result),
       Err(err) => {
         log_debug!(environment, "Failed setting up process plugin. {:#}", err);
-        environment.try_remove_dir_all(&plugin_cache_dir_path);
+        environment.try_remove_dir_all(dest_dir_path);
         Err(err)
       }
     };
   }
 
   let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment).await?;
-  let plugin_cache_dir_path = get_plugin_dir_path(&plugin_zip_bytes.name, &plugin_zip_bytes.version, environment);
 
-  let result = setup_from_zip(&plugin_cache_dir_path, plugin_zip_bytes.name, &plugin_zip_bytes.zip_bytes, environment).await;
+  let result = setup_from_zip(
+    dest_dir_path,
+    plugin_zip_bytes.name,
+    plugin_zip_bytes.version,
+    &plugin_zip_bytes.zip_bytes,
+    environment,
+  )
+  .await;
 
   match result {
     Ok(result) => Ok(result),
     Err(err) => {
       log_debug!(environment, "Failed setting up process plugin. {:#}", err);
       // failed, so delete the dir if it exists
-      environment.try_remove_dir_all(&plugin_cache_dir_path);
+      environment.try_remove_dir_all(dest_dir_path);
       Err(err)
     }
   }
@@ -94,6 +86,7 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
 async fn setup_from_zip<TEnvironment: Environment>(
   plugin_cache_dir_path: &Path,
   plugin_name: String,
+  plugin_version: String,
   zip_bytes: &[u8],
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
@@ -107,7 +100,8 @@ async fn setup_from_zip<TEnvironment: Environment>(
     environment.try_remove_dir_all(&temp_dir);
     return Err(err);
   }
-  let temp_executable = get_plugin_executable_file_path(&temp_dir, &plugin_name);
+  let executable_sub_path = get_plugin_executable_file_name(&plugin_name);
+  let temp_executable = temp_dir.join(&executable_sub_path);
   if !environment.path_exists(&temp_executable) {
     environment.try_remove_dir_all(&temp_dir);
     bail!("Plugin zip file did not contain required executable at: {}", temp_executable.display(),);
@@ -124,8 +118,8 @@ async fn setup_from_zip<TEnvironment: Environment>(
     return Err(err.into());
   }
 
-  let plugin_executable_file_path = get_plugin_executable_file_path(plugin_cache_dir_path, &plugin_name);
-  start_communicator_and_collect_info(plugin_executable_file_path, plugin_name, environment).await
+  let plugin_executable_file_path = plugin_cache_dir_path.join(&executable_sub_path);
+  start_communicator_and_collect_info(plugin_executable_file_path, executable_sub_path, plugin_version, plugin_name, environment).await
 }
 
 /// Extracts a per-platform npm tarball into the plugin cache directory. The
@@ -137,6 +131,7 @@ async fn setup_from_zip<TEnvironment: Environment>(
 async fn setup_from_tarball<TEnvironment: Environment>(
   plugin_cache_dir_path: &Path,
   plugin_name: String,
+  plugin_version: String,
   tarball_bytes: Vec<u8>,
   executable_sub_path: &str,
   environment: &TEnvironment,
@@ -154,15 +149,17 @@ async fn setup_from_tarball<TEnvironment: Environment>(
       executable_sub_path,
     );
   }
-  start_communicator_and_collect_info(executable_path, plugin_name, environment).await
+  start_communicator_and_collect_info(executable_path, executable_sub_path.to_string(), plugin_version, plugin_name, environment).await
 }
 
 async fn start_communicator_and_collect_info<TEnvironment: Environment>(
   plugin_executable_file_path: PathBuf,
+  executable_sub_path: String,
+  plugin_version: String,
   plugin_name: String,
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
-  let executable_path = super::get_test_safe_executable_path(plugin_executable_file_path.clone(), environment);
+  let executable_path = super::get_test_safe_executable_path(&plugin_version, plugin_executable_file_path.clone(), environment);
   let communicator = ProcessPluginCommunicator::new_with_init(&executable_path, {
     let environment = environment.clone();
     move |error_message| {
@@ -179,13 +176,8 @@ async fn start_communicator_and_collect_info<TEnvironment: Environment>(
   Ok(SetupPluginResult {
     plugin_info,
     file_path: plugin_executable_file_path,
+    executable_sub_path: Some(executable_sub_path),
   })
-}
-
-pub fn cleanup_process_plugin(plugin_info: &PluginInfo, environment: &impl Environment) -> Result<()> {
-  let plugin_cache_dir_path = get_plugin_dir_path(&plugin_info.name, &plugin_info.version, environment);
-  environment.remove_dir_all(plugin_cache_dir_path)?;
-  Ok(())
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -210,6 +202,14 @@ pub struct ProcessPluginFile {
   pub linux_loongarch64: Option<ProcessPluginPath>,
   #[serde(rename = "linux-loongarch64-musl")]
   pub linux_loongarch64_musl: Option<ProcessPluginPath>,
+  #[serde(rename = "linux-powerpc64")]
+  pub linux_powerpc64: Option<ProcessPluginPath>,
+  #[serde(rename = "linux-powerpc64-musl")]
+  pub linux_powerpc64_musl: Option<ProcessPluginPath>,
+  #[serde(rename = "android-x86_64")]
+  pub android_x86_64: Option<ProcessPluginPath>,
+  #[serde(rename = "android-aarch64")]
+  pub android_aarch64: Option<ProcessPluginPath>,
   #[serde(rename = "darwin-x86_64")]
   pub darwin_x86_64: Option<ProcessPluginPath>,
   #[serde(rename = "darwin-aarch64")]
@@ -303,6 +303,7 @@ pub fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl En
       "aarch64" => plugin_file.linux_aarch64.as_ref().or(plugin_file.linux_x86_64.as_ref()),
       "riscv64" => plugin_file.linux_riscv64.as_ref(),
       "loongarch64" => plugin_file.linux_loongarch64.as_ref(),
+      "powerpc64" => plugin_file.linux_powerpc64.as_ref(),
       _ => None,
     },
     "linux-musl" => match arch.as_str() {
@@ -310,6 +311,13 @@ pub fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl En
       "aarch64" => plugin_file.linux_aarch64_musl.as_ref().or(plugin_file.linux_x86_64_musl.as_ref()),
       "riscv64" => plugin_file.linux_riscv64_musl.as_ref(),
       "loongarch64" => plugin_file.linux_loongarch64_musl.as_ref(),
+      "powerpc64" => plugin_file.linux_powerpc64_musl.as_ref(),
+      _ => None,
+    },
+    // android (Termux) uses bionic libc, so it's neither linux nor linux-musl
+    "android" => match arch.as_str() {
+      "x86_64" => plugin_file.android_x86_64.as_ref(),
+      "aarch64" => plugin_file.android_aarch64.as_ref().or(plugin_file.android_x86_64.as_ref()),
       _ => None,
     },
     "macos" => match arch.as_str() {

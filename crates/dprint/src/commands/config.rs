@@ -613,6 +613,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     allow_node_modules: false,
     no_gitignore: false,
     only_staged: false,
+    only_dirty: false,
   };
   let config_discovery = args.config_discovery(environment);
   let scopes = resolve_plugins_scope_and_paths(

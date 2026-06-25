@@ -8,6 +8,7 @@ import sass from "lume/plugins/sass.ts";
 import anchor from "markdown-it-anchor";
 
 await buildSass();
+await copyConfigSchema();
 
 const site = lume({
   src: "./src",
@@ -43,6 +44,17 @@ site
   .copy("assets", ".");
 
 export default site;
+
+async function copyConfigSchema() {
+  // the dprint CLI crate is the source of truth for the config schema (it
+  // embeds the file at compile time for LSP completions). Pull it in here so
+  // it's served at https://dprint.dev/schemas/v0.json. This generated file is
+  // gitignored.
+  const source = new URL("../crates/dprint/src/commands/lsp/config_schema.json", import.meta.url);
+  const destDir = new URL("./src/assets/schemas/", import.meta.url);
+  await Deno.mkdir(destDir, { recursive: true });
+  await Deno.copyFile(source, new URL("v0.json", destDir));
+}
 
 async function buildSass() {
   // sass doesn't support remote urls and I'm too lazy to switch away
