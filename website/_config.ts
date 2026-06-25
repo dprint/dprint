@@ -1,4 +1,3 @@
-import { tgz } from "compress";
 import lume from "lume/mod.ts";
 import codeHighlight from "lume/plugins/code_highlight.ts";
 import date from "lume/plugins/date.ts";
@@ -7,7 +6,6 @@ import nunjucks from "lume/plugins/nunjucks.ts";
 import sass from "lume/plugins/sass.ts";
 import anchor from "markdown-it-anchor";
 
-await buildSass();
 await copyConfigSchema();
 
 const site = lume({
@@ -54,32 +52,4 @@ async function copyConfigSchema() {
   const destDir = new URL("./src/assets/schemas/", import.meta.url);
   await Deno.mkdir(destDir, { recursive: true });
   await Deno.copyFile(source, new URL("v0.json", destDir));
-}
-
-async function buildSass() {
-  // sass doesn't support remote urls and I'm too lazy to switch away
-  // to anything else at the moment, so we download the bulma-scss
-  // package and extract it to a folder before building
-
-  if (await directoryExists("./src/_includes/css/bulma")) {
-    return;
-  }
-
-  const response = await fetch("https://registry.npmjs.org/bulma-scss/-/bulma-scss-0.9.3.tgz");
-  if (!response.ok) {
-    throw new Error(response.statusText);
-  }
-  const data = await response.arrayBuffer();
-  await Deno.writeFile("./data.tgz", new Uint8Array(data));
-  await tgz.uncompress("./data.tgz", "./src/_includes/css/bulma");
-  await Deno.remove("./data.tgz");
-
-  async function directoryExists(path: string) {
-    try {
-      await Deno.stat(path);
-      return true;
-    } catch {
-      return false;
-    }
-  }
 }

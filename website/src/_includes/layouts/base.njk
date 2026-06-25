@@ -5,7 +5,7 @@
     <meta charset="utf-8" />
     <title>{% if title %}{{ title }} - dprint - Code Formatter{% else %}dprint - Code Formatter{% endif %}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#1e1e1e" />
     <meta name="description" content="{{ description }}" />
     <meta name="author" content="Dprint Code Formatting" />
     <meta name="twitter:card" content="summary" />
@@ -13,55 +13,38 @@
     <meta name="twitter:title" content="{{ title }}" />
     <meta name="twitter:description" content="{{ description }}" />
     {% if robots == false %}<meta name="robots" content="noindex">{% endif %}
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <nav class="navbar" role="navigation" aria-label="main navigation">
-      <div class="navbar-brand">
-        <h1 class="title"><a href="/">dprint</a></h1>
-
-        <a role="button" id="navbarBurger" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarLinks">
-          <span aria-hidden="true"></span>
-          <span aria-hidden="true"></span>
-          <span aria-hidden="true"></span>
-        </a>
-      </div>
-
-      <div class="navbar-menu" id="navbarLinks">
-        {% if isDocumentation %}
-          <div class="navbar-start doc-menu-mobile">
-            {% include "partials/doc-menu.njk" %}
-          </div>
-        {% endif %}
-        <div class="navbar-end">
-          <a class="navbar-item" href="/overview">Overview</a>
-          <a class="navbar-item" href="/playground">Playground</a>
-          <a class="navbar-item" href="/sponsor">Sponsor</a>
-          <a class="navbar-item" href="https://github.com/dprint/dprint" rel="noopener noreferrer">View on GitHub</a>
+    <nav class="site-nav">
+      <div class="nav-inner">
+        <a class="brand" href="/">dprint</a>
+        <div class="nav-links">
+          <a href="/overview"{% if isDocumentation %} class="active"{% endif %}>Overview</a>
+          <a href="/playground">Playground</a>
+          <a href="/sponsor"{% if url == "/sponsor/" %} class="active"{% endif %}>Sponsor</a>
+          <a class="gh-button" href="https://github.com/dprint/dprint" rel="noopener noreferrer">GitHub <span>↗</span></a>
         </div>
       </div>
     </nav>
-    {{ content | safe }}
-    <footer class="footer">
-      <div>
-        <div class="level">
-          <div class="level-left">
-            <p class="level-item">
-              <a href="/">Home</a>
-            </p>
-            <p class="level-item">
-              <a href="/contact">Contact Us</a>
-            </p>
-          </div>
-          <div class="level-right">
-            <p class="level-item">
-              <a href="https://twitter.com/dprintfmt">Twitter</a>
-            </p>
-            <p class="level-item">
-              <a href="https://github.com/dprint">GitHub</a>
-            </p>
-          </div>
+
+    <main class="site-main">
+      {{ content | safe }}
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand">dprint</div>
+        <div class="footer-links">
+          <a href="/">Home</a>
+          <a href="/contact">Contact</a>
+          <a href="https://twitter.com/dprintfmt">Twitter</a>
+          <a href="https://github.com/dprint">GitHub</a>
         </div>
+        <div class="footer-tag">A code formatting platform · Rust + Wasm</div>
       </div>
     </footer>
   </body>

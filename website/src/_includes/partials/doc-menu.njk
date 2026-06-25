@@ -1,33 +1,46 @@
-<ul class="menu-list">
-  <li><a href="/overview">Overview</a></li>
-  <li><a href="/install">Install</a></li>
-  <li><a href="/setup">Setup</a></li>
-  <li><a href="/config">Configuration</a></li>
-  <li><a href="/global-config">Global Configuration</a></li>
-  <li><a href="/cli">CLI</a></li>
-  <li><a href="/ci">Continuous Integration</a></li>
+{% set guide = [
+  ["Overview", "/overview"],
+  ["Install", "/install"],
+  ["Setup", "/setup"],
+  ["Configuration", "/config"],
+  ["Global Configuration", "/global-config"],
+  ["CLI", "/cli"],
+  ["Continuous Integration", "/ci"]
+] %}
+{% set plugins = [
+  ["General", "/plugins"],
+  ["TypeScript / JavaScript", "/plugins/typescript"],
+  ["JSON", "/plugins/json"],
+  ["Markdown", "/plugins/markdown"],
+  ["TOML", "/plugins/toml"],
+  ["Pretty YAML", "/plugins/pretty_yaml"],
+  ["Dockerfile", "/plugins/dockerfile"],
+  ["Rustfmt", "/plugins/rustfmt"],
+  ["Roslyn (C#/VB)", "/plugins/roslyn"],
+  ["Malva (CSS/SCSS/Sass/Less)", "/plugins/malva"],
+  ["Markup_fmt (HTML/Vue/Svelte/Astro)", "/plugins/markup_fmt"],
+  ["Prettier", "/plugins/prettier"],
+  ["Biome (JS/TS/JSON)", "/plugins/biome"],
+  ["Oxc (JS/TS)", "/plugins/oxc"],
+  ["Pretty GraphQL", "/plugins/pretty_graphql"],
+  ["Mago (PHP)", "/plugins/mago"],
+  ["Ruff (Python)", "/plugins/ruff"],
+  ["Jupyter", "/plugins/jupyter"],
+  ["Gofumpt (Go)", "/plugins/gofumpt"],
+  ["Exec (Many CLIs)", "/plugins/exec"],
+  ["Creating a Plugin", "/plugin-dev"]
+] %}
+
+<div class="doc-menu-label">Guide</div>
+<ul class="doc-menu">
+  {% for item in guide %}
+    <li><a href="{{ item[1] }}"{% if url == item[1] + "/" or url == item[1] + "/config/" %} class="active"{% endif %}>{{ item[0] }}</a></li>
+  {% endfor %}
 </ul>
-<p class="menu-label">Plugins</p>
-<ul class="menu-list">
-  <li><a href="/plugins">General</a></li>
-  <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
-  <li><a href="/plugins/json">JSON</a></li>
-  <li><a href="/plugins/markdown">Markdown</a></li>
-  <li><a href="/plugins/toml">TOML</a></li>
-  <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
-  <li><a href="/plugins/dockerfile">Dockerfile</a></li>
-  <li><a href="/plugins/rustfmt">Rustfmt</a></li>
-  <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
-  <li><a href="/plugins/malva">Malva (CSS/SCSS/Sass/Less)</a></li>
-  <li><a href="/plugins/markup_fmt">Markup_fmt (HTML/Vue/Svelte/Astro)</a></li>
-  <li><a href="/plugins/prettier">Prettier</a></li>
-  <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
-  <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
-  <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
-  <li><a href="/plugins/mago">Mago (PHP)</a></li>
-  <li><a href="/plugins/ruff">Ruff (Python)</a></li>
-  <li><a href="/plugins/jupyter">Jupyter</a></li>
-  <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
-  <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
-  <li><a href="/plugin-dev">Creating a Plugin</a></li>
+
+<div class="doc-menu-label">Plugins</div>
+<ul class="doc-menu">
+  {% for item in plugins %}
+    <li><a href="{{ item[1] }}"{% if url == item[1] + "/" or url == item[1] + "/config/" %} class="active"{% endif %}>{{ item[0] }}</a></li>
+  {% endfor %}
 </ul>

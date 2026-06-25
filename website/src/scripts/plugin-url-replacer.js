@@ -24,15 +24,30 @@ export function replacePluginUrls() {
   const elements = getPluginUrlElements();
   if (elements.length > 0) {
     getPluginInfo().then((pluginUrls) => {
-      for (const element of getPluginUrlElements()) {
+      for (const element of elements) {
         const pluginName = pluginPlaceholders.get(element.textContent);
         const url = pluginUrls.get(pluginName);
         if (url != null) {
           element.textContent = "\"" + url + "\"";
+        } else if (pluginName != null) {
+          // some plugins (ex. jakebailey/gofumpt) aren't listed in info.json, so
+          // fall back to the plugin's own latest.json to resolve the newest url
+          getLatestPluginUrl(pluginName).then((fallbackUrl) => {
+            if (fallbackUrl != null) {
+              element.textContent = "\"" + fallbackUrl + "\"";
+            }
+          });
         }
       }
     });
   }
+}
+
+function getLatestPluginUrl(pluginName) {
+  return fetch("https://plugins.dprint.dev/" + pluginName + "/latest.json")
+    .then((response) => (response.ok ? response.json() : null))
+    .then((data) => (data == null ? null : data.url))
+    .catch(() => null);
 }
 
 function getPluginUrlElements() {
