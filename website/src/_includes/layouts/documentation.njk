@@ -11,7 +11,9 @@ isDocumentation: true
     </details>
   </aside>
   <main class="doc-main doc-content">
-    {% if eyebrow %}<div class="eyebrow">// {{ eyebrow }}</div>{% endif %}
+    {% set eyebrowText = eyebrow %}
+    {% if not eyebrowText %}{% set eyebrowText = "plugins" if "/plugin" in url else "guide" %}{% endif %}
+    <div class="eyebrow">// {{ eyebrowText }}</div>
     {{ content | safe }}
   </main>
 </div>

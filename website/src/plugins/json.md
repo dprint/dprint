@@ -4,13 +4,6 @@ description: Documentation on the JSON code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/json">JSON</a></li>
-  </ul>
-</nav>
-
 # JSON/JSONC Code Formatter
 
 Supports:

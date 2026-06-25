@@ -4,13 +4,6 @@ description: Documentation on the TOML code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/toml">TOML</a></li>
-  </ul>
-</nav>
-
 # TOML Code Formatter
 
 Formats [TOML](https://toml.io) files.

@@ -4,13 +4,6 @@ description: Documentation on the Malva code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/malva">Malva</a></li>
-  </ul>
-</nav>
-
 # Malva Plugin
 
 Adapter plugin that formats CSS, SCSS, Sass (indented syntax), and Less files via [Malva](https://github.com/g-plane/malva).

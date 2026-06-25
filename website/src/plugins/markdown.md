@@ -4,13 +4,6 @@ description: Documentation on the Markdown code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/markdown">Markdown</a></li>
-  </ul>
-</nav>
-
 # Markdown Code Formatter
 
 ## Install and Setup

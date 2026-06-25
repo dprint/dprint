@@ -4,13 +4,6 @@ description: Documentation on the TypeScript / JavaScript code formatting plugin
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/typescript">TypeScript</a></li>
-  </ul>
-</nav>
-
 # TypeScript / JavaScript Code Formatter
 
 Supports:

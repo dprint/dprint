@@ -34,12 +34,8 @@ export function addInstallTabsEvent() {
   if (copyBtn != null) {
     let copyTimeout;
     copyBtn.addEventListener("click", function() {
-      try {
-        if (navigator.clipboard != null) {
-          navigator.clipboard.writeText(cmdText.textContent);
-        }
-      } catch (err) {
-        // ignore
+      if (navigator.clipboard != null) {
+        navigator.clipboard.writeText(cmdText.textContent).catch(function() {});
       }
       copyBtn.textContent = "copied ✓";
       clearTimeout(copyTimeout);

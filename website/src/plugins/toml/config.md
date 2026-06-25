@@ -4,14 +4,6 @@ description: Documentation on the configuration file for the TOML code formattin
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/toml">TOML</a></li>
-    <li><a href="/plugins/toml/config">Configuration</a></li>
-  </ul>
-</nav>
-
 # TOML - Configuration
 
 <div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-toml/latest/schema.json">

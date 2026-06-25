@@ -74,15 +74,15 @@ layout: layouts/base.njk
       </div>
       <div class="installer">
         <div class="os-tabs">
-          <button class="os-tab active" data-os="shell">Shell</button>
-          <button class="os-tab" data-os="pwsh">PowerShell</button>
-          <button class="os-tab" data-os="npm">npm</button>
-          <button class="os-tab" data-os="brew">Homebrew</button>
-          <button class="os-tab" data-os="cargo">Cargo</button>
+          <button type="button" class="os-tab active" data-os="shell">Shell</button>
+          <button type="button" class="os-tab" data-os="pwsh">PowerShell</button>
+          <button type="button" class="os-tab" data-os="npm">npm</button>
+          <button type="button" class="os-tab" data-os="brew">Homebrew</button>
+          <button type="button" class="os-tab" data-os="cargo">Cargo</button>
         </div>
         <div class="cmd-line">
           <code><span class="prompt">$</span> <span id="cmd-text">curl -fsSL https://dprint.dev/install.sh | sh</span></code>
-          <button class="copy-btn" id="copy-btn">copy</button>
+          <button type="button" class="copy-btn" id="copy-btn">copy</button>
         </div>
         <div class="install-note">Then run <span>dprint init</span> to scaffold a <span>dprint.json</span> in your project.</div>
       </div>
@@ -120,32 +120,54 @@ layout: layouts/base.njk
 
   <div class="plugins-label">Official plugins</div>
   <div class="plugin-grid">
-    <a class="plugin-card" href="/plugins/typescript"><span class="swatch"></span><span class="meta"><span class="name">TypeScript / JavaScript</span><span class="ext">.ts · .tsx · .js</span></span></a>
-    <a class="plugin-card" href="/plugins/json"><span class="swatch"></span><span class="meta"><span class="name">JSON</span><span class="ext">.json</span></span></a>
-    <a class="plugin-card" href="/plugins/markdown"><span class="swatch"></span><span class="meta"><span class="name">Markdown</span><span class="ext">.md</span></span></a>
-    <a class="plugin-card" href="/plugins/toml"><span class="swatch"></span><span class="meta"><span class="name">TOML</span><span class="ext">.toml</span></span></a>
-    <a class="plugin-card" href="/plugins/malva"><span class="swatch"></span><span class="meta"><span class="name">Malva</span><span class="ext">CSS · SCSS · Sass · Less</span></span></a>
-    <a class="plugin-card" href="/plugins/dockerfile"><span class="swatch"></span><span class="meta"><span class="name">Dockerfile</span><span class="ext">Dockerfile</span></span></a>
-    <a class="plugin-card" href="/plugins/roslyn"><span class="swatch"></span><span class="meta"><span class="name">Roslyn</span><span class="ext">C# · VB</span></span></a>
-    <a class="plugin-card" href="/plugins/ruff"><span class="swatch"></span><span class="meta"><span class="name">Ruff</span><span class="ext">Python</span></span></a>
-    <a class="plugin-card" href="/plugins/jupyter"><span class="swatch"></span><span class="meta"><span class="name">Jupyter</span><span class="ext">.ipynb</span></span></a>
+    <a class="plugin-card" href="/plugins/typescript"><span class="swatch"></span><span class="meta"><span class="name">TypeScript / JavaScript</span><span
+          class="ext"
+        >.ts · .tsx · .js</span></span></a>
+    <a class="plugin-card" href="/plugins/json"><span class="swatch"></span><span class="meta"><span class="name">JSON</span><span class="ext"
+        >.json</span></span></a>
+    <a class="plugin-card" href="/plugins/markdown"><span class="swatch"></span><span class="meta"><span class="name">Markdown</span><span class="ext"
+        >.md</span></span></a>
+    <a class="plugin-card" href="/plugins/toml"><span class="swatch"></span><span class="meta"><span class="name">TOML</span><span class="ext"
+        >.toml</span></span></a>
+    <a class="plugin-card" href="/plugins/malva"><span class="swatch"></span><span class="meta"><span class="name">Malva</span><span class="ext"
+        >CSS · SCSS · Sass · Less</span></span></a>
+    <a class="plugin-card" href="/plugins/dockerfile"><span class="swatch"></span><span class="meta"><span class="name">Dockerfile</span><span class="ext"
+        >Dockerfile</span></span></a>
+    <a class="plugin-card" href="/plugins/roslyn"><span class="swatch"></span><span class="meta"><span class="name">Roslyn</span><span class="ext"
+        >C# · VB</span></span></a>
+    <a class="plugin-card" href="/plugins/ruff"><span class="swatch"></span><span class="meta"><span class="name">Ruff</span><span class="ext"
+        >Python</span></span></a>
+    <a class="plugin-card" href="/plugins/jupyter"><span class="swatch"></span><span class="meta"><span class="name">Jupyter</span><span class="ext"
+        >.ipynb</span></span></a>
   </div>
 
   <div class="plugins-label">Wrapper plugins</div>
   <div class="plugin-grid">
-    <a class="plugin-card wrapper" href="/plugins/prettier"><span class="swatch"></span><span class="meta"><span class="name">Prettier</span><span class="ext">multi-language</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/biome"><span class="swatch"></span><span class="meta"><span class="name">Biome</span><span class="ext">JS · TS · JSON</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/oxc"><span class="swatch"></span><span class="meta"><span class="name">Oxc</span><span class="ext">JS · TS</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/gofumpt"><span class="swatch"></span><span class="meta"><span class="name">Gofumpt</span><span class="ext">Go</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/markup_fmt"><span class="swatch"></span><span class="meta"><span class="name">markup_fmt</span><span class="ext">HTML · Vue · Svelte · Astro</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/pretty_graphql"><span class="swatch"></span><span class="meta"><span class="name">Pretty GraphQL</span><span class="ext">.graphql</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/pretty_yaml"><span class="swatch"></span><span class="meta"><span class="name">Pretty YAML</span><span class="ext">.yaml</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/mago"><span class="swatch"></span><span class="meta"><span class="name">Mago</span><span class="ext">PHP</span></span></a>
+    <a class="plugin-card wrapper" href="/plugins/prettier"><span class="swatch"></span><span class="meta"><span class="name">Prettier</span><span class="ext"
+        >multi-language</span></span></a>
+    <a class="plugin-card wrapper" href="/plugins/biome"><span class="swatch"></span><span class="meta"><span class="name">Biome</span><span class="ext"
+        >JS · TS · JSON</span></span></a>
+    <a class="plugin-card wrapper" href="/plugins/oxc"><span class="swatch"></span><span class="meta"><span class="name">Oxc</span><span class="ext"
+        >JS · TS</span></span></a>
+    <a class="plugin-card wrapper" href="/plugins/gofumpt"><span class="swatch"></span><span class="meta"><span class="name">Gofumpt</span><span class="ext"
+        >Go</span></span></a>
+    <a class="plugin-card wrapper" href="/plugins/markup_fmt"><span class="swatch"></span><span class="meta"><span class="name">markup_fmt</span><span
+          class="ext"
+        >HTML · Vue · Svelte · Astro</span></span></a>
+    <a class="plugin-card wrapper" href="/plugins/pretty_graphql"><span class="swatch"></span><span class="meta"><span class="name">Pretty GraphQL</span><span
+          class="ext"
+        >.graphql</span></span></a>
+    <a class="plugin-card wrapper" href="/plugins/pretty_yaml"><span class="swatch"></span><span class="meta"><span class="name">Pretty YAML</span><span
+          class="ext"
+        >.yaml</span></span></a>
+    <a class="plugin-card wrapper" href="/plugins/mago"><span class="swatch"></span><span class="meta"><span class="name">Mago</span><span class="ext"
+        >PHP</span></span></a>
   </div>
 
   <div class="plugins-label">Everything else</div>
   <div class="plugin-grid">
-    <a class="plugin-card" href="/plugins/exec"><span class="swatch"></span><span class="meta"><span class="name">Exec</span><span class="ext">Wrap any other CLI formatter — rustfmt, yapf, java …</span></span></a>
+    <a class="plugin-card" href="/plugins/exec"><span class="swatch"></span><span class="meta"><span class="name">Exec</span><span class="ext"
+        >Wrap any other CLI formatter — rustfmt, yapf, java …</span></span></a>
   </div>
 </section>
 

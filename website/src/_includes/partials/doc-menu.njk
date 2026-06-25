@@ -1,46 +1,50 @@
-{% set guide = [
-  ["Overview", "/overview"],
-  ["Install", "/install"],
-  ["Setup", "/setup"],
-  ["Configuration", "/config"],
-  ["Global Configuration", "/global-config"],
-  ["CLI", "/cli"],
-  ["Continuous Integration", "/ci"]
-] %}
-{% set plugins = [
-  ["General", "/plugins"],
-  ["TypeScript / JavaScript", "/plugins/typescript"],
-  ["JSON", "/plugins/json"],
-  ["Markdown", "/plugins/markdown"],
-  ["TOML", "/plugins/toml"],
-  ["Pretty YAML", "/plugins/pretty_yaml"],
-  ["Dockerfile", "/plugins/dockerfile"],
-  ["Rustfmt", "/plugins/rustfmt"],
-  ["Roslyn (C#/VB)", "/plugins/roslyn"],
-  ["Malva (CSS/SCSS/Sass/Less)", "/plugins/malva"],
-  ["Markup_fmt (HTML/Vue/Svelte/Astro)", "/plugins/markup_fmt"],
-  ["Prettier", "/plugins/prettier"],
-  ["Biome (JS/TS/JSON)", "/plugins/biome"],
-  ["Oxc (JS/TS)", "/plugins/oxc"],
-  ["Pretty GraphQL", "/plugins/pretty_graphql"],
-  ["Mago (PHP)", "/plugins/mago"],
-  ["Ruff (Python)", "/plugins/ruff"],
-  ["Jupyter", "/plugins/jupyter"],
-  ["Gofumpt (Go)", "/plugins/gofumpt"],
-  ["Exec (Many CLIs)", "/plugins/exec"],
-  ["Creating a Plugin", "/plugin-dev"]
-] %}
+{%
+  set guide = [
+    ["Overview", "/overview"],
+    ["Install", "/install"],
+    ["Setup", "/setup"],
+    ["Configuration", "/config"],
+    ["Global Configuration", "/global-config"],
+    ["CLI", "/cli"],
+    ["Continuous Integration", "/ci"]
+  ]
+%}
+{%
+  set plugins = [
+    ["General", "/plugins"],
+    ["TypeScript / JavaScript", "/plugins/typescript"],
+    ["JSON", "/plugins/json"],
+    ["Markdown", "/plugins/markdown"],
+    ["TOML", "/plugins/toml"],
+    ["Pretty YAML", "/plugins/pretty_yaml"],
+    ["Dockerfile", "/plugins/dockerfile"],
+    ["Rustfmt", "/plugins/rustfmt"],
+    ["Roslyn (C#/VB)", "/plugins/roslyn"],
+    ["Malva (CSS/SCSS/Sass/Less)", "/plugins/malva"],
+    ["Markup_fmt (HTML/Vue/Svelte/Astro)", "/plugins/markup_fmt"],
+    ["Prettier", "/plugins/prettier"],
+    ["Biome (JS/TS/JSON)", "/plugins/biome"],
+    ["Oxc (JS/TS)", "/plugins/oxc"],
+    ["Pretty GraphQL", "/plugins/pretty_graphql"],
+    ["Mago (PHP)", "/plugins/mago"],
+    ["Ruff (Python)", "/plugins/ruff"],
+    ["Jupyter", "/plugins/jupyter"],
+    ["Gofumpt (Go)", "/plugins/gofumpt"],
+    ["Exec (Many CLIs)", "/plugins/exec"],
+    ["Creating a Plugin", "/plugin-dev"]
+  ]
+%}
 
 <div class="doc-menu-label">Guide</div>
 <ul class="doc-menu">
   {% for item in guide %}
-    <li><a href="{{ item[1] }}"{% if url == item[1] + "/" or url == item[1] + "/config/" %} class="active"{% endif %}>{{ item[0] }}</a></li>
+    <li><a href="{{ item[1] }}" {% if url == item[1] + "/" or url == item[1] + "/config/" %}class="active"{% endif %}>{{ item[0] }}</a></li>
   {% endfor %}
 </ul>
 
 <div class="doc-menu-label">Plugins</div>
 <ul class="doc-menu">
   {% for item in plugins %}
-    <li><a href="{{ item[1] }}"{% if url == item[1] + "/" or url == item[1] + "/config/" %} class="active"{% endif %}>{{ item[0] }}</a></li>
+    <li><a href="{{ item[1] }}" {% if url == item[1] + "/" or url == item[1] + "/config/" %}class="active"{% endif %}>{{ item[0] }}</a></li>
   {% endfor %}
 </ul>

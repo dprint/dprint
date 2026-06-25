@@ -2,7 +2,6 @@
 title: Overview
 description: Getting started with dprint.
 layout: layouts/documentation.njk
-eyebrow: guide
 ---
 
 # Overview
