@@ -25,6 +25,7 @@ use super::cache_meta::to_unix_millis;
 use super::cache_meta::wasm_artifact_path;
 use super::cache_meta::write_meta;
 use super::implementations::SetupPluginDest;
+use super::implementations::SetupPluginOptions;
 use super::implementations::get_process_plugin_os_path;
 use super::implementations::parse_process_plugin_file;
 use super::implementations::setup_plugin;
@@ -51,6 +52,29 @@ pub struct PluginCacheItem {
 pub struct NpmAddResolution {
   pub path: String,
   pub checksum: String,
+}
+
+/// Inputs to [`PluginCache::setup_and_store`]. `hash`/`cache_key` identify the
+/// cache entry; the rest is the resolved plugin to set up.
+struct SetupAndStoreOptions<'a> {
+  hash: &'a str,
+  cache_key: &'a str,
+  resolved_source: &'a PathSource,
+  file_bytes: Vec<u8>,
+  plugin_kind: PluginKind,
+  pre_resolved_tarball: Option<npm_resolution::PreResolvedProcessPluginTarball>,
+  local_stamps: Option<Vec<LocalStamp>>,
+}
+
+/// Inputs to [`PluginCache::verify_and_store_plugin`]: the resolved bytes plus
+/// the cache identity, ready to verify and store.
+struct VerifyAndStoreOptions<'a> {
+  source_reference: &'a PluginSourceReference,
+  cache_key: &'a str,
+  hash: &'a str,
+  file_bytes: Vec<u8>,
+  resolved_source: PathSource,
+  primary_stamp: Option<LocalStamp>,
 }
 
 /// The default plugin file name within an npm package for each kind.
@@ -205,15 +229,15 @@ where
     // npm-versioned content is pinned by name@version, so there are no local
     // stamps — a present entry is always a hit.
     self
-      .setup_and_store(
-        &hash,
-        &cache_key,
-        &resolved.local_path,
-        resolved.plugin_bytes,
-        resolved.plugin_kind,
-        resolved.pre_resolved_tarball,
-        None,
-      )
+      .setup_and_store(SetupAndStoreOptions {
+        hash: &hash,
+        cache_key: &cache_key,
+        resolved_source: &resolved.local_path,
+        file_bytes: resolved.plugin_bytes,
+        plugin_kind: resolved.plugin_kind,
+        pre_resolved_tarball: resolved.pre_resolved_tarball,
+        local_stamps: None,
+      })
       .await
       .with_context(|| format!("Setting up {}", specifier.display()))
   }
@@ -278,15 +302,15 @@ where
     let path_source = PathSource::new_npm(resolved_specifier, base_dir.cloned());
     if let CacheLookup::Miss { cache_key, hash, .. } = self.lookup_or_lock(&path_source).await? {
       self
-        .setup_and_store(
-          &hash,
-          &cache_key,
-          &resolved.local_path,
-          resolved.plugin_bytes,
-          resolved.plugin_kind,
-          resolved.pre_resolved_tarball,
-          None,
-        )
+        .setup_and_store(SetupAndStoreOptions {
+          hash: &hash,
+          cache_key: &cache_key,
+          resolved_source: &resolved.local_path,
+          file_bytes: resolved.plugin_bytes,
+          plugin_kind: resolved.plugin_kind,
+          pre_resolved_tarball: resolved.pre_resolved_tarball,
+          local_stamps: None,
+        })
         .await
         .with_context(|| format!("Setting up {}", specifier.display()))?;
     }
@@ -315,7 +339,15 @@ where
     if let CacheLookup::Miss { cache_key, hash, .. } = self.lookup_or_lock(&source_reference.path_source).await? {
       let resolved_source = PathSource::new_remote(resolved_url.into_owned());
       self
-        .setup_and_store(&hash, &cache_key, &resolved_source, file_bytes, plugin_kind, None, None)
+        .setup_and_store(SetupAndStoreOptions {
+          hash: &hash,
+          cache_key: &cache_key,
+          resolved_source: &resolved_source,
+          file_bytes,
+          plugin_kind,
+          pre_resolved_tarball: None,
+          local_stamps: None,
+        })
         .await
         .with_context(|| format!("Setting up {}", source_reference.display()))?;
     }
@@ -362,15 +394,15 @@ where
       pre_resolved_tarball.as_ref(),
     );
     self
-      .setup_and_store(
-        &hash,
-        &cache_key,
-        &source_reference.path_source,
+      .setup_and_store(SetupAndStoreOptions {
+        hash: &hash,
+        cache_key: &cache_key,
+        resolved_source: &source_reference.path_source,
         file_bytes,
         plugin_kind,
         pre_resolved_tarball,
         local_stamps,
-      )
+      })
       .await
   }
 
@@ -399,21 +431,28 @@ where
     };
 
     self
-      .verify_and_store_plugin(source_reference, &cache_key, &hash, file_bytes, resolved_source, primary_stamp)
+      .verify_and_store_plugin(VerifyAndStoreOptions {
+        source_reference,
+        cache_key: &cache_key,
+        hash: &hash,
+        file_bytes,
+        resolved_source,
+        primary_stamp,
+      })
       .await
   }
 
   /// Shared tail of plugin setup once the file bytes are in hand: verifies the
   /// checksum, computes local stamps, and stores the cached entry.
-  async fn verify_and_store_plugin(
-    &self,
-    source_reference: &PluginSourceReference,
-    cache_key: &str,
-    hash: &str,
-    file_bytes: Vec<u8>,
-    resolved_source: PathSource,
-    primary_stamp: Option<LocalStamp>,
-  ) -> Result<PluginCacheItem> {
+  async fn verify_and_store_plugin(&self, options: VerifyAndStoreOptions<'_>) -> Result<PluginCacheItem> {
+    let VerifyAndStoreOptions {
+      source_reference,
+      cache_key,
+      hash,
+      file_bytes,
+      resolved_source,
+      primary_stamp,
+    } = options;
     let plugin_kind = source_reference
       .plugin_kind()
       .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for {}", source_reference.display()))?;
@@ -447,7 +486,15 @@ where
     };
 
     self
-      .setup_and_store(hash, cache_key, &resolved_source, file_bytes, plugin_kind, None, local_stamps)
+      .setup_and_store(SetupAndStoreOptions {
+        hash,
+        cache_key,
+        resolved_source: &resolved_source,
+        file_bytes,
+        plugin_kind,
+        pre_resolved_tarball: None,
+        local_stamps,
+      })
       .await
   }
 
@@ -472,23 +519,32 @@ where
   /// Sets up a freshly resolved plugin into the flat cache layout, writes its
   /// sidecar, and returns the cache item. Overwrites any existing entry for the
   /// same hash (e.g. a changed local file), so no explicit forget is needed.
-  #[allow(clippy::too_many_arguments)]
-  async fn setup_and_store(
-    &self,
-    hash: &str,
-    cache_key: &str,
-    resolved_source: &PathSource,
-    file_bytes: Vec<u8>,
-    plugin_kind: PluginKind,
-    pre_resolved_tarball: Option<npm_resolution::PreResolvedProcessPluginTarball>,
-    local_stamps: Option<Vec<LocalStamp>>,
-  ) -> Result<PluginCacheItem> {
+  async fn setup_and_store(&self, options: SetupAndStoreOptions<'_>) -> Result<PluginCacheItem> {
+    let SetupAndStoreOptions {
+      hash,
+      cache_key,
+      resolved_source,
+      file_bytes,
+      plugin_kind,
+      pre_resolved_tarball,
+      local_stamps,
+    } = options;
     self.environment.mk_dir_all(plugins_dir(&self.environment))?;
     let dest = SetupPluginDest {
       wasm_file_path: wasm_artifact_path(hash, &self.environment),
       process_dir_path: process_dir_path(hash, &self.environment),
     };
-    let setup_result = setup_plugin(resolved_source, file_bytes, plugin_kind, pre_resolved_tarball, &dest, &self.environment).await?;
+    let setup_result = setup_plugin(
+      SetupPluginOptions {
+        resolved_source,
+        file_bytes,
+        plugin_kind,
+        pre_resolved_tarball,
+        dest: &dest,
+      },
+      &self.environment,
+    )
+    .await?;
 
     let meta = PluginCacheMeta {
       source: cache_key.to_string(),

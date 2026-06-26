@@ -33,16 +33,25 @@ pub struct SetupPluginDest {
   pub process_dir_path: PathBuf,
 }
 
-pub async fn setup_plugin<TEnvironment: Environment>(
-  resolved_source: &PathSource,
-  file_bytes: Vec<u8>,
-  plugin_kind: PluginKind,
-  pre_resolved_tarball: Option<crate::plugins::npm_resolution::PreResolvedProcessPluginTarball>,
-  dest: &SetupPluginDest,
-  environment: &TEnvironment,
-) -> Result<SetupPluginResult> {
-  // pass the resolved source to setup functions so process plugins can
-  // resolve relative paths in their manifest after a redirect
+/// Inputs to [`setup_plugin`] (everything but the environment).
+pub struct SetupPluginOptions<'a> {
+  /// The plugin's source, post-redirect, so process plugins can resolve
+  /// relative paths in their manifest.
+  pub resolved_source: &'a PathSource,
+  pub file_bytes: Vec<u8>,
+  pub plugin_kind: PluginKind,
+  pub pre_resolved_tarball: Option<crate::plugins::npm_resolution::PreResolvedProcessPluginTarball>,
+  pub dest: &'a SetupPluginDest,
+}
+
+pub async fn setup_plugin<TEnvironment: Environment>(options: SetupPluginOptions<'_>, environment: &TEnvironment) -> Result<SetupPluginResult> {
+  let SetupPluginOptions {
+    resolved_source,
+    file_bytes,
+    plugin_kind,
+    pre_resolved_tarball,
+    dest,
+  } = options;
   match plugin_kind {
     PluginKind::Wasm => wasm::setup_wasm_plugin(resolved_source, file_bytes, &dest.wasm_file_path, environment).await,
     PluginKind::Process => process::setup_process_plugin(resolved_source, &file_bytes, pre_resolved_tarball, &dest.process_dir_path, environment).await,
