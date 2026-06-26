@@ -77,18 +77,30 @@ pub struct FetchNpmLatestInfo<'a> {
 }
 
 /// The plugin kind and tarball checksum for a specific `name@version`,
-/// discovered by downloading and inspecting the package tarball.
+/// discovered by downloading and inspecting the package tarball. The downloaded
+/// `tarball_bytes` are carried back so the caller can set the plugin up without
+/// re-downloading (see `dprint add`).
 pub struct NpmTarballInfo {
   pub plugin_kind: PluginKind,
   pub tarball_sha256: String,
+  pub tarball_bytes: Vec<u8>,
 }
 
 /// Like [`NpmTarballInfo`], but for the latest published version — carries the
-/// resolved version alongside the inspected kind and checksum.
+/// resolved version alongside the inspected kind, checksum, and tarball bytes.
 pub struct NpmLatestTarballInfo {
   pub version: String,
   pub plugin_kind: PluginKind,
   pub tarball_sha256: String,
+  pub tarball_bytes: Vec<u8>,
+}
+
+/// A downloaded package tarball with its checksum, but no plugin-kind
+/// inspection — for explicit-path `dprint add` where the kind is already known.
+pub struct NpmTarballDownload {
+  pub version: String,
+  pub tarball_sha256: String,
+  pub tarball_bytes: Vec<u8>,
 }
 
 /// Fetches the latest version of an npm-distributed plugin (and, when needed,
@@ -136,6 +148,7 @@ pub async fn fetch_npm_latest_tarball_info(name: &str, start_dir: Option<&Path>,
     version,
     plugin_kind: info.plugin_kind,
     tarball_sha256: info.tarball_sha256,
+    tarball_bytes: info.tarball_bytes,
   })
 }
 
@@ -147,6 +160,40 @@ pub async fn fetch_npm_versioned_tarball_info(name: &str, version: &str, start_d
   let registry = resolve_registry_for_package(name, start_dir, environment);
   let (packument, packument_url) = fetch_packument(name, &registry, environment).await?;
   inspect_npm_tarball(name, version, &packument, &packument_url, &registry, environment).await
+}
+
+/// Downloads a package tarball and computes its checksum, **without** inspecting
+/// the contents for a plugin kind. Used by `dprint add` when the user already
+/// gave an explicit plugin path (so the kind is known) but a checksum still
+/// needs computing — kind detection would wrongly require a root `plugin.wasm`
+/// / `plugin.json` there.
+pub async fn fetch_npm_latest_tarball_download(name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Result<NpmTarballDownload> {
+  let registry = resolve_registry_for_package(name, start_dir, environment);
+  let (packument, packument_url) = fetch_packument(name, &registry, environment).await?;
+  let version = latest_version_from_packument(&packument, name)?;
+  let tarball_bytes = download_npm_tarball(name, &version, &packument, &packument_url, &registry, environment).await?;
+  Ok(NpmTarballDownload {
+    version,
+    tarball_sha256: get_sha256_checksum(&tarball_bytes),
+    tarball_bytes,
+  })
+}
+
+/// Like [`fetch_npm_latest_tarball_download`] but for an explicit version.
+pub async fn fetch_npm_versioned_tarball_download(
+  name: &str,
+  version: &str,
+  start_dir: Option<&Path>,
+  environment: &impl Environment,
+) -> Result<NpmTarballDownload> {
+  let registry = resolve_registry_for_package(name, start_dir, environment);
+  let (packument, packument_url) = fetch_packument(name, &registry, environment).await?;
+  let tarball_bytes = download_npm_tarball(name, version, &packument, &packument_url, &registry, environment).await?;
+  Ok(NpmTarballDownload {
+    version: version.to_string(),
+    tarball_sha256: get_sha256_checksum(&tarball_bytes),
+    tarball_bytes,
+  })
 }
 
 /// Inspects whether an npm package installed in `node_modules` (walking up from
@@ -200,6 +247,25 @@ async fn inspect_npm_tarball(
   registry: &NpmRegistryResolution,
   environment: &impl Environment,
 ) -> Result<NpmTarballInfo> {
+  let tarball_bytes = download_npm_tarball(name, version, packument, packument_url, registry, environment).await?;
+  let plugin_kind = detect_plugin_kind_from_tarball(&tarball_bytes).with_context(|| format!("Detecting plugin kind for {}@{}", name, version))?;
+  Ok(NpmTarballInfo {
+    plugin_kind,
+    tarball_sha256: get_sha256_checksum(&tarball_bytes),
+    tarball_bytes,
+  })
+}
+
+/// Downloads `name@version`'s tarball bytes (auth sent only when the tarball
+/// shares the registry's origin), without inspecting the contents.
+async fn download_npm_tarball(
+  name: &str,
+  version: &str,
+  packument: &serde_json::Value,
+  packument_url: &url::Url,
+  registry: &NpmRegistryResolution,
+  environment: &impl Environment,
+) -> Result<Vec<u8>> {
   let tarball_url_str = get_tarball_url_from_packument(packument, version, name)?;
   let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
   let tarball_auth = same_origin_auth(packument_url, &tarball_url, registry.auth_header.as_deref());
@@ -207,11 +273,7 @@ async fn inspect_npm_tarball(
     .download_file_err_404(&tarball_url, tarball_auth)
     .await
     .with_context(|| format!("Failed to download npm tarball for {}@{}", name, version))?;
-  let plugin_kind = detect_plugin_kind_from_tarball(&tarball_file.content).with_context(|| format!("Detecting plugin kind for {}@{}", name, version))?;
-  Ok(NpmTarballInfo {
-    plugin_kind,
-    tarball_sha256: get_sha256_checksum(&tarball_file.content),
-  })
+  Ok(tarball_file.content)
 }
 
 /// Inspects an npm tarball to determine whether it ships a top-level
@@ -278,7 +340,6 @@ pub async fn resolve_npm_from_registry(
     .version
     .as_deref()
     .ok_or_else(|| anyhow::anyhow!("Cannot resolve npm plugin without a version from the registry"))?;
-  let registry_segment = registry_dir_segment(&registry.url);
 
   // fetch the packument to get the tarball URL
   let packument_url_str = get_packument_url(&registry.url, &specifier.name);
@@ -302,7 +363,41 @@ pub async fn resolve_npm_from_registry(
     .download_file_err_404(&tarball_url, tarball_auth)
     .await
     .with_context(|| format!("Failed to download npm tarball for {}@{}", specifier.name, version))?;
-  let tarball_bytes = tarball_file.content;
+
+  setup_npm_registry_tarball(specifier, checksum, tarball_file.content, registry, config_dir, environment).await
+}
+
+/// Like [`resolve_npm_from_registry`] but reuses tarball bytes that were
+/// already downloaded (e.g. by `dprint add` when computing a checksum), so the
+/// tarball isn't fetched a second time. The checksum is still verified against
+/// the provided bytes.
+pub async fn resolve_npm_from_prefetched_tarball(
+  specifier: &NpmSpecifier,
+  checksum: Option<&str>,
+  tarball_bytes: Vec<u8>,
+  registry: &NpmRegistryResolution,
+  config_dir: Option<&Path>,
+  environment: &impl Environment,
+) -> Result<NpmResolvedPlugin> {
+  setup_npm_registry_tarball(specifier, checksum, tarball_bytes, registry, config_dir, environment).await
+}
+
+/// Verifies a registry tarball's checksum, extracts it to the npm cache, reads
+/// the plugin file, and (for process plugins) resolves the per-platform
+/// binary. Shared by the download and prefetched-bytes entry points above.
+async fn setup_npm_registry_tarball(
+  specifier: &NpmSpecifier,
+  checksum: Option<&str>,
+  tarball_bytes: Vec<u8>,
+  registry: &NpmRegistryResolution,
+  config_dir: Option<&Path>,
+  environment: &impl Environment,
+) -> Result<NpmResolvedPlugin> {
+  let version = specifier
+    .version
+    .as_deref()
+    .ok_or_else(|| anyhow::anyhow!("Cannot resolve npm plugin without a version from the registry"))?;
+  let registry_segment = registry_dir_segment(&registry.url);
 
   // verify checksum before doing any extraction work
   let plugin_kind = specifier.plugin_kind();

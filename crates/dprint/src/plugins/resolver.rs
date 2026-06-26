@@ -98,6 +98,15 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     Ok(plugins)
   }
 
+  /// Populates the on-disk plugin cache from bytes already downloaded during
+  /// `dprint add` (to compute a checksum), so the first `dprint fmt` doesn't
+  /// download or compile them again. A failure here is non-fatal to the add —
+  /// the worst case is the plugin gets set up lazily on first use — so callers
+  /// treat it as best-effort.
+  pub async fn setup_from_prefetched_download(&self, plugin_reference: &PluginSourceReference, bytes: Vec<u8>) -> Result<()> {
+    self.plugin_cache.setup_from_prefetched_download(plugin_reference, bytes).await
+  }
+
   pub async fn resolve_plugin(&self, plugin_reference: PluginSourceReference) -> Result<Rc<PluginWrapper>> {
     let cell = {
       let mut mem_cache = self.memory_cache.borrow_mut();

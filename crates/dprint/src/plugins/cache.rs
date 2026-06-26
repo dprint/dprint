@@ -189,6 +189,56 @@ where
       .with_context(|| format!("Setting up {}", specifier.display()))
   }
 
+  /// Like [`get_npm_registry_plugin`] but reuses a package tarball that was
+  /// already downloaded (e.g. by `dprint add`), so the registry tarball isn't
+  /// fetched a second time. Returns early on a cache hit.
+  async fn setup_npm_registry_plugin_from_tarball(
+    &self,
+    source_reference: &PluginSourceReference,
+    npm_source: &crate::utils::NpmPathSource,
+    tarball_bytes: Vec<u8>,
+  ) -> Result<()> {
+    let (cache_key, hash, _setup_guard) = match self.lookup_or_lock(&source_reference.path_source).await? {
+      CacheLookup::Hit(_) => return Ok(()),
+      CacheLookup::Miss { cache_key, hash, guard } => (cache_key, hash, guard),
+    };
+
+    let specifier = &npm_source.specifier;
+    let checksum = source_reference.checksum.as_deref();
+    let base_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
+    let registry = self.resolve_registry(&specifier.name, base_dir);
+    let resolved = npm_resolution::resolve_npm_from_prefetched_tarball(specifier, checksum, tarball_bytes, &registry, base_dir, &self.environment).await?;
+
+    self
+      .setup_and_store(
+        &hash,
+        &cache_key,
+        &resolved.local_path,
+        resolved.plugin_bytes,
+        resolved.plugin_kind,
+        resolved.pre_resolved_tarball,
+        None,
+      )
+      .await
+      .with_context(|| format!("Setting up {}", specifier.display()))?;
+    Ok(())
+  }
+
+  /// Populates the plugin cache from bytes already downloaded during `dprint
+  /// add` (to compute a checksum), so the first `dprint fmt` is a cache hit
+  /// with no second download. Remote/local plugins use the plugin file bytes;
+  /// versioned npm plugins use the package tarball bytes. Other sources (e.g.
+  /// unversioned npm, which resolves from node_modules) are a no-op.
+  pub async fn setup_from_prefetched_download(&self, source_reference: &PluginSourceReference, bytes: Vec<u8>) -> Result<()> {
+    match &source_reference.path_source {
+      PathSource::Remote(_) | PathSource::Local(_) => self.setup_remote_plugin_from_bytes(source_reference, bytes).await,
+      PathSource::Npm(npm_source) if npm_source.specifier.version.is_some() => {
+        self.setup_npm_registry_plugin_from_tarball(source_reference, npm_source, bytes).await
+      }
+      PathSource::Npm(_) => Ok(()),
+    }
+  }
+
   /// Gets a plugin from a local path (node_modules). No checksum required since it's a local file.
   async fn get_local_plugin(
     &self,
@@ -264,6 +314,40 @@ where
       PathSource::Npm(_) => bail!("npm plugins should be resolved before reaching get_plugin"),
     };
 
+    self
+      .verify_and_store_plugin(source_reference, &cache_key, &hash, file_bytes, resolved_source, primary_stamp)
+      .await
+  }
+
+  /// Sets up and caches a remote/local plugin from bytes already downloaded
+  /// elsewhere — e.g. `dprint add` downloads a Wasm/JSON plugin to compute its
+  /// checksum, then hands the bytes here so the first `dprint fmt` is a cache
+  /// hit instead of downloading and compiling again. Returns early on a hit.
+  async fn setup_remote_plugin_from_bytes(&self, source_reference: &PluginSourceReference, file_bytes: Vec<u8>) -> Result<()> {
+    let (cache_key, hash, _setup_guard) = match self.lookup_or_lock(&source_reference.path_source).await? {
+      CacheLookup::Hit(_) => return Ok(()),
+      CacheLookup::Miss { cache_key, hash, guard } => (cache_key, hash, guard),
+    };
+    let primary_stamp = source_reference.path_source.maybe_local_path().and_then(|p| self.stamp_for(p));
+    let resolved_source = source_reference.path_source.clone();
+    self
+      .verify_and_store_plugin(source_reference, &cache_key, &hash, file_bytes, resolved_source, primary_stamp)
+      .await?;
+    Ok(())
+  }
+
+  /// Shared tail of plugin setup once the file bytes are in hand (whether
+  /// freshly downloaded by `get_plugin` or handed in pre-downloaded): verifies
+  /// the checksum, computes local stamps, and stores the cached entry.
+  async fn verify_and_store_plugin(
+    &self,
+    source_reference: &PluginSourceReference,
+    cache_key: &str,
+    hash: &str,
+    file_bytes: Vec<u8>,
+    resolved_source: PathSource,
+    primary_stamp: Option<LocalStamp>,
+  ) -> Result<PluginCacheItem> {
     let plugin_kind = source_reference
       .plugin_kind()
       .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for {}", source_reference.display()))?;
@@ -297,7 +381,7 @@ where
     };
 
     self
-      .setup_and_store(&hash, &cache_key, &resolved_source, file_bytes, plugin_kind, None, local_stamps)
+      .setup_and_store(hash, cache_key, &resolved_source, file_bytes, plugin_kind, None, local_stamps)
       .await
   }
 
@@ -594,6 +678,51 @@ mod test {
     assert!(!environment.path_exists(&file_path));
     assert!(read_meta(&hash, &environment).is_none());
 
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn setup_remote_plugin_from_bytes_warms_cache_without_download() -> Result<()> {
+    // the remote url is intentionally NOT registered — a later resolve must be
+    // a pure cache hit, proving the prefetch set the plugin up from the bytes
+    // without going to the network.
+    let environment = TestEnvironment::new();
+    environment.set_cpu_arch("aarch64");
+    let plugin_cache = PluginCache::new(environment.clone());
+    let plugin_source = PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test.wasm");
+
+    plugin_cache.setup_remote_plugin_from_bytes(&plugin_source, WASM_PLUGIN_BYTES.to_vec()).await?;
+    assert_eq!(environment.take_stderr_messages(), vec!["Compiling https://plugins.dprint.dev/test.wasm"]);
+
+    let item = plugin_cache.get_plugin_cache_item(&plugin_source).await?;
+    assert_eq!(item.info.name, "test-plugin");
+    assert!(environment.take_stderr_messages().is_empty(), "resolve should have been a cache hit");
+    Ok(())
+  }
+
+  #[tokio::test]
+  async fn setup_from_prefetched_download_warms_npm_cache_without_download() -> Result<()> {
+    use crate::test_helpers::create_test_npm_tarball;
+    // neither the registry packument nor the tarball are registered — the
+    // prefetch must set the plugin up entirely from the provided tarball bytes,
+    // and the later resolve must be a cache hit.
+    let environment = TestEnvironment::new();
+    environment.set_cpu_arch("aarch64");
+    let tarball = create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]);
+    let checksum = crate::utils::get_sha256_checksum(&tarball);
+    let plugin_cache = PluginCache::new(environment.clone());
+    let reference = crate::plugins::parse_plugin_source_reference(
+      &format!("npm:foo@1.0.0/plugin.wasm@{}", checksum),
+      &PathSource::new_local(crate::environment::CanonicalizedPathBuf::new_for_testing("/dprint.json")),
+      &environment,
+    )?;
+
+    plugin_cache.setup_from_prefetched_download(&reference, tarball).await?;
+    let _ = environment.take_stderr_messages();
+
+    let item = plugin_cache.get_plugin_cache_item(&reference).await?;
+    assert_eq!(item.info.name, "test-plugin");
+    assert!(environment.take_stderr_messages().is_empty(), "resolve should have been a cache hit");
     Ok(())
   }
 
