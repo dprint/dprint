@@ -26,7 +26,9 @@ use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginWrapper;
+use crate::plugins::detect_npm_plugin_kind_in_node_modules;
 use crate::plugins::fetch_npm_latest_info;
+use crate::plugins::fetch_npm_versioned_tarball_info;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
 use crate::resolution::GetPluginResult;
@@ -35,6 +37,7 @@ use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::utils::CachedDownloader;
 use crate::utils::PathSource;
+use crate::utils::PluginKind;
 use crate::utils::pretty_print_json_text;
 
 pub struct InitConfigFileOptions<'a> {
@@ -359,14 +362,25 @@ struct ResolveNpmPluginOptions<'a> {
 /// into the config's `plugins` array, plus the devDependencies entry to
 /// queue when `--package-json` was set.
 ///
-/// - `npm:foo@1.2.3[...]` (already versioned) → pass through verbatim.
-/// - `npm:foo` with `--no-version` or `--package-json` → keep unversioned.
-///   With `--package-json`, also return a `devDependencies` entry for the
-///   nearest `package.json` (caret range pinning the resolved latest).
+/// When the user didn't write an explicit plugin path, dprint inspects the
+/// package to detect whether it's a wasm (`plugin.wasm`) or process
+/// (`plugin.json`) plugin and writes the matching form — for the pinned forms
+/// it downloads the tarball; for the unversioned forms it reads `node_modules`.
+///
+/// - `npm:foo@1.2.3/plugin.json[@sha]` (explicit path) → pass through verbatim.
+/// - `npm:foo@1.2.3` (versioned, no path) → download that version's tarball to
+///   detect the kind and pin the matching form (with checksum for process).
+/// - `npm:foo` with `--no-version` or `--package-json` → keep unversioned. With
+///   `--package-json`, also return a `devDependencies` entry for the nearest
+///   `package.json` (caret range pinning the resolved latest) and detect the
+///   kind from that tarball; with bare `--no-version` the registry isn't
+///   touched, so the kind is read from `node_modules` if installed.
 /// - `npm:foo` (unversioned) and the package is in a nearby `package.json`'s
-///   `devDependencies` → keep unversioned (defer to npm/node_modules).
-/// - `npm:foo` (unversioned) otherwise → resolve `dist-tags.latest` and write
-///   the pinned form, with checksum for non-wasm plugins.
+///   `devDependencies` → keep unversioned (defer to npm/node_modules), reading
+///   the kind from `node_modules` if installed.
+/// - `npm:foo` (unversioned) otherwise → resolve `dist-tags.latest`, download
+///   the tarball to detect the kind, and write the pinned form (with checksum
+///   for process plugins).
 async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environment: &impl Environment) -> Result<ResolvedNpmPluginAdd> {
   let ResolveNpmPluginOptions {
     text,
@@ -375,10 +389,14 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
     update_package_json,
   } = options;
   let parsed = crate::utils::parse_npm_specifier(text)?;
-  // top-level plugin reference: enforce the same .wasm/.json constraint that
-  // parse_plugin_source_reference applies, since `dprint add` writes the
-  // result straight into the plugins array.
-  crate::utils::validate_plugin_extension(&parsed.specifier, text)?;
+  // when the user wrote an explicit plugin path, enforce the same .wasm/.json
+  // constraint parse_plugin_source_reference applies, since `dprint add` writes
+  // the result straight into the plugins array. When the path was defaulted we
+  // detect the real kind below, so there's nothing to validate yet.
+  let explicit_path = parsed.path_was_explicit;
+  if explicit_path {
+    crate::utils::validate_plugin_extension(&parsed.specifier, text)?;
+  }
 
   // a config path with no parent shouldn't happen — `resolve_config_from_args`
   // hands us a canonicalized file path. Treat it as a hard bug rather than a
@@ -387,19 +405,36 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
     .parent()
     .ok_or_else(|| anyhow!("Config path {} has no parent directory.", config_path.display()))?;
   let start_dir_ref: &Path = start_dir.as_ref();
+  let name = parsed.specifier.name.clone();
 
-  if parsed.specifier.version.is_some() {
+  if let Some(version) = parsed.specifier.version.clone() {
     if no_version {
       bail!("--no-version cannot be combined with a versioned specifier: {}", text);
     }
+    if explicit_path {
+      // the user fully specified name, version, and plugin file — pass through.
+      return Ok(ResolvedNpmPluginAdd {
+        url: text.to_string(),
+        package_name: name,
+        package_json_addition: None,
+      });
+    }
+    // no path given: inspect the package to learn whether it's a wasm or
+    // process plugin, then write the matching plugin file (with a checksum for
+    // process plugins).
+    let info = fetch_npm_versioned_tarball_info(&name, &version, Some(start_dir_ref), environment).await?;
     return Ok(ResolvedNpmPluginAdd {
-      url: text.to_string(),
-      package_name: parsed.specifier.name.clone(),
+      url: build_npm_add_url(&name, Some(&version), info.plugin_kind, &info.tarball_sha256),
+      package_name: name,
       package_json_addition: None,
     });
   }
 
   if no_version {
+    // when we hit the registry for the caret range we also detect the kind
+    // from that tarball — `--package-json` is usually run before the package
+    // is installed, so node_modules detection alone wouldn't find it.
+    let mut detected_kind = None;
     let package_json_addition = if update_package_json {
       // Look up the latest version so we can write a caret range. If the
       // registry is unreachable we still write the unversioned spec to
@@ -410,31 +445,29 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
           specifier: &parsed.specifier,
           start_dir: Some(start_dir_ref),
           want_tarball_sha: false,
+          detect_plugin_kind: !explicit_path,
         },
         environment,
       )
       .await
-      .with_context(|| format!("Resolving latest version for package.json entry of {}", parsed.specifier.name))?;
-      Some((parsed.specifier.name.clone(), format!("^{}", info.version)))
+      .with_context(|| format!("Resolving latest version for package.json entry of {}", name))?;
+      detected_kind = info.detected_plugin_kind;
+      Some((name.clone(), format!("^{}", info.version)))
     } else {
       None
     };
     return Ok(ResolvedNpmPluginAdd {
-      url: parsed.specifier.display(),
-      package_name: parsed.specifier.name.clone(),
+      url: unversioned_npm_add_url(&parsed, explicit_path, detected_kind, start_dir_ref, environment),
+      package_name: name,
       package_json_addition,
     });
   }
 
-  if is_in_package_json_deps(&parsed.specifier.name, start_dir_ref, environment) {
-    log_stderr_info!(
-      environment,
-      "Found {} in package.json — adding unversioned npm specifier.",
-      parsed.specifier.name
-    );
+  if is_in_package_json_deps(&name, start_dir_ref, environment) {
+    log_stderr_info!(environment, "Found {} in package.json — adding unversioned npm specifier.", name);
     return Ok(ResolvedNpmPluginAdd {
-      url: parsed.specifier.display(),
-      package_name: parsed.specifier.name.clone(),
+      url: unversioned_npm_add_url(&parsed, explicit_path, None, start_dir_ref, environment),
+      package_name: name,
       package_json_addition: None,
     });
   }
@@ -444,25 +477,85 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
       specifier: &parsed.specifier,
       start_dir: Some(start_dir_ref),
       want_tarball_sha: false,
+      detect_plugin_kind: !explicit_path,
     },
     environment,
   )
   .await?;
-  let pinned = crate::utils::NpmSpecifier {
-    name: parsed.specifier.name,
-    version: Some(info.version),
-    path: parsed.specifier.path,
-  };
-  let display = pinned.display();
-  let url = match info.tarball_sha256 {
-    Some(checksum) => format!("{}@{}", display, checksum),
-    None => display,
+
+  let url = if explicit_path {
+    // the user named the plugin file; pin the version and add a checksum for
+    // non-wasm plugins (fetch_npm_latest_info computed it for us).
+    let pinned = crate::utils::NpmSpecifier {
+      name: name.clone(),
+      version: Some(info.version),
+      path: parsed.specifier.path.clone(),
+    };
+    let display = pinned.display();
+    match info.tarball_sha256 {
+      Some(checksum) => format!("{}@{}", display, checksum),
+      None => display,
+    }
+  } else {
+    let kind = info.detected_plugin_kind.expect("detect_plugin_kind was requested");
+    // detection downloads the tarball, so the checksum is always computed too.
+    let checksum = info.tarball_sha256.expect("tarball checksum computed alongside detection");
+    build_npm_add_url(&name, Some(&info.version), kind, &checksum)
   };
   Ok(ResolvedNpmPluginAdd {
     url,
-    package_name: pinned.name,
+    package_name: name,
     package_json_addition: None,
   })
+}
+
+/// Builds the plugins-array entry for an npm plugin whose kind was detected by
+/// inspecting the package: `npm:name[@version]` for wasm plugins, and
+/// `npm:name[@version]/plugin.json@<sha256>` for process plugins (which always
+/// require a checksum).
+fn build_npm_add_url(name: &str, version: Option<&str>, kind: PluginKind, tarball_sha256: &str) -> String {
+  let path = match kind {
+    PluginKind::Wasm => "plugin.wasm",
+    PluginKind::Process => "plugin.json",
+  };
+  let specifier = crate::utils::NpmSpecifier {
+    name: name.to_string(),
+    version: version.map(|v| v.to_string()),
+    path: path.to_string(),
+  };
+  let display = specifier.display();
+  match kind {
+    PluginKind::Wasm => display,
+    PluginKind::Process => format!("{}@{}", display, tarball_sha256),
+  }
+}
+
+/// Picks the unversioned specifier string to write for an npm plugin we aren't
+/// pinning (deferring to node_modules / package.json). When the user didn't
+/// give a path, use `detected_kind` if the caller already learned it from the
+/// registry tarball, else fall back to inspecting `node_modules`, so a process
+/// plugin gets `/plugin.json`; otherwise keep the bare form.
+fn unversioned_npm_add_url(
+  parsed: &crate::utils::ParsedNpmSpecifier,
+  explicit_path: bool,
+  detected_kind: Option<PluginKind>,
+  start_dir: &Path,
+  environment: &impl Environment,
+) -> String {
+  if explicit_path {
+    return parsed.specifier.display();
+  }
+  let kind = detected_kind.or_else(|| detect_npm_plugin_kind_in_node_modules(&parsed.specifier.name, start_dir, environment));
+  let path = match kind {
+    Some(PluginKind::Process) => "plugin.json".to_string(),
+    _ => parsed.specifier.path.clone(),
+  };
+  crate::utils::NpmSpecifier {
+    name: parsed.specifier.name.clone(),
+    version: None,
+    path,
+  }
+  .display()
 }
 
 /// Writes new `devDependencies` entries into the nearest `package.json`
@@ -974,6 +1067,7 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
         specifier: &npm_source.specifier,
         start_dir,
         want_tarball_sha: plugin_reference.checksum.is_some(),
+        detect_plugin_kind: false,
       };
       match fetch_npm_latest_info(args, environment).await {
         Ok(info) => {
@@ -2850,14 +2944,40 @@ mod test {
   }
 
   #[tokio::test]
-  async fn npm_add_pinned_passes_through() {
+  async fn npm_add_pinned_wasm_keeps_bare_form() {
+    // a pinned version without a path inspects that version's tarball to learn
+    // the kind; a wasm package keeps the bare `name@version` form.
+    use crate::test_helpers::create_test_npm_tarball;
     let environment = TestEnvironment::new();
     environment.write_file("/dprint.json", "{}").unwrap();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "0.95.15" },
+      "versions": { "0.95.15": { "dist": { "tarball": "https://registry.npmjs.org/@dprint/typescript/-/typescript-0.95.15.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/@dprint/typescript", packument.to_string().into_bytes());
+    environment.add_remote_file_bytes(
+      "https://registry.npmjs.org/@dprint/typescript/-/typescript-0.95.15.tgz",
+      create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]),
+    );
     let config_path = environment.canonicalize("/dprint.json").unwrap();
     let result = call_resolve_npm_plugin_to_add("npm:@dprint/typescript@0.95.15", &config_path, false, false, &environment)
       .await
       .unwrap();
     assert_eq!(result.url, "npm:@dprint/typescript@0.95.15");
+    assert!(result.package_json_addition.is_none());
+  }
+
+  #[tokio::test]
+  async fn npm_add_pinned_with_explicit_path_passes_through() {
+    // an explicit plugin file is taken at face value and passed through
+    // verbatim without touching the registry.
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:@dprint/typescript@0.95.15/plugin.wasm", &config_path, false, false, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, "npm:@dprint/typescript@0.95.15/plugin.wasm");
     assert!(result.package_json_addition.is_none());
   }
 
@@ -2916,6 +3036,7 @@ mod test {
 
   #[tokio::test]
   async fn npm_add_resolves_latest_without_devdep() {
+    use crate::test_helpers::create_test_npm_tarball;
     let environment = TestEnvironment::new();
     environment.write_file("/dprint.json", "{}").unwrap();
     let packument = serde_json::json!({
@@ -2923,6 +3044,9 @@ mod test {
       "versions": { "1.2.3": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.2.3.tgz" } } }
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    // detection downloads the tarball to learn the plugin kind — ship a wasm one
+    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-1.2.3.tgz", tarball_bytes);
     let config_path = environment.canonicalize("/dprint.json").unwrap();
     let result = call_resolve_npm_plugin_to_add("npm:foo", &config_path, false, false, &environment)
       .await
@@ -2947,6 +3071,103 @@ mod test {
       .await
       .unwrap();
     assert_eq!(result.url, format!("npm:foo@2.0.0/plugin.json@{}", expected));
+  }
+
+  #[tokio::test]
+  async fn npm_add_autodetects_process_plugin_without_path() {
+    // `dprint add npm:foo` (no path) should inspect the package, discover it
+    // ships a plugin.json, and write the pinned process form with a checksum.
+    use crate::test_helpers::create_test_npm_tarball;
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "2.0.0" },
+      "versions": { "2.0.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-2.0.0.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.json", b"{}")]);
+    let expected = crate::utils::get_sha256_checksum(&tarball_bytes);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-2.0.0.tgz", tarball_bytes);
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:foo", &config_path, false, false, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, format!("npm:foo@2.0.0/plugin.json@{}", expected));
+  }
+
+  #[tokio::test]
+  async fn npm_add_autodetects_wasm_plugin_without_path() {
+    // `dprint add npm:foo` for a wasm package keeps the bare pinned form
+    // (no checksum), even though we now download the tarball to detect.
+    use crate::test_helpers::create_test_npm_tarball;
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "2.0.0" },
+      "versions": { "2.0.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-2.0.0.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-2.0.0.tgz", tarball_bytes);
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:foo", &config_path, false, false, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, "npm:foo@2.0.0");
+  }
+
+  #[tokio::test]
+  async fn npm_add_autodetects_process_plugin_for_versioned_without_path() {
+    // a pinned version without a path still inspects that version's tarball
+    // rather than passing through verbatim as wasm.
+    use crate::test_helpers::create_test_npm_tarball;
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "9.9.9" },
+      "versions": { "1.2.3": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.2.3.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.json", b"{}")]);
+    let expected = crate::utils::get_sha256_checksum(&tarball_bytes);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-1.2.3.tgz", tarball_bytes);
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:foo@1.2.3", &config_path, false, false, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, format!("npm:foo@1.2.3/plugin.json@{}", expected));
+  }
+
+  #[tokio::test]
+  async fn npm_add_defers_to_devdep_detects_process_path_from_node_modules() {
+    // when deferring to an unversioned spec, detect from node_modules so a
+    // process plugin still gets `/plugin.json`.
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    environment.write_file("/package.json", r#"{"devDependencies": {"foo": "^1.0.0"}}"#).unwrap();
+    environment.mk_dir_all("/node_modules/foo").unwrap();
+    environment.write_file("/node_modules/foo/plugin.json", "{}").unwrap();
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:foo", &config_path, false, false, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, "npm:foo/plugin.json");
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[tokio::test]
+  async fn npm_add_no_version_detects_process_path_from_node_modules() {
+    // --no-version writes the unversioned form but should still pick up
+    // `/plugin.json` for a process plugin installed in node_modules.
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    environment.mk_dir_all("/node_modules/foo").unwrap();
+    environment.write_file("/node_modules/foo/plugin.json", "{}").unwrap();
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:foo", &config_path, true, false, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, "npm:foo/plugin.json");
   }
 
   #[tokio::test]
@@ -2983,6 +3204,7 @@ mod test {
     // --package-json pulls dist-tags.latest, writes the unversioned spec
     // to dprint.json, and returns a caret-pinned devDependency entry the
     // caller queues for the package.json update.
+    use crate::test_helpers::create_test_npm_tarball;
     let environment = TestEnvironment::new();
     environment.write_file("/dprint.json", "{}").unwrap();
     let packument = serde_json::json!({
@@ -2990,6 +3212,10 @@ mod test {
       "versions": { "0.99.0": { "dist": { "tarball": "https://registry.npmjs.org/@dprint/typescript/-/typescript-0.99.0.tgz" } } }
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/@dprint/typescript", packument.to_string().into_bytes());
+    environment.add_remote_file_bytes(
+      "https://registry.npmjs.org/@dprint/typescript/-/typescript-0.99.0.tgz",
+      create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]),
+    );
 
     let config_path = environment.canonicalize("/dprint.json").unwrap();
     let result = call_resolve_npm_plugin_to_add("npm:@dprint/typescript", &config_path, true, true, &environment)
@@ -2997,6 +3223,31 @@ mod test {
       .unwrap();
     assert_eq!(result.url, "npm:@dprint/typescript");
     assert_eq!(result.package_json_addition, Some(("@dprint/typescript".to_string(), "^0.99.0".to_string())),);
+  }
+
+  #[tokio::test]
+  async fn npm_add_package_json_detects_process_path_from_tarball() {
+    // --package-json is usually run before the package is installed, so detect
+    // the kind from the registry tarball and write `/plugin.json` even though
+    // node_modules has nothing yet. No checksum is written: the unversioned
+    // form resolves from node_modules, which doesn't require one.
+    use crate::test_helpers::create_test_npm_tarball;
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "1.0.0" },
+      "versions": { "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.0.0.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    environment.add_remote_file_bytes(
+      "https://registry.npmjs.org/foo/-/foo-1.0.0.tgz",
+      create_test_npm_tarball(&[("package/plugin.json", b"{}")]),
+    );
+
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add("npm:foo", &config_path, true, true, &environment).await.unwrap();
+    assert_eq!(result.url, "npm:foo/plugin.json");
+    assert_eq!(result.package_json_addition, Some(("foo".to_string(), "^1.0.0".to_string())));
   }
 
   #[tokio::test]
@@ -3078,14 +3329,24 @@ mod test {
   #[test]
   fn config_add_npm_replaces_existing_entry_for_same_package() {
     // re-adding a package that's already present should replace the existing
-    // entry (any version) rather than append a duplicate. A versioned
-    // specifier passes through without touching the registry, so no mock is
-    // needed here.
+    // entry (any version) rather than append a duplicate. A versioned add
+    // without a path inspects the package to detect its kind, so mock the
+    // registry with a wasm tarball.
+    use crate::test_helpers::create_test_npm_tarball;
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "2.0.0" },
+      "versions": { "2.0.0": { "dist": { "tarball": "https://registry.npmjs.org/test-plugin/-/test-plugin-2.0.0.tgz" } } }
+    });
     let environment = TestEnvironmentBuilder::new()
       .with_local_config("/dprint.json", |c| {
         c.add_plugin("npm:test-plugin@1.0.0");
         c.add_plugin("npm:other@1.0.0");
       })
+      .add_remote_file_bytes("https://registry.npmjs.org/test-plugin", packument.to_string().into_bytes())
+      .add_remote_file_bytes(
+        "https://registry.npmjs.org/test-plugin/-/test-plugin-2.0.0.tgz",
+        create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]),
+      )
       .build();
 
     run_test_cli(vec!["config", "add", "npm:test-plugin@2.0.0"], &environment).unwrap();

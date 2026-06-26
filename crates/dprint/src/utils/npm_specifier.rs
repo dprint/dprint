@@ -25,6 +25,11 @@ pub struct ParsedNpmSpecifier {
   pub specifier: NpmSpecifier,
   /// The checksum of the npm tarball, if specified.
   pub checksum: Option<String>,
+  /// Whether the user wrote an explicit plugin path (e.g. `/plugin.json`).
+  /// When false, `specifier.path` is the `plugin.wasm` default — `dprint add`
+  /// uses this to know it may auto-detect the real plugin kind by inspecting
+  /// the package rather than trusting the defaulted extension.
+  pub path_was_explicit: bool,
 }
 
 impl NpmSpecifier {
@@ -75,6 +80,7 @@ pub fn parse_npm_specifier(text: &str) -> Result<ParsedNpmSpecifier> {
         path: DEFAULT_NPM_PLUGIN_FILE.to_string(),
       },
       checksum: None,
+      path_was_explicit: false,
     });
   }
 
@@ -85,6 +91,7 @@ pub fn parse_npm_specifier(text: &str) -> Result<ParsedNpmSpecifier> {
     return Ok(ParsedNpmSpecifier {
       specifier: NpmSpecifier { name, version: None, path },
       checksum,
+      path_was_explicit: true,
     });
   }
 
@@ -106,6 +113,7 @@ pub fn parse_npm_specifier(text: &str) -> Result<ParsedNpmSpecifier> {
         path: DEFAULT_NPM_PLUGIN_FILE.to_string(),
       },
       checksum: None,
+      path_was_explicit: false,
     });
   }
 
@@ -119,6 +127,7 @@ pub fn parse_npm_specifier(text: &str) -> Result<ParsedNpmSpecifier> {
         path,
       },
       checksum,
+      path_was_explicit: true,
     });
   }
 
@@ -134,6 +143,7 @@ pub fn parse_npm_specifier(text: &str) -> Result<ParsedNpmSpecifier> {
         path: DEFAULT_NPM_PLUGIN_FILE.to_string(),
       },
       checksum: Some(checksum.to_string()),
+      path_was_explicit: false,
     });
   }
 
@@ -375,6 +385,34 @@ mod tests {
     assert_eq!(result.specifier.version, None);
     assert_eq!(result.specifier.path, "plugin.json");
     assert_eq!(result.specifier.plugin_kind(), PluginKind::Process);
+  }
+
+  #[test]
+  fn parse_tracks_whether_path_was_explicit() {
+    // a defaulted path (no `/...` in the input) must be flagged so `dprint add`
+    // knows it may auto-detect the real plugin kind from the package.
+    for defaulted in [
+      "npm:@dprint/typescript",
+      "npm:@dprint/typescript@0.23.0",
+      "npm:@dprint/typescript@0.23.0@abc123",
+      "npm:dprint-plugin-foo",
+    ] {
+      assert!(
+        !parse_npm_specifier(defaulted).unwrap().path_was_explicit,
+        "expected defaulted path for {defaulted}"
+      );
+    }
+    for explicit in [
+      "npm:@dprint/prettier/plugin.json",
+      "npm:@dprint/prettier@0.23.0/plugin.json",
+      "npm:@dprint/prettier@0.23.0/plugin.json@abc123",
+      "npm:@dprint/typescript@0.23.0/plugin.wasm",
+    ] {
+      assert!(
+        parse_npm_specifier(explicit).unwrap().path_was_explicit,
+        "expected explicit path for {explicit}"
+      );
+    }
   }
 
   #[test]
