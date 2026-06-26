@@ -131,6 +131,7 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
         names,
         no_version,
         package_json,
+        checksum,
       } => {
         commands::add_plugin_config_file(
           args,
@@ -138,6 +139,7 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
             plugin_names_or_urls: names,
             no_version: *no_version,
             update_package_json: *package_json,
+            checksum: *checksum,
           },
           environment,
           plugin_resolver,

@@ -91,6 +91,18 @@ Or specify a plugin url:
 dprint add https://plugins.dprint.dev/json-x.x.x.wasm
 ```
 
+Or from npm:
+
+```sh
+dprint add npm:@dprint/json
+```
+
+By default Wasm plugins are added without a checksum (process plugins always get one). Use `--checksum` to pin a checksum on the added plugin regardless:
+
+```sh
+dprint add --checksum typescript
+```
+
 Note: `dprint config add` also works and is equivalent.
 
 ### Updating Plugins via CLI

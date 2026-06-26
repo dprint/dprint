@@ -40,6 +40,13 @@ pub struct NpmResolvedPlugin {
   /// checksum) so the executable can be unpacked alongside any sibling
   /// files it depends on — node_modules-style installs, data files, etc.
   pub pre_resolved_tarball: Option<PreResolvedProcessPluginTarball>,
+  /// The plugin file path within the package — the same as `specifier.path`,
+  /// except when the path was detected (pathless `dprint add`), in which case
+  /// it's the detected `plugin.wasm` / `plugin.json`.
+  pub resolved_path: String,
+  /// SHA-256 of the package tarball. For `dprint add` this is the checksum to
+  /// write into the config. `None` for node_modules resolution (no tarball).
+  pub tarball_checksum: Option<String>,
 }
 
 /// Per-platform npm tarball that's been fetched and SHA-verified for a
@@ -76,21 +83,6 @@ pub struct FetchNpmLatestInfo<'a> {
   pub want_tarball_sha: bool,
 }
 
-/// The plugin kind and tarball checksum for a specific `name@version`,
-/// discovered by downloading and inspecting the package tarball.
-pub struct NpmTarballInfo {
-  pub plugin_kind: PluginKind,
-  pub tarball_sha256: String,
-}
-
-/// Like [`NpmTarballInfo`], but for the latest published version — carries the
-/// resolved version alongside the inspected kind and checksum.
-pub struct NpmLatestTarballInfo {
-  pub version: String,
-  pub plugin_kind: PluginKind,
-  pub tarball_sha256: String,
-}
-
 /// Fetches the latest version of an npm-distributed plugin (and, when needed,
 /// the SHA-256 of its tarball). Used by `dprint config update` and `dprint add`.
 pub async fn fetch_npm_latest_info(args: FetchNpmLatestInfo<'_>, environment: &impl Environment) -> Result<NpmLatestInfo> {
@@ -123,30 +115,39 @@ pub async fn fetch_npm_latest_info(args: FetchNpmLatestInfo<'_>, environment: &i
   })
 }
 
-/// Resolves the latest version, then downloads its tarball to determine whether
-/// the package ships a `plugin.wasm` or `plugin.json` and to compute the
-/// checksum. Used by `dprint add` when the user gave an unversioned npm
-/// specifier without a plugin path.
-pub async fn fetch_npm_latest_tarball_info(name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Result<NpmLatestTarballInfo> {
+/// Resolves the latest published version of a package from its packument.
+/// Used by `dprint add` to pin an unversioned specifier before setup.
+pub async fn resolve_npm_latest_version(name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Result<String> {
   let registry = resolve_registry_for_package(name, start_dir, environment);
-  let (packument, packument_url) = fetch_packument(name, &registry, environment).await?;
-  let version = latest_version_from_packument(&packument, name)?;
-  let info = inspect_npm_tarball(name, &version, &packument, &packument_url, &registry, environment).await?;
-  Ok(NpmLatestTarballInfo {
-    version,
-    plugin_kind: info.plugin_kind,
-    tarball_sha256: info.tarball_sha256,
-  })
+  let (packument, _) = fetch_packument(name, &registry, environment).await?;
+  latest_version_from_packument(&packument, name)
 }
 
-/// Downloads the tarball for a specific `name@version`, inspects it to
-/// determine whether the package ships a `plugin.wasm` or `plugin.json`, and
-/// computes its SHA-256. Used by `dprint add` when the user pins a version but
-/// doesn't give a plugin path.
-pub async fn fetch_npm_versioned_tarball_info(name: &str, version: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Result<NpmTarballInfo> {
+/// Reads the cached tarball checksum for `name@version`, if a prior setup
+/// recorded one. The checksum is a package-version property (the same for any
+/// plugin file the package ships), so `dprint add` can reuse it without
+/// re-downloading the tarball.
+pub fn read_npm_tarball_checksum(name: &str, version: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Option<String> {
   let registry = resolve_registry_for_package(name, start_dir, environment);
-  let (packument, packument_url) = fetch_packument(name, &registry, environment).await?;
-  inspect_npm_tarball(name, version, &packument, &packument_url, &registry, environment).await
+  let registry_segment = registry_dir_segment(&registry.url);
+  Some(read_npm_tarball_meta(&registry_segment, name, version, environment)?.tarball_sha256)
+}
+
+/// For a pathless `dprint add` on a repeat add: if `name@version` is already
+/// extracted in the cache, detect which plugin file it ships (preferring
+/// `plugin.wasm` over `plugin.json`) without re-downloading. Returns the path
+/// and its kind, or `None` if the package isn't extracted or ships neither
+/// conventional file (so the caller falls back to a full download).
+pub fn detect_extracted_npm_plugin(name: &str, version: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Option<(String, PluginKind)> {
+  let registry = resolve_registry_for_package(name, start_dir, environment);
+  let registry_segment = registry_dir_segment(&registry.url);
+  let extract_dir = get_npm_extract_dir(&registry_segment, name, version, environment);
+  if !environment.path_exists(&extract_dir) {
+    return None;
+  }
+  let path = detect_plugin_path_in_dir(&extract_dir, environment)?;
+  let kind = plugin_kind_from_path(&path);
+  Some((path, kind))
 }
 
 /// Inspects whether an npm package installed in `node_modules` (walking up from
@@ -189,91 +190,62 @@ fn latest_version_from_packument(packument: &serde_json::Value, name: &str) -> R
     .ok_or_else(|| anyhow::anyhow!("Missing dist-tags.latest for {}", name))
 }
 
-/// Downloads `name@version`'s tarball (auth sent only when it shares the
-/// registry's origin) and inspects it to determine the plugin kind and
-/// checksum.
-async fn inspect_npm_tarball(
-  name: &str,
-  version: &str,
-  packument: &serde_json::Value,
-  packument_url: &url::Url,
-  registry: &NpmRegistryResolution,
-  environment: &impl Environment,
-) -> Result<NpmTarballInfo> {
-  let tarball_url_str = get_tarball_url_from_packument(packument, version, name)?;
-  let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
-  let tarball_auth = same_origin_auth(packument_url, &tarball_url, registry.auth_header.as_deref());
-  let (_, tarball_file) = environment
-    .download_file_err_404(&tarball_url, tarball_auth)
-    .await
-    .with_context(|| format!("Failed to download npm tarball for {}@{}", name, version))?;
-  let plugin_kind = detect_plugin_kind_from_tarball(&tarball_file.content).with_context(|| format!("Detecting plugin kind for {}@{}", name, version))?;
-  Ok(NpmTarballInfo {
-    plugin_kind,
-    tarball_sha256: get_sha256_checksum(&tarball_file.content),
-  })
-}
-
-/// Inspects an npm tarball to determine whether it ships a top-level
-/// `plugin.wasm` (wasm plugin) or `plugin.json` (process plugin), preferring
-/// wasm if (unusually) both are present. Errors if neither is found.
-fn detect_plugin_kind_from_tarball(tarball_bytes: &[u8]) -> Result<PluginKind> {
-  let decoder = GzDecoder::new(tarball_bytes);
-  let mut archive = Archive::new(decoder);
-  let mut has_wasm = false;
-  let mut has_json = false;
-
-  for entry in archive.entries().context("Failed to read npm tarball entries")? {
-    let entry = entry.context("Failed to read npm tarball entry")?;
-    let path = entry.path().context("Failed to get entry path")?;
-
-    // npm tarballs wrap every entry under a single top-level directory (usually
-    // "package/"). Skip any leading "./" then that wrapper so we compare paths
-    // relative to the package root.
-    let mut components = path.components().peekable();
-    while let Some(std::path::Component::CurDir) = components.peek() {
-      components.next();
-    }
-    if components.next().is_none() {
-      continue; // the wrapper directory entry itself
-    }
-
-    // only a plugin file sitting directly at the package root counts
-    let relative: PathBuf = components.collect();
-    let mut relative_components = relative.components();
-    let (Some(std::path::Component::Normal(file_name)), None) = (relative_components.next(), relative_components.next()) else {
-      continue;
-    };
-    let Some(file_name) = file_name.to_str() else {
-      continue;
-    };
-    if file_name.eq_ignore_ascii_case("plugin.wasm") {
-      has_wasm = true;
-    } else if file_name.eq_ignore_ascii_case("plugin.json") {
-      has_json = true;
-    }
-  }
-
-  if has_wasm {
-    Ok(PluginKind::Wasm)
-  } else if has_json {
-    Ok(PluginKind::Process)
+/// Picks the plugin file a package ships at its root, preferring `plugin.wasm`
+/// over `plugin.json` if (unusually) both are present. Returns `None` if
+/// neither exists. Run against the extracted package directory for a pathless
+/// `dprint add`.
+fn detect_plugin_path_in_dir(extract_dir: &Path, environment: &impl Environment) -> Option<String> {
+  if environment.path_exists(extract_dir.join("plugin.wasm")) {
+    Some("plugin.wasm".to_string())
+  } else if environment.path_exists(extract_dir.join("plugin.json")) {
+    Some("plugin.json".to_string())
   } else {
-    bail!("Could not find a plugin.wasm or plugin.json at the root of the npm package. Is it a dprint plugin?");
+    None
   }
 }
 
-/// Resolves an npm plugin from the registry (versioned specifier).
-/// Downloads the tarball, extracts it to the cache directory, and reads the plugin file.
-/// `config_dir` is the dprint config's directory; it seeds the `.npmrc` walk
-/// when a process plugin's plugin.json references a per-platform npm package.
-pub async fn resolve_npm_from_registry(
-  specifier: &NpmSpecifier,
-  checksum: Option<&str>,
-  registry: &NpmRegistryResolution,
-  config_dir: Option<&Path>,
-  environment: &impl Environment,
-) -> Result<NpmResolvedPlugin> {
+/// Maps a plugin file path to its kind by extension (`.json` → process, else
+/// wasm), matching `NpmSpecifier::plugin_kind`.
+fn plugin_kind_from_path(path: &str) -> PluginKind {
+  if path.rsplit_once('.').is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("json")) {
+    PluginKind::Process
+  } else {
+    PluginKind::Wasm
+  }
+}
+
+/// Inputs to [`resolve_npm_from_registry`].
+pub struct ResolveNpmRegistryOptions<'a> {
+  /// The package to resolve. Must carry a concrete version.
+  pub specifier: &'a NpmSpecifier,
+  /// Expected checksum to verify the tarball against. Ignored when
+  /// `establish_checksum` is set (we're computing it, not verifying).
+  pub checksum: Option<&'a str>,
+  /// Pathless `dprint add`: ignore `specifier.path` and detect the plugin file
+  /// (`plugin.wasm` / `plugin.json`) from the extracted package instead.
+  pub detect_path: bool,
+  /// `dprint add` mode: compute the checksum from the download rather than
+  /// requiring one for process plugins. `dprint fmt` leaves this false so a
+  /// process plugin without a checksum is still rejected.
+  pub establish_checksum: bool,
+  pub registry: &'a NpmRegistryResolution,
+  /// The dprint config's directory; seeds the `.npmrc` walk when a process
+  /// plugin's plugin.json references a per-platform npm package.
+  pub config_dir: Option<&'a Path>,
+}
+
+/// Resolves an npm plugin from the registry (versioned specifier): downloads the
+/// tarball, verifies (or computes) its checksum, extracts it, reads the plugin
+/// file, and resolves the per-platform binary for process plugins.
+pub async fn resolve_npm_from_registry(options: ResolveNpmRegistryOptions<'_>, environment: &impl Environment) -> Result<NpmResolvedPlugin> {
+  let ResolveNpmRegistryOptions {
+    specifier,
+    checksum,
+    detect_path,
+    establish_checksum,
+    registry,
+    config_dir,
+  } = options;
   let version = specifier
     .version
     .as_deref()
@@ -304,39 +276,52 @@ pub async fn resolve_npm_from_registry(
     .with_context(|| format!("Failed to download npm tarball for {}@{}", specifier.name, version))?;
   let tarball_bytes = tarball_file.content;
 
-  // verify checksum before doing any extraction work
-  let plugin_kind = specifier.plugin_kind();
-  if let Some(checksum) = checksum {
-    if let Err(err) = verify_sha256_checksum(&tarball_bytes, checksum) {
+  let tarball_sha256 = get_sha256_checksum(&tarball_bytes);
+
+  // verify the checksum before any extraction work — unless we're establishing
+  // it (add mode), where there's nothing to verify against yet.
+  if !establish_checksum {
+    if let Some(checksum) = checksum {
+      if tarball_sha256 != checksum {
+        bail!(
+          "Invalid checksum for npm package {}. Check the plugin's release notes for the expected checksum.\n\nActual: {}\nExpected: {}",
+          specifier.display(),
+          tarball_sha256,
+          checksum,
+        );
+      }
+    } else if specifier.plugin_kind() != PluginKind::Wasm {
       bail!(
-        "Invalid checksum for npm package {}. Check the plugin's release notes for the expected checksum.\n\n{:#}",
+        concat!(
+          "The npm plugin must have a checksum specified for security reasons ",
+          "since it is not a Wasm plugin. Check the plugin's release notes for what ",
+          "the checksum is or if you trust the source, you may specify: {}@{}"
+        ),
         specifier.display(),
-        err
+        tarball_sha256,
       );
     }
-  } else if plugin_kind != PluginKind::Wasm {
-    bail!(
-      concat!(
-        "The npm plugin must have a checksum specified for security reasons ",
-        "since it is not a Wasm plugin. Check the plugin's release notes for what ",
-        "the checksum is or if you trust the source, you may specify: {}@{}"
-      ),
-      specifier.display(),
-      get_sha256_checksum(&tarball_bytes),
-    );
   }
 
   // extract and read the plugin file in a blocking task since
   // tarball decompression and file I/O can be slow
   let extract_dir = get_npm_extract_dir(&registry_segment, &specifier.name, version, environment);
-  let plugin_path = specifier.path.clone();
+  let requested_path = specifier.path.clone();
   let specifier_clone = specifier.clone();
   let environment_clone = environment.clone();
-  let (plugin_bytes, local_path) = dprint_core::async_runtime::spawn_blocking(move || -> Result<_> {
+  let (plugin_bytes, local_path, resolved_path) = dprint_core::async_runtime::spawn_blocking(move || -> Result<_> {
     let environment = environment_clone;
     extract_tarball_to_dir(&tarball_bytes, &extract_dir, &environment)?;
 
-    let plugin_file_path = extract_dir.join(&plugin_path);
+    // for a pathless add, pick whichever plugin file the package actually ships.
+    let resolved_path = if detect_path {
+      detect_plugin_path_in_dir(&extract_dir, &environment)
+        .ok_or_else(|| anyhow::anyhow!("Could not find a plugin.wasm or plugin.json in npm package {}", specifier_clone.name))?
+    } else {
+      requested_path
+    };
+
+    let plugin_file_path = extract_dir.join(&resolved_path);
     if !environment.path_exists(&plugin_file_path) {
       bail!(missing_plugin_file_message(
         &specifier_clone,
@@ -349,9 +334,11 @@ pub async fn resolve_npm_from_registry(
       .read_file_bytes(&plugin_file_path)
       .with_context(|| format!("Failed to read {}", plugin_file_path.display()))?;
     let canonical = environment.canonicalize(&plugin_file_path)?;
-    Ok((plugin_bytes, PathSource::new_local(canonical)))
+    Ok((plugin_bytes, PathSource::new_local(canonical), resolved_path))
   })
   .await??;
+
+  let plugin_kind = plugin_kind_from_path(&resolved_path);
 
   // process plugins shipped via the npm registry mustn't silently fetch their
   // platform binary over http(s) at format time. For npm references in
@@ -364,11 +351,17 @@ pub async fn resolve_npm_from_registry(
     None
   };
 
+  // record the tarball's checksum so a later `dprint add` of the same version
+  // can reuse it without re-downloading the tarball. Best-effort.
+  write_npm_tarball_meta(&registry_segment, &specifier.name, version, &tarball_sha256, environment);
+
   Ok(NpmResolvedPlugin {
     plugin_bytes,
     plugin_kind,
     local_path,
     pre_resolved_tarball,
+    resolved_path,
+    tarball_checksum: Some(tarball_sha256),
   })
 }
 
@@ -408,6 +401,8 @@ pub async fn resolve_npm_from_node_modules(specifier: &NpmSpecifier, config_dir:
     plugin_kind: specifier.plugin_kind(),
     local_path,
     pre_resolved_tarball,
+    resolved_path: specifier.path.clone(),
+    tarball_checksum: None,
   })
 }
 
@@ -655,6 +650,44 @@ pub(super) fn get_npm_extract_dir(registry_segment: &str, package_name: &str, ve
   // use a sanitized name for the directory (replace / with __)
   let dir_name = format!("{}@{}", package_name.replace('/', "__"), version);
   environment.get_cache_dir().join("npm").join(registry_segment).join(dir_name)
+}
+
+/// The tarball's SHA-256, cached so a later `dprint add` of the same
+/// `name@version` can reuse it without re-downloading the tarball. The checksum
+/// is a package-version property — the same regardless of which plugin file in
+/// the package an entry points at — so only it is cached here; the plugin kind
+/// is always derived from the specifier path or the extracted files. If a
+/// registry ever republishes the same version with different bytes the cached
+/// checksum goes stale, but that fails closed: the next `dprint fmt`
+/// re-downloads and errors on the mismatch (and `clear-cache` fixes it).
+struct NpmTarballMeta {
+  tarball_sha256: String,
+}
+
+/// Path of the sidecar file caching a tarball's checksum, kept next to (not
+/// inside) the `name@version` extract directory so it doesn't mix with the
+/// package's own files. Wiped by `dprint clear-cache` along with the rest of
+/// the npm cache.
+fn npm_tarball_meta_path(registry_segment: &str, package_name: &str, version: &str, environment: &impl Environment) -> PathBuf {
+  let file_name = format!("{}@{}.meta.json", package_name.replace('/', "__"), version);
+  environment.get_cache_dir().join("npm").join(registry_segment).join(file_name)
+}
+
+/// Reads the cached tarball sidecar, or `None` if it's missing or unreadable.
+fn read_npm_tarball_meta(registry_segment: &str, package_name: &str, version: &str, environment: &impl Environment) -> Option<NpmTarballMeta> {
+  let path = npm_tarball_meta_path(registry_segment, package_name, version, environment);
+  let text = environment.read_file(&path).ok()?;
+  let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+  let tarball_sha256 = value.get("tarballChecksum")?.as_str()?.to_string();
+  Some(NpmTarballMeta { tarball_sha256 })
+}
+
+/// Writes the tarball sidecar. Best-effort — a failure just means the next
+/// `dprint add` re-downloads to recompute the checksum.
+fn write_npm_tarball_meta(registry_segment: &str, package_name: &str, version: &str, tarball_sha256: &str, environment: &impl Environment) {
+  let json = serde_json::json!({ "tarballChecksum": tarball_sha256 });
+  let path = npm_tarball_meta_path(registry_segment, package_name, version, environment);
+  let _ = environment.write_file(&path, &json.to_string());
 }
 
 /// Returns a filesystem- and key-safe segment identifying a registry by host
@@ -1425,67 +1458,84 @@ mod tests {
   }
 
   #[test]
-  fn detect_plugin_kind_from_tarball_distinguishes_wasm_and_process() {
-    use crate::test_helpers::create_test_npm_tarball;
-
-    let wasm = create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]);
-    assert_eq!(detect_plugin_kind_from_tarball(&wasm).unwrap(), PluginKind::Wasm);
-
-    let process = create_test_npm_tarball(&[("package/plugin.json", b"{}"), ("package/package.json", b"{}")]);
-    assert_eq!(detect_plugin_kind_from_tarball(&process).unwrap(), PluginKind::Process);
-
+  fn detect_plugin_path_in_dir_prefers_wasm_then_json() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/pkg").unwrap();
+    assert_eq!(detect_plugin_path_in_dir(std::path::Path::new("/pkg"), &environment), None);
+    environment.write_file("/pkg/plugin.json", "{}").unwrap();
+    assert_eq!(
+      detect_plugin_path_in_dir(std::path::Path::new("/pkg"), &environment).as_deref(),
+      Some("plugin.json")
+    );
     // wasm wins if a package unusually ships both
-    let both = create_test_npm_tarball(&[("package/plugin.json", b"{}"), ("package/plugin.wasm", b"\0asm")]);
-    assert_eq!(detect_plugin_kind_from_tarball(&both).unwrap(), PluginKind::Wasm);
+    environment.write_file("/pkg/plugin.wasm", "\0asm").unwrap();
+    assert_eq!(
+      detect_plugin_path_in_dir(std::path::Path::new("/pkg"), &environment).as_deref(),
+      Some("plugin.wasm")
+    );
+  }
 
-    // a plugin file nested below the root doesn't count
-    let nested = create_test_npm_tarball(&[("package/sub/plugin.json", b"{}")]);
-    assert!(detect_plugin_kind_from_tarball(&nested).is_err());
-
-    let neither = create_test_npm_tarball(&[("package/index.js", b"")]);
-    let err = detect_plugin_kind_from_tarball(&neither).unwrap_err().to_string();
-    assert!(err.contains("plugin.wasm or plugin.json"), "got: {err}");
+  #[test]
+  fn plugin_kind_from_path_by_extension() {
+    assert_eq!(plugin_kind_from_path("plugin.wasm"), PluginKind::Wasm);
+    assert_eq!(plugin_kind_from_path("plugin.json"), PluginKind::Process);
+    assert_eq!(plugin_kind_from_path("sub/plugin.JSON"), PluginKind::Process);
+    assert_eq!(plugin_kind_from_path("foo"), PluginKind::Wasm);
   }
 
   #[tokio::test]
-  async fn fetch_npm_latest_tarball_info_resolves_detects_and_checksums() {
+  async fn resolve_npm_from_registry_add_mode_detects_path_checksums_and_writes_sidecar() {
     use crate::environment::TestEnvironment;
     use crate::test_helpers::create_test_npm_tarball;
 
     let environment = TestEnvironment::new();
     let packument = serde_json::json!({
-      "dist-tags": { "latest": "3.0.0" },
-      "versions": { "3.0.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-3.0.0.tgz" } } }
+      "versions": { "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.0.0.tgz" } } }
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
-    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.json", b"{}")]);
-    let expected_checksum = get_sha256_checksum(&tarball_bytes);
-    environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-3.0.0.tgz", tarball_bytes);
+    let tarball = create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]);
+    let expected = get_sha256_checksum(&tarball);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-1.0.0.tgz", tarball);
+    let registry = NpmRegistryResolution {
+      url: "https://registry.npmjs.org".to_string(),
+      auth_header: None,
+    };
+    // a defaulted path + add mode: detect the file, compute the checksum (no
+    // checksum required to verify), and record the sidecar.
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: Some("1.0.0".to_string()),
+      path: "plugin.wasm".to_string(),
+    };
+    let resolved = resolve_npm_from_registry(
+      ResolveNpmRegistryOptions {
+        specifier: &specifier,
+        checksum: None,
+        detect_path: true,
+        establish_checksum: true,
+        registry: &registry,
+        config_dir: None,
+      },
+      &environment,
+    )
+    .await
+    .unwrap();
+    assert_eq!(resolved.resolved_path, "plugin.wasm");
+    assert_eq!(resolved.plugin_kind, PluginKind::Wasm);
+    assert_eq!(resolved.tarball_checksum.as_deref(), Some(expected.as_str()));
 
-    let info = fetch_npm_latest_tarball_info("foo", None, &environment).await.unwrap();
-    assert_eq!(info.version, "3.0.0");
-    assert_eq!(info.plugin_kind, PluginKind::Process);
-    assert_eq!(info.tarball_sha256, expected_checksum);
-  }
-
-  #[tokio::test]
-  async fn fetch_npm_versioned_tarball_info_detects_and_checksums() {
-    use crate::environment::TestEnvironment;
-    use crate::test_helpers::create_test_npm_tarball;
-
-    let environment = TestEnvironment::new();
-    let packument = serde_json::json!({
-      "dist-tags": { "latest": "9.9.9" },
-      "versions": { "1.2.3": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.2.3.tgz" } } }
-    });
-    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
-    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]);
-    let expected_checksum = get_sha256_checksum(&tarball_bytes);
-    environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-1.2.3.tgz", tarball_bytes);
-
-    let info = fetch_npm_versioned_tarball_info("foo", "1.2.3", None, &environment).await.unwrap();
-    assert_eq!(info.plugin_kind, PluginKind::Wasm);
-    assert_eq!(info.tarball_sha256, expected_checksum);
+    // the setup wrote the checksum sidecar, so a later add can reuse it...
+    assert_eq!(
+      read_npm_tarball_checksum("foo", "1.0.0", None, &environment).as_deref(),
+      Some(expected.as_str())
+    );
+    // ...and re-detect the plugin file from the already-extracted package
+    // (no package-level cached "kind").
+    assert_eq!(
+      detect_extracted_npm_plugin("foo", "1.0.0", None, &environment),
+      Some(("plugin.wasm".to_string(), PluginKind::Wasm))
+    );
   }
 
   #[test]
@@ -1821,9 +1871,19 @@ mod tests {
       version: Some("1.0.0".to_string()),
       path: "plugin.wasm".to_string(),
     };
-    let _ = resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, None, &environment)
-      .await
-      .unwrap();
+    let _ = resolve_npm_from_registry(
+      ResolveNpmRegistryOptions {
+        specifier: &specifier,
+        checksum: Some(&tarball_checksum),
+        detect_path: false,
+        establish_checksum: false,
+        registry: &registry,
+        config_dir: None,
+      },
+      &environment,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
       environment.take_remote_file_auth("https://private.example.com/foo").as_deref(),
@@ -1860,9 +1920,19 @@ mod tests {
       version: Some("1.0.0".to_string()),
       path: "plugin.wasm".to_string(),
     };
-    let _ = resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, None, &environment)
-      .await
-      .unwrap();
+    let _ = resolve_npm_from_registry(
+      ResolveNpmRegistryOptions {
+        specifier: &specifier,
+        checksum: Some(&tarball_checksum),
+        detect_path: false,
+        establish_checksum: false,
+        registry: &registry,
+        config_dir: None,
+      },
+      &environment,
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
       environment.take_remote_file_auth("https://private.example.com/foo").as_deref(),
@@ -2089,7 +2159,19 @@ mod tests {
       version: Some("0.6.2".to_string()),
       path: "plugin.wasm".to_string(),
     };
-    let err = match resolve_npm_from_registry(&specifier, Some(&tarball_checksum), &registry, None, &environment).await {
+    let err = match resolve_npm_from_registry(
+      ResolveNpmRegistryOptions {
+        specifier: &specifier,
+        checksum: Some(&tarball_checksum),
+        detect_path: false,
+        establish_checksum: false,
+        registry: &registry,
+        config_dir: None,
+      },
+      &environment,
+    )
+    .await
+    {
       Ok(_) => panic!("expected an error"),
       Err(e) => e,
     };
