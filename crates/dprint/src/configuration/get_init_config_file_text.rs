@@ -145,12 +145,8 @@ struct ProjectFiles {
 }
 
 /// Whether the plugin should be pre-selected based on the files in the current
-/// directory. Process plugins are never pre-selected because they're heavier to
-/// set up (they require a checksum) and are better chosen explicitly.
+/// directory.
 fn is_default_selected(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> bool {
-  if plugin.is_process_plugin() {
-    return false;
-  }
   plugin.file_extensions.iter().any(|ext| project_files.extensions.contains(&ext.to_lowercase()))
     || plugin.file_names.iter().any(|name| project_files.file_names.contains(name))
 }
@@ -324,6 +320,34 @@ mod test {
   ],
   "plugins": [
     "https://plugins.dprint.dev/final-0.1.2.wasm"
+  ]
+}
+"#
+      );
+
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_pre_select_process_plugin_by_extension() {
+    // the process plugin is matched via its ".ps" file extension
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        for plugin in get_multi_plugins_config() {
+          info.add_plugin(plugin);
+        }
+      })
+      .write_file("/file.ps", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, false).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/process-0.1.0.json@test-checksum"
   ]
 }
 "#
