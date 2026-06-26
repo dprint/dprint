@@ -123,23 +123,31 @@ pub async fn resolve_npm_latest_version(name: &str, start_dir: Option<&Path>, en
   latest_version_from_packument(&packument, name)
 }
 
-/// Reads the cached tarball sidecar for `name@version`, if present. Lets
-/// `dprint add` reuse a prior setup's checksum + kind without re-downloading.
-pub fn read_npm_add_cache(name: &str, version: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Option<NpmAddCacheEntry> {
+/// Reads the cached tarball checksum for `name@version`, if a prior setup
+/// recorded one. The checksum is a package-version property (the same for any
+/// plugin file the package ships), so `dprint add` can reuse it without
+/// re-downloading the tarball.
+pub fn read_npm_tarball_checksum(name: &str, version: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Option<String> {
   let registry = resolve_registry_for_package(name, start_dir, environment);
   let registry_segment = registry_dir_segment(&registry.url);
-  let meta = read_npm_tarball_meta(&registry_segment, name, version, environment)?;
-  Some(NpmAddCacheEntry {
-    tarball_sha256: meta.tarball_sha256,
-    plugin_kind: meta.plugin_kind,
-  })
+  Some(read_npm_tarball_meta(&registry_segment, name, version, environment)?.tarball_sha256)
 }
 
-/// A tarball checksum + kind recovered from the sidecar cache (see
-/// [`read_npm_add_cache`]).
-pub struct NpmAddCacheEntry {
-  pub tarball_sha256: String,
-  pub plugin_kind: PluginKind,
+/// For a pathless `dprint add` on a repeat add: if `name@version` is already
+/// extracted in the cache, detect which plugin file it ships (preferring
+/// `plugin.wasm` over `plugin.json`) without re-downloading. Returns the path
+/// and its kind, or `None` if the package isn't extracted or ships neither
+/// conventional file (so the caller falls back to a full download).
+pub fn detect_extracted_npm_plugin(name: &str, version: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Option<(String, PluginKind)> {
+  let registry = resolve_registry_for_package(name, start_dir, environment);
+  let registry_segment = registry_dir_segment(&registry.url);
+  let extract_dir = get_npm_extract_dir(&registry_segment, name, version, environment);
+  if !environment.path_exists(&extract_dir) {
+    return None;
+  }
+  let path = detect_plugin_path_in_dir(&extract_dir, environment)?;
+  let kind = plugin_kind_from_path(&path);
+  Some((path, kind))
 }
 
 /// Inspects whether an npm package installed in `node_modules` (walking up from
@@ -343,9 +351,9 @@ pub async fn resolve_npm_from_registry(options: ResolveNpmRegistryOptions<'_>, e
     None
   };
 
-  // record the tarball's checksum + kind so a later `dprint add` of the same
-  // version can reuse them without re-downloading the tarball. Best-effort.
-  write_npm_tarball_meta(&registry_segment, &specifier.name, version, &tarball_sha256, plugin_kind, environment);
+  // record the tarball's checksum so a later `dprint add` of the same version
+  // can reuse it without re-downloading the tarball. Best-effort.
+  write_npm_tarball_meta(&registry_segment, &specifier.name, version, &tarball_sha256, environment);
 
   Ok(NpmResolvedPlugin {
     plugin_bytes,
@@ -644,23 +652,20 @@ pub(super) fn get_npm_extract_dir(registry_segment: &str, package_name: &str, ve
   environment.get_cache_dir().join("npm").join(registry_segment).join(dir_name)
 }
 
-/// The tarball's checksum and plugin kind, cached so a later `dprint add` of the
-/// same `name@version` can reuse them without re-downloading the tarball.
-///
-/// `plugin_kind` is the kind of the plugin file that was set up (derived from
-/// its path), not a fresh inspection of the archive — these only diverge for
-/// the unlikely package shipping both a plugin.wasm and plugin.json, and even
-/// then the cached kind names a file that provably exists. If a registry ever
-/// republishes the same version with different bytes the cached checksum goes
-/// stale, but that fails closed: the next `dprint fmt` re-downloads and errors
-/// on the mismatch rather than trusting it (and `clear-cache` fixes it).
+/// The tarball's SHA-256, cached so a later `dprint add` of the same
+/// `name@version` can reuse it without re-downloading the tarball. The checksum
+/// is a package-version property — the same regardless of which plugin file in
+/// the package an entry points at — so only it is cached here; the plugin kind
+/// is always derived from the specifier path or the extracted files. If a
+/// registry ever republishes the same version with different bytes the cached
+/// checksum goes stale, but that fails closed: the next `dprint fmt`
+/// re-downloads and errors on the mismatch (and `clear-cache` fixes it).
 struct NpmTarballMeta {
   tarball_sha256: String,
-  plugin_kind: PluginKind,
 }
 
-/// Path of the sidecar file caching a tarball's checksum + kind, kept next to
-/// (not inside) the `name@version` extract directory so it doesn't mix with the
+/// Path of the sidecar file caching a tarball's checksum, kept next to (not
+/// inside) the `name@version` extract directory so it doesn't mix with the
 /// package's own files. Wiped by `dprint clear-cache` along with the rest of
 /// the npm cache.
 fn npm_tarball_meta_path(registry_segment: &str, package_name: &str, version: &str, environment: &impl Environment) -> PathBuf {
@@ -674,29 +679,13 @@ fn read_npm_tarball_meta(registry_segment: &str, package_name: &str, version: &s
   let text = environment.read_file(&path).ok()?;
   let value: serde_json::Value = serde_json::from_str(&text).ok()?;
   let tarball_sha256 = value.get("tarballChecksum")?.as_str()?.to_string();
-  let plugin_kind = match value.get("pluginKind")?.as_str()? {
-    "wasm" => PluginKind::Wasm,
-    "process" => PluginKind::Process,
-    _ => return None,
-  };
-  Some(NpmTarballMeta { tarball_sha256, plugin_kind })
+  Some(NpmTarballMeta { tarball_sha256 })
 }
 
 /// Writes the tarball sidecar. Best-effort — a failure just means the next
 /// `dprint add` re-downloads to recompute the checksum.
-fn write_npm_tarball_meta(
-  registry_segment: &str,
-  package_name: &str,
-  version: &str,
-  tarball_sha256: &str,
-  plugin_kind: PluginKind,
-  environment: &impl Environment,
-) {
-  let kind = match plugin_kind {
-    PluginKind::Wasm => "wasm",
-    PluginKind::Process => "process",
-  };
-  let json = serde_json::json!({ "tarballChecksum": tarball_sha256, "pluginKind": kind });
+fn write_npm_tarball_meta(registry_segment: &str, package_name: &str, version: &str, tarball_sha256: &str, environment: &impl Environment) {
+  let json = serde_json::json!({ "tarballChecksum": tarball_sha256 });
   let path = npm_tarball_meta_path(registry_segment, package_name, version, environment);
   let _ = environment.write_file(&path, &json.to_string());
 }
@@ -1536,11 +1525,17 @@ mod tests {
     assert_eq!(resolved.plugin_kind, PluginKind::Wasm);
     assert_eq!(resolved.tarball_checksum.as_deref(), Some(expected.as_str()));
 
-    // the setup wrote the sidecar, so a later add can read the checksum + kind
-    // without re-downloading.
-    let entry = read_npm_add_cache("foo", "1.0.0", None, &environment).unwrap();
-    assert_eq!(entry.tarball_sha256, expected);
-    assert_eq!(entry.plugin_kind, PluginKind::Wasm);
+    // the setup wrote the checksum sidecar, so a later add can reuse it...
+    assert_eq!(
+      read_npm_tarball_checksum("foo", "1.0.0", None, &environment).as_deref(),
+      Some(expected.as_str())
+    );
+    // ...and re-detect the plugin file from the already-extracted package
+    // (no package-level cached "kind").
+    assert_eq!(
+      detect_extracted_npm_plugin("foo", "1.0.0", None, &environment),
+      Some(("plugin.wasm".to_string(), PluginKind::Wasm))
+    );
   }
 
   #[test]

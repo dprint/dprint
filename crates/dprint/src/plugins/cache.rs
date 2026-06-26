@@ -78,14 +78,6 @@ struct VerifyAndStoreOptions<'a> {
   primary_stamp: Option<LocalStamp>,
 }
 
-/// The default plugin file name within an npm package for each kind.
-fn default_plugin_path(kind: PluginKind) -> &'static str {
-  match kind {
-    PluginKind::Wasm => "plugin.wasm",
-    PluginKind::Process => "plugin.json",
-  }
-}
-
 /// On-disk cache of set-up plugins.
 ///
 /// Each plugin gets a flat pair of files under `<cache>/plugins/` keyed by a
@@ -260,19 +252,24 @@ where
       .ok_or_else(|| anyhow::anyhow!("Internal error: resolve_npm_for_add requires a versioned specifier"))?;
     let base_dir_ref = base_dir.map(|d| d.as_ref());
 
-    // a prior add/format cached this version's checksum + kind — reuse it
-    // instead of re-downloading the tarball.
-    if let Some(entry) = npm_resolution::read_npm_add_cache(&specifier.name, version, base_dir_ref, &self.environment) {
-      let path = if path_was_explicit {
-        specifier.path.clone()
-      } else {
-        default_plugin_path(entry.plugin_kind).to_string()
-      };
-      return Ok(NpmAddResolution {
-        plugin_kind: entry.plugin_kind,
-        path,
-        checksum: entry.tarball_sha256,
-      });
+    // fast path: a prior add/format cached this version's tarball checksum, so
+    // skip the re-download. The kind comes from the real path/files (NOT a
+    // package-level cached kind, which would be wrong for a package shipping
+    // multiple plugins): an explicit path determines its own kind; a pathless
+    // specifier is re-detected from the already-extracted package.
+    if let Some(checksum) = npm_resolution::read_npm_tarball_checksum(&specifier.name, version, base_dir_ref, &self.environment) {
+      if path_was_explicit {
+        return Ok(NpmAddResolution {
+          plugin_kind: specifier.plugin_kind(),
+          path: specifier.path.clone(),
+          checksum,
+        });
+      }
+      if let Some((path, plugin_kind)) = npm_resolution::detect_extracted_npm_plugin(&specifier.name, version, base_dir_ref, &self.environment) {
+        return Ok(NpmAddResolution { plugin_kind, path, checksum });
+      }
+      // the extract dir is gone (or has no conventional plugin file) — fall
+      // through to a full resolve, which re-downloads and re-detects.
     }
 
     let registry = self.resolve_registry(&specifier.name, base_dir_ref);

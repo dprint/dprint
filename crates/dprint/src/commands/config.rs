@@ -3161,6 +3161,68 @@ mod test {
   }
 
   #[tokio::test]
+  async fn npm_add_explicit_path_in_multi_plugin_package_uses_path_kind() {
+    // a package shipping several plugins: an explicit path picks its own file
+    // and derives the kind from the extension, ignoring a sibling plugin.json.
+    use crate::test_helpers::create_test_npm_tarball;
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "1.0.0" },
+      "versions": { "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/plugins/-/plugins-1.0.0.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/plugins", packument.to_string().into_bytes());
+    // the package ships a wasm plugin AND a (sibling) plugin.json
+    let tarball_bytes = create_test_npm_tarball(&[
+      ("package/typescript.wasm", crate::test_helpers::WASM_PLUGIN_BYTES),
+      ("package/plugin.json", b"{}"),
+    ]);
+    let expected = crate::utils::get_sha256_checksum(&tarball_bytes);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/plugins/-/plugins-1.0.0.tgz", tarball_bytes);
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+    let result = call_resolve_npm_plugin_to_add_checksum("npm:plugins@1.0.0/typescript.wasm", &config_path, false, false, true, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, format!("npm:plugins@1.0.0/typescript.wasm@{}", expected));
+  }
+
+  #[tokio::test]
+  async fn npm_add_explicit_process_path_after_wasm_add_derives_kind_from_path() {
+    // regression: a second add of a *different* plugin file in the same package
+    // hits the cached tarball checksum but must derive the kind from its own
+    // path — not the kind cached for the first plugin. Here the first (wasm) add
+    // seeds the sidecar; the second names the process plugin and must still get
+    // a checksum (process plugins require one).
+    use crate::test_helpers::create_test_npm_tarball;
+    let environment = TestEnvironment::new();
+    environment.write_file("/dprint.json", "{}").unwrap();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "1.0.0" },
+      "versions": { "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/plugins/-/plugins-1.0.0.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/plugins", packument.to_string().into_bytes());
+    let tarball_bytes = create_test_npm_tarball(&[
+      ("package/typescript.wasm", crate::test_helpers::WASM_PLUGIN_BYTES),
+      ("package/config.json", b"{}"),
+    ]);
+    let expected = crate::utils::get_sha256_checksum(&tarball_bytes);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/plugins/-/plugins-1.0.0.tgz", tarball_bytes);
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+
+    // first add (wasm, --checksum) sets the wasm plugin up and writes the sidecar
+    call_resolve_npm_plugin_to_add_checksum("npm:plugins/typescript.wasm", &config_path, false, false, true, &environment)
+      .await
+      .unwrap();
+
+    // second add (process, no --checksum) reuses the cached checksum but derives
+    // Process from `config.json`, so a checksum is still written.
+    let result = call_resolve_npm_plugin_to_add("npm:plugins/config.json", &config_path, false, false, &environment)
+      .await
+      .unwrap();
+    assert_eq!(result.url, format!("npm:plugins@1.0.0/config.json@{}", expected));
+  }
+
+  #[tokio::test]
   async fn npm_add_checksum_pins_instead_of_deferring_to_devdep() {
     // `--checksum` requires a pinned version, so it overrides the usual
     // deferral to an unversioned spec when the package is in package.json.
