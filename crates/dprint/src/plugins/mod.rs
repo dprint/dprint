@@ -21,4 +21,7 @@ pub use implementations::WASM_PLUGIN_THREAD_STACK_SIZE;
 pub use implementations::compile_wasm;
 pub use name_resolution::PluginNameResolutionMaps;
 pub use npm_resolution::FetchNpmLatestInfo;
+pub use npm_resolution::detect_npm_plugin_kind_in_node_modules;
 pub use npm_resolution::fetch_npm_latest_info;
+pub use npm_resolution::fetch_npm_latest_tarball_info;
+pub use npm_resolution::fetch_npm_versioned_tarball_info;
