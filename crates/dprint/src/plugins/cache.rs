@@ -29,8 +29,10 @@ use super::implementations::get_process_plugin_os_path;
 use super::implementations::parse_process_plugin_file;
 use super::implementations::setup_plugin;
 use super::npm_resolution;
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::PluginSourceReference;
+use crate::utils::NpmSpecifier;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::get_sha256_checksum;
@@ -41,6 +43,22 @@ pub struct PluginCacheItem {
   pub file_path: PathBuf,
   pub info: PluginInfo,
   pub plugin_kind: PluginKind,
+}
+
+/// What [`PluginCache::resolve_npm_for_add`] resolved: the plugin file path
+/// within the package (detected for a pathless specifier) and the tarball
+/// checksum, for the caller to write into the config entry.
+pub struct NpmAddResolution {
+  pub path: String,
+  pub checksum: String,
+}
+
+/// The default plugin file name within an npm package for each kind.
+fn default_plugin_path(kind: PluginKind) -> &'static str {
+  match kind {
+    PluginKind::Wasm => "plugin.wasm",
+    PluginKind::Process => "plugin.json",
+  }
 }
 
 /// On-disk cache of set-up plugins.
@@ -171,7 +189,18 @@ where
     let checksum = source_reference.checksum.as_deref();
     let base_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
     let registry = self.resolve_registry(&specifier.name, base_dir);
-    let resolved = npm_resolution::resolve_npm_from_registry(specifier, checksum, &registry, base_dir, &self.environment).await?;
+    let resolved = npm_resolution::resolve_npm_from_registry(
+      npm_resolution::ResolveNpmRegistryOptions {
+        specifier,
+        checksum,
+        detect_path: false,
+        establish_checksum: false,
+        registry: &registry,
+        config_dir: base_dir,
+      },
+      &self.environment,
+    )
+    .await?;
 
     // npm-versioned content is pinned by name@version, so there are no local
     // stamps — a present entry is always a hit.
@@ -189,54 +218,109 @@ where
       .with_context(|| format!("Setting up {}", specifier.display()))
   }
 
-  /// Like [`get_npm_registry_plugin`] but reuses a package tarball that was
-  /// already downloaded (e.g. by `dprint add`), so the registry tarball isn't
-  /// fetched a second time. Returns early on a cache hit.
-  async fn setup_npm_registry_plugin_from_tarball(
+  /// Sets up a versioned npm plugin for `dprint add`: resolves the plugin file
+  /// (detecting it for a pathless specifier), computes the tarball checksum, and
+  /// warms the plugin cache so the first `dprint fmt` is a hit. Returns the
+  /// resolved path + checksum for the caller to write into config. Reuses the
+  /// checksum sidecar to skip the download on a repeat add.
+  pub async fn resolve_npm_for_add(
     &self,
-    source_reference: &PluginSourceReference,
-    npm_source: &crate::utils::NpmPathSource,
-    tarball_bytes: Vec<u8>,
-  ) -> Result<()> {
-    let (cache_key, hash, _setup_guard) = match self.lookup_or_lock(&source_reference.path_source).await? {
-      CacheLookup::Hit(_) => return Ok(()),
-      CacheLookup::Miss { cache_key, hash, guard } => (cache_key, hash, guard),
+    specifier: &NpmSpecifier,
+    path_was_explicit: bool,
+    base_dir: Option<&CanonicalizedPathBuf>,
+  ) -> Result<NpmAddResolution> {
+    let version = specifier
+      .version
+      .as_deref()
+      .ok_or_else(|| anyhow::anyhow!("Internal error: resolve_npm_for_add requires a versioned specifier"))?;
+    let base_dir_ref = base_dir.map(|d| d.as_ref());
+
+    // a prior add/format cached this version's checksum + kind — reuse it
+    // instead of re-downloading the tarball.
+    if let Some(entry) = npm_resolution::read_npm_add_cache(&specifier.name, version, base_dir_ref, &self.environment) {
+      let path = if path_was_explicit {
+        specifier.path.clone()
+      } else {
+        default_plugin_path(entry.plugin_kind).to_string()
+      };
+      return Ok(NpmAddResolution {
+        path,
+        checksum: entry.tarball_sha256,
+      });
+    }
+
+    let registry = self.resolve_registry(&specifier.name, base_dir_ref);
+    let resolved = npm_resolution::resolve_npm_from_registry(
+      npm_resolution::ResolveNpmRegistryOptions {
+        specifier,
+        checksum: None,
+        detect_path: !path_was_explicit,
+        establish_checksum: true,
+        registry: &registry,
+        config_dir: base_dir_ref,
+      },
+      &self.environment,
+    )
+    .await?;
+    let checksum = resolved
+      .tarball_checksum
+      .clone()
+      .ok_or_else(|| anyhow::anyhow!("Internal error: registry resolve did not compute a checksum"))?;
+
+    // warm the compiled cache under the resolved path's key so the first
+    // `dprint fmt` is a hit (the key ignores the checksum, so writing it to
+    // config afterward still matches).
+    let resolved_specifier = NpmSpecifier {
+      name: specifier.name.clone(),
+      version: Some(version.to_string()),
+      path: resolved.resolved_path.clone(),
     };
+    let path_source = PathSource::new_npm(resolved_specifier, base_dir.cloned());
+    if let CacheLookup::Miss { cache_key, hash, .. } = self.lookup_or_lock(&path_source).await? {
+      self
+        .setup_and_store(
+          &hash,
+          &cache_key,
+          &resolved.local_path,
+          resolved.plugin_bytes,
+          resolved.plugin_kind,
+          resolved.pre_resolved_tarball,
+          None,
+        )
+        .await
+        .with_context(|| format!("Setting up {}", specifier.display()))?;
+    }
 
-    let specifier = &npm_source.specifier;
-    let checksum = source_reference.checksum.as_deref();
-    let base_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-    let registry = self.resolve_registry(&specifier.name, base_dir);
-    let resolved = npm_resolution::resolve_npm_from_prefetched_tarball(specifier, checksum, tarball_bytes, &registry, base_dir, &self.environment).await?;
-
-    self
-      .setup_and_store(
-        &hash,
-        &cache_key,
-        &resolved.local_path,
-        resolved.plugin_bytes,
-        resolved.plugin_kind,
-        resolved.pre_resolved_tarball,
-        None,
-      )
-      .await
-      .with_context(|| format!("Setting up {}", specifier.display()))?;
-    Ok(())
+    Ok(NpmAddResolution {
+      path: resolved.resolved_path,
+      checksum,
+    })
   }
 
-  /// Populates the plugin cache from bytes already downloaded during `dprint
-  /// add` (to compute a checksum), so the first `dprint fmt` is a cache hit
-  /// with no second download. Remote/local plugins use the plugin file bytes;
-  /// versioned npm plugins use the package tarball bytes. Other sources (e.g.
-  /// unversioned npm, which resolves from node_modules) are a no-op.
-  pub async fn setup_from_prefetched_download(&self, source_reference: &PluginSourceReference, bytes: Vec<u8>) -> Result<()> {
-    match &source_reference.path_source {
-      PathSource::Remote(_) | PathSource::Local(_) => self.setup_remote_plugin_from_bytes(source_reference, bytes).await,
-      PathSource::Npm(npm_source) if npm_source.specifier.version.is_some() => {
-        self.setup_npm_registry_plugin_from_tarball(source_reference, npm_source, bytes).await
-      }
-      PathSource::Npm(_) => Ok(()),
+  /// Downloads a remote plugin for `dprint add`, computes its checksum, and
+  /// warms the plugin cache so the first `dprint fmt` is a hit. Returns the
+  /// checksum for the caller to write into config.
+  pub async fn resolve_remote_for_add(&self, source_reference: &PluginSourceReference) -> Result<String> {
+    let remote = match &source_reference.path_source {
+      PathSource::Remote(remote) => remote,
+      _ => bail!("Internal error: resolve_remote_for_add requires a remote source"),
+    };
+    let plugin_kind = source_reference
+      .plugin_kind()
+      .ok_or_else(|| anyhow::anyhow!("Could not determine plugin kind for {}", source_reference.display()))?;
+    let (resolved_url, file) = self.environment.download_file_err_404(&remote.url, None).await?;
+    let file_bytes = file.content;
+    let checksum = get_sha256_checksum(&file_bytes);
+
+    if let CacheLookup::Miss { cache_key, hash, .. } = self.lookup_or_lock(&source_reference.path_source).await? {
+      let resolved_source = PathSource::new_remote(resolved_url.into_owned());
+      self
+        .setup_and_store(&hash, &cache_key, &resolved_source, file_bytes, plugin_kind, None, None)
+        .await
+        .with_context(|| format!("Setting up {}", source_reference.display()))?;
     }
+
+    Ok(checksum)
   }
 
   /// Gets a plugin from a local path (node_modules). No checksum required since it's a local file.
@@ -319,26 +403,8 @@ where
       .await
   }
 
-  /// Sets up and caches a remote/local plugin from bytes already downloaded
-  /// elsewhere — e.g. `dprint add` downloads a Wasm/JSON plugin to compute its
-  /// checksum, then hands the bytes here so the first `dprint fmt` is a cache
-  /// hit instead of downloading and compiling again. Returns early on a hit.
-  async fn setup_remote_plugin_from_bytes(&self, source_reference: &PluginSourceReference, file_bytes: Vec<u8>) -> Result<()> {
-    let (cache_key, hash, _setup_guard) = match self.lookup_or_lock(&source_reference.path_source).await? {
-      CacheLookup::Hit(_) => return Ok(()),
-      CacheLookup::Miss { cache_key, hash, guard } => (cache_key, hash, guard),
-    };
-    let primary_stamp = source_reference.path_source.maybe_local_path().and_then(|p| self.stamp_for(p));
-    let resolved_source = source_reference.path_source.clone();
-    self
-      .verify_and_store_plugin(source_reference, &cache_key, &hash, file_bytes, resolved_source, primary_stamp)
-      .await?;
-    Ok(())
-  }
-
-  /// Shared tail of plugin setup once the file bytes are in hand (whether
-  /// freshly downloaded by `get_plugin` or handed in pre-downloaded): verifies
-  /// the checksum, computes local stamps, and stores the cached entry.
+  /// Shared tail of plugin setup once the file bytes are in hand: verifies the
+  /// checksum, computes local stamps, and stores the cached entry.
   async fn verify_and_store_plugin(
     &self,
     source_reference: &PluginSourceReference,
@@ -682,18 +748,20 @@ mod test {
   }
 
   #[tokio::test]
-  async fn setup_remote_plugin_from_bytes_warms_cache_without_download() -> Result<()> {
-    // the remote url is intentionally NOT registered — a later resolve must be
-    // a pure cache hit, proving the prefetch set the plugin up from the bytes
-    // without going to the network.
+  async fn resolve_remote_for_add_returns_checksum_and_warms_cache() -> Result<()> {
     let environment = TestEnvironment::new();
     environment.set_cpu_arch("aarch64");
+    environment.add_remote_file("https://plugins.dprint.dev/test.wasm", WASM_PLUGIN_BYTES);
+    let expected = crate::utils::get_sha256_checksum(WASM_PLUGIN_BYTES);
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_source = PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test.wasm");
 
-    plugin_cache.setup_remote_plugin_from_bytes(&plugin_source, WASM_PLUGIN_BYTES.to_vec()).await?;
+    let checksum = plugin_cache.resolve_remote_for_add(&plugin_source).await?;
+    assert_eq!(checksum, expected);
+    // it compiled while warming the cache
     assert_eq!(environment.take_stderr_messages(), vec!["Compiling https://plugins.dprint.dev/test.wasm"]);
 
+    // the later resolve is a pure cache hit — no recompile
     let item = plugin_cache.get_plugin_cache_item(&plugin_source).await?;
     assert_eq!(item.info.name, "test-plugin");
     assert!(environment.take_stderr_messages().is_empty(), "resolve should have been a cache hit");
@@ -701,25 +769,36 @@ mod test {
   }
 
   #[tokio::test]
-  async fn setup_from_prefetched_download_warms_npm_cache_without_download() -> Result<()> {
+  async fn resolve_npm_for_add_detects_path_checksums_and_warms_cache() -> Result<()> {
     use crate::test_helpers::create_test_npm_tarball;
-    // neither the registry packument nor the tarball are registered — the
-    // prefetch must set the plugin up entirely from the provided tarball bytes,
-    // and the later resolve must be a cache hit.
     let environment = TestEnvironment::new();
     environment.set_cpu_arch("aarch64");
+    let packument = serde_json::json!({
+      "versions": { "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.0.0.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
     let tarball = create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]);
-    let checksum = crate::utils::get_sha256_checksum(&tarball);
+    let expected = crate::utils::get_sha256_checksum(&tarball);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-1.0.0.tgz", tarball);
     let plugin_cache = PluginCache::new(environment.clone());
+    // pathless specifier → kind detected from the package
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: Some("1.0.0".to_string()),
+      path: "plugin.wasm".to_string(),
+    };
+
+    let resolution = plugin_cache.resolve_npm_for_add(&specifier, false, None).await?;
+    assert_eq!(resolution.path, "plugin.wasm");
+    assert_eq!(resolution.checksum, expected);
+    let _ = environment.take_stderr_messages();
+
+    // the config entry the caller would write now resolves as a cache hit
     let reference = crate::plugins::parse_plugin_source_reference(
-      &format!("npm:foo@1.0.0/plugin.wasm@{}", checksum),
+      &format!("npm:foo@1.0.0@{}", expected),
       &PathSource::new_local(crate::environment::CanonicalizedPathBuf::new_for_testing("/dprint.json")),
       &environment,
     )?;
-
-    plugin_cache.setup_from_prefetched_download(&reference, tarball).await?;
-    let _ = environment.take_stderr_messages();
-
     let item = plugin_cache.get_plugin_cache_item(&reference).await?;
     assert_eq!(item.info.name, "test-plugin");
     assert!(environment.take_stderr_messages().is_empty(), "resolve should have been a cache hit");

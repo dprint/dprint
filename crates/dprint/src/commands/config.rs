@@ -28,12 +28,9 @@ use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginWrapper;
 use crate::plugins::detect_npm_plugin_kind_in_node_modules;
 use crate::plugins::fetch_npm_latest_info;
-use crate::plugins::fetch_npm_latest_tarball_download;
-use crate::plugins::fetch_npm_latest_tarball_info;
-use crate::plugins::fetch_npm_versioned_tarball_download;
-use crate::plugins::fetch_npm_versioned_tarball_info;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
+use crate::plugins::resolve_npm_latest_version;
 use crate::resolution::GetPluginResult;
 use crate::resolution::ResolvePluginsScopeAndPathsOptions;
 use crate::resolution::resolve_plugins_scope;
@@ -140,8 +137,7 @@ pub struct AddPluginsOptions<'a> {
   /// (as a caret range). Implies `no_version`.
   pub update_package_json: bool,
   /// Force a checksum onto each written entry, even for Wasm plugins (which
-  /// are otherwise added without one). Mutually exclusive with `no_version` /
-  /// `update_package_json`.
+  /// are otherwise added without one).
   pub checksum: bool,
 }
 
@@ -186,12 +182,12 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
       &possible_plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
     )?;
     let selected = possible_plugins.remove(index);
-    let (url, prefetched) = if checksum {
-      ensure_url_checksum(selected.full_url(), environment).await?
+    let url = if checksum {
+      ensure_url_checksum(selected.full_url(), plugin_resolver).await?
     } else {
-      (selected.full_url_no_wasm_checksum(), None)
+      selected.full_url_no_wasm_checksum()
     };
-    vec![(url, prefetched)]
+    vec![url]
   } else {
     let mut urls = Vec::with_capacity(plugin_names_or_urls.len());
     for plugin_name_or_url in plugin_names_or_urls {
@@ -217,47 +213,15 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
     urls
   };
 
-  let urls_only = plugin_urls_to_add.iter().map(|(url, _)| url.clone()).collect::<Vec<_>>();
   let file_text = environment.read_file(&config_path)?;
-  let file_text = add_plugins_to_config(&file_text, &npm_packages_to_replace, &urls_only)?;
+  let file_text = add_plugins_to_config(&file_text, &npm_packages_to_replace, &plugin_urls_to_add)?;
   environment.write_file(&config_path, &file_text)?;
 
   if update_package_json && !package_json_additions.is_empty() {
     apply_package_json_additions(&config_path, &package_json_additions, environment)?;
   }
 
-  // reuse anything we already downloaded while resolving (to compute a
-  // checksum) to populate the plugin cache, so the first `dprint fmt` is a
-  // cache hit instead of downloading and compiling it again. Best-effort: a
-  // failure here just means the plugin gets set up lazily on first use.
-  setup_prefetched_plugins(&config_path, plugin_urls_to_add, environment, plugin_resolver).await;
-
   Ok(())
-}
-
-/// Populates the plugin cache from the bytes captured during resolution (see
-/// the `prefetched` payloads). Failures are logged at debug and otherwise
-/// ignored — pre-caching is an optimization, not part of the add's contract.
-async fn setup_prefetched_plugins<TEnvironment: Environment>(
-  config_path: &CanonicalizedPathBuf,
-  resolved: Vec<(String, Option<Vec<u8>>)>,
-  environment: &TEnvironment,
-  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
-) {
-  let base = PathSource::new_local(config_path.clone());
-  for (url, prefetched) in resolved {
-    let Some(bytes) = prefetched else { continue };
-    let reference = match crate::plugins::parse_plugin_source_reference(&url, &base, environment) {
-      Ok(reference) => reference,
-      Err(err) => {
-        log_debug!(environment, "Skipping pre-cache of {}: {:#}", url, err);
-        continue;
-      }
-    };
-    if let Err(err) = plugin_resolver.setup_from_prefetched_download(&reference, bytes).await {
-      log_debug!(environment, "Failed to pre-cache {}: {:#}", url, err);
-    }
-  }
 }
 
 /// Inputs to [`resolve_plugin_url_to_add`]. Bundled to keep the function
@@ -282,17 +246,12 @@ struct ResolvedNpmPluginAdd {
   /// same package before appending this one.
   package_name: String,
   package_json_addition: Option<(String, String)>,
-  /// The package tarball downloaded to compute a checksum, if any — handed to
-  /// the plugin cache so the first `dprint fmt` doesn't re-download it.
-  prefetched_tarball: Option<Vec<u8>>,
 }
 
 /// Resolves a plugin name or URL to a plugin URL to add to the config.
 ///
-/// Returns `Some((url, prefetched_bytes))` for new plugins, or `None` if the
-/// plugin was already present and was updated in-place. `prefetched_bytes` is
-/// `Some` when we downloaded the plugin (to compute a checksum) and can reuse
-/// the bytes to warm the plugin cache. When the input is an `npm:` specifier
+/// Returns `Some(url)` for new plugins, or `None` if the plugin was already
+/// present and was updated in-place. When the input is an `npm:` specifier
 /// resolved with `--package-json`, the caller queues the returned
 /// devDependencies entry via `package_json_additions`.
 async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
@@ -301,7 +260,7 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
   npm_packages_to_replace: &mut Vec<String>,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
-) -> Result<Option<(String, Option<Vec<u8>>)>> {
+) -> Result<Option<String>> {
   let ResolvePluginUrlOptions {
     plugin_name_or_url,
     config_path,
@@ -325,6 +284,7 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
         checksum,
       },
       environment,
+      plugin_resolver,
     )
     .await?;
     if let Some(addition) = resolved.package_json_addition {
@@ -335,7 +295,7 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
     // duplicate. The caller prunes these names from the config in the same
     // read/write that appends `resolved.url`.
     npm_packages_to_replace.push(resolved.package_name);
-    return Ok(Some((resolved.url, resolved.prefetched_tarball)));
+    return Ok(Some(resolved.url));
   }
   if no_version || update_package_json {
     bail!("--no-version / --package-json only apply to `npm:` specifiers (got '{}').", plugin_name_or_url);
@@ -343,12 +303,8 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
   match Url::parse(plugin_name_or_url) {
     Ok(url) => {
       let url = url.to_string();
-      let (url, prefetched) = if checksum {
-        ensure_url_checksum(url, environment).await?
-      } else {
-        (url, None)
-      };
-      Ok(Some((url, prefetched)))
+      let url = if checksum { ensure_url_checksum(url, plugin_resolver).await? } else { url };
+      Ok(Some(url))
     }
     Err(_) => {
       let cached_downloader = CachedDownloader::new(environment.clone());
@@ -410,35 +366,34 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
         }
       }
       if checksum {
-        let (url, prefetched) = ensure_url_checksum(plugin.full_url(), environment).await?;
-        Ok(Some((url, prefetched)))
+        Ok(Some(ensure_url_checksum(plugin.full_url(), plugin_resolver).await?))
       } else {
-        Ok(Some((plugin.full_url_no_wasm_checksum(), None)))
+        Ok(Some(plugin.full_url_no_wasm_checksum()))
       }
     }
   }
 }
 
-/// Ensures a resolved plugin URL carries a checksum, downloading the file to
-/// compute one when the registry/info didn't already supply it. Returns the
-/// (possibly checksummed) URL plus the downloaded bytes when a download
-/// happened, so the caller can reuse them to warm the plugin cache. Only
-/// wasm/json plugin URLs can be checksummed; any other URL is returned
-/// unchanged with no bytes.
-async fn ensure_url_checksum(url: String, environment: &impl Environment) -> Result<(String, Option<Vec<u8>>)> {
+/// Ensures a resolved plugin URL carries a checksum. When one isn't already
+/// present, the plugin is downloaded and set up via the resolver (warming the
+/// cache so the first `dprint fmt` is a hit) and the computed checksum is
+/// appended. Only wasm/json plugin URLs can be checksummed; any other URL is
+/// returned unchanged.
+async fn ensure_url_checksum<TEnvironment: Environment>(url: String, plugin_resolver: &Rc<PluginResolver<TEnvironment>>) -> Result<String> {
   let parsed = crate::utils::parse_checksum_path_or_url(&url);
   if parsed.checksum.is_some() {
-    return Ok((url, None));
+    return Ok(url);
   }
   let lower = parsed.path_or_url.to_lowercase();
   if !(lower.ends_with(".wasm") || lower.ends_with(".json")) {
-    return Ok((url, None)); // not a plugin file we can checksum
+    return Ok(url); // not a plugin file we can checksum
   }
-  let parsed_url = Url::parse(&parsed.path_or_url)?;
-  let (_, file) = environment.download_file_err_404(&parsed_url, None).await?;
-  let bytes = file.content;
-  let url = format!("{}@{}", parsed.path_or_url, crate::utils::get_sha256_checksum(&bytes));
-  Ok((url, Some(bytes)))
+  let reference = PluginSourceReference {
+    path_source: PathSource::new_remote(Url::parse(&parsed.path_or_url)?),
+    checksum: None,
+  };
+  let checksum = plugin_resolver.resolve_remote_for_add(&reference).await?;
+  Ok(format!("{}@{}", parsed.path_or_url, checksum))
 }
 
 struct ResolveNpmPluginOptions<'a> {
@@ -467,20 +422,26 @@ struct ResolveNpmPluginOptions<'a> {
 ///
 /// - `npm:foo@1.2.3/plugin.json[@sha]` (explicit path) → pass through verbatim
 ///   (unless `--checksum` and it has none, in which case one is computed).
-/// - `npm:foo@1.2.3` (versioned, no path) → download that version's tarball to
-///   detect the kind and pin the matching form (with checksum for process).
+/// - `npm:foo@1.2.3` (versioned, no path) → set the package up to detect the
+///   kind and pin the matching form (with checksum for process / `--checksum`).
 /// - `npm:foo` with `--no-version` or `--package-json` → keep unversioned. With
 ///   `--package-json`, also return a `devDependencies` entry for the nearest
-///   `package.json` (caret range pinning the resolved latest) and detect the
-///   kind from that tarball; with bare `--no-version` the registry isn't
-///   touched, so the kind is read from `node_modules` if installed.
+///   `package.json` (caret range pinning the resolved latest). The kind for the
+///   written path is read from `node_modules` if the package is installed.
 /// - `npm:foo` (unversioned) and the package is in a nearby `package.json`'s
-///   `devDependencies` → keep unversioned (defer to npm/node_modules), reading
-///   the kind from `node_modules` if installed.
-/// - `npm:foo` (unversioned) otherwise → resolve `dist-tags.latest`, download
-///   the tarball to detect the kind, and write the pinned form (with checksum
-///   for process plugins).
-async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environment: &impl Environment) -> Result<ResolvedNpmPluginAdd> {
+///   `devDependencies` → keep unversioned (defer to npm/node_modules).
+/// - `npm:foo` (unversioned) otherwise → resolve `dist-tags.latest`, set the
+///   package up (detecting the kind), and write the pinned form.
+///
+/// Whenever the package is set up here (to detect the kind and/or compute a
+/// checksum), the plugin cache is warmed as a side effect, so the first
+/// `dprint fmt` is a cache hit with no re-download — see
+/// [`PluginCache::resolve_npm_for_add`].
+async fn resolve_npm_plugin_to_add<TEnvironment: Environment>(
+  options: ResolveNpmPluginOptions<'_>,
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+) -> Result<ResolvedNpmPluginAdd> {
   let ResolveNpmPluginOptions {
     text,
     config_path,
@@ -519,31 +480,20 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
         url: text.to_string(),
         package_name: name,
         package_json_addition: None,
-        prefetched_tarball: None,
       });
     }
-    // otherwise download the tarball to compute the checksum (and, for a
+    // otherwise set the package up to compute the checksum (and, for a
     // defaulted path, detect the plugin kind), then write the matching entry.
-    let (path, tarball_sha256, tarball_bytes) = if explicit_path {
-      // the user named the plugin file, so don't inspect the package — that
-      // would wrongly require a root plugin.wasm/plugin.json.
-      let download = fetch_npm_versioned_tarball_download(&name, version, Some(start_dir_ref), environment).await?;
-      (parsed.specifier.path.clone(), download.tarball_sha256, download.tarball_bytes)
-    } else {
-      let info = fetch_npm_versioned_tarball_info(&name, version, Some(start_dir_ref), environment).await?;
-      (default_plugin_path(info.plugin_kind).to_string(), info.tarball_sha256, info.tarball_bytes)
-    };
-    let specifier = crate::utils::NpmSpecifier {
-      name,
+    let resolution = plugin_resolver.resolve_npm_for_add(&parsed.specifier, explicit_path, Some(&start_dir)).await?;
+    let pinned = crate::utils::NpmSpecifier {
+      name: name.clone(),
       version: Some(version.clone()),
-      path,
+      path: resolution.path,
     };
-    let url = npm_add_url(&specifier, &tarball_sha256, checksum);
     return Ok(ResolvedNpmPluginAdd {
-      url,
-      package_name: specifier.name,
+      url: npm_add_url(&pinned, &resolution.checksum, checksum),
+      package_name: name,
       package_json_addition: None,
-      prefetched_tarball: tarball_bytes,
     });
   }
 
@@ -551,69 +501,9 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
     // Look up the latest version so we can write a caret range. If the
     // registry is unreachable we still write the unversioned spec to
     // dprint.json but bail on the package.json update so the user notices
-    // (rather than ending up with an out-of-sync state). When the path was
-    // defaulted we also detect the kind from that tarball — `--package-json`
-    // is usually run before the package is installed, so node_modules
-    // detection alone wouldn't find it.
-    let mut detected_kind = None;
+    // (rather than ending up with an out-of-sync state). The written path's
+    // kind is detected from node_modules (these forms resolve from there).
     let package_json_addition = if update_package_json {
-      let version = if explicit_path {
-        // an explicit path already tells us the kind; only the version is needed.
-        fetch_npm_latest_info(
-          FetchNpmLatestInfo {
-            specifier: &parsed.specifier,
-            start_dir: Some(start_dir_ref),
-            want_tarball_sha: false,
-          },
-          environment,
-        )
-        .await
-        .with_context(|| format!("Resolving latest version for package.json entry of {}", name))?
-        .version
-      } else {
-        let info = fetch_npm_latest_tarball_info(&name, Some(start_dir_ref), environment)
-          .await
-          .with_context(|| format!("Resolving latest version for package.json entry of {}", name))?;
-        detected_kind = Some(info.plugin_kind);
-        info.version
-      };
-      Some((name.clone(), format!("^{}", version)))
-    } else {
-      None
-    };
-    return Ok(ResolvedNpmPluginAdd {
-      url: unversioned_npm_add_url(&parsed, explicit_path, detected_kind, start_dir_ref, environment),
-      package_name: name,
-      package_json_addition,
-      // unversioned specifiers resolve from node_modules, so there's nothing to
-      // pre-cache (any tarball we fetched above was only for the caret range).
-      prefetched_tarball: None,
-    });
-  }
-
-  // `--checksum` forces a pinned, checksummed entry, so don't defer to the
-  // unversioned node_modules form when it's set.
-  if !checksum && is_in_package_json_deps(&name, start_dir_ref, environment) {
-    log_stderr_info!(environment, "Found {} in package.json — adding unversioned npm specifier.", name);
-    return Ok(ResolvedNpmPluginAdd {
-      url: unversioned_npm_add_url(&parsed, explicit_path, None, start_dir_ref, environment),
-      package_name: name,
-      package_json_addition: None,
-      prefetched_tarball: None,
-    });
-  }
-
-  if explicit_path {
-    // the user named the plugin file; pin the latest version and add a checksum
-    // for non-wasm plugins (and for wasm too when `--checksum` was passed). Only
-    // download the tarball when a checksum is actually needed — a wasm explicit
-    // path without `--checksum` just needs the version.
-    let needs_tarball = checksum || parsed.specifier.plugin_kind() == PluginKind::Process;
-    let (version, sha_and_bytes) = if needs_tarball {
-      // explicit path → don't inspect the package for a kind, just download.
-      let download = fetch_npm_latest_tarball_download(&name, Some(start_dir_ref), environment).await?;
-      (download.version, Some((download.tarball_sha256, download.tarball_bytes)))
-    } else {
       let info = fetch_npm_latest_info(
         FetchNpmLatestInfo {
           specifier: &parsed.specifier,
@@ -622,50 +512,64 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
         },
         environment,
       )
-      .await?;
-      (info.version, None)
-    };
-    let pinned = crate::utils::NpmSpecifier {
-      name,
-      version: Some(version),
-      path: parsed.specifier.path,
-    };
-    let display = pinned.display();
-    let (url, prefetched_tarball) = match sha_and_bytes {
-      Some((sha, bytes)) => (format!("{}@{}", display, sha), bytes),
-      None => (display, None),
+      .await
+      .with_context(|| format!("Resolving latest version for package.json entry of {}", name))?;
+      Some((name.clone(), format!("^{}", info.version)))
+    } else {
+      None
     };
     return Ok(ResolvedNpmPluginAdd {
-      url,
-      package_name: pinned.name,
-      package_json_addition: None,
-      prefetched_tarball,
+      url: unversioned_npm_add_url(&parsed, explicit_path, start_dir_ref, environment),
+      package_name: name,
+      package_json_addition,
     });
   }
 
-  // no path given: resolve the latest version and inspect its tarball to learn
-  // the plugin kind (and checksum, required for process plugins / `--checksum`).
-  let info = fetch_npm_latest_tarball_info(&name, Some(start_dir_ref), environment).await?;
-  let specifier = crate::utils::NpmSpecifier {
-    name,
-    version: Some(info.version),
-    path: default_plugin_path(info.plugin_kind).to_string(),
-  };
-  let url = npm_add_url(&specifier, &info.tarball_sha256, checksum);
-  Ok(ResolvedNpmPluginAdd {
-    url,
-    package_name: specifier.name,
-    package_json_addition: None,
-    prefetched_tarball: info.tarball_bytes,
-  })
-}
-
-/// The default file name within an npm package for each plugin kind.
-fn default_plugin_path(kind: PluginKind) -> &'static str {
-  match kind {
-    PluginKind::Wasm => "plugin.wasm",
-    PluginKind::Process => "plugin.json",
+  // `--checksum` forces a pinned, checksummed entry, so don't defer to the
+  // unversioned node_modules form when it's set.
+  if !checksum && is_in_package_json_deps(&name, start_dir_ref, environment) {
+    log_stderr_info!(environment, "Found {} in package.json — adding unversioned npm specifier.", name);
+    return Ok(ResolvedNpmPluginAdd {
+      url: unversioned_npm_add_url(&parsed, explicit_path, start_dir_ref, environment),
+      package_name: name,
+      package_json_addition: None,
+    });
   }
+
+  // resolve the latest version, then pin it. We only set the package up (a
+  // download) when there's actually something to compute: a pathless specifier
+  // (to detect the kind), a process plugin, or `--checksum`. A wasm plugin with
+  // an explicit path and no `--checksum` just needs the version.
+  let version = resolve_npm_latest_version(&name, Some(start_dir_ref), environment).await?;
+  let needs_setup = !explicit_path || checksum || parsed.specifier.plugin_kind() == PluginKind::Process;
+  if !needs_setup {
+    let pinned = crate::utils::NpmSpecifier {
+      name: name.clone(),
+      version: Some(version),
+      path: parsed.specifier.path.clone(),
+    };
+    return Ok(ResolvedNpmPluginAdd {
+      url: pinned.display(),
+      package_name: name,
+      package_json_addition: None,
+    });
+  }
+  let versioned = crate::utils::NpmSpecifier {
+    name: name.clone(),
+    version: Some(version.clone()),
+    path: parsed.specifier.path.clone(),
+  };
+  let resolution = plugin_resolver.resolve_npm_for_add(&versioned, explicit_path, Some(&start_dir)).await?;
+  let pinned = crate::utils::NpmSpecifier {
+    name: name.clone(),
+    version: Some(version),
+    path: resolution.path,
+  };
+  Ok(ResolvedNpmPluginAdd {
+    url: npm_add_url(&pinned, &resolution.checksum, checksum),
+    package_name: name,
+    package_json_addition: None,
+  })
 }
 
 /// Joins a resolved npm specifier with its tarball checksum when one should be
@@ -682,21 +586,13 @@ fn npm_add_url(specifier: &crate::utils::NpmSpecifier, tarball_sha256: &str, for
 
 /// Picks the unversioned specifier string to write for an npm plugin we aren't
 /// pinning (deferring to node_modules / package.json). When the user didn't
-/// give a path, use `detected_kind` if the caller already learned it from the
-/// registry tarball, else fall back to inspecting `node_modules`, so a process
-/// plugin gets `/plugin.json`; otherwise keep the bare form.
-fn unversioned_npm_add_url(
-  parsed: &crate::utils::ParsedNpmSpecifier,
-  explicit_path: bool,
-  detected_kind: Option<PluginKind>,
-  start_dir: &Path,
-  environment: &impl Environment,
-) -> String {
+/// give a path, inspect `node_modules` so an installed process plugin gets
+/// `/plugin.json`; otherwise keep the bare form.
+fn unversioned_npm_add_url(parsed: &crate::utils::ParsedNpmSpecifier, explicit_path: bool, start_dir: &Path, environment: &impl Environment) -> String {
   if explicit_path {
     return parsed.specifier.display();
   }
-  let kind = detected_kind.or_else(|| detect_npm_plugin_kind_in_node_modules(&parsed.specifier.name, start_dir, environment));
-  let path = match kind {
+  let path = match detect_npm_plugin_kind_in_node_modules(&parsed.specifier.name, start_dir, environment) {
     Some(PluginKind::Process) => "plugin.json".to_string(),
     _ => parsed.specifier.path.clone(),
   };
@@ -3089,6 +2985,35 @@ mod test {
     assert_eq!(args[args.len() - 1], "/custom.config.json");
   }
 
+  fn test_plugin_resolver(environment: &TestEnvironment) -> std::rc::Rc<crate::plugins::PluginResolver<TestEnvironment>> {
+    let plugin_cache = crate::plugins::PluginCache::new(environment.clone());
+    std::rc::Rc::new(crate::plugins::PluginResolver::new(environment.clone(), plugin_cache))
+  }
+
+  /// Builds a self-contained npm process-plugin tarball (a `plugin.json` that
+  /// references an in-package `bin.zip`) so `dprint add` can actually set it up.
+  fn process_plugin_npm_tarball() -> Vec<u8> {
+    use crate::test_helpers::PROCESS_PLUGIN_ZIP_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+    let zip: &[u8] = &PROCESS_PLUGIN_ZIP_BYTES;
+    let zip_checksum = crate::utils::get_sha256_checksum(zip);
+    let plugin_json = format!(
+      r#"{{
+  "schemaVersion": 2,
+  "name": "test-process-plugin",
+  "version": "0.1.0",
+  "linux-x86_64":    {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "linux-aarch64":   {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "darwin-x86_64":   {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "darwin-aarch64":  {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "windows-x86_64":  {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "windows-aarch64": {{ "reference": "./bin.zip", "checksum": "{0}" }}
+}}"#,
+      zip_checksum
+    );
+    create_test_npm_tarball(&[("package/plugin.json", plugin_json.as_bytes()), ("package/bin.zip", zip)])
+  }
+
   /// Convenience for tests: most calls only vary the spec text and the
   /// two flags, so wrap the struct-building boilerplate here.
   async fn call_resolve_npm_plugin_to_add(
@@ -3110,7 +3035,8 @@ mod test {
     checksum: bool,
     environment: &TestEnvironment,
   ) -> Result<super::ResolvedNpmPluginAdd> {
-    super::resolve_npm_plugin_to_add(
+    let plugin_resolver = test_plugin_resolver(environment);
+    let result = super::resolve_npm_plugin_to_add(
       super::ResolveNpmPluginOptions {
         text,
         config_path,
@@ -3119,8 +3045,14 @@ mod test {
         checksum,
       },
       environment,
+      &plugin_resolver,
     )
-    .await
+    .await;
+    // resolving warms the plugin cache (compiling wasm / extracting process
+    // plugins), which logs progress — drain it so the test only asserts the url.
+    let _ = environment.take_stderr_messages();
+    let _ = environment.take_stdout_messages();
+    result
   }
 
   #[tokio::test]
@@ -3137,7 +3069,7 @@ mod test {
     environment.add_remote_file_bytes("https://registry.npmjs.org/@dprint/typescript", packument.to_string().into_bytes());
     environment.add_remote_file_bytes(
       "https://registry.npmjs.org/@dprint/typescript/-/typescript-0.95.15.tgz",
-      create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]),
+      create_test_npm_tarball(&[("package/plugin.wasm", crate::test_helpers::WASM_PLUGIN_BYTES)]),
     );
     let config_path = environment.canonicalize("/dprint.json").unwrap();
     let result = call_resolve_npm_plugin_to_add("npm:@dprint/typescript@0.95.15", &config_path, false, false, &environment)
@@ -3172,7 +3104,7 @@ mod test {
       "versions": { "1.2.3": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.2.3.tgz" } } }
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
-    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]);
+    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.wasm", crate::test_helpers::WASM_PLUGIN_BYTES)]);
     let expected = crate::utils::get_sha256_checksum(&tarball_bytes);
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-1.2.3.tgz", tarball_bytes);
     let config_path = environment.canonicalize("/dprint.json").unwrap();
@@ -3194,7 +3126,7 @@ mod test {
       "versions": { "1.2.3": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.2.3.tgz" } } }
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
-    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]);
+    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.wasm", crate::test_helpers::WASM_PLUGIN_BYTES)]);
     let expected = crate::utils::get_sha256_checksum(&tarball_bytes);
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-1.2.3.tgz", tarball_bytes);
     let config_path = environment.canonicalize("/dprint.json").unwrap();
@@ -3218,7 +3150,7 @@ mod test {
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
     // tarball ships the plugin in a subdirectory, with no root plugin file
-    let tarball_bytes = create_test_npm_tarball(&[("package/sub/foo.wasm", b"\0asm")]);
+    let tarball_bytes = create_test_npm_tarball(&[("package/sub/foo.wasm", crate::test_helpers::WASM_PLUGIN_BYTES)]);
     let expected = crate::utils::get_sha256_checksum(&tarball_bytes);
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-1.0.0.tgz", tarball_bytes);
     let config_path = environment.canonicalize("/dprint.json").unwrap();
@@ -3241,7 +3173,7 @@ mod test {
       "versions": { "1.2.3": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.2.3.tgz" } } }
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
-    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]);
+    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.wasm", crate::test_helpers::WASM_PLUGIN_BYTES)]);
     let expected = crate::utils::get_sha256_checksum(&tarball_bytes);
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-1.2.3.tgz", tarball_bytes);
     let config_path = environment.canonicalize("/dprint.json").unwrap();
@@ -3254,32 +3186,31 @@ mod test {
   #[tokio::test]
   async fn ensure_url_checksum_appends_for_plugin_url_without_one() {
     let environment = TestEnvironment::new();
-    let bytes = vec![1u8, 2, 3, 4];
-    let expected = crate::utils::get_sha256_checksum(&bytes);
-    environment.add_remote_file_bytes("https://example.com/plugin.wasm", bytes.clone());
-    let (url, prefetched) = super::ensure_url_checksum("https://example.com/plugin.wasm".to_string(), &environment)
+    environment.set_cpu_arch("aarch64");
+    environment.add_remote_file("https://plugins.dprint.dev/test.wasm", crate::test_helpers::WASM_PLUGIN_BYTES);
+    let expected = crate::utils::get_sha256_checksum(crate::test_helpers::WASM_PLUGIN_BYTES);
+    let resolver = test_plugin_resolver(&environment);
+    let url = super::ensure_url_checksum("https://plugins.dprint.dev/test.wasm".to_string(), &resolver)
       .await
       .unwrap();
-    assert_eq!(url, format!("https://example.com/plugin.wasm@{}", expected));
-    // the downloaded bytes are returned so the caller can warm the cache
-    assert_eq!(prefetched, Some(bytes));
+    assert_eq!(url, format!("https://plugins.dprint.dev/test.wasm@{}", expected));
+    let _ = environment.take_stderr_messages();
   }
 
   #[tokio::test]
   async fn ensure_url_checksum_preserves_existing_and_ignores_non_plugin_urls() {
     let environment = TestEnvironment::new();
+    let resolver = test_plugin_resolver(&environment);
     // already has a checksum → returned unchanged, no download attempted
-    let (url, prefetched) = super::ensure_url_checksum("https://example.com/plugin.wasm@abc123".to_string(), &environment)
+    let url = super::ensure_url_checksum("https://example.com/plugin.wasm@abc123".to_string(), &resolver)
       .await
       .unwrap();
     assert_eq!(url, "https://example.com/plugin.wasm@abc123");
-    assert_eq!(prefetched, None);
     // not a plugin file → returned unchanged
-    let (url, prefetched) = super::ensure_url_checksum("https://example.com/readme.txt".to_string(), &environment)
+    let url = super::ensure_url_checksum("https://example.com/readme.txt".to_string(), &resolver)
       .await
       .unwrap();
     assert_eq!(url, "https://example.com/readme.txt");
-    assert_eq!(prefetched, None);
   }
 
   #[tokio::test]
@@ -3346,7 +3277,7 @@ mod test {
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
     // detection downloads the tarball to learn the plugin kind — ship a wasm one
-    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]);
+    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.wasm", crate::test_helpers::WASM_PLUGIN_BYTES)]);
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-1.2.3.tgz", tarball_bytes);
     let config_path = environment.canonicalize("/dprint.json").unwrap();
     let result = call_resolve_npm_plugin_to_add("npm:foo", &config_path, false, false, &environment)
@@ -3364,7 +3295,7 @@ mod test {
       "versions": { "2.0.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-2.0.0.tgz" } } }
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
-    let tarball_bytes = vec![9u8, 8, 7, 6];
+    let tarball_bytes = process_plugin_npm_tarball();
     let expected = crate::utils::get_sha256_checksum(&tarball_bytes);
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-2.0.0.tgz", tarball_bytes);
     let config_path = environment.canonicalize("/dprint.json").unwrap();
@@ -3378,7 +3309,6 @@ mod test {
   async fn npm_add_autodetects_process_plugin_without_path() {
     // `dprint add npm:foo` (no path) should inspect the package, discover it
     // ships a plugin.json, and write the pinned process form with a checksum.
-    use crate::test_helpers::create_test_npm_tarball;
     let environment = TestEnvironment::new();
     environment.write_file("/dprint.json", "{}").unwrap();
     let packument = serde_json::json!({
@@ -3386,7 +3316,7 @@ mod test {
       "versions": { "2.0.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-2.0.0.tgz" } } }
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
-    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.json", b"{}")]);
+    let tarball_bytes = process_plugin_npm_tarball();
     let expected = crate::utils::get_sha256_checksum(&tarball_bytes);
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-2.0.0.tgz", tarball_bytes);
     let config_path = environment.canonicalize("/dprint.json").unwrap();
@@ -3408,7 +3338,7 @@ mod test {
       "versions": { "2.0.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-2.0.0.tgz" } } }
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
-    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]);
+    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.wasm", crate::test_helpers::WASM_PLUGIN_BYTES)]);
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-2.0.0.tgz", tarball_bytes);
     let config_path = environment.canonicalize("/dprint.json").unwrap();
     let result = call_resolve_npm_plugin_to_add("npm:foo", &config_path, false, false, &environment)
@@ -3421,7 +3351,6 @@ mod test {
   async fn npm_add_autodetects_process_plugin_for_versioned_without_path() {
     // a pinned version without a path still inspects that version's tarball
     // rather than passing through verbatim as wasm.
-    use crate::test_helpers::create_test_npm_tarball;
     let environment = TestEnvironment::new();
     environment.write_file("/dprint.json", "{}").unwrap();
     let packument = serde_json::json!({
@@ -3429,7 +3358,7 @@ mod test {
       "versions": { "1.2.3": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.2.3.tgz" } } }
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
-    let tarball_bytes = create_test_npm_tarball(&[("package/plugin.json", b"{}")]);
+    let tarball_bytes = process_plugin_npm_tarball();
     let expected = crate::utils::get_sha256_checksum(&tarball_bytes);
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-1.2.3.tgz", tarball_bytes);
     let config_path = environment.canonicalize("/dprint.json").unwrap();
@@ -3515,7 +3444,7 @@ mod test {
     environment.add_remote_file_bytes("https://registry.npmjs.org/@dprint/typescript", packument.to_string().into_bytes());
     environment.add_remote_file_bytes(
       "https://registry.npmjs.org/@dprint/typescript/-/typescript-0.99.0.tgz",
-      create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]),
+      create_test_npm_tarball(&[("package/plugin.wasm", crate::test_helpers::WASM_PLUGIN_BYTES)]),
     );
 
     let config_path = environment.canonicalize("/dprint.json").unwrap();
@@ -3527,23 +3456,18 @@ mod test {
   }
 
   #[tokio::test]
-  async fn npm_add_package_json_detects_process_path_from_tarball() {
-    // --package-json is usually run before the package is installed, so detect
-    // the kind from the registry tarball and write `/plugin.json` even though
-    // node_modules has nothing yet. No checksum is written: the unversioned
-    // form resolves from node_modules, which doesn't require one.
-    use crate::test_helpers::create_test_npm_tarball;
+  async fn npm_add_package_json_detects_process_path_from_node_modules() {
+    // `--package-json` writes the unversioned form (resolved from node_modules),
+    // so a process plugin's `/plugin.json` is picked up when it's installed.
     let environment = TestEnvironment::new();
     environment.write_file("/dprint.json", "{}").unwrap();
+    environment.mk_dir_all("/node_modules/foo").unwrap();
+    environment.write_file("/node_modules/foo/plugin.json", "{}").unwrap();
     let packument = serde_json::json!({
       "dist-tags": { "latest": "1.0.0" },
       "versions": { "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.0.0.tgz" } } }
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
-    environment.add_remote_file_bytes(
-      "https://registry.npmjs.org/foo/-/foo-1.0.0.tgz",
-      create_test_npm_tarball(&[("package/plugin.json", b"{}")]),
-    );
 
     let config_path = environment.canonicalize("/dprint.json").unwrap();
     let result = call_resolve_npm_plugin_to_add("npm:foo", &config_path, true, true, &environment).await.unwrap();
@@ -3646,7 +3570,7 @@ mod test {
       .add_remote_file_bytes("https://registry.npmjs.org/test-plugin", packument.to_string().into_bytes())
       .add_remote_file_bytes(
         "https://registry.npmjs.org/test-plugin/-/test-plugin-2.0.0.tgz",
-        create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]),
+        create_test_npm_tarball(&[("package/plugin.wasm", crate::test_helpers::WASM_PLUGIN_BYTES)]),
       )
       .build();
 

@@ -98,13 +98,23 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     Ok(plugins)
   }
 
-  /// Populates the on-disk plugin cache from bytes already downloaded during
-  /// `dprint add` (to compute a checksum), so the first `dprint fmt` doesn't
-  /// download or compile them again. A failure here is non-fatal to the add —
-  /// the worst case is the plugin gets set up lazily on first use — so callers
-  /// treat it as best-effort.
-  pub async fn setup_from_prefetched_download(&self, plugin_reference: &PluginSourceReference, bytes: Vec<u8>) -> Result<()> {
-    self.plugin_cache.setup_from_prefetched_download(plugin_reference, bytes).await
+  /// Sets up a versioned npm plugin for `dprint add` — downloads, resolves the
+  /// plugin file (detecting it when the specifier has no path), computes the
+  /// checksum, and warms the cache — returning the resolved path + checksum to
+  /// write into config. See [`PluginCache::resolve_npm_for_add`].
+  pub async fn resolve_npm_for_add(
+    &self,
+    specifier: &crate::utils::NpmSpecifier,
+    path_was_explicit: bool,
+    base_dir: Option<&crate::environment::CanonicalizedPathBuf>,
+  ) -> Result<crate::plugins::NpmAddResolution> {
+    self.plugin_cache.resolve_npm_for_add(specifier, path_was_explicit, base_dir).await
+  }
+
+  /// Downloads a remote plugin for `dprint add`, computes its checksum, and
+  /// warms the cache. See [`PluginCache::resolve_remote_for_add`].
+  pub async fn resolve_remote_for_add(&self, plugin_reference: &PluginSourceReference) -> Result<String> {
+    self.plugin_cache.resolve_remote_for_add(plugin_reference).await
   }
 
   pub async fn resolve_plugin(&self, plugin_reference: PluginSourceReference) -> Result<Rc<PluginWrapper>> {
