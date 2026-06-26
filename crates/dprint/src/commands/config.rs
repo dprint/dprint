@@ -543,7 +543,7 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
       url,
       package_name: specifier.name,
       package_json_addition: None,
-      prefetched_tarball: Some(tarball_bytes),
+      prefetched_tarball: tarball_bytes,
     });
   }
 
@@ -632,7 +632,7 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
     };
     let display = pinned.display();
     let (url, prefetched_tarball) = match sha_and_bytes {
-      Some((sha, bytes)) => (format!("{}@{}", display, sha), Some(bytes)),
+      Some((sha, bytes)) => (format!("{}@{}", display, sha), bytes),
       None => (display, None),
     };
     return Ok(ResolvedNpmPluginAdd {
@@ -656,7 +656,7 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
     url,
     package_name: specifier.name,
     package_json_addition: None,
-    prefetched_tarball: Some(info.tarball_bytes),
+    prefetched_tarball: info.tarball_bytes,
   })
 }
 

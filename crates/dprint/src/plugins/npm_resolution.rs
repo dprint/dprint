@@ -83,7 +83,7 @@ pub struct FetchNpmLatestInfo<'a> {
 pub struct NpmTarballInfo {
   pub plugin_kind: PluginKind,
   pub tarball_sha256: String,
-  pub tarball_bytes: Vec<u8>,
+  pub tarball_bytes: Option<Vec<u8>>,
 }
 
 /// Like [`NpmTarballInfo`], but for the latest published version — carries the
@@ -92,7 +92,7 @@ pub struct NpmLatestTarballInfo {
   pub version: String,
   pub plugin_kind: PluginKind,
   pub tarball_sha256: String,
-  pub tarball_bytes: Vec<u8>,
+  pub tarball_bytes: Option<Vec<u8>>,
 }
 
 /// A downloaded package tarball with its checksum, but no plugin-kind
@@ -100,7 +100,7 @@ pub struct NpmLatestTarballInfo {
 pub struct NpmTarballDownload {
   pub version: String,
   pub tarball_sha256: String,
-  pub tarball_bytes: Vec<u8>,
+  pub tarball_bytes: Option<Vec<u8>>,
 }
 
 /// Fetches the latest version of an npm-distributed plugin (and, when needed,
@@ -141,8 +141,19 @@ pub async fn fetch_npm_latest_info(args: FetchNpmLatestInfo<'_>, environment: &i
 /// specifier without a plugin path.
 pub async fn fetch_npm_latest_tarball_info(name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Result<NpmLatestTarballInfo> {
   let registry = resolve_registry_for_package(name, start_dir, environment);
+  let registry_segment = registry_dir_segment(&registry.url);
   let (packument, packument_url) = fetch_packument(name, &registry, environment).await?;
   let version = latest_version_from_packument(&packument, name)?;
+  // a prior add/format already extracted this version — reuse the cached
+  // checksum + kind instead of re-downloading the tarball.
+  if let Some(meta) = read_npm_tarball_meta(&registry_segment, name, &version, environment) {
+    return Ok(NpmLatestTarballInfo {
+      version,
+      plugin_kind: meta.plugin_kind,
+      tarball_sha256: meta.tarball_sha256,
+      tarball_bytes: None,
+    });
+  }
   let info = inspect_npm_tarball(name, &version, &packument, &packument_url, &registry, environment).await?;
   Ok(NpmLatestTarballInfo {
     version,
@@ -155,9 +166,17 @@ pub async fn fetch_npm_latest_tarball_info(name: &str, start_dir: Option<&Path>,
 /// Downloads the tarball for a specific `name@version`, inspects it to
 /// determine whether the package ships a `plugin.wasm` or `plugin.json`, and
 /// computes its SHA-256. Used by `dprint add` when the user pins a version but
-/// doesn't give a plugin path.
+/// doesn't give a plugin path. Reuses the cached checksum sidecar when present.
 pub async fn fetch_npm_versioned_tarball_info(name: &str, version: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Result<NpmTarballInfo> {
   let registry = resolve_registry_for_package(name, start_dir, environment);
+  let registry_segment = registry_dir_segment(&registry.url);
+  if let Some(meta) = read_npm_tarball_meta(&registry_segment, name, version, environment) {
+    return Ok(NpmTarballInfo {
+      plugin_kind: meta.plugin_kind,
+      tarball_sha256: meta.tarball_sha256,
+      tarball_bytes: None,
+    });
+  }
   let (packument, packument_url) = fetch_packument(name, &registry, environment).await?;
   inspect_npm_tarball(name, version, &packument, &packument_url, &registry, environment).await
 }
@@ -166,16 +185,24 @@ pub async fn fetch_npm_versioned_tarball_info(name: &str, version: &str, start_d
 /// the contents for a plugin kind. Used by `dprint add` when the user already
 /// gave an explicit plugin path (so the kind is known) but a checksum still
 /// needs computing — kind detection would wrongly require a root `plugin.wasm`
-/// / `plugin.json` there.
+/// / `plugin.json` there. Reuses the cached checksum sidecar when present.
 pub async fn fetch_npm_latest_tarball_download(name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Result<NpmTarballDownload> {
   let registry = resolve_registry_for_package(name, start_dir, environment);
+  let registry_segment = registry_dir_segment(&registry.url);
   let (packument, packument_url) = fetch_packument(name, &registry, environment).await?;
   let version = latest_version_from_packument(&packument, name)?;
+  if let Some(meta) = read_npm_tarball_meta(&registry_segment, name, &version, environment) {
+    return Ok(NpmTarballDownload {
+      version,
+      tarball_sha256: meta.tarball_sha256,
+      tarball_bytes: None,
+    });
+  }
   let tarball_bytes = download_npm_tarball(name, &version, &packument, &packument_url, &registry, environment).await?;
   Ok(NpmTarballDownload {
     version,
     tarball_sha256: get_sha256_checksum(&tarball_bytes),
-    tarball_bytes,
+    tarball_bytes: Some(tarball_bytes),
   })
 }
 
@@ -187,12 +214,20 @@ pub async fn fetch_npm_versioned_tarball_download(
   environment: &impl Environment,
 ) -> Result<NpmTarballDownload> {
   let registry = resolve_registry_for_package(name, start_dir, environment);
+  let registry_segment = registry_dir_segment(&registry.url);
+  if let Some(meta) = read_npm_tarball_meta(&registry_segment, name, version, environment) {
+    return Ok(NpmTarballDownload {
+      version: version.to_string(),
+      tarball_sha256: meta.tarball_sha256,
+      tarball_bytes: None,
+    });
+  }
   let (packument, packument_url) = fetch_packument(name, &registry, environment).await?;
   let tarball_bytes = download_npm_tarball(name, version, &packument, &packument_url, &registry, environment).await?;
   Ok(NpmTarballDownload {
     version: version.to_string(),
     tarball_sha256: get_sha256_checksum(&tarball_bytes),
-    tarball_bytes,
+    tarball_bytes: Some(tarball_bytes),
   })
 }
 
@@ -252,7 +287,7 @@ async fn inspect_npm_tarball(
   Ok(NpmTarballInfo {
     plugin_kind,
     tarball_sha256: get_sha256_checksum(&tarball_bytes),
-    tarball_bytes,
+    tarball_bytes: Some(tarball_bytes),
   })
 }
 
@@ -421,6 +456,13 @@ async fn setup_npm_registry_tarball(
     );
   }
 
+  // the tarball's checksum, for the sidecar written after a successful setup
+  // (computed now, before `tarball_bytes` is moved into the blocking task).
+  let tarball_sha256 = match checksum {
+    Some(checksum) => checksum.to_string(),
+    None => get_sha256_checksum(&tarball_bytes),
+  };
+
   // extract and read the plugin file in a blocking task since
   // tarball decompression and file I/O can be slow
   let extract_dir = get_npm_extract_dir(&registry_segment, &specifier.name, version, environment);
@@ -458,6 +500,10 @@ async fn setup_npm_registry_tarball(
   } else {
     None
   };
+
+  // record the tarball's checksum + kind so a later `dprint add` of the same
+  // version can reuse them without re-downloading the tarball. Best-effort.
+  write_npm_tarball_meta(&registry_segment, &specifier.name, version, &tarball_sha256, plugin_kind, environment);
 
   Ok(NpmResolvedPlugin {
     plugin_bytes,
@@ -750,6 +796,63 @@ pub(super) fn get_npm_extract_dir(registry_segment: &str, package_name: &str, ve
   // use a sanitized name for the directory (replace / with __)
   let dir_name = format!("{}@{}", package_name.replace('/', "__"), version);
   environment.get_cache_dir().join("npm").join(registry_segment).join(dir_name)
+}
+
+/// The tarball's checksum and plugin kind, cached so a later `dprint add` of the
+/// same `name@version` can reuse them without re-downloading the tarball.
+///
+/// `plugin_kind` is the kind of the plugin file that was set up (derived from
+/// its path), not a fresh inspection of the archive — these only diverge for
+/// the unlikely package shipping both a plugin.wasm and plugin.json, and even
+/// then the cached kind names a file that provably exists. If a registry ever
+/// republishes the same version with different bytes the cached checksum goes
+/// stale, but that fails closed: the next `dprint fmt` re-downloads and errors
+/// on the mismatch rather than trusting it (and `clear-cache` fixes it).
+struct NpmTarballMeta {
+  tarball_sha256: String,
+  plugin_kind: PluginKind,
+}
+
+/// Path of the sidecar file caching a tarball's checksum + kind, kept next to
+/// (not inside) the `name@version` extract directory so it doesn't mix with the
+/// package's own files. Wiped by `dprint clear-cache` along with the rest of
+/// the npm cache.
+fn npm_tarball_meta_path(registry_segment: &str, package_name: &str, version: &str, environment: &impl Environment) -> PathBuf {
+  let file_name = format!("{}@{}.meta.json", package_name.replace('/', "__"), version);
+  environment.get_cache_dir().join("npm").join(registry_segment).join(file_name)
+}
+
+/// Reads the cached tarball sidecar, or `None` if it's missing or unreadable.
+fn read_npm_tarball_meta(registry_segment: &str, package_name: &str, version: &str, environment: &impl Environment) -> Option<NpmTarballMeta> {
+  let path = npm_tarball_meta_path(registry_segment, package_name, version, environment);
+  let text = environment.read_file(&path).ok()?;
+  let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+  let tarball_sha256 = value.get("tarballChecksum")?.as_str()?.to_string();
+  let plugin_kind = match value.get("pluginKind")?.as_str()? {
+    "wasm" => PluginKind::Wasm,
+    "process" => PluginKind::Process,
+    _ => return None,
+  };
+  Some(NpmTarballMeta { tarball_sha256, plugin_kind })
+}
+
+/// Writes the tarball sidecar. Best-effort — a failure just means the next
+/// `dprint add` re-downloads to recompute the checksum.
+fn write_npm_tarball_meta(
+  registry_segment: &str,
+  package_name: &str,
+  version: &str,
+  tarball_sha256: &str,
+  plugin_kind: PluginKind,
+  environment: &impl Environment,
+) {
+  let kind = match plugin_kind {
+    PluginKind::Wasm => "wasm",
+    PluginKind::Process => "process",
+  };
+  let json = serde_json::json!({ "tarballChecksum": tarball_sha256, "pluginKind": kind });
+  let path = npm_tarball_meta_path(registry_segment, package_name, version, environment);
+  let _ = environment.write_file(&path, &json.to_string());
 }
 
 /// Returns a filesystem- and key-safe segment identifying a registry by host
@@ -1581,6 +1684,74 @@ mod tests {
     let info = fetch_npm_versioned_tarball_info("foo", "1.2.3", None, &environment).await.unwrap();
     assert_eq!(info.plugin_kind, PluginKind::Wasm);
     assert_eq!(info.tarball_sha256, expected_checksum);
+    assert!(info.tarball_bytes.is_some());
+  }
+
+  #[tokio::test]
+  async fn fetch_npm_versioned_tarball_info_reuses_cached_checksum_sidecar() {
+    use crate::environment::TestEnvironment;
+    use crate::test_helpers::create_test_npm_tarball;
+
+    let environment = TestEnvironment::new();
+    let tarball = create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]);
+    let checksum = get_sha256_checksum(&tarball);
+    let registry = NpmRegistryResolution {
+      url: "https://registry.npmjs.org".to_string(),
+      auth_header: None,
+    };
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: Some("1.0.0".to_string()),
+      path: "plugin.wasm".to_string(),
+    };
+    // setting the plugin up writes the checksum sidecar (no network — we pass
+    // the tarball bytes directly).
+    resolve_npm_from_prefetched_tarball(&specifier, Some(&checksum), tarball, &registry, None, &environment)
+      .await
+      .unwrap();
+
+    // a later add reuses the sidecar instead of re-downloading — neither the
+    // packument nor the tarball are registered, so any fetch would error.
+    let info = fetch_npm_versioned_tarball_info("foo", "1.0.0", None, &environment).await.unwrap();
+    assert_eq!(info.plugin_kind, PluginKind::Wasm);
+    assert_eq!(info.tarball_sha256, checksum);
+    assert!(info.tarball_bytes.is_none(), "a sidecar hit must not re-download");
+  }
+
+  #[tokio::test]
+  async fn fetch_npm_latest_tarball_info_reuses_sidecar_but_still_resolves_version() {
+    use crate::environment::TestEnvironment;
+    use crate::test_helpers::create_test_npm_tarball;
+
+    let environment = TestEnvironment::new();
+    let tarball = create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]);
+    let checksum = get_sha256_checksum(&tarball);
+    let registry = NpmRegistryResolution {
+      url: "https://registry.npmjs.org".to_string(),
+      auth_header: None,
+    };
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: Some("1.0.0".to_string()),
+      path: "plugin.wasm".to_string(),
+    };
+    resolve_npm_from_prefetched_tarball(&specifier, Some(&checksum), tarball, &registry, None, &environment)
+      .await
+      .unwrap();
+
+    // the packument is still needed to discover the latest version, but the
+    // tarball (intentionally not registered) must be served from the sidecar.
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "1.0.0" },
+      "versions": { "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.0.0.tgz" } } }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+
+    let info = fetch_npm_latest_tarball_info("foo", None, &environment).await.unwrap();
+    assert_eq!(info.version, "1.0.0");
+    assert_eq!(info.plugin_kind, PluginKind::Wasm);
+    assert_eq!(info.tarball_sha256, checksum);
+    assert!(info.tarball_bytes.is_none(), "a sidecar hit must not re-download the tarball");
   }
 
   #[test]
