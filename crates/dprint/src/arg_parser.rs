@@ -194,6 +194,8 @@ pub struct FmtSubCommand {
 pub enum ConfigSubCommand {
   Init {
     global: bool,
+    /// Skip the interactive plugin prompt and accept the smart defaults.
+    yes: bool,
   },
   Update {
     yes: bool,
@@ -279,6 +281,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
   fn parse_init(matches: &ArgMatches) -> ConfigSubCommand {
     ConfigSubCommand::Init {
       global: matches.get_flag("global"),
+      yes: matches.get_flag("yes"),
     }
   }
 
@@ -547,15 +550,25 @@ pub enum CliArgParserKind {
 
 pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
   fn init_command() -> Command {
-    Command::new("init").about("Initializes a configuration file in the current directory.").arg(
-      Arg::new("global")
-        .long("global")
-        .short('g')
-        .conflicts_with("config-discovery")
-        .help("Initialize the global dprint configuration file.")
-        .num_args(0)
-        .required(false),
-    )
+    Command::new("init")
+      .about("Initializes a configuration file in the current directory.")
+      .arg(
+        Arg::new("global")
+          .long("global")
+          .short('g')
+          .conflicts_with("config-discovery")
+          .help("Initialize the global dprint configuration file.")
+          .num_args(0)
+          .required(false),
+      )
+      .arg(
+        Arg::new("yes")
+          .long("yes")
+          .short('y')
+          .help("Skip the interactive plugin prompt and accept the plugins selected based on the files in the current directory.")
+          .num_args(0)
+          .required(false),
+      )
   }
 
   fn add_command() -> Command {

@@ -43,6 +43,8 @@ use crate::utils::pretty_print_json_text;
 pub struct InitConfigFileOptions<'a> {
   pub global: bool,
   pub config_arg: Option<&'a str>,
+  /// Skip the interactive plugin prompt and accept the smart defaults.
+  pub non_interactive: bool,
 }
 
 pub async fn init_config_file(environment: &impl Environment, options: InitConfigFileOptions<'_>) -> Result<()> {
@@ -70,7 +72,9 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
     }
   }
   let config_file_path = config_file_paths.remove(0);
-  let text = get_init_config_file_text(environment).await?;
+  // skip the interactive prompt when asked to or when there's no interactive terminal (ex. CI)
+  let non_interactive = options.non_interactive || !environment.is_terminal_interactive();
+  let text = get_init_config_file_text(environment, non_interactive).await?;
   if let Some(parent) = config_file_path.parent() {
     _ = environment.mk_dir_all(parent);
   }
@@ -1361,7 +1365,7 @@ mod test {
     let expected_text = environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
-        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        let expected_text = get_init_config_file_text(&environment, false).await.unwrap();
         environment.clear_logs();
         expected_text
       }
@@ -1369,7 +1373,7 @@ mod test {
     run_test_cli(vec!["init"], &environment).unwrap();
     assert_eq!(
       environment.take_stderr_messages(),
-      vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
+      vec!["Select plugins (space to toggle, type to filter, enter to finish):"]
     );
     assert_eq!(
       environment.take_stdout_messages(),
@@ -1382,12 +1386,54 @@ mod test {
   }
 
   #[test]
+  fn should_initialize_with_yes_flag_without_prompt() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info
+          .add_plugin(TestInfoFilePlugin {
+            name: "dprint-plugin-typescript".to_string(),
+            version: "0.17.2".to_string(),
+            url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
+            config_key: Some("typescript".to_string()),
+            file_extensions: vec!["ts".to_string()],
+            config_excludes: vec![],
+            ..Default::default()
+          })
+          .add_plugin(TestInfoFilePlugin {
+            name: "dprint-plugin-jsonc".to_string(),
+            version: "0.2.3".to_string(),
+            url: "https://plugins.dprint.dev/json-0.2.3.wasm".to_string(),
+            config_key: Some("json".to_string()),
+            file_extensions: vec!["json".to_string()],
+            config_excludes: vec![],
+            ..Default::default()
+          });
+      })
+      .write_file("./file.ts", "")
+      .build();
+    run_test_cli(vec!["init", "--yes"], &environment).unwrap();
+    // no plugin selection prompt should be shown
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![
+        "\nCreated dprint.json",
+        "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
+      ]
+    );
+    // only the typescript plugin should be selected based on the .ts file
+    let created = environment.read_file("./dprint.json").unwrap();
+    assert!(created.contains("typescript-0.17.2.wasm"));
+    assert!(!created.contains("json-0.2.3.wasm"));
+  }
+
+  #[test]
   fn should_use_dprint_config_init_as_alias() {
     let environment = TestEnvironment::new();
     let expected_text = environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
-        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        let expected_text = get_init_config_file_text(&environment, false).await.unwrap();
         environment.clear_logs();
         expected_text
       }
@@ -1417,7 +1463,7 @@ mod test {
     let expected_text = environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
-        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        let expected_text = get_init_config_file_text(&environment, false).await.unwrap();
         environment.clear_logs();
         expected_text
       }
@@ -1425,7 +1471,7 @@ mod test {
     run_test_cli(vec!["init", "--config", "./test.config.json"], &environment).unwrap();
     assert_eq!(
       environment.take_stderr_messages(),
-      vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
+      vec!["Select plugins (space to toggle, type to filter, enter to finish):"]
     );
     assert_eq!(
       environment.take_stdout_messages(),
@@ -1476,7 +1522,7 @@ mod test {
     let expected_text = environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
-        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        let expected_text = get_init_config_file_text(&environment, false).await.unwrap();
         environment.clear_logs();
         expected_text
       }
@@ -1484,7 +1530,7 @@ mod test {
     run_test_cli(vec!["init", "--global"], &environment).unwrap();
     assert_eq!(
       environment.take_stderr_messages(),
-      vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
+      vec!["Select plugins (space to toggle, type to filter, enter to finish):"]
     );
     let config_path = if std::env::consts::OS == "macos" {
       Path::new("/home/.config/dprint")
@@ -1522,7 +1568,7 @@ mod test {
     let expected_text = environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
-        let expected_text = get_init_config_file_text(&environment).await.unwrap();
+        let expected_text = get_init_config_file_text(&environment, false).await.unwrap();
         environment.clear_logs();
         expected_text
       }
@@ -1530,7 +1576,7 @@ mod test {
     run_test_cli(vec!["init", "--global"], &environment).unwrap();
     assert_eq!(
       environment.take_stderr_messages(),
-      vec!["Select plugins (use the spacebar to select/deselect and then press enter when finished):"]
+      vec!["Select plugins (space to toggle, type to filter, enter to finish):"]
     );
     assert_eq!(
       environment.take_stdout_messages(),
