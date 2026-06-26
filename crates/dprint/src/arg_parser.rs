@@ -209,6 +209,10 @@ pub enum ConfigSubCommand {
     /// resolved latest version (as a caret range). Implies `no_version`,
     /// since pinning in dprint.json would just duplicate the version.
     package_json: bool,
+    /// Force a checksum onto the written plugin entry, even for Wasm plugins
+    /// (which are otherwise added without one). Conflicts with `no_version` /
+    /// `package_json`, since an unversioned entry can't carry a checksum.
+    checksum: bool,
   },
   Edit,
 }
@@ -287,10 +291,12 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     // --package-json implies --no-version: writing a pinned spec to
     // dprint.json on top of a devDependencies entry would be duplication.
     let no_version = package_json || matches.get_flag("no-version");
+    let checksum = matches.get_flag("checksum");
     ConfigSubCommand::Add {
       names,
       no_version,
       package_json,
+      checksum,
     }
   }
 
@@ -580,6 +586,14 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
           .help("Like --no-version, and also add the package to the nearest package.json's devDependencies as a caret range.")
           .num_args(0)
           .required(false),
+      )
+      .arg(
+        Arg::new("checksum")
+          .long("checksum")
+          .help("Add a checksum to the plugin entry, even for Wasm plugins (which are otherwise added without one).")
+          .num_args(0)
+          .required(false)
+          .conflicts_with_all(["no-version", "package-json"]),
       )
   }
 
@@ -1201,10 +1215,12 @@ mod test {
         names,
         no_version,
         package_json,
+        checksum,
       }) => {
         assert!(names.is_empty());
         assert!(!no_version);
         assert!(!package_json);
+        assert!(!checksum);
       }
       _ => unreachable!(),
     }
@@ -1234,13 +1250,33 @@ mod test {
         names,
         no_version,
         package_json,
+        checksum,
       }) => {
         assert_eq!(names, &["npm:@dprint/typescript"]);
         assert!(*no_version);
         assert!(!*package_json);
+        assert!(!*checksum);
       }
       _ => unreachable!(),
     }
+  }
+
+  #[test]
+  fn add_checksum_flag() {
+    let args = test_args(vec!["add", "--checksum", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { names, checksum, .. }) => {
+        assert_eq!(names, &["npm:@dprint/typescript"]);
+        assert!(*checksum);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn add_checksum_conflicts_with_no_version_and_package_json() {
+    assert!(test_args(vec!["add", "--checksum", "--no-version", "npm:@dprint/typescript"]).is_err());
+    assert!(test_args(vec!["add", "--checksum", "--package-json", "npm:@dprint/typescript"]).is_err());
   }
 
   #[test]
