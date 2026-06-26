@@ -17,6 +17,7 @@ use url::Url;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::FilePatternArgs;
 use crate::arg_parser::OutputResolvedConfigSubCommand;
+use crate::configuration::GetInitConfigFileTextOptions;
 use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
 use crate::environment::CanonicalizedPathBuf;
@@ -74,7 +75,7 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
   let config_file_path = config_file_paths.remove(0);
   // skip the interactive prompt when asked to or when there's no interactive terminal (ex. CI)
   let non_interactive = options.non_interactive || !environment.is_terminal_interactive();
-  let text = get_init_config_file_text(environment, non_interactive).await?;
+  let text = get_init_config_file_text(environment, GetInitConfigFileTextOptions { non_interactive }).await?;
   if let Some(parent) = config_file_path.parent() {
     _ = environment.mk_dir_all(parent);
   }
@@ -1365,7 +1366,7 @@ mod test {
     let expected_text = environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
-        let expected_text = get_init_config_file_text(&environment, false).await.unwrap();
+        let expected_text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
         environment.clear_logs();
         expected_text
       }
@@ -1433,7 +1434,7 @@ mod test {
     let expected_text = environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
-        let expected_text = get_init_config_file_text(&environment, false).await.unwrap();
+        let expected_text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
         environment.clear_logs();
         expected_text
       }
@@ -1463,7 +1464,7 @@ mod test {
     let expected_text = environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
-        let expected_text = get_init_config_file_text(&environment, false).await.unwrap();
+        let expected_text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
         environment.clear_logs();
         expected_text
       }
@@ -1522,7 +1523,7 @@ mod test {
     let expected_text = environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
-        let expected_text = get_init_config_file_text(&environment, false).await.unwrap();
+        let expected_text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
         environment.clear_logs();
         expected_text
       }
@@ -1568,7 +1569,7 @@ mod test {
     let expected_text = environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
-        let expected_text = get_init_config_file_text(&environment, false).await.unwrap();
+        let expected_text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
         environment.clear_logs();
         expected_text
       }

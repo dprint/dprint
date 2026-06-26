@@ -16,7 +16,14 @@ const MAX_SCAN_FILES: usize = 1000;
 /// files can't make the scan walk forever.
 const MAX_SCAN_DIRS: usize = 1000;
 
-pub async fn get_init_config_file_text(environment: &impl Environment, non_interactive: bool) -> Result<String> {
+#[derive(Default)]
+pub struct GetInitConfigFileTextOptions {
+  /// Skip the interactive plugin prompt and accept the plugins selected based
+  /// on the files in the current directory.
+  pub non_interactive: bool,
+}
+
+pub async fn get_init_config_file_text(environment: &impl Environment, options: GetInitConfigFileTextOptions) -> Result<String> {
   let info = match read_info_file(environment).await {
     Ok(info) => {
       // ok to only check wasm here because the configuration file is only ever initialized with wasm plugins
@@ -59,7 +66,7 @@ pub async fn get_init_config_file_text(environment: &impl Environment, non_inter
       .map(|plugin| is_default_selected(plugin, &project_files))
       .collect::<Vec<_>>();
 
-    let selected_indexes = if non_interactive {
+    let selected_indexes = if options.non_interactive {
       defaults.iter().enumerate().filter_map(|(i, on)| on.then_some(i)).collect::<Vec<_>>()
     } else {
       let prompt_message = "Select plugins (space to toggle, type to filter, enter to finish):";
@@ -247,7 +254,7 @@ mod test {
       .write_file("/file.json", "")
       .build();
     environment.clone().run_in_runtime(async move {
-      let text = get_init_config_file_text(&environment, false).await.unwrap();
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
         text,
         r#"{
@@ -282,7 +289,7 @@ mod test {
       .write_file("/readme.md", "")
       .build();
     environment.clone().run_in_runtime(async move {
-      let text = get_init_config_file_text(&environment, false).await.unwrap();
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
         text,
         r#"{
@@ -310,7 +317,7 @@ mod test {
       .write_file("/Cargo.toml", "")
       .build();
     environment.clone().run_in_runtime(async move {
-      let text = get_init_config_file_text(&environment, false).await.unwrap();
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
         text,
         r#"{
@@ -341,7 +348,7 @@ mod test {
       .write_file("/file.ps", "")
       .build();
     environment.clone().run_in_runtime(async move {
-      let text = get_init_config_file_text(&environment, false).await.unwrap();
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
         text,
         r#"{
@@ -368,7 +375,9 @@ mod test {
       .write_file("/file.ts", "")
       .build();
     environment.clone().run_in_runtime(async move {
-      let text = get_init_config_file_text(&environment, true).await.unwrap();
+      let text = get_init_config_file_text(&environment, GetInitConfigFileTextOptions { non_interactive: true })
+        .await
+        .unwrap();
       assert_eq!(
         text,
         r#"{
@@ -400,7 +409,7 @@ mod test {
       .build();
     environment.set_multi_selection_result(vec![0, 1, 2]);
     environment.clone().run_in_runtime(async move {
-      let text = get_init_config_file_text(&environment, false).await.unwrap();
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
         text,
         r#"{
@@ -437,7 +446,7 @@ mod test {
       .build();
     environment.set_multi_selection_result(vec![1]);
     environment.clone().run_in_runtime(async move {
-      let text = get_init_config_file_text(&environment, false).await.unwrap();
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
         text,
         r#"{
@@ -468,7 +477,7 @@ mod test {
       .build();
     environment.set_multi_selection_result(vec![]);
     environment.clone().run_in_runtime(async move {
-      let text = get_init_config_file_text(&environment, false).await.unwrap();
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
         text,
         r#"{
@@ -495,7 +504,7 @@ mod test {
       .build();
     environment.set_multi_selection_result(vec![3]);
     environment.clone().run_in_runtime(async move {
-      let text = get_init_config_file_text(&environment, false).await.unwrap();
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
         text,
         r#"{
@@ -515,7 +524,7 @@ mod test {
   fn should_get_initialization_text_when_cannot_access_url() {
     let environment = TestEnvironment::new();
     environment.clone().run_in_runtime(async move {
-      let text = get_init_config_file_text(&environment, false).await.unwrap();
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
         text,
         r#"{
@@ -556,7 +565,7 @@ mod test {
     environment.set_selection_result(1);
     environment.set_multi_selection_result(vec![0]);
     environment.clone().run_in_runtime(async move {
-      let text = get_init_config_file_text(&environment, false).await.unwrap();
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
         text,
         r#"{
@@ -593,7 +602,7 @@ mod test {
       .build();
     environment.set_multi_selection_result(vec![0]);
     environment.clone().run_in_runtime(async move {
-      let text = get_init_config_file_text(&environment, false).await.unwrap();
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
         text,
         r#"{
