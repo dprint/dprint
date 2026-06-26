@@ -46,10 +46,11 @@ pub struct PluginCacheItem {
   pub plugin_kind: PluginKind,
 }
 
-/// What [`PluginCache::resolve_npm_for_add`] resolved: the plugin file path
-/// within the package (detected for a pathless specifier) and the tarball
-/// checksum, for the caller to write into the config entry.
+/// What [`PluginCache::resolve_npm_for_add`] resolved: the plugin kind, the
+/// plugin file path within the package (detected for a pathless specifier), and
+/// the tarball checksum — for the caller to write into the config entry.
 pub struct NpmAddResolution {
+  pub plugin_kind: PluginKind,
   pub path: String,
   pub checksum: String,
 }
@@ -268,6 +269,7 @@ where
         default_plugin_path(entry.plugin_kind).to_string()
       };
       return Ok(NpmAddResolution {
+        plugin_kind: entry.plugin_kind,
         path,
         checksum: entry.tarball_sha256,
       });
@@ -316,6 +318,7 @@ where
     }
 
     Ok(NpmAddResolution {
+      plugin_kind: resolved.plugin_kind,
       path: resolved.resolved_path,
       checksum,
     })
@@ -845,6 +848,7 @@ mod test {
     };
 
     let resolution = plugin_cache.resolve_npm_for_add(&specifier, false, None).await?;
+    assert_eq!(resolution.plugin_kind, PluginKind::Wasm);
     assert_eq!(resolution.path, "plugin.wasm");
     assert_eq!(resolution.checksum, expected);
     let _ = environment.take_stderr_messages();

@@ -491,7 +491,7 @@ async fn resolve_npm_plugin_to_add<TEnvironment: Environment>(
       path: resolution.path,
     };
     return Ok(ResolvedNpmPluginAdd {
-      url: npm_add_url(&pinned, &resolution.checksum, checksum),
+      url: npm_add_url(&pinned, resolution.plugin_kind, &resolution.checksum, checksum),
       package_name: name,
       package_json_addition: None,
     });
@@ -566,7 +566,7 @@ async fn resolve_npm_plugin_to_add<TEnvironment: Environment>(
     path: resolution.path,
   };
   Ok(ResolvedNpmPluginAdd {
-    url: npm_add_url(&pinned, &resolution.checksum, checksum),
+    url: npm_add_url(&pinned, resolution.plugin_kind, &resolution.checksum, checksum),
     package_name: name,
     package_json_addition: None,
   })
@@ -575,9 +575,9 @@ async fn resolve_npm_plugin_to_add<TEnvironment: Environment>(
 /// Joins a resolved npm specifier with its tarball checksum when one should be
 /// written: process plugins always require it; wasm plugins only when the user
 /// passed `--checksum` (`force_checksum`).
-fn npm_add_url(specifier: &crate::utils::NpmSpecifier, tarball_sha256: &str, force_checksum: bool) -> String {
+fn npm_add_url(specifier: &crate::utils::NpmSpecifier, plugin_kind: PluginKind, tarball_sha256: &str, force_checksum: bool) -> String {
   let display = specifier.display();
-  if force_checksum || specifier.plugin_kind() == PluginKind::Process {
+  if force_checksum || plugin_kind == PluginKind::Process {
     format!("{}@{}", display, tarball_sha256)
   } else {
     display
