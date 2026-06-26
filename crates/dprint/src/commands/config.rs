@@ -28,6 +28,7 @@ use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginWrapper;
 use crate::plugins::detect_npm_plugin_kind_in_node_modules;
 use crate::plugins::fetch_npm_latest_info;
+use crate::plugins::fetch_npm_latest_tarball_info;
 use crate::plugins::fetch_npm_versioned_tarball_info;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
@@ -407,7 +408,7 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
   let start_dir_ref: &Path = start_dir.as_ref();
   let name = parsed.specifier.name.clone();
 
-  if let Some(version) = parsed.specifier.version.clone() {
+  if let Some(version) = &parsed.specifier.version {
     if no_version {
       bail!("--no-version cannot be combined with a versioned specifier: {}", text);
     }
@@ -422,37 +423,45 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
     // no path given: inspect the package to learn whether it's a wasm or
     // process plugin, then write the matching plugin file (with a checksum for
     // process plugins).
-    let info = fetch_npm_versioned_tarball_info(&name, &version, Some(start_dir_ref), environment).await?;
+    let info = fetch_npm_versioned_tarball_info(&name, version, Some(start_dir_ref), environment).await?;
     return Ok(ResolvedNpmPluginAdd {
-      url: build_npm_add_url(&name, Some(&version), info.plugin_kind, &info.tarball_sha256),
+      url: build_npm_add_url(&name, Some(version), info.plugin_kind, &info.tarball_sha256),
       package_name: name,
       package_json_addition: None,
     });
   }
 
   if no_version {
-    // when we hit the registry for the caret range we also detect the kind
-    // from that tarball — `--package-json` is usually run before the package
-    // is installed, so node_modules detection alone wouldn't find it.
+    // Look up the latest version so we can write a caret range. If the
+    // registry is unreachable we still write the unversioned spec to
+    // dprint.json but bail on the package.json update so the user notices
+    // (rather than ending up with an out-of-sync state). When the path was
+    // defaulted we also detect the kind from that tarball — `--package-json`
+    // is usually run before the package is installed, so node_modules
+    // detection alone wouldn't find it.
     let mut detected_kind = None;
     let package_json_addition = if update_package_json {
-      // Look up the latest version so we can write a caret range. If the
-      // registry is unreachable we still write the unversioned spec to
-      // dprint.json but bail on the package.json update so the user
-      // notices (rather than ending up with an out-of-sync state).
-      let info = fetch_npm_latest_info(
-        FetchNpmLatestInfo {
-          specifier: &parsed.specifier,
-          start_dir: Some(start_dir_ref),
-          want_tarball_sha: false,
-          detect_plugin_kind: !explicit_path,
-        },
-        environment,
-      )
-      .await
-      .with_context(|| format!("Resolving latest version for package.json entry of {}", name))?;
-      detected_kind = info.detected_plugin_kind;
-      Some((name.clone(), format!("^{}", info.version)))
+      let version = if explicit_path {
+        // an explicit path already tells us the kind; only the version is needed.
+        fetch_npm_latest_info(
+          FetchNpmLatestInfo {
+            specifier: &parsed.specifier,
+            start_dir: Some(start_dir_ref),
+            want_tarball_sha: false,
+          },
+          environment,
+        )
+        .await
+        .with_context(|| format!("Resolving latest version for package.json entry of {}", name))?
+        .version
+      } else {
+        let info = fetch_npm_latest_tarball_info(&name, Some(start_dir_ref), environment)
+          .await
+          .with_context(|| format!("Resolving latest version for package.json entry of {}", name))?;
+        detected_kind = Some(info.plugin_kind);
+        info.version
+      };
+      Some((name.clone(), format!("^{}", version)))
     } else {
       None
     };
@@ -472,38 +481,40 @@ async fn resolve_npm_plugin_to_add(options: ResolveNpmPluginOptions<'_>, environ
     });
   }
 
-  let info = fetch_npm_latest_info(
-    FetchNpmLatestInfo {
-      specifier: &parsed.specifier,
-      start_dir: Some(start_dir_ref),
-      want_tarball_sha: false,
-      detect_plugin_kind: !explicit_path,
-    },
-    environment,
-  )
-  .await?;
-
-  let url = if explicit_path {
-    // the user named the plugin file; pin the version and add a checksum for
-    // non-wasm plugins (fetch_npm_latest_info computed it for us).
+  if explicit_path {
+    // the user named the plugin file; pin the latest version and add a checksum
+    // for non-wasm plugins (fetch_npm_latest_info computes it when needed).
+    let info = fetch_npm_latest_info(
+      FetchNpmLatestInfo {
+        specifier: &parsed.specifier,
+        start_dir: Some(start_dir_ref),
+        want_tarball_sha: false,
+      },
+      environment,
+    )
+    .await?;
     let pinned = crate::utils::NpmSpecifier {
-      name: name.clone(),
+      name,
       version: Some(info.version),
-      path: parsed.specifier.path.clone(),
+      path: parsed.specifier.path,
     };
     let display = pinned.display();
-    match info.tarball_sha256 {
+    let url = match info.tarball_sha256 {
       Some(checksum) => format!("{}@{}", display, checksum),
       None => display,
-    }
-  } else {
-    let kind = info.detected_plugin_kind.expect("detect_plugin_kind was requested");
-    // detection downloads the tarball, so the checksum is always computed too.
-    let checksum = info.tarball_sha256.expect("tarball checksum computed alongside detection");
-    build_npm_add_url(&name, Some(&info.version), kind, &checksum)
-  };
+    };
+    return Ok(ResolvedNpmPluginAdd {
+      url,
+      package_name: pinned.name,
+      package_json_addition: None,
+    });
+  }
+
+  // no path given: resolve the latest version and inspect its tarball to learn
+  // the plugin kind (and checksum, required for process plugins).
+  let info = fetch_npm_latest_tarball_info(&name, Some(start_dir_ref), environment).await?;
   Ok(ResolvedNpmPluginAdd {
-    url,
+    url: build_npm_add_url(&name, Some(&info.version), info.plugin_kind, &info.tarball_sha256),
     package_name: name,
     package_json_addition: None,
   })
@@ -1067,7 +1078,6 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
         specifier: &npm_source.specifier,
         start_dir,
         want_tarball_sha: plugin_reference.checksum.is_some(),
-        detect_plugin_kind: false,
       };
       match fetch_npm_latest_info(args, environment).await {
         Ok(info) => {
