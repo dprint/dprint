@@ -980,11 +980,11 @@ a {
 
 /* ===================== sponsor ===================== */
 
-.sponsor-hero {
+.support-hero {
   position: relative;
   overflow: hidden;
 }
-.sponsor-glow {
+.support-glow {
   position: absolute;
   top: -120px;
   left: 50%;
@@ -994,14 +994,14 @@ a {
   background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 70%);
   pointer-events: none;
 }
-.sponsor-inner {
+.support-inner {
   position: relative;
   max-width: 720px;
   margin: 0 auto;
   padding: 92px 28px 80px;
   text-align: center;
 }
-.sponsor-inner h1 {
+.support-inner h1 {
   margin: 0;
   font-weight: 600;
   font-size: clamp(40px, 7vw, 68px);
@@ -1010,7 +1010,7 @@ a {
   color: #fff;
   filter: drop-shadow(0 0 26px rgba(255, 255, 255, 0.16));
 }
-.sponsor-inner .lead {
+.support-inner .lead {
   margin: 34px auto 0;
   max-width: 600px;
   font-size: 17px;
@@ -1018,28 +1018,28 @@ a {
   color: #c2c8d0;
   text-wrap: pretty;
 }
-.sponsor-actions {
+.support-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
   justify-content: center;
   margin-top: 38px;
 }
-.sponsor-actions .btn-primary {
+.support-actions .btn-primary {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-.sponsor-note {
+.support-note {
   margin-top: 18px;
   font-size: 13px;
   color: #5b626d;
 }
-.sponsor-where {
+.support-where {
   margin-top: 64px;
   text-align: left;
 }
-.sponsor-where-label {
+.support-where-label {
   font-size: 11px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -1047,29 +1047,29 @@ a {
   margin-bottom: 18px;
   text-align: center;
 }
-.sponsor-grid {
+.support-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
   gap: 14px;
 }
-.sponsor-grid .card {
+.support-grid .card {
   background: #23262d;
   border: 1px solid #2f333b;
   border-radius: 14px;
   padding: 24px;
 }
-.sponsor-grid .num {
+.support-grid .num {
   font-size: 13px;
   color: var(--accent);
   margin-bottom: 14px;
 }
-.sponsor-grid .name {
+.support-grid .name {
   font-size: 15.5px;
   font-weight: 600;
   color: #f0f1f3;
   margin-bottom: 8px;
 }
-.sponsor-grid p {
+.support-grid p {
   margin: 0;
   font-size: 13.5px;
   line-height: 1.6;
