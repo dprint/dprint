@@ -24,7 +24,17 @@ Open a terminal in the root directory of your project and run the following comm
 dprint init
 ```
 
-This will create a _dprint.json_ file in the current working directory. If you are connected to the internet, it will initialize the file according to the latest plugins.
+This will create a _dprint.json_ file in the current working directory. If you are connected to the internet, it will prompt you to select from the latest plugins, pre-selecting the ones that match the files found in the current directory. Use the spacebar to toggle a plugin, type to filter the list, and press enter when finished.
+
+### Non-interactive init
+
+Pass the `--yes` or `-y` flag to skip the prompt and accept the plugins selected based on the files in the current directory. This is useful in scripts or CI:
+
+```sh
+dprint init --yes
+```
+
+The prompt is also skipped automatically when there is no interactive terminal.
 
 ## Manual Setup
 
