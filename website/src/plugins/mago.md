@@ -4,13 +4,6 @@ description: Documentation on the Mago code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/mago">Mago</a></li>
-  </ul>
-</nav>
-
 # Mago Plugin
 
 Adapter plugin that formats PHP code via [Mago](https://github.com/carthage-software/mago).

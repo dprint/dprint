@@ -18,9 +18,16 @@ See `dprint-ci`: https://gitlab.com/midnightexigent/dprint-ci
 
 ## Others
 
-It is easy to get dprint working on a CI by running the install script then `dprint check`.
+It is easy to get dprint working on a CI by installing dprint then running `dprint check`.
 
 For example:
+
+```sh
+npm install -g dprint
+dprint check
+```
+
+Or:
 
 ```sh
 # replace X.X.X with the version of dprint to use

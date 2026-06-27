@@ -4,13 +4,6 @@ description: Documentation on the Exec code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/exec">Exec</a></li>
-  </ul>
-</nav>
-
 # Exec Plugin
 
 Plugin that formats code via mostly any formatting CLI found on the host machine.

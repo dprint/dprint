@@ -4,13 +4,6 @@ description: Documentation on the Dockerfile code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/dockerfile">Dockerfile</a></li>
-  </ul>
-</nav>
-
 # Dockerfile Code Formatter
 
 Formats [Dockerfiles](https://docs.docker.com/engine/reference/builder).

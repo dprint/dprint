@@ -39,28 +39,6 @@ Install using one of the methods below.
   cargo install --locked dprint
   ```
 
-- [Deno](https://deno.land):
-
-  For just your project, run `deno install npm:dprint` then you can configure a task like so:
-
-  ```json
-  {
-    "tasks": {
-      "fmt": "dprint fmt",
-      "fmt:check": "dprint check"
-    }
-  }
-  ```
-
-  Then run `deno task dprint init` to initialize and format by running: `deno task fmt`
-
-  Also, you could install it globally via Deno:
-
-  ```sh
-  deno install -g -A npm:dprint
-  dprint help
-  ```
-
 - [npm](https://www.npmjs.com/):
 
   ```sh

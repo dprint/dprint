@@ -3,78 +3,181 @@ description: A pluggable and configurable code formatting platform written in Ru
 layout: layouts/base.njk
 ---
 
-<section id="main-banner" class="hero is-medium">
-  <div class="hero-body">
-    <div class="inner-content">
-      <h1 class="title">dprint</h1>
-      <h2 class="subtitle">
-        A pluggable and configurable code formatting platform written in
-        <a href="https://www.rust-lang.org/">Rust</a>.
-      </h2>
+<section class="hero">
+  <div class="hero-glow"></div>
+  <div class="hero-inner">
+    <div class="hero-kicker">Pluggable · Configurable · Unified</div>
+    <h1 class="hero-title">dprint</h1>
+    <p class="hero-sub">A pluggable and configurable code formatting platform. One fast, secure tool for every language in your repo.</p>
+    <div class="hero-actions">
+      <a class="btn-primary" href="/install">Get started</a>
+      <a class="btn-secondary" href="https://github.com/dprint/dprint" rel="noopener noreferrer">View on GitHub</a>
+    </div>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="path">~/app</span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="prompt">$</span> <span class="cmd">dprint</span> <span class="arg">fmt</span></div>
+        <div class="muted">Formatted 248 files in 41ms.</div>
+        <div class="row-gap"><span class="prompt">$</span> <span class="cmd">dprint</span> <span class="arg">check</span></div>
+        <div class="muted">No files needed formatting.</div>
+        <div class="row-gap"><span class="prompt">$</span> <span class="caret"></span></div>
+      </div>
     </div>
   </div>
 </section>
-<section id="main-bottom">
-  <div class="inner-content">
-    <section class="notification">
-      <h2 class="subtitle">Why dprint?</h2>
-      <div class="content">
-        <ol>
-          <li><strong>Fast</strong> &mdash; Built with Rust and WebAssembly.</li>
-          <li><strong>Multi-language and ecosystem agnostic</strong> &mdash; One tool for all your formatters.</li>
-          <li><strong>Secure</strong> &mdash; Wasm plugins run sandboxed without access to the network or file system.</li>
-          <li><strong>Configurable official plugins</strong> &mdash; Tweak formatting to match your style, not the other way around.</li>
-          <li><strong>Extensible</strong> &mdash; Plugins are loaded from a URL or file path. Easy to share and version.</li>
-        </ol>
-      </div>
-    </section>
 
-    <section class="notification">
-      <h2 class="subtitle">Getting Started</h2>
-      <div class="content">
-        <ol>
-          <li><a href="/install">Install</a></li>
-          <li><a href="/setup">Setup</a></li>
-          <li><a href="/config">Configuration</a></li>
-          <li><a href="/cli">CLI Overview</a></li>
-        </ol>
-      </div>
-    </section>
+<section class="home-section why">
+  <div class="eyebrow">// why dprint</div>
+  <h2>One tool for every formatter in your stack.</h2>
+  <div class="why-grid">
+    <div class="why-card">
+      <div class="num">01</div>
+      <div class="name">Fast</div>
+      <p>Built with Rust and WebAssembly. Formats hundreds of files in milliseconds, with incremental caching by default.</p>
+    </div>
+    <div class="why-card">
+      <div class="num">02</div>
+      <div class="name">Multi-language</div>
+      <p>One ecosystem-agnostic tool for every formatter in your repo. No more juggling a different CLI per language.</p>
+    </div>
+    <div class="why-card">
+      <div class="num">03</div>
+      <div class="name">Secure</div>
+      <p>Wasm plugins run sandboxed — no access to the network or file system. Run untrusted formatters with confidence.</p>
+    </div>
+    <div class="why-card">
+      <div class="num">04</div>
+      <div class="name">Configurable</div>
+      <p>Official plugins expose real knobs. Tweak formatting to match your house style instead of fighting the defaults.</p>
+    </div>
+    <div class="why-card">
+      <div class="num">05</div>
+      <div class="name">Extensible</div>
+      <p>Plugins load from a URL or file path. Easy to share across a team, easy to pin and version in your config.</p>
+    </div>
+  </div>
+</section>
 
-    <section class="notification" id="main-plugins">
-      <h2 class="subtitle">Plugins</h2>
-      <div class="columns">
-        <div class="column">
-          <div class="content">
-            <ul>
-              <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
-              <li><a href="/plugins/json">JSON</a></li>
-              <li><a href="/plugins/markdown">Markdown</a></li>
-              <li><a href="/plugins/toml">TOML</a></li>
-              <li><a href="/plugins/malva">Malva (CSS/SCSS/Sass/Less)</a></li>
-              <li><a href="/plugins/dockerfile">Dockerfile</a></li>
-              <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
-              <li><a href="/plugins/ruff">Ruff (Python)</a></li>
-              <li><a href="/plugins/exec">Exec (rustfmt, yapf, java, etc.)</a></li>
-            </ul>
-          </div>
-        </div>
-        <div class="column main-plugins-following">
-          <div class="content">
-            <ul>
-              <li><a href="/plugins/prettier">Prettier</a></li>
-              <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
-              <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
-              <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
-              <li><a href="/plugins/markup_fmt">markup_fmt (HTML/Vue/Svelte/Astro/...)</a></li>
-              <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
-              <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
-              <li><a href="/plugins/mago">Mago (PHP)</a></li>
-              <li><a href="/plugins/jupyter">Jupyter</a></li>
-            </ul>
-          </div>
-        </div>
+<section class="home-section install">
+  <div class="install-card">
+    <div class="install-top">
+      <div class="install-copy">
+        <div class="eyebrow">// install</div>
+        <h2>Up and running in one line.</h2>
+        <p>Pick your platform. The CLI is a single static binary with no runtime dependencies.</p>
       </div>
-    </section>
+      <div class="installer">
+        <div class="os-tabs">
+          <button type="button" class="os-tab active" data-os="shell">Shell</button>
+          <button type="button" class="os-tab" data-os="pwsh">PowerShell</button>
+          <button type="button" class="os-tab" data-os="npm">npm</button>
+          <button type="button" class="os-tab" data-os="brew">Homebrew</button>
+          <button type="button" class="os-tab" data-os="cargo">Cargo</button>
+        </div>
+        <div class="cmd-line">
+          <code><span class="prompt">$</span> <span id="cmd-text">curl -fsSL https://dprint.dev/install.sh | sh</span></code>
+          <button type="button" class="copy-btn" id="copy-btn">copy</button>
+        </div>
+        <div class="install-note">Then run <span>dprint init</span> to scaffold a <span>dprint.json</span> in your project.</div>
+      </div>
+    </div>
+
+    <div class="install-steps">
+      <a class="install-step" href="/install">
+        <span class="num">01</span>
+        <span class="label">Install <span>→</span></span>
+        <span class="desc">Get the CLI</span>
+      </a>
+      <a class="install-step" href="/setup">
+        <span class="num">02</span>
+        <span class="label">Setup <span>→</span></span>
+        <span class="desc">Add plugins</span>
+      </a>
+      <a class="install-step" href="/config">
+        <span class="num">03</span>
+        <span class="label">Configuration <span>→</span></span>
+        <span class="desc">Tune the rules</span>
+      </a>
+      <a class="install-step" href="/cli">
+        <span class="num">04</span>
+        <span class="label">CLI Overview <span>→</span></span>
+        <span class="desc">Every command</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<section class="home-section plugins">
+  <div class="eyebrow">// plugins</div>
+  <h2>Format the whole stack.</h2>
+  <p>Load any plugin from a URL. Mix official formatters with battle-tested wrappers.</p>
+
+  <div class="plugins-label">Official plugins</div>
+  <div class="plugin-grid">
+    <a class="plugin-card" href="/plugins/typescript"><span class="swatch"></span><span class="meta"><span class="name">TypeScript / JavaScript</span><span
+          class="ext"
+        >.ts · .tsx · .js</span></span></a>
+    <a class="plugin-card" href="/plugins/json"><span class="swatch"></span><span class="meta"><span class="name">JSON</span><span class="ext"
+        >.json</span></span></a>
+    <a class="plugin-card" href="/plugins/markdown"><span class="swatch"></span><span class="meta"><span class="name">Markdown</span><span class="ext"
+        >.md</span></span></a>
+    <a class="plugin-card" href="/plugins/toml"><span class="swatch"></span><span class="meta"><span class="name">TOML</span><span class="ext"
+        >.toml</span></span></a>
+    <a class="plugin-card" href="/plugins/malva"><span class="swatch"></span><span class="meta"><span class="name">Malva</span><span class="ext"
+        >CSS · SCSS · Sass · Less</span></span></a>
+    <a class="plugin-card" href="/plugins/dockerfile"><span class="swatch"></span><span class="meta"><span class="name">Dockerfile</span><span class="ext"
+        >Dockerfile</span></span></a>
+    <a class="plugin-card" href="/plugins/roslyn"><span class="swatch"></span><span class="meta"><span class="name">Roslyn</span><span class="ext"
+        >C# · VB</span></span></a>
+    <a class="plugin-card" href="/plugins/ruff"><span class="swatch"></span><span class="meta"><span class="name">Ruff</span><span class="ext"
+        >Python</span></span></a>
+    <a class="plugin-card" href="/plugins/jupyter"><span class="swatch"></span><span class="meta"><span class="name">Jupyter</span><span class="ext"
+        >.ipynb</span></span></a>
+  </div>
+
+  <div class="plugins-label">Wrapper plugins</div>
+  <div class="plugin-grid">
+    <a class="plugin-card wrapper" href="/plugins/prettier"><span class="swatch"></span><span class="meta"><span class="name">Prettier</span><span class="ext"
+        >multi-language</span></span></a>
+    <a class="plugin-card wrapper" href="/plugins/biome"><span class="swatch"></span><span class="meta"><span class="name">Biome</span><span class="ext"
+        >JS · TS · JSON</span></span></a>
+    <a class="plugin-card wrapper" href="/plugins/oxc"><span class="swatch"></span><span class="meta"><span class="name">Oxc</span><span class="ext"
+        >JS · TS</span></span></a>
+    <a class="plugin-card wrapper" href="/plugins/gofumpt"><span class="swatch"></span><span class="meta"><span class="name">Gofumpt</span><span class="ext"
+        >Go</span></span></a>
+    <a class="plugin-card wrapper" href="/plugins/markup_fmt"><span class="swatch"></span><span class="meta"><span class="name">markup_fmt</span><span
+          class="ext"
+        >HTML · Vue · Svelte · Astro</span></span></a>
+    <a class="plugin-card wrapper" href="/plugins/pretty_graphql"><span class="swatch"></span><span class="meta"><span class="name">Pretty GraphQL</span><span
+          class="ext"
+        >.graphql</span></span></a>
+    <a class="plugin-card wrapper" href="/plugins/pretty_yaml"><span class="swatch"></span><span class="meta"><span class="name">Pretty YAML</span><span
+          class="ext"
+        >.yaml</span></span></a>
+    <a class="plugin-card wrapper" href="/plugins/mago"><span class="swatch"></span><span class="meta"><span class="name">Mago</span><span class="ext"
+        >PHP</span></span></a>
+  </div>
+
+  <div class="plugins-label">Everything else</div>
+  <div class="plugin-grid">
+    <a class="plugin-card" href="/plugins/exec"><span class="swatch"></span><span class="meta"><span class="name">Exec</span><span class="ext"
+        >Wrap any other CLI formatter — rustfmt, yapf, java …</span></span></a>
+  </div>
+</section>
+
+<section class="home-section cta">
+  <div class="cta-card">
+    <div class="cta-glow"></div>
+    <div class="cta-inner">
+      <div class="cta-title">dprint fmt</div>
+      <p>Stop arguing about whitespace. Add dprint to your repo and format everything, everywhere, in one pass.</p>
+      <a class="btn-primary" href="/install">Install dprint</a>
+    </div>
   </div>
 </section>

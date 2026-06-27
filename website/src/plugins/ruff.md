@@ -4,13 +4,6 @@ description: Documentation on the Ruff code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/ruff">Ruff</a></li>
-  </ul>
-</nav>
-
 # Ruff Plugin
 
 Adapter plugin that formats Python code via [Ruff](https://docs.astral.sh/ruff/).
