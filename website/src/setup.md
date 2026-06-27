@@ -28,7 +28,7 @@ This will create a _dprint.json_ file in the current working directory. If you a
 
 ### Non-interactive init
 
-Pass the `--yes` or `-y` flag to skip the prompt and accept the plugins selected based on the files in the current directory. This is useful in scripts or CI:
+Pass the `--yes` or `-y` flag to skip the prompt and accept the plugins selected based on the files in the current directory. This is useful in scripts:
 
 ```sh
 dprint init --yes
