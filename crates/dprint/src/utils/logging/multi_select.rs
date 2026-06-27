@@ -205,3 +205,127 @@ fn render_complete(data: &MultiSelectData) -> Vec<LoggerTextItem> {
   }
   result
 }
+
+#[cfg(test)]
+mod test {
+  use super::*;
+  use pretty_assertions::assert_eq;
+
+  fn build_data(items: &[(bool, String)]) -> MultiSelectData<'_> {
+    MultiSelectData {
+      prompt: "Select:",
+      item_hanging_indent: 0,
+      items: items.iter().map(|(selected, text)| (*selected, text)).collect(),
+      filter: String::new(),
+      active_index: 0,
+      scroll_offset: 0,
+    }
+  }
+
+  fn rendered_lines(items: &[LoggerTextItem]) -> Vec<String> {
+    items
+      .iter()
+      .map(|item| match item {
+        LoggerTextItem::Text(text) => text.clone(),
+        LoggerTextItem::HangingText { text, .. } => text.clone(),
+      })
+      .collect()
+  }
+
+  #[test]
+  fn visible_indexes_returns_all_when_no_filter() {
+    let items = vec![(false, "alpha".to_string()), (false, "beta".to_string())];
+    let data = build_data(&items);
+    assert_eq!(visible_indexes(&data), vec![0, 1]);
+  }
+
+  #[test]
+  fn visible_indexes_filters_case_insensitively() {
+    let items = vec![(false, "TypeScript".to_string()), (false, "JSON".to_string()), (false, "Markdown".to_string())];
+    let mut data = build_data(&items);
+    data.filter = "json".to_string();
+    assert_eq!(visible_indexes(&data), vec![1]);
+    data.filter = "s".to_string(); // matches "TypeScript" and "JSON"
+    assert_eq!(visible_indexes(&data), vec![0, 1]);
+    data.filter = "nope".to_string();
+    assert_eq!(visible_indexes(&data), Vec::<usize>::new());
+  }
+
+  #[test]
+  fn update_scroll_offset_scrolls_to_keep_active_visible() {
+    let items = (0..10).map(|i| (false, format!("item{i}"))).collect::<Vec<_>>();
+    let mut data = build_data(&items);
+
+    // active below the window scrolls down so it's the last visible row
+    data.active_index = 7;
+    update_scroll_offset(&mut data, 10, 3);
+    assert_eq!(data.scroll_offset, 5);
+
+    // active above the window scrolls up to the active row
+    data.active_index = 2;
+    update_scroll_offset(&mut data, 10, 3);
+    assert_eq!(data.scroll_offset, 2);
+
+    // active already visible doesn't move the window
+    data.active_index = 3;
+    update_scroll_offset(&mut data, 10, 3);
+    assert_eq!(data.scroll_offset, 2);
+  }
+
+  #[test]
+  fn update_scroll_offset_clamps_to_end() {
+    let items = (0..5).map(|i| (false, format!("item{i}"))).collect::<Vec<_>>();
+    let mut data = build_data(&items);
+    data.scroll_offset = 4;
+    data.active_index = 4;
+    update_scroll_offset(&mut data, 5, 3);
+    // max scroll is 5 - 3 = 2
+    assert_eq!(data.scroll_offset, 2);
+  }
+
+  #[test]
+  fn render_marks_active_and_selected() {
+    let items = vec![(true, "alpha".to_string()), (false, "beta".to_string())];
+    let mut data = build_data(&items);
+    data.active_index = 1;
+    let visible = visible_indexes(&data);
+    assert_eq!(
+      rendered_lines(&render_multi_select(&data, &visible, 10)),
+      vec!["Select:", "  [x] alpha", "> [ ] beta"]
+    );
+  }
+
+  #[test]
+  fn render_shows_filter_and_scroll_indicators() {
+    let items = (0..10).map(|i| (false, format!("item{i}"))).collect::<Vec<_>>();
+    let mut data = build_data(&items);
+    data.filter = "item".to_string();
+    data.active_index = 5;
+    data.scroll_offset = 4;
+    let visible = visible_indexes(&data);
+    assert_eq!(
+      rendered_lines(&render_multi_select(&data, &visible, 3)),
+      vec![
+        "Select:",
+        "  filter: item",
+        "  ...4 more above",
+        "  [ ] item4",
+        "> [ ] item5",
+        "  [ ] item6",
+        "  ...3 more below",
+      ]
+    );
+  }
+
+  #[test]
+  fn render_shows_message_when_no_matches() {
+    let items = vec![(false, "alpha".to_string())];
+    let mut data = build_data(&items);
+    data.filter = "nope".to_string();
+    let visible = visible_indexes(&data);
+    assert_eq!(
+      rendered_lines(&render_multi_select(&data, &visible, 10)),
+      vec!["Select:", "  filter: nope", "  (no matching plugins)"]
+    );
+  }
+}

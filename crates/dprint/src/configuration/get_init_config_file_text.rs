@@ -152,7 +152,8 @@ struct ProjectFiles {
 }
 
 /// Whether the plugin should be pre-selected based on the files in the current
-/// directory.
+/// directory. Extensions are matched case-insensitively, while file names are
+/// matched exactly because their casing is significant (ex. `Cargo.toml`).
 fn is_default_selected(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> bool {
   plugin.file_extensions.iter().any(|ext| project_files.extensions.contains(&ext.to_lowercase()))
     || plugin.file_names.iter().any(|name| project_files.file_names.contains(name))
@@ -360,6 +361,69 @@ mod test {
 "#
       );
 
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_scan_files_in_nested_directories() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        for plugin in get_multi_plugins_config() {
+          info.add_plugin(plugin);
+        }
+      })
+      .write_file("/src/nested/app.ts", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      // the typescript plugin is selected from the nested file
+      assert!(text.contains("https://plugins.dprint.dev/typescript-0.17.2.wasm"), "{text}");
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_not_scan_ignored_directories() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        for plugin in get_multi_plugins_config() {
+          info.add_plugin(plugin);
+        }
+      })
+      // matching files only exist within ignored directories
+      .write_file("/node_modules/dep/app.ts", "")
+      .write_file("/.git/hooks/config.json", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
+  "excludes": [],
+  "plugins": [
+    // specify plugin urls here
+  ]
+}
+"#
+      );
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_match_extensions_case_insensitively() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        for plugin in get_multi_plugins_config() {
+          info.add_plugin(plugin);
+        }
+      })
+      .write_file("/MAIN.TS", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      assert!(text.contains("https://plugins.dprint.dev/typescript-0.17.2.wasm"), "{text}");
       assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
     });
   }
