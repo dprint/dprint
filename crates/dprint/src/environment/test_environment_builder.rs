@@ -169,8 +169,6 @@ pub struct TestInfoFilePlugin {
   pub version: String,
   pub url: String,
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub selected: Option<bool>,
-  #[serde(skip_serializing_if = "Option::is_none")]
   pub file_names: Option<Vec<String>>,
   pub file_extensions: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]

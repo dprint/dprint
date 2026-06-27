@@ -18,7 +18,6 @@ pub struct InfoFile {
 pub struct InfoFilePluginInfo {
   pub name: String,
   pub version: String,
-  pub selected: bool,
   pub url: String,
   pub config_key: Option<String>,
   pub file_extensions: Vec<String>,
@@ -104,7 +103,6 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo> {
   let name = get_string(&mut obj, "name")?;
   let version = get_string(&mut obj, "version")?;
   let url = get_string(&mut obj, "url")?;
-  let selected = obj.get_boolean("selected").unwrap_or(false);
   let config_key = obj.take_string("configKey").map(|k| k.into_owned());
   let file_extensions = get_string_array(&mut obj, "fileExtensions")?;
   let file_names = get_string_array(&mut obj, "fileNames").unwrap_or_default(); // compatible with old configuration
@@ -115,7 +113,6 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo> {
     name,
     version,
     url,
-    selected,
     config_key,
     file_extensions,
     file_names,
@@ -165,7 +162,6 @@ mod test {
           .add_plugin(TestInfoFilePlugin {
             name: "dprint-plugin-typescript".to_string(),
             version: "0.17.2".to_string(),
-            selected: Some(true),
             url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
             config_key: Some("typescript".to_string()),
             file_extensions: vec!["ts".to_string(), "tsx".to_string()],
@@ -195,7 +191,6 @@ mod test {
             InfoFilePluginInfo {
               name: "dprint-plugin-typescript".to_string(),
               version: "0.17.2".to_string(),
-              selected: true,
               url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
               config_key: Some("typescript".to_string()),
               file_extensions: vec!["ts".to_string(), "tsx".to_string()],
@@ -206,7 +201,6 @@ mod test {
             InfoFilePluginInfo {
               name: "dprint-plugin-jsonc".to_string(),
               version: "0.2.3".to_string(),
-              selected: false,
               url: "https://plugins.dprint.dev/json-0.2.3.wasm".to_string(),
               config_key: None,
               file_extensions: vec!["json".to_string()],
