@@ -41,7 +41,41 @@ site
   .add("style.scss")
   .copy("assets", ".");
 
+// cache busting: give the built CSS/JS content-hashed filenames (like Vite)
+// so each deploy invalidates stale browser caches, then rewrite the references
+// in the generated HTML to point at the hashed names.
+const hashedAssets = new Map<string, string>();
+
+site.process([".css", ".js"], async (pages) => {
+  for (const page of pages) {
+    const url = page.data.url;
+    const dot = url.lastIndexOf(".");
+    const hashedUrl = `${url.slice(0, dot)}.${await shortHash(page.content!)}${url.slice(dot)}`;
+    hashedAssets.set(url, hashedUrl);
+    page.data.url = hashedUrl;
+  }
+});
+
+site.process([".html"], (pages) => {
+  for (const page of pages) {
+    let html = page.content as string;
+    for (const [from, to] of hashedAssets) {
+      html = html.replaceAll(`"${from}"`, `"${to}"`);
+    }
+    page.content = html;
+  }
+});
+
 export default site;
+
+async function shortHash(content: string | Uint8Array): Promise<string> {
+  const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content;
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 10);
+}
 
 async function copyConfigSchema() {
   // the dprint CLI crate is the source of truth for the config schema (it
