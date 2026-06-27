@@ -80,7 +80,9 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
 
     let mut selected_plugins = Vec::new();
     for index in selected_indexes {
-      selected_plugins.push(latest_plugins[index].clone());
+      let plugin = latest_plugins[index].clone();
+      let config = build_plugin_config(&plugin, &project_files);
+      selected_plugins.push((plugin, config));
     }
     Some(selected_plugins)
   } else {
@@ -90,14 +92,12 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
   let mut json_text = String::from("{\n");
 
   if let Some(selected_plugins) = &selected_plugins {
-    for plugin in selected_plugins.iter() {
-      // Put the brace on the next line so the user doesn't have to as soon as they
-      // go to add options.
+    for (plugin, config) in selected_plugins.iter() {
       if let Some(config_key) = &plugin.config_key
         && !config_key.is_empty()
       {
-        json_text.push_str(&format!("  \"{}\": {{\n", config_key));
-        json_text.push_str("  },\n");
+        json_text.push_str(&render_config_block(config_key, config));
+        json_text.push_str(",\n");
       }
     }
 
@@ -105,7 +105,7 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
     let excludes = get_unique_items(
       selected_plugins
         .iter()
-        .flat_map(|p| p.config_excludes.iter())
+        .flat_map(|(plugin, _)| plugin.config_excludes.iter())
         .map(|x| format!("    \"{}\"", x))
         .collect::<Vec<_>>(),
     );
@@ -119,7 +119,7 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
     if selected_plugins.is_empty() {
       json_text.push_str("    // specify plugin urls here\n");
     } else {
-      for (i, plugin) in selected_plugins.iter().enumerate() {
+      for (i, (plugin, _)) in selected_plugins.iter().enumerate() {
         if i > 0 {
           json_text.push_str(",\n");
         }
@@ -152,22 +152,114 @@ struct ProjectFiles {
 }
 
 /// Whether the plugin should be pre-selected based on the files in the current
+/// directory. A plugin matches via its own file extensions / file names or via
+/// any of its config items (ex. `dprint-plugin-exec` declares no extensions of
+/// its own but pre-selects when one of its command's file types is present).
+fn is_default_selected(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> bool {
+  matches_project_files(&plugin.file_extensions, &plugin.file_names, project_files)
+    || plugin
+      .config_items
+      .iter()
+      .any(|item| matches_project_files(&item.file_extensions, &item.file_names, project_files))
+}
+
+/// Whether any of the extensions or file names are present in the current
 /// directory. Extensions are matched case-insensitively, while file names are
 /// matched exactly because their casing is significant (ex. `Cargo.toml`).
-fn is_default_selected(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> bool {
-  plugin.file_extensions.iter().any(|ext| project_files.extensions.contains(&ext.to_lowercase()))
-    || plugin.file_names.iter().any(|name| project_files.file_names.contains(name))
+fn matches_project_files(file_extensions: &[String], file_names: &[String], project_files: &ProjectFiles) -> bool {
+  file_extensions.iter().any(|ext| project_files.extensions.contains(&ext.to_lowercase()))
+    || file_names.iter().any(|name| project_files.file_names.contains(name))
 }
 
 /// The text shown for a plugin in the selection list. The supported file
 /// extensions are appended so unfamiliar plugins are easier to tell apart.
 fn plugin_display_text(plugin: &InfoFilePluginInfo) -> String {
-  if plugin.file_extensions.is_empty() {
+  let extensions = display_extensions(plugin);
+  if extensions.is_empty() {
     plugin.name.clone()
   } else {
-    let extensions = plugin.file_extensions.iter().map(|ext| format!(".{}", ext)).collect::<Vec<_>>().join(", ");
+    let extensions = extensions.iter().map(|ext| format!(".{}", ext)).collect::<Vec<_>>().join(", ");
     format!("{} ({})", plugin.name, extensions)
   }
+}
+
+/// The extensions to show beside a plugin's name, falling back to the extensions
+/// of its config items when the plugin declares none of its own.
+fn display_extensions(plugin: &InfoFilePluginInfo) -> Vec<String> {
+  if !plugin.file_extensions.is_empty() {
+    return plugin.file_extensions.clone();
+  }
+  let mut extensions = Vec::new();
+  for item in &plugin.config_items {
+    for ext in &item.file_extensions {
+      if !extensions.contains(ext) {
+        extensions.push(ext.clone());
+      }
+    }
+  }
+  extensions
+}
+
+/// Builds the config block for a selected plugin: starts from its `defaultConfig`
+/// and merges in each config item whose files are present in the current
+/// directory. Objects merge recursively and arrays are concatenated, so command
+/// lists (ex. `dprint-plugin-exec`) accumulate.
+fn build_plugin_config(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> serde_json::Value {
+  let mut config = match plugin.default_config.clone() {
+    Some(value @ serde_json::Value::Object(_)) => value,
+    _ => serde_json::Value::Object(Default::default()),
+  };
+  for item in &plugin.config_items {
+    if matches_project_files(&item.file_extensions, &item.file_names, project_files) {
+      deep_merge(&mut config, item.config.clone());
+    }
+  }
+  config
+}
+
+/// Merges `other` into `base`: objects merge recursively, arrays are
+/// concatenated, and anything else overwrites.
+fn deep_merge(base: &mut serde_json::Value, other: serde_json::Value) {
+  use serde_json::Value;
+  match other {
+    Value::Object(other_map) if base.is_object() => {
+      let base_map = base.as_object_mut().unwrap();
+      for (key, value) in other_map {
+        match base_map.get_mut(&key) {
+          Some(existing) => deep_merge(existing, value),
+          None => {
+            base_map.insert(key, value);
+          }
+        }
+      }
+    }
+    Value::Array(mut other_items) if base.is_array() => {
+      base.as_array_mut().unwrap().append(&mut other_items);
+    }
+    other => *base = other,
+  }
+}
+
+/// Renders a `"key": { ... }` config block indented one level. An empty block
+/// keeps its brace on the next line so the user can start adding options.
+fn render_config_block(config_key: &str, config: &serde_json::Value) -> String {
+  let is_empty = config.as_object().is_none_or(|obj| obj.is_empty());
+  if is_empty {
+    return format!("  \"{}\": {{\n  }}", config_key);
+  }
+  let pretty = serde_json::to_string_pretty(config).unwrap();
+  pretty
+    .lines()
+    .enumerate()
+    .map(|(i, line)| {
+      if i == 0 {
+        format!("  \"{}\": {}", config_key, line)
+      } else {
+        format!("  {}", line)
+      }
+    })
+    .collect::<Vec<_>>()
+    .join("\n")
 }
 
 /// Scans the current directory for files in order to decide which plugins to
@@ -239,8 +331,159 @@ mod test {
   use super::*;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
+  use crate::environment::TestInfoFileConfigItem;
+  use crate::environment::TestInfoFileMatch;
   use crate::environment::TestInfoFilePlugin;
   use pretty_assertions::assert_eq;
+
+  fn exec_info_plugin() -> TestInfoFilePlugin {
+    TestInfoFilePlugin {
+      name: "dprint-plugin-exec".to_string(),
+      version: "0.5.0".to_string(),
+      url: "https://plugins.dprint.dev/exec-0.5.0.json".to_string(),
+      config_key: Some("exec".to_string()),
+      file_extensions: vec![],
+      config_excludes: vec![],
+      checksum: Some("checksum".to_string()),
+      default_config: Some(serde_json::json!({ "cwd": "${configDir}" })),
+      config_items: vec![
+        TestInfoFileConfigItem {
+          file_match: TestInfoFileMatch {
+            file_extensions: vec!["rs".to_string()],
+            file_names: vec![],
+          },
+          config: serde_json::json!({ "commands": [{ "command": "rustfmt", "exts": ["rs"] }] }),
+        },
+        TestInfoFileConfigItem {
+          file_match: TestInfoFileMatch {
+            file_extensions: vec!["go".to_string()],
+            file_names: vec![],
+          },
+          config: serde_json::json!({ "commands": [{ "command": "gofmt", "exts": ["go"] }] }),
+        },
+      ],
+      ..Default::default()
+    }
+  }
+
+  #[test]
+  fn should_scaffold_exec_config_from_matched_file() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(exec_info_plugin());
+      })
+      .write_file("/main.rs", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      // exec is pre-selected by the .rs file; cwd comes from defaultConfig and the
+      // rustfmt command from the matching config item (gofmt is not added)
+      assert_eq!(
+        text,
+        r#"{
+  "exec": {
+    "cwd": "${configDir}",
+    "commands": [
+      {
+        "command": "rustfmt",
+        "exts": [
+          "rs"
+        ]
+      }
+    ]
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/exec-0.5.0.json@checksum"
+  ]
+}
+"#
+      );
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_concatenate_config_items_in_info_order() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(exec_info_plugin());
+      })
+      .write_file("/main.rs", "")
+      .write_file("/lib.go", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      // both commands are appended in info.json order
+      assert_eq!(
+        text,
+        r#"{
+  "exec": {
+    "cwd": "${configDir}",
+    "commands": [
+      {
+        "command": "rustfmt",
+        "exts": [
+          "rs"
+        ]
+      },
+      {
+        "command": "gofmt",
+        "exts": [
+          "go"
+        ]
+      }
+    ]
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/exec-0.5.0.json@checksum"
+  ]
+}
+"#
+      );
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_apply_only_default_config_when_no_items_match() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(exec_info_plugin());
+      })
+      .build();
+    // manually select exec even though no matching files are present
+    environment.set_multi_selection_result(vec![0]);
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
+  "exec": {
+    "cwd": "${configDir}"
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/exec-0.5.0.json@checksum"
+  ]
+}
+"#
+      );
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn deep_merge_combines_objects_and_arrays() {
+    let mut base = serde_json::json!({ "a": 1, "list": [1, 2], "nested": { "x": 1 } });
+    deep_merge(&mut base, serde_json::json!({ "a": 2, "list": [3], "nested": { "y": 2 }, "b": 3 }));
+    assert_eq!(
+      base,
+      // scalars override, arrays concatenate, objects merge, new keys insert
+      serde_json::json!({ "a": 2, "list": [1, 2, 3], "nested": { "x": 1, "y": 2 }, "b": 3 })
+    );
+  }
 
   #[test]
   fn should_get_default_initialization_text() {

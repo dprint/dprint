@@ -176,6 +176,27 @@ pub struct TestInfoFilePlugin {
   pub config_excludes: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub checksum: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub default_config: Option<serde_json::Value>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub config_items: Vec<TestInfoFileConfigItem>,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TestInfoFileConfigItem {
+  #[serde(rename = "match")]
+  pub file_match: TestInfoFileMatch,
+  pub config: serde_json::Value,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TestInfoFileMatch {
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub file_extensions: Vec<String>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub file_names: Vec<String>,
 }
 
 impl TestInfoFileBuilder {
