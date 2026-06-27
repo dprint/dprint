@@ -3,6 +3,8 @@ use std::collections::VecDeque;
 
 use anyhow::Result;
 use dprint_core::plugins::wasm::{self};
+use jsonc_parser::cst::CstInputValue;
+use jsonc_parser::cst::CstRootNode;
 
 use crate::environment::DirEntry;
 use crate::environment::Environment;
@@ -89,58 +91,78 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
     None
   };
 
-  let mut json_text = String::from("{\n");
-
-  if let Some(selected_plugins) = &selected_plugins {
-    for (plugin, config) in selected_plugins.iter() {
-      if let Some(config_key) = &plugin.config_key
-        && !config_key.is_empty()
-      {
-        json_text.push_str(&render_config_block(config_key, config));
-        json_text.push_str(",\n");
-      }
-    }
-
-    json_text.push_str("  \"excludes\": [");
-    let excludes = get_unique_items(
-      selected_plugins
-        .iter()
-        .flat_map(|(plugin, _)| plugin.config_excludes.iter())
-        .map(|x| format!("    \"{}\"", x))
-        .collect::<Vec<_>>(),
-    );
-    if !excludes.is_empty() {
-      json_text.push('\n');
-      json_text.push_str(&excludes.join(",\n"));
-      json_text.push_str("\n  ");
-    }
-    json_text.push_str("],\n");
-    json_text.push_str("  \"plugins\": [\n");
-    if selected_plugins.is_empty() {
-      json_text.push_str("    // specify plugin urls here\n");
-    } else {
-      for (i, (plugin, _)) in selected_plugins.iter().enumerate() {
-        if i > 0 {
-          json_text.push_str(",\n");
-        }
-        let url = if plugin.is_process_plugin() && plugin.checksum.is_some() {
-          format!("{}@{}", plugin.url, plugin.checksum.as_ref().unwrap())
-        } else {
-          plugin.url.to_string()
-        };
-        json_text.push_str(&format!("    \"{}\"", url));
-      }
-      json_text.push('\n');
-    }
-    json_text.push_str("  ]\n}\n");
-  } else {
-    json_text.push_str("  \"excludes\": [\n    \"**/*-lock.json\"\n  ],\n");
-    json_text.push_str("  \"plugins\": [\n");
-    json_text.push_str("    // specify plugin urls here\n");
-    json_text.push_str("  ]\n}\n");
-  }
+  let json_text = match selected_plugins {
+    Some(selected_plugins) if !selected_plugins.is_empty() => render_config_file(&selected_plugins),
+    // plugin info was available, but nothing was selected
+    Some(_) => "{\n  \"excludes\": [],\n  \"plugins\": [\n    // specify plugin urls here\n  ]\n}\n".to_string(),
+    // the plugin info couldn't be downloaded
+    None => "{\n  \"excludes\": [\n    \"**/*-lock.json\"\n  ],\n  \"plugins\": [\n    // specify plugin urls here\n  ]\n}\n".to_string(),
+  };
 
   Ok(json_text)
+}
+
+/// Renders the config file for the selected plugins using jsonc-parser's CST,
+/// which handles indentation, commas, and multi-line formatting for us.
+fn render_config_file(selected_plugins: &[(InfoFilePluginInfo, serde_json::Value)]) -> String {
+  let root = CstRootNode::parse("{\n}", &Default::default()).unwrap();
+  let root_obj = root.object_value_or_set();
+
+  for (plugin, config) in selected_plugins {
+    if let Some(config_key) = &plugin.config_key
+      && !config_key.is_empty()
+    {
+      let is_empty = config.as_object().is_none_or(|obj| obj.is_empty());
+      let prop = root_obj.append(config_key, to_cst_input(config.clone()));
+      // keep the brace of an empty block on its own line so there's a spot to add options
+      if is_empty && let Some(object) = prop.value().and_then(|value| value.as_object()) {
+        object.ensure_multiline();
+      }
+    }
+  }
+
+  let excludes = get_unique_items(
+    selected_plugins
+      .iter()
+      .flat_map(|(plugin, _)| plugin.config_excludes.iter().cloned())
+      .collect::<Vec<_>>(),
+  );
+  let excludes_prop = root_obj.append("excludes", CstInputValue::Array(excludes.iter().cloned().map(CstInputValue::String).collect()));
+  if !excludes.is_empty()
+    && let Some(array) = excludes_prop.value().and_then(|value| value.as_array())
+  {
+    array.ensure_multiline();
+  }
+
+  let urls = selected_plugins
+    .iter()
+    .map(|(plugin, _)| {
+      if plugin.is_process_plugin() && plugin.checksum.is_some() {
+        format!("{}@{}", plugin.url, plugin.checksum.as_ref().unwrap())
+      } else {
+        plugin.url.clone()
+      }
+    })
+    .collect::<Vec<_>>();
+  let plugins_prop = root_obj.append("plugins", CstInputValue::Array(urls.into_iter().map(CstInputValue::String).collect()));
+  if let Some(array) = plugins_prop.value().and_then(|value| value.as_array()) {
+    array.ensure_multiline();
+  }
+
+  format!("{root}\n")
+}
+
+/// Converts an owned `serde_json::Value` into the CST's input value type.
+fn to_cst_input(value: serde_json::Value) -> CstInputValue {
+  use serde_json::Value;
+  match value {
+    Value::Null => CstInputValue::Null,
+    Value::Bool(value) => CstInputValue::Bool(value),
+    Value::Number(value) => CstInputValue::Number(value.to_string()),
+    Value::String(value) => CstInputValue::String(value),
+    Value::Array(values) => CstInputValue::Array(values.into_iter().map(to_cst_input).collect()),
+    Value::Object(entries) => CstInputValue::Object(entries.into_iter().map(|(key, value)| (key, to_cst_input(value))).collect()),
+  }
 }
 
 /// The files found while scanning the current directory, used to decide which
@@ -238,28 +260,6 @@ fn deep_merge(base: &mut serde_json::Value, other: serde_json::Value) {
     }
     other => *base = other,
   }
-}
-
-/// Renders a `"key": { ... }` config block indented one level. An empty block
-/// keeps its brace on the next line so the user can start adding options.
-fn render_config_block(config_key: &str, config: &serde_json::Value) -> String {
-  let is_empty = config.as_object().is_none_or(|obj| obj.is_empty());
-  if is_empty {
-    return format!("  \"{}\": {{\n  }}", config_key);
-  }
-  let pretty = serde_json::to_string_pretty(config).unwrap();
-  pretty
-    .lines()
-    .enumerate()
-    .map(|(i, line)| {
-      if i == 0 {
-        format!("  \"{}\": {}", config_key, line)
-      } else {
-        format!("  {}", line)
-      }
-    })
-    .collect::<Vec<_>>()
-    .join("\n")
 }
 
 /// Scans the current directory for files in order to decide which plugins to
@@ -386,9 +386,7 @@ mod test {
     "commands": [
       {
         "command": "rustfmt",
-        "exts": [
-          "rs"
-        ]
+        "exts": ["rs"]
       }
     ]
   },
@@ -423,15 +421,11 @@ mod test {
     "commands": [
       {
         "command": "rustfmt",
-        "exts": [
-          "rs"
-        ]
+        "exts": ["rs"]
       },
       {
         "command": "gofmt",
-        "exts": [
-          "go"
-        ]
+        "exts": ["go"]
       }
     ]
   },
