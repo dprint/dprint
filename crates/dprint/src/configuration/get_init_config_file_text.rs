@@ -728,6 +728,7 @@ mod test {
   fn display_order_lists_selected_first() {
     assert_eq!(display_order(&[false, true, false, true]), vec![1, 3, 0, 2]);
     assert_eq!(display_order(&[true, true]), vec![0, 1]);
+    assert_eq!(display_order(&[false, false, false]), vec![0, 1, 2]);
     assert_eq!(display_order(&[]), Vec::<usize>::new());
   }
 
@@ -782,6 +783,86 @@ mod test {
       .build();
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      assert!(text.contains("a-1.0.0.wasm"), "{text}");
+      assert!(!text.contains("b-1.0.0.wasm"), "{text}");
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_map_picker_selection_back_when_display_is_reordered() {
+    // `b` (index 1) is the sole pre-selected plugin, so it's shown first; selecting
+    // both from the reordered list must still map back and output in info.json order
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "a", &["js"])).add_plugin(wasm_plugin("b", "b", &["ts"]));
+      })
+      .write_file("/file.ts", "")
+      .build();
+    environment.set_multi_selection_result(vec![0, 1]); // both items, in display order
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      let a_pos = text.find("a-1.0.0.wasm").expect("a present");
+      let b_pos = text.find("b-1.0.0.wasm").expect("b present");
+      // output stays in info.json order (a before b) even though b was displayed first
+      assert!(a_pos < b_pos, "{text}");
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_select_keyless_plugins_for_distinct_extensions() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info
+          .add_plugin(TestInfoFilePlugin {
+            config_key: None,
+            ..wasm_plugin("a", "", &["ts"])
+          })
+          .add_plugin(TestInfoFilePlugin {
+            config_key: None,
+            ..wasm_plugin("b", "", &["vue"])
+          });
+      })
+      .write_file("/file.ts", "")
+      .write_file("/file.vue", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      // plugins without a config key never collide on it
+      assert!(text.contains("a-1.0.0.wasm"), "{text}");
+      assert!(text.contains("b-1.0.0.wasm"), "{text}");
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_not_select_plugins_with_shared_config_key_matched_via_config_items() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "shared", &["ts"])).add_plugin(TestInfoFilePlugin {
+          name: "b".to_string(),
+          version: "1.0.0".to_string(),
+          url: "https://plugins.dprint.dev/b-1.0.0.wasm".to_string(),
+          config_key: Some("shared".to_string()),
+          file_extensions: vec![],
+          config_excludes: vec![],
+          config_items: vec![TestInfoFileConfigItem {
+            file_match: TestInfoFileMatch {
+              file_extensions: vec!["rs".to_string()],
+              file_names: vec![],
+            },
+            config: serde_json::json!({}),
+          }],
+          ..Default::default()
+        });
+      })
+      .write_file("/file.ts", "")
+      .write_file("/file.rs", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      // `b` matches `.rs` via a config item but shares the "shared" key with `a`
       assert!(text.contains("a-1.0.0.wasm"), "{text}");
       assert!(!text.contains("b-1.0.0.wasm"), "{text}");
       assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
