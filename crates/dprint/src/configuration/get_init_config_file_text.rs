@@ -226,6 +226,9 @@ fn display_extensions(plugin: &InfoFilePluginInfo) -> Vec<String> {
 /// and merges in each config item whose files are present in the current
 /// directory. Objects merge recursively and arrays are concatenated, so command
 /// lists (ex. `dprint-plugin-exec`) accumulate.
+///
+/// The order keys appear in the output relies on `serde_json`'s `preserve_order`
+/// feature (and jsonc-parser's), so config reads in the same order it's declared.
 fn build_plugin_config(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> serde_json::Value {
   let mut config = match plugin.default_config.clone() {
     Some(value @ serde_json::Value::Object(_)) => value,
@@ -334,6 +337,7 @@ mod test {
   use crate::environment::TestInfoFileConfigItem;
   use crate::environment::TestInfoFileMatch;
   use crate::environment::TestInfoFilePlugin;
+  use crate::plugins::InfoFileConfigItem;
   use pretty_assertions::assert_eq;
 
   fn exec_info_plugin() -> TestInfoFilePlugin {
@@ -345,6 +349,7 @@ mod test {
       file_extensions: vec![],
       config_excludes: vec![],
       checksum: Some("checksum".to_string()),
+      // ${configDir} is an exec-plugin runtime token, emitted verbatim (not expanded here)
       default_config: Some(serde_json::json!({ "cwd": "${configDir}" })),
       config_items: vec![
         TestInfoFileConfigItem {
@@ -364,6 +369,160 @@ mod test {
       ],
       ..Default::default()
     }
+  }
+
+  fn info_plugin_with_extensions(file_extensions: Vec<&str>, config_item_extensions: Vec<Vec<&str>>) -> InfoFilePluginInfo {
+    InfoFilePluginInfo {
+      name: "dprint-plugin-exec".to_string(),
+      version: "0.5.0".to_string(),
+      url: "https://plugins.dprint.dev/exec-0.5.0.json".to_string(),
+      config_key: Some("exec".to_string()),
+      file_extensions: file_extensions.into_iter().map(String::from).collect(),
+      file_names: vec![],
+      config_excludes: vec![],
+      checksum: None,
+      default_config: None,
+      config_items: config_item_extensions
+        .into_iter()
+        .map(|extensions| InfoFileConfigItem {
+          file_extensions: extensions.into_iter().map(String::from).collect(),
+          file_names: vec![],
+          config: serde_json::Value::Object(Default::default()),
+        })
+        .collect(),
+    }
+  }
+
+  #[test]
+  fn plugin_display_text_falls_back_to_config_item_extensions() {
+    // a plugin's own extensions take precedence
+    let plugin = info_plugin_with_extensions(vec!["ts", "tsx"], vec![vec!["rs"]]);
+    assert_eq!(plugin_display_text(&plugin), "dprint-plugin-exec (.ts, .tsx)");
+    // otherwise the extensions are derived from the config items, deduplicated in order
+    let plugin = info_plugin_with_extensions(vec![], vec![vec!["rs"], vec!["go", "rs"]]);
+    assert_eq!(plugin_display_text(&plugin), "dprint-plugin-exec (.rs, .go)");
+    // nothing to show -> just the name
+    let plugin = info_plugin_with_extensions(vec![], vec![]);
+    assert_eq!(plugin_display_text(&plugin), "dprint-plugin-exec");
+  }
+
+  #[test]
+  fn should_scaffold_config_from_file_name_match() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "dprint-plugin-exec".to_string(),
+          version: "0.5.0".to_string(),
+          url: "https://plugins.dprint.dev/exec-0.5.0.json".to_string(),
+          config_key: Some("exec".to_string()),
+          file_extensions: vec![],
+          config_excludes: vec![],
+          checksum: Some("checksum".to_string()),
+          config_items: vec![TestInfoFileConfigItem {
+            file_match: TestInfoFileMatch {
+              file_extensions: vec![],
+              file_names: vec!["Makefile".to_string()],
+            },
+            config: serde_json::json!({ "commands": [{ "command": "make", "exts": [] }] }),
+          }],
+          ..Default::default()
+        });
+      })
+      .write_file("/Makefile", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
+  "exec": {
+    "commands": [
+      {
+        "command": "make",
+        "exts": []
+      }
+    ]
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/exec-0.5.0.json@checksum"
+  ]
+}
+"#
+      );
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_let_config_item_override_default_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "dprint-plugin-exec".to_string(),
+          version: "0.5.0".to_string(),
+          url: "https://plugins.dprint.dev/exec-0.5.0.json".to_string(),
+          config_key: Some("exec".to_string()),
+          file_extensions: vec![],
+          config_excludes: vec![],
+          checksum: Some("checksum".to_string()),
+          default_config: Some(serde_json::json!({ "cwd": "default", "indentWidth": 2 })),
+          config_items: vec![TestInfoFileConfigItem {
+            file_match: TestInfoFileMatch {
+              file_extensions: vec!["rs".to_string()],
+              file_names: vec![],
+            },
+            config: serde_json::json!({ "cwd": "${configDir}", "commands": [{ "command": "rustfmt", "exts": ["rs"] }] }),
+          }],
+          ..Default::default()
+        });
+      })
+      .write_file("/main.rs", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      // the config item overrides cwd, keeps indentWidth, and appends commands
+      assert_eq!(
+        text,
+        r#"{
+  "exec": {
+    "cwd": "${configDir}",
+    "indentWidth": 2,
+    "commands": [
+      {
+        "command": "rustfmt",
+        "exts": ["rs"]
+      }
+    ]
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/exec-0.5.0.json@checksum"
+  ]
+}
+"#
+      );
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_auto_select_exec_non_interactive() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(exec_info_plugin());
+      })
+      .write_file("/main.rs", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, GetInitConfigFileTextOptions { non_interactive: true })
+        .await
+        .unwrap();
+      // exec is auto-selected by the .rs file with no prompt
+      assert!(text.contains("\"command\": \"rustfmt\""), "{text}");
+      assert!(text.contains("exec-0.5.0.json@checksum"), "{text}");
+      assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+    });
   }
 
   #[test]

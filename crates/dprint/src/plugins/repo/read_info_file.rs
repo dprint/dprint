@@ -334,6 +334,55 @@ mod test {
   }
 
   #[test]
+  fn should_parse_init_fields_leniently() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      REMOTE_INFO_URL,
+      r#"{
+  "schemaVersion": 4,
+  "pluginSystemSchemaVersion": 4,
+  "latest": [{
+    "name": "p",
+    "version": "1.0.0",
+    "url": "https://plugins.dprint.dev/p.wasm",
+    "fileExtensions": ["x"],
+    "configExcludes": [],
+    "defaultConfig": "not-an-object",
+    "configItems": [
+      "not-an-object",
+      { "config": { "a": 1 } },
+      { "match": { "fileExtensions": ["y", 5] }, "config": { "b": 2 } }
+    ]
+  }]
+}"#
+        .as_bytes(),
+    );
+    environment.clone().run_in_runtime(async move {
+      let info_file = read_info_file(&environment).await.unwrap();
+      let plugin = &info_file.latest_plugins[0];
+      // a non-object defaultConfig is ignored rather than failing the whole info file
+      assert_eq!(plugin.default_config, None);
+      assert_eq!(
+        plugin.config_items,
+        vec![
+          // the bare string entry is skipped; a missing `match` defaults to no matchers
+          InfoFileConfigItem {
+            file_extensions: vec![],
+            file_names: vec![],
+            config: serde_json::json!({ "a": 1 }),
+          },
+          // the non-string extension is dropped
+          InfoFileConfigItem {
+            file_extensions: vec!["y".to_string()],
+            file_names: vec![],
+            config: serde_json::json!({ "b": 2 }),
+          },
+        ]
+      );
+    });
+  }
+
+  #[test]
   fn should_error_if_schema_version_is_different() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
