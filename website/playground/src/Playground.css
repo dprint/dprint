@@ -13,9 +13,10 @@ body,
 
 #App {
   --accent: #8b93a1;
-  min-height: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: #1e1e1e;
   color: #abb2bf;
 }
@@ -93,47 +94,20 @@ body,
 /* page shell */
 
 .page {
-  max-width: 1280px;
   width: 100%;
-  margin: 0 auto;
+  margin: 0;
   box-sizing: border-box;
-  padding: 0 28px 56px;
+  padding: 0 28px 20px;
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-.pageHeader {
-  padding: 34px 0 18px;
-}
-
-.eyebrow {
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--accent);
-  margin-bottom: 12px;
-}
-
-.pageHeader h1 {
-  margin: 0 0 8px;
-  font-size: clamp(30px, 4.5vw, 44px);
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: #fff;
-  filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.12));
-}
-
-.pageHeader p {
-  margin: 0;
-  font-size: 15px;
-  color: #8b93a1;
 }
 
 /* toolbar */
 
 .toolbar {
-  padding: 14px 0;
+  padding: 16px 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -161,7 +135,7 @@ body,
   font-size: 13px;
   padding: 9px 12px;
   cursor: pointer;
-  max-width: 320px;
+  max-width: 560px;
   transition: border-color 0.15s, color 0.15s;
 }
 
@@ -214,21 +188,24 @@ body,
 /* panes */
 
 .panes {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
   align-items: stretch;
 }
 
 .leftCol {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  flex: 0 0 calc(var(--left-frac, 0.5) * 100%);
+  min-width: 0;
+  min-height: 0;
 }
 
 .pane {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   background: #181a1e;
   border: 1px solid #33373f;
   border-radius: 14px;
@@ -236,15 +213,61 @@ body,
 }
 
 .inputPane {
-  height: 420px;
+  flex: 0 0 calc(var(--input-frac, 0.65) * 100%);
+  min-height: 0;
 }
 
 .configPane {
-  height: 224px;
+  flex: 1;
+  min-height: 0;
 }
 
 .outputPane {
-  height: 660px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* draggable dividers — invisible gaps that highlight a line on hover/drag */
+
+.divider {
+  position: relative;
+  flex: 0 0 16px;
+  touch-action: none;
+}
+
+.divider::before {
+  content: "";
+  position: absolute;
+  background: transparent;
+  border-radius: 2px;
+  transition: background 0.15s;
+}
+
+.divider:hover::before,
+.divider:active::before {
+  background: var(--accent);
+}
+
+.dividerVertical {
+  cursor: col-resize;
+}
+
+.dividerVertical::before {
+  top: 0;
+  bottom: 0;
+  left: 7px;
+  width: 2px;
+}
+
+.dividerHorizontal {
+  cursor: row-resize;
+}
+
+.dividerHorizontal::before {
+  left: 0;
+  right: 0;
+  top: 7px;
+  height: 2px;
 }
 
 .paneHeader {
@@ -292,11 +315,41 @@ body,
 }
 
 @media (max-width: 860px) {
+  #App {
+    overflow: auto;
+  }
+
+  .page {
+    overflow: visible;
+  }
+
   .panes {
-    grid-template-columns: 1fr;
+    flex: none;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .leftCol {
+    flex: none;
+    gap: 16px;
+  }
+
+  .inputPane {
+    height: 360px;
+    flex: none;
+  }
+
+  .configPane {
+    height: 220px;
+    flex: none;
   }
 
   .outputPane {
     height: 420px;
+    flex: none;
+  }
+
+  .divider {
+    display: none;
   }
 }
