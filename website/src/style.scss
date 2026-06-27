@@ -649,11 +649,31 @@ a {
 
 @media (max-width: 720px) {
   .install-top {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .install-copy {
     border-right: none;
     border-bottom: 1px solid #2a2e35;
+    padding: 32px 24px;
+  }
+  .install-copy h2 {
+    font-size: 24px;
+  }
+  .installer {
+    padding: 24px;
+  }
+  .install-steps {
+    grid-template-columns: 1fr 1fr;
+  }
+  .install-step {
+    border-bottom: 1px solid #2a2e35;
+    padding: 18px 20px;
+  }
+  .install-step:nth-child(2n) {
+    border-right: none;
+  }
+  .install-step:nth-last-child(-n+2) {
+    border-bottom: none;
   }
 }
 

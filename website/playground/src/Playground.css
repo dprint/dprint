@@ -39,6 +39,7 @@ body,
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 18px;
 }
 
 .brand {
@@ -68,7 +69,8 @@ body,
 }
 
 .navLinks a.active {
-  color: var(--accent);
+  color: #fff;
+  font-weight: 600;
 }
 
 .navLinks a.ghButton {
@@ -89,6 +91,20 @@ body,
 
 .ghArrow {
   color: #6e7681;
+}
+
+/* keep the nav in step with the main site's responsive header */
+@media (max-width: 768px) {
+  .navInner {
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+
+  .navLinks {
+    flex-wrap: wrap;
+    gap: 14px 18px;
+    font-size: 13px;
+  }
 }
 
 /* page shell */
