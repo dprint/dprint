@@ -672,7 +672,7 @@ a {
   .install-step:nth-child(2n) {
     border-right: none;
   }
-  .install-step:nth-last-child(-n + 2) {
+  .install-step:nth-last-child(-n+2) {
     border-bottom: none;
   }
 }
