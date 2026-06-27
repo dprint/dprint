@@ -63,22 +63,23 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
     let latest_plugins = info.latest_plugins;
     // pre-select the plugins that match files found in the current directory
     let project_files = scan_project_files(environment);
-    let defaults = latest_plugins
-      .iter()
-      .map(|plugin| is_default_selected(plugin, &project_files))
-      .collect::<Vec<_>>();
+    let defaults = compute_default_selections(&latest_plugins, &project_files);
 
-    let selected_indexes = if options.non_interactive {
+    let mut selected_indexes = if options.non_interactive {
       defaults.iter().enumerate().filter_map(|(i, on)| on.then_some(i)).collect::<Vec<_>>()
     } else {
+      // show the pre-selected plugins at the top of the list
+      let order = display_order(&defaults);
       let prompt_message = "Select plugins (space to toggle, type to filter, enter to finish):";
-      let items = latest_plugins
+      let items = order
         .iter()
-        .zip(defaults.iter())
-        .map(|(plugin, default)| (*default, plugin_display_text(plugin)))
+        .map(|&i| (defaults[i], plugin_display_text(&latest_plugins[i])))
         .collect::<Vec<_>>();
-      environment.get_multi_selection(prompt_message, 0, &items)?
+      let chosen = environment.get_multi_selection(prompt_message, 0, &items)?;
+      chosen.into_iter().map(|display_index| order[display_index]).collect::<Vec<_>>()
     };
+    // keep the config file in info.json order regardless of the display order
+    selected_indexes.sort_unstable();
 
     let mut selected_plugins = Vec::new();
     for index in selected_indexes {
@@ -173,16 +174,89 @@ struct ProjectFiles {
   file_names: HashSet<String>,
 }
 
-/// Whether the plugin should be pre-selected based on the files in the current
-/// directory. A plugin matches via its own file extensions / file names or via
-/// any of its config items (ex. `dprint-plugin-exec` declares no extensions of
-/// its own but pre-selects when one of its command's file types is present).
-fn is_default_selected(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> bool {
-  matches_project_files(&plugin.file_extensions, &plugin.file_names, project_files)
-    || plugin
-      .config_items
-      .iter()
-      .any(|item| matches_project_files(&item.file_extensions, &item.file_names, project_files))
+/// Decides which plugins to pre-select based on the files in the current
+/// directory, applying two priority rules in info.json order:
+///
+/// 1. Each present extension / file name is claimed by the first plugin that
+///    matches it; a plugin is pre-selected when it claims at least one. So a
+///    later plugin is still selected if it's the first to match some other
+///    present extension (ex. one plugin owns `.ts`, a later one owns `.vue`).
+/// 2. Two plugins that share a config key are never both selected — the earlier
+///    one in the list wins.
+///
+/// A plugin matches via its own file extensions / file names or via any of its
+/// config items (ex. `dprint-plugin-exec` declares no extensions of its own but
+/// pre-selects when one of its command's file types is present).
+fn compute_default_selections(plugins: &[InfoFilePluginInfo], project_files: &ProjectFiles) -> Vec<bool> {
+  let mut claimed_extensions: HashSet<String> = HashSet::new();
+  let mut claimed_file_names: HashSet<String> = HashSet::new();
+  let mut used_config_keys: HashSet<&str> = HashSet::new();
+  let mut selected = vec![false; plugins.len()];
+
+  for (i, plugin) in plugins.iter().enumerate() {
+    // present extensions / file names that this plugin matches
+    let present_extensions = match_extensions(plugin)
+      .into_iter()
+      .filter(|ext| project_files.extensions.contains(ext))
+      .collect::<Vec<_>>();
+    let present_file_names = match_file_names(plugin)
+      .into_iter()
+      .filter(|name| project_files.file_names.contains(*name))
+      .map(|name| name.to_string())
+      .collect::<Vec<_>>();
+
+    // select it only if it's the first to match at least one of those
+    let claims_unclaimed =
+      present_extensions.iter().any(|ext| !claimed_extensions.contains(ext)) || present_file_names.iter().any(|name| !claimed_file_names.contains(name));
+    if !claims_unclaimed {
+      continue;
+    }
+
+    // never select two plugins that share a config key (earlier one wins)
+    if let Some(config_key) = config_key(plugin)
+      && !used_config_keys.insert(config_key)
+    {
+      continue;
+    }
+
+    selected[i] = true;
+    claimed_extensions.extend(present_extensions);
+    claimed_file_names.extend(present_file_names);
+  }
+
+  selected
+}
+
+/// The order plugins are displayed in: the pre-selected ones first (each group
+/// in info.json order), so the relevant plugins are at the top of the list.
+fn display_order(defaults: &[bool]) -> Vec<usize> {
+  let selected = (0..defaults.len()).filter(|&i| defaults[i]);
+  let unselected = (0..defaults.len()).filter(|&i| !defaults[i]);
+  selected.chain(unselected).collect()
+}
+
+/// All the file extensions a plugin matches (its own plus its config items'),
+/// lowercased to match the scan.
+fn match_extensions(plugin: &InfoFilePluginInfo) -> Vec<String> {
+  let mut extensions = plugin.file_extensions.iter().map(|ext| ext.to_lowercase()).collect::<Vec<_>>();
+  for item in &plugin.config_items {
+    extensions.extend(item.file_extensions.iter().map(|ext| ext.to_lowercase()));
+  }
+  extensions
+}
+
+/// All the file names a plugin matches (its own plus its config items').
+fn match_file_names(plugin: &InfoFilePluginInfo) -> Vec<&str> {
+  let mut file_names = plugin.file_names.iter().map(String::as_str).collect::<Vec<_>>();
+  for item in &plugin.config_items {
+    file_names.extend(item.file_names.iter().map(String::as_str));
+  }
+  file_names
+}
+
+/// A plugin's non-empty config key, if it has one.
+fn config_key(plugin: &InfoFilePluginInfo) -> Option<&str> {
+  plugin.config_key.as_deref().filter(|key| !key.is_empty())
 }
 
 /// Whether any of the extensions or file names are present in the current
@@ -636,6 +710,163 @@ mod test {
       // scalars override, arrays concatenate, objects merge, new keys insert
       serde_json::json!({ "a": 2, "list": [1, 2, 3], "nested": { "x": 1, "y": 2 }, "b": 3 })
     );
+  }
+
+  fn wasm_plugin(name: &str, config_key: &str, extensions: &[&str]) -> TestInfoFilePlugin {
+    TestInfoFilePlugin {
+      name: name.to_string(),
+      version: "1.0.0".to_string(),
+      url: format!("https://plugins.dprint.dev/{}-1.0.0.wasm", name),
+      config_key: Some(config_key.to_string()),
+      file_extensions: extensions.iter().map(|e| e.to_string()).collect(),
+      config_excludes: vec![],
+      ..Default::default()
+    }
+  }
+
+  #[test]
+  fn display_order_lists_selected_first() {
+    assert_eq!(display_order(&[false, true, false, true]), vec![1, 3, 0, 2]);
+    assert_eq!(display_order(&[true, true]), vec![0, 1]);
+    assert_eq!(display_order(&[false, false, false]), vec![0, 1, 2]);
+    assert_eq!(display_order(&[]), Vec::<usize>::new());
+  }
+
+  #[test]
+  fn should_select_only_the_first_plugin_for_a_shared_extension() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "a", &["ts"])).add_plugin(wasm_plugin("b", "b", &["ts"]));
+      })
+      .write_file("/file.ts", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      // only the first plugin claims `ts`
+      assert!(text.contains("a-1.0.0.wasm"), "{text}");
+      assert!(!text.contains("b-1.0.0.wasm"), "{text}");
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_select_both_plugins_on_partial_extension_overlap() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        // `a` owns `ts`; `b` shares `ts` but also owns `vue`, so it's still selected
+        info
+          .add_plugin(wasm_plugin("a", "a", &["ts"]))
+          .add_plugin(wasm_plugin("b", "b", &["ts", "vue"]));
+      })
+      .write_file("/file.ts", "")
+      .write_file("/file.vue", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      assert!(text.contains("a-1.0.0.wasm"), "{text}");
+      assert!(text.contains("b-1.0.0.wasm"), "{text}");
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_not_select_two_plugins_with_the_same_config_key() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        // both use config key "markup"; `b` would otherwise be selected for `vue`
+        info
+          .add_plugin(wasm_plugin("a", "markup", &["ts"]))
+          .add_plugin(wasm_plugin("b", "markup", &["ts", "vue"]));
+      })
+      .write_file("/file.ts", "")
+      .write_file("/file.vue", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      assert!(text.contains("a-1.0.0.wasm"), "{text}");
+      assert!(!text.contains("b-1.0.0.wasm"), "{text}");
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_map_picker_selection_back_when_display_is_reordered() {
+    // `b` (index 1) is the sole pre-selected plugin, so it's shown first; selecting
+    // both from the reordered list must still map back and output in info.json order
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "a", &["js"])).add_plugin(wasm_plugin("b", "b", &["ts"]));
+      })
+      .write_file("/file.ts", "")
+      .build();
+    environment.set_multi_selection_result(vec![0, 1]); // both items, in display order
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      let a_pos = text.find("a-1.0.0.wasm").expect("a present");
+      let b_pos = text.find("b-1.0.0.wasm").expect("b present");
+      // output stays in info.json order (a before b) even though b was displayed first
+      assert!(a_pos < b_pos, "{text}");
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_select_keyless_plugins_for_distinct_extensions() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info
+          .add_plugin(TestInfoFilePlugin {
+            config_key: None,
+            ..wasm_plugin("a", "", &["ts"])
+          })
+          .add_plugin(TestInfoFilePlugin {
+            config_key: None,
+            ..wasm_plugin("b", "", &["vue"])
+          });
+      })
+      .write_file("/file.ts", "")
+      .write_file("/file.vue", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      // plugins without a config key never collide on it
+      assert!(text.contains("a-1.0.0.wasm"), "{text}");
+      assert!(text.contains("b-1.0.0.wasm"), "{text}");
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_not_select_plugins_with_shared_config_key_matched_via_config_items() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "shared", &["ts"])).add_plugin(TestInfoFilePlugin {
+          name: "b".to_string(),
+          version: "1.0.0".to_string(),
+          url: "https://plugins.dprint.dev/b-1.0.0.wasm".to_string(),
+          config_key: Some("shared".to_string()),
+          file_extensions: vec![],
+          config_excludes: vec![],
+          config_items: vec![TestInfoFileConfigItem {
+            file_match: TestInfoFileMatch {
+              file_extensions: vec!["rs".to_string()],
+              file_names: vec![],
+            },
+            config: serde_json::json!({}),
+          }],
+          ..Default::default()
+        });
+      })
+      .write_file("/file.ts", "")
+      .write_file("/file.rs", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      // `b` matches `.rs` via a config item but shares the "shared" key with `a`
+      assert!(text.contains("a-1.0.0.wasm"), "{text}");
+      assert!(!text.contains("b-1.0.0.wasm"), "{text}");
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
   }
 
   #[test]
