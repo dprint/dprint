@@ -3,6 +3,8 @@ use std::collections::VecDeque;
 
 use anyhow::Result;
 use dprint_core::plugins::wasm::{self};
+use jsonc_parser::cst::CstInputValue;
+use jsonc_parser::cst::CstRootNode;
 
 use crate::environment::DirEntry;
 use crate::environment::Environment;
@@ -80,67 +82,87 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
 
     let mut selected_plugins = Vec::new();
     for index in selected_indexes {
-      selected_plugins.push(latest_plugins[index].clone());
+      let plugin = latest_plugins[index].clone();
+      let config = build_plugin_config(&plugin, &project_files);
+      selected_plugins.push((plugin, config));
     }
     Some(selected_plugins)
   } else {
     None
   };
 
-  let mut json_text = String::from("{\n");
-
-  if let Some(selected_plugins) = &selected_plugins {
-    for plugin in selected_plugins.iter() {
-      // Put the brace on the next line so the user doesn't have to as soon as they
-      // go to add options.
-      if let Some(config_key) = &plugin.config_key
-        && !config_key.is_empty()
-      {
-        json_text.push_str(&format!("  \"{}\": {{\n", config_key));
-        json_text.push_str("  },\n");
-      }
-    }
-
-    json_text.push_str("  \"excludes\": [");
-    let excludes = get_unique_items(
-      selected_plugins
-        .iter()
-        .flat_map(|p| p.config_excludes.iter())
-        .map(|x| format!("    \"{}\"", x))
-        .collect::<Vec<_>>(),
-    );
-    if !excludes.is_empty() {
-      json_text.push('\n');
-      json_text.push_str(&excludes.join(",\n"));
-      json_text.push_str("\n  ");
-    }
-    json_text.push_str("],\n");
-    json_text.push_str("  \"plugins\": [\n");
-    if selected_plugins.is_empty() {
-      json_text.push_str("    // specify plugin urls here\n");
-    } else {
-      for (i, plugin) in selected_plugins.iter().enumerate() {
-        if i > 0 {
-          json_text.push_str(",\n");
-        }
-        let url = if plugin.is_process_plugin() && plugin.checksum.is_some() {
-          format!("{}@{}", plugin.url, plugin.checksum.as_ref().unwrap())
-        } else {
-          plugin.url.to_string()
-        };
-        json_text.push_str(&format!("    \"{}\"", url));
-      }
-      json_text.push('\n');
-    }
-    json_text.push_str("  ]\n}\n");
-  } else {
-    json_text.push_str("  \"excludes\": [\n    \"**/*-lock.json\"\n  ],\n");
-    json_text.push_str("  \"plugins\": [\n");
-    json_text.push_str("    // specify plugin urls here\n");
-    json_text.push_str("  ]\n}\n");
-  }
+  let json_text = match selected_plugins {
+    Some(selected_plugins) if !selected_plugins.is_empty() => render_config_file(&selected_plugins),
+    // plugin info was available, but nothing was selected
+    Some(_) => "{\n  \"excludes\": [],\n  \"plugins\": [\n    // specify plugin urls here\n  ]\n}\n".to_string(),
+    // the plugin info couldn't be downloaded
+    None => "{\n  \"excludes\": [\n    \"**/*-lock.json\"\n  ],\n  \"plugins\": [\n    // specify plugin urls here\n  ]\n}\n".to_string(),
+  };
 
   Ok(json_text)
+}
+
+/// Renders the config file for the selected plugins using jsonc-parser's CST,
+/// which handles indentation, commas, and multi-line formatting for us.
+fn render_config_file(selected_plugins: &[(InfoFilePluginInfo, serde_json::Value)]) -> String {
+  let root = CstRootNode::parse("{\n}", &Default::default()).unwrap();
+  let root_obj = root.object_value_or_set();
+
+  for (plugin, config) in selected_plugins {
+    if let Some(config_key) = &plugin.config_key
+      && !config_key.is_empty()
+    {
+      let is_empty = config.as_object().is_none_or(|obj| obj.is_empty());
+      let prop = root_obj.append(config_key, to_cst_input(config.clone()));
+      // keep the brace of an empty block on its own line so there's a spot to add options
+      if is_empty && let Some(object) = prop.value().and_then(|value| value.as_object()) {
+        object.ensure_multiline();
+      }
+    }
+  }
+
+  let excludes = get_unique_items(
+    selected_plugins
+      .iter()
+      .flat_map(|(plugin, _)| plugin.config_excludes.iter().cloned())
+      .collect::<Vec<_>>(),
+  );
+  let excludes_prop = root_obj.append("excludes", CstInputValue::Array(excludes.iter().cloned().map(CstInputValue::String).collect()));
+  if !excludes.is_empty()
+    && let Some(array) = excludes_prop.value().and_then(|value| value.as_array())
+  {
+    array.ensure_multiline();
+  }
+
+  let urls = selected_plugins
+    .iter()
+    .map(|(plugin, _)| {
+      if plugin.is_process_plugin() && plugin.checksum.is_some() {
+        format!("{}@{}", plugin.url, plugin.checksum.as_ref().unwrap())
+      } else {
+        plugin.url.clone()
+      }
+    })
+    .collect::<Vec<_>>();
+  let plugins_prop = root_obj.append("plugins", CstInputValue::Array(urls.into_iter().map(CstInputValue::String).collect()));
+  if let Some(array) = plugins_prop.value().and_then(|value| value.as_array()) {
+    array.ensure_multiline();
+  }
+
+  format!("{root}\n")
+}
+
+/// Converts an owned `serde_json::Value` into the CST's input value type.
+fn to_cst_input(value: serde_json::Value) -> CstInputValue {
+  use serde_json::Value;
+  match value {
+    Value::Null => CstInputValue::Null,
+    Value::Bool(value) => CstInputValue::Bool(value),
+    Value::Number(value) => CstInputValue::Number(value.to_string()),
+    Value::String(value) => CstInputValue::String(value),
+    Value::Array(values) => CstInputValue::Array(values.into_iter().map(to_cst_input).collect()),
+    Value::Object(entries) => CstInputValue::Object(entries.into_iter().map(|(key, value)| (key, to_cst_input(value))).collect()),
+  }
 }
 
 /// The files found while scanning the current directory, used to decide which
@@ -152,21 +174,94 @@ struct ProjectFiles {
 }
 
 /// Whether the plugin should be pre-selected based on the files in the current
+/// directory. A plugin matches via its own file extensions / file names or via
+/// any of its config items (ex. `dprint-plugin-exec` declares no extensions of
+/// its own but pre-selects when one of its command's file types is present).
+fn is_default_selected(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> bool {
+  matches_project_files(&plugin.file_extensions, &plugin.file_names, project_files)
+    || plugin
+      .config_items
+      .iter()
+      .any(|item| matches_project_files(&item.file_extensions, &item.file_names, project_files))
+}
+
+/// Whether any of the extensions or file names are present in the current
 /// directory. Extensions are matched case-insensitively, while file names are
 /// matched exactly because their casing is significant (ex. `Cargo.toml`).
-fn is_default_selected(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> bool {
-  plugin.file_extensions.iter().any(|ext| project_files.extensions.contains(&ext.to_lowercase()))
-    || plugin.file_names.iter().any(|name| project_files.file_names.contains(name))
+fn matches_project_files(file_extensions: &[String], file_names: &[String], project_files: &ProjectFiles) -> bool {
+  file_extensions.iter().any(|ext| project_files.extensions.contains(&ext.to_lowercase()))
+    || file_names.iter().any(|name| project_files.file_names.contains(name))
 }
 
 /// The text shown for a plugin in the selection list. The supported file
 /// extensions are appended so unfamiliar plugins are easier to tell apart.
 fn plugin_display_text(plugin: &InfoFilePluginInfo) -> String {
-  if plugin.file_extensions.is_empty() {
+  let extensions = display_extensions(plugin);
+  if extensions.is_empty() {
     plugin.name.clone()
   } else {
-    let extensions = plugin.file_extensions.iter().map(|ext| format!(".{}", ext)).collect::<Vec<_>>().join(", ");
+    let extensions = extensions.iter().map(|ext| format!(".{}", ext)).collect::<Vec<_>>().join(", ");
     format!("{} ({})", plugin.name, extensions)
+  }
+}
+
+/// The extensions to show beside a plugin's name, falling back to the extensions
+/// of its config items when the plugin declares none of its own.
+fn display_extensions(plugin: &InfoFilePluginInfo) -> Vec<String> {
+  if !plugin.file_extensions.is_empty() {
+    return plugin.file_extensions.clone();
+  }
+  let mut extensions = Vec::new();
+  for item in &plugin.config_items {
+    for ext in &item.file_extensions {
+      if !extensions.contains(ext) {
+        extensions.push(ext.clone());
+      }
+    }
+  }
+  extensions
+}
+
+/// Builds the config block for a selected plugin: starts from its `defaultConfig`
+/// and merges in each config item whose files are present in the current
+/// directory. Objects merge recursively and arrays are concatenated, so command
+/// lists (ex. `dprint-plugin-exec`) accumulate.
+///
+/// The order keys appear in the output relies on `serde_json`'s `preserve_order`
+/// feature (and jsonc-parser's), so config reads in the same order it's declared.
+fn build_plugin_config(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> serde_json::Value {
+  let mut config = match plugin.default_config.clone() {
+    Some(value @ serde_json::Value::Object(_)) => value,
+    _ => serde_json::Value::Object(Default::default()),
+  };
+  for item in &plugin.config_items {
+    if matches_project_files(&item.file_extensions, &item.file_names, project_files) {
+      deep_merge(&mut config, item.config.clone());
+    }
+  }
+  config
+}
+
+/// Merges `other` into `base`: objects merge recursively, arrays are
+/// concatenated, and anything else overwrites.
+fn deep_merge(base: &mut serde_json::Value, other: serde_json::Value) {
+  use serde_json::Value;
+  match other {
+    Value::Object(other_map) if base.is_object() => {
+      let base_map = base.as_object_mut().unwrap();
+      for (key, value) in other_map {
+        match base_map.get_mut(&key) {
+          Some(existing) => deep_merge(existing, value),
+          None => {
+            base_map.insert(key, value);
+          }
+        }
+      }
+    }
+    Value::Array(mut other_items) if base.is_array() => {
+      base.as_array_mut().unwrap().append(&mut other_items);
+    }
+    other => *base = other,
   }
 }
 
@@ -239,8 +334,309 @@ mod test {
   use super::*;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
+  use crate::environment::TestInfoFileConfigItem;
+  use crate::environment::TestInfoFileMatch;
   use crate::environment::TestInfoFilePlugin;
+  use crate::plugins::InfoFileConfigItem;
   use pretty_assertions::assert_eq;
+
+  fn exec_info_plugin() -> TestInfoFilePlugin {
+    TestInfoFilePlugin {
+      name: "dprint-plugin-exec".to_string(),
+      version: "0.5.0".to_string(),
+      url: "https://plugins.dprint.dev/exec-0.5.0.json".to_string(),
+      config_key: Some("exec".to_string()),
+      file_extensions: vec![],
+      config_excludes: vec![],
+      checksum: Some("checksum".to_string()),
+      // ${configDir} is an exec-plugin runtime token, emitted verbatim (not expanded here)
+      default_config: Some(serde_json::json!({ "cwd": "${configDir}" })),
+      config_items: vec![
+        TestInfoFileConfigItem {
+          file_match: TestInfoFileMatch {
+            file_extensions: vec!["rs".to_string()],
+            file_names: vec![],
+          },
+          config: serde_json::json!({ "commands": [{ "command": "rustfmt", "exts": ["rs"] }] }),
+        },
+        TestInfoFileConfigItem {
+          file_match: TestInfoFileMatch {
+            file_extensions: vec!["go".to_string()],
+            file_names: vec![],
+          },
+          config: serde_json::json!({ "commands": [{ "command": "gofmt", "exts": ["go"] }] }),
+        },
+      ],
+      ..Default::default()
+    }
+  }
+
+  fn info_plugin_with_extensions(file_extensions: Vec<&str>, config_item_extensions: Vec<Vec<&str>>) -> InfoFilePluginInfo {
+    InfoFilePluginInfo {
+      name: "dprint-plugin-exec".to_string(),
+      version: "0.5.0".to_string(),
+      url: "https://plugins.dprint.dev/exec-0.5.0.json".to_string(),
+      config_key: Some("exec".to_string()),
+      file_extensions: file_extensions.into_iter().map(String::from).collect(),
+      file_names: vec![],
+      config_excludes: vec![],
+      checksum: None,
+      default_config: None,
+      config_items: config_item_extensions
+        .into_iter()
+        .map(|extensions| InfoFileConfigItem {
+          file_extensions: extensions.into_iter().map(String::from).collect(),
+          file_names: vec![],
+          config: serde_json::Value::Object(Default::default()),
+        })
+        .collect(),
+    }
+  }
+
+  #[test]
+  fn plugin_display_text_falls_back_to_config_item_extensions() {
+    // a plugin's own extensions take precedence
+    let plugin = info_plugin_with_extensions(vec!["ts", "tsx"], vec![vec!["rs"]]);
+    assert_eq!(plugin_display_text(&plugin), "dprint-plugin-exec (.ts, .tsx)");
+    // otherwise the extensions are derived from the config items, deduplicated in order
+    let plugin = info_plugin_with_extensions(vec![], vec![vec!["rs"], vec!["go", "rs"]]);
+    assert_eq!(plugin_display_text(&plugin), "dprint-plugin-exec (.rs, .go)");
+    // nothing to show -> just the name
+    let plugin = info_plugin_with_extensions(vec![], vec![]);
+    assert_eq!(plugin_display_text(&plugin), "dprint-plugin-exec");
+  }
+
+  #[test]
+  fn should_scaffold_config_from_file_name_match() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "dprint-plugin-exec".to_string(),
+          version: "0.5.0".to_string(),
+          url: "https://plugins.dprint.dev/exec-0.5.0.json".to_string(),
+          config_key: Some("exec".to_string()),
+          file_extensions: vec![],
+          config_excludes: vec![],
+          checksum: Some("checksum".to_string()),
+          config_items: vec![TestInfoFileConfigItem {
+            file_match: TestInfoFileMatch {
+              file_extensions: vec![],
+              file_names: vec!["Makefile".to_string()],
+            },
+            config: serde_json::json!({ "commands": [{ "command": "make", "exts": [] }] }),
+          }],
+          ..Default::default()
+        });
+      })
+      .write_file("/Makefile", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
+  "exec": {
+    "commands": [
+      {
+        "command": "make",
+        "exts": []
+      }
+    ]
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/exec-0.5.0.json@checksum"
+  ]
+}
+"#
+      );
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_let_config_item_override_default_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "dprint-plugin-exec".to_string(),
+          version: "0.5.0".to_string(),
+          url: "https://plugins.dprint.dev/exec-0.5.0.json".to_string(),
+          config_key: Some("exec".to_string()),
+          file_extensions: vec![],
+          config_excludes: vec![],
+          checksum: Some("checksum".to_string()),
+          default_config: Some(serde_json::json!({ "cwd": "default", "indentWidth": 2 })),
+          config_items: vec![TestInfoFileConfigItem {
+            file_match: TestInfoFileMatch {
+              file_extensions: vec!["rs".to_string()],
+              file_names: vec![],
+            },
+            config: serde_json::json!({ "cwd": "${configDir}", "commands": [{ "command": "rustfmt", "exts": ["rs"] }] }),
+          }],
+          ..Default::default()
+        });
+      })
+      .write_file("/main.rs", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      // the config item overrides cwd, keeps indentWidth, and appends commands
+      assert_eq!(
+        text,
+        r#"{
+  "exec": {
+    "cwd": "${configDir}",
+    "indentWidth": 2,
+    "commands": [
+      {
+        "command": "rustfmt",
+        "exts": ["rs"]
+      }
+    ]
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/exec-0.5.0.json@checksum"
+  ]
+}
+"#
+      );
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_auto_select_exec_non_interactive() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(exec_info_plugin());
+      })
+      .write_file("/main.rs", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, GetInitConfigFileTextOptions { non_interactive: true })
+        .await
+        .unwrap();
+      // exec is auto-selected by the .rs file with no prompt
+      assert!(text.contains("\"command\": \"rustfmt\""), "{text}");
+      assert!(text.contains("exec-0.5.0.json@checksum"), "{text}");
+      assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+    });
+  }
+
+  #[test]
+  fn should_scaffold_exec_config_from_matched_file() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(exec_info_plugin());
+      })
+      .write_file("/main.rs", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      // exec is pre-selected by the .rs file; cwd comes from defaultConfig and the
+      // rustfmt command from the matching config item (gofmt is not added)
+      assert_eq!(
+        text,
+        r#"{
+  "exec": {
+    "cwd": "${configDir}",
+    "commands": [
+      {
+        "command": "rustfmt",
+        "exts": ["rs"]
+      }
+    ]
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/exec-0.5.0.json@checksum"
+  ]
+}
+"#
+      );
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_concatenate_config_items_in_info_order() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(exec_info_plugin());
+      })
+      .write_file("/main.rs", "")
+      .write_file("/lib.go", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      // both commands are appended in info.json order
+      assert_eq!(
+        text,
+        r#"{
+  "exec": {
+    "cwd": "${configDir}",
+    "commands": [
+      {
+        "command": "rustfmt",
+        "exts": ["rs"]
+      },
+      {
+        "command": "gofmt",
+        "exts": ["go"]
+      }
+    ]
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/exec-0.5.0.json@checksum"
+  ]
+}
+"#
+      );
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_apply_only_default_config_when_no_items_match() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(exec_info_plugin());
+      })
+      .build();
+    // manually select exec even though no matching files are present
+    environment.set_multi_selection_result(vec![0]);
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
+  "exec": {
+    "cwd": "${configDir}"
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/exec-0.5.0.json@checksum"
+  ]
+}
+"#
+      );
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn deep_merge_combines_objects_and_arrays() {
+    let mut base = serde_json::json!({ "a": 1, "list": [1, 2], "nested": { "x": 1 } });
+    deep_merge(&mut base, serde_json::json!({ "a": 2, "list": [3], "nested": { "y": 2 }, "b": 3 }));
+    assert_eq!(
+      base,
+      // scalars override, arrays concatenate, objects merge, new keys insert
+      serde_json::json!({ "a": 2, "list": [1, 2, 3], "nested": { "x": 1, "y": 2 }, "b": 3 })
+    );
+  }
 
   #[test]
   fn should_get_default_initialization_text() {

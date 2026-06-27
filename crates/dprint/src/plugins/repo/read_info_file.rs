@@ -8,13 +8,15 @@ use url::Url;
 
 use crate::environment::Environment;
 
-#[derive(PartialEq, Eq, Debug)]
+// note: these don't derive `Eq` because `serde_json::Value` isn't `Eq`
+
+#[derive(PartialEq, Debug)]
 pub struct InfoFile {
   pub plugin_system_schema_version: u32,
   pub latest_plugins: Vec<InfoFilePluginInfo>,
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct InfoFilePluginInfo {
   pub name: String,
   pub version: String,
@@ -24,6 +26,19 @@ pub struct InfoFilePluginInfo {
   pub file_names: Vec<String>,
   pub config_excludes: Vec<String>,
   pub checksum: Option<String>,
+  /// Config to insert into the plugin's config block on `dprint init`.
+  pub default_config: Option<serde_json::Value>,
+  /// Config fragments that `dprint init` merges into the plugin's config block
+  /// when their files are found in the current directory (ex. wiring up a
+  /// `dprint-plugin-exec` command for a matched file type).
+  pub config_items: Vec<InfoFileConfigItem>,
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub struct InfoFileConfigItem {
+  pub file_extensions: Vec<String>,
+  pub file_names: Vec<String>,
+  pub config: serde_json::Value,
 }
 
 impl InfoFilePluginInfo {
@@ -108,6 +123,10 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo> {
   let file_names = get_string_array(&mut obj, "fileNames").unwrap_or_default(); // compatible with old configuration
   let config_excludes = get_string_array(&mut obj, "configExcludes")?;
   let checksum = obj.take_string("checksum").map(|s| s.into_owned());
+  // these are only used by `dprint init`, so parse them leniently rather than
+  // failing the whole info file when a single entry is malformed
+  let default_config = obj.take_object("defaultConfig").map(|o| jsonc_to_serde(JsonValue::Object(o)));
+  let config_items = obj.take_array("configItems").map(parse_config_items).unwrap_or_default();
 
   Ok(InfoFilePluginInfo {
     name,
@@ -118,7 +137,62 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo> {
     file_names,
     config_excludes,
     checksum,
+    default_config,
+    config_items,
   })
+}
+
+fn parse_config_items(arr: JsonArray) -> Vec<InfoFileConfigItem> {
+  let mut items = Vec::new();
+  for value in arr.into_iter() {
+    let JsonValue::Object(mut obj) = value else {
+      continue;
+    };
+    let (file_extensions, file_names) = match obj.take_object("match") {
+      Some(mut match_obj) => (
+        take_string_array(&mut match_obj, "fileExtensions"),
+        take_string_array(&mut match_obj, "fileNames"),
+      ),
+      None => (Vec::new(), Vec::new()),
+    };
+    let config = obj
+      .take_object("config")
+      .map(|o| jsonc_to_serde(JsonValue::Object(o)))
+      .unwrap_or_else(|| serde_json::Value::Object(Default::default()));
+    items.push(InfoFileConfigItem {
+      file_extensions,
+      file_names,
+      config,
+    });
+  }
+  items
+}
+
+/// Converts a parsed jsonc value into an owned `serde_json::Value`.
+fn jsonc_to_serde(value: JsonValue) -> serde_json::Value {
+  use serde_json::Value as Json;
+  match value {
+    JsonValue::Null => Json::Null,
+    JsonValue::Boolean(value) => Json::Bool(value),
+    JsonValue::Number(value) => serde_json::from_str(value).unwrap_or(Json::Null),
+    JsonValue::String(value) => Json::String(value.into_owned()),
+    JsonValue::Array(arr) => Json::Array(arr.into_iter().map(jsonc_to_serde).collect()),
+    JsonValue::Object(obj) => Json::Object(obj.into_iter().map(|(key, value)| (key, jsonc_to_serde(value))).collect()),
+  }
+}
+
+/// Gets a string array, ignoring the key when it's missing or any non-string entries.
+fn take_string_array(obj: &mut JsonObject, key: &str) -> Vec<String> {
+  match obj.take_array(key) {
+    Some(arr) => arr
+      .into_iter()
+      .filter_map(|value| match value {
+        JsonValue::String(value) => Some(value.into_owned()),
+        _ => None,
+      })
+      .collect(),
+    None => Vec::new(),
+  }
 }
 
 fn get_string_array(value: &mut JsonObject, key: &str) -> Result<Vec<String>> {
@@ -151,6 +225,8 @@ mod test {
   use super::*;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
+  use crate::environment::TestInfoFileConfigItem;
+  use crate::environment::TestInfoFileMatch;
   use crate::environment::TestInfoFilePlugin;
   use pretty_assertions::assert_eq;
 
@@ -197,6 +273,8 @@ mod test {
               file_names: vec![],
               config_excludes: vec!["**/node_modules".to_string()],
               checksum: None,
+              default_config: None,
+              config_items: vec![],
             },
             InfoFilePluginInfo {
               name: "dprint-plugin-jsonc".to_string(),
@@ -207,10 +285,100 @@ mod test {
               file_names: vec!["test-file".to_string()],
               config_excludes: vec!["**/*-lock.json".to_string()],
               checksum: Some("test-checksum".to_string()),
+              default_config: None,
+              config_items: vec![],
             }
           ],
         }
       )
+    });
+  }
+
+  #[test]
+  fn should_parse_default_config_and_config_items() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "dprint-plugin-exec".to_string(),
+          version: "0.5.0".to_string(),
+          url: "https://plugins.dprint.dev/exec-0.5.0.json".to_string(),
+          config_key: Some("exec".to_string()),
+          file_extensions: vec![],
+          config_excludes: vec![],
+          checksum: Some("checksum".to_string()),
+          default_config: Some(serde_json::json!({ "cwd": "${configDir}" })),
+          config_items: vec![TestInfoFileConfigItem {
+            file_match: TestInfoFileMatch {
+              file_extensions: vec!["rs".to_string()],
+              file_names: vec![],
+            },
+            config: serde_json::json!({ "commands": [{ "command": "rustfmt", "exts": ["rs"] }] }),
+          }],
+          ..Default::default()
+        });
+      })
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let info_file = read_info_file(&environment).await.unwrap();
+      let plugin = &info_file.latest_plugins[0];
+      assert_eq!(plugin.default_config, Some(serde_json::json!({ "cwd": "${configDir}" })));
+      assert_eq!(
+        plugin.config_items,
+        vec![InfoFileConfigItem {
+          file_extensions: vec!["rs".to_string()],
+          file_names: vec![],
+          config: serde_json::json!({ "commands": [{ "command": "rustfmt", "exts": ["rs"] }] }),
+        }]
+      );
+    });
+  }
+
+  #[test]
+  fn should_parse_init_fields_leniently() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      REMOTE_INFO_URL,
+      r#"{
+  "schemaVersion": 4,
+  "pluginSystemSchemaVersion": 4,
+  "latest": [{
+    "name": "p",
+    "version": "1.0.0",
+    "url": "https://plugins.dprint.dev/p.wasm",
+    "fileExtensions": ["x"],
+    "configExcludes": [],
+    "defaultConfig": "not-an-object",
+    "configItems": [
+      "not-an-object",
+      { "config": { "a": 1 } },
+      { "match": { "fileExtensions": ["y", 5] }, "config": { "b": 2 } }
+    ]
+  }]
+}"#
+        .as_bytes(),
+    );
+    environment.clone().run_in_runtime(async move {
+      let info_file = read_info_file(&environment).await.unwrap();
+      let plugin = &info_file.latest_plugins[0];
+      // a non-object defaultConfig is ignored rather than failing the whole info file
+      assert_eq!(plugin.default_config, None);
+      assert_eq!(
+        plugin.config_items,
+        vec![
+          // the bare string entry is skipped; a missing `match` defaults to no matchers
+          InfoFileConfigItem {
+            file_extensions: vec![],
+            file_names: vec![],
+            config: serde_json::json!({ "a": 1 }),
+          },
+          // the non-string extension is dropped
+          InfoFileConfigItem {
+            file_extensions: vec!["y".to_string()],
+            file_names: vec![],
+            config: serde_json::json!({ "b": 2 }),
+          },
+        ]
+      );
     });
   }
 
