@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Setup - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#000000">
+    <meta name="theme-color" content="#1e1e1e">
     <meta name="description" content="Documentation on setting up dprint to format a collection of code.">
     <meta name="author" content="Dprint Code Formatting">
     <meta name="twitter:card" content="summary">
@@ -12,107 +12,105 @@
     <meta name="twitter:title" content="Setup">
     <meta name="twitter:description" content="Documentation on setting up dprint to format a collection of code.">
     
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/style.css">
   </head>
   <body>
-    <nav class="navbar" role="navigation" aria-label="main navigation">
-      <div class="navbar-brand">
-        <h1 class="title"><a href="/">dprint</a></h1>
-
-        <a role="button" id="navbarBurger" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarLinks">
-          <span aria-hidden="true"></span>
-          <span aria-hidden="true"></span>
-          <span aria-hidden="true"></span>
-        </a>
-      </div>
-
-      <div class="navbar-menu" id="navbarLinks">
-        
-          <div class="navbar-start doc-menu-mobile">
-            <ul class="menu-list">
-  <li><a href="/overview">Overview</a></li>
-  <li><a href="/install">Install</a></li>
-  <li><a href="/setup">Setup</a></li>
-  <li><a href="/config">Configuration</a></li>
-  <li><a href="/global-config">Global Configuration</a></li>
-  <li><a href="/cli">CLI</a></li>
-  <li><a href="/ci">Continuous Integration</a></li>
-</ul>
-<p class="menu-label">Plugins</p>
-<ul class="menu-list">
-  <li><a href="/plugins">General</a></li>
-  <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
-  <li><a href="/plugins/json">JSON</a></li>
-  <li><a href="/plugins/markdown">Markdown</a></li>
-  <li><a href="/plugins/toml">TOML</a></li>
-  <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
-  <li><a href="/plugins/dockerfile">Dockerfile</a></li>
-  <li><a href="/plugins/rustfmt">Rustfmt</a></li>
-  <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
-  <li><a href="/plugins/malva">Malva (CSS/SCSS/Sass/Less)</a></li>
-  <li><a href="/plugins/markup_fmt">Markup_fmt (HTML/Vue/Svelte/Astro)</a></li>
-  <li><a href="/plugins/prettier">Prettier</a></li>
-  <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
-  <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
-  <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
-  <li><a href="/plugins/mago">Mago (PHP)</a></li>
-  <li><a href="/plugins/ruff">Ruff (Python)</a></li>
-  <li><a href="/plugins/jupyter">Jupyter</a></li>
-  <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
-  <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
-  <li><a href="/plugin-dev">Creating a Plugin</a></li>
-</ul>
-
-          </div>
-        
-        <div class="navbar-end">
-          <a class="navbar-item" href="/overview">Overview</a>
-          <a class="navbar-item" href="/playground">Playground</a>
-          <a class="navbar-item" href="/sponsor">Sponsor</a>
-          <a class="navbar-item" href="https://github.com/dprint/dprint" rel="noopener noreferrer">View on GitHub</a>
+    <nav class="site-nav" aria-label="Main">
+      <div class="nav-inner">
+        <a class="brand" href="/">dprint</a>
+        <div class="nav-links">
+          <a href="/overview" class="active">Overview</a>
+          <a href="/playground">Playground</a>
+          <a href="/sponsor">Sponsor</a>
+          <a class="gh-button" href="https://github.com/dprint/dprint" rel="noopener noreferrer">GitHub <span>↗</span></a>
         </div>
       </div>
     </nav>
-    <section class="section" id="content">
-  <div class="columns">
-    <aside class="menu column is-narrow doc-sidebar" style="width: 210px">
-      <ul class="menu-list">
-  <li><a href="/overview">Overview</a></li>
-  <li><a href="/install">Install</a></li>
-  <li><a href="/setup">Setup</a></li>
-  <li><a href="/config">Configuration</a></li>
-  <li><a href="/global-config">Global Configuration</a></li>
-  <li><a href="/cli">CLI</a></li>
-  <li><a href="/ci">Continuous Integration</a></li>
-</ul>
-<p class="menu-label">Plugins</p>
-<ul class="menu-list">
-  <li><a href="/plugins">General</a></li>
-  <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
-  <li><a href="/plugins/json">JSON</a></li>
-  <li><a href="/plugins/markdown">Markdown</a></li>
-  <li><a href="/plugins/toml">TOML</a></li>
-  <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
-  <li><a href="/plugins/dockerfile">Dockerfile</a></li>
-  <li><a href="/plugins/rustfmt">Rustfmt</a></li>
-  <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
-  <li><a href="/plugins/malva">Malva (CSS/SCSS/Sass/Less)</a></li>
-  <li><a href="/plugins/markup_fmt">Markup_fmt (HTML/Vue/Svelte/Astro)</a></li>
-  <li><a href="/plugins/prettier">Prettier</a></li>
-  <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
-  <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
-  <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
-  <li><a href="/plugins/mago">Mago (PHP)</a></li>
-  <li><a href="/plugins/ruff">Ruff (Python)</a></li>
-  <li><a href="/plugins/jupyter">Jupyter</a></li>
-  <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
-  <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
-  <li><a href="/plugin-dev">Creating a Plugin</a></li>
+
+    <main class="site-main">
+      <div class="docs">
+  <aside class="doc-sidebar">
+    <details class="doc-nav" open="">
+      <summary class="doc-nav-summary">Documentation menu</summary>
+      
+
+
+<div class="doc-menu-label">Guide</div>
+<ul class="doc-menu">
+  
+    <li><a href="/overview">Overview</a></li>
+  
+    <li><a href="/install">Install</a></li>
+  
+    <li><a href="/setup" class="active">Setup</a></li>
+  
+    <li><a href="/config">Configuration</a></li>
+  
+    <li><a href="/global-config">Global Configuration</a></li>
+  
+    <li><a href="/cli">CLI</a></li>
+  
+    <li><a href="/ci">Continuous Integration</a></li>
+  
 </ul>
 
-    </aside>
-    <div id="content-body" class="column documentation">
-      <h1>Setup dprint</h1>
+<div class="doc-menu-label">Plugins</div>
+<ul class="doc-menu">
+  
+    <li><a href="/plugins">General</a></li>
+  
+    <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
+  
+    <li><a href="/plugins/json">JSON</a></li>
+  
+    <li><a href="/plugins/markdown">Markdown</a></li>
+  
+    <li><a href="/plugins/toml">TOML</a></li>
+  
+    <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
+  
+    <li><a href="/plugins/dockerfile">Dockerfile</a></li>
+  
+    <li><a href="/plugins/rustfmt">Rustfmt</a></li>
+  
+    <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
+  
+    <li><a href="/plugins/malva">Malva (CSS/SCSS/Sass/Less)</a></li>
+  
+    <li><a href="/plugins/markup_fmt">Markup_fmt (HTML/Vue/Svelte/Astro)</a></li>
+  
+    <li><a href="/plugins/prettier">Prettier</a></li>
+  
+    <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
+  
+    <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
+  
+    <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
+  
+    <li><a href="/plugins/mago">Mago (PHP)</a></li>
+  
+    <li><a href="/plugins/ruff">Ruff (Python)</a></li>
+  
+    <li><a href="/plugins/jupyter">Jupyter</a></li>
+  
+    <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
+  
+    <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
+  
+    <li><a href="/plugin-dev">Creating a Plugin</a></li>
+  
+</ul>
+
+    </details>
+  </aside>
+  <main class="doc-main doc-content">
+    
+    
+    <div class="eyebrow">// guide</div>
+    <h1>Setup dprint</h1>
 <p>After <a href="/install">installing</a>, the main part of getting setup is to create a <em>dprint.json</em>/<em>dprint.jsonc</em>, or hidden <em>.dprint.json</em>/<em>.dprint.jsonc</em> file in your project.</p>
 <p>This file will outline:</p>
 <ol>
@@ -125,7 +123,12 @@
 <p>Open a terminal in the root directory of your project and run the following command:</p>
 <pre><code class="language-sh hljs language-bash">dprint init
 </code></pre>
-<p>This will create a <em>dprint.json</em> file in the current working directory. If you are connected to the internet, it will initialize the file according to the latest plugins.</p>
+<p>This will create a <em>dprint.json</em> file in the current working directory. If you are connected to the internet, it will prompt you to select from the latest plugins, pre-selecting the ones that match the files found in the current directory. Use the spacebar to toggle a plugin, type to filter the list, and press enter when finished.</p>
+<h3 id="non-interactive-init" tabindex="-1"><a class="header-anchor" href="#non-interactive-init">Non-interactive init</a></h3>
+<p>Pass the <code>--yes</code> or <code>-y</code> flag to skip the prompt and accept the plugins selected based on the files in the current directory. This is useful in scripts:</p>
+<pre><code class="language-sh hljs language-bash">dprint init --<span class="hljs-built_in">yes</span>
+</code></pre>
+<p>The prompt is also skipped automatically when there is no interactive terminal.</p>
 <h2 id="manual-setup" tabindex="-1"><a class="header-anchor" href="#manual-setup">Manual Setup</a></h2>
 <p>Create a <em>dprint.json</em>/<em>dprint.jsonc</em> or hidden <em>.dprint.json</em>/<em>.dprint.jsonc</em> file in the root directory of the project and read the <a href="/config">configuration documentation</a>.</p>
 <h2 id="hidden-config-file" tabindex="-1"><a class="header-anchor" href="#hidden-config-file">Hidden Config File</a></h2>
@@ -165,32 +168,24 @@ dprint init --config path/to/dprint.json
 <p>This is very unsafe to do and not recommended. A warning will be displayed on first download when this is done.</p>
 <h2 id="limiting-parallelism" tabindex="-1"><a class="header-anchor" href="#limiting-parallelism">Limiting Parallelism</a></h2>
 <p>By default, dprint only runs for a short period of time and so it will try to take advantage of as many CPU cores as it can. This might be an issue in some scenarios, and so you can limit the amount of parallelism by setting the <code>DPRINT_MAX_THREADS</code> environment variable in version 0.32 and up (ex. <code>DPRINT_MAX_THREADS=4</code>).</p>
+<p>Separately, dprint reads directories on several threads when discovering files in order to better saturate the disk. This is I/O bound, so the number of read threads is independent of <code>DPRINT_MAX_THREADS</code>. You can override it with the <code>DPRINT_GLOB_READ_THREADS</code> environment variable (ex. <code>DPRINT_GLOB_READ_THREADS=8</code>), though the default is suitable for most setups.</p>
 <p>Next step: <a href="/config">Configuration</a></p>
 
-    </div>
-  </div>
-</section>
+  </main>
+</div>
 
-    <footer class="footer">
-      <div>
-        <div class="level">
-          <div class="level-left">
-            <p class="level-item">
-              <a href="/">Home</a>
-            </p>
-            <p class="level-item">
-              <a href="/contact">Contact Us</a>
-            </p>
-          </div>
-          <div class="level-right">
-            <p class="level-item">
-              <a href="https://twitter.com/dprintfmt">Twitter</a>
-            </p>
-            <p class="level-item">
-              <a href="https://github.com/dprint">GitHub</a>
-            </p>
-          </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand">dprint</div>
+        <div class="footer-links">
+          <a href="/">Home</a>
+          <a href="/contact">Contact</a>
+          <a href="https://twitter.com/dprintfmt">Twitter</a>
+          <a href="https://github.com/dprint">GitHub</a>
         </div>
+        <div class="footer-tag">A code formatting platform · Rust + Wasm</div>
       </div>
     </footer>
   

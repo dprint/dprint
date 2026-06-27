@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>CLI - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#000000">
+    <meta name="theme-color" content="#1e1e1e">
     <meta name="description" content="Documentation on dprint's command-line interface (CLI).">
     <meta name="author" content="Dprint Code Formatting">
     <meta name="twitter:card" content="summary">
@@ -12,107 +12,105 @@
     <meta name="twitter:title" content="CLI">
     <meta name="twitter:description" content="Documentation on dprint's command-line interface (CLI).">
     
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/style.css">
   </head>
   <body>
-    <nav class="navbar" role="navigation" aria-label="main navigation">
-      <div class="navbar-brand">
-        <h1 class="title"><a href="/">dprint</a></h1>
-
-        <a role="button" id="navbarBurger" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarLinks">
-          <span aria-hidden="true"></span>
-          <span aria-hidden="true"></span>
-          <span aria-hidden="true"></span>
-        </a>
-      </div>
-
-      <div class="navbar-menu" id="navbarLinks">
-        
-          <div class="navbar-start doc-menu-mobile">
-            <ul class="menu-list">
-  <li><a href="/overview">Overview</a></li>
-  <li><a href="/install">Install</a></li>
-  <li><a href="/setup">Setup</a></li>
-  <li><a href="/config">Configuration</a></li>
-  <li><a href="/global-config">Global Configuration</a></li>
-  <li><a href="/cli">CLI</a></li>
-  <li><a href="/ci">Continuous Integration</a></li>
-</ul>
-<p class="menu-label">Plugins</p>
-<ul class="menu-list">
-  <li><a href="/plugins">General</a></li>
-  <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
-  <li><a href="/plugins/json">JSON</a></li>
-  <li><a href="/plugins/markdown">Markdown</a></li>
-  <li><a href="/plugins/toml">TOML</a></li>
-  <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
-  <li><a href="/plugins/dockerfile">Dockerfile</a></li>
-  <li><a href="/plugins/rustfmt">Rustfmt</a></li>
-  <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
-  <li><a href="/plugins/malva">Malva (CSS/SCSS/Sass/Less)</a></li>
-  <li><a href="/plugins/markup_fmt">Markup_fmt (HTML/Vue/Svelte/Astro)</a></li>
-  <li><a href="/plugins/prettier">Prettier</a></li>
-  <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
-  <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
-  <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
-  <li><a href="/plugins/mago">Mago (PHP)</a></li>
-  <li><a href="/plugins/ruff">Ruff (Python)</a></li>
-  <li><a href="/plugins/jupyter">Jupyter</a></li>
-  <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
-  <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
-  <li><a href="/plugin-dev">Creating a Plugin</a></li>
-</ul>
-
-          </div>
-        
-        <div class="navbar-end">
-          <a class="navbar-item" href="/overview">Overview</a>
-          <a class="navbar-item" href="/playground">Playground</a>
-          <a class="navbar-item" href="/sponsor">Sponsor</a>
-          <a class="navbar-item" href="https://github.com/dprint/dprint" rel="noopener noreferrer">View on GitHub</a>
+    <nav class="site-nav" aria-label="Main">
+      <div class="nav-inner">
+        <a class="brand" href="/">dprint</a>
+        <div class="nav-links">
+          <a href="/overview" class="active">Overview</a>
+          <a href="/playground">Playground</a>
+          <a href="/sponsor">Sponsor</a>
+          <a class="gh-button" href="https://github.com/dprint/dprint" rel="noopener noreferrer">GitHub <span>↗</span></a>
         </div>
       </div>
     </nav>
-    <section class="section" id="content">
-  <div class="columns">
-    <aside class="menu column is-narrow doc-sidebar" style="width: 210px">
-      <ul class="menu-list">
-  <li><a href="/overview">Overview</a></li>
-  <li><a href="/install">Install</a></li>
-  <li><a href="/setup">Setup</a></li>
-  <li><a href="/config">Configuration</a></li>
-  <li><a href="/global-config">Global Configuration</a></li>
-  <li><a href="/cli">CLI</a></li>
-  <li><a href="/ci">Continuous Integration</a></li>
-</ul>
-<p class="menu-label">Plugins</p>
-<ul class="menu-list">
-  <li><a href="/plugins">General</a></li>
-  <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
-  <li><a href="/plugins/json">JSON</a></li>
-  <li><a href="/plugins/markdown">Markdown</a></li>
-  <li><a href="/plugins/toml">TOML</a></li>
-  <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
-  <li><a href="/plugins/dockerfile">Dockerfile</a></li>
-  <li><a href="/plugins/rustfmt">Rustfmt</a></li>
-  <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
-  <li><a href="/plugins/malva">Malva (CSS/SCSS/Sass/Less)</a></li>
-  <li><a href="/plugins/markup_fmt">Markup_fmt (HTML/Vue/Svelte/Astro)</a></li>
-  <li><a href="/plugins/prettier">Prettier</a></li>
-  <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
-  <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
-  <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
-  <li><a href="/plugins/mago">Mago (PHP)</a></li>
-  <li><a href="/plugins/ruff">Ruff (Python)</a></li>
-  <li><a href="/plugins/jupyter">Jupyter</a></li>
-  <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
-  <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
-  <li><a href="/plugin-dev">Creating a Plugin</a></li>
+
+    <main class="site-main">
+      <div class="docs">
+  <aside class="doc-sidebar">
+    <details class="doc-nav" open="">
+      <summary class="doc-nav-summary">Documentation menu</summary>
+      
+
+
+<div class="doc-menu-label">Guide</div>
+<ul class="doc-menu">
+  
+    <li><a href="/overview">Overview</a></li>
+  
+    <li><a href="/install">Install</a></li>
+  
+    <li><a href="/setup">Setup</a></li>
+  
+    <li><a href="/config">Configuration</a></li>
+  
+    <li><a href="/global-config">Global Configuration</a></li>
+  
+    <li><a href="/cli" class="active">CLI</a></li>
+  
+    <li><a href="/ci">Continuous Integration</a></li>
+  
 </ul>
 
-    </aside>
-    <div id="content-body" class="column documentation">
-      <h1>Command Line Interface (CLI)</h1>
+<div class="doc-menu-label">Plugins</div>
+<ul class="doc-menu">
+  
+    <li><a href="/plugins">General</a></li>
+  
+    <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
+  
+    <li><a href="/plugins/json">JSON</a></li>
+  
+    <li><a href="/plugins/markdown">Markdown</a></li>
+  
+    <li><a href="/plugins/toml">TOML</a></li>
+  
+    <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
+  
+    <li><a href="/plugins/dockerfile">Dockerfile</a></li>
+  
+    <li><a href="/plugins/rustfmt">Rustfmt</a></li>
+  
+    <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
+  
+    <li><a href="/plugins/malva">Malva (CSS/SCSS/Sass/Less)</a></li>
+  
+    <li><a href="/plugins/markup_fmt">Markup_fmt (HTML/Vue/Svelte/Astro)</a></li>
+  
+    <li><a href="/plugins/prettier">Prettier</a></li>
+  
+    <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
+  
+    <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
+  
+    <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
+  
+    <li><a href="/plugins/mago">Mago (PHP)</a></li>
+  
+    <li><a href="/plugins/ruff">Ruff (Python)</a></li>
+  
+    <li><a href="/plugins/jupyter">Jupyter</a></li>
+  
+    <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
+  
+    <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
+  
+    <li><a href="/plugin-dev">Creating a Plugin</a></li>
+  
+</ul>
+
+    </details>
+  </aside>
+  <main class="doc-main doc-content">
+    
+    
+    <div class="eyebrow">// guide</div>
+    <h1>Command Line Interface (CLI)</h1>
 <pre><code class="language-sh hljs language-bash">dprint &lt;SUBCOMMAND&gt; [OPTIONS] [--] [files]...
 </code></pre>
 <h2 id="installing-and-setup%2Finitialization" tabindex="-1"><a class="header-anchor" href="#installing-and-setup%2Finitialization">Installing and Setup/Initialization</a></h2>
@@ -137,9 +135,33 @@
 <pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --staged
 </code></pre>
 <p>Note: This requires that <a href="https://git-scm.com/">git</a> is installed and that you use git for source control.</p>
+<h3 id="formatting-only-git-working-directory-files" tabindex="-1"><a class="header-anchor" href="#formatting-only-git-working-directory-files">Formatting only git working directory files</a></h3>
+<p>Requires dprint &gt;= 0.55.0</p>
+<p>To format only the files with uncommitted changes in the git working directory—staged, unstaged, and untracked (but not gitignored) files—use the <code>--dirty</code> flag:</p>
+<pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --dirty
+</code></pre>
+<p>This is useful in editors such as the JetBrains IDEs where the staging area isn't surfaced and you want to format everything you've touched but not yet committed.</p>
+<p>Note: This requires that <a href="https://git-scm.com/">git</a> is installed and that you use git for source control.</p>
+<h3 id="ignoring-.gitignore" tabindex="-1"><a class="header-anchor" href="#ignoring-.gitignore">Ignoring .gitignore</a></h3>
+<p>By default, dprint respects <code>.gitignore</code> files (as well as a repository's <code>.git/info/exclude</code> file) and excludes any gitignored files from formatting. To disable this behaviour, use the <code>--no-gitignore</code> flag:</p>
+<pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --no-gitignore
+</code></pre>
+<h3 id="respecting-a-global-.gitignore" tabindex="-1"><a class="header-anchor" href="#respecting-a-global-.gitignore">Respecting a global .gitignore</a></h3>
+<p>By default, dprint does not respect git's global excludes file (<code>core.excludesFile</code>, defaulting to <code>$XDG_CONFIG_HOME/git/ignore</code>). This is opt-in because it's specific to your machine and won't exist on other machines or CI, so enabling it could cause formatting results to differ between environments.</p>
+<p>To opt in, set the <code>DPRINT_GLOBAL_GITIGNORE</code> environment variable to <code>1</code>:</p>
+<pre><code class="language-sh hljs language-bash">DPRINT_GLOBAL_GITIGNORE=1 dprint <span class="hljs-built_in">fmt</span>
+</code></pre>
+<p>The global excludes file has the lowest precedence, so a repository's <code>.gitignore</code> or <code>.git/info/exclude</code> can re-include files it ignores. Using <code>--no-gitignore</code> disables it along with all other gitignore handling.</p>
 <h3 id="formatting-standard-input" tabindex="-1"><a class="header-anchor" href="#formatting-standard-input">Formatting Standard Input</a></h3>
 <p>Use <code>dprint fmt --stdin &lt;file-path/file-name/extension&gt;</code> and provide the input file text to stdin. The output will be directed by the CLI to stdout.</p>
 <p>Provide a full file path to format with inclusion/exclusion rules of your dprint configuration file or provide only a file name or extension to always format the file.</p>
+<h3 id="formatting-a-list-of-files-from-standard-input" tabindex="-1"><a class="header-anchor" href="#formatting-a-list-of-files-from-standard-input">Formatting a list of files from Standard Input</a></h3>
+<p>Requires dprint &gt;= 0.55.0</p>
+<p>Use the <code>--stdin-files</code> flag to read a newline-separated list of file paths to format from stdin instead of passing them as command line arguments. This is useful when piping the output of another tool into dprint:</p>
+<pre><code class="language-sh hljs language-bash">generate_files | dprint <span class="hljs-built_in">fmt</span> --stdin-files
+</code></pre>
+<p>Unlike piping through <code>xargs</code>, this handles file paths containing spaces since the only delimiter is the newline (blank lines are ignored). It also avoids the command line length limits that apply when passing many paths as arguments.</p>
+<p>The paths are resolved against the inclusion/exclusion rules of your dprint configuration file, the same way file patterns passed on the command line are. This flag is also available for the <code>check</code>, <code>file-paths</code>, and <code>format-times</code> subcommands.</p>
 <h2 id="checking-what-files-aren't-formatted" tabindex="-1"><a class="header-anchor" href="#checking-what-files-aren't-formatted">Checking What Files Aren't Formatted</a></h2>
 <p>Instead of formatting files, you can get a report of any files that aren't formatted by running:</p>
 <pre><code class="language-sh hljs language-bash">dprint check
@@ -181,6 +203,18 @@ dprint <span class="hljs-built_in">fmt</span> --config https://dprint.dev/path/t
 <li><code>--config-discovery=false</code> - Disables all configuration discovery (specify either <code>--config=&lt;path&gt;</code> or <code>--plugins &lt;url-or-path&gt;</code>).</li>
 </ul>
 <p>Note this can also be set via the <code>DPRINT_CONFIG_DISCOVERY</code> environment variable (ex. <code>DPRINT_CONFIG_DISCOVERY=false</code>, <code>DPRINT_CONFIG_DISCOVERY=global</code>, etc.)</p>
+<h2 id="coloured-output" tabindex="-1"><a class="header-anchor" href="#coloured-output">Coloured Output</a></h2>
+<p>By default, dprint colours its output (for example, the diffs shown by <code>dprint check</code> and <code>dprint fmt --diff</code>). Unlike many tools, it emits colours regardless of whether the output is a terminal, so colours show up in CI logs as well. This is controlled by two environment variables:</p>
+<ul>
+<li><code>NO_COLOR</code> - Set to any non-empty value to disable coloured output. See <a href="https://no-color.org/">no-color.org</a>.</li>
+<li><code>FORCE_COLOR</code> - Set to any non-empty value to force coloured output on, even when <code>NO_COLOR</code> is set. Takes precedence over <code>NO_COLOR</code>.</li>
+</ul>
+<pre><code class="language-sh hljs language-bash"><span class="hljs-comment"># disable colours</span>
+NO_COLOR=1 dprint check
+
+<span class="hljs-comment"># re-enable colours in an environment that sets NO_COLOR</span>
+FORCE_COLOR=1 dprint check
+</code></pre>
 <h2 id="exit-codes" tabindex="-1"><a class="header-anchor" href="#exit-codes">Exit codes</a></h2>
 <ul>
 <li><code>0</code> - Success</li>
@@ -208,8 +242,8 @@ dprint <span class="hljs-built_in">fmt</span> --config https://dprint.dev/path/t
 </code></pre>
 <h2 id="diagnostic-commands-and-flags" tabindex="-1"><a class="header-anchor" href="#diagnostic-commands-and-flags">Diagnostic Commands and Flags</a></h2>
 <h3 id="outputting-file-paths" tabindex="-1"><a class="header-anchor" href="#outputting-file-paths">Outputting file paths</a></h3>
-<p>Sometimes you may not be sure what files dprint is picking up and formatting. To check, use the <code>output-file-paths</code> subcommand to see all the resolved file paths for the current plugins based on the CLI arguments and configuration.</p>
-<pre><code class="language-sh hljs language-bash">dprint output-file-paths
+<p>Sometimes you may not be sure what files dprint is picking up and formatting. To check, use the <code>file-paths</code> subcommand to see all the resolved file paths for the current plugins based on the CLI arguments and configuration.</p>
+<pre><code class="language-sh hljs language-bash">dprint file-paths
 </code></pre>
 <p>Example output:</p>
 <pre><code class="language-sh hljs language-bash">C:\dev\my-project\scripts\build-homepage.js
@@ -222,7 +256,7 @@ C:\dev\my-project\website\playground\src\components\Spinner.tsx
 </code></pre>
 <h3 id="outputting-resolved-configuration" tabindex="-1"><a class="header-anchor" href="#outputting-resolved-configuration">Outputting resolved configuration</a></h3>
 <p>When diagnosing configuration issues it might be useful to find out what the internal lower level configuration used by the plugins is. To see that, use the following command:</p>
-<pre><code class="language-sh hljs language-bash">dprint output-resolved-config
+<pre><code class="language-sh hljs language-bash">dprint resolved-config
 </code></pre>
 <p>Example output (JSON):</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
@@ -248,9 +282,12 @@ C:\dev\my-project\website\playground\src\components\Spinner.tsx
   <span class="hljs-punctuation">}</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
+<p>Optionally use the <code>--file</code> flag to limit the output to only the plugins that would format that file. This is useful for verifying which plugins are actually associated with a file:</p>
+<pre><code class="language-sh hljs language-bash">dprint resolved-config --file path/to/file.py
+</code></pre>
 <h3 id="outputting-format-times" tabindex="-1"><a class="header-anchor" href="#outputting-format-times">Outputting format times</a></h3>
 <p>It can be useful to know what files take a long time to format as you may consider skipping them. To see this information, use the following command:</p>
-<pre><code class="language-sh hljs language-bash">dprint output-format-times
+<pre><code class="language-sh hljs language-bash">dprint format-times
 </code></pre>
 <p>Example output:</p>
 <pre><code class="language-text hljs language-plaintext">0ms - C:\dev\my-project\dprint.json
@@ -263,6 +300,40 @@ C:\dev\my-project\website\playground\src\components\Spinner.tsx
 16ms - C:\dev\my-project\my-file.ts
 46ms - C:\dev\my-project\docs\overview.md
 54ms - C:\dev\my-project\build.js
+</code></pre>
+<h3 id="outputting-incremental-state-(advanced%2C-for-very-large-repositories)" tabindex="-1"><a class="header-anchor" href="#outputting-incremental-state-(advanced%2C-for-very-large-repositories)">Outputting incremental state (advanced, for very large repositories)</a></h3>
+<p>When <a href="#incremental-formatting">incremental formatting</a> is enabled, dprint keeps a cache and reuses it as long as nothing that affects formatting output has changed. The whole cache for a configuration file is thrown away when its plugins, plugin versions, resolved configuration, associations, overrides, or global configuration change.</p>
+<p>The <code>incremental-state</code> subcommand prints the exact signal dprint uses to make that decision, so you can compare it between two revisions and find out ahead of time whether the cache would be reused or invalidated:</p>
+<pre><code class="language-sh hljs language-bash">dprint incremental-state
+</code></pre>
+<p>Example output (JSON):</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"configs"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">"path"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"/home/david/dev/my-project/dprint.json"</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">"hash"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"3f9c2a7b1e4d8f60"</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+        <span class="hljs-punctuation">{</span> <span class="hljs-attr">"name"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"dprint-plugin-typescript"</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">"version"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"0.95.15"</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-punctuation">{</span> <span class="hljs-attr">"name"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"dprint-plugin-json"</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">"version"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"0.21.1"</span> <span class="hljs-punctuation">}</span>
+      <span class="hljs-punctuation">]</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>A <code>configs</code> entry is emitted for every configuration file dprint discovers (including descendant configuration files), each with the <code>hash</code> that gates its incremental cache. The <code>hash</code> is the only thing that matters for cache invalidation—the <code>plugins</code> list is included so the output is easy to inspect when a hash changes. The output is deterministic across machines for an unchanged configuration.</p>
+<p>This is useful in CI to avoid formatting the entire repository when only a few files changed. For example, format only the files in the changeset when the cache would survive, and otherwise fall back to formatting everything:</p>
+<pre><code class="language-sh hljs language-bash">git checkout main
+previous_state=$(dprint incremental-state)
+git checkout <span class="hljs-string">"<span class="hljs-variable">$BRANCH</span>"</span>
+new_state=$(dprint incremental-state)
+
+<span class="hljs-keyword">if</span> [ <span class="hljs-string">"<span class="hljs-variable">$previous_state</span>"</span> != <span class="hljs-string">"<span class="hljs-variable">$new_state</span>"</span> ]; <span class="hljs-keyword">then</span>
+  <span class="hljs-comment"># plugins or configuration changed—the cache is invalid, so format everything</span>
+  dprint <span class="hljs-built_in">fmt</span>
+<span class="hljs-keyword">else</span>
+  <span class="hljs-comment"># the cache is still valid, so only format the changed files</span>
+  dprint <span class="hljs-built_in">fmt</span> $(git diff --name-only main...)
+<span class="hljs-keyword">fi</span>
 </code></pre>
 <h3 id="log-level" tabindex="-1"><a class="header-anchor" href="#log-level">Log Level</a></h3>
 <p>To adjust your logging level, use the <code>--log-level</code> flag (defaults to <code>--log-level=info</code>).</p>
@@ -311,30 +382,21 @@ C:\dev\my-project\website\playground\src\components\Spinner.tsx
 <pre><code class="language-sh hljs language-bash">dprint clear-cache
 </code></pre>
 
-    </div>
-  </div>
-</section>
+  </main>
+</div>
 
-    <footer class="footer">
-      <div>
-        <div class="level">
-          <div class="level-left">
-            <p class="level-item">
-              <a href="/">Home</a>
-            </p>
-            <p class="level-item">
-              <a href="/contact">Contact Us</a>
-            </p>
-          </div>
-          <div class="level-right">
-            <p class="level-item">
-              <a href="https://twitter.com/dprintfmt">Twitter</a>
-            </p>
-            <p class="level-item">
-              <a href="https://github.com/dprint">GitHub</a>
-            </p>
-          </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand">dprint</div>
+        <div class="footer-links">
+          <a href="/">Home</a>
+          <a href="/contact">Contact</a>
+          <a href="https://twitter.com/dprintfmt">Twitter</a>
+          <a href="https://github.com/dprint">GitHub</a>
         </div>
+        <div class="footer-tag">A code formatting platform · Rust + Wasm</div>
       </div>
     </footer>
   

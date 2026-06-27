@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Configuration - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#000000">
+    <meta name="theme-color" content="#1e1e1e">
     <meta name="description" content="Documentation on dprint's configuration file.">
     <meta name="author" content="Dprint Code Formatting">
     <meta name="twitter:card" content="summary">
@@ -12,107 +12,105 @@
     <meta name="twitter:title" content="Configuration">
     <meta name="twitter:description" content="Documentation on dprint's configuration file.">
     
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/style.css">
   </head>
   <body>
-    <nav class="navbar" role="navigation" aria-label="main navigation">
-      <div class="navbar-brand">
-        <h1 class="title"><a href="/">dprint</a></h1>
-
-        <a role="button" id="navbarBurger" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarLinks">
-          <span aria-hidden="true"></span>
-          <span aria-hidden="true"></span>
-          <span aria-hidden="true"></span>
-        </a>
-      </div>
-
-      <div class="navbar-menu" id="navbarLinks">
-        
-          <div class="navbar-start doc-menu-mobile">
-            <ul class="menu-list">
-  <li><a href="/overview">Overview</a></li>
-  <li><a href="/install">Install</a></li>
-  <li><a href="/setup">Setup</a></li>
-  <li><a href="/config">Configuration</a></li>
-  <li><a href="/global-config">Global Configuration</a></li>
-  <li><a href="/cli">CLI</a></li>
-  <li><a href="/ci">Continuous Integration</a></li>
-</ul>
-<p class="menu-label">Plugins</p>
-<ul class="menu-list">
-  <li><a href="/plugins">General</a></li>
-  <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
-  <li><a href="/plugins/json">JSON</a></li>
-  <li><a href="/plugins/markdown">Markdown</a></li>
-  <li><a href="/plugins/toml">TOML</a></li>
-  <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
-  <li><a href="/plugins/dockerfile">Dockerfile</a></li>
-  <li><a href="/plugins/rustfmt">Rustfmt</a></li>
-  <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
-  <li><a href="/plugins/malva">Malva (CSS/SCSS/Sass/Less)</a></li>
-  <li><a href="/plugins/markup_fmt">Markup_fmt (HTML/Vue/Svelte/Astro)</a></li>
-  <li><a href="/plugins/prettier">Prettier</a></li>
-  <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
-  <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
-  <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
-  <li><a href="/plugins/mago">Mago (PHP)</a></li>
-  <li><a href="/plugins/ruff">Ruff (Python)</a></li>
-  <li><a href="/plugins/jupyter">Jupyter</a></li>
-  <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
-  <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
-  <li><a href="/plugin-dev">Creating a Plugin</a></li>
-</ul>
-
-          </div>
-        
-        <div class="navbar-end">
-          <a class="navbar-item" href="/overview">Overview</a>
-          <a class="navbar-item" href="/playground">Playground</a>
-          <a class="navbar-item" href="/sponsor">Sponsor</a>
-          <a class="navbar-item" href="https://github.com/dprint/dprint" rel="noopener noreferrer">View on GitHub</a>
+    <nav class="site-nav" aria-label="Main">
+      <div class="nav-inner">
+        <a class="brand" href="/">dprint</a>
+        <div class="nav-links">
+          <a href="/overview" class="active">Overview</a>
+          <a href="/playground">Playground</a>
+          <a href="/sponsor">Sponsor</a>
+          <a class="gh-button" href="https://github.com/dprint/dprint" rel="noopener noreferrer">GitHub <span>↗</span></a>
         </div>
       </div>
     </nav>
-    <section class="section" id="content">
-  <div class="columns">
-    <aside class="menu column is-narrow doc-sidebar" style="width: 210px">
-      <ul class="menu-list">
-  <li><a href="/overview">Overview</a></li>
-  <li><a href="/install">Install</a></li>
-  <li><a href="/setup">Setup</a></li>
-  <li><a href="/config">Configuration</a></li>
-  <li><a href="/global-config">Global Configuration</a></li>
-  <li><a href="/cli">CLI</a></li>
-  <li><a href="/ci">Continuous Integration</a></li>
-</ul>
-<p class="menu-label">Plugins</p>
-<ul class="menu-list">
-  <li><a href="/plugins">General</a></li>
-  <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
-  <li><a href="/plugins/json">JSON</a></li>
-  <li><a href="/plugins/markdown">Markdown</a></li>
-  <li><a href="/plugins/toml">TOML</a></li>
-  <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
-  <li><a href="/plugins/dockerfile">Dockerfile</a></li>
-  <li><a href="/plugins/rustfmt">Rustfmt</a></li>
-  <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
-  <li><a href="/plugins/malva">Malva (CSS/SCSS/Sass/Less)</a></li>
-  <li><a href="/plugins/markup_fmt">Markup_fmt (HTML/Vue/Svelte/Astro)</a></li>
-  <li><a href="/plugins/prettier">Prettier</a></li>
-  <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
-  <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
-  <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
-  <li><a href="/plugins/mago">Mago (PHP)</a></li>
-  <li><a href="/plugins/ruff">Ruff (Python)</a></li>
-  <li><a href="/plugins/jupyter">Jupyter</a></li>
-  <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
-  <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
-  <li><a href="/plugin-dev">Creating a Plugin</a></li>
+
+    <main class="site-main">
+      <div class="docs">
+  <aside class="doc-sidebar">
+    <details class="doc-nav" open="">
+      <summary class="doc-nav-summary">Documentation menu</summary>
+      
+
+
+<div class="doc-menu-label">Guide</div>
+<ul class="doc-menu">
+  
+    <li><a href="/overview">Overview</a></li>
+  
+    <li><a href="/install">Install</a></li>
+  
+    <li><a href="/setup">Setup</a></li>
+  
+    <li><a href="/config" class="active">Configuration</a></li>
+  
+    <li><a href="/global-config">Global Configuration</a></li>
+  
+    <li><a href="/cli">CLI</a></li>
+  
+    <li><a href="/ci">Continuous Integration</a></li>
+  
 </ul>
 
-    </aside>
-    <div id="content-body" class="column documentation">
-      <h1>Configuration</h1>
+<div class="doc-menu-label">Plugins</div>
+<ul class="doc-menu">
+  
+    <li><a href="/plugins">General</a></li>
+  
+    <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
+  
+    <li><a href="/plugins/json">JSON</a></li>
+  
+    <li><a href="/plugins/markdown">Markdown</a></li>
+  
+    <li><a href="/plugins/toml">TOML</a></li>
+  
+    <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
+  
+    <li><a href="/plugins/dockerfile">Dockerfile</a></li>
+  
+    <li><a href="/plugins/rustfmt">Rustfmt</a></li>
+  
+    <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
+  
+    <li><a href="/plugins/malva">Malva (CSS/SCSS/Sass/Less)</a></li>
+  
+    <li><a href="/plugins/markup_fmt">Markup_fmt (HTML/Vue/Svelte/Astro)</a></li>
+  
+    <li><a href="/plugins/prettier">Prettier</a></li>
+  
+    <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
+  
+    <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
+  
+    <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
+  
+    <li><a href="/plugins/mago">Mago (PHP)</a></li>
+  
+    <li><a href="/plugins/ruff">Ruff (Python)</a></li>
+  
+    <li><a href="/plugins/jupyter">Jupyter</a></li>
+  
+    <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
+  
+    <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
+  
+    <li><a href="/plugin-dev">Creating a Plugin</a></li>
+  
+</ul>
+
+    </details>
+  </aside>
+  <main class="doc-main doc-content">
+    
+    
+    <div class="eyebrow">// guide</div>
+    <h1>Configuration</h1>
 <p>Configuration allows you to modify how dprint and its plugins behave.</p>
 <h2 id="setup" tabindex="-1"><a class="header-anchor" href="#setup">Setup</a></h2>
 <p>See <a href="/setup">Setup</a>.</p>
@@ -169,25 +167,66 @@
 <p>Or specify a plugin url:</p>
 <pre><code class="language-sh hljs language-bash">dprint add https://plugins.dprint.dev/json-x.x.x.wasm
 </code></pre>
+<p>Or from npm:</p>
+<pre><code class="language-sh hljs language-bash">dprint add npm:@dprint/json
+</code></pre>
+<p>By default Wasm plugins are added without a checksum (process plugins always get one). Use <code>--checksum</code> to pin a checksum on the added plugin regardless:</p>
+<pre><code class="language-sh hljs language-bash">dprint add --checksum typescript
+</code></pre>
 <p>Note: <code>dprint config add</code> also works and is equivalent.</p>
 <h3 id="updating-plugins-via-cli" tabindex="-1"><a class="header-anchor" href="#updating-plugins-via-cli">Updating Plugins via CLI</a></h3>
 <p>Plugins can be updated to the latest version in the configuration file by running:</p>
 <pre><code class="language-sh hljs language-bash">dprint config update
 </code></pre>
 <p>To update configuration files in descendant directories, run <code>dprint config update --recursive</code>.</p>
+<p>To preview the updates that would be made without modifying any files, run <code>dprint config update --dry-run</code>.</p>
 <h3 id="using-plugins-from-npm" tabindex="-1"><a class="header-anchor" href="#using-plugins-from-npm">Using Plugins from npm</a></h3>
-<p>Plugins can be resolved from npm packages instead of URLs. This can be useful in environments where downloading from <code>plugins.dprint.dev</code>/GitHub releases is restricted or if you're using npm and want to get your dependencies from one place.</p>
-<p>First, install the plugin's npm package:</p>
-<pre><code class="language-sh hljs language-bash">npm install @dprint/typescript
-</code></pre>
-<p>Then reference the <code>.wasm</code> file within the plugin by file path in your dprint configuration:</p>
-<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+<p>Plugins can be referenced by npm specifiers instead of HTTPS URLs. This is useful in environments where downloading from <code>plugins.dprint.dev</code> or other domains is restricted, or when you're already using npm and want one place to download dependencies from.</p>
+<p>Supported <code>npm:</code> specifier forms:</p>
+<pre><code class="language-jsonc hljs language-json"><span class="hljs-punctuation">{</span>
   <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
-    <span class="hljs-string">"./node_modules/@dprint/typescript/plugin.wasm"</span>
-  <span class="hljs-punctuation">]</span>
+    <span class="hljs-comment">// resolve a pinned version from the npm registry (wasm plugin)</span>
+    <span class="hljs-string">"npm:@dprint/typescript@0.95.15"</span><span class="hljs-punctuation">,</span>
+
+    <span class="hljs-comment">// process plugin — requires a tarball checksum</span>
+    <span class="hljs-string">"npm:@dprint/prettier@0.50.0/plugin.json@&lt;sha256&gt;"</span><span class="hljs-punctuation">,</span>
+
+    <span class="hljs-comment">// resolve from your local node_modules, walking up from the config file</span>
+    <span class="hljs-comment">// (use this when an npm package manager manages the version)</span>
+    <span class="hljs-string">"npm:@dprint/json"</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
-<p>Available npm packages include <code>@dprint/typescript</code>, <code>@dprint/json</code>, <code>@dprint/markdown</code>, <code>@dprint/toml</code>, <code>@dprint/dockerfile</code>, <code>@dprint/biome</code>, <code>@dprint/oxc</code>, <code>@dprint/ruff</code>, <code>@dprint/sql</code>, and <code>@dprint/mago</code>.</p>
+<p>Behaviour:</p>
+<ul>
+<li>A version after <code>@</code> makes dprint fetch the package from the npm registry and cache it. Wasm plugins don't need a checksum; process plugins do (the <code>@&lt;sha256&gt;</code> after the path).</li>
+<li>Omitting the version (<code>npm:@scope/name</code>) tells dprint to look up the package in <code>node_modules</code> walking up from the config file's directory. Use this when you want npm and your lockfile to be the source of truth.</li>
+<li>The registry is resolved from <code>NPM_CONFIG_REGISTRY</code>, then <code>.npmrc</code> files walking up from the config, then <code>~/.npmrc</code>, then the default <code>https://registry.npmjs.org</code>. Scoped registries are supported.</li>
+<li><code>dprint config update</code> will bump versioned npm specifiers to the latest published version (and compute the new checksum for process plugins). Unversioned specifiers are managed by your package manager, so they're skipped.</li>
+<li><code>dprint add npm:@scope/name</code> resolves to the latest version and writes the pinned form, unless the package is listed in a nearby <code>package.json</code> under <code>devDependencies</code> — in which case the unversioned form is written so npm/<code>package-lock.json</code> stays the source of truth. When you don't include a plugin path, dprint inspects the package to detect whether it's a Wasm or process plugin and writes the right form automatically — for a process plugin that means <code>npm:@scope/name@&lt;version&gt;/plugin.json@&lt;sha256&gt;</code>.</li>
+</ul>
+<p>Available npm packages include <code>@dprint/typescript</code>, <code>@dprint/json</code>, <code>@dprint/markdown</code>, <code>@dprint/toml</code>, <code>@dprint/dockerfile</code>, <code>@dprint/biome</code>, <code>@dprint/oxc</code>, <code>@dprint/ruff</code>, <code>@dprint/sql</code>, <code>@dprint/mago</code>, <code>@dprint/jupyter</code>, <code>@dprint/exec</code>, <code>@dprint/prettier</code>, and <code>@dprint/roslyn</code>.</p>
+<p>You can also reference a plugin file directly in <code>node_modules</code> if you prefer (<code>"./node_modules/@dprint/typescript/plugin.wasm"</code>); the <code>npm:</code> form just removes the need for that path.</p>
+<h4 id="private-npm-registries" tabindex="-1"><a class="header-anchor" href="#private-npm-registries">Private npm registries</a></h4>
+<p>dprint reads <code>.npmrc</code> files (walking up from the config, then <code>~/.npmrc</code>) to pick a registry and credentials. Both common auth schemes are supported:</p>
+<pre><code>@mycorp:registry=https://npm.mycorp.com
+//npm.mycorp.com/:_authToken=${MYCORP_NPM_TOKEN}
+</code></pre>
+<ul>
+<li><code>_authToken=…</code> → sent as <code>Authorization: Bearer …</code></li>
+<li><code>_auth=…</code> (already base64-encoded user:pass) → sent as <code>Authorization: Basic …</code></li>
+<li><code>${VAR}</code> substitution works the same as for npm itself.</li>
+</ul>
+<p>Credentials are dropped on cross-origin redirects (e.g. a registry that redirects tarball downloads to a CDN on a different host), so they never leak outside the configured registry.</p>
+<h4 id="process-plugins-distributed-via-npm" tabindex="-1"><a class="header-anchor" href="#process-plugins-distributed-via-npm">Process plugins distributed via npm</a></h4>
+<p>A process plugin's <code>plugin.json</code> lists per-platform binaries; for npm-installed process plugins the <code>reference</code> field must be one of:</p>
+<ul>
+<li>a relative path (<code>"./bin.zip"</code>) or <code>file:///…</code> URL — resolved against the plugin.json's directory inside the npm package. This is the simplest layout: ship <code>plugin.json</code> and <code>bin.zip</code> together in one npm package.</li>
+<li>an <code>npm:</code> specifier — used when the per-platform binary lives in a separate npm package (e.g., the manifest references <code>npm:@scope/foo-linux-x86_64@1.0.0/plugin.zip</code> and the dep is installed alongside via npm <code>optionalDependencies</code>).</li>
+</ul>
+<p><code>http://</code> and <code>https://</code> references are rejected for npm-installed process plugins. The whole point of installing via npm is to avoid surprise network fetches at format time, so the binary must come from the npm package(s) you already installed.</p>
+<h4 id="cache-layout" tabindex="-1"><a class="header-anchor" href="#cache-layout">Cache layout</a></h4>
+<p>Resolved npm packages are extracted under <code>&lt;dprint-cache&gt;/npm/&lt;registry-host&gt;/&lt;name&gt;@&lt;version&gt;/</code>. Different registries (public vs. private mirror) get separate directories. Compiled wasm modules and extracted process-plugin binaries continue to live under <code>&lt;dprint-cache&gt;/plugins/</code>. <code>dprint clear-cache</code> wipes everything.</p>
 <h3 id="editing-config-via-cli" tabindex="-1"><a class="header-anchor" href="#editing-config-via-cli">Editing Config via CLI</a></h3>
 <pre><code class="language-sh hljs language-bash">dprint config edit
 </code></pre>
@@ -211,6 +250,7 @@
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
+<p>Alternatively, you can disable all <code>.gitignore</code> handling with the <code>--no-gitignore</code> CLI flag (see <a href="/cli#ignoring-gitignore">CLI docs</a>).</p>
 <h2 id="includes" tabindex="-1"><a class="header-anchor" href="#includes">Includes</a></h2>
 <p>The <code>includes</code> property can be used to limit dprint to only formatting certain files. Generally, you don't need to bother providing this.</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
@@ -242,8 +282,9 @@
 <span class="hljs-punctuation">}</span>
 </code></pre>
 <p>Note that first the <code>"includes"</code>/<code>"excludes"</code> file resolution occurs and then the associations is used to map those files to a plugin. Specifying associations may also be useful for formatting a file with multiple plugins or forcing a file to be formatted with a specific plugin.</p>
+<p>Associations are <em>additive</em>: the patterns you specify are matched <strong>in addition to</strong> the file extensions and file names the plugin matches by default. For example, a plugin that formats <code>.json</code> files by default will also format <code>.myconfig</code> files once <code>"associations": ["**/*.myconfig"]</code> is set—<code>.json</code> files keep being formatted. To stop matching a default extension or file name, use a negated glob (see below).</p>
 <h3 id="excluding-paths-from-plugin" tabindex="-1"><a class="header-anchor" href="#excluding-paths-from-plugin">Excluding paths from plugin</a></h3>
-<p>Only providing negated globs as an association can be a way to exclude a file extension or path from being formatted with a certain plugin, but continue using file extensions to match a plugin otherwise.</p>
+<p>A negated glob (<code>!</code>) is the way to stop a plugin from matching a file it would otherwise format by default—whether that's a default file extension, a default file name, or a path.</p>
 <p>In the following example, both the TypeScript plugin and Prettier plugin support formatting <code>.js</code> and <code>.ts</code> files. Say we want to only format <code>.ts</code> files with the TypeScript plugin and <code>.js</code> files with the prettier plugin. To do that, we can place the typescript plugin to have higher precedence in the "plugins" array, then add an excludes for only <code>!**/*.js</code>. This will cause the TypeScript plugin to match based on the file extension for <code>.ts</code> files, but then be excluded from matching on <code>.js</code> files.</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
   <span class="hljs-attr">"typescript"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
@@ -258,6 +299,51 @@
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
+<h2 id="overrides" tabindex="-1"><a class="header-anchor" href="#overrides">Overrides</a></h2>
+<p>The plugin <code>"overrides"</code> config changes plugin configuration for specific files
+that are already formatted by that plugin.</p>
+<p>For example:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"json"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">"overrides"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">"files"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">"**/package.json"</span><span class="hljs-punctuation">,</span> <span class="hljs-string">"**/composer.json"</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">"indentWidth"</span><span class="hljs-punctuation">:</span> <span class="hljs-number">4</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">"useTabs"</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">false</span></span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/json-x.x.x.wasm"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>For multiple overrides, change it to an array:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"json"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">"overrides"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+      <span class="hljs-punctuation">{</span>
+        <span class="hljs-attr">"files"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">"**/package.json"</span><span class="hljs-punctuation">,</span> <span class="hljs-string">"**/composer.json"</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">"indentWidth"</span><span class="hljs-punctuation">:</span> <span class="hljs-number">4</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">"useTabs"</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">false</span></span>
+      <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-punctuation">{</span>
+        <span class="hljs-attr">"files"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"**/special-package.json"</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">"lineWidth"</span><span class="hljs-punctuation">:</span> <span class="hljs-number">80</span>
+      <span class="hljs-punctuation">}</span>
+    <span class="hljs-punctuation">]</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/json-x.x.x.wasm"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>Each override must specify a <code>"files"</code> pattern or list of patterns. All other
+properties in the override are plugin configuration properties.</p>
+<p>Note that <code>"overrides"</code> only changes configuration. It does not include files,
+exclude files, or associate files with a plugin. File discovery still uses the
+top-level <code>"includes"</code> and <code>"excludes"</code> settings, and plugin routing still uses
+the plugin's supported file names, file extensions, and <code>"associations"</code>.</p>
+<p>When multiple override blocks match the same file, they are applied in order and
+later values win.</p>
 <h2 id="extending-a-different-configuration-file" tabindex="-1"><a class="header-anchor" href="#extending-a-different-configuration-file">Extending a Different Configuration File</a></h2>
 <p>You may extend other configuration files by specifying an <code>extends</code> property. This may be a file path, URL, or relative path (remote configuration may extend other configuration files via a relative path).</p>
 <!-- dprint-ignore -->
@@ -275,6 +361,37 @@
 <span class="hljs-punctuation">}</span>
 </code></pre>
 <p>Note: The <code>includes</code> property of extended <em>remote</em> configuration is ignored for security reasons out of an abundance of caution (to disallow the dprint cli pulling in sensitive files) and additionally non-Wasm plugins are ignored in remote configuration because they don't run sandboxed.</p>
+<h2 id="directory-specific-configuration" tabindex="-1"><a class="header-anchor" href="#directory-specific-configuration">Directory Specific Configuration</a></h2>
+<p>Useful for monorepos, you may place additional configuration files in descendant directories. When dprint searches for files to format, it stops descending into a directory once it discovers a configuration file there and uses that configuration file for the files in that subtree instead (see <a href="/cli#changing-config-discovery">changing config discovery</a>).</p>
+<p>By default a nested configuration file is completely independent—it does not pick up the plugins or configuration of the ancestor configuration file:</p>
+<!-- dprint-ignore -->
+<pre><code class="language-json hljs"><span class="hljs-comment">// ./sub-project/dprint.json</span>
+<span class="hljs-punctuation">{</span>
+  <span class="hljs-comment">// only TOML files in ./sub-project will be formatted</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/toml-x.x.x.wasm"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>To instead inherit the plugins and configuration of the ancestor configuration file, specify <code>"inherit": true</code>:</p>
+<!-- dprint-ignore -->
+<pre><code class="language-json hljs"><span class="hljs-comment">// ./sub-project/dprint.json</span>
+<span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"inherit"</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">"typescript"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-comment">// inherits the ancestor's TypeScript config, but overrides the indent width</span>
+    <span class="hljs-attr">"indentWidth"</span><span class="hljs-punctuation">:</span> <span class="hljs-number">2</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>When inheriting:</p>
+<ul>
+<li>Plugins specified in the nested configuration file have precedence over the ancestor's plugins. Any plugins not specified are inherited from the ancestor.</li>
+<li>Plugin configuration is merged with the nested configuration file winning on conflicts.</li>
+<li>The ancestor's <code>excludes</code> are combined with the nested configuration file's <code>excludes</code>.</li>
+<li>The ancestor's <code>includes</code> are <em>not</em> inherited.</li>
+</ul>
+<p>Inheriting is opt-in (rather than opt-out) so that adding a configuration file higher up in the directory structure does not unexpectedly start affecting a nested configuration file.</p>
 <h2 id="incremental" tabindex="-1"><a class="header-anchor" href="#incremental">Incremental</a></h2>
 <p>By default, dprint will only format files that have changed since the last time you formatted the code in order to drastically improve performance.</p>
 <p>If you want to disable this functionality, you may specify the following in your dprint configuration file:</p>
@@ -390,30 +507,21 @@
 <p>For information on the official plugins' configuration, see the <a href="https://dprint.dev/plugins/">plugins</a> section.</p>
 <p>Next step: <a href="/cli">CLI</a></p>
 
-    </div>
-  </div>
-</section>
+  </main>
+</div>
 
-    <footer class="footer">
-      <div>
-        <div class="level">
-          <div class="level-left">
-            <p class="level-item">
-              <a href="/">Home</a>
-            </p>
-            <p class="level-item">
-              <a href="/contact">Contact Us</a>
-            </p>
-          </div>
-          <div class="level-right">
-            <p class="level-item">
-              <a href="https://twitter.com/dprintfmt">Twitter</a>
-            </p>
-            <p class="level-item">
-              <a href="https://github.com/dprint">GitHub</a>
-            </p>
-          </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand">dprint</div>
+        <div class="footer-links">
+          <a href="/">Home</a>
+          <a href="/contact">Contact</a>
+          <a href="https://twitter.com/dprintfmt">Twitter</a>
+          <a href="https://github.com/dprint">GitHub</a>
         </div>
+        <div class="footer-tag">A code formatting platform · Rust + Wasm</div>
       </div>
     </footer>
   

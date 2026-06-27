@@ -2,15 +2,64 @@
   var __defProp = Object.defineProperty;
   var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
-  // scripts/nav-burger.js
-  function addNavBurgerEvent() {
-    const navBurger = document.getElementById("navbarBurger");
-    navBurger.addEventListener("click", () => {
-      navBurger.classList.toggle("is-active");
-      document.getElementById(navBurger.dataset.target).classList.toggle("is-active");
-    });
+  // scripts/doc-menu-toggle.js
+  function setupDocMenu() {
+    const details = document.querySelector("details.doc-nav");
+    if (details == null) {
+      return;
+    }
+    if (window.matchMedia("(max-width: 860px)").matches) {
+      details.open = false;
+    }
   }
-  __name(addNavBurgerEvent, "addNavBurgerEvent");
+  __name(setupDocMenu, "setupDocMenu");
+
+  // scripts/install-tabs.js
+  var commands = {
+    shell: "curl -fsSL https://dprint.dev/install.sh | sh",
+    pwsh: "irm https://dprint.dev/install.ps1 | iex",
+    npm: "npm install -g dprint",
+    brew: "brew install dprint",
+    cargo: "cargo install --locked dprint"
+  };
+  function addInstallTabsEvent() {
+    const tabs = document.querySelectorAll(".os-tab");
+    const cmdText = document.getElementById("cmd-text");
+    const copyBtn = document.getElementById("copy-btn");
+    if (tabs.length === 0 || cmdText == null) {
+      return;
+    }
+    tabs.forEach(function(tab) {
+      tab.addEventListener("click", function() {
+        tabs.forEach(function(t) {
+          t.classList.remove("active");
+        });
+        tab.classList.add("active");
+        const os = tab.getAttribute("data-os");
+        if (commands[os] != null) {
+          cmdText.textContent = commands[os];
+        }
+        if (copyBtn != null) {
+          copyBtn.textContent = "copy";
+        }
+      });
+    });
+    if (copyBtn != null) {
+      let copyTimeout;
+      copyBtn.addEventListener("click", function() {
+        if (navigator.clipboard != null) {
+          navigator.clipboard.writeText(cmdText.textContent).catch(function() {
+          });
+        }
+        copyBtn.textContent = "copied \u2713";
+        clearTimeout(copyTimeout);
+        copyTimeout = setTimeout(function() {
+          copyBtn.textContent = "copy";
+        }, 1600);
+      });
+    }
+  }
+  __name(addInstallTabsEvent, "addInstallTabsEvent");
 
   // scripts/plugin-config-table-replacer.js
   function replaceConfigTable() {
@@ -218,17 +267,27 @@
     const elements = getPluginUrlElements();
     if (elements.length > 0) {
       getPluginInfo().then((pluginUrls) => {
-        for (const element of getPluginUrlElements()) {
+        for (const element of elements) {
           const pluginName = pluginPlaceholders.get(element.textContent);
           const url = pluginUrls.get(pluginName);
           if (url != null) {
             element.textContent = '"' + url + '"';
+          } else if (pluginName != null) {
+            getLatestPluginUrl(pluginName).then((fallbackUrl) => {
+              if (fallbackUrl != null) {
+                element.textContent = '"' + fallbackUrl + '"';
+              }
+            });
           }
         }
       });
     }
   }
   __name(replacePluginUrls, "replacePluginUrls");
+  function getLatestPluginUrl(pluginName) {
+    return fetch("https://plugins.dprint.dev/" + pluginName + "/latest.json").then((response) => response.ok ? response.json() : null).then((data) => data == null ? null : data.url).catch(() => null);
+  }
+  __name(getLatestPluginUrl, "getLatestPluginUrl");
   function getPluginUrlElements() {
     const stringElements = document.getElementsByClassName("hljs-string");
     const result = [];
@@ -264,7 +323,8 @@
   function onLoad() {
     replacePluginUrls();
     replaceConfigTable();
-    addNavBurgerEvent();
+    addInstallTabsEvent();
+    setupDocMenu();
   }
   __name(onLoad, "onLoad");
 })();
