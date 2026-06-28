@@ -81,8 +81,9 @@ pub fn parse_plugin_source_reference(text: &str, base: &PathSource, environment:
     // also appear inside process plugin manifests pointing at `.zip` files.
     // For a top-level plugin reference, restrict to `.wasm` / `.json` here.
     validate_plugin_extension(&parsed.specifier, text)?;
-    // store the config file's directory for node_modules resolution
-    let base_dir = base.maybe_local_path().and_then(|p| p.parent());
+    // store the config directory for node_modules resolution. Callers pass the
+    // directory to resolve plugin references from, not the config file path.
+    let base_dir = base.maybe_local_path().cloned();
     return Ok(PluginSourceReference {
       path_source: PathSource::new_npm(parsed.specifier, base_dir),
       checksum: parsed.checksum,
