@@ -15,6 +15,8 @@ It would be ideal for all plugins to be Wasm plugins, but unfortunately many lan
 
 The setup for both is the same except process plugins require a checksum to be specified to ensure the downloaded file is the same as what was built on the CI pipeline.
 
+For the latest version and copy-paste URL of every plugin, see [plugins.dprint.dev](https://plugins.dprint.dev).
+
 ## Wasm Plugins
 
 - [Typescript / JavaScript](/plugins/typescript)

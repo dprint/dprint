@@ -23,7 +23,8 @@
       <div class="nav-inner">
         <a class="brand" href="/">dprint</a>
         <div class="nav-links">
-          <a href="/overview" {% if isDocumentation %}class="active"{% endif %}>Overview</a>
+          <a href="/overview" {% if isDocumentation and "/plugin" not in url %}class="active"{% endif %}>Guide</a>
+          <a href="/plugins" {% if "/plugin" in url %}class="active"{% endif %}>Plugins</a>
           <a href="/playground">Playground</a>
           <a href="/sponsor" {% if url == "/sponsor/" %}class="active"{% endif %}>Sponsor</a>
           <a class="gh-button" href="https://github.com/dprint/dprint" rel="noopener noreferrer">GitHub <span>↗</span></a>
