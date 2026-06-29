@@ -382,6 +382,36 @@ impl<'a> Printer<'a> {
     self.skip_moving_next = true;
   }
 
+  fn update_state_to_save_point_if_needed(&mut self, save_point: &'a SavePoint<'a>) -> bool {
+    if self.should_update_state_to_save_point(save_point) {
+      self.update_state_to_save_point(save_point, false);
+      true
+    } else {
+      false
+    }
+  }
+
+  fn should_update_state_to_save_point(&mut self, save_point: &'a SavePoint<'a>) -> bool {
+    let Some(node) = save_point.node else {
+      return true;
+    };
+    let node = unsafe { &*node.get_node() };
+    let PrintItem::Condition(condition) = &node.item else {
+      return true;
+    };
+
+    self.resolving_save_point.replace(save_point);
+    let mut context = ConditionResolverContext::new(self, save_point.writer_state.writer_info(self.writer.indent_width()));
+    let condition_value = condition.resolve(&mut context);
+    self.resolving_save_point.take();
+
+    if condition.is_stored {
+      self.resolved_conditions.insert(condition.unique_id(), condition_value);
+    }
+
+    condition_value == Some(true) && (condition.true_path.is_some() || condition.false_path.is_some())
+  }
+
   #[inline]
   fn handle_signal(&mut self, signal: &Signal) {
     match signal {
@@ -465,7 +495,7 @@ impl<'a> Printer<'a> {
         self.resolved_line_numbers.insert(line_number_id, self.writer.line_number());
         let option_save_point = self.look_ahead_line_number_save_points.remove(&line_number_id);
         if let Some(save_point) = option_save_point {
-          self.update_state_to_save_point(save_point, false);
+          self.update_state_to_save_point_if_needed(save_point);
         }
       }
       Info::ColumnNumber(column_number) => {
@@ -473,7 +503,7 @@ impl<'a> Printer<'a> {
         self.resolved_column_numbers.insert(column_number_id, self.writer.column_number());
         let option_save_point = self.look_ahead_column_number_save_points.remove(&column_number_id);
         if let Some(save_point) = option_save_point {
-          self.update_state_to_save_point(save_point, false);
+          self.update_state_to_save_point_if_needed(save_point);
         }
       }
       Info::IsStartOfLine(is_start_of_line) => {
@@ -481,7 +511,7 @@ impl<'a> Printer<'a> {
         self.resolved_is_start_of_lines.insert(is_start_of_line_id, self.writer.is_start_of_line());
         let option_save_point = self.look_ahead_is_start_of_line_save_points.remove(&is_start_of_line_id);
         if let Some(save_point) = option_save_point {
-          self.update_state_to_save_point(save_point, false);
+          self.update_state_to_save_point_if_needed(save_point);
         }
       }
       Info::IndentLevel(indent_level) => {
@@ -489,7 +519,7 @@ impl<'a> Printer<'a> {
         self.resolved_indent_levels.insert(indent_level_id, self.writer.indent_level());
         let option_save_point = self.look_ahead_indent_level_save_points.remove(&indent_level_id);
         if let Some(save_point) = option_save_point {
-          self.update_state_to_save_point(save_point, false);
+          self.update_state_to_save_point_if_needed(save_point);
         }
       }
       Info::LineStartColumnNumber(line_start_column_number) => {
@@ -499,7 +529,7 @@ impl<'a> Printer<'a> {
           .insert(line_start_column_number_id, self.writer.line_start_column_number());
         let option_save_point = self.look_ahead_line_start_column_number_save_points.remove(&line_start_column_number_id);
         if let Some(save_point) = option_save_point {
-          self.update_state_to_save_point(save_point, false);
+          self.update_state_to_save_point_if_needed(save_point);
         }
       }
       Info::LineStartIndentLevel(line_start_indent_level) => {
@@ -509,7 +539,7 @@ impl<'a> Printer<'a> {
           .insert(line_start_indent_level_id, self.writer.line_start_indent_level());
         let option_save_point = self.look_ahead_line_start_indent_level_save_points.remove(&line_start_indent_level_id);
         if let Some(save_point) = option_save_point {
-          self.update_state_to_save_point(save_point, false);
+          self.update_state_to_save_point_if_needed(save_point);
         }
       }
     }
@@ -558,11 +588,12 @@ impl<'a> Printer<'a> {
       self.resolved_conditions.insert(condition_id, condition_value);
     }
 
-    let save_point = self.look_ahead_condition_save_points.get(&condition_id);
-    if condition_value.is_some() && save_point.is_some() {
-      let save_point = self.look_ahead_condition_save_points.remove(&condition_id);
-      self.update_state_to_save_point(save_point.unwrap(), false);
-      return;
+    if condition_value.is_some() {
+      if let Some(save_point) = self.look_ahead_condition_save_points.remove(&condition_id) {
+        if self.update_state_to_save_point_if_needed(save_point) {
+          return;
+        }
+      }
     }
 
     if condition_value.is_some() && condition_value.unwrap() {
