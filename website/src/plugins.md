@@ -39,6 +39,7 @@ For the latest version and copy-paste URL of every plugin, see [plugins.dprint.d
 
 - [Prettier](/plugins/prettier)
 - [Roslyn](/plugins/roslyn) (C#/VB)
+- [Swift](/plugins/swift) (SwiftFormat)
 - [Exec](/plugins/exec) - Works with any formatting CLI installed on the system.
 
 ## Using Wasm Plugins in the Browser, Deno, or Node.js
