@@ -3208,6 +3208,29 @@ mod test {
   }
 
   #[test]
+  fn should_resolve_unversioned_npm_plugin_from_config_dir_node_modules() {
+    // dprint.json lives below the workspace root and the dependency is
+    // installed beside it. The npm resolver must start at the config
+    // directory itself, not at the config directory's parent.
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/repo/packages/web/dprint.json", |c| {
+        c.add_plugin("npm:test-plugin");
+      })
+      .write_file("/repo/packages/web/node_modules/test-plugin/plugin.wasm", WASM_PLUGIN_BYTES)
+      .write_file("/repo/packages/web/file.txt", "text")
+      .set_cwd("/repo/packages/web")
+      .build();
+
+    run_test_cli(vec!["fmt", "/repo/packages/web/file.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/repo/packages/web/file.txt").unwrap(), "text_formatted");
+
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[test]
   fn should_walk_past_child_node_modules_lacking_plugin_to_reach_workspace_root() {
     // monorepo layout: dprint.json lives in a child workspace whose own
     // node_modules doesn't have the plugin (only a different package). The
