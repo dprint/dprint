@@ -135,6 +135,10 @@ const matrix = defineMatrix({
     cross: (profile.cross ?? false).toString(),
     musl_image: profile.muslCrossImage ?? "",
     zigbuild_glibc: profile.zigbuildGlibc ?? "",
+    // build and test through cargo-zigbuild for zigbuild targets so the test
+    // suite links (and runs) binaries the same way as the published ones
+    cargo: profile.zigbuildGlibc != null ? "cargo-zigbuild" : "cargo",
+    cargo_target: profile.zigbuildGlibc != null ? `${profile.target}.${profile.zigbuildGlibc}` : profile.target,
   })),
 });
 
@@ -224,12 +228,6 @@ const aarch64LinkerEnv = {
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc",
 };
 
-const zigbuildEnv = {
-  // force lzma-sys to build its bundled liblzma statically -- linking the
-  // runner's liblzma.so fails because it requires the runner's newer glibc
-  LZMA_API_STATIC: "1",
-};
-
 // Builds inside the rust-musl-cross image, which bundles the toolchain and runs
 // as root (so it can install the pinned toolchain into its own /root/.rustup --
 // the reason this can't go through cross, which runs as the non-root host user).
@@ -264,7 +262,6 @@ const buildDebug = step({
   // (the release build only runs on tags)
   name: "Build zigbuild (Debug)",
   if: isZigbuild,
-  env: zigbuildEnv,
   run: `cargo zigbuild -p dprint --locked --target ${matrix.target}.${matrix.zigbuild_glibc}`,
 }, {
   name: "Check glibc requirement (Debug)",
@@ -299,40 +296,38 @@ const tests = step(
   step.if(runDebugTests).dependsOn(buildDebug)(
     step({
       name: "Build test plugins (Debug)",
-      run: `cargo build -p test-process-plugin --locked --target ${matrix.target}`,
+      run: `${matrix.cargo} build -p test-process-plugin --locked --target ${matrix.cargo_target}`,
     }),
     step({
       name: "Test (Debug)",
-      run: `cargo test --locked --target ${matrix.target} --all-features`,
+      run: `${matrix.cargo} test --locked --target ${matrix.cargo_target} --all-features`,
     }),
     step({
       name: "Test integration",
       if: isLinuxGnu,
-      run: `cargo run -p dprint --locked --target ${matrix.target} -- check`,
+      run: `${matrix.cargo} run -p dprint --locked --target ${matrix.cargo_target} -- check`,
     }),
   ),
   // release
   step.if(runTests.and(isTag)).dependsOn(buildRelease)(
     step({
       name: "Build test plugins (Release)",
-      run: `cargo build -p test-process-plugin --locked --target ${matrix.target} --release`,
+      run: `${matrix.cargo} build -p test-process-plugin --locked --target ${matrix.cargo_target} --release`,
     }),
     step({
       name: "Test (Release)",
-      run: `cargo test --locked --target ${matrix.target} --all-features --release`,
+      run: `${matrix.cargo} test --locked --target ${matrix.cargo_target} --all-features --release`,
     }),
   ),
 );
 
 // Builds the published gnu binaries against an old glibc so they run on older
 // distros (dprint/dprint#796) -- the runner's glibc doesn't matter with zigbuild.
-// This runs after the tests because `cargo test --release` on tag builds
-// rebuilds target/<target>/release/dprint natively, which would otherwise
-// overwrite the zigbuild output with a binary requiring the runner's glibc.
+// This runs after the tests so target/<target>/release/dprint is guaranteed to
+// be zigbuild output when it gets zipped, even if a test step rebuilds it.
 const buildZigbuildRelease = step({
   name: "Build zigbuild (Release)",
   if: isZigbuild,
-  env: zigbuildEnv,
   run: `cargo zigbuild -p dprint --locked --target ${matrix.target}.${matrix.zigbuild_glibc} --release`,
 }, {
   name: "Check glibc requirement (Release)",
@@ -455,6 +450,10 @@ const buildJob = job("build", {
     // disabled to reduce ./target size and generally it's slower enabled
     CARGO_INCREMENTAL: 0,
     RUST_BACKTRACE: "full",
+    // build lzma-sys's bundled liblzma from source instead of linking the
+    // system one -- the runner's liblzma.so requires a newer glibc than the
+    // zigbuild targets allow, and this keeps every build linking it the same way
+    LZMA_API_STATIC: 1,
   },
   steps: step.if(
     matrix.target.notEquals("aarch64-unknown-linux-gnu")
