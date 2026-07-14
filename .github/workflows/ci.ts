@@ -23,6 +23,12 @@ interface ProfileData {
    * already bundles the toolchain.
    */
   muslCrossImage?: string;
+  /**
+   * Build the release binary with cargo-zigbuild targeting this glibc version
+   * so the published binary runs on older distros regardless of the runner's
+   * glibc (dprint/dprint#796).
+   */
+  zigbuildGlibc?: string;
 }
 
 const profileDataItems: ProfileData[] = [{
@@ -42,9 +48,11 @@ const profileDataItems: ProfileData[] = [{
   target: "aarch64-pc-windows-msvc",
   runTests: true,
 }, {
+  // glibc 2.17 matches Rust's own minimum for this target (CentOS 7+)
   os: OperatingSystem.Linux,
   target: "x86_64-unknown-linux-gnu",
   runTests: true,
+  zigbuildGlibc: "2.17",
 }, {
   os: OperatingSystem.Linux,
   target: "x86_64-unknown-linux-musl",
@@ -52,6 +60,7 @@ const profileDataItems: ProfileData[] = [{
   os: OperatingSystem.LinuxArm,
   target: "aarch64-unknown-linux-gnu",
   runTests: true,
+  zigbuildGlibc: "2.17",
 }, {
   os: OperatingSystem.LinuxArm,
   target: "aarch64-unknown-linux-musl",
@@ -125,6 +134,7 @@ const matrix = defineMatrix({
     target: profile.target,
     cross: (profile.cross ?? false).toString(),
     musl_image: profile.muslCrossImage ?? "",
+    zigbuild_glibc: profile.zigbuildGlibc ?? "",
   })),
 });
 
@@ -132,6 +142,7 @@ const runTests = matrix.run_tests.equals("true");
 const runDebugTests = runTests.and(isNotTag);
 const isCross = matrix.cross.equals("true");
 const isMuslImage = matrix.musl_image.notEquals("");
+const isZigbuild = matrix.zigbuild_glibc.notEquals("");
 const isLinuxGnu = matrix.target.equals("x86_64-unknown-linux-gnu");
 
 // === build job ===
@@ -176,6 +187,15 @@ const setupRust = step({
   name: "Setup cross",
   if: isCross,
   run: "cargo install cross --git https://github.com/cross-rs/cross --rev 36c0d7810ddde073f603c82d896c2a6c886ff7a4",
+}, {
+  name: "Setup zig",
+  if: isZigbuild,
+  uses: "mlugg/setup-zig@v2",
+  with: { version: "0.15.1" },
+}, {
+  name: "Setup cargo-zigbuild",
+  if: isZigbuild,
+  run: "cargo install cargo-zigbuild --locked --version 0.23.0",
 }).dependsOn(checkout).comesAfter(setupDeno);
 
 const lint = step.if(isLinuxGnu.and(isNotTag))(
@@ -218,11 +238,31 @@ function muslImageRun(releaseArgs: string): string[] {
   ];
 }
 
+// Verifies the binary only requires symbols up to the targeted glibc version
+// so a too-new requirement never makes it into a release (dprint/dprint#796).
+function glibcCheckRun(profileDir: "debug" | "release"): string[] {
+  return [
+    `max_glibc=$(objdump -T target/${matrix.target}/${profileDir}/dprint | grep -oE 'GLIBC_[0-9]+\\.[0-9]+' | sed 's/GLIBC_//' | sort -uV | tail -1)`,
+    `echo "Binary requires glibc $max_glibc (max allowed: ${matrix.zigbuild_glibc})"`,
+    `test "$(printf '%s\\n%s\\n' "$max_glibc" "${matrix.zigbuild_glibc}" | sort -V | tail -1)" = "${matrix.zigbuild_glibc}"`,
+  ];
+}
+
 const buildDebug = step({
   name: "Build (Debug)",
-  if: isCross.not().and(isMuslImage.not()),
+  if: isCross.not().and(isMuslImage.not()).and(isZigbuild.not()),
   env: aarch64LinkerEnv,
   run: `cargo build -p dprint --locked --target ${matrix.target}`,
+}, {
+  // build with zigbuild in debug too so PRs exercise the release toolchain
+  // (the release build only runs on tags)
+  name: "Build zigbuild (Debug)",
+  if: isZigbuild,
+  run: `cargo zigbuild -p dprint --locked --target ${matrix.target}.${matrix.zigbuild_glibc}`,
+}, {
+  name: "Check glibc requirement (Debug)",
+  if: isZigbuild,
+  run: glibcCheckRun("debug"),
 }, {
   name: "Build cross (Debug)",
   if: isCross,
@@ -234,7 +274,7 @@ const buildDebug = step({
 }).dependsOn(setupRust);
 const buildRelease = step({
   name: "Build (Release)",
-  if: isCross.not().and(isMuslImage.not()),
+  if: isCross.not().and(isMuslImage.not()).and(isZigbuild.not()),
   env: aarch64LinkerEnv,
   run: `cargo build -p dprint --locked --target ${matrix.target} --release`,
 }, {
@@ -276,6 +316,21 @@ const tests = step(
     }),
   ),
 );
+
+// Builds the published gnu binaries against an old glibc so they run on older
+// distros (dprint/dprint#796) -- the runner's glibc doesn't matter with zigbuild.
+// This runs after the tests because `cargo test --release` on tag builds
+// rebuilds target/<target>/release/dprint natively, which would otherwise
+// overwrite the zigbuild output with a binary requiring the runner's glibc.
+const buildZigbuildRelease = step({
+  name: "Build zigbuild (Release)",
+  if: isZigbuild,
+  run: `cargo zigbuild -p dprint --locked --target ${matrix.target}.${matrix.zigbuild_glibc} --release`,
+}, {
+  name: "Check glibc requirement (Release)",
+  if: isZigbuild,
+  run: glibcCheckRun("release"),
+}).dependsOn(setupRust).comesAfter(tests);
 
 const createInstaller = step.dependsOn(buildRelease)({
   name: "Create installer (Windows x86_64)",
@@ -322,7 +377,7 @@ function getPreReleaseStepForProfile(profile: typeof profiles[0]) {
     id: `pre_release_${profile.target.replaceAll("-", "_")}`,
     run: getRunstep(),
     outputs: ["ZIP_CHECKSUM", "INSTALLER_CHECKSUM"] as const,
-  }).dependsOn(buildRelease);
+  }).dependsOn(buildRelease).dependsOn(buildZigbuildRelease);
   if (profile.os === OperatingSystem.Windows) {
     return result.dependsOn(createInstaller);
   } else {
