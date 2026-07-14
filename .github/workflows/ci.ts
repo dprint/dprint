@@ -224,6 +224,12 @@ const aarch64LinkerEnv = {
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc",
 };
 
+const zigbuildEnv = {
+  // force lzma-sys to build its bundled liblzma statically -- linking the
+  // runner's liblzma.so fails because it requires the runner's newer glibc
+  LZMA_API_STATIC: "1",
+};
+
 // Builds inside the rust-musl-cross image, which bundles the toolchain and runs
 // as root (so it can install the pinned toolchain into its own /root/.rustup --
 // the reason this can't go through cross, which runs as the non-root host user).
@@ -258,6 +264,7 @@ const buildDebug = step({
   // (the release build only runs on tags)
   name: "Build zigbuild (Debug)",
   if: isZigbuild,
+  env: zigbuildEnv,
   run: `cargo zigbuild -p dprint --locked --target ${matrix.target}.${matrix.zigbuild_glibc}`,
 }, {
   name: "Check glibc requirement (Debug)",
@@ -325,6 +332,7 @@ const tests = step(
 const buildZigbuildRelease = step({
   name: "Build zigbuild (Release)",
   if: isZigbuild,
+  env: zigbuildEnv,
   run: `cargo zigbuild -p dprint --locked --target ${matrix.target}.${matrix.zigbuild_glibc} --release`,
 }, {
   name: "Check glibc requirement (Release)",
