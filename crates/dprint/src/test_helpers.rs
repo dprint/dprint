@@ -333,7 +333,7 @@ Copyright 2019 by David Sherret
 Auto-formats source code based on the specified plugins.
 
 USAGE:
-    dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...
+    dprint <SUBCOMMAND> [OPTIONS] [--] [files/directories/patterns]...
 
 SUBCOMMANDS:
   init               Initializes a configuration file in the current directory.
@@ -408,7 +408,7 @@ EXAMPLES:
 
     dprint fmt --config path/to/config/dprint.json
 
-  Search for files using the specified file patterns:
+  Search for files using the specified paths or file patterns:
 
     dprint fmt "**/*.{ts,tsx,js,jsx,json}"
 "#

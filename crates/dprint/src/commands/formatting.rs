@@ -373,6 +373,23 @@ mod test {
   }
 
   #[test]
+  fn should_format_directory_arg() {
+    let file_path1 = "/sub-dir/file.txt";
+    let file_path2 = "/sub-dir/nested/file.txt";
+    let file_path3 = "/other/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(file_path1, "text")
+      .write_file(file_path2, "text2")
+      .write_file(file_path3, "text3")
+      .build();
+    run_test_cli(vec!["fmt", "/sub-dir"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted");
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text3");
+  }
+
+  #[test]
   fn should_format_files_from_stdin_files() {
     let file_path1 = "/file.txt";
     let file_path2 = "/sub dir/file with space.txt";

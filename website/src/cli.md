@@ -30,9 +30,10 @@ After [setting up a configuration file](/setup), run the `fmt` command:
 dprint fmt
 ```
 
-To format a subset of the files the configuration file matches, you may specify the file paths to format or not format:
+To format a subset of the files the configuration file matches, you may specify the file paths, directories, or file patterns to format or not format:
 
 ```sh
+dprint fmt src
 dprint fmt **/*.js --excludes **/data
 ```
 
