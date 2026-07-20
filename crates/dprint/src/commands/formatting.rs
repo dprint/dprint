@@ -373,6 +373,23 @@ mod test {
   }
 
   #[test]
+  fn should_format_directory_arg() {
+    let file_path1 = "/sub-dir/file.txt";
+    let file_path2 = "/sub-dir/nested/file.txt";
+    let file_path3 = "/other/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(file_path1, "text")
+      .write_file(file_path2, "text2")
+      .write_file(file_path3, "text3")
+      .build();
+    run_test_cli(vec!["fmt", "/sub-dir"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted");
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text3");
+  }
+
+  #[test]
   fn should_format_files_from_stdin_files() {
     let file_path1 = "/file.txt";
     let file_path2 = "/sub dir/file with space.txt";
@@ -1479,6 +1496,28 @@ mod test {
 
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path).unwrap(), "text1_formatted");
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn should_format_parent_paths_from_subdirectory() {
+    for (cwd, file_arg) in [("/sub", "../file.txt"), ("/sub", "/file.txt"), ("/sub/nested", "../../file.txt")] {
+      let file_path = "/file.txt";
+      let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+        .with_local_config("/dprint.json", |c| {
+          c.add_remote_wasm_plugin();
+        })
+        .write_file(file_path, "text")
+        .write_file(format!("{cwd}/other.txt"), "other")
+        .set_cwd(cwd)
+        .initialize()
+        .build();
+
+      run_test_cli(vec!["fmt", "--", file_arg], &environment).unwrap();
+
+      assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+      assert_eq!(environment.read_file(file_path).unwrap(), "text_formatted");
+    }
   }
 
   #[test]
