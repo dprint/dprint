@@ -530,7 +530,7 @@ fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
         bail!("{}", start_message);
       } else {
         bail!(
-          "{}\n\nMaybe you meant to add two dashes after the plugins?\n  --plugins {} -- [file patterns]...",
+          "{}\n\nMaybe you meant to add two dashes after the plugins?\n  --plugins {} -- [files/directories/patterns]...",
           start_message,
           plugins[..i].join(" "),
         )
@@ -627,7 +627,7 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
     .version(env!("CARGO_PKG_VERSION"))
     .author("Copyright 2019 by David Sherret")
     .about("Auto-formats source code based on the specified plugins.")
-    .override_usage("dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...")
+    .override_usage("dprint <SUBCOMMAND> [OPTIONS] [--] [files/directories/patterns]...")
     .help_template(r#"{bin} {version}
 {author}
 
@@ -693,7 +693,7 @@ EXAMPLES:
 
     dprint fmt --config path/to/config/dprint.json
 
-  Search for files using the specified file patterns:
+  Search for files using the specified paths or file patterns:
 
     dprint fmt "**/*.{ts,tsx,js,jsx,json}""#,
     )
@@ -958,7 +958,7 @@ impl ClapExtensions for clap::Command {
     self
       .arg(
         Arg::new("files")
-          .help("List of file patterns in quotes to format. This can be a subset of what is found in the config file.")
+          .help("List of files, directories, or file patterns to format. This can be a subset of what is found in the config file.")
           .num_args(1..),
       )
       .arg(
@@ -1108,7 +1108,7 @@ mod test {
       concat!(
         "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension.\n\n",
         "Maybe you meant to add two dashes after the plugins?\n",
-        "  --plugins https://plugins.dprint.dev/test.wasm -- [file patterns]...",
+        "  --plugins https://plugins.dprint.dev/test.wasm -- [files/directories/patterns]...",
       )
     );
   }

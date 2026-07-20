@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::str::Split;
+use sys_traits::FsMetadata;
 use thiserror::Error;
 
 use crate::arg_parser::ConfigDiscovery;
@@ -21,6 +22,7 @@ use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
 use crate::utils::glob;
 use crate::utils::is_negated_glob;
+use crate::utils::is_pattern;
 
 /// Struct that allows using plugin names as a key
 /// in a hash map.
@@ -93,7 +95,8 @@ pub async fn get_and_resolve_file_paths<'a>(
   environment: &impl Environment,
 ) -> Result<GlobOutput> {
   let cwd = environment.cwd();
-  let mut file_patterns = get_all_file_patterns(config, args, &cwd);
+  let args = expand_directory_include_patterns(args, environment);
+  let mut file_patterns = get_all_file_patterns(config, &args, &cwd);
 
   if args.only_staged {
     let staged_files = environment.get_staged_files().context("Failed running git staged.")?;
@@ -118,6 +121,42 @@ pub async fn get_and_resolve_file_paths<'a>(
   }
 
   get_and_resolve_file_patterns(config, file_patterns, args.no_gitignore, config_discovery, environment).await
+}
+
+fn expand_directory_include_patterns(args: &FilePatternArgs, environment: &impl Environment) -> FilePatternArgs {
+  FilePatternArgs {
+    include_patterns: args
+      .include_patterns
+      .iter()
+      .flat_map(|pattern| expand_directory_include_pattern(pattern, environment))
+      .collect(),
+    include_pattern_overrides: args.include_pattern_overrides.clone(),
+    exclude_patterns: args.exclude_patterns.clone(),
+    exclude_pattern_overrides: args.exclude_pattern_overrides.clone(),
+    allow_node_modules: args.allow_node_modules,
+    no_gitignore: args.no_gitignore,
+    only_staged: args.only_staged,
+    only_dirty: args.only_dirty,
+  }
+}
+
+fn expand_directory_include_pattern(pattern: &str, environment: &impl Environment) -> Vec<String> {
+  if pattern == "." || is_pattern(pattern) {
+    return vec![pattern.to_string()];
+  }
+
+  let normalized_pattern = pattern.replace('\\', "/");
+  let pattern_path = PathBuf::from(&normalized_pattern);
+  let path = if environment.is_absolute_path(&pattern_path) {
+    pattern_path
+  } else {
+    environment.cwd().join(pattern_path)
+  };
+  if environment.fs_is_dir_no_err(path) {
+    vec![normalized_pattern.clone(), format!("{}/**/*", normalized_pattern.trim_end_matches('/'))]
+  } else {
+    vec![pattern.to_string()]
+  }
 }
 
 async fn get_and_resolve_file_patterns(
