@@ -116,7 +116,8 @@ pub async fn get_and_resolve_file_paths<'a>(
     // If no includes patterns were specified, derive one from the list of plugins
     // as this is a massive performance improvement, because it collects less file
     // paths to examine and match to plugins later.
-    file_patterns.config_includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), cwd.clone()));
+    let search_base = get_cli_search_base(&cwd, &file_patterns);
+    file_patterns.config_includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), search_base));
   }
 
   get_and_resolve_file_patterns(config, file_patterns, args.no_gitignore, config_discovery, environment).await
@@ -168,7 +169,11 @@ async fn get_and_resolve_file_patterns(
   let cwd = environment.cwd();
   let is_cwd_in_base = cwd.starts_with(&config.base_path);
   let is_in_sub_dir = cwd != config.base_path && is_cwd_in_base;
-  let start_dir = if is_in_sub_dir { cwd } else { config.base_path.clone() };
+  let start_dir = if is_in_sub_dir {
+    get_cli_search_base(&cwd, &file_patterns)
+  } else {
+    config.base_path.clone()
+  };
   let environment = environment.clone();
   let pattern_base = config.base_path.clone();
 
@@ -187,6 +192,21 @@ async fn get_and_resolve_file_patterns(
   })
   .await
   .unwrap()
+}
+
+fn get_cli_search_base(cwd: &CanonicalizedPathBuf, file_patterns: &GlobPatterns) -> CanonicalizedPathBuf {
+  file_patterns
+    .arg_includes
+    .iter()
+    .flat_map(|patterns| patterns.iter())
+    .filter(|pattern| !pattern.is_negated() && cwd.starts_with(&pattern.base_dir))
+    .fold(cwd.clone(), |base_dir, pattern| {
+      if base_dir.starts_with(&pattern.base_dir) {
+        pattern.base_dir.clone()
+      } else {
+        base_dir
+      }
+    })
 }
 
 fn get_plugin_patterns<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>) -> Vec<String> {

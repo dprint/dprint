@@ -1498,6 +1498,28 @@ mod test {
     assert_eq!(environment.read_file(&file_path).unwrap(), "text1_formatted");
   }
 
+  #[cfg(unix)]
+  #[test]
+  fn should_format_parent_paths_from_subdirectory() {
+    for (cwd, file_arg) in [("/sub", "../file.txt"), ("/sub", "/file.txt"), ("/sub/nested", "../../file.txt")] {
+      let file_path = "/file.txt";
+      let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+        .with_local_config("/dprint.json", |c| {
+          c.add_remote_wasm_plugin();
+        })
+        .write_file(file_path, "text")
+        .write_file(format!("{cwd}/other.txt"), "other")
+        .set_cwd(cwd)
+        .initialize()
+        .build();
+
+      run_test_cli(vec!["fmt", "--", file_arg], &environment).unwrap();
+
+      assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+      assert_eq!(environment.read_file(file_path).unwrap(), "text_formatted");
+    }
+  }
+
   #[test]
   fn should_format_files_with_specific_config_includes() {
     let file_path1 = "/file1.txt";

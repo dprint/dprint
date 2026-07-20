@@ -1,4 +1,6 @@
+use std::path::Component;
 use std::path::Path;
+use std::path::PathBuf;
 
 use anyhow::Result;
 
@@ -16,6 +18,7 @@ use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
 use crate::utils::is_absolute_pattern;
 use crate::utils::is_negated_glob;
+use crate::utils::non_negated_glob;
 use crate::utils::resolve_global_gitignore_lines;
 
 pub struct FileMatcher<TEnvironment: Environment> {
@@ -128,20 +131,14 @@ pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cw
       None
     } else {
       // resolve CLI patterns based on the current working directory
-      Some(GlobPattern::new_vec(
-        args.include_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect(),
-        cwd.clone(),
-      ))
+      Some(args.include_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect())
     },
     config_excludes: get_config_exclude_file_patterns(config, args, cwd),
     arg_excludes: if args.exclude_patterns.is_empty() {
       None
     } else {
       // resolve CLI patterns based on the current working directory
-      Some(GlobPattern::new_vec(
-        args.exclude_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect(),
-        cwd.clone(),
-      ))
+      Some(args.exclude_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect())
     },
   }
 }
@@ -152,7 +149,7 @@ fn get_config_includes_file_patterns(config: &ResolvedConfig, args: &FilePattern
   file_patterns.extend(match &args.include_pattern_overrides {
     Some(includes_overrides) => {
       // resolve CLI patterns based on the current working directory
-      GlobPattern::new_vec(includes_overrides.iter().map(|p| process_cli_pattern(p, cwd)).collect(), cwd.clone())
+      includes_overrides.iter().map(|p| process_cli_pattern(p, cwd)).collect()
     }
     None => GlobPattern::new_vec(process_config_patterns(config.includes.as_ref()?).collect(), config.base_path.clone()),
   });
@@ -166,7 +163,7 @@ fn get_config_exclude_file_patterns(config: &ResolvedConfig, args: &FilePatternA
   file_patterns.extend(match &args.exclude_pattern_overrides {
     Some(exclude_overrides) => {
       // resolve CLI patterns based on the current working directory
-      GlobPattern::new_vec(exclude_overrides.iter().map(|p| process_cli_pattern(p, cwd)).collect(), cwd.clone())
+      exclude_overrides.iter().map(|p| process_cli_pattern(p, cwd)).collect()
     }
     None => config
       .excludes
@@ -204,34 +201,47 @@ fn process_file_pattern_slashes(file_pattern: &str) -> String {
   file_pattern.replace('\\', "/")
 }
 
-fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf) -> String {
+fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf) -> GlobPattern {
   let file_pattern = process_file_pattern_slashes(file_pattern);
-  if is_absolute_pattern(&file_pattern) {
-    let is_negated = is_negated_glob(&file_pattern);
-    let cwd = process_file_pattern_slashes(&cwd.to_string_lossy());
-    let file_pattern = if is_negated { &file_pattern[1..] } else { &file_pattern };
-    format!(
-      "{}./{}",
-      if is_negated { "!" } else { "" },
-      if file_pattern.starts_with(&cwd) {
-        file_pattern[cwd.len()..].trim_start_matches('/')
-      } else {
-        file_pattern
-      },
-    )
-  } else if file_pattern.starts_with("./") || file_pattern.starts_with("!./") {
-    file_pattern
-  } else if file_pattern == "." {
-    // format everything in the current directory
-    "**".to_string()
+  let is_negated = is_negated_glob(&file_pattern);
+  let pattern = non_negated_glob(&file_pattern);
+  if pattern == "." {
+    return GlobPattern::new(if is_negated { "!./." } else { "**" }.to_string(), cwd.clone());
+  }
+
+  let absolute_pattern = if is_absolute_pattern(&file_pattern) {
+    normalize_path(PathBuf::from(pattern))
   } else {
-    // make all cli specified patterns relative
-    if is_negated_glob(&file_pattern) {
-      format!("!./{}", &file_pattern[1..])
-    } else {
-      format!("./{}", file_pattern)
+    normalize_path(cwd.join(pattern))
+  };
+
+  let mut base_dir = cwd.clone();
+  loop {
+    if let Ok(relative_pattern) = absolute_pattern.strip_prefix(base_dir.as_ref()) {
+      let relative_pattern = process_file_pattern_slashes(&relative_pattern.to_string_lossy());
+      let relative_pattern = format!("{}./{}", if is_negated { "!" } else { "" }, relative_pattern);
+      return GlobPattern::new(relative_pattern, base_dir);
+    }
+
+    let Some(parent) = base_dir.parent() else {
+      return GlobPattern::new(file_pattern, cwd.clone());
+    };
+    base_dir = parent;
+  }
+}
+
+fn normalize_path(path: PathBuf) -> PathBuf {
+  let mut result = PathBuf::new();
+  for component in path.components() {
+    match component {
+      Component::CurDir => {}
+      Component::ParentDir => {
+        result.pop();
+      }
+      component => result.push(component.as_os_str()),
     }
   }
+  result
 }
 
 pub fn process_config_patterns(file_patterns: &[String]) -> impl Iterator<Item = String> + '_ {
@@ -260,30 +270,36 @@ mod test {
 
   #[test]
   fn should_process_cli_patterns() {
-    assert_eq!(do_process_cli_pattern("/test", "/"), "./test");
-    assert_eq!(do_process_cli_pattern("./test", "/"), "./test");
-    assert_eq!(do_process_cli_pattern("test", "/"), "./test");
-    assert_eq!(do_process_cli_pattern("**/test", "/"), "./**/test");
+    assert_cli_pattern("/test", "/", "./test", "/");
+    assert_cli_pattern("./test", "/", "./test", "/");
+    assert_cli_pattern("test", "/", "./test", "/");
+    assert_cli_pattern("**/test", "/", "./**/test", "/");
 
-    assert_eq!(do_process_cli_pattern("!/test", "/"), "!./test");
-    assert_eq!(do_process_cli_pattern("!./test", "/"), "!./test");
-    assert_eq!(do_process_cli_pattern("!test", "/"), "!./test");
-    assert_eq!(do_process_cli_pattern("!**/test", "/"), "!./**/test");
+    assert_cli_pattern("!/test", "/", "!./test", "/");
+    assert_cli_pattern("!./test", "/", "!./test", "/");
+    assert_cli_pattern("!test", "/", "!./test", "/");
+    assert_cli_pattern("!**/test", "/", "!./**/test", "/");
+    assert_cli_pattern("!.", "/", "!./.", "/");
+    assert_cli_pattern("../test", "/sub", "./test", "/");
+    assert_cli_pattern("/test", "/sub", "./test", "/");
   }
 
   #[cfg(windows)]
   #[test]
   fn should_process_cli_patterns_windows() {
-    assert_eq!(do_process_cli_pattern("C:/test", "C:\\"), "./test");
-    assert_eq!(do_process_cli_pattern("C:/test/other", "C:\\test\\"), "./other");
-    assert_eq!(do_process_cli_pattern("C:/test/other", "C:\\test"), "./other");
+    assert_cli_pattern("C:/test", "C:\\", "./test", "C:\\");
+    assert_cli_pattern("C:/test/other", "C:\\test\\", "./other", "C:\\test\\");
+    assert_cli_pattern("C:/test/other", "C:\\test", "./other", "C:\\test");
+    assert_cli_pattern("../test", "C:\\sub", "./test", "C:\\");
 
-    assert_eq!(do_process_cli_pattern("!C:/test", "C:\\"), "!./test");
-    assert_eq!(do_process_cli_pattern("!C:/test/other", "C:\\test\\"), "!./other");
+    assert_cli_pattern("!C:/test", "C:\\", "!./test", "C:\\");
+    assert_cli_pattern("!C:/test/other", "C:\\test\\", "!./other", "C:\\test\\");
   }
 
-  fn do_process_cli_pattern(file_pattern: &str, cwd: &str) -> String {
-    process_cli_pattern(file_pattern, &CanonicalizedPathBuf::new_for_testing(cwd))
+  fn assert_cli_pattern(file_pattern: &str, cwd: &str, expected_pattern: &str, expected_base_dir: &str) {
+    let pattern = process_cli_pattern(file_pattern, &CanonicalizedPathBuf::new_for_testing(cwd));
+    assert_eq!(pattern.relative_pattern, expected_pattern);
+    assert_eq!(pattern.base_dir, CanonicalizedPathBuf::new_for_testing(expected_base_dir));
   }
 
   #[test]
