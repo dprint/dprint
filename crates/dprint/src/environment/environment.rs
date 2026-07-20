@@ -254,6 +254,8 @@ pub trait Environment:
   /// and never fails.
   fn kill_processes_using_dir(&self, dir_path: impl AsRef<Path>) -> usize;
   fn path_exists(&self, path: impl AsRef<Path>) -> bool;
+  /// Gets whether the path exists and is a file (follows symlinks).
+  fn path_is_file(&self, path: impl AsRef<Path>) -> bool;
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf>;
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool;
   fn file_permissions(&self, path: impl AsRef<Path>) -> io::Result<FilePermissions>;

@@ -257,7 +257,7 @@ pub enum HiddenSubCommand {
   WindowsUninstall(String),
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct FilePatternArgs {
   pub include_patterns: Vec<String>,
   pub include_pattern_overrides: Option<Vec<String>>,

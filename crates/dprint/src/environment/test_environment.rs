@@ -635,6 +635,11 @@ impl Environment for TestEnvironment {
     self.sys.fs_exists_no_err(path)
   }
 
+  fn path_is_file(&self, file_path: impl AsRef<Path>) -> bool {
+    let path = self.clean_path(file_path);
+    self.sys.fs_is_file_no_err(path)
+  }
+
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
     let path = self.clean_path(path);
     // todo: use sys_traits to implement this properly

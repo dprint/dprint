@@ -35,6 +35,8 @@ pub struct ResolvedConfig {
   pub source: PathSource,
   /// The folder that should be considered the "root".
   pub base_path: CanonicalizedPathBuf,
+  /// Whether this is the user's global configuration file.
+  pub is_global: bool,
   pub includes: Option<Vec<String>>,
   pub excludes: Option<Vec<String>>,
   pub plugins: Vec<PluginSourceReference>,
@@ -120,6 +122,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
           config_map: ConfigMap::new(),
           base_path: environment.cwd().clone(),
           source: PathSource::new_local(environment.cwd().join_panic_relative("dprint.json")),
+          is_global: false,
           excludes: None,
           includes: None,
           incremental: None,
@@ -196,6 +199,7 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   let resolved_config = ResolvedConfig {
     source: config_path_and_text.source.clone(),
     base_path: config_path_and_text.base_path.clone(),
+    is_global: config_path_and_text.is_global_config,
     config_map,
     includes,
     excludes,
@@ -1852,6 +1856,7 @@ mod tests {
     let parent = ResolvedConfig {
       source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/dprint.json")),
       base_path: CanonicalizedPathBuf::new_for_testing("/"),
+      is_global: false,
       includes: Some(vec!["**/*.txt".to_string()]),
       // "**/node_modules" rebases into the nested directory, but the anchored
       // "dist" points outside it and is dropped
@@ -1881,6 +1886,7 @@ mod tests {
     let child = ResolvedConfig {
       source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/sub/dprint.json")),
       base_path: CanonicalizedPathBuf::new_for_testing("/sub"),
+      is_global: false,
       includes: None,
       excludes: Some(vec!["sub-excludes".to_string()]),
       // a plugin specified in the child has precedence over the ancestor's
@@ -1969,6 +1975,7 @@ mod tests {
     let parent = ResolvedConfig {
       source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/dprint.json")),
       base_path: CanonicalizedPathBuf::new_for_testing("/"),
+      is_global: false,
       includes: None,
       excludes: None,
       plugins: Vec::new(),
@@ -1987,6 +1994,7 @@ mod tests {
     let child = ResolvedConfig {
       source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/sub/dprint.json")),
       base_path: CanonicalizedPathBuf::new_for_testing("/sub"),
+      is_global: false,
       includes: None,
       excludes: None,
       plugins: Vec::new(),

@@ -20,6 +20,8 @@ use crate::utils::is_absolute_pattern;
 use crate::utils::is_negated_glob;
 use crate::utils::non_negated_glob;
 use crate::utils::resolve_global_gitignore_lines;
+use crate::utils::rewrite_literal_arg_pattern;
+use crate::utils::rewrite_literal_arg_patterns;
 
 pub struct FileMatcher<TEnvironment: Environment> {
   glob_matcher: GlobMatcher,
@@ -27,17 +29,30 @@ pub struct FileMatcher<TEnvironment: Environment> {
 }
 
 impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
-  pub fn new(environment: TEnvironment, config: &ResolvedConfig, args: &FilePatternArgs, root_dir: &CanonicalizedPathBuf) -> Result<Self> {
-    let patterns = get_all_file_patterns(config, args, root_dir);
+  pub fn new(
+    environment: TEnvironment,
+    config: &ResolvedConfig,
+    args: &FilePatternArgs,
+    root_dir: &CanonicalizedPathBuf,
+    specified_file_path: Option<&Path>,
+  ) -> Result<Self> {
+    let mut patterns = get_all_file_patterns(config, args, root_dir, &environment);
+    // resolve args with an existing literal name the same way `glob()` does
+    // (ex. `--stdin` matching must agree with a normal `fmt`)
+    rewrite_literal_arg_patterns(&environment, &mut patterns, &config.base_path);
     let gitignores = if args.no_gitignore {
       None
     } else {
       let global_gitignore_lines = resolve_global_gitignore_lines(&environment);
+      // explicitly specified paths should override what's in the gitignore
+      let mut include_paths = patterns.include_paths();
+      if let Some(path) = specified_file_path {
+        include_paths.push(path.to_path_buf());
+      }
       Some(GitIgnoreTree::new(
         environment,
         GitIgnoreTreeOptions {
-          // explicitly specified paths should override what's in the gitignore
-          include_paths: patterns.include_paths(),
+          include_paths,
           global_gitignore_lines,
         },
       ))
@@ -53,13 +68,9 @@ impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
     Ok(FileMatcher { glob_matcher, gitignores })
   }
 
-  pub fn matches(&self, file_path: impl AsRef<Path>) -> bool {
-    self.glob_matcher.matches(&file_path)
-  }
-
-  /// More expensive check for if the directory is already ignored.
-  /// Prefer using `matches` if you already know the parent directory
-  /// isn't ignored.
+  /// Gets whether the file matches, also checking that none of its
+  /// ancestor directories are excluded or gitignored so exclusions apply
+  /// the same way they do during a directory traversal.
   pub fn matches_and_dir_not_ignored(&mut self, file_path: &Path) -> bool {
     let match_result = self.glob_matcher.matches_detail(file_path);
     match match_result {
@@ -124,32 +135,40 @@ pub fn get_patterns_as_glob_matcher(patterns: &[String], config_base_path: &Cano
   )
 }
 
-pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> GlobPatterns {
+pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf, environment: &impl Environment) -> GlobPatterns {
   GlobPatterns {
-    config_includes: get_config_includes_file_patterns(config, args, cwd),
+    config_includes: get_config_includes_file_patterns(config, args, cwd, environment),
     arg_includes: if args.include_patterns.is_empty() {
       None
     } else {
       // resolve CLI patterns based on the current working directory
-      Some(args.include_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect())
+      Some(args.include_patterns.iter().map(|p| process_cli_pattern(p, cwd, environment)).collect())
     },
-    config_excludes: get_config_exclude_file_patterns(config, args, cwd),
+    config_excludes: get_config_exclude_file_patterns(config, args, cwd, environment),
     arg_excludes: if args.exclude_patterns.is_empty() {
       None
     } else {
       // resolve CLI patterns based on the current working directory
-      Some(args.exclude_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect())
+      Some(args.exclude_patterns.iter().map(|p| process_cli_pattern(p, cwd, environment)).collect())
     },
   }
 }
 
-fn get_config_includes_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> Option<Vec<GlobPattern>> {
+fn get_config_includes_file_patterns(
+  config: &ResolvedConfig,
+  args: &FilePatternArgs,
+  cwd: &CanonicalizedPathBuf,
+  environment: &impl Environment,
+) -> Option<Vec<GlobPattern>> {
   let mut file_patterns = Vec::new();
 
   file_patterns.extend(match &args.include_pattern_overrides {
     Some(includes_overrides) => {
       // resolve CLI patterns based on the current working directory
-      includes_overrides.iter().map(|p| process_cli_pattern(p, cwd)).collect()
+      includes_overrides
+        .iter()
+        .map(|p| process_cli_override_pattern(p, cwd, config, environment))
+        .collect()
     }
     None => GlobPattern::new_vec(process_config_patterns(config.includes.as_ref()?).collect(), config.base_path.clone()),
   });
@@ -157,13 +176,21 @@ fn get_config_includes_file_patterns(config: &ResolvedConfig, args: &FilePattern
   Some(file_patterns)
 }
 
-fn get_config_exclude_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
+fn get_config_exclude_file_patterns(
+  config: &ResolvedConfig,
+  args: &FilePatternArgs,
+  cwd: &CanonicalizedPathBuf,
+  environment: &impl Environment,
+) -> Vec<GlobPattern> {
   let mut file_patterns = Vec::new();
 
   file_patterns.extend(match &args.exclude_pattern_overrides {
     Some(exclude_overrides) => {
       // resolve CLI patterns based on the current working directory
-      exclude_overrides.iter().map(|p| process_cli_pattern(p, cwd)).collect()
+      exclude_overrides
+        .iter()
+        .map(|p| process_cli_override_pattern(p, cwd, config, environment))
+        .collect::<Vec<_>>()
     }
     None => config
       .excludes
@@ -191,6 +218,15 @@ fn get_config_exclude_file_patterns(config: &ResolvedConfig, args: &FilePatternA
   file_patterns
 }
 
+/// Processes CLI-provided file paths (ex. git staged files) the same way
+/// as CLI patterns so they resolve to a base directory that contains them.
+pub fn process_cli_path_args(paths: &[PathBuf], cwd: &CanonicalizedPathBuf, environment: &impl Environment) -> Vec<GlobPattern> {
+  paths
+    .iter()
+    .map(|path| process_cli_pattern(&path.to_string_lossy(), cwd, environment))
+    .collect()
+}
+
 fn process_file_pattern_slashes(file_pattern: &str) -> String {
   // Convert all backslashes to forward slashes.
   // It is true that this means someone cannot specify patterns that
@@ -201,7 +237,16 @@ fn process_file_pattern_slashes(file_pattern: &str) -> String {
   file_pattern.replace('\\', "/")
 }
 
-fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf) -> GlobPattern {
+/// Processes an `--includes-override`/`--excludes-override` pattern, resolving
+/// an existing literal name the same way normal CLI args are resolved (ex.
+/// `--includes-override "routes/[id].svelte"` when that file exists).
+fn process_cli_override_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf, config: &ResolvedConfig, environment: &impl Environment) -> GlobPattern {
+  let mut pattern = process_cli_pattern(file_pattern, cwd, environment);
+  rewrite_literal_arg_pattern(environment, &mut pattern, &config.base_path);
+  pattern
+}
+
+fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf, environment: &impl Environment) -> GlobPattern {
   let file_pattern = process_file_pattern_slashes(file_pattern);
   let is_negated = is_negated_glob(&file_pattern);
   let pattern = non_negated_glob(&file_pattern);
@@ -209,25 +254,43 @@ fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf) -> GlobPa
     return GlobPattern::new(if is_negated { "!./." } else { "**" }.to_string(), cwd.clone());
   }
 
-  let absolute_pattern = if is_absolute_pattern(&file_pattern) {
-    normalize_path(PathBuf::from(pattern))
+  let absolute_pattern = normalize_path(if is_absolute_pattern(&file_pattern) {
+    PathBuf::from(pattern)
   } else {
-    normalize_path(cwd.join(pattern))
-  };
+    cwd.join(pattern)
+  });
 
+  // resolve the pattern against the nearest ancestor directory it's within
+  // so that patterns like ../file.txt or absolute paths outside the current
+  // working directory get a base directory that contains them
   let mut base_dir = cwd.clone();
   loop {
     if let Ok(relative_pattern) = absolute_pattern.strip_prefix(base_dir.as_ref()) {
-      let relative_pattern = process_file_pattern_slashes(&relative_pattern.to_string_lossy());
-      let relative_pattern = format!("{}./{}", if is_negated { "!" } else { "" }, relative_pattern);
-      return GlobPattern::new(relative_pattern, base_dir);
+      return build_cli_pattern(relative_pattern, is_negated, base_dir);
     }
 
     let Some(parent) = base_dir.parent() else {
-      return GlobPattern::new(file_pattern, cwd.clone());
+      break;
     };
     base_dir = parent;
   }
+
+  // the pattern is on a different root than the cwd (ex. another drive
+  // on Windows), so resolve it against its own root directory
+  if let Some(root_dir) = absolute_pattern.ancestors().last().filter(|p| !p.as_os_str().is_empty())
+    && let Ok(relative_pattern) = absolute_pattern.strip_prefix(root_dir)
+    && let Ok(root_dir) = environment.canonicalize(root_dir)
+  {
+    return build_cli_pattern(relative_pattern, is_negated, root_dir);
+  }
+
+  GlobPattern::new(file_pattern, cwd.clone())
+}
+
+fn build_cli_pattern(relative_pattern: &Path, is_negated: bool, base_dir: CanonicalizedPathBuf) -> GlobPattern {
+  let relative_pattern = process_file_pattern_slashes(&relative_pattern.to_string_lossy());
+  let relative_pattern = format!("{}./{}", if is_negated { "!" } else { "" }, relative_pattern);
+  GlobPattern::new(relative_pattern, base_dir)
 }
 
 fn normalize_path(path: PathBuf) -> PathBuf {
@@ -292,12 +355,22 @@ mod test {
     assert_cli_pattern("C:/test/other", "C:\\test", "./other", "C:\\test");
     assert_cli_pattern("../test", "C:\\sub", "./test", "C:\\");
 
+    // a path on a different drive resolves against its own root
+    {
+      let environment = TestEnvironment::new();
+      let pattern = process_cli_pattern("V:/test/file.txt", &CanonicalizedPathBuf::new_for_testing("C:\\sub"), &environment);
+      assert_eq!(pattern.relative_pattern, "./test/file.txt");
+      assert_eq!(pattern.base_dir, environment.canonicalize("V:/").unwrap());
+    }
+
     assert_cli_pattern("!C:/test", "C:\\", "!./test", "C:\\");
     assert_cli_pattern("!C:/test/other", "C:\\test\\", "!./other", "C:\\test\\");
   }
 
+  #[track_caller]
   fn assert_cli_pattern(file_pattern: &str, cwd: &str, expected_pattern: &str, expected_base_dir: &str) {
-    let pattern = process_cli_pattern(file_pattern, &CanonicalizedPathBuf::new_for_testing(cwd));
+    let environment = TestEnvironment::new();
+    let pattern = process_cli_pattern(file_pattern, &CanonicalizedPathBuf::new_for_testing(cwd), &environment);
     assert_eq!(pattern.relative_pattern, expected_pattern);
     assert_eq!(pattern.base_dir, CanonicalizedPathBuf::new_for_testing(expected_base_dir));
   }

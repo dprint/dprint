@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::str::Split;
-use sys_traits::FsMetadata;
 use thiserror::Error;
 
 use crate::arg_parser::ConfigDiscovery;
@@ -13,6 +12,7 @@ use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::patterns::get_all_file_patterns;
+use crate::patterns::process_cli_path_args;
 use crate::patterns::process_config_patterns;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::resolution::PluginWithConfig;
@@ -22,7 +22,6 @@ use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
 use crate::utils::glob;
 use crate::utils::is_negated_glob;
-use crate::utils::is_pattern;
 
 /// Struct that allows using plugin names as a key
 /// in a hash map.
@@ -95,68 +94,27 @@ pub async fn get_and_resolve_file_paths<'a>(
   environment: &impl Environment,
 ) -> Result<GlobOutput> {
   let cwd = environment.cwd();
-  let args = expand_directory_include_patterns(args, environment);
-  let mut file_patterns = get_all_file_patterns(config, &args, &cwd);
+  let mut file_patterns = get_all_file_patterns(config, args, &cwd, environment);
 
   if args.only_staged {
     let staged_files = environment.get_staged_files().context("Failed running git staged.")?;
-    file_patterns.arg_includes = Some(GlobPattern::new_vec(
-      staged_files.into_iter().map(|path| path.to_string_lossy().into_owned()).collect(),
-      cwd.clone(),
-    ));
+    file_patterns.arg_includes = Some(process_cli_path_args(&staged_files, &cwd, environment));
   } else if args.only_dirty {
     let dirty_files = environment.get_dirty_files().context("Failed running git status.")?;
-    file_patterns.arg_includes = Some(GlobPattern::new_vec(
-      dirty_files.into_iter().map(|path| path.to_string_lossy().into_owned()).collect(),
-      cwd.clone(),
-    ));
+    file_patterns.arg_includes = Some(process_cli_path_args(&dirty_files, &cwd, environment));
   }
 
   if file_patterns.config_includes.is_none() {
     // If no includes patterns were specified, derive one from the list of plugins
     // as this is a massive performance improvement, because it collects less file
     // paths to examine and match to plugins later.
-    let search_base = get_cli_search_base(&cwd, &file_patterns);
-    file_patterns.config_includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), search_base));
+    //
+    // These are based at the config dir rather than the cwd so that explicitly
+    // specified paths outside the cwd (ex. ../file.txt) can still match them.
+    file_patterns.config_includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), config.base_path.clone()));
   }
 
   get_and_resolve_file_patterns(config, file_patterns, args.no_gitignore, config_discovery, environment).await
-}
-
-fn expand_directory_include_patterns(args: &FilePatternArgs, environment: &impl Environment) -> FilePatternArgs {
-  FilePatternArgs {
-    include_patterns: args
-      .include_patterns
-      .iter()
-      .flat_map(|pattern| expand_directory_include_pattern(pattern, environment))
-      .collect(),
-    include_pattern_overrides: args.include_pattern_overrides.clone(),
-    exclude_patterns: args.exclude_patterns.clone(),
-    exclude_pattern_overrides: args.exclude_pattern_overrides.clone(),
-    allow_node_modules: args.allow_node_modules,
-    no_gitignore: args.no_gitignore,
-    only_staged: args.only_staged,
-    only_dirty: args.only_dirty,
-  }
-}
-
-fn expand_directory_include_pattern(pattern: &str, environment: &impl Environment) -> Vec<String> {
-  if pattern == "." || is_pattern(pattern) {
-    return vec![pattern.to_string()];
-  }
-
-  let normalized_pattern = pattern.replace('\\', "/");
-  let pattern_path = PathBuf::from(&normalized_pattern);
-  let path = if environment.is_absolute_path(&pattern_path) {
-    pattern_path
-  } else {
-    environment.cwd().join(pattern_path)
-  };
-  if environment.fs_is_dir_no_err(path) {
-    vec![normalized_pattern.clone(), format!("{}/**/*", normalized_pattern.trim_end_matches('/'))]
-  } else {
-    vec![pattern.to_string()]
-  }
 }
 
 async fn get_and_resolve_file_patterns(
@@ -169,11 +127,7 @@ async fn get_and_resolve_file_patterns(
   let cwd = environment.cwd();
   let is_cwd_in_base = cwd.starts_with(&config.base_path);
   let is_in_sub_dir = cwd != config.base_path && is_cwd_in_base;
-  let start_dir = if is_in_sub_dir {
-    get_cli_search_base(&cwd, &file_patterns)
-  } else {
-    config.base_path.clone()
-  };
+  let start_dir = if is_in_sub_dir { cwd } else { config.base_path.clone() };
   let environment = environment.clone();
   let pattern_base = config.base_path.clone();
 
@@ -192,21 +146,6 @@ async fn get_and_resolve_file_patterns(
   })
   .await
   .unwrap()
-}
-
-fn get_cli_search_base(cwd: &CanonicalizedPathBuf, file_patterns: &GlobPatterns) -> CanonicalizedPathBuf {
-  file_patterns
-    .arg_includes
-    .iter()
-    .flat_map(|patterns| patterns.iter())
-    .filter(|pattern| !pattern.is_negated() && cwd.starts_with(&pattern.base_dir))
-    .fold(cwd.clone(), |base_dir, pattern| {
-      if base_dir.starts_with(&pattern.base_dir) {
-        pattern.base_dir.clone()
-      } else {
-        base_dir
-      }
-    })
 }
 
 fn get_plugin_patterns<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>) -> Vec<String> {

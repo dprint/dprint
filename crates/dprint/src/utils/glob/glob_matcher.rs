@@ -16,6 +16,7 @@ use crate::environment::CanonicalizedPathBuf;
 use super::GlobPattern;
 use super::GlobPatterns;
 use super::is_pattern;
+use super::unescape_glob_text;
 
 pub struct GlobMatcherOptions {
   pub case_sensitive: bool,
@@ -168,6 +169,11 @@ impl GlobMatcher {
 
       let path = path.strip_prefix(&self.base_dir).unwrap();
       self.check_exclude(path, true)
+    } else if self.base_dir.as_ref().starts_with(path) {
+      // an ancestor of the base directory (ex. the config directory when
+      // override args cause the base to be a deeper cwd) can't match any
+      // patterns, but it's not ignored because traversal descends through it
+      ExcludeMatchDetail::NotExcluded
     } else {
       ExcludeMatchDetail::Excluded
     }
@@ -291,7 +297,9 @@ fn literal_relative_path(pattern: &GlobPattern) -> Option<PathBuf> {
   if !anchored || relative.is_empty() || relative.ends_with('/') {
     return None;
   }
-  Some(PathBuf::from(relative))
+  // unescape so an escaped literal (ex. `./\[id\].svelte`) is stored as the
+  // actual file path
+  Some(PathBuf::from(unescape_glob_text(relative).as_ref()))
 }
 
 fn add_override_pattern(builder: &mut OverrideBuilder, pattern: &GlobPattern, base_dir: &CanonicalizedPathBuf) -> Result<()> {
