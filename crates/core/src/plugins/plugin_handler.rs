@@ -108,9 +108,24 @@ impl_format_error_from!(
   &str,
   Box<dyn std::error::Error + Send + Sync + 'static>,
   std::io::Error,
+  std::str::Utf8Error,
   std::string::FromUtf8Error,
   CriticalFormatError,
 );
+
+#[cfg(test)]
+mod tests {
+  use super::FormatError;
+
+  #[test]
+  fn should_convert_utf8_error_to_format_error() {
+    let bytes = [u8::MAX];
+    let utf8_error = std::str::from_utf8(&bytes).unwrap_err();
+    let format_error: FormatError = utf8_error.into();
+
+    assert!(format_error.downcast_ref::<std::str::Utf8Error>().is_some());
+  }
+}
 
 #[cfg(feature = "serde_json")]
 impl_format_error_from!(serde_json::Error);
