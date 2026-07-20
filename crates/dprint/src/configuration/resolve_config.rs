@@ -97,7 +97,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
       if resolved_config_path.is_global_config
         && let SubCommand::Fmt(fmt) = &args.sub_command
         && !fmt.allow_no_files
-        && fmt.patterns.include_patterns.is_empty()
+        && fmt.patterns.args.is_empty()
         && fmt.patterns.include_pattern_overrides.is_none()
         && !(args.config_discovery_arg_set() && matches!(args.config_discovery(environment), ConfigDiscovery::Global))
       {

@@ -12,6 +12,7 @@ use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::patterns::get_all_file_patterns;
+use crate::patterns::get_cli_arg_patterns;
 use crate::patterns::process_config_patterns;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::resolution::PluginWithConfig;
@@ -97,16 +98,12 @@ pub async fn get_and_resolve_file_paths<'a>(
 
   if args.only_staged {
     let staged_files = environment.get_staged_files().context("Failed running git staged.")?;
-    file_patterns.arg_includes = Some(GlobPattern::new_vec(
-      staged_files.into_iter().map(|path| path.to_string_lossy().into_owned()).collect(),
-      cwd.clone(),
-    ));
+    let staged_files = staged_files.into_iter().map(|path| path.to_string_lossy().into_owned()).collect::<Vec<_>>();
+    file_patterns.arg_includes = Some(get_cli_arg_patterns(&staged_files, &cwd, true));
   } else if args.only_dirty {
     let dirty_files = environment.get_dirty_files().context("Failed running git status.")?;
-    file_patterns.arg_includes = Some(GlobPattern::new_vec(
-      dirty_files.into_iter().map(|path| path.to_string_lossy().into_owned()).collect(),
-      cwd.clone(),
-    ));
+    let dirty_files = dirty_files.into_iter().map(|path| path.to_string_lossy().into_owned()).collect::<Vec<_>>();
+    file_patterns.arg_includes = Some(get_cli_arg_patterns(&dirty_files, &cwd, true));
   }
 
   if file_patterns.config_includes.is_none() {

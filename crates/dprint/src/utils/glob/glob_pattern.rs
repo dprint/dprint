@@ -28,7 +28,7 @@ impl GlobPatterns {
       .flat_map(|i| i.iter())
       .chain(self.config_includes.iter().flat_map(|i| i.iter()))
       .filter_map(|pattern| {
-        if !is_pattern(&pattern.relative_pattern) {
+        if pattern.is_literal() || !is_pattern(&pattern.relative_pattern) {
           Some(pattern.base_dir.join(&pattern.relative_pattern))
         } else {
           None
@@ -42,11 +42,24 @@ impl GlobPatterns {
 pub struct GlobPattern {
   pub relative_pattern: String,
   pub base_dir: CanonicalizedPathBuf,
+  literal: bool,
 }
 
 impl GlobPattern {
   pub fn new(relative_pattern: String, base_dir: CanonicalizedPathBuf) -> Self {
-    GlobPattern { relative_pattern, base_dir }
+    GlobPattern {
+      relative_pattern,
+      base_dir,
+      literal: false,
+    }
+  }
+
+  pub fn new_literal(relative_path: String, base_dir: CanonicalizedPathBuf) -> Self {
+    GlobPattern {
+      relative_pattern: relative_path,
+      base_dir,
+      literal: true,
+    }
   }
 
   pub fn new_vec(relative_patterns: Vec<String>, base_dir: CanonicalizedPathBuf) -> Vec<Self> {
@@ -76,7 +89,7 @@ impl GlobPattern {
         let component = *component;
         if part == "**" {
           return true;
-        } else if !is_pattern(part) && !component.as_os_str().eq_ignore_ascii_case(part) {
+        } else if (self.literal || !is_pattern(part)) && !component.as_os_str().eq_ignore_ascii_case(part) {
           return false;
         }
         components.next();
@@ -89,7 +102,11 @@ impl GlobPattern {
   }
 
   pub fn is_negated(&self) -> bool {
-    is_negated_glob(&self.relative_pattern)
+    !self.literal && is_negated_glob(&self.relative_pattern)
+  }
+
+  pub fn is_literal(&self) -> bool {
+    self.literal
   }
 
   pub fn invert(self) -> Self {
@@ -97,11 +114,13 @@ impl GlobPattern {
       GlobPattern {
         base_dir: self.base_dir,
         relative_pattern: non_negated_glob(&self.relative_pattern).to_string(),
+        literal: self.literal,
       }
     } else {
       GlobPattern {
         base_dir: self.base_dir,
         relative_pattern: format!("!{}", self.relative_pattern),
+        literal: self.literal,
       }
     }
   }
@@ -121,7 +140,7 @@ impl GlobPattern {
     let mut found_glob = false;
 
     for part in &parts {
-      if !found_glob && !is_pattern(part) {
+      if !found_glob && (self.literal || !is_pattern(part)) {
         base_parts.push(*part);
       } else {
         found_glob = true;
@@ -147,10 +166,21 @@ impl GlobPattern {
     GlobPattern {
       base_dir: new_base_dir,
       relative_pattern: new_pattern,
+      literal: self.literal,
     }
   }
 
   pub fn into_new_base(self, new_base_dir: CanonicalizedPathBuf) -> Option<Self> {
+    if self.literal {
+      let relative_path = self.relative_pattern.strip_prefix("./").unwrap_or(&self.relative_pattern);
+      let absolute_path = self.base_dir.join(relative_path);
+      let relative_path = absolute_path.strip_prefix(&new_base_dir).ok()?;
+      return Some(GlobPattern::new_literal(
+        format!("./{}", relative_path.to_string_lossy().replace('\\', "/")),
+        new_base_dir,
+      ));
+    }
+
     if self.base_dir == new_base_dir {
       Some(self)
     } else if let Ok(prefix) = self.base_dir.strip_prefix(&new_base_dir) {
@@ -304,6 +334,17 @@ mod test {
     let pattern = GlobPattern::new("./**/*".to_string(), test_dir_dir);
     let pattern = pattern.into_new_base(root_dir.clone()).unwrap();
     assert_eq!(pattern.relative_pattern, "./test/dir/**/*");
+    assert_eq!(pattern.base_dir, root_dir);
+  }
+
+  #[test]
+  fn should_make_literal_path_with_new_base() {
+    let root_dir = CanonicalizedPathBuf::new_for_testing("/");
+    let project_dir = CanonicalizedPathBuf::new_for_testing("/project");
+    let pattern = GlobPattern::new_literal("./[id]/{{file}}?.ts".to_string(), project_dir);
+    let pattern = pattern.into_new_base(root_dir.clone()).unwrap();
+    assert!(pattern.is_literal());
+    assert_eq!(pattern.relative_pattern, "./project/[id]/{{file}}?.ts");
     assert_eq!(pattern.base_dir, root_dir);
   }
 

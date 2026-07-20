@@ -36,6 +36,12 @@ To format a subset of the files the configuration file matches, you may specify 
 dprint fmt **/*.js --excludes **/data
 ```
 
+To treat file arguments as literal paths instead of glob patterns, use `--no-glob`. This is useful for file names that contain glob characters such as brackets or braces:
+
+```sh
+dprint fmt --no-glob "./src/routes/[id].svelte"
+```
+
 A rare use case, but to override/ignore the patterns in the config file, use the `--includes-override` and `--excludes-override` flags:
 
 ```sh

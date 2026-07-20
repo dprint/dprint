@@ -259,12 +259,13 @@ pub enum HiddenSubCommand {
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct FilePatternArgs {
-  pub include_patterns: Vec<String>,
+  pub args: Vec<String>,
   pub include_pattern_overrides: Option<Vec<String>>,
   pub exclude_patterns: Vec<String>,
   pub exclude_pattern_overrides: Option<Vec<String>>,
   pub allow_node_modules: bool,
   pub no_gitignore: bool,
+  pub no_glob: bool,
   pub only_staged: bool,
   pub only_dirty: bool,
 }
@@ -474,13 +475,13 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
 
 fn parse_file_patterns<TStdInReader: StdInReader>(matches: &ArgMatches, std_in_reader: &TStdInReader) -> Result<FilePatternArgs> {
   let plugins = maybe_values_to_vec(matches.get_many("plugins"));
-  let mut file_patterns = maybe_values_to_vec(matches.get_many("files"));
+  let mut file_args = maybe_values_to_vec(matches.get_many("files"));
 
   if matches.get_flag("stdin-files") {
-    file_patterns.extend(std_in_reader.read_non_empty_lines()?);
+    file_args.extend(std_in_reader.read_non_empty_lines()?);
   }
 
-  if !plugins.is_empty() && file_patterns.is_empty() {
+  if !plugins.is_empty() && file_args.is_empty() {
     validate_plugin_args_when_no_files(&plugins)?;
   }
 
@@ -489,7 +490,8 @@ fn parse_file_patterns<TStdInReader: StdInReader>(matches: &ArgMatches, std_in_r
     only_dirty: matches.get_flag("dirty"),
     allow_node_modules: matches.get_flag("allow-node-modules"),
     no_gitignore: matches.get_flag("no-gitignore"),
-    include_patterns: file_patterns,
+    no_glob: matches.get_flag("no-glob"),
+    args: file_args,
     include_pattern_overrides: matches.get_many("includes-override").map(values_to_vec),
     exclude_patterns: maybe_values_to_vec(matches.get_many("excludes")),
     exclude_pattern_overrides: matches.get_many("excludes-override").map(values_to_vec),
@@ -1004,6 +1006,12 @@ impl ClapExtensions for clap::Command {
           .help("Disables respecting .gitignore files.")
           .num_args(0),
       )
+      .arg(
+        Arg::new("no-glob")
+          .long("no-glob")
+          .help("Treats the file arguments as literal file paths instead of glob patterns.")
+          .num_args(0),
+      )
   }
 
   fn add_incremental_arg(self) -> Self {
@@ -1170,7 +1178,7 @@ mod test {
     match args.sub_command {
       SubCommand::Fmt(cmd) => {
         // blank lines are skipped and paths with spaces are preserved
-        assert_eq!(cmd.patterns.include_patterns, vec!["/file1.txt".to_string(), "/sub dir/file 2.txt".to_string()]);
+        assert_eq!(cmd.patterns.args, vec!["/file1.txt".to_string(), "/sub dir/file 2.txt".to_string()]);
       }
       _ => unreachable!(),
     }
@@ -1186,6 +1194,14 @@ mod test {
     .err()
     .unwrap();
     assert!(err.to_string().contains("cannot be used with"));
+  }
+
+  #[test]
+  fn no_glob_arg() {
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt"]).unwrap();
+    assert!(!fmt_cmd.patterns.no_glob);
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--no-glob", "[id].ts"]).unwrap();
+    assert!(fmt_cmd.patterns.no_glob);
   }
 
   #[test]

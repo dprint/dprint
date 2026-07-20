@@ -501,9 +501,9 @@ impl<TEnvironment: Environment> PluginsScopeAndPathsCollection<TEnvironment> {
 
     // ensure we found some files
     if !cli_args.sub_command.allow_no_files() {
-      let has_cli_file_patterns = cli_args.sub_command.file_patterns().map(|p| !p.include_patterns.is_empty()).unwrap_or(false);
-      // when the user specifies a pattern on the command line, just ensure that one scope matched
-      if has_cli_file_patterns {
+      let has_cli_file_args = cli_args.sub_command.file_patterns().map(|p| !p.args.is_empty()).unwrap_or(false);
+      // when the user specifies file arguments on the command line, just ensure that one scope matched
+      if has_cli_file_args {
         let all_empty = self.iter().all(|s| s.file_paths_by_plugins.is_empty());
         if all_empty {
           return Err(

@@ -124,14 +124,11 @@ pub fn get_patterns_as_glob_matcher(patterns: &[String], config_base_path: &Cano
 pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> GlobPatterns {
   GlobPatterns {
     config_includes: get_config_includes_file_patterns(config, args, cwd),
-    arg_includes: if args.include_patterns.is_empty() {
+    arg_includes: if args.args.is_empty() {
       None
     } else {
       // resolve CLI patterns based on the current working directory
-      Some(GlobPattern::new_vec(
-        args.include_patterns.iter().map(|p| process_cli_pattern(p, cwd)).collect(),
-        cwd.clone(),
-      ))
+      Some(get_cli_arg_patterns(&args.args, cwd, args.no_glob))
     },
     config_excludes: get_config_exclude_file_patterns(config, args, cwd),
     arg_excludes: if args.exclude_patterns.is_empty() {
@@ -144,6 +141,24 @@ pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cw
       ))
     },
   }
+}
+
+pub fn get_cli_arg_patterns(patterns: &[String], cwd: &CanonicalizedPathBuf, literal: bool) -> Vec<GlobPattern> {
+  patterns
+    .iter()
+    .map(|pattern| {
+      let pattern = if literal {
+        process_cli_path(pattern, cwd)
+      } else {
+        process_cli_pattern(pattern, cwd)
+      };
+      if literal {
+        GlobPattern::new_literal(pattern, cwd.clone())
+      } else {
+        GlobPattern::new(pattern, cwd.clone())
+      }
+    })
+    .collect()
 }
 
 fn get_config_includes_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf) -> Option<Vec<GlobPattern>> {
@@ -234,6 +249,25 @@ fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf) -> String
   }
 }
 
+fn process_cli_path(file_path: &str, cwd: &CanonicalizedPathBuf) -> String {
+  let file_path = process_file_pattern_slashes(file_path);
+  if is_absolute_pattern(&file_path) {
+    let cwd = process_file_pattern_slashes(&cwd.to_string_lossy());
+    format!(
+      "./{}",
+      if file_path.starts_with(&cwd) {
+        file_path[cwd.len()..].trim_start_matches('/')
+      } else {
+        file_path.as_str()
+      },
+    )
+  } else if file_path.starts_with("./") {
+    file_path
+  } else {
+    format!("./{file_path}")
+  }
+}
+
 pub fn process_config_patterns(file_patterns: &[String]) -> impl Iterator<Item = String> + '_ {
   file_patterns.iter().map(|p| process_config_pattern(p))
 }
@@ -269,6 +303,14 @@ mod test {
     assert_eq!(do_process_cli_pattern("!./test", "/"), "!./test");
     assert_eq!(do_process_cli_pattern("!test", "/"), "!./test");
     assert_eq!(do_process_cli_pattern("!**/test", "/"), "!./**/test");
+  }
+
+  #[test]
+  fn should_process_cli_paths() {
+    let cwd = CanonicalizedPathBuf::new_for_testing("/project");
+    assert_eq!(process_cli_path("[id].ts", &cwd), "./[id].ts");
+    assert_eq!(process_cli_path("!important.ts", &cwd), "./!important.ts");
+    assert_eq!(process_cli_path("/project/{{file}}.ts", &cwd), "./{{file}}.ts");
   }
 
   #[cfg(windows)]

@@ -358,6 +358,42 @@ mod test {
   }
 
   #[test]
+  fn should_treat_file_args_as_literal_paths_with_no_glob() {
+    let literal_paths = ["/[id].txt", "/{{file}}.txt", "/file?.txt", "/file*.txt", "/!important.txt"];
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(literal_paths[0], "text0")
+      .write_file(literal_paths[1], "text1")
+      .write_file(literal_paths[2], "text2")
+      .write_file(literal_paths[3], "text3")
+      .write_file(literal_paths[4], "text4")
+      .write_file("/id.txt", "not targeted")
+      .write_file("/file-other.txt", "not targeted")
+      .write_file("/.gitignore", "file*.txt")
+      .build();
+
+    run_test_cli(
+      vec![
+        "fmt",
+        "--no-glob",
+        literal_paths[0],
+        literal_paths[1],
+        literal_paths[2],
+        literal_paths[3],
+        literal_paths[4],
+      ],
+      &environment,
+    )
+    .unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(literal_paths.len())]);
+    for (index, file_path) in literal_paths.iter().enumerate() {
+      assert_eq!(environment.read_file(file_path).unwrap(), format!("text{index}_formatted"));
+    }
+    assert_eq!(environment.read_file("/id.txt").unwrap(), "not targeted");
+    assert_eq!(environment.read_file("/file-other.txt").unwrap(), "not targeted");
+  }
+
+  #[test]
   fn should_format_files() {
     let file_path1 = "/file.txt";
     let file_path2 = "/file.txt_ps";
@@ -421,6 +457,20 @@ mod test {
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_1_formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text_2");
+  }
+
+  #[test]
+  fn should_treat_staged_files_as_literal_paths() {
+    let file_path = "/[id]/{{file}}?.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(file_path, "text")
+      .add_staged_file(file_path)
+      .build();
+
+    run_test_cli(vec!["fmt", "--staged"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(file_path).unwrap(), "text_formatted");
   }
 
   #[test]

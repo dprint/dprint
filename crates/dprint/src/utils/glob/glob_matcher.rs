@@ -227,7 +227,9 @@ fn build_include_matcher(patterns: &[GlobPattern], opts: &GlobMatcherOptions, ba
   builder.case_insensitive(!opts.case_sensitive)?;
 
   for pattern in patterns {
-    if use_fast_path && let Some(path) = literal_relative_path(pattern) {
+    if (pattern.is_literal() || use_fast_path)
+      && let Some(path) = literal_relative_path(pattern)
+    {
       literal_paths.insert(path);
     } else {
       add_override_pattern(&mut builder, pattern, base_dir)?;
@@ -276,8 +278,9 @@ fn can_use_literal_fast_path(patterns: &[GlobPattern], opts: &GlobMatcherOptions
 /// depth and a directory-only pattern (trailing slash) depends on `is_dir`, so
 /// neither is equivalent to an exact path lookup.
 fn literal_relative_path(pattern: &GlobPattern) -> Option<PathBuf> {
+  let is_literal = pattern.is_literal();
   let pattern = &pattern.relative_pattern;
-  if is_pattern(pattern) {
+  if !is_literal && is_pattern(pattern) {
     return None; // glob (also excludes negated patterns, which start with `!`)
   }
   let (anchored, relative) = if let Some(rest) = pattern.strip_prefix("./") {
