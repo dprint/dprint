@@ -91,17 +91,20 @@ impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
       GlobMatchesDetail::MatchedOptedOutExclude => {}
       GlobMatchesDetail::Excluded | GlobMatchesDetail::NotMatched => return false,
     };
-    // ensure the parents aren't ignored
+    // ensure the parents aren't ignored (skipping the file itself, which
+    // was checked above with file semantics instead of dir semantics)
     if !file_path.starts_with(self.glob_matcher.base_dir()) {
       return false;
     }
-    for ancestor in file_path.ancestors() {
+    for ancestor in file_path.ancestors().skip(1) {
       if let Ok(path) = ancestor.strip_prefix(self.glob_matcher.base_dir()) {
         match self.glob_matcher.check_exclude(path, true) {
           ExcludeMatchDetail::Excluded => return false,
           ExcludeMatchDetail::OptedOutExclude => {}
           ExcludeMatchDetail::NotExcluded => {
-            if self.is_gitignored(path, /* is dir */ true) {
+            // the gitignore tree resolves gitignore files by walking the
+            // path's ancestor directories, so pass the absolute path
+            if self.is_gitignored(ancestor, /* is dir */ true) {
               return false;
             }
           }
@@ -452,6 +455,40 @@ mod test {
     assert_matches_dir_and_not_ignored(&mut file_matcher, "/sub-dir/dir/match.ts", true);
     assert_matches_dir_and_not_ignored(&mut file_matcher, "/sub-dir/dir/other/match.ts", true);
     assert_matches_dir_and_not_ignored(&mut file_matcher, "/sub-dir/dist/no-match.ts", false);
+  }
+
+  #[test]
+  fn handles_gitignored_ancestor_dir() {
+    let environment = TestEnvironment::new();
+    // note the cwd differs from the base dir, so gitignore resolution
+    // must not depend on relative paths
+    let base_dir = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    environment.mk_dir_all(base_dir.as_ref()).unwrap();
+    environment.write_file("/testing/dir/.gitignore", "ignored-dir/\nsub.ts/\n").unwrap();
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        arg_includes: None,
+        config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), base_dir.clone())]),
+        arg_excludes: None,
+        config_excludes: vec![],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: base_dir.clone(),
+      },
+    )
+    .unwrap();
+    let mut file_matcher = FileMatcher {
+      glob_matcher,
+      gitignores: Some(GitIgnoreTree::new(environment, GitIgnoreTreeOptions::default())),
+    };
+    // a file within a gitignored ancestor dir doesn't match
+    assert_matches_dir_and_not_ignored(&mut file_matcher, "/testing/dir/ignored-dir/no-match.ts", false);
+    assert_matches_dir_and_not_ignored(&mut file_matcher, "/testing/dir/ignored-dir/nested/no-match.ts", false);
+    assert_matches_dir_and_not_ignored(&mut file_matcher, "/testing/dir/other/match.ts", true);
+    // a directory-only gitignore pattern (`sub.ts/`) doesn't apply to a
+    // file with that name
+    assert_matches_dir_and_not_ignored(&mut file_matcher, "/testing/dir/sub.ts", true);
   }
 
   #[track_caller]
