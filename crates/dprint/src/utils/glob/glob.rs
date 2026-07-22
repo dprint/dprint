@@ -378,7 +378,7 @@ pub fn rewrite_literal_arg_pattern(environment: &impl Environment, pattern: &mut
   } else {
     pattern.base_dir.join(relative_path)
   };
-  if environment.path_kind(&path).is_none() {
+  if !environment.path_exists(&path) {
     return;
   }
   let canonical_path = match environment.canonicalize(&path) {
