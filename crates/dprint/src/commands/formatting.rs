@@ -22,6 +22,7 @@ use crate::format::RunForFilePathError;
 use crate::format::run_parallelized;
 use crate::incremental::get_incremental_file;
 use crate::patterns::FileMatcher;
+use crate::patterns::FileMatcherOptions;
 use crate::plugins::PluginResolver;
 use crate::resolution::PluginsScope;
 use crate::resolution::ResolvePluginsScopeAndPathsOptions;
@@ -47,10 +48,12 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
     let resolved_file_path = environment.canonicalize(&cmd.file_name_or_path)?;
     let mut file_matcher = FileMatcher::new(
       environment.clone(),
-      plugins_scope.config.as_ref().unwrap(),
-      &cmd.patterns,
-      &environment.cwd(),
-      Some(resolved_file_path.as_ref()),
+      FileMatcherOptions {
+        config: plugins_scope.config.as_ref().unwrap(),
+        args: &cmd.patterns,
+        root_dir: &environment.cwd(),
+        specified_file_path: Some(resolved_file_path.as_ref()),
+      },
     )?;
     // log the file text as-is since it's not in the list of files to format
     // (checking the ancestor directories too so exclusions apply the same

@@ -23,19 +23,28 @@ use crate::utils::resolve_global_gitignore_lines;
 use crate::utils::rewrite_literal_arg_pattern;
 use crate::utils::rewrite_literal_arg_patterns;
 
+pub struct FileMatcherOptions<'a> {
+  pub config: &'a ResolvedConfig,
+  pub args: &'a FilePatternArgs,
+  pub root_dir: &'a CanonicalizedPathBuf,
+  /// An explicitly specified file path (ex. the `--stdin` path) that should
+  /// override what's in the gitignore the same way an explicit fmt arg does.
+  pub specified_file_path: Option<&'a Path>,
+}
+
 pub struct FileMatcher<TEnvironment: Environment> {
   glob_matcher: GlobMatcher,
   gitignores: Option<GitIgnoreTree<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
-  pub fn new(
-    environment: TEnvironment,
-    config: &ResolvedConfig,
-    args: &FilePatternArgs,
-    root_dir: &CanonicalizedPathBuf,
-    specified_file_path: Option<&Path>,
-  ) -> Result<Self> {
+  pub fn new(environment: TEnvironment, opts: FileMatcherOptions) -> Result<Self> {
+    let FileMatcherOptions {
+      config,
+      args,
+      root_dir,
+      specified_file_path,
+    } = opts;
     let mut patterns = get_all_file_patterns(config, args, root_dir, &environment);
     // resolve args with an existing literal name the same way `glob()` does
     // (ex. `--stdin` matching must agree with a normal `fmt`)

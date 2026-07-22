@@ -48,6 +48,7 @@ use crate::paths::NoFilesFoundError;
 use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins;
 use crate::patterns::FileMatcher;
+use crate::patterns::FileMatcherOptions;
 use crate::patterns::get_patterns_as_glob_matcher;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
@@ -435,7 +436,15 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       let Some(config) = &self.config else {
         return false;
       };
-      let matcher = match FileMatcher::new(self.environment.clone(), config, &FilePatternArgs::default(), &config.base_path, None) {
+      let matcher = match FileMatcher::new(
+        self.environment.clone(),
+        FileMatcherOptions {
+          config,
+          args: &FilePatternArgs::default(),
+          root_dir: &config.base_path,
+          specified_file_path: None,
+        },
+      ) {
         Ok(matcher) => matcher,
         Err(err) => {
           log_warn!(self.environment, "Error creating file matcher: {}", err);
