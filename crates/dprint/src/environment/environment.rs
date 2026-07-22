@@ -38,6 +38,14 @@ pub enum DirEntry {
   File { name: std::ffi::OsString, path: PathBuf },
 }
 
+/// The kind of entry at a path on the file system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathKind {
+  File,
+  Dir,
+  Symlink,
+}
+
 #[derive(Debug, Clone)]
 pub enum FilePermissions {
   Std(std::fs::Permissions),
@@ -256,6 +264,10 @@ pub trait Environment:
   fn path_exists(&self, path: impl AsRef<Path>) -> bool;
   /// Gets whether the path exists and is a file (follows symlinks).
   fn path_is_file(&self, path: impl AsRef<Path>) -> bool;
+  /// Stats the path in a single call, saying whether it's a file, directory,
+  /// or symlink (`None` when the path doesn't exist). Symlinks are not
+  /// followed—canonicalize and stat again to see what a symlink points at.
+  fn path_kind(&self, path: impl AsRef<Path>) -> Option<PathKind>;
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf>;
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool;
   fn file_permissions(&self, path: impl AsRef<Path>) -> io::Result<FilePermissions>;

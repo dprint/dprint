@@ -54,6 +54,7 @@ use super::DirEntry;
 use super::DownloadedFile;
 use super::Environment;
 use super::FilePermissions;
+use super::PathKind;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
 use crate::utils::LogLevel;
@@ -638,6 +639,16 @@ impl Environment for TestEnvironment {
   fn path_is_file(&self, file_path: impl AsRef<Path>) -> bool {
     let path = self.clean_path(file_path);
     self.sys.fs_is_file_no_err(path)
+  }
+
+  fn path_kind(&self, file_path: impl AsRef<Path>) -> Option<PathKind> {
+    let path = self.clean_path(file_path);
+    let metadata = self.sys.fs_symlink_metadata(path).ok()?;
+    Some(match metadata.file_type() {
+      sys_traits::FileType::Dir => PathKind::Dir,
+      sys_traits::FileType::Symlink => PathKind::Symlink,
+      sys_traits::FileType::File | sys_traits::FileType::Unknown => PathKind::File,
+    })
   }
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {

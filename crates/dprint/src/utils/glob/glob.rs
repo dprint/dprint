@@ -15,6 +15,7 @@ use crate::configuration::POSSIBLE_CONFIG_FILE_NAMES;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DirEntry;
 use crate::environment::Environment;
+use crate::environment::PathKind;
 use crate::utils::gitignore::DirEntriesHint;
 use crate::utils::gitignore::GitIgnoreTree;
 use crate::utils::gitignore::GitIgnoreTreeOptions;
@@ -265,16 +266,26 @@ fn extract_literal_arg_paths(environment: &impl Environment, file_patterns: &mut
       } else {
         pattern.base_dir.join(relative_path.as_ref())
       };
-      let is_file = environment.path_is_file(&path);
-      if !is_file && !environment.path_exists(&path) {
+      let Some(kind) = environment.path_kind(&path) else {
         // a glob-like pattern stays a glob when nothing has its literal name
         continue;
-      }
+      };
       // resolve symlinks and casing differences so the path gets classified
       // and matched based on where it actually is on the file system
       let path = match environment.canonicalize(&path) {
         Ok(canonical) => canonical.into_path_buf(),
         Err(_) => path,
+      };
+      let is_file = match kind {
+        PathKind::File => true,
+        PathKind::Dir => false,
+        // stat the canonicalized path to see what the symlink points at
+        PathKind::Symlink => match environment.path_kind(&path) {
+          Some(PathKind::File) => true,
+          Some(PathKind::Dir) => false,
+          // a broken symlink stays a glob like a nonexistent path
+          _ => continue,
+        },
       };
       (path, is_file)
     };
@@ -367,7 +378,7 @@ pub fn rewrite_literal_arg_pattern(environment: &impl Environment, pattern: &mut
   } else {
     pattern.base_dir.join(relative_path)
   };
-  if !environment.path_exists(&path) {
+  if environment.path_kind(&path).is_none() {
     return;
   }
   let canonical_path = match environment.canonicalize(&path) {
