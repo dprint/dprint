@@ -217,6 +217,23 @@ Files that are gitignored will be excluded by default, but you can "un-exclude" 
 
 Alternatively, you can disable all `.gitignore` handling with the `--no-gitignore` CLI flag (see [CLI docs](/cli#ignoring-gitignore)).
 
+### Escaping glob characters
+
+To match a path that contains glob characters (ex. `[` or `{`) in `includes`/`excludes`, wrap each one in a character class:
+
+```json
+{
+  "excludes": [
+    // excludes a file named {{myfile}}.json
+    "[{][{]myfile[}][}].json",
+    // excludes a directory named [id]
+    "routes/[[]id[]]"
+  ]
+}
+```
+
+This is only necessary in the config file—a CLI argument that names an existing file or directory is matched literally.
+
 ## Includes
 
 The `includes` property can be used to limit dprint to only formatting certain files. Generally, you don't need to bother providing this.
