@@ -232,8 +232,6 @@ To match a path that contains glob characters (ex. `[` or `{`) in `includes`/`ex
 }
 ```
 
-This is only necessary in the config file—a CLI argument that names an existing file or directory is matched literally.
-
 ## Includes
 
 The `includes` property can be used to limit dprint to only formatting certain files. Generally, you don't need to bother providing this.
