@@ -221,7 +221,7 @@ Alternatively, you can disable all `.gitignore` handling with the `--no-gitignor
 
 To match a path that contains glob characters (ex. `[` or `{`) in `includes`/`excludes`, wrap each one in a character class:
 
-```json
+```jsonc
 {
   "excludes": [
     // excludes a file named {{myfile}}.json
