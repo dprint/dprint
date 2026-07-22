@@ -55,6 +55,10 @@ pub struct GlobOptions {
   pub start_dir: PathBuf,
   /// Whether to enable configuration discovery.
   pub config_discovery: ConfigDiscovery,
+  /// The config file already in use, so it isn't rediscovered as a
+  /// descendant config file (ex. the global config file when its directory
+  /// is within the directory being formatted).
+  pub current_config_path: Option<PathBuf>,
   /// The file patterns to use for globbing.
   pub file_patterns: GlobPatterns,
   /// The directory to use as the base for the patterns.
@@ -119,7 +123,7 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
   };
 
   let discover_configs = opts.config_discovery.traverse_descendants();
-  let mut config_file_finder = DirConfigFileFinder::new(environment);
+  let mut config_file_finder = DirConfigFileFinder::new(environment, opts.current_config_path.clone());
 
   // check the directories between the pattern base and the start directory the
   // same way a traversal descending from the pattern base would so matching
@@ -197,6 +201,7 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
       ReadDirRunnerOptions {
         start_dir: opts.start_dir,
         config_discovery: opts.config_discovery,
+        current_config_path: opts.current_config_path,
         thread_count: read_dir_thread_count,
       },
     ));
@@ -551,13 +556,15 @@ fn push_dedup_config_file(config_files: &mut Vec<PathBuf>, config_file: PathBuf)
 /// directory because multiple file paths often share ancestor directories.
 struct DirConfigFileFinder<'a, TEnvironment: Environment> {
   environment: &'a TEnvironment,
+  current_config_path: Option<PathBuf>,
   cache: HashMap<PathBuf, Option<PathBuf>>,
 }
 
 impl<'a, TEnvironment: Environment> DirConfigFileFinder<'a, TEnvironment> {
-  pub fn new(environment: &'a TEnvironment) -> Self {
+  pub fn new(environment: &'a TEnvironment, current_config_path: Option<PathBuf>) -> Self {
     Self {
       environment,
+      current_config_path,
       cache: Default::default(),
     }
   }
@@ -569,6 +576,8 @@ impl<'a, TEnvironment: Environment> DirConfigFileFinder<'a, TEnvironment> {
     let result = POSSIBLE_CONFIG_FILE_NAMES
       .iter()
       .map(|file_name| dir.join(file_name))
+      // the config file already in use doesn't create a new scope
+      .filter(|path| Some(path.as_path()) != self.current_config_path.as_deref())
       .find(|path| self.environment.path_is_file(path));
     self.cache.insert(dir.to_path_buf(), result.clone());
     result
@@ -640,6 +649,7 @@ const PUSH_DIR_ENTRIES_BATCH_COUNT: usize = 500;
 struct ReadDirRunnerOptions {
   start_dir: PathBuf,
   config_discovery: ConfigDiscovery,
+  current_config_path: Option<PathBuf>,
   thread_count: usize,
 }
 
@@ -711,7 +721,10 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
         .filter_map(|e| match e {
           DirEntry::Directory(_) => None,
           DirEntry::File { name, path } => {
-            if name.to_str().is_some_and(|name| POSSIBLE_CONFIG_FILE_NAMES.contains(&name)) {
+            // the config file already in use doesn't create a new scope
+            if name.to_str().is_some_and(|name| POSSIBLE_CONFIG_FILE_NAMES.contains(&name))
+              && Some(path.as_path()) != self.options.current_config_path.as_deref()
+            {
               Some(path)
             } else {
               None
@@ -1011,6 +1024,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
@@ -1054,6 +1068,7 @@ mod test {
       let result = glob(
         &environment,
         GlobOptions {
+          current_config_path: None,
           start_dir: PathBuf::from("/"),
           config_discovery: ConfigDiscovery::Default,
           file_patterns: GlobPatterns {
@@ -1094,6 +1109,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
@@ -1130,6 +1146,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
@@ -1164,6 +1181,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
@@ -1197,6 +1215,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
@@ -1230,6 +1249,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
@@ -1263,6 +1283,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
@@ -1297,6 +1318,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Disabled,
         file_patterns: GlobPatterns {
@@ -1326,6 +1348,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
@@ -1353,6 +1376,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         // this happens when running `dprint fmt "../other/**"` from /sub
         start_dir: PathBuf::from("/sub"),
         config_discovery: ConfigDiscovery::Default,
@@ -1381,6 +1405,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
@@ -1407,6 +1432,7 @@ mod test {
     let err_message = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
@@ -1432,6 +1458,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
@@ -1459,6 +1486,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
@@ -1491,6 +1519,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
@@ -1525,6 +1554,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/test/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
@@ -1560,6 +1590,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
@@ -1593,6 +1624,7 @@ mod test {
     let result = glob(
       &environment,
       GlobOptions {
+        current_config_path: None,
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {

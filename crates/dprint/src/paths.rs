@@ -130,6 +130,7 @@ async fn get_and_resolve_file_patterns(
   let start_dir = if is_in_sub_dir { cwd } else { config.base_path.clone() };
   let environment = environment.clone();
   let pattern_base = config.base_path.clone();
+  let current_config_path = config.source.maybe_local_path().map(|p| p.as_ref().to_path_buf());
 
   // This is intensive so do it in a blocking task
   dprint_core::async_runtime::spawn_blocking(move || {
@@ -140,6 +141,7 @@ async fn get_and_resolve_file_patterns(
         file_patterns,
         pattern_base,
         config_discovery,
+        current_config_path,
         no_gitignore,
       },
     )

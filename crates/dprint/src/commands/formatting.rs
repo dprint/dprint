@@ -1952,6 +1952,33 @@ mod test {
   }
 
   #[test]
+  fn should_format_file_in_global_config_dir_with_global_config_in_use() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_global_config(|config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "global-config" }"#);
+      })
+      .write_file("/global-config/file.txt", "text")
+      .set_cwd("/")
+      .initialize()
+      .build();
+
+    // a file in the global config's own directory is formatted by the
+    // global config's scope instead of being dropped because the config
+    // file in use was rediscovered as a descendant config (issue #1111)
+    run_test_cli(vec!["fmt", "global-config/file.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/global-config/file.txt").unwrap(), "text_global-config");
+
+    // same when found via traversal
+    environment.write_file("/global-config/file.txt", "text").unwrap();
+    run_test_cli(vec!["fmt", "."], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/global-config/file.txt").unwrap(), "text_global-config");
+  }
+
+  #[test]
   fn should_discover_sibling_configs_when_formatting_ancestor_glob() {
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_local_config("/project/dprint.json", |config| {
