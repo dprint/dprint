@@ -651,15 +651,14 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       return Ok(Vec::new());
     }
 
-    // group the paths by the config that governs them (keyed by the config's
-    // base directory)
-    let mut path_groups: IndexMap<CanonicalizedPathBuf, (OutsideScopeConfig, Vec<String>)> = IndexMap::new();
+    // group the paths by the config that governs them
+    let mut path_groups: IndexMap<OutsideScopeConfigKey, (OutsideScopeConfig, Vec<String>)> = IndexMap::new();
     for outside_path in outside_base_paths {
       let Some(scope_config) = self.resolve_outside_scope_config(&outside_path, config, config_discovery)? else {
         continue; // skipped with a warning
       };
       path_groups
-        .entry(scope_config.base_path().clone())
+        .entry(scope_config.group_key())
         .or_insert_with(|| (scope_config, Vec::new()))
         .1
         .push(outside_path.include_pattern);
@@ -923,12 +922,25 @@ enum OutsideScopeConfig {
 }
 
 impl OutsideScopeConfig {
-  fn base_path(&self) -> &CanonicalizedPathBuf {
+  fn group_key(&self) -> OutsideScopeConfigKey {
     match self {
-      Self::ConfigFile(config_path) => &config_path.base_path,
-      Self::RebasedCurrentConfig(base_path) => base_path,
+      Self::ConfigFile(config_path) => OutsideScopeConfigKey::ConfigFile(config_path.base_path.clone()),
+      Self::RebasedCurrentConfig(base_path) => OutsideScopeConfigKey::RebasedCurrentConfig(base_path.clone()),
     }
   }
+}
+
+/// Identifies the config governing a group of outside paths.
+///
+/// The base directory alone isn't enough because a config file could live in
+/// the same directory the current config gets rebased at (ex. a config file at
+/// a drive root), which would otherwise silently resolve some paths against the
+/// wrong config. The way the config is resolved rules that out today, but
+/// keying on the variant makes it impossible to get wrong.
+#[derive(PartialEq, Eq, Hash)]
+enum OutsideScopeConfigKey {
+  ConfigFile(CanonicalizedPathBuf),
+  RebasedCurrentConfig(CanonicalizedPathBuf),
 }
 
 pub async fn get_plugins_scope_from_args<TEnvironment: Environment>(

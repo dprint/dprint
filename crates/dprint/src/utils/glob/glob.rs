@@ -128,6 +128,14 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
   // check the directories between the pattern base and the start directory the
   // same way a traversal descending from the pattern base would so matching
   // works the same regardless of the directory dprint is run from
+  //
+  // Note this chain includes the start directory itself, so a config file
+  // sitting in it hands the directory to the sub scope created for that config
+  // file. That's deliberate: it's what happens when running from the pattern
+  // base instead, where the traversal descends into the directory and finds it.
+  // The traversal below intentionally does the opposite for the start directory
+  // (see `ReadDirRunner::read_dir_entries`), which only matters when this check
+  // doesn't run because the start directory is the pattern base.
   if run_traversal && opts.start_dir != opts.pattern_base.as_ref() && opts.start_dir.starts_with(opts.pattern_base.as_ref()) {
     match check_dir_chain(
       &glob_matcher,
@@ -214,7 +222,12 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
     let mut glob_matching_processor = GlobMatchingProcessor::new(shared_state, glob_matcher, git_ignore_tree);
     let results = glob_matching_processor.run()?;
     output.file_paths.extend(results.file_paths);
-    output.config_files.extend(results.config_files);
+    for config_file in results.config_files {
+      // the traversal skips the directories the checks above already handled,
+      // so this shouldn't overlap with them, but dedup anyway because a
+      // duplicate would resolve the same scope (and format its files) twice
+      push_dedup_config_file(&mut output.config_files, config_file);
+    }
   }
 
   log_debug!(environment, "File(s) matched: {:?}", output);
@@ -414,7 +427,10 @@ fn could_be_literal_path(pattern: &str) -> bool {
     if !was_last_escape && matches!(c, '*' | '?') {
       return false;
     }
-    was_last_escape = matches!(c, '\\');
+    // consume backslashes in pairs the same way `unescape_glob_text` does so
+    // an escaped backslash doesn't escape the character after it
+    // (ex. the `*` in `a\\*b` is a glob star)
+    was_last_escape = c == '\\' && !was_last_escape;
   }
   true
 }
@@ -715,6 +731,16 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     if entries.is_empty() {
       return Ok(None);
     }
+    // Note the start directory is exempt from config file detection because the
+    // traversal starts there, so a config file in it would take over the entire
+    // scope. Usually `current_config_path` already filters it out, but not when
+    // the config in use has no local path (ex. `--config https://host/x.json`,
+    // where the base path is the cwd) or when the directory holds a config file
+    // name other than the one in use (ex. both `dprint.json` and `.dprint.json`),
+    // because that filter only ever removes the one in use. Note that the start
+    // directory is not exempt when it's below the pattern base: the chain check
+    // in `glob` handles it there so the result doesn't depend on which
+    // directory dprint was run from.
     let maybe_config_file = if self.options.config_discovery.traverse_descendants() && current_dir != self.options.start_dir {
       entries
         .iter()
@@ -1646,5 +1672,17 @@ mod test {
     let mut result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
     result.sort();
     assert_eq!(result, vec!["/dir/b/b.txt"]);
+  }
+
+  #[test]
+  fn should_get_if_could_be_literal_path() {
+    assert!(could_be_literal_path("routes/[id].svelte"));
+    assert!(could_be_literal_path("{{myfile}}.yaml"));
+    assert!(!could_be_literal_path("**/*.txt"));
+    assert!(!could_be_literal_path("file?.txt"));
+    // an escaped glob character names a literal path
+    assert!(could_be_literal_path("a\\*b"));
+    // ...but an escaped backslash doesn't escape the star after it
+    assert!(!could_be_literal_path("a\\\\*b"));
   }
 }

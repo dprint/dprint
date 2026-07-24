@@ -23,7 +23,10 @@ pub fn is_pattern(pattern: &str) -> bool {
       return true;
     }
 
-    was_last_escape = matches!(c, '\\');
+    // consume backslashes in pairs the same way `unescape_glob_text` does so
+    // an escaped backslash doesn't escape the character after it
+    // (ex. the `*` in `a\\*b` is a glob star)
+    was_last_escape = c == '\\' && !was_last_escape;
   }
   false
 }
@@ -134,6 +137,14 @@ mod tests {
     assert!(is_pattern("routes/[id].svelte"));
     assert!(!is_pattern(&escape_glob_text("routes/[id].svelte")));
     assert_eq!(unescape_glob_text(&escape_glob_text("a*b?c!d\\e[]{}")), "a*b?c!d\\e[]{}");
+
+    // an escaped backslash doesn't escape the character after it, so the
+    // star in `a\\*b` is a glob star (matching `unescape_glob_text`)
+    assert!(is_pattern("a\\\\*b"));
+    assert_eq!(unescape_glob_text("a\\\\*b"), "a\\*b");
+    // ...while `a\*b` is an escaped star and so not a pattern
+    assert!(!is_pattern("a\\*b"));
+    assert_eq!(unescape_glob_text("a\\*b"), "a*b");
   }
 
   #[test]

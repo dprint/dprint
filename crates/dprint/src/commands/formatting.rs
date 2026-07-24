@@ -986,6 +986,34 @@ mod test {
   }
 
   #[test]
+  fn should_ignore_config_file_in_start_dir_when_config_file_url_specified() {
+    // a remote config file has no local path, so nothing identifies the local
+    // config file in the directory the traversal starts in as the one in use
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_remote_config("https://dprint.dev/test.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "custom-formatted" }"#);
+      })
+      .with_local_config("/dprint.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "local-formatted" }"#);
+      })
+      .write_file("/file1.txt", "text")
+      .write_file("/sub/file2.txt", "text2")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "https://dprint.dev/test.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
+    assert_eq!(environment.read_file("/file1.txt").unwrap(), "text_custom-formatted");
+    assert_eq!(environment.read_file("/sub/file2.txt").unwrap(), "text2_custom-formatted");
+  }
+
+  #[test]
   fn should_format_files_with_config_associations() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt_ps";
