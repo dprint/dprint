@@ -7,6 +7,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::Result;
+use anyhow::bail;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigKeyMap;
@@ -33,11 +34,13 @@ use crate::configuration::RawPluginConfigOverride;
 use crate::configuration::ResolveConfigError;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
+use crate::configuration::get_default_config_file_in_ancestor_directories;
 use crate::configuration::get_global_config;
 use crate::configuration::get_plugin_config_map;
 use crate::configuration::inherit_config;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::resolve_config_from_path_with_bytes;
+use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::paths::FilesPathsByPlugins;
@@ -45,6 +48,7 @@ use crate::paths::NoFilesFoundError;
 use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins;
 use crate::patterns::FileMatcher;
+use crate::patterns::FileMatcherOptions;
 use crate::patterns::get_patterns_as_glob_matcher;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
@@ -57,7 +61,10 @@ use crate::plugins::output_plugin_config_diagnostics;
 use crate::utils::FastInsecureHasher;
 use crate::utils::GlobMatcher;
 use crate::utils::GlobOutput;
+use crate::utils::OutsideBasePath;
 use crate::utils::PathSource;
+use crate::utils::escape_glob_text_for_cli;
+use crate::utils::is_negated_glob;
 
 pub enum GetPluginResult {
   HadDiagnostics(usize),
@@ -429,7 +436,15 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       let Some(config) = &self.config else {
         return false;
       };
-      let matcher = match FileMatcher::new(self.environment.clone(), config, &FilePatternArgs::default(), &config.base_path) {
+      let matcher = match FileMatcher::new(
+        self.environment.clone(),
+        FileMatcherOptions {
+          config,
+          args: &FilePatternArgs::default(),
+          root_dir: &config.base_path,
+          specified_file_path: None,
+        },
+      ) {
         Ok(matcher) => matcher,
         Err(err) => {
           log_warn!(self.environment, "Error creating file matcher: {}", err);
@@ -575,11 +590,11 @@ struct PluginsAndPathsResolver<'a, TEnvironment: Environment> {
 }
 
 impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
-  pub async fn resolve_for_config(&self) -> Result<PluginsScopeAndPathsCollection<TEnvironment>> {
+  pub async fn resolve_for_config(&'a self) -> Result<PluginsScopeAndPathsCollection<TEnvironment>> {
     let config = Rc::new(resolve_config_from_args(self.args, self.environment).await?);
     let scope = resolve_plugins_scope(config.clone(), self.environment, self.plugin_resolver).await?;
     let config_discovery = self.args.config_discovery(self.environment);
-    let glob_output = if self.skip_traversal {
+    let mut glob_output = if self.skip_traversal {
       GlobOutput::default()
     } else {
       get_and_resolve_file_paths(
@@ -591,18 +606,28 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       )
       .await?
     };
+    let root_config_path = config.source.maybe_local_path().cloned();
+
+    // resolve specified paths that are outside the config's directory
+    // against the config file found in their own directory tree or the
+    // user's global config file
+    let outside_scopes = self
+      .resolve_outside_base_paths(&mut glob_output, &config, config_discovery, root_config_path.clone())
+      .await?;
+
     let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths)?;
 
     let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
-    let root_config_path = config.source.maybe_local_path();
     // todo: parallelize?
+    let patterns = Rc::new(self.patterns.clone());
     for config_file_path in glob_output.config_files {
       result.extend(
         self
-          .resolve_for_sub_config(config_file_path, &config, config_discovery, root_config_path)
+          .resolve_for_sub_config(config_file_path, config.clone(), config_discovery, root_config_path.clone(), patterns.clone())
           .await?,
       );
     }
+    result.extend(outside_scopes);
 
     Ok(PluginsScopeAndPathsCollection {
       environment: self.environment.clone(),
@@ -610,60 +635,299 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     })
   }
 
-  fn resolve_for_sub_config(
+  /// Resolves the scopes for specified paths and patterns that are outside
+  /// the config's directory. Each one uses the config file found in its own
+  /// directory tree when one exists, otherwise the explicitly specified or
+  /// global config file, and it's an error when there's no config file to use.
+  async fn resolve_outside_base_paths(
+    &'a self,
+    glob_output: &mut GlobOutput,
+    config: &Rc<ResolvedConfig>,
+    config_discovery: ConfigDiscovery,
+    root_config_path: Option<CanonicalizedPathBuf>,
+  ) -> Result<Vec<PluginsScopeAndPaths<TEnvironment>>> {
+    let outside_base_paths = std::mem::take(&mut glob_output.outside_base_paths);
+    if outside_base_paths.is_empty() {
+      return Ok(Vec::new());
+    }
+
+    // group the paths by the config that governs them (keyed by the config's
+    // base directory)
+    let mut path_groups: IndexMap<CanonicalizedPathBuf, (OutsideScopeConfig, Vec<String>)> = IndexMap::new();
+    for outside_path in outside_base_paths {
+      let Some(scope_config) = self.resolve_outside_scope_config(&outside_path, config, config_discovery)? else {
+        continue; // skipped with a warning
+      };
+      path_groups
+        .entry(scope_config.base_path().clone())
+        .or_insert_with(|| (scope_config, Vec::new()))
+        .1
+        .push(outside_path.include_pattern);
+    }
+
+    let mut result = Vec::new();
+    for (_, (scope_config, include_patterns)) in path_groups {
+      result.extend(
+        self
+          .resolve_outside_scope(scope_config, include_patterns, config, config_discovery, root_config_path.clone())
+          .await?,
+      );
+    }
+    Ok(result)
+  }
+
+  /// Resolves the config that governs the provided outside path. Returns
+  /// `None` when the path should be skipped (a warning was logged).
+  fn resolve_outside_scope_config(
+    &self,
+    outside_path: &OutsideBasePath,
+    config: &ResolvedConfig,
+    config_discovery: ConfigDiscovery,
+  ) -> Result<Option<OutsideScopeConfig>> {
+    let discover_tree_configs = self.args.config.is_none() && config_discovery.traverse_ancestors();
+    if discover_tree_configs && let Some(config_path) = get_default_config_file_in_ancestor_directories(self.environment, &outside_path.config_search_dir)? {
+      return Ok(Some(OutsideScopeConfig::ConfigFile(config_path)));
+    }
+
+    if self.args.config.is_some() || config.is_global {
+      // an explicitly specified config file or the global config file
+      // governs explicitly specified paths anywhere
+      let root_dir = self.canonical_path_root_dir(&outside_path.config_search_dir)?;
+      return Ok(Some(OutsideScopeConfig::RebasedCurrentConfig(root_dir)));
+    }
+
+    // only fall back to the global config file when config discovery is in
+    // its default mode to match main config file resolution
+    if matches!(config_discovery, ConfigDiscovery::Default)
+      && let Some(config_path) = self.global_config_path_based_at_path_root(&outside_path.config_search_dir)?
+    {
+      return Ok(Some(OutsideScopeConfig::ConfigFile(config_path)));
+    }
+
+    if self.args.sub_command.allow_skipping_paths() {
+      log_warn!(
+        self.environment,
+        "WARNING: Skipping '{}' because no dprint config file was found for it.",
+        outside_path.include_pattern,
+      );
+      Ok(None)
+    } else {
+      bail!(
+        concat!(
+          "No dprint config file found for '{}'. The path is outside the config file's directory ",
+          "and no dprint config file was found in the path's ancestor directories. Create one there ",
+          "or set up a global config file by running `dprint init --global`."
+        ),
+        outside_path.include_pattern,
+      );
+    }
+  }
+
+  /// Resolves the scope and file paths for a group of outside paths that
+  /// share a governing config.
+  async fn resolve_outside_scope(
+    &'a self,
+    scope_config: OutsideScopeConfig,
+    mut include_patterns: Vec<String>,
+    config: &Rc<ResolvedConfig>,
+    config_discovery: ConfigDiscovery,
+    root_config_path: Option<CanonicalizedPathBuf>,
+  ) -> Result<Vec<PluginsScopeAndPaths<TEnvironment>>> {
+    // carry the negated patterns along so exclusions specified on the
+    // command line keep applying in the new scope, but only resolve the
+    // grouped paths so files matched by the other args don't get formatted
+    // a second time
+    include_patterns.extend(self.patterns.include_patterns.iter().filter(|p| is_negated_glob(p)).cloned());
+    // the current scope already handles everything in the config's
+    // directory (ex. a `dprint fmt ..` arg covers it with `**`), escaping
+    // in case the directory path contains glob characters (ex. `[app]`)
+    include_patterns.push(format!("!{}/**", escape_glob_text_for_cli(&config.base_path.to_string_lossy())));
+    let patterns = Rc::new(FilePatternArgs {
+      include_patterns,
+      only_staged: false,
+      only_dirty: false,
+      ..self.patterns.clone()
+    });
+    match scope_config {
+      OutsideScopeConfig::ConfigFile(config_path) => {
+        self
+          .resolve_for_config_path(
+            config_path,
+            config.clone(),
+            /* is descendant config */ false,
+            config_discovery,
+            root_config_path,
+            patterns,
+          )
+          .await
+      }
+      OutsideScopeConfig::RebasedCurrentConfig(base_path) => {
+        // with an explicitly specified config file, don't let other config
+        // files take over parts of the scope
+        let config_discovery = if self.args.config.is_some() {
+          ConfigDiscovery::IgnoreDescendants
+        } else {
+          config_discovery
+        };
+        self
+          .resolve_for_rebased_config(config, base_path, config_discovery, root_config_path, patterns)
+          .await
+      }
+    }
+  }
+
+  /// Resolves the scope and file paths for the provided config with its base
+  /// directory changed to the provided path (ex. resolving paths on another
+  /// drive against the in-use config file).
+  async fn resolve_for_rebased_config(
+    &'a self,
+    config: &Rc<ResolvedConfig>,
+    base_path: CanonicalizedPathBuf,
+    config_discovery: ConfigDiscovery,
+    root_config_path: Option<CanonicalizedPathBuf>,
+    patterns: Rc<FilePatternArgs>,
+  ) -> Result<Vec<PluginsScopeAndPaths<TEnvironment>>> {
+    let mut rebased_config = (**config).clone();
+    rebased_config.base_path = base_path;
+    self
+      .resolve_scope_and_descendants(Rc::new(rebased_config), config_discovery, root_config_path, patterns)
+      .await
+  }
+
+  /// Gets the global config file based at the root directory of the provided
+  /// path so the path is within the resulting config's directory.
+  fn global_config_path_based_at_path_root(&self, path: &Path) -> Result<Option<ResolvedConfigPathWithText>> {
+    let Some(global_config_path) = resolve_global_config_path_and_text(self.environment)? else {
+      return Ok(None);
+    };
+    Ok(Some(ResolvedConfigPathWithText {
+      base_path: self.canonical_path_root_dir(path)?,
+      ..global_config_path
+    }))
+  }
+
+  /// Gets the canonicalized root directory of the provided path (ex. the
+  /// drive root on Windows).
+  fn canonical_path_root_dir(&self, path: &Path) -> Result<CanonicalizedPathBuf> {
+    let root_dir = path.ancestors().last().unwrap();
+    Ok(self.environment.canonicalize(root_dir)?)
+  }
+
+  async fn resolve_for_sub_config(
     &'a self,
     config_file_path: PathBuf,
-    parent_config: &'a ResolvedConfig,
+    parent_config: Rc<ResolvedConfig>,
     config_discovery: ConfigDiscovery,
-    root_config_path: Option<&'a CanonicalizedPathBuf>,
+    root_config_path: Option<CanonicalizedPathBuf>,
+    patterns: Rc<FilePatternArgs>,
+  ) -> Result<Vec<PluginsScopeAndPaths<TEnvironment>>> {
+    log_debug!(self.environment, "Analyzing config file {}", config_file_path.display());
+    let config_file_path = self.environment.canonicalize(&config_file_path)?;
+    if Some(&config_file_path) == root_config_path.as_ref() {
+      // config file specified via `--config` so ignore it
+      return Ok(Vec::new());
+    }
+    let config_path = ResolvedConfigPathWithText {
+      content: self.environment.read_file(&config_file_path)?,
+      base_path: config_file_path.parent().unwrap(),
+      source: PathSource::new_local(config_file_path),
+      is_global_config: false,
+      is_first_download: false,
+    };
+    self
+      .resolve_for_config_path(
+        config_path,
+        parent_config,
+        /* is descendant config */ true,
+        config_discovery,
+        root_config_path,
+        patterns,
+      )
+      .await
+  }
+
+  /// Resolves the scope and file paths for a config file, recursively
+  /// resolving any descendant config files found within its directory.
+  fn resolve_for_config_path(
+    &'a self,
+    config_path: ResolvedConfigPathWithText,
+    parent_config: Rc<ResolvedConfig>,
+    is_descendant_config: bool,
+    config_discovery: ConfigDiscovery,
+    root_config_path: Option<CanonicalizedPathBuf>,
+    patterns: Rc<FilePatternArgs>,
   ) -> LocalBoxFuture<'a, Result<Vec<PluginsScopeAndPaths<TEnvironment>>>> {
     async move {
-      log_debug!(self.environment, "Analyzing config file {}", config_file_path.display());
-      let config_file_path = self.environment.canonicalize(&config_file_path)?;
-      if Some(&config_file_path) == root_config_path {
-        // config file specified via `--config` so ignore it
-        return Ok(Vec::new());
-      }
-      let config_path = ResolvedConfigPathWithText {
-        content: self.environment.read_file(&config_file_path)?,
-        base_path: config_file_path.parent().unwrap(),
-        source: PathSource::new_local(config_file_path),
-        is_global_config: false,
-        is_first_download: false,
-      };
       let mut config = resolve_config_from_path_with_bytes(&config_path, self.environment).await?;
-      // when the nested config opts into inheriting, merge in the ancestor config
-      if config.inherit == Some(true) {
-        config = inherit_config(config, parent_config)?;
+      // when a nested config opts into inheriting, merge in the ancestor config
+      if is_descendant_config && config.inherit == Some(true) {
+        config = inherit_config(config, &parent_config)?;
       }
       if !self.args.plugins.is_empty() {
         config.plugins.clone_from(&parent_config.plugins);
       }
-      let config = Rc::new(config);
-      let scope = resolve_plugins_scope(config.clone(), self.environment, self.plugin_resolver).await?;
-      let glob_output = get_and_resolve_file_paths(
-        &config,
-        self.patterns,
-        config_discovery,
-        scope.plugins.values().map(|p| p.as_ref()),
-        self.environment,
-      )
-      .await?;
-      let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths)?;
-
-      let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
-      // todo: parallelize?
-      for config_file_path in glob_output.config_files {
-        result.extend(
-          self
-            .resolve_for_sub_config(config_file_path, &config, config_discovery, root_config_path)
-            .await?,
-        );
-      }
-
-      Ok(result)
+      self
+        .resolve_scope_and_descendants(Rc::new(config), config_discovery, root_config_path, patterns)
+        .await
     }
     .boxed_local()
+  }
+
+  /// Resolves the plugins scope and file paths for the provided config,
+  /// recursively resolving any descendant config files found within its
+  /// directory.
+  async fn resolve_scope_and_descendants(
+    &'a self,
+    config: Rc<ResolvedConfig>,
+    config_discovery: ConfigDiscovery,
+    root_config_path: Option<CanonicalizedPathBuf>,
+    patterns: Rc<FilePatternArgs>,
+  ) -> Result<Vec<PluginsScopeAndPaths<TEnvironment>>> {
+    let scope = resolve_plugins_scope(config.clone(), self.environment, self.plugin_resolver).await?;
+    let mut glob_output = get_and_resolve_file_paths(
+      &config,
+      &patterns,
+      config_discovery,
+      scope.plugins.values().map(|p| p.as_ref()),
+      self.environment,
+    )
+    .await?;
+    // paths outside this config's directory were already handled when
+    // resolving the root scope
+    glob_output.outside_base_paths.clear();
+    let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths)?;
+
+    let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
+    // todo: parallelize?
+    for config_file_path in glob_output.config_files {
+      result.extend(
+        self
+          .resolve_for_sub_config(config_file_path, config.clone(), config_discovery, root_config_path.clone(), patterns.clone())
+          .await?,
+      );
+    }
+    Ok(result)
+  }
+}
+
+/// The config governing paths that are outside the main config's directory.
+enum OutsideScopeConfig {
+  /// A config file found for the outside path (in its directory tree or
+  /// the user's global config file).
+  ConfigFile(ResolvedConfigPathWithText),
+  /// The config file already in use (an explicitly specified `--config`
+  /// or the global config file), rebased at the outside path's root
+  /// directory so the path is within the scope and the config's
+  /// unanchored patterns still apply.
+  RebasedCurrentConfig(CanonicalizedPathBuf),
+}
+
+impl OutsideScopeConfig {
+  fn base_path(&self) -> &CanonicalizedPathBuf {
+    match self {
+      Self::ConfigFile(config_path) => &config_path.base_path,
+      Self::RebasedCurrentConfig(base_path) => base_path,
+    }
   }
 }
 

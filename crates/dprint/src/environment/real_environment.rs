@@ -39,6 +39,7 @@ use super::DirEntry;
 use super::DownloadedFile;
 use super::Environment;
 use super::FilePermissions;
+use super::PathKind;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
 use crate::utils::FastInsecureHasher;
@@ -453,6 +454,25 @@ impl Environment for RealEnvironment {
     log_debug!(self, "Checking path exists: {}", file_path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     file_path.as_ref().exists()
+  }
+
+  fn path_is_file(&self, file_path: impl AsRef<Path>) -> bool {
+    log_debug!(self, "Checking path is file: {}", file_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
+    file_path.as_ref().is_file()
+  }
+
+  fn path_kind(&self, file_path: impl AsRef<Path>) -> Option<PathKind> {
+    log_debug!(self, "Statting path: {}", file_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
+    let file_type = file_path.as_ref().symlink_metadata().ok()?.file_type();
+    Some(if file_type.is_symlink() {
+      PathKind::Symlink
+    } else if file_type.is_dir() {
+      PathKind::Dir
+    } else {
+      PathKind::File
+    })
   }
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {

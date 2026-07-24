@@ -142,6 +142,17 @@ impl SubCommand {
     }
   }
 
+  /// Whether a specified path that can't be resolved should be skipped with a
+  /// warning instead of erroring (ex. a path outside the config's directory
+  /// that has no config file of its own).
+  ///
+  /// `output-file-paths` always allows this because it's the command users are
+  /// pointed at to diagnose which files dprint is finding, so it should show
+  /// what it did resolve rather than fail.
+  pub fn allow_skipping_paths(&self) -> bool {
+    self.allow_no_files() || matches!(self, SubCommand::OutputFilePaths(_))
+  }
+
   pub fn file_patterns(&self) -> Option<&FilePatternArgs> {
     match self {
       SubCommand::Check(a) => Some(&a.patterns),
@@ -257,7 +268,7 @@ pub enum HiddenSubCommand {
   WindowsUninstall(String),
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct FilePatternArgs {
   pub include_patterns: Vec<String>,
   pub include_pattern_overrides: Option<Vec<String>>,
