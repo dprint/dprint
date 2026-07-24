@@ -10,6 +10,18 @@ use super::is_pattern;
 use super::non_negated_glob;
 use super::unescape_glob_text;
 
+/// What a pattern does with the files it matches, which decides whether naming
+/// a directory also covers everything within it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GlobPatternKind {
+  /// Naming a directory only matches that path (ex. a config `includes` entry
+  /// of `sub` doesn't pull in `sub/file.ts`—that needs `sub/**`).
+  Include,
+  /// Naming a directory excludes everything within it, the same way gitignore
+  /// and a traversal that prunes the directory behave.
+  Exclude,
+}
+
 #[derive(Debug)]
 pub struct GlobPatterns {
   pub arg_includes: Option<Vec<GlobPattern>>,
@@ -30,7 +42,7 @@ impl GlobPatterns {
       .flat_map(|i| i.iter())
       .chain(self.config_includes.iter().flat_map(|i| i.iter()))
       .filter_map(|pattern| {
-        if !is_pattern(&pattern.relative_pattern) {
+        if !is_pattern(&pattern.relative_pattern) && !pattern.is_negated() {
           // unescape so an escaped literal (ex. `./\[id\].svelte`) resolves
           // to the actual file path
           Some(pattern.base_dir.join(unescape_glob_text(&pattern.relative_pattern).as_ref()))
@@ -157,7 +169,7 @@ impl GlobPattern {
     }
   }
 
-  pub fn into_new_base(self, new_base_dir: CanonicalizedPathBuf) -> Option<Self> {
+  pub fn into_new_base(self, new_base_dir: CanonicalizedPathBuf, kind: GlobPatternKind) -> Option<Self> {
     if self.base_dir == new_base_dir {
       Some(self)
     } else if let Ok(prefix) = self.base_dir.strip_prefix(&new_base_dir) {
@@ -229,10 +241,16 @@ impl GlobPattern {
         .split(if cfg!(windows) { if prefix.contains('\\') { '\\' } else { '/' } } else { '/' })
         .collect::<VecDeque<_>>();
 
+      // an exclude naming a directory covers everything within it, so a
+      // pattern that names an ancestor of the new base becomes `**`. This
+      // doesn't apply to includes, where naming a directory only matches that
+      // one path.
+      let covers_new_base = kind == GlobPatternKind::Exclude;
+
       // an empty pattern (ex. `--excludes ..` resolving to its base directory)
       // names the old base directory, an ancestor of the new base
       if pattern.is_empty() {
-        return Some(GlobPattern::new(build_pattern("**"), new_base_dir));
+        return covers_new_base.then(|| GlobPattern::new(build_pattern("**"), new_base_dir));
       }
 
       loop {
@@ -243,7 +261,8 @@ impl GlobPattern {
         // a final pattern component naming this directory means the pattern
         // covers the new base directory, so it applies to everything within
         // (ex. an `--excludes ../other` arg rebased into a scope at `other`)
-        if !pattern.contains('/')
+        if covers_new_base
+          && !pattern.contains('/')
           && let Some(first_item) = prefix.front()
           && (pattern == "*" || unescape_glob_text(pattern) == *first_item)
         {
@@ -306,6 +325,16 @@ impl GlobPattern {
 mod test {
   use super::*;
 
+  /// Rebases the pattern, asserting both kinds agree. The cases where include
+  /// and exclude semantics differ are asserted with explicit kinds instead.
+  #[track_caller]
+  fn into_new_base(pattern: GlobPattern, new_base_dir: CanonicalizedPathBuf) -> Option<GlobPattern> {
+    let as_include = pattern.clone().into_new_base(new_base_dir.clone(), GlobPatternKind::Include);
+    let as_exclude = pattern.into_new_base(new_base_dir, GlobPatternKind::Exclude);
+    assert_eq!(as_include, as_exclude);
+    as_exclude
+  }
+
   #[test]
   fn should_invert() {
     let test_dir = CanonicalizedPathBuf::new_for_testing("/test");
@@ -325,7 +354,7 @@ mod test {
     assert_eq!(pattern.relative_pattern, "**/*");
     assert_eq!(pattern.base_dir, test_dir_dir);
 
-    let pattern = pattern.into_new_base(test_dir.clone()).unwrap();
+    let pattern = into_new_base(pattern, test_dir.clone()).unwrap();
     assert_eq!(pattern.relative_pattern, "./dir/**/*");
     assert_eq!(pattern.base_dir, test_dir);
   }
@@ -335,7 +364,7 @@ mod test {
     let root_dir = CanonicalizedPathBuf::new_for_testing("/");
     let test_dir_dir = CanonicalizedPathBuf::new_for_testing("/test/dir");
     let pattern = GlobPattern::new("./**/*".to_string(), test_dir_dir);
-    let pattern = pattern.into_new_base(root_dir.clone()).unwrap();
+    let pattern = into_new_base(pattern, root_dir.clone()).unwrap();
     assert_eq!(pattern.relative_pattern, "./test/dir/**/*");
     assert_eq!(pattern.base_dir, root_dir);
   }
@@ -349,11 +378,11 @@ mod test {
     assert_eq!(pattern.relative_pattern, "asdf");
     assert_eq!(pattern.base_dir, test_dir_dir);
 
-    let pattern = pattern.into_new_base(test_dir.clone()).unwrap();
+    let pattern = into_new_base(pattern, test_dir.clone()).unwrap();
     assert_eq!(pattern.relative_pattern, "./dir/**/asdf");
     assert_eq!(pattern.base_dir, test_dir);
 
-    let pattern = pattern.into_new_base(root_dir.clone()).unwrap();
+    let pattern = into_new_base(pattern, root_dir.clone()).unwrap();
     assert_eq!(pattern.relative_pattern, "./test/dir/**/asdf");
     assert_eq!(pattern.base_dir, root_dir);
   }
@@ -366,7 +395,7 @@ mod test {
     assert_eq!(pattern.base_dir, base_dir);
 
     let sibling_dir = CanonicalizedPathBuf::new_for_testing("/sibling");
-    assert_eq!(pattern.into_new_base(sibling_dir.clone()), None);
+    assert_eq!(into_new_base(pattern, sibling_dir.clone()), None);
   }
 
   #[test]
@@ -374,7 +403,7 @@ mod test {
     let base_dir = CanonicalizedPathBuf::new_for_testing("/base");
     let pattern = GlobPattern::new("**/*.ts".to_string(), base_dir.clone());
     let parent_dir = CanonicalizedPathBuf::new_for_testing("/");
-    let new_pattern = pattern.into_new_base(parent_dir.clone()).unwrap();
+    let new_pattern = into_new_base(pattern, parent_dir.clone()).unwrap();
     assert_eq!(new_pattern.base_dir, parent_dir);
     assert_eq!(new_pattern.relative_pattern, "./base/**/*.ts");
   }
@@ -386,14 +415,14 @@ mod test {
     // child
     {
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
-      let new_pattern = pattern.clone().into_new_base(child_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern.clone(), child_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, child_dir);
       assert_eq!(new_pattern.relative_pattern, "**/*.ts");
     }
     // grandchild
     {
       let grandchild_dir = CanonicalizedPathBuf::new_for_testing("/base/sub/dir");
-      let new_pattern = pattern.into_new_base(grandchild_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern, grandchild_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, grandchild_dir);
       assert_eq!(new_pattern.relative_pattern, "**/*.ts");
     }
@@ -401,59 +430,68 @@ mod test {
     {
       let pattern = GlobPattern::new("!**/*.ts".to_string(), base_dir.clone());
       let grandchild_dir = CanonicalizedPathBuf::new_for_testing("/base/sub/dir");
-      let new_pattern = pattern.into_new_base(grandchild_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern, grandchild_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, grandchild_dir);
       assert_eq!(new_pattern.relative_pattern, "!**/*.ts");
     }
   }
 
+  /// An exclude naming a directory covers everything within it, so it becomes
+  /// `**` in the new base. An include naming a directory only matches that one
+  /// path, so it has nothing to say about the directory's contents and is
+  /// dropped instead.
   #[test]
   fn should_handle_mapping_into_descendant_dir_the_pattern_names() {
     let base_dir = CanonicalizedPathBuf::new_for_testing("/base");
-    // the pattern naming the new base directory applies to everything within
+    // the pattern naming the new base directory
     {
       let pattern = GlobPattern::new("./sub".to_string(), base_dir.clone());
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
-      let new_pattern = pattern.into_new_base(child_dir.clone()).unwrap();
+      let new_pattern = pattern.clone().into_new_base(child_dir.clone(), GlobPatternKind::Exclude).unwrap();
       assert_eq!(new_pattern.base_dir, child_dir);
       assert_eq!(new_pattern.relative_pattern, "./**");
+      assert_eq!(pattern.into_new_base(child_dir, GlobPatternKind::Include), None);
     }
     // same for an ancestor of the new base directory
     {
       let pattern = GlobPattern::new("./sub".to_string(), base_dir.clone());
       let grandchild_dir = CanonicalizedPathBuf::new_for_testing("/base/sub/dir");
-      let new_pattern = pattern.into_new_base(grandchild_dir.clone()).unwrap();
+      let new_pattern = pattern.clone().into_new_base(grandchild_dir.clone(), GlobPatternKind::Exclude).unwrap();
       assert_eq!(new_pattern.base_dir, grandchild_dir);
       assert_eq!(new_pattern.relative_pattern, "./**");
+      assert_eq!(pattern.into_new_base(grandchild_dir, GlobPatternKind::Include), None);
     }
     // negated
     {
       let pattern = GlobPattern::new("!./sub".to_string(), base_dir.clone());
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
-      let new_pattern = pattern.into_new_base(child_dir.clone()).unwrap();
+      let new_pattern = pattern.into_new_base(child_dir, GlobPatternKind::Exclude).unwrap();
       assert_eq!(new_pattern.relative_pattern, "!./**");
     }
     // escaped glob characters in the name
     {
       let pattern = GlobPattern::new("./\\[sub\\]".to_string(), base_dir.clone());
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/[sub]");
-      let new_pattern = pattern.into_new_base(child_dir.clone()).unwrap();
+      let new_pattern = pattern.into_new_base(child_dir, GlobPatternKind::Exclude).unwrap();
       assert_eq!(new_pattern.relative_pattern, "./**");
     }
     // a * final component matches any directory name
     {
       let pattern = GlobPattern::new("./*".to_string(), base_dir.clone());
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
-      let new_pattern = pattern.into_new_base(child_dir.clone()).unwrap();
+      let new_pattern = pattern.clone().into_new_base(child_dir.clone(), GlobPatternKind::Exclude).unwrap();
       assert_eq!(new_pattern.relative_pattern, "./**");
+      // as an include, `./*` matches the directory but not what's inside it
+      assert_eq!(pattern.into_new_base(child_dir, GlobPatternKind::Include), None);
     }
     // an empty pattern names the old base directory itself
     // (ex. `--excludes ..` resolving to its base directory)
     {
       let pattern = GlobPattern::new("./".to_string(), base_dir.clone());
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
-      let new_pattern = pattern.into_new_base(child_dir.clone()).unwrap();
+      let new_pattern = pattern.clone().into_new_base(child_dir.clone(), GlobPatternKind::Exclude).unwrap();
       assert_eq!(new_pattern.relative_pattern, "./**");
+      assert_eq!(pattern.into_new_base(child_dir, GlobPatternKind::Include), None);
     }
   }
 
@@ -464,20 +502,20 @@ mod test {
     // child
     {
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
-      let new_pattern = pattern.clone().into_new_base(child_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern.clone(), child_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, child_dir);
       assert_eq!(new_pattern.relative_pattern, "*.ts");
     }
     // grandchild
     {
       let grandchild_dir = CanonicalizedPathBuf::new_for_testing("/base/sub/dir");
-      assert_eq!(pattern.into_new_base(grandchild_dir.clone()), None);
+      assert_eq!(into_new_base(pattern, grandchild_dir.clone()), None);
     }
     // negated
     {
       let pattern = GlobPattern::new("!*/*.ts".to_string(), base_dir.clone());
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
-      let new_pattern = pattern.into_new_base(child_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern, child_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, child_dir);
       assert_eq!(new_pattern.relative_pattern, "!*.ts");
     }
@@ -489,21 +527,21 @@ mod test {
     {
       let pattern = GlobPattern::new("./sub/a.ts".to_string(), base_dir.clone());
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
-      let new_pattern = pattern.into_new_base(child_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern, child_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, child_dir);
       assert_eq!(new_pattern.relative_pattern, "./a.ts");
     }
     {
       let pattern = GlobPattern::new("!./sub/a.ts".to_string(), base_dir.clone());
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
-      let new_pattern = pattern.into_new_base(child_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern, child_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, child_dir);
       assert_eq!(new_pattern.relative_pattern, "!./a.ts");
     }
     {
       let pattern = GlobPattern::new("./sub/**/*.ts".to_string(), base_dir.clone());
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
-      let new_pattern = pattern.into_new_base(child_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern, child_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, child_dir);
       assert_eq!(new_pattern.relative_pattern, "./**/*.ts");
     }
@@ -511,7 +549,7 @@ mod test {
       // deeper descendant
       let pattern = GlobPattern::new("./sub/nested/a.ts".to_string(), base_dir.clone());
       let descendant_dir = CanonicalizedPathBuf::new_for_testing("/base/sub/nested");
-      let new_pattern = pattern.into_new_base(descendant_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern, descendant_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, descendant_dir);
       assert_eq!(new_pattern.relative_pattern, "./a.ts");
     }
@@ -519,7 +557,7 @@ mod test {
       // not under the new base directory
       let pattern = GlobPattern::new("./other/a.ts".to_string(), base_dir.clone());
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
-      assert_eq!(pattern.into_new_base(child_dir), None);
+      assert_eq!(into_new_base(pattern, child_dir), None);
     }
   }
 
@@ -529,14 +567,14 @@ mod test {
     {
       let pattern = GlobPattern::new("**".to_string(), base_dir.clone());
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
-      let new_pattern = pattern.into_new_base(child_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern, child_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, child_dir);
       assert_eq!(new_pattern.relative_pattern, "**");
     }
     {
       let pattern = GlobPattern::new("./**".to_string(), base_dir.clone());
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
-      let new_pattern = pattern.into_new_base(child_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern, child_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, child_dir);
       assert_eq!(new_pattern.relative_pattern, "./**");
     }
@@ -544,14 +582,14 @@ mod test {
       // dir pattern expanded to dir/** rebased into a deeper descendant
       let pattern = GlobPattern::new("sub/**".to_string(), base_dir.clone());
       let descendant_dir = CanonicalizedPathBuf::new_for_testing("/base/sub/nested");
-      let new_pattern = pattern.into_new_base(descendant_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern, descendant_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, descendant_dir);
       assert_eq!(new_pattern.relative_pattern, "**");
     }
     {
       let pattern = GlobPattern::new("!**".to_string(), base_dir.clone());
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
-      let new_pattern = pattern.into_new_base(child_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern, child_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, child_dir);
       assert_eq!(new_pattern.relative_pattern, "!**");
     }
@@ -563,21 +601,21 @@ mod test {
     {
       let pattern = GlobPattern::new("!sub/*.ts".to_string(), base_dir.clone());
       let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
-      let new_pattern = pattern.clone().into_new_base(child_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern.clone(), child_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, child_dir);
       assert_eq!(new_pattern.relative_pattern, "!*.ts");
     }
     {
       let pattern = GlobPattern::new("sub/*/dir/*.ts".to_string(), base_dir.clone());
       let descendant_dir = CanonicalizedPathBuf::new_for_testing("/base/sub/something/dir");
-      let new_pattern = pattern.clone().into_new_base(descendant_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern.clone(), descendant_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, descendant_dir);
       assert_eq!(new_pattern.relative_pattern, "*.ts");
     }
     {
       let pattern = GlobPattern::new("!sub/*/dir/*.ts".to_string(), base_dir.clone());
       let descendant_dir = CanonicalizedPathBuf::new_for_testing("/base/sub/something");
-      let new_pattern = pattern.clone().into_new_base(descendant_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern.clone(), descendant_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, descendant_dir);
       assert_eq!(new_pattern.relative_pattern, "!dir/*.ts");
     }
@@ -585,7 +623,7 @@ mod test {
       let base_dir = CanonicalizedPathBuf::new_for_testing("C:\\base");
       let pattern = GlobPattern::new("!sub/*/dir/*.ts".to_string(), base_dir.clone());
       let descendant_dir = CanonicalizedPathBuf::new_for_testing("C:\\base\\sub\\something");
-      let new_pattern = pattern.clone().into_new_base(descendant_dir.clone()).unwrap();
+      let new_pattern = into_new_base(pattern.clone(), descendant_dir.clone()).unwrap();
       assert_eq!(new_pattern.base_dir, descendant_dir);
       assert_eq!(new_pattern.relative_pattern, "!dir/*.ts");
     }

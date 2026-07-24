@@ -14,6 +14,7 @@ use ignore::overrides::OverrideBuilder;
 use crate::environment::CanonicalizedPathBuf;
 
 use super::GlobPattern;
+use super::GlobPatternKind;
 use super::GlobPatterns;
 use super::is_pattern;
 use super::unescape_glob_text;
@@ -62,24 +63,24 @@ impl GlobMatcher {
     let config_excludes = patterns
       .config_excludes
       .into_iter()
-      .filter_map(|pattern| pattern.into_new_base(base_dir.clone()))
+      .filter_map(|pattern| pattern.into_new_base(base_dir.clone(), GlobPatternKind::Exclude))
       .collect::<Vec<_>>();
     let config_includes = patterns.config_includes.map(|includes| {
       includes
         .into_iter()
-        .filter_map(|pattern| pattern.into_new_base(base_dir.clone()))
+        .filter_map(|pattern| pattern.into_new_base(base_dir.clone(), GlobPatternKind::Include))
         .collect::<Vec<_>>()
     });
     let arg_includes = patterns.arg_includes.map(|includes| {
       includes
         .into_iter()
-        .filter_map(|pattern| pattern.into_new_base(base_dir.clone()))
+        .filter_map(|pattern| pattern.into_new_base(base_dir.clone(), GlobPatternKind::Include))
         .collect::<Vec<_>>()
     });
     let arg_excludes = patterns.arg_excludes.map(|excludes| {
       excludes
         .into_iter()
-        .filter_map(|pattern| pattern.into_new_base(base_dir.clone()))
+        .filter_map(|pattern| pattern.into_new_base(base_dir.clone(), GlobPatternKind::Exclude))
         .collect::<Vec<_>>()
     });
 
@@ -302,9 +303,11 @@ fn literal_relative_path(pattern: &GlobPattern) -> Option<PathBuf> {
   Some(PathBuf::from(unescape_glob_text(relative).as_ref()))
 }
 
+/// Adds an include pattern to the override builder (only the include matcher
+/// uses overrides—excludes go straight into a gitignore matcher).
 fn add_override_pattern(builder: &mut OverrideBuilder, pattern: &GlobPattern, base_dir: &CanonicalizedPathBuf) -> Result<()> {
   if pattern.base_dir != *base_dir {
-    match pattern.clone().into_new_base(base_dir.clone()) {
+    match pattern.clone().into_new_base(base_dir.clone(), GlobPatternKind::Include) {
       Some(pattern) => {
         builder.add(&normalize_pattern(&pattern))?;
       }

@@ -261,11 +261,9 @@ pub trait Environment:
   /// (e.g. on Windows a running executable can't be removed). This is best-effort
   /// and never fails.
   fn kill_processes_using_dir(&self, dir_path: impl AsRef<Path>) -> usize;
-  /// Gets whether anything exists at the path (a broken symlink counts as
-  /// existing).
-  fn path_exists(&self, path: impl AsRef<Path>) -> bool {
-    self.path_kind(path).is_some()
-  }
+  /// Gets whether anything exists at the path (follows symlinks, so a broken
+  /// symlink does not count as existing).
+  fn path_exists(&self, path: impl AsRef<Path>) -> bool;
   /// Gets whether the path exists and is a file (follows symlinks).
   fn path_is_file(&self, path: impl AsRef<Path>) -> bool;
   /// Stats the path in a single call, saying whether it's a file, directory,

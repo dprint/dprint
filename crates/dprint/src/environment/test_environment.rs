@@ -631,6 +631,11 @@ impl Environment for TestEnvironment {
     Ok(entries)
   }
 
+  fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
+    let path = self.clean_path(file_path);
+    self.sys.fs_exists_no_err(path)
+  }
+
   fn path_is_file(&self, file_path: impl AsRef<Path>) -> bool {
     let path = self.clean_path(file_path);
     self.sys.fs_is_file_no_err(path)

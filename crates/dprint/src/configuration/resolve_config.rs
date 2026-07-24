@@ -20,6 +20,7 @@ use crate::environment::Environment;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::parse_plugin_source_reference;
 use crate::utils::GlobPattern;
+use crate::utils::GlobPatternKind;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::ResolvedFilePathWithText;
@@ -259,7 +260,7 @@ fn inherit_excludes(
     .iter()
     .filter_map(|pattern| {
       GlobPattern::new(pattern.clone(), ancestor_base.clone())
-        .into_new_base(new_base.clone())
+        .into_new_base(new_base.clone(), GlobPatternKind::Exclude)
         .map(|p| p.relative_pattern)
     })
     .collect::<Vec<_>>();

@@ -704,7 +704,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       return Ok(Some(OutsideScopeConfig::ConfigFile(config_path)));
     }
 
-    if self.args.sub_command.allow_no_files() {
+    if self.args.sub_command.allow_skipping_paths() {
       log_warn!(
         self.environment,
         "WARNING: Skipping '{}' because no dprint config file was found for it.",

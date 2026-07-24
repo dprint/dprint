@@ -2391,6 +2391,29 @@ mod test {
   }
 
   #[test]
+  fn should_skip_outside_path_without_config_when_outputting_file_paths() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/project/a.txt", "a")
+      .write_file("/other/file.txt", "text")
+      .set_cwd("/project")
+      .initialize()
+      .build();
+
+    // this is the command users are told to run to see what dprint is finding,
+    // so it should show what it resolved rather than error out
+    run_test_cli(vec!["output-file-paths", "a.txt", "../other/file.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec!["/project/a.txt"]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["WARNING: Skipping '/other/file.txt' because no dprint config file was found for it."]
+    );
+  }
+
+  #[test]
   fn should_format_files_with_specific_config_includes() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
