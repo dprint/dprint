@@ -220,11 +220,17 @@ fn get_config_exclude_file_patterns(
   // and make this work with that
   if !args.allow_node_modules {
     // glob walker will not search the children of a directory once it's ignored like this
+    //
+    // A pattern only applies below its own base directory, so base it at both the cwd and
+    // the config's base path: the cwd covers a config that lives above the cwd, while the
+    // config's base path covers what the cwd can't reach (ex. an ancestor dir arg like
+    // `dprint fmt ..` or a path outside the config's directory). The dedup below handles
+    // the two being the same directory.
     let node_modules_exclude = String::from("**/node_modules");
-    let mut exclude_node_module_patterns = vec![GlobPattern::new(node_modules_exclude.clone(), cwd.clone())];
-    if !cwd.starts_with(&config.base_path) {
-      exclude_node_module_patterns.push(GlobPattern::new(node_modules_exclude, config.base_path.clone()));
-    }
+    let exclude_node_module_patterns = [
+      GlobPattern::new(node_modules_exclude.clone(), cwd.clone()),
+      GlobPattern::new(node_modules_exclude, config.base_path.clone()),
+    ];
     for node_modules_exclude in exclude_node_module_patterns {
       if !file_patterns.contains(&node_modules_exclude) {
         file_patterns.push(node_modules_exclude);
