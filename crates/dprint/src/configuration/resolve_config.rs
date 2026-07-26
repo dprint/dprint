@@ -331,8 +331,12 @@ async fn handle_config_file<TEnvironment: Environment>(
   };
   // =========
 
-  // combine plugins
+  // combine plugins, keeping the higher-precedence (earlier) entry when the same
+  // plugin is specified both here and in the config it extends. Without this a
+  // plugin listed in both would appear twice and, sharing a config key, cause
+  // the extended configuration to be ignored (see issue #1043).
   resolved_config.plugins.extend(plugins);
+  resolved_config.plugins = filter_duplicate_plugin_sources(std::mem::take(&mut resolved_config.plugins));
 
   merge_config_map_into(&mut resolved_config.config_map, new_config_map)?;
 
@@ -892,6 +896,58 @@ mod tests {
       assert_eq!(result.config_map, expected_config_map);
       let logged_warnings = environment.take_stderr_messages();
       assert_eq!(logged_warnings, vec![get_warn_includes_message()]);
+    });
+  }
+
+  #[test]
+  fn should_dedupe_plugin_specified_in_both_local_and_extended_config() {
+    // https://github.com/dprint/dprint/issues/1043
+    // A plugin specified locally that is also specified by an extended config
+    // must not be duplicated in the resolved plugins. Previously the extended
+    // config's plugins were appended without deduplication, producing two
+    // entries for the same plugin (and thus the same config key), which caused
+    // the extended configuration to be ignored.
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r#"{
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"],
+            "lineWidth": 4,
+            "test": {
+                "prop": 6
+            },
+            "excludes": ["test-excludes"]
+        }"#
+        .as_bytes(),
+    );
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{
+            "extends": "https://dprint.dev/test.json",
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      // the plugin must appear only once
+      assert_eq!(
+        result.plugins,
+        vec![PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm")]
+      );
+      // and the extended config's settings must be preserved
+      assert_eq!(result.excludes, Some(vec!["test-excludes".to_string()]));
+      assert_eq!(
+        result.config_map.get("test"),
+        Some(&ConfigMapValue::PluginConfig(RawPluginConfig {
+          locked: false,
+          associations: None,
+          overrides: Vec::new(),
+          properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(6))]),
+        }))
+      );
     });
   }
 
