@@ -58,6 +58,18 @@ Install using one of the methods below.
   uv run dprint help
   ```
 
+  [mise](https://mise.jdx.dev):
+
+  ```sh
+  # for your project
+  mise use dprint
+  mise x dpirnt -- dprint help
+
+  # or install globally
+  mise use dprint --global
+  dprint help
+  ```
+
 - [asdf-vm](https://asdf-vm.com/) ([asdf-dprint](https://github.com/asdf-community/asdf-dprint)):
 
   ```sh
