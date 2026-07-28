@@ -63,7 +63,7 @@ Install using one of the methods below.
   ```sh
   # for your project
   mise use dprint
-  mise x dpirnt -- dprint help
+  mise x dprint -- dprint help
 
   # or install globally
   mise use dprint --global
