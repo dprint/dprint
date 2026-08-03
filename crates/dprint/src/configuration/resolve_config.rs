@@ -1971,6 +1971,12 @@ mod tests {
     // ...including when it names an ancestor other than the first one below the base
     assert_eq!(inherited_excludes(&["nested"], "/", "/sub/nested"), Some(vec!["**".to_string()]));
     assert_eq!(inherited_excludes(&["nested"], "/", "/sub/nested/deep"), Some(vec!["**".to_string()]));
+    // ...and when it names one with a wildcard
+    assert_eq!(inherited_excludes(&["su*"], "/", "/sub"), Some(vec!["**".to_string()]));
+    assert_eq!(inherited_excludes(&["neste*"], "/", "/sub/nested"), Some(vec!["**".to_string()]));
+    assert_eq!(inherited_excludes(&["**/sub"], "/", "/sub/nested"), Some(vec!["**".to_string()]));
+    // a wildcard matching none of them keeps matching its name at any depth
+    assert_eq!(inherited_excludes(&["ot*"], "/", "/sub"), Some(vec!["ot*".to_string()]));
     // a pattern is normalized the way the ancestor config interprets it before
     // rebasing, so a backslash separator is a separator and not part of a name
     assert_eq!(inherited_excludes(&["dist\\sub"], "/", "/sub"), None);

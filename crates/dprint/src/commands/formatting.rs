@@ -814,7 +814,13 @@ mod test {
     // the implicit node_modules exclude is based at the config's directory, so
     // it applies the same way it does when running from the config's directory
     // (`--allow-node-modules` is the way to opt out of this)
-    for args in [vec!["fmt", "file.txt"], vec!["fmt"]] {
+    for args in [
+      vec!["fmt", "file.txt"],
+      vec!["fmt"],
+      // an includes override moves the matcher's base to the cwd, but the exclude
+      // still has to reach the `node_modules` directory the cwd sits inside
+      vec!["fmt", "--includes-override", "**/*.txt"],
+    ] {
       let error = run_test_cli(args, &environment).err().unwrap();
       assert!(error.to_string().starts_with("No files found to format"), "{}", error);
       error.assert_exit_code(14);
