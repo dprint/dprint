@@ -780,7 +780,7 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.68.2"
+version = "0.68.3"
 dependencies = [
  "async-trait",
  "bumpalo",
