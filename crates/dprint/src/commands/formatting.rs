@@ -1008,6 +1008,51 @@ mod test {
   }
 
   #[test]
+  fn should_use_extended_config_when_specifying_same_plugin_as_extended_config() {
+    // https://github.com/dprint/dprint/issues/1043
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "shared-ending" }"#);
+      })
+      .with_default_config(|c| {
+        c.add_config_section("extends", r#""https://dprint.dev/shared.json""#).add_remote_wasm_plugin();
+      })
+      .write_file("/file.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_shared-ending");
+  }
+
+  #[test]
+  fn should_use_extended_config_when_specifying_different_version_of_extended_config_plugin() {
+    // https://github.com/dprint/dprint/issues/1043
+    // The local config pins a newer version of a plugin that the config it extends
+    // also specifies. The local version wins and still picks up the extended
+    // config's configuration for it.
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .add_remote_wasm_0_1_0_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_remote_wasm_plugin_0_1_0()
+          .add_config_section("test-plugin", r#"{ "ending": "shared-ending" }"#);
+      })
+      .with_default_config(|c| {
+        c.add_config_section("extends", r#""https://dprint.dev/shared.json""#).add_remote_wasm_plugin();
+      })
+      .write_file("/file.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_shared-ending");
+  }
+
+  #[test]
   fn should_ignore_config_file_in_start_dir_when_config_file_url_specified() {
     // a remote config file has no local path, so nothing identifies the local
     // config file in the directory the traversal starts in as the one in use

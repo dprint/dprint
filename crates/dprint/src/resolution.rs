@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::hash::Hasher;
 use std::path::Path;
 use std::path::PathBuf;
@@ -976,7 +977,7 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<PluginsScope<TEnvironment>, ResolvePluginsError> {
   // resolve the plugins
-  let plugins = plugin_resolver.resolve_plugins(config.plugins.clone()).await?;
+  let plugins = filter_duplicate_plugin_names(plugin_resolver.resolve_plugins(config.plugins.clone()).await?);
   let mut config_map = config.config_map.clone();
 
   // resolve each plugin's configuration
@@ -1029,6 +1030,21 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   }
 
   Ok(PluginsScope::new(environment.clone(), plugins, config, global_config_result.diagnostics)?)
+}
+
+/// Keeps only the highest precedence plugin for each plugin name.
+///
+/// The same plugin may end up specified more than once with different sources
+/// (ex. a config pinning a newer version of a plugin that the config it extends
+/// also specifies). Plugins are ordered by descending precedence, so the first
+/// entry for a name wins.
+///
+/// This can't be done when resolving the configuration because a plugin's name
+/// is only known once it has been resolved.
+fn filter_duplicate_plugin_names(plugins: Vec<Rc<PluginWrapper>>) -> Vec<Rc<PluginWrapper>> {
+  let mut names = HashSet::with_capacity(plugins.len());
+
+  plugins.into_iter().filter(|plugin| names.insert(plugin.info().name.clone())).collect()
 }
 
 fn resolve_plugin_config_overrides<TEnvironment: Environment>(
