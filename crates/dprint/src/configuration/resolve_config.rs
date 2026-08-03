@@ -7,6 +7,7 @@ use deno_terminal::colors;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::configuration::ConfigKeyValue;
+use indexmap::IndexMap;
 use thiserror::Error;
 
 use crate::arg_parser::CliArgs;
@@ -613,12 +614,28 @@ fn get_warn_non_wasm_plugins_message() -> String {
   )
 }
 
+/// Removes plugins that specify the same source, keeping the highest precedence
+/// (earliest) entry.
+///
+/// A discarded duplicate's checksum is kept when the entry that wins doesn't
+/// specify one. Otherwise a config that specifies a plugin without a checksum
+/// would discard the checksum specified for it by a lower precedence config
+/// (ex. a shared config being extended), which either silently drops the
+/// integrity check for a Wasm plugin or fails outright for a process plugin
+/// because those require a checksum.
 fn filter_duplicate_plugin_sources(plugin_sources: Vec<PluginSourceReference>) -> Vec<PluginSourceReference> {
-  let mut path_source_set = std::collections::HashSet::new();
+  let mut checksums_by_path_source: IndexMap<PathSource, Option<String>> = IndexMap::with_capacity(plugin_sources.len());
 
-  plugin_sources
+  for plugin_source in plugin_sources {
+    let checksum = checksums_by_path_source.entry(plugin_source.path_source).or_default();
+    if checksum.is_none() {
+      *checksum = plugin_source.checksum;
+    }
+  }
+
+  checksums_by_path_source
     .into_iter()
-    .filter(|source| path_source_set.insert(source.path_source.clone()))
+    .map(|(path_source, checksum)| PluginSourceReference { path_source, checksum })
     .collect()
 }
 
@@ -956,6 +973,72 @@ mod tests {
           overrides: Vec::new(),
           properties: ConfigKeyMap::from([(String::from("prop"), ConfigKeyValue::from_i32(6))]),
         }))
+      );
+    });
+  }
+
+  #[test]
+  fn should_keep_extended_config_checksum_for_plugin_specified_without_one() {
+    // deduping the plugin must not discard the checksum the extended config
+    // specified for it, otherwise the integrity check is silently dropped
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r#"{
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm@checksum"]
+        }"#
+        .as_bytes(),
+    );
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{
+            "extends": "https://dprint.dev/test.json",
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(
+        result.plugins,
+        vec![PluginSourceReference {
+          path_source: PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+          checksum: Some(String::from("checksum")),
+        }]
+      );
+    });
+  }
+
+  #[test]
+  fn should_use_own_checksum_over_extended_config_checksum() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r#"{
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm@extended-checksum"]
+        }"#
+        .as_bytes(),
+    );
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{
+            "extends": "https://dprint.dev/test.json",
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm@local-checksum"]
+        }"#,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(
+        result.plugins,
+        vec![PluginSourceReference {
+          path_source: PathSource::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm"),
+          checksum: Some(String::from("local-checksum")),
+        }]
       );
     });
   }

@@ -3727,6 +3727,61 @@ mod test {
   }
 
   #[test]
+  fn should_use_extended_config_checksum_for_wasm_plugin_specified_without_one() {
+    // the plugin is deduped down to the local config's entry, which specifies no
+    // checksum, so the extended config's checksum must carry over to it
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_remote_wasm_plugin_with_checksum("asdf");
+      })
+      .with_default_config(|c| {
+        c.add_config_section("extends", r#""https://dprint.dev/shared.json""#).add_remote_wasm_plugin();
+      })
+      .write_file("/test.txt", "")
+      .build();
+    let actual_plugin_file_checksum = test_helpers::get_test_wasm_plugin_checksum();
+    let err = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
+    err.assert_exit_code(12);
+
+    assert_eq!(
+      err.to_string(),
+      format!(
+        concat!(
+          "Error resolving plugin https://plugins.dprint.dev/test-plugin.wasm: Invalid checksum specified ",
+          "in configuration file. Check the plugin's release notes for what the expected checksum is.\n\n",
+          "The checksum did not match the expected checksum.\n\n",
+          "Actual: {}\n",
+          "Expected: asdf"
+        ),
+        actual_plugin_file_checksum,
+      )
+    );
+  }
+
+  #[test]
+  fn should_use_extended_config_checksum_for_process_plugin_specified_without_one() {
+    // a process plugin requires a checksum, so dropping the extended config's
+    // checksum when deduping would fail this outright
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_local_config("/shared.json", |c| {
+        c.add_remote_process_plugin();
+      })
+      .with_default_config(|c| {
+        c.add_config_section("extends", r#""./shared.json""#)
+          .add_plugin("https://plugins.dprint.dev/test-process.json");
+      })
+      .write_file("/test.txt_ps", "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "*.*"], &environment).unwrap();
+
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
+    assert_eq!(environment.read_file("/test.txt_ps").unwrap(), "text_formatted_process");
+  }
+
+  #[test]
   fn should_error_if_process_plugin_has_wrong_checksum_in_config() {
     let environment = TestEnvironmentBuilder::with_remote_process_plugin()
       .with_default_config(|c| {
