@@ -334,7 +334,7 @@ pub fn process_config_patterns(file_patterns: &[String]) -> impl Iterator<Item =
   file_patterns.iter().map(|p| process_config_pattern(p))
 }
 
-fn process_config_pattern(file_pattern: &str) -> String {
+pub fn process_config_pattern(file_pattern: &str) -> String {
   let file_pattern = process_file_pattern_slashes(file_pattern);
   // make config patterns that start with `/` be relative
   if file_pattern.starts_with('/') {

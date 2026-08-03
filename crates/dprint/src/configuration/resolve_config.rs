@@ -17,6 +17,7 @@ use crate::configuration::ConfigMapValue;
 use crate::configuration::deserialize_config;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
+use crate::patterns::process_config_pattern;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::parse_plugin_source_reference;
 use crate::utils::GlobPattern;
@@ -259,7 +260,10 @@ fn inherit_excludes(
   let mut result = ancestor
     .iter()
     .filter_map(|pattern| {
-      GlobPattern::new(pattern.clone(), ancestor_base.clone())
+      // normalize the same way the ancestor config's own excludes are (ex. backslash
+      // path separators, a leading `/` meaning the config's directory) so the rebase
+      // sees the pattern the way the ancestor interprets it
+      GlobPattern::new(process_config_pattern(pattern), ancestor_base.clone())
         .into_new_base(new_base.clone(), GlobPatternKind::Exclude)
         .map(|p| p.relative_pattern)
     })
@@ -1964,6 +1968,16 @@ mod tests {
     // case everything in the nested directory is excluded
     assert_eq!(inherited_excludes(&["sub"], "/", "/sub"), Some(vec!["**".to_string()]));
     assert_eq!(inherited_excludes(&["sub"], "/", "/sub/nested"), Some(vec!["**".to_string()]));
+    // ...including when it names an ancestor other than the first one below the base
+    assert_eq!(inherited_excludes(&["nested"], "/", "/sub/nested"), Some(vec!["**".to_string()]));
+    assert_eq!(inherited_excludes(&["nested"], "/", "/sub/nested/deep"), Some(vec!["**".to_string()]));
+    // a pattern is normalized the way the ancestor config interprets it before
+    // rebasing, so a backslash separator is a separator and not part of a name
+    assert_eq!(inherited_excludes(&["dist\\sub"], "/", "/sub"), None);
+    assert_eq!(inherited_excludes(&["sub\\dist"], "/", "/sub"), Some(vec!["dist".to_string()]));
+    // a leading `/` anchors to the ancestor config's directory
+    assert_eq!(inherited_excludes(&["/sub/dist"], "/", "/sub"), Some(vec!["./dist".to_string()]));
+    assert_eq!(inherited_excludes(&["/dist"], "/", "/sub"), None);
     // a pattern anchored into the nested directory is rebased to be relative to it
     assert_eq!(inherited_excludes(&["sub/dist"], "/", "/sub"), Some(vec!["dist".to_string()]));
     // an anchored pattern that points outside the nested directory is dropped
