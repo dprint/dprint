@@ -1006,7 +1006,9 @@ impl ClapExtensions for clap::Command {
       .arg(
         Arg::new("allow-node-modules")
           .long("allow-node-modules")
-          .help("Allows traversing node module directories (unstable - This flag will be renamed to be non-node specific in the future).")
+          .help(
+            "Allows traversing node module directories. This is implicit when the current working directory is within one (unstable - This flag will be renamed to be non-node specific in the future).",
+          )
           .num_args(0),
       )
       .arg(

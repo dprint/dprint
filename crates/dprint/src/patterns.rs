@@ -218,7 +218,10 @@ fn get_config_exclude_file_patterns(
 
   // todo(THIS PR): document removing this flag in favour of a !**/node_modules pattern
   // and make this work with that
-  if !args.allow_node_modules {
+  // `--allow-node-modules` is implicit when the cwd is within a `node_modules` directory:
+  // changing into one is deliberate, so excluding everything there would leave nothing to
+  // format no matter what the user asked for
+  if !args.allow_node_modules && !is_in_node_modules(cwd.as_ref()) {
     // glob walker will not search the children of a directory once it's ignored like this
     //
     // A pattern only applies below its own base directory, so base it at both the cwd and
@@ -248,6 +251,11 @@ pub fn process_cli_path_args(paths: &[PathBuf], cwd: &CanonicalizedPathBuf, envi
     .iter()
     .map(|path| process_cli_pattern(&path.to_string_lossy(), cwd, environment))
     .collect()
+}
+
+/// Whether the directory is a `node_modules` directory or is inside one.
+fn is_in_node_modules(dir: &Path) -> bool {
+  dir.components().any(|component| component.as_os_str() == "node_modules")
 }
 
 fn process_file_pattern_slashes(file_pattern: &str) -> String {
@@ -353,6 +361,18 @@ mod test {
   use crate::environment::TestEnvironment;
 
   use super::*;
+
+  #[test]
+  fn should_get_if_in_node_modules() {
+    assert!(is_in_node_modules(Path::new("/node_modules")));
+    assert!(is_in_node_modules(Path::new("/node_modules/pkg")));
+    assert!(is_in_node_modules(Path::new("/a/node_modules/pkg/sub")));
+    assert!(!is_in_node_modules(Path::new("/")));
+    assert!(!is_in_node_modules(Path::new("/a/sub")));
+    // only a whole component counts
+    assert!(!is_in_node_modules(Path::new("/a/my_node_modules/pkg")));
+    assert!(!is_in_node_modules(Path::new("/a/node_modules_old")));
+  }
 
   #[test]
   fn should_process_cli_patterns() {

@@ -802,7 +802,7 @@ mod test {
   }
 
   #[test]
-  fn should_ignore_files_in_node_modules_when_cwd_inside_one() {
+  fn should_allow_node_modules_implicitly_when_cwd_inside_one() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|config| {
         config.add_remote_wasm_plugin();
@@ -811,25 +811,41 @@ mod test {
       .set_cwd("/node_modules/pkg")
       .build();
 
-    // the implicit node_modules exclude is based at the config's directory, so
-    // it applies the same way it does when running from the config's directory
-    // (`--allow-node-modules` is the way to opt out of this)
+    // changing into a `node_modules` directory implicitly allows formatting
+    // there, since otherwise there would be nothing to format no matter what
+    // the user asked for
     for args in [
       vec!["fmt", "file.txt"],
       vec!["fmt"],
-      // an includes override moves the matcher's base to the cwd, but the exclude
-      // still has to reach the `node_modules` directory the cwd sits inside
+      // an includes override moves the matcher's base to the cwd, which must
+      // not change whether the implicit exclude applies
       vec!["fmt", "--includes-override", "**/*.txt"],
+      vec!["fmt", "--allow-node-modules"],
     ] {
-      let error = run_test_cli(args, &environment).err().unwrap();
-      assert!(error.to_string().starts_with("No files found to format"), "{}", error);
-      error.assert_exit_code(14);
-      assert_eq!(environment.read_file("/node_modules/pkg/file.txt").unwrap(), "text");
+      environment.write_file("/node_modules/pkg/file.txt", "text").unwrap();
+      run_test_cli(args, &environment).unwrap();
+      assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+      assert_eq!(environment.read_file("/node_modules/pkg/file.txt").unwrap(), "text_formatted");
     }
+  }
 
-    run_test_cli(vec!["fmt", "--allow-node-modules"], &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+  #[test]
+  fn should_allow_nested_node_modules_when_cwd_inside_one() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/node_modules/pkg/file.txt", "text")
+      .write_file("/node_modules/pkg/node_modules/dep/file.txt", "text")
+      .set_cwd("/node_modules/pkg")
+      .build();
+
+    // the implicit allow behaves exactly like passing the flag, so a nested
+    // `node_modules` below the cwd is formatted too
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
     assert_eq!(environment.read_file("/node_modules/pkg/file.txt").unwrap(), "text_formatted");
+    assert_eq!(environment.read_file("/node_modules/pkg/node_modules/dep/file.txt").unwrap(), "text_formatted");
   }
 
   #[test]
