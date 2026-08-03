@@ -8,6 +8,7 @@ use super::escape_glob_text;
 use super::is_negated_glob;
 use super::is_pattern;
 use super::non_negated_glob;
+use super::pattern_names_dir;
 use super::unescape_glob_text;
 
 /// What a pattern does with the files it matches, which decides whether naming
@@ -253,9 +254,33 @@ impl GlobPattern {
         return covers_new_base.then(|| GlobPattern::new(build_pattern("**"), new_base_dir));
       }
 
+      // A pattern that isn't anchored and has no internal slash (ex. `dist`,
+      // `*.min.js`, `dist/`) matches its name at any depth below the base
+      // directory, so it matches at any depth below the new base too and
+      // survives the rebase unchanged. It never consumes prefix components,
+      // so the loop below would find no sub match and incorrectly drop it.
+      if !is_anchored && !pattern.trim_end_matches('/').contains('/') {
+        // an exclude naming any directory between the old and new base means
+        // the new base sits inside an excluded directory, which covers
+        // everything within it
+        if covers_new_base && names_ancestor_of_new_base(pattern.trim_end_matches('/'), &prefix) {
+          return Some(GlobPattern::new(build_pattern("**"), new_base_dir));
+        }
+        return Some(GlobPattern::new(build_pattern(pattern), new_base_dir));
+      }
+
       loop {
         let mut found_sub_match = false;
         if pattern == "**" || pattern.starts_with("**/") {
+          // a `**/name` pattern floats by depth just like a slashless one, so it
+          // also covers the new base when it names one of the directories above it
+          if covers_new_base
+            && let Some(name) = pattern.strip_prefix("**/")
+            && !name.trim_end_matches('/').contains('/')
+            && names_ancestor_of_new_base(name.trim_end_matches('/'), &prefix)
+          {
+            return Some(GlobPattern::new(build_pattern("**"), new_base_dir));
+          }
           return Some(GlobPattern::new(build_pattern(pattern), new_base_dir));
         }
         // a final pattern component naming this directory means the pattern
@@ -264,7 +289,7 @@ impl GlobPattern {
         if covers_new_base
           && !pattern.contains('/')
           && let Some(first_item) = prefix.front()
-          && (pattern == "*" || unescape_glob_text(pattern) == *first_item)
+          && pattern_names_dir(pattern, first_item)
         {
           return Some(GlobPattern::new(build_pattern("**"), new_base_dir));
         }
@@ -278,11 +303,12 @@ impl GlobPattern {
           }
           found_sub_match = true;
         }
-        // check for a match for the name (unescaping so an escaped literal
-        // part like `\[a\]` matches the actual directory name)
+        // check for a match for the name (an escaped literal part like `\[a\]`
+        // matches the actual directory name, and a wildcard part like `su*`
+        // matches what it would match when the pattern is finally matched)
         let first_item = prefix.front().unwrap();
         if let Some((first_part, new_pattern)) = pattern.split_once('/')
-          && unescape_glob_text(first_part) == *first_item
+          && pattern_names_dir(first_part, first_item)
         {
           pattern = new_pattern;
           prefix.pop_front();
@@ -319,6 +345,13 @@ impl GlobPattern {
     }
     base
   }
+}
+
+/// Whether a single component pattern names any of the directories between the
+/// pattern's base directory and the new base, which for an exclude means the
+/// new base sits inside an excluded directory.
+fn names_ancestor_of_new_base(name: &str, prefix: &VecDeque<&str>) -> bool {
+  prefix.iter().any(|part| pattern_names_dir(name, part))
 }
 
 #[cfg(test)]
@@ -492,6 +525,91 @@ mod test {
       let new_pattern = pattern.clone().into_new_base(child_dir.clone(), GlobPatternKind::Exclude).unwrap();
       assert_eq!(new_pattern.relative_pattern, "./**");
       assert_eq!(pattern.into_new_base(child_dir, GlobPatternKind::Include), None);
+    }
+  }
+
+  /// A pattern that isn't anchored and has no slash matches its name at any
+  /// depth, so it survives being rebased into a descendant directory.
+  #[test]
+  fn should_handle_mapping_depth_floating_pattern_into_descendant_dir() {
+    let base_dir = CanonicalizedPathBuf::new_for_testing("/base");
+    let child_dir = CanonicalizedPathBuf::new_for_testing("/base/sub");
+    let descendant_dir = CanonicalizedPathBuf::new_for_testing("/base/sub/nested");
+    // kept as-is no matter how deep the new base is
+    for pattern_text in ["dist", "*.min.js", "dist/", "!dist"] {
+      for new_base_dir in [&child_dir, &descendant_dir] {
+        let pattern = GlobPattern::new(pattern_text.to_string(), base_dir.clone());
+        let new_pattern = into_new_base(pattern, new_base_dir.clone()).unwrap();
+        assert_eq!(new_pattern.base_dir, *new_base_dir);
+        assert_eq!(new_pattern.relative_pattern, pattern_text);
+      }
+    }
+    // an exclude naming a directory the new base is within covers everything in it
+    for pattern_text in ["sub", "sub/", "*", "\\[sub\\]"] {
+      let new_base_dir = if pattern_text.starts_with('\\') {
+        CanonicalizedPathBuf::new_for_testing("/base/[sub]/nested")
+      } else {
+        descendant_dir.clone()
+      };
+      let pattern = GlobPattern::new(pattern_text.to_string(), base_dir.clone());
+      let new_pattern = pattern.clone().into_new_base(new_base_dir.clone(), GlobPatternKind::Exclude).unwrap();
+      assert_eq!(new_pattern.base_dir, new_base_dir);
+      assert_eq!(new_pattern.relative_pattern, "**");
+      // an include naming a directory says nothing about its contents, so it
+      // stays a name match at any depth below the new base
+      let new_pattern = pattern.into_new_base(new_base_dir, GlobPatternKind::Include).unwrap();
+      assert_eq!(new_pattern.relative_pattern, pattern_text);
+    }
+    // ...including when the name is a wildcard that matches the directory
+    for pattern_text in ["su*", "?ub", "[sd]ub", "s{ub,omething}"] {
+      let pattern = GlobPattern::new(pattern_text.to_string(), base_dir.clone());
+      let new_pattern = pattern.into_new_base(descendant_dir.clone(), GlobPatternKind::Exclude).unwrap();
+      assert_eq!(new_pattern.relative_pattern, "**");
+    }
+    // ...and when the name is one of the directories above the new base rather
+    // than the first one below the old base
+    for pattern_text in ["nested", "neste*"] {
+      let pattern = GlobPattern::new(pattern_text.to_string(), base_dir.clone());
+      let new_pattern = pattern.into_new_base(descendant_dir.clone(), GlobPatternKind::Exclude).unwrap();
+      assert_eq!(new_pattern.relative_pattern, "**");
+    }
+    // a wildcard that doesn't match any of them keeps floating by depth
+    for pattern_text in ["ot*", "[abc]ub"] {
+      let pattern = GlobPattern::new(pattern_text.to_string(), base_dir.clone());
+      let new_pattern = pattern.into_new_base(descendant_dir.clone(), GlobPatternKind::Exclude).unwrap();
+      assert_eq!(new_pattern.relative_pattern, pattern_text);
+    }
+    // an anchored pattern is unaffected (it only matches at its own base)
+    {
+      let pattern = GlobPattern::new("./dist".to_string(), base_dir.clone());
+      assert_eq!(pattern.into_new_base(child_dir, GlobPatternKind::Include), None);
+    }
+  }
+
+  /// A `**/name` pattern floats by depth the same way a slashless one does, so
+  /// it also covers a new base that sits inside a directory it names.
+  #[test]
+  fn should_handle_mapping_depth_floating_glob_star_pattern_into_descendant_dir() {
+    let base_dir = CanonicalizedPathBuf::new_for_testing("/base");
+    let inside_dir = CanonicalizedPathBuf::new_for_testing("/base/node_modules/pkg");
+    // an exclude whose name is a directory the new base is within covers it all
+    for pattern_text in ["**/node_modules", "**/node_modules/", "**/node_module*"] {
+      let pattern = GlobPattern::new(pattern_text.to_string(), base_dir.clone());
+      let new_pattern = pattern.into_new_base(inside_dir.clone(), GlobPatternKind::Exclude).unwrap();
+      assert_eq!(new_pattern.base_dir, inside_dir);
+      assert_eq!(new_pattern.relative_pattern, "**");
+    }
+    // an include says nothing about the contents, so it keeps floating by depth
+    {
+      let pattern = GlobPattern::new("**/node_modules".to_string(), base_dir.clone());
+      let new_pattern = pattern.into_new_base(inside_dir.clone(), GlobPatternKind::Include).unwrap();
+      assert_eq!(new_pattern.relative_pattern, "**/node_modules");
+    }
+    // one that names none of the directories above the new base is unaffected
+    for pattern_text in ["**/dist", "**/node_modules/dist", "**"] {
+      let pattern = GlobPattern::new(pattern_text.to_string(), base_dir.clone());
+      let new_pattern = pattern.into_new_base(inside_dir.clone(), GlobPatternKind::Exclude).unwrap();
+      assert_eq!(new_pattern.relative_pattern, pattern_text);
     }
   }
 

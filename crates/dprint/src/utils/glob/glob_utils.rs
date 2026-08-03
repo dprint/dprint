@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use ignore::gitignore::GitignoreBuilder;
+
 pub fn is_negated_glob(pattern: &str) -> bool {
   let mut chars = pattern.chars();
   let first_char = chars.next();
@@ -23,9 +25,35 @@ pub fn is_pattern(pattern: &str) -> bool {
       return true;
     }
 
-    was_last_escape = matches!(c, '\\');
+    // consume backslashes in pairs the same way `unescape_glob_text` does so
+    // an escaped backslash doesn't escape the character after it
+    // (ex. the `*` in `a\\*b` is a glob star)
+    was_last_escape = c == '\\' && !was_last_escape;
   }
   false
+}
+
+/// Whether a single path component pattern (ex. `dist`, `su*`, `[sd]ist`)
+/// names the given directory.
+///
+/// Matching goes through the same gitignore engine the exclude matcher uses so
+/// a wildcard means here what it means when the pattern is finally matched.
+pub fn pattern_names_dir(pattern: &str, dir_name: &str) -> bool {
+  if !is_pattern(pattern) {
+    return unescape_glob_text(pattern) == dir_name;
+  }
+  // a component pattern can't match a name containing a separator
+  if dir_name.contains('/') || dir_name.contains('\\') {
+    return false;
+  }
+  let mut builder = GitignoreBuilder::new("");
+  if builder.add_line(None, pattern).is_err() {
+    return false;
+  }
+  match builder.build() {
+    Ok(gitignore) => gitignore.matched(dir_name, true).is_ignore(),
+    Err(_) => false,
+  }
 }
 
 /// Escapes glob metacharacters so the text matches literally
@@ -134,6 +162,34 @@ mod tests {
     assert!(is_pattern("routes/[id].svelte"));
     assert!(!is_pattern(&escape_glob_text("routes/[id].svelte")));
     assert_eq!(unescape_glob_text(&escape_glob_text("a*b?c!d\\e[]{}")), "a*b?c!d\\e[]{}");
+
+    // an escaped backslash doesn't escape the character after it, so the
+    // star in `a\\*b` is a glob star (matching `unescape_glob_text`)
+    assert!(is_pattern("a\\\\*b"));
+    assert_eq!(unescape_glob_text("a\\\\*b"), "a\\*b");
+    // ...while `a\*b` is an escaped star and so not a pattern
+    assert!(!is_pattern("a\\*b"));
+    assert_eq!(unescape_glob_text("a\\*b"), "a*b");
+  }
+
+  #[test]
+  fn should_get_if_pattern_names_dir() {
+    assert!(pattern_names_dir("dist", "dist"));
+    assert!(!pattern_names_dir("dist", "other"));
+    // wildcards mean what they mean when the pattern is finally matched
+    assert!(pattern_names_dir("su*", "sub"));
+    assert!(!pattern_names_dir("su*", "other"));
+    assert!(pattern_names_dir("?ub", "sub"));
+    assert!(pattern_names_dir("[sd]ist", "dist"));
+    assert!(!pattern_names_dir("[sd]ist", "list"));
+    assert!(pattern_names_dir("*", "anything"));
+    assert!(pattern_names_dir("*.min.js", "a.min.js"));
+    // both ways of escaping a glob character match the literal name
+    assert!(pattern_names_dir("\\[id\\]", "[id]"));
+    assert!(pattern_names_dir("[[]id[]]", "[id]"));
+    // a single component pattern never matches across a separator
+    assert!(!pattern_names_dir("dist", "dist/sub"));
+    assert!(!pattern_names_dir("*", "dist/sub"));
   }
 
   #[test]

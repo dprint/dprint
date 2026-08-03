@@ -218,13 +218,22 @@ fn get_config_exclude_file_patterns(
 
   // todo(THIS PR): document removing this flag in favour of a !**/node_modules pattern
   // and make this work with that
-  if !args.allow_node_modules {
+  // `--allow-node-modules` is implicit when the cwd is within a `node_modules` directory:
+  // changing into one is deliberate, so excluding everything there would leave nothing to
+  // format no matter what the user asked for
+  if !args.allow_node_modules && !is_in_node_modules(cwd.as_ref()) {
     // glob walker will not search the children of a directory once it's ignored like this
+    //
+    // A pattern only applies below its own base directory, so base it at both the cwd and
+    // the config's base path: the cwd covers a config that lives above the cwd, while the
+    // config's base path covers what the cwd can't reach (ex. an ancestor dir arg like
+    // `dprint fmt ..` or a path outside the config's directory). The dedup below handles
+    // the two being the same directory.
     let node_modules_exclude = String::from("**/node_modules");
-    let mut exclude_node_module_patterns = vec![GlobPattern::new(node_modules_exclude.clone(), cwd.clone())];
-    if !cwd.starts_with(&config.base_path) {
-      exclude_node_module_patterns.push(GlobPattern::new(node_modules_exclude, config.base_path.clone()));
-    }
+    let exclude_node_module_patterns = [
+      GlobPattern::new(node_modules_exclude.clone(), cwd.clone()),
+      GlobPattern::new(node_modules_exclude, config.base_path.clone()),
+    ];
     for node_modules_exclude in exclude_node_module_patterns {
       if !file_patterns.contains(&node_modules_exclude) {
         file_patterns.push(node_modules_exclude);
@@ -242,6 +251,11 @@ pub fn process_cli_path_args(paths: &[PathBuf], cwd: &CanonicalizedPathBuf, envi
     .iter()
     .map(|path| process_cli_pattern(&path.to_string_lossy(), cwd, environment))
     .collect()
+}
+
+/// Whether the directory is a `node_modules` directory or is inside one.
+fn is_in_node_modules(dir: &Path) -> bool {
+  dir.components().any(|component| component.as_os_str() == "node_modules")
 }
 
 fn process_file_pattern_slashes(file_pattern: &str) -> String {
@@ -328,7 +342,7 @@ pub fn process_config_patterns(file_patterns: &[String]) -> impl Iterator<Item =
   file_patterns.iter().map(|p| process_config_pattern(p))
 }
 
-fn process_config_pattern(file_pattern: &str) -> String {
+pub fn process_config_pattern(file_pattern: &str) -> String {
   let file_pattern = process_file_pattern_slashes(file_pattern);
   // make config patterns that start with `/` be relative
   if file_pattern.starts_with('/') {
@@ -347,6 +361,18 @@ mod test {
   use crate::environment::TestEnvironment;
 
   use super::*;
+
+  #[test]
+  fn should_get_if_in_node_modules() {
+    assert!(is_in_node_modules(Path::new("/node_modules")));
+    assert!(is_in_node_modules(Path::new("/node_modules/pkg")));
+    assert!(is_in_node_modules(Path::new("/a/node_modules/pkg/sub")));
+    assert!(!is_in_node_modules(Path::new("/")));
+    assert!(!is_in_node_modules(Path::new("/a/sub")));
+    // only a whole component counts
+    assert!(!is_in_node_modules(Path::new("/a/my_node_modules/pkg")));
+    assert!(!is_in_node_modules(Path::new("/a/node_modules_old")));
+  }
 
   #[test]
   fn should_process_cli_patterns() {
