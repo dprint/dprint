@@ -9,7 +9,7 @@ use crate::environment::Environment;
 use crate::environment::UrlDownloader;
 use crate::plugins::PluginNpmInfo;
 use crate::plugins::PluginSourceReference;
-use crate::plugins::ResolveNpmPluginOptions;
+use crate::plugins::ResolveNpmLatestOptions;
 use crate::plugins::ResolvedNpmPlugin;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
@@ -30,7 +30,7 @@ impl PluginUpdateUrlInfo {
   /// Resolves this plugin's npm package from the registry, when it's
   /// distributed on npm. `None` means it isn't, so its url is what belongs in
   /// a config file.
-  pub async fn resolve_npm(&self, options: ResolveNpmPluginOptions<'_>, environment: &impl Environment) -> Option<Result<ResolvedNpmPlugin>> {
+  pub async fn resolve_npm(&self, options: ResolveNpmLatestOptions, environment: &impl Environment) -> Option<Result<ResolvedNpmPlugin>> {
     Some(self.npm.as_ref()?.resolve_latest(self.plugin_kind(), options, environment).await)
   }
 
@@ -46,7 +46,8 @@ impl PluginUpdateUrlInfo {
     self.url.to_lowercase().ends_with(".wasm")
   }
 
-  fn plugin_kind(&self) -> PluginKind {
+  /// Whether the plugin's file is a wasm or a process plugin.
+  pub fn plugin_kind(&self) -> PluginKind {
     if self.is_wasm() { PluginKind::Wasm } else { PluginKind::Process }
   }
 
@@ -187,9 +188,9 @@ mod test {
 
       let resolved = plugin
         .resolve_npm(
-          ResolveNpmPluginOptions {
+          ResolveNpmLatestOptions {
             force_checksum: false,
-            start_dir: None,
+            base_dir: None,
           },
           &environment,
         )

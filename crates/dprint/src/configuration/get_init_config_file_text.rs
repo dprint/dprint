@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 
 use anyhow::Result;
+use dprint_core::async_runtime::future;
 use dprint_core::plugins::wasm::{self};
 use jsonc_parser::cst::CstInputValue;
 use jsonc_parser::cst::CstRootNode;
@@ -9,7 +10,7 @@ use jsonc_parser::cst::CstRootNode;
 use crate::environment::DirEntry;
 use crate::environment::Environment;
 use crate::plugins::InfoFilePluginInfo;
-use crate::plugins::ResolveNpmPluginOptions;
+use crate::plugins::ResolveNpmLatestOptions;
 use crate::plugins::read_info_file;
 
 /// Maximum number of files to look at when scanning the current directory to
@@ -82,13 +83,17 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
     // keep the config file in info.json order regardless of the display order
     selected_indexes.sort_unstable();
 
-    let mut selected_plugins = Vec::new();
-    for index in selected_indexes {
-      let plugin = latest_plugins[index].clone();
-      let config = build_plugin_config(&plugin, &project_files);
-      let entry = resolve_plugin_entry(&plugin, environment).await;
-      selected_plugins.push(SelectedPlugin { plugin, config, entry });
-    }
+    // resolve concurrently — a plugin distributed on npm costs a registry round trip
+    let entries = future::join_all(selected_indexes.iter().map(|&index| resolve_plugin_entry(&latest_plugins[index], environment))).await;
+    let selected_plugins = selected_indexes
+      .into_iter()
+      .zip(entries)
+      .map(|(index, entry)| {
+        let plugin = latest_plugins[index].clone();
+        let config = build_plugin_config(&plugin, &project_files);
+        SelectedPlugin { plugin, config, entry }
+      })
+      .collect::<Vec<_>>();
     Some(selected_plugins)
   } else {
     None
@@ -120,11 +125,14 @@ struct SelectedPlugin {
 ///
 /// A registry lookup that fails falls back to the url with a warning — `init`
 /// is best-effort and a starting point is more useful than no config file.
+///
+/// The npm registry is resolved from the current directory: that's where the
+/// config file lands in the normal case, and where the user ran the command in
+/// any case.
 async fn resolve_plugin_entry(plugin: &InfoFilePluginInfo, environment: &impl Environment) -> String {
-  let cwd = environment.cwd();
-  let options = ResolveNpmPluginOptions {
+  let options = ResolveNpmLatestOptions {
     force_checksum: false,
-    start_dir: Some(cwd.as_ref()),
+    base_dir: Some(environment.cwd()),
   };
   match plugin.resolve_npm(options, environment).await {
     Some(Ok(resolved)) => resolved.config_file_entry(),

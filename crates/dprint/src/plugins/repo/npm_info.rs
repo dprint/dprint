@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use anyhow::Result;
 use jsonc_parser::JsonObject;
 
@@ -26,13 +24,15 @@ pub struct PluginNpmInfo {
 }
 
 /// Inputs to [`PluginNpmInfo::resolve_latest`].
-pub struct ResolveNpmPluginOptions<'a> {
+#[derive(Clone)]
+pub struct ResolveNpmLatestOptions {
   /// Compute the package's checksum even for a wasm plugin, which is
   /// otherwise written without one (`dprint add --checksum`).
   pub force_checksum: bool,
-  /// Directory to resolve the registry (`.npmrc`) from — usually the
-  /// directory of the config file being written.
-  pub start_dir: Option<&'a Path>,
+  /// The directory of the config file the plugin is being written to. The
+  /// registry (`.npmrc`) is resolved from it, and it's recorded on the
+  /// resulting reference for resolving the package later.
+  pub base_dir: Option<CanonicalizedPathBuf>,
 }
 
 impl PluginNpmInfo {
@@ -54,13 +54,8 @@ impl PluginNpmInfo {
   ///
   /// `plugin_kind` says whether the package ships a wasm or a process plugin,
   /// which decides the file within it and whether a checksum is required.
-  pub async fn resolve_latest(
-    &self,
-    plugin_kind: PluginKind,
-    options: ResolveNpmPluginOptions<'_>,
-    environment: &impl Environment,
-  ) -> Result<ResolvedNpmPlugin> {
-    let ResolveNpmPluginOptions { force_checksum, start_dir } = options;
+  pub async fn resolve_latest(&self, plugin_kind: PluginKind, options: ResolveNpmLatestOptions, environment: &impl Environment) -> Result<ResolvedNpmPlugin> {
+    let ResolveNpmLatestOptions { force_checksum, base_dir } = options;
     let unversioned = NpmSpecifier {
       name: self.name.clone(),
       version: None,
@@ -69,52 +64,51 @@ impl PluginNpmInfo {
         PluginKind::Process => NPM_PROCESS_PLUGIN_FILE.to_string(),
       },
     };
-    // a process plugin's checksum is always fetched — it can't be resolved
-    // without one
+    // a process plugin's checksum is fetched regardless of `force_checksum` —
+    // it can't be resolved without one
     let latest = fetch_npm_latest_info(
       FetchNpmLatestInfo {
         specifier: &unversioned,
-        start_dir,
+        start_dir: base_dir.as_ref().map(|dir| dir.as_ref()),
         want_tarball_sha: force_checksum,
       },
       environment,
     )
     .await?;
     Ok(ResolvedNpmPlugin {
-      specifier: NpmSpecifier {
-        version: Some(latest.version.clone()),
-        ..unversioned
+      reference: PluginSourceReference {
+        path_source: PathSource::new_npm(
+          NpmSpecifier {
+            version: Some(latest.version.clone()),
+            ..unversioned
+          },
+          base_dir,
+        ),
+        checksum: latest.tarball_sha256,
       },
       version: latest.version,
-      checksum: latest.tarball_sha256,
     })
   }
 }
 
 /// A plugin's npm package as resolved from the registry.
 pub struct ResolvedNpmPlugin {
-  /// The latest version published to the registry.
+  /// The latest version published to the registry. Always the version of
+  /// `reference`'s specifier, kept here so callers don't have to dig it out.
   pub version: String,
-  specifier: NpmSpecifier,
-  checksum: Option<String>,
+  reference: PluginSourceReference,
 }
 
 impl ResolvedNpmPlugin {
   /// The text to write into a config file's `plugins` array.
   pub fn config_file_entry(&self) -> String {
-    match &self.checksum {
-      Some(checksum) => format!("{}@{}", self.specifier.display(), checksum),
-      None => self.specifier.display(),
-    }
+    self.reference.to_full_string()
   }
 
-  /// The plugin's source reference for a config file in `base_dir`, which npm
-  /// specifiers resolve their registry and node_modules from.
-  pub fn as_source_reference(&self, base_dir: Option<CanonicalizedPathBuf>) -> PluginSourceReference {
-    PluginSourceReference {
-      path_source: PathSource::new_npm(self.specifier.clone(), base_dir),
-      checksum: self.checksum.clone(),
-    }
+  /// The plugin's source reference, for pointing an existing config file entry
+  /// at it.
+  pub fn as_source_reference(&self) -> PluginSourceReference {
+    self.reference.clone()
   }
 }
 
@@ -166,9 +160,9 @@ mod test {
     };
 
     environment.clone().run_in_runtime(async move {
-      let options = |force_checksum| ResolveNpmPluginOptions {
+      let options = |force_checksum| ResolveNpmLatestOptions {
         force_checksum,
-        start_dir: None,
+        base_dir: None,
       };
 
       // a wasm plugin is written without a checksum...
@@ -181,7 +175,7 @@ mod test {
       // a process plugin always carries the package's checksum
       let resolved = npm.resolve_latest(PluginKind::Process, options(false), &environment).await.unwrap();
       assert_eq!(resolved.config_file_entry(), format!("npm:@dprint/json@1.2.3/plugin.json@{}", tarball_checksum));
-      assert_eq!(resolved.as_source_reference(None).to_full_string(), resolved.config_file_entry());
+      assert_eq!(resolved.as_source_reference().to_full_string(), resolved.config_file_entry());
     });
   }
 }
