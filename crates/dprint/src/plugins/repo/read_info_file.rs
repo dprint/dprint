@@ -7,6 +7,10 @@ use jsonc_parser::parse_to_value;
 use url::Url;
 
 use crate::environment::Environment;
+use crate::plugins::PluginNpmInfo;
+use crate::plugins::ResolveNpmPluginOptions;
+use crate::plugins::ResolvedNpmPlugin;
+use crate::utils::PluginKind;
 
 // note: these don't derive `Eq` because `serde_json::Value` isn't `Eq`
 
@@ -26,6 +30,9 @@ pub struct InfoFilePluginInfo {
   pub file_names: Vec<String>,
   pub config_excludes: Vec<String>,
   pub checksum: Option<String>,
+  /// The npm package the plugin is published to. When present, the CLI writes
+  /// an npm specifier into config files instead of the plugin's url.
+  pub npm: Option<PluginNpmInfo>,
   /// Config to insert into the plugin's config block on `dprint init`.
   pub default_config: Option<serde_json::Value>,
   /// Config fragments that `dprint init` merges into the plugin's config block
@@ -42,12 +49,19 @@ pub struct InfoFileConfigItem {
 }
 
 impl InfoFilePluginInfo {
+  /// Resolves this plugin's npm package from the registry, when the info file
+  /// says it's distributed on npm. `None` means it isn't, so its url is what
+  /// belongs in a config file.
+  pub async fn resolve_npm(&self, options: ResolveNpmPluginOptions<'_>, environment: &impl Environment) -> Option<Result<ResolvedNpmPlugin>> {
+    Some(self.npm.as_ref()?.resolve_latest(self.plugin_kind(), options, environment).await)
+  }
+
   pub fn is_wasm(&self) -> bool {
     self.url.to_lowercase().ends_with(".wasm")
   }
 
-  pub fn is_process_plugin(&self) -> bool {
-    !self.is_wasm()
+  fn plugin_kind(&self) -> PluginKind {
+    if self.is_wasm() { PluginKind::Wasm } else { PluginKind::Process }
   }
 
   pub fn full_url(&self) -> String {
@@ -123,6 +137,9 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo> {
   let file_names = get_string_array(&mut obj, "fileNames").unwrap_or_default(); // compatible with old configuration
   let config_excludes = get_string_array(&mut obj, "configExcludes")?;
   let checksum = obj.take_string("checksum").map(|s| s.into_owned());
+  // a malformed `npm` property is ignored (keeping the url) rather than
+  // failing the whole info file
+  let npm = obj.take_object("npm").and_then(PluginNpmInfo::parse);
   // these are only used by `dprint init`, so parse them leniently rather than
   // failing the whole info file when a single entry is malformed
   let default_config = obj.take_object("defaultConfig").map(|o| jsonc_to_serde(JsonValue::Object(o)));
@@ -137,6 +154,7 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo> {
     file_names,
     config_excludes,
     checksum,
+    npm,
     default_config,
     config_items,
   })
@@ -273,6 +291,7 @@ mod test {
               file_names: vec![],
               config_excludes: vec!["**/node_modules".to_string()],
               checksum: None,
+              npm: None,
               default_config: None,
               config_items: vec![],
             },
@@ -285,6 +304,7 @@ mod test {
               file_names: vec!["test-file".to_string()],
               config_excludes: vec!["**/*-lock.json".to_string()],
               checksum: Some("test-checksum".to_string()),
+              npm: None,
               default_config: None,
               config_items: vec![],
             }
@@ -330,6 +350,53 @@ mod test {
           config: serde_json::json!({ "commands": [{ "command": "rustfmt", "exts": ["rs"] }] }),
         }]
       );
+    });
+  }
+
+  #[test]
+  fn should_parse_npm_info() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      REMOTE_INFO_URL,
+      r#"{
+  "schemaVersion": 4,
+  "pluginSystemSchemaVersion": 4,
+  "latest": [{
+    "name": "npm-plugin",
+    "version": "1.0.0",
+    "url": "https://plugins.dprint.dev/wasm-1.0.0.wasm",
+    "fileExtensions": ["w"],
+    "configExcludes": [],
+    "npm": { "name": "@dprint/wasm-plugin" }
+  }, {
+    "name": "no-npm-name",
+    "version": "2.0.0",
+    "url": "https://plugins.dprint.dev/other-2.0.0.wasm",
+    "fileExtensions": ["o"],
+    "configExcludes": [],
+    "npm": { "notTheName": "@dprint/other" }
+  }, {
+    "name": "no-npm",
+    "version": "3.0.0",
+    "url": "https://plugins.dprint.dev/plain-3.0.0.wasm",
+    "fileExtensions": ["p"],
+    "configExcludes": []
+  }]
+}"#
+        .as_bytes(),
+    );
+    environment.clone().run_in_runtime(async move {
+      let info_file = read_info_file(&environment).await.unwrap();
+      let plugins = info_file.latest_plugins;
+      assert_eq!(
+        plugins[0].npm,
+        Some(PluginNpmInfo {
+          name: "@dprint/wasm-plugin".to_string()
+        })
+      );
+      // an npm property with no package name says nothing
+      assert_eq!(plugins[1].npm, None);
+      assert_eq!(plugins[2].npm, None);
     });
   }
 

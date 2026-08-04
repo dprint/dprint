@@ -27,6 +27,7 @@ use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::PluginWrapper;
+use crate::plugins::ResolveNpmPluginOptions;
 use crate::plugins::detect_npm_plugin_kind_in_node_modules;
 use crate::plugins::fetch_npm_latest_info;
 use crate::plugins::read_info_file;
@@ -187,10 +188,15 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
       &possible_plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
     )?;
     let selected = possible_plugins.remove(index);
-    let url = if checksum {
-      ensure_url_checksum(selected.full_url(), plugin_resolver).await?
-    } else {
-      selected.full_url_no_wasm_checksum()
+    let config_dir = config_path.parent();
+    let npm_options = ResolveNpmPluginOptions {
+      force_checksum: checksum,
+      start_dir: config_dir.as_ref().map(|dir| dir.as_ref()),
+    };
+    let url = match selected.resolve_npm(npm_options, environment).await {
+      Some(resolved) => resolved?.config_file_entry(),
+      None if checksum => ensure_url_checksum(selected.full_url(), plugin_resolver).await?,
+      None => selected.full_url_no_wasm_checksum(),
     };
     vec![url]
   } else {
@@ -281,7 +287,7 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
   // accept `npm:foo` as a valid URL and pass it through without pinning.
   if plugin_name_or_url.starts_with("npm:") {
     let resolved = resolve_npm_plugin_to_add(
-      ResolveNpmPluginOptions {
+      ResolveNpmAddOptions {
         text: plugin_name_or_url,
         config_path,
         no_version,
@@ -345,6 +351,15 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
           )
         }
       };
+      let config_dir = config_path.parent();
+      let npm_options = ResolveNpmPluginOptions {
+        force_checksum: checksum,
+        start_dir: config_dir.as_ref().map(|dir| dir.as_ref()),
+      };
+      // when the plugin is distributed on npm, what gets written below comes
+      // from the npm registry rather than the url and version in latest.json
+      let npm_resolution = plugin.resolve_npm(npm_options, environment).await.transpose()?;
+
       for (config_plugin_reference, config_plugin) in get_config_file_plugins(plugin_resolver, config_plugins.to_vec()).await {
         if let Ok(config_plugin) = config_plugin
           && let Some(update_url) = &config_plugin.info().update_url
@@ -354,14 +369,17 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
           // if two plugins have the same URL to be updated to then they're the same plugin
           if config_plugin_latest.url == plugin.url {
             let file_text = environment.read_file(config_path)?;
-            let new_reference = plugin.as_source_reference()?;
+            let (new_version, new_reference) = match &npm_resolution {
+              Some(resolved) => (resolved.version.clone(), resolved.as_source_reference(config_dir.clone())),
+              None => (plugin.version.clone(), plugin.as_source_reference()?),
+            };
             let file_text = update_plugin_in_config(
               &file_text,
               &PluginUpdateInfo {
                 name: config_plugin.info().name.to_string(),
                 old_version: config_plugin.info().version.to_string(),
                 old_reference: config_plugin_reference,
-                new_version: plugin.version,
+                new_version,
                 new_reference,
               },
             );
@@ -370,10 +388,10 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
           }
         }
       }
-      if checksum {
-        Ok(Some(ensure_url_checksum(plugin.full_url(), plugin_resolver).await?))
-      } else {
-        Ok(Some(plugin.full_url_no_wasm_checksum()))
+      match npm_resolution {
+        Some(resolved) => Ok(Some(resolved.config_file_entry())),
+        None if checksum => Ok(Some(ensure_url_checksum(plugin.full_url(), plugin_resolver).await?)),
+        None => Ok(Some(plugin.full_url_no_wasm_checksum())),
       }
     }
   }
@@ -401,7 +419,7 @@ async fn ensure_url_checksum<TEnvironment: Environment>(url: String, plugin_reso
   Ok(format!("{}@{}", parsed.path_or_url, checksum))
 }
 
-struct ResolveNpmPluginOptions<'a> {
+struct ResolveNpmAddOptions<'a> {
   text: &'a str,
   config_path: &'a CanonicalizedPathBuf,
   no_version: bool,
@@ -443,11 +461,11 @@ struct ResolveNpmPluginOptions<'a> {
 /// `dprint fmt` is a cache hit with no re-download — see
 /// [`PluginCache::resolve_npm_for_add`].
 async fn resolve_npm_plugin_to_add<TEnvironment: Environment>(
-  options: ResolveNpmPluginOptions<'_>,
+  options: ResolveNpmAddOptions<'_>,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<ResolvedNpmPluginAdd> {
-  let ResolveNpmPluginOptions {
+  let ResolveNpmAddOptions {
     text,
     config_path,
     no_version,
@@ -770,6 +788,9 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     },
   )
   .await?;
+  // the plugins the registry says are distributed on npm — their config
+  // entries move over to an npm specifier instead of a url
+  let npm_info_plugins = Rc::new(get_npm_info_plugins(environment).await);
   let mut plugin_responses = HashMap::new();
   let mut updates_per_scope = HashMap::with_capacity(scopes.len());
   // for `--dry-run`: the would-be config text per scope (plugin urls bumped),
@@ -790,7 +811,16 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     };
 
     let mut file_text = environment.read_file(config_path)?;
-    let plugins_to_update = get_plugins_to_update(environment, plugin_resolver, config.plugins.clone()).await?;
+    let plugins_to_update = get_plugins_to_update(
+      environment,
+      plugin_resolver,
+      config.plugins.clone(),
+      PluginUpdateContext {
+        npm_info_plugins: npm_info_plugins.clone(),
+        config_dir: config_path.parent(),
+      },
+    )
+    .await?;
 
     let mut updated_plugins = Vec::with_capacity(plugins_to_update.len());
     for result in plugins_to_update {
@@ -822,6 +852,13 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
             } else {
               format!(" in {}", config_path.display())
             };
+            // at the same version this is a move to a different source
+            // (ex. a url moving to npm), so say where it's moving to
+            let new_target = if info.old_version == info.new_version {
+              info.new_reference.display()
+            } else {
+              info.new_version.clone()
+            };
             if dry_run {
               log_stderr_info!(
                 environment,
@@ -829,17 +866,10 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
                 colors::bold(&info.name),
                 info.old_version,
                 in_config,
-                info.new_version
+                new_target
               );
             } else {
-              log_stderr_info!(
-                environment,
-                "Updating {} {}{} to {}...",
-                info.name,
-                info.old_version,
-                in_config,
-                info.new_version
-              );
+              log_stderr_info!(environment, "Updating {} {}{} to {}...", info.name, info.old_version, in_config, new_target);
             }
             file_text = update_plugin_in_config(&file_text, &info);
             updated_plugins.push(info);
@@ -1078,15 +1108,39 @@ struct PluginUpdateError {
   error: Error,
 }
 
+/// What a config file's plugins may update to beyond their own update urls.
+#[derive(Clone)]
+struct PluginUpdateContext {
+  /// The info file's npm distributed plugins, keyed by plugin name.
+  npm_info_plugins: Rc<HashMap<String, InfoFilePluginInfo>>,
+  /// The directory the config file being updated lives in, used to resolve the
+  /// npm registry and stored on new npm references for later resolution.
+  config_dir: Option<CanonicalizedPathBuf>,
+}
+
+impl PluginUpdateContext {
+  /// `keep_checksum` carries a checksum over from the entry being replaced, so
+  /// a user who pinned one doesn't silently lose it. Process plugins always
+  /// get one regardless.
+  fn npm_options(&self, keep_checksum: bool) -> ResolveNpmPluginOptions<'_> {
+    ResolveNpmPluginOptions {
+      force_checksum: keep_checksum,
+      start_dir: self.config_dir.as_ref().map(|dir| dir.as_ref()),
+    }
+  }
+}
+
 async fn get_plugins_to_update<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   plugins: Vec<PluginSourceReference>,
+  context: PluginUpdateContext,
 ) -> Result<Vec<Result<PluginUpdateInfo, PluginUpdateError>>> {
   async fn resolve_plugin_update_info<TEnvironment: Environment>(
     environment: &TEnvironment,
     plugin_reference: PluginSourceReference,
     plugin_result: Result<Rc<PluginWrapper>>,
+    context: PluginUpdateContext,
   ) -> Option<Result<PluginUpdateInfo, PluginUpdateError>> {
     let plugin = match plugin_result {
       Ok(plugin) => plugin,
@@ -1097,6 +1151,8 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
         }));
       }
     };
+    // a user who pinned a checksum keeps one on the entry that replaces it
+    let old_had_checksum = plugin_reference.checksum.is_some();
 
     // npm specifiers update via the npm registry (dist-tags.latest), not the
     // plugin's update_url which would migrate us off the npm form
@@ -1147,24 +1203,59 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
       }
     }
 
+    // the info file says this plugin is distributed on npm, so move the config
+    // over to its npm package rather than following its update url
+    if let PathSource::Remote(remote_source) = &plugin_reference.path_source
+      && let Some(info_plugin) = context.npm_info_plugins.get(plugin.info().name.as_str())
+      && is_same_origin(&remote_source.url, &info_plugin.url)
+    {
+      match info_plugin.resolve_npm(context.npm_options(old_had_checksum), environment).await {
+        Some(Ok(resolved)) => {
+          let new_reference = resolved.as_source_reference(context.config_dir.clone());
+          return Some(Ok(PluginUpdateInfo {
+            name: plugin.info().name.to_string(),
+            old_version: plugin.info().version.to_string(),
+            old_reference: plugin_reference,
+            new_version: resolved.version,
+            new_reference,
+          }));
+        }
+        // fall through to the plugin's update url, which may still work
+        Some(Err(err)) => log_warn!(environment, "Failed resolving the npm package for {}. {:#}", plugin.info().name, err),
+        None => {}
+      }
+    }
+
     // request
     if let Some(plugin_update_url) = &plugin.info().update_url {
       match Url::parse(plugin_update_url) {
         Ok(update_url) => {
           match read_update_url(environment, &update_url).await.and_then(|result| match result {
-            Some(info) => match info.as_source_reference() {
-              Ok(source_reference) => Ok((info, source_reference)),
-              Err(err) => Err(err),
-            },
+            Some(info) => info.as_source_reference().map(|source_reference| (info, source_reference)),
             None => Err(anyhow!("Failed downloading {} - 404 Not Found", update_url)),
           }) {
-            Ok((info, new_reference)) => Some(Ok(PluginUpdateInfo {
-              name: plugin.info().name.to_string(),
-              old_reference: plugin_reference,
-              old_version: plugin.info().version.to_string(),
-              new_version: info.version,
-              new_reference,
-            })),
+            Ok((info, new_reference)) => {
+              // the plugin may be distributed on npm, in which case the update
+              // goes to its npm package at the registry's latest version
+              let (new_version, new_reference) = match info.resolve_npm(context.npm_options(old_had_checksum), environment).await {
+                Some(Ok(resolved)) => {
+                  let new_reference = resolved.as_source_reference(context.config_dir.clone());
+                  (resolved.version, new_reference)
+                }
+                Some(Err(err)) => {
+                  log_warn!(environment, "Failed resolving the npm package for {}. {:#}", plugin.info().name, err);
+                  (info.version, new_reference)
+                }
+                None => (info.version, new_reference),
+              };
+              Some(Ok(PluginUpdateInfo {
+                name: plugin.info().name.to_string(),
+                old_reference: plugin_reference,
+                old_version: plugin.info().version.to_string(),
+                new_version,
+                new_reference,
+              }))
+            }
             Err(err) => {
               // output and fallback to using the info file
               log_warn!(environment, "Failed reading plugin latest info. {:#}", err);
@@ -1194,7 +1285,8 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
     .into_iter()
     .map(|(plugin_reference, plugin_result)| {
       let environment = environment.clone();
-      dprint_core::async_runtime::spawn(async move { resolve_plugin_update_info(&environment, plugin_reference, plugin_result).await })
+      let context = context.clone();
+      dprint_core::async_runtime::spawn(async move { resolve_plugin_update_info(&environment, plugin_reference, plugin_result, context).await })
     })
     .collect::<Vec<_>>();
 
@@ -1202,12 +1294,42 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
   for result in future::join_all(tasks).await {
     let maybe_info = result.unwrap();
     if let Some(info) = maybe_info
-      && info.as_ref().ok().map(|info| info.old_version != info.new_version).unwrap_or(true)
+      && info.as_ref().ok().map(|info| info.is_change()).unwrap_or(true)
     {
       final_infos.push(info);
     }
   }
   Ok(final_infos)
+}
+
+/// The info file's plugins that are distributed on npm, keyed by plugin name.
+///
+/// Failing to read the info file only means no plugin moves to npm — they
+/// still update via their own update urls — so it's logged and ignored.
+async fn get_npm_info_plugins(environment: &impl Environment) -> HashMap<String, InfoFilePluginInfo> {
+  match read_info_file(environment).await {
+    Ok(info) => info
+      .latest_plugins
+      .into_iter()
+      .filter(|plugin| plugin.npm.is_some())
+      .map(|plugin| (plugin.name.clone(), plugin))
+      .collect(),
+    Err(err) => {
+      log_debug!(environment, "Failed reading the plugin info file. {:#}", err);
+      HashMap::new()
+    }
+  }
+}
+
+/// Whether a config's plugin url and the info file's url are served from the
+/// same place. Plugins are matched to the info file by name, so this keeps a
+/// self-hosted build of a plugin from being moved to the registry's npm
+/// package.
+fn is_same_origin(config_url: &Url, info_url: &str) -> bool {
+  match Url::parse(info_url) {
+    Ok(info_url) => info_url.origin() == config_url.origin(),
+    Err(_) => false,
+  }
 }
 
 pub async fn output_resolved_config<TEnvironment: Environment>(
@@ -3084,7 +3206,7 @@ mod test {
   ) -> Result<super::ResolvedNpmPluginAdd> {
     let plugin_resolver = test_plugin_resolver(environment);
     let result = super::resolve_npm_plugin_to_add(
-      super::ResolveNpmPluginOptions {
+      super::ResolveNpmAddOptions {
         text,
         config_path,
         no_version,
@@ -3727,6 +3849,207 @@ mod test {
     assert!(dprint_json.contains("npm:test-plugin"), "got: {dprint_json}");
     // and no version pin snuck in
     assert!(!dprint_json.contains("npm:test-plugin@"), "got: {dprint_json}");
+  }
+
+  /// Serves `@dprint/test-plugin@0.2.0` (the test wasm plugin) on the npm
+  /// registry, which is where the version written to a config file comes from.
+  fn add_npm_test_plugin_package(builder: &mut TestEnvironmentBuilder) -> &mut TestEnvironmentBuilder {
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+
+    let packument = json!({
+      "dist-tags": { "latest": "0.2.0" },
+      "versions": { "0.2.0": { "dist": { "tarball": "https://registry.npmjs.org/@dprint/test-plugin/-/test-plugin-0.2.0.tgz" } } }
+    });
+    builder
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .add_remote_file_bytes(
+        "https://registry.npmjs.org/@dprint/test-plugin/-/test-plugin-0.2.0.tgz",
+        create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]),
+      )
+  }
+
+  /// Sets up an environment where the info file says `test-plugin` is
+  /// distributed on npm, with the registry serving the plugin's wasm.
+  fn npm_info_file_builder(config_plugin_urls: &[&str]) -> TestEnvironmentBuilder {
+    let mut builder = TestEnvironmentBuilder::new();
+    add_npm_test_plugin_package(&mut builder)
+      .add_remote_wasm_plugin()
+      .add_remote_wasm_0_1_0_plugin()
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "test-plugin".to_string(),
+          version: "0.2.0".to_string(),
+          url: "https://plugins.dprint.dev/test-plugin.wasm".to_string(),
+          config_key: Some("test-plugin".to_string()),
+          npm: Some(crate::environment::TestInfoFileNpm {
+            name: "@dprint/test-plugin".to_string(),
+          }),
+          ..Default::default()
+        });
+      })
+      .with_local_config("/dprint.json", |config| {
+        config.ensure_plugins_section();
+        for url in config_plugin_urls {
+          config.add_plugin(url);
+        }
+      });
+    builder
+  }
+
+  #[test]
+  fn config_add_writes_npm_specifier_from_info_file() {
+    // picking a plugin from the info file adds it as an npm specifier when
+    // that's where it's distributed
+    let environment = npm_info_file_builder(&[]).initialize().build();
+    environment.set_selection_result(0);
+
+    run_test_cli(vec!["config", "add"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("\"npm:@dprint/test-plugin@0.2.0\""), "got: {dprint_json}");
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_add_checksum_uses_the_npm_packages_checksum() {
+    // `--checksum` on an npm plugin means the package's tarball checksum,
+    // which the info file doesn't have to provide for a wasm plugin
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+
+    let environment = npm_info_file_builder(&[]).initialize().build();
+    environment.set_selection_result(0);
+
+    run_test_cli(vec!["config", "add", "--checksum"], &environment).unwrap();
+
+    let tarball_checksum = crate::utils::get_sha256_checksum(&create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]));
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(
+      dprint_json.contains(&format!("\"npm:@dprint/test-plugin@0.2.0@{}\"", tarball_checksum)),
+      "got: {dprint_json}"
+    );
+    let _ = environment.take_stderr_messages();
+  }
+
+  /// A latest.json for `test-plugin` saying it's distributed on npm. The
+  /// version here is deliberately behind the registry's, since the registry is
+  /// what decides the version that gets written.
+  fn npm_latest_json() -> String {
+    json!({
+      "schemaVersion": 1,
+      "url": "https://plugins.dprint.dev/test-plugin.wasm",
+      "version": "0.1.5",
+      "npm": { "name": "@dprint/test-plugin" },
+    })
+    .to_string()
+  }
+
+  #[test]
+  fn config_add_by_name_writes_npm_specifier_from_latest_json() {
+    // `dprint add <name>` resolves through the plugin's latest.json, so that's
+    // where it learns the plugin is distributed on npm
+    let mut builder = TestEnvironmentBuilder::new();
+    let environment = add_npm_test_plugin_package(&mut builder)
+      .add_remote_wasm_plugin()
+      .with_info_file(|_| {})
+      .with_local_config("/dprint.json", |config| {
+        config.ensure_plugins_section();
+      })
+      .add_remote_file("https://plugins.dprint.dev/dprint/test-plugin/latest.json", &npm_latest_json())
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["config", "add", "test-plugin"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("\"npm:@dprint/test-plugin@0.2.0\""), "got: {dprint_json}");
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_add_by_name_moves_existing_url_entry_to_npm() {
+    // re-adding a plugin that's already in the config updates it in place,
+    // which moves it to the npm package
+    let mut builder = get_setup_builder(SetupEnvOptions {
+      config_has_wasm: true,
+      config_has_wasm_checksum: false,
+      config_has_process: false,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: false,
+    });
+    let environment = add_npm_test_plugin_package(&mut builder)
+      .add_remote_file("https://plugins.dprint.dev/dprint/test-plugin/latest.json", &npm_latest_json())
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["config", "add", "test-plugin"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("\"npm:@dprint/test-plugin@0.2.0\""), "got: {dprint_json}");
+    assert!(!dprint_json.contains("test-plugin-0.1.0.wasm"), "got: {dprint_json}");
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_update_moves_url_plugin_to_npm() {
+    // the info file says the plugin is distributed on npm, so the url entry
+    // moves to an npm specifier at the latest version
+    let environment = npm_info_file_builder(&["https://plugins.dprint.dev/test-plugin-0.1.0.wasm"])
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("\"npm:@dprint/test-plugin@0.2.0\""), "got: {dprint_json}");
+    assert!(!dprint_json.contains("plugins.dprint.dev"), "got: {dprint_json}");
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "Updating test-plugin 0.1.0 to 0.2.0...",
+        "Compiling /cache/npm/registry.npmjs.org/@dprint__test-plugin@0.2.0/plugin.wasm",
+      ]
+    );
+  }
+
+  #[test]
+  fn config_update_moves_url_plugin_to_npm_at_same_version() {
+    // nothing to upgrade, but the entry still moves to npm — otherwise anyone
+    // already on the latest version would never make the move
+    let environment = npm_info_file_builder(&["https://plugins.dprint.dev/test-plugin.wasm"]).initialize().build();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("\"npm:@dprint/test-plugin@0.2.0\""), "got: {dprint_json}");
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "Updating test-plugin 0.2.0 to npm:@dprint/test-plugin@0.2.0...",
+        "Compiling /cache/npm/registry.npmjs.org/@dprint__test-plugin@0.2.0/plugin.wasm",
+      ]
+    );
+  }
+
+  #[test]
+  fn config_update_only_moves_plugins_from_the_info_files_origin() {
+    // plugins are matched to the info file by name, so a self-hosted build
+    // that happens to share a name keeps its url
+    let environment = npm_info_file_builder(&["https://example.com/test-plugin-0.1.0.wasm"])
+      .add_remote_file_bytes(
+        "https://example.com/test-plugin-0.1.0.wasm",
+        crate::test_helpers::WASM_PLUGIN_0_1_0_BYTES.to_vec(),
+      )
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("https://example.com/test-plugin-0.1.0.wasm"), "got: {dprint_json}");
+    assert!(!dprint_json.contains("npm:"), "got: {dprint_json}");
+    let _ = environment.take_stderr_messages();
   }
 
   #[tokio::test]

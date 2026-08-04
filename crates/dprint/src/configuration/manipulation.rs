@@ -29,6 +29,13 @@ pub struct PluginUpdateInfo {
 }
 
 impl PluginUpdateInfo {
+  /// Whether this would actually change the config file. A plugin that's
+  /// already at the latest version still changes when its source moves
+  /// somewhere else (ex. a url moving to an npm specifier).
+  pub fn is_change(&self) -> bool {
+    self.old_version != self.new_version || self.old_reference.path_source != self.new_reference.path_source
+  }
+
   pub fn is_wasm(&self) -> bool {
     self.new_reference.plugin_kind() == Some(PluginKind::Wasm)
   }
