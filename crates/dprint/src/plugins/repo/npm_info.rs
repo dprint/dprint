@@ -167,9 +167,9 @@ mod test {
       })
     );
     assert_eq!(
-      parse(r#"{ "name": "@dprint/plugins", "path": "json/plugin.wasm" }"#),
+      parse(r#"{ "name": "@dprint/example", "path": "json/plugin.wasm" }"#),
       Some(PluginNpmInfo {
-        name: "@dprint/plugins".to_string(),
+        name: "@dprint/example".to_string(),
         path: Some("json/plugin.wasm".to_string()),
       })
     );

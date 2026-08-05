@@ -4355,7 +4355,7 @@ mod test {
 
     let packument = json!({
       "dist-tags": { "latest": "1.0.0" },
-      "versions": { "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/@dprint/plugins/-/plugins-1.0.0.tgz" } } }
+      "versions": { "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/@dprint/example/-/example-1.0.0.tgz" } } }
     });
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
@@ -4366,7 +4366,7 @@ mod test {
           "schemaVersion": 1,
           "url": "https://plugins.dprint.dev/test-plugin.wasm",
           "version": "0.2.0",
-          "npm": { "name": "@dprint/plugins", "path": "test-plugin/plugin.wasm" },
+          "npm": { "name": "@dprint/example", "path": "test-plugin/plugin.wasm" },
         })
         .to_string(),
       )
@@ -4374,9 +4374,9 @@ mod test {
       .with_local_config("/dprint.json", |config| {
         config.add_plugin("https://plugins.dprint.dev/test-plugin-0.1.0.wasm");
       })
-      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/plugins", packument.to_string().into_bytes())
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/example", packument.to_string().into_bytes())
       .add_remote_file_bytes(
-        "https://registry.npmjs.org/@dprint/plugins/-/plugins-1.0.0.tgz",
+        "https://registry.npmjs.org/@dprint/example/-/example-1.0.0.tgz",
         create_test_npm_tarball(&[("package/test-plugin/plugin.wasm", WASM_PLUGIN_BYTES)]),
       )
       .initialize()
@@ -4386,7 +4386,7 @@ mod test {
 
     let dprint_json = environment.read_file("/dprint.json").unwrap();
     assert!(
-      dprint_json.contains("\"npm:@dprint/plugins@1.0.0/test-plugin/plugin.wasm\""),
+      dprint_json.contains("\"npm:@dprint/example@1.0.0/test-plugin/plugin.wasm\""),
       "got: {dprint_json}"
     );
     // and the plugin resolves from that path, which the re-resolve after the
@@ -4394,8 +4394,8 @@ mod test {
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
-        "Updating test-plugin 0.1.0 to npm:@dprint/plugins@1.0.0/test-plugin/plugin.wasm...",
-        "Compiling /cache/npm/registry.npmjs.org/@dprint__plugins@1.0.0/test-plugin/plugin.wasm",
+        "Updating test-plugin 0.1.0 to npm:@dprint/example@1.0.0/test-plugin/plugin.wasm...",
+        "Compiling /cache/npm/registry.npmjs.org/@dprint__example@1.0.0/test-plugin/plugin.wasm",
       ]
     );
   }
