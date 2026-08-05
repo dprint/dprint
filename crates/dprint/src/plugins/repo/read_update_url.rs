@@ -182,7 +182,8 @@ mod test {
       assert_eq!(
         plugin.npm,
         Some(PluginNpmInfo {
-          name: "@dprint/json".to_string()
+          name: "@dprint/json".to_string(),
+          path: None,
         })
       );
 

@@ -937,7 +937,10 @@ mod test {
       .with_info_file(|info| {
         info
           .add_plugin(TestInfoFilePlugin {
-            npm: Some(TestInfoFileNpm { name: "@dprint/a".to_string() }),
+            npm: Some(TestInfoFileNpm {
+              name: "@dprint/a".to_string(),
+              ..Default::default()
+            }),
             ..wasm_plugin("a", "a", &["ts"])
           })
           // a process plugin also carries the checksum of its npm package
@@ -948,7 +951,10 @@ mod test {
             file_extensions: vec!["vue".to_string()],
             config_excludes: vec![],
             checksum: Some("url-checksum".to_string()),
-            npm: Some(TestInfoFileNpm { name: "@dprint/b".to_string() }),
+            npm: Some(TestInfoFileNpm {
+              name: "@dprint/b".to_string(),
+              ..Default::default()
+            }),
             ..Default::default()
           })
           // a plugin that isn't on npm keeps its url
@@ -995,7 +1001,10 @@ mod test {
     let environment = TestEnvironmentBuilder::new()
       .with_info_file(|info| {
         info.add_plugin(TestInfoFilePlugin {
-          npm: Some(TestInfoFileNpm { name: "@dprint/a".to_string() }),
+          npm: Some(TestInfoFileNpm {
+            name: "@dprint/a".to_string(),
+            ..Default::default()
+          }),
           ..wasm_plugin("a", "a", &["ts"])
         });
       })

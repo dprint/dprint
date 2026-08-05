@@ -188,6 +188,8 @@ pub struct TestInfoFilePlugin {
 #[serde(rename_all = "camelCase")]
 pub struct TestInfoFileNpm {
   pub name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub path: Option<String>,
 }
 
 #[derive(Serialize, Default)]

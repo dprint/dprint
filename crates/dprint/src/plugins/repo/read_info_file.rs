@@ -392,7 +392,8 @@ mod test {
       assert_eq!(
         plugins[0].npm,
         Some(PluginNpmInfo {
-          name: "@dprint/wasm-plugin".to_string()
+          name: "@dprint/wasm-plugin".to_string(),
+          path: None,
         })
       );
       // an npm property with no package name says nothing

@@ -1,4 +1,6 @@
+use anyhow::Context;
 use anyhow::Result;
+use anyhow::bail;
 use jsonc_parser::JsonObject;
 
 use crate::environment::CanonicalizedPathBuf;
@@ -9,6 +11,8 @@ use crate::plugins::fetch_npm_latest_info;
 use crate::utils::NpmSpecifier;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
+use crate::utils::parse_npm_specifier;
+use crate::utils::validate_plugin_extension;
 
 /// The file within an npm package that holds a process plugin's manifest.
 const NPM_PROCESS_PLUGIN_FILE: &str = "plugin.json";
@@ -21,6 +25,10 @@ const NPM_WASM_PLUGIN_FILE: &str = "plugin.wasm";
 pub struct PluginNpmInfo {
   /// The npm package name (ex. `@dprint/json`).
   pub name: String,
+  /// Where the plugin sits within the package, for one that doesn't ship it at
+  /// the root (ex. `json/plugin.wasm` in a package holding several plugins).
+  /// Defaults to `plugin.wasm` / `plugin.json` by plugin kind.
+  pub path: Option<String>,
 }
 
 /// Inputs to [`PluginNpmInfo::resolve_latest`].
@@ -43,7 +51,10 @@ impl PluginNpmInfo {
     if name.is_empty() {
       return None;
     }
-    Some(PluginNpmInfo { name })
+    Some(PluginNpmInfo {
+      name,
+      path: obj.take_string("path").map(|path| path.into_owned()).filter(|path| !path.is_empty()),
+    })
   }
 
   /// Resolves the package's latest release from the npm registry.
@@ -53,17 +64,11 @@ impl PluginNpmInfo {
   /// and can lag behind what's actually on npm.
   ///
   /// `plugin_kind` says whether the package ships a wasm or a process plugin,
-  /// which decides the file within it and whether a checksum is required.
+  /// which decides the file within it and whether a checksum is required. A
+  /// package that declares its own `path` decides both from that instead.
   pub async fn resolve_latest(&self, plugin_kind: PluginKind, options: ResolveNpmLatestOptions, environment: &impl Environment) -> Result<ResolvedNpmPlugin> {
     let ResolveNpmLatestOptions { force_checksum, base_dir } = options;
-    let unversioned = NpmSpecifier {
-      name: self.name.clone(),
-      version: None,
-      path: match plugin_kind {
-        PluginKind::Wasm => NPM_WASM_PLUGIN_FILE.to_string(),
-        PluginKind::Process => NPM_PROCESS_PLUGIN_FILE.to_string(),
-      },
-    };
+    let unversioned = self.unversioned_specifier(plugin_kind)?;
     // a process plugin's checksum is fetched regardless of `force_checksum` —
     // it can't be resolved without one
     let latest = fetch_npm_latest_info(
@@ -88,6 +93,31 @@ impl PluginNpmInfo {
       },
       version: latest.version,
     })
+  }
+
+  /// The package's specifier without a version yet.
+  ///
+  /// The name and path come out of a registry file, so they go through the
+  /// same parsing a user-written `npm:` specifier does: it rejects a path that
+  /// would escape the package directory and one that doesn't name a plugin
+  /// file, so neither reaches the filesystem or a config file unchecked.
+  fn unversioned_specifier(&self, plugin_kind: PluginKind) -> Result<NpmSpecifier> {
+    let path = self.path.clone().unwrap_or_else(|| {
+      match plugin_kind {
+        PluginKind::Wasm => NPM_WASM_PLUGIN_FILE,
+        PluginKind::Process => NPM_PROCESS_PLUGIN_FILE,
+      }
+      .to_string()
+    });
+    let text = format!("npm:{}/{}", self.name, path);
+    let parsed = parse_npm_specifier(&text).with_context(|| format!("Invalid npm package for plugin: {}", text))?;
+    // the name has to survive parsing intact, otherwise it isn't a package name
+    // at all (ex. one holding an '@' parses as a version)
+    if parsed.specifier.name != self.name || parsed.specifier.version.is_some() {
+      bail!("Invalid npm package name for plugin: '{}'", self.name);
+    }
+    validate_plugin_extension(&parsed.specifier, &text)?;
+    Ok(parsed.specifier)
   }
 }
 
@@ -128,16 +158,51 @@ mod test {
   }
 
   #[test]
-  fn parses_package_name() {
+  fn parses_package_name_and_path() {
     assert_eq!(
       parse(r#"{ "name": "@dprint/json" }"#),
       Some(PluginNpmInfo {
-        name: "@dprint/json".to_string()
+        name: "@dprint/json".to_string(),
+        path: None,
+      })
+    );
+    assert_eq!(
+      parse(r#"{ "name": "@dprint/plugins", "path": "json/plugin.wasm" }"#),
+      Some(PluginNpmInfo {
+        name: "@dprint/plugins".to_string(),
+        path: Some("json/plugin.wasm".to_string()),
       })
     );
     // a package name is the one thing we can't do without
-    assert_eq!(parse(r#"{ "checksum": "abc" }"#), None);
+    assert_eq!(parse(r#"{ "path": "json/plugin.wasm" }"#), None);
     assert_eq!(parse(r#"{ "name": "" }"#), None);
+    // an empty path is the same as none
+    assert_eq!(parse(r#"{ "name": "a", "path": "" }"#).unwrap().path, None);
+  }
+
+  #[test]
+  fn rejects_a_package_that_isnt_a_plugin_file_or_escapes_the_package() {
+    let resolve = |name: &str, path: Option<&str>| {
+      let npm = PluginNpmInfo {
+        name: name.to_string(),
+        path: path.map(ToString::to_string),
+      };
+      npm.unversioned_specifier(PluginKind::Wasm).err().map(|err| format!("{err:#}"))
+    };
+
+    // paths that would escape the extracted package
+    assert!(resolve("pkg", Some("../evil.wasm")).unwrap().contains("must not contain '.' or '..' segments"));
+    assert!(resolve("pkg", Some("/etc/evil.wasm")).unwrap().contains("must be relative"));
+    assert!(resolve("pkg", Some("..\\evil.wasm")).unwrap().contains("must not contain backslashes"));
+    // a file that isn't a plugin
+    assert!(resolve("pkg", Some("readme.md")).unwrap().contains("Unsupported plugin file extension"));
+    // a name that isn't a package name
+    assert!(resolve("pkg@1.0.0", None).unwrap().contains("Invalid npm package name for plugin"));
+    assert!(resolve("../pkg", None).unwrap().contains("must not contain '.' or '..' segments"));
+    // ...and the shapes that are fine
+    assert_eq!(resolve("@scope/pkg", Some("json/plugin.wasm")), None);
+    assert_eq!(resolve("pkg", Some("nested/dir/plugin.json")), None);
+    assert_eq!(resolve("@scope/pkg", None), None);
   }
 
   #[test]
@@ -157,6 +222,7 @@ mod test {
     environment.add_remote_file_bytes("https://registry.npmjs.org/@dprint/json/-/json-1.2.3.tgz", tarball);
     let npm = PluginNpmInfo {
       name: "@dprint/json".to_string(),
+      path: None,
     };
 
     environment.clone().run_in_runtime(async move {
@@ -176,6 +242,26 @@ mod test {
       let resolved = npm.resolve_latest(PluginKind::Process, options(false), &environment).await.unwrap();
       assert_eq!(resolved.config_file_entry(), format!("npm:@dprint/json@1.2.3/plugin.json@{}", tarball_checksum));
       assert_eq!(resolved.as_source_reference().to_full_string(), resolved.config_file_entry());
+
+      // a package that declares a path decides the plugin's kind from it,
+      // whatever kind the registry file's own url implied
+      let with_path = |path: &str| PluginNpmInfo {
+        name: "@dprint/json".to_string(),
+        path: Some(path.to_string()),
+      };
+      let resolved = with_path("json/plugin.wasm")
+        .resolve_latest(PluginKind::Process, options(false), &environment)
+        .await
+        .unwrap();
+      assert_eq!(resolved.config_file_entry(), "npm:@dprint/json@1.2.3/json/plugin.wasm");
+      let resolved = with_path("exec/plugin.json")
+        .resolve_latest(PluginKind::Wasm, options(false), &environment)
+        .await
+        .unwrap();
+      assert_eq!(
+        resolved.config_file_entry(),
+        format!("npm:@dprint/json@1.2.3/exec/plugin.json@{}", tarball_checksum)
+      );
     });
   }
 }

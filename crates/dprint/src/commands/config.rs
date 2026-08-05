@@ -3937,6 +3937,7 @@ mod test {
           config_key: Some("test-plugin".to_string()),
           npm: Some(crate::environment::TestInfoFileNpm {
             name: "@dprint/test-plugin".to_string(),
+            ..Default::default()
           }),
           ..Default::default()
         });
@@ -3994,6 +3995,7 @@ mod test {
           config_key: Some("test-plugin".to_string()),
           npm: Some(crate::environment::TestInfoFileNpm {
             name: "@dprint/test-plugin".to_string(),
+            ..Default::default()
           }),
           ..Default::default()
         });
@@ -4277,6 +4279,7 @@ mod test {
           config_key: Some("test-process-plugin".to_string()),
           npm: Some(crate::environment::TestInfoFileNpm {
             name: "@dprint/test-process".to_string(),
+            ..Default::default()
           }),
           ..Default::default()
         });
@@ -4318,6 +4321,7 @@ mod test {
           config_key: Some("test-process-plugin".to_string()),
           npm: Some(crate::environment::TestInfoFileNpm {
             name: "@dprint/test-process".to_string(),
+            ..Default::default()
           }),
           ..Default::default()
         });
@@ -4340,6 +4344,60 @@ mod test {
     assert!(dprint_json.contains("https://plugins.dprint.dev/test-process.json"), "got: {dprint_json}");
     assert!(!dprint_json.contains("npm:"), "got: {dprint_json}");
     let _ = environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_update_moves_url_plugin_to_a_subpath_within_a_package() {
+    // one package can ship several plugins, so the registry can point at the
+    // file within it rather than the conventional package root
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+
+    let packument = json!({
+      "dist-tags": { "latest": "1.0.0" },
+      "versions": { "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/@dprint/plugins/-/plugins-1.0.0.tgz" } } }
+    });
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_wasm_0_1_0_plugin()
+      .add_remote_file(
+        "https://plugins.dprint.dev/dprint/test-plugin/latest.json",
+        &json!({
+          "schemaVersion": 1,
+          "url": "https://plugins.dprint.dev/test-plugin.wasm",
+          "version": "0.2.0",
+          "npm": { "name": "@dprint/plugins", "path": "test-plugin/plugin.wasm" },
+        })
+        .to_string(),
+      )
+      .with_info_file(|_| {})
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("https://plugins.dprint.dev/test-plugin-0.1.0.wasm");
+      })
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/plugins", packument.to_string().into_bytes())
+      .add_remote_file_bytes(
+        "https://registry.npmjs.org/@dprint/plugins/-/plugins-1.0.0.tgz",
+        create_test_npm_tarball(&[("package/test-plugin/plugin.wasm", WASM_PLUGIN_BYTES)]),
+      )
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(
+      dprint_json.contains("\"npm:@dprint/plugins@1.0.0/test-plugin/plugin.wasm\""),
+      "got: {dprint_json}"
+    );
+    // and the plugin resolves from that path, which the re-resolve after the
+    // write would have failed on otherwise
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "Updating test-plugin 0.1.0 to npm:@dprint/plugins@1.0.0/test-plugin/plugin.wasm...",
+        "Compiling /cache/npm/registry.npmjs.org/@dprint__plugins@1.0.0/test-plugin/plugin.wasm",
+      ]
+    );
   }
 
   #[test]
