@@ -6,6 +6,7 @@ use anyhow::bail;
 use deno_terminal::colors;
 use dprint_core::async_runtime::future;
 use dprint_core::plugins;
+use semver::Version;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -829,6 +830,21 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     for result in plugins_to_update {
       match result {
         Ok(info) => {
+          let new_file_text = update_plugin_in_config(&file_text, &info);
+          // the plugin may come from an `extends`ed config, in which case there's
+          // no entry here to move. A version bump in that situation stops being
+          // reported once the extended config updates, but a move to npm never
+          // would — the url it's moving away from isn't ours to rewrite.
+          if info.is_move_to_npm() && new_file_text == file_text {
+            log_debug!(
+              environment,
+              "Not moving {} to npm — its entry isn't in {} (it likely comes from an extended config).",
+              info.name,
+              config_path.display()
+            );
+            continue;
+          }
+
           // in a dry run nothing is written, so don't prompt to confirm
           // process plugin checksums — just report everything that would update
           let should_update = if info.is_wasm() || yes_to_prompts || dry_run {
@@ -875,7 +891,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
             } else {
               log_stderr_info!(environment, "Updating {} {}{} to {}...", info.name, info.old_version, in_config, new_target);
             }
-            file_text = update_plugin_in_config(&file_text, &info);
+            file_text = new_file_text;
             updated_plugins.push(info);
           }
         }
@@ -1180,6 +1196,18 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
         want_tarball_sha: plugin_reference.checksum.is_some(),
       };
       match fetch_npm_latest_info(args, environment).await {
+        // an update should never take the user backwards, which the registry's
+        // latest tag can do (ex. a version was unpublished)
+        Ok(info) if is_version_downgrade(&plugin.info().version, &info.version) => {
+          log_warn!(
+            environment,
+            "Skipping {}. Its package's latest version ({}) is older than the {} in use.",
+            plugin.info().name,
+            info.version,
+            plugin.info().version,
+          );
+          return None;
+        }
         Ok(info) => {
           let new_specifier = crate::utils::NpmSpecifier {
             name: npm_source.specifier.name.clone(),
@@ -1213,6 +1241,16 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
     // package at the registry's latest version instead of following its url
     if let Some((npm, plugin_kind)) = npm_package_for_update(&plugin_reference, plugin.info().name.as_str(), latest.as_ref(), &context) {
       match npm.resolve_latest(plugin_kind, context.npm_options(old_had_checksum), environment).await {
+        // the package publish may lag behind the plugin's releases, and moving
+        // to npm isn't worth going backwards for — stay on the url, which will
+        // still update as it always has
+        Ok(resolved) if is_version_downgrade(&plugin.info().version, &resolved.version) => log_warn!(
+          environment,
+          "Not moving {} to npm. Its package's latest version ({}) is older than the {} in use.",
+          plugin.info().name,
+          resolved.version,
+          plugin.info().version,
+        ),
         Ok(resolved) => {
           let new_reference = resolved.as_source_reference();
           return Some(Ok(PluginUpdateInfo {
@@ -1347,6 +1385,21 @@ async fn get_npm_info_plugins(environment: &impl Environment) -> HashMap<String,
       log_debug!(environment, "Failed reading the plugin info file. {:#}", err);
       HashMap::new()
     }
+  }
+}
+
+/// Whether going from `old_version` to `new_version` would move backwards.
+///
+/// The npm registry's `latest` tag is what decides the version an npm plugin
+/// updates to, and it can be behind the plugin's releases (a package that's
+/// published later than the plugin, or a version that was unpublished).
+///
+/// A version that isn't semver can't be compared, so it's not treated as a
+/// downgrade — the source of the version stays trusted, as before.
+fn is_version_downgrade(old_version: &str, new_version: &str) -> bool {
+  match (Version::parse(old_version), Version::parse(new_version)) {
+    (Ok(old_version), Ok(new_version)) => new_version < old_version,
+    _ => false,
   }
 }
 
@@ -4208,6 +4261,107 @@ mod test {
       "got: {stderr:?}"
     );
     assert!(stderr.contains(&"Updating test-plugin 0.1.0 to 0.2.0...".to_string()), "got: {stderr:?}");
+  }
+
+  #[test]
+  fn config_update_does_not_move_a_plugin_from_an_extends_ed_config() {
+    // the entry lives in the extended config, so there's nothing in this file to
+    // move. Reporting it would repeat on every run, since updating this file
+    // can never make it go away
+    let mut builder = TestEnvironmentBuilder::new();
+    let environment = add_npm_test_plugin_package(&mut builder, "0.2.0")
+      .add_remote_wasm_plugin()
+      .add_remote_file("https://plugins.dprint.dev/dprint/test-plugin/latest.json", &test_plugin_latest_json(true))
+      .with_info_file(|_| {})
+      .with_local_config("/base.json", |config| {
+        config.add_plugin("https://plugins.dprint.dev/test-plugin.wasm");
+      })
+      .with_local_config("/dprint.json", |config| {
+        config.add_config_section("extends", r#""./base.json""#);
+      })
+      .initialize()
+      .build();
+    let before = environment.read_file("/dprint.json").unwrap();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    assert_eq!(environment.read_file("/dprint.json").unwrap(), before);
+    assert!(
+      environment
+        .read_file("/base.json")
+        .unwrap()
+        .contains("https://plugins.dprint.dev/test-plugin.wasm"),
+      "the extended config isn't this run's to rewrite"
+    );
+    let stderr = environment.take_stderr_messages();
+    assert!(!stderr.iter().any(|m| m.contains("Updating")), "got: {stderr:?}");
+  }
+
+  #[test]
+  fn config_update_keeps_the_url_when_the_npm_package_is_behind() {
+    // the package publish can lag the plugin's releases, and the move isn't
+    // worth a downgrade
+    let mut builder = TestEnvironmentBuilder::new();
+    let environment = add_npm_test_plugin_package(&mut builder, "0.1.0")
+      .add_remote_wasm_plugin()
+      .add_remote_file("https://plugins.dprint.dev/dprint/test-plugin/latest.json", &test_plugin_latest_json(true))
+      .with_info_file(|_| {})
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("https://plugins.dprint.dev/test-plugin.wasm");
+      })
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("\"https://plugins.dprint.dev/test-plugin.wasm\""), "got: {dprint_json}");
+    assert!(!dprint_json.contains("npm:"), "got: {dprint_json}");
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr
+        .iter()
+        .any(|m| m.contains("Not moving test-plugin to npm. Its package's latest version (0.1.0) is older than the 0.2.0 in use.")),
+      "got: {stderr:?}"
+    );
+  }
+
+  #[test]
+  fn config_update_skips_an_npm_plugin_whose_package_went_backwards() {
+    // the registry's latest tag can move backwards (ex. an unpublish), which
+    // isn't an update
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+
+    let tarball_url = |version: &str| format!("https://registry.npmjs.org/@dprint/test-plugin/-/test-plugin-{version}.tgz");
+    let packument = json!({
+      "dist-tags": { "latest": "0.1.0" },
+      "versions": {
+        "0.1.0": { "dist": { "tarball": tarball_url("0.1.0") } },
+        "0.2.0": { "dist": { "tarball": tarball_url("0.2.0") } },
+      }
+    });
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .add_remote_file_bytes(&tarball_url("0.2.0"), create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]))
+      .with_info_file(|_| {})
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("npm:@dprint/test-plugin@0.2.0");
+      })
+      .initialize()
+      .build();
+    let before = environment.read_file("/dprint.json").unwrap();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    assert_eq!(environment.read_file("/dprint.json").unwrap(), before);
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr
+        .iter()
+        .any(|m| m.contains("Skipping test-plugin. Its package's latest version (0.1.0) is older than the 0.2.0 in use.")),
+      "got: {stderr:?}"
+    );
   }
 
   #[test]
