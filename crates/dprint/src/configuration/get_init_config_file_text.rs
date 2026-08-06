@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 
 use anyhow::Result;
+use dprint_core::async_runtime::future;
 use dprint_core::plugins::wasm::{self};
 use jsonc_parser::cst::CstInputValue;
 use jsonc_parser::cst::CstRootNode;
@@ -9,6 +10,7 @@ use jsonc_parser::cst::CstRootNode;
 use crate::environment::DirEntry;
 use crate::environment::Environment;
 use crate::plugins::InfoFilePluginInfo;
+use crate::plugins::ResolveNpmLatestOptions;
 use crate::plugins::read_info_file;
 
 /// Maximum number of files to look at when scanning the current directory to
@@ -81,12 +83,17 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
     // keep the config file in info.json order regardless of the display order
     selected_indexes.sort_unstable();
 
-    let mut selected_plugins = Vec::new();
-    for index in selected_indexes {
-      let plugin = latest_plugins[index].clone();
-      let config = build_plugin_config(&plugin, &project_files);
-      selected_plugins.push((plugin, config));
-    }
+    // resolve concurrently — a plugin distributed on npm costs a registry round trip
+    let entries = future::join_all(selected_indexes.iter().map(|&index| resolve_plugin_entry(&latest_plugins[index], environment))).await;
+    let selected_plugins = selected_indexes
+      .into_iter()
+      .zip(entries)
+      .map(|(index, entry)| {
+        let plugin = latest_plugins[index].clone();
+        let config = build_plugin_config(&plugin, &project_files);
+        SelectedPlugin { plugin, config, entry }
+      })
+      .collect::<Vec<_>>();
     Some(selected_plugins)
   } else {
     None
@@ -103,13 +110,52 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
   Ok(json_text)
 }
 
+/// A plugin `dprint init` decided to write to the config file.
+struct SelectedPlugin {
+  plugin: InfoFilePluginInfo,
+  /// The plugin's config block.
+  config: serde_json::Value,
+  /// The text to write into the `plugins` array.
+  entry: String,
+}
+
+/// Where to get a selected plugin from: its npm package when the info file
+/// says it's distributed on npm (resolved from the registry, which is the
+/// source of truth for the version), otherwise its url.
+///
+/// A registry lookup that fails falls back to the url with a warning — `init`
+/// is best-effort and a starting point is more useful than no config file.
+///
+/// The npm registry is resolved from the current directory: that's where the
+/// config file lands in the normal case, and where the user ran the command in
+/// any case.
+async fn resolve_plugin_entry(plugin: &InfoFilePluginInfo, environment: &impl Environment) -> String {
+  let options = ResolveNpmLatestOptions {
+    force_checksum: false,
+    base_dir: Some(environment.cwd()),
+  };
+  match plugin.resolve_npm(options, environment).await {
+    Some(Ok(resolved)) => resolved.config_file_entry(),
+    Some(Err(err)) => {
+      log_warn!(
+        environment,
+        "Failed resolving the npm package for {}. Using its url instead. {:#}",
+        plugin.name,
+        err
+      );
+      plugin.full_url_no_wasm_checksum()
+    }
+    None => plugin.full_url_no_wasm_checksum(),
+  }
+}
+
 /// Renders the config file for the selected plugins using jsonc-parser's CST,
 /// which handles indentation, commas, and multi-line formatting for us.
-fn render_config_file(selected_plugins: &[(InfoFilePluginInfo, serde_json::Value)]) -> String {
+fn render_config_file(selected_plugins: &[SelectedPlugin]) -> String {
   let root = CstRootNode::parse("{\n}", &Default::default()).unwrap();
   let root_obj = root.object_value_or_set();
 
-  for (plugin, config) in selected_plugins {
+  for SelectedPlugin { plugin, config, .. } in selected_plugins {
     if let Some(config_key) = &plugin.config_key
       && !config_key.is_empty()
     {
@@ -125,7 +171,7 @@ fn render_config_file(selected_plugins: &[(InfoFilePluginInfo, serde_json::Value
   let excludes = get_unique_items(
     selected_plugins
       .iter()
-      .flat_map(|(plugin, _)| plugin.config_excludes.iter().cloned())
+      .flat_map(|selected| selected.plugin.config_excludes.iter().cloned())
       .collect::<Vec<_>>(),
   );
   let excludes_prop = root_obj.append("excludes", CstInputValue::Array(excludes.iter().cloned().map(CstInputValue::String).collect()));
@@ -135,17 +181,8 @@ fn render_config_file(selected_plugins: &[(InfoFilePluginInfo, serde_json::Value
     array.ensure_multiline();
   }
 
-  let urls = selected_plugins
-    .iter()
-    .map(|(plugin, _)| {
-      if plugin.is_process_plugin() && plugin.checksum.is_some() {
-        format!("{}@{}", plugin.url, plugin.checksum.as_ref().unwrap())
-      } else {
-        plugin.url.clone()
-      }
-    })
-    .collect::<Vec<_>>();
-  let plugins_prop = root_obj.append("plugins", CstInputValue::Array(urls.into_iter().map(CstInputValue::String).collect()));
+  let entries = selected_plugins.iter().map(|selected| selected.entry.clone()).collect::<Vec<_>>();
+  let plugins_prop = root_obj.append("plugins", CstInputValue::Array(entries.into_iter().map(CstInputValue::String).collect()));
   if let Some(array) = plugins_prop.value().and_then(|value| value.as_array()) {
     array.ensure_multiline();
   }
@@ -410,6 +447,7 @@ mod test {
   use crate::environment::TestEnvironmentBuilder;
   use crate::environment::TestInfoFileConfigItem;
   use crate::environment::TestInfoFileMatch;
+  use crate::environment::TestInfoFileNpm;
   use crate::environment::TestInfoFilePlugin;
   use crate::plugins::InfoFileConfigItem;
   use pretty_assertions::assert_eq;
@@ -455,6 +493,7 @@ mod test {
       file_names: vec![],
       config_excludes: vec![],
       checksum: None,
+      npm: None,
       default_config: None,
       config_items: config_item_extensions
         .into_iter()
@@ -866,6 +905,117 @@ mod test {
       assert!(text.contains("a-1.0.0.wasm"), "{text}");
       assert!(!text.contains("b-1.0.0.wasm"), "{text}");
       assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  /// Serves an npm package whose latest version is newer than the info file's,
+  /// to show which one is written.
+  fn add_npm_package(builder: &mut TestEnvironmentBuilder, name: &str, file_name: &str) -> String {
+    let tarball = crate::test_helpers::create_test_npm_tarball(&[(&format!("package/{}", file_name), b"")]);
+    let checksum = crate::utils::get_sha256_checksum(&tarball);
+    builder
+      .add_remote_file_bytes(
+        &format!("https://registry.npmjs.org/{}", name),
+        serde_json::json!({
+          "dist-tags": { "latest": "1.1.0" },
+          "versions": { "1.1.0": { "dist": { "tarball": format!("https://registry.npmjs.org/{}/-/pkg-1.1.0.tgz", name) } } }
+        })
+        .to_string()
+        .into_bytes(),
+      )
+      .add_remote_file_bytes(&format!("https://registry.npmjs.org/{}/-/pkg-1.1.0.tgz", name), tarball);
+    checksum
+  }
+
+  #[test]
+  fn should_initialize_with_npm_specifiers() {
+    let mut builder = TestEnvironmentBuilder::new();
+    // the version written comes from the registry (1.1.0), not the info file (1.0.0)
+    add_npm_package(&mut builder, "@dprint/a", "plugin.wasm");
+    let b_checksum = add_npm_package(&mut builder, "@dprint/b", "plugin.json");
+    let environment = builder
+      .with_info_file(|info| {
+        info
+          .add_plugin(TestInfoFilePlugin {
+            npm: Some(TestInfoFileNpm {
+              name: "@dprint/a".to_string(),
+              ..Default::default()
+            }),
+            ..wasm_plugin("a", "a", &["ts"])
+          })
+          // a process plugin also carries the checksum of its npm package
+          .add_plugin(TestInfoFilePlugin {
+            name: "b".to_string(),
+            version: "1.0.0".to_string(),
+            url: "https://plugins.dprint.dev/b-1.0.0.json".to_string(),
+            file_extensions: vec!["vue".to_string()],
+            config_excludes: vec![],
+            checksum: Some("url-checksum".to_string()),
+            npm: Some(TestInfoFileNpm {
+              name: "@dprint/b".to_string(),
+              ..Default::default()
+            }),
+            ..Default::default()
+          })
+          // a plugin that isn't on npm keeps its url
+          .add_plugin(TestInfoFilePlugin {
+            name: "c".to_string(),
+            version: "1.0.0".to_string(),
+            url: "https://plugins.dprint.dev/c-1.0.0.json".to_string(),
+            file_extensions: vec!["rs".to_string()],
+            config_excludes: vec![],
+            checksum: Some("url-checksum".to_string()),
+            ..Default::default()
+          });
+      })
+      .write_file("/file.ts", "")
+      .write_file("/file.vue", "")
+      .write_file("/file.rs", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      assert_eq!(
+        text,
+        format!(
+          r#"{{
+  "a": {{
+  }},
+  "excludes": [],
+  "plugins": [
+    "npm:@dprint/a@1.1.0",
+    "npm:@dprint/b@1.1.0/plugin.json@{}",
+    "https://plugins.dprint.dev/c-1.0.0.json@url-checksum"
+  ]
+}}
+"#,
+          b_checksum
+        )
+      );
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_fall_back_to_the_url_when_the_npm_registry_is_unreachable() {
+    // init is best-effort — a starting point beats no config file
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          npm: Some(TestInfoFileNpm {
+            name: "@dprint/a".to_string(),
+            ..Default::default()
+          }),
+          ..wasm_plugin("a", "a", &["ts"])
+        });
+      })
+      .write_file("/file.ts", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      assert!(text.contains("\"https://plugins.dprint.dev/a-1.0.0.wasm\""), "{text}");
+      let mut expected_messages = get_standard_logged_messages();
+      expected_messages.push("Failed resolving the npm package for a. Using its url instead. Failed to fetch npm packument for @dprint/a: Error downloading https://registry.npmjs.org/@dprint/a - 404 Not Found");
+      assert_eq!(environment.take_stderr_messages(), expected_messages);
     });
   }
 

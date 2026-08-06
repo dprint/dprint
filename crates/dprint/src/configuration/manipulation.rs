@@ -29,6 +29,23 @@ pub struct PluginUpdateInfo {
 }
 
 impl PluginUpdateInfo {
+  /// Whether this would actually change the config file.
+  ///
+  /// A plugin already at the latest version still changes when it moves to an
+  /// npm package, which is the only source move the update performs — a
+  /// difference in urls at the same version is left alone (the entry may not
+  /// even live in this file, ex. when it comes from an `extends`ed config), as
+  /// is a checksum that differs without a version change.
+  pub fn is_change(&self) -> bool {
+    self.old_version != self.new_version || self.is_move_to_npm()
+  }
+
+  /// Whether this moves the entry from a url (or a local path) to the plugin's
+  /// npm package, rather than only bumping its version.
+  pub fn is_move_to_npm(&self) -> bool {
+    matches!(self.new_reference.path_source, PathSource::Npm(_)) && !matches!(self.old_reference.path_source, PathSource::Npm(_))
+  }
+
   pub fn is_wasm(&self) -> bool {
     self.new_reference.plugin_kind() == Some(PluginKind::Wasm)
   }
@@ -390,6 +407,44 @@ mod test {
   use pretty_assertions::assert_eq;
 
   use super::*;
+
+  #[test]
+  fn is_change_covers_version_bumps_and_moves_to_npm() {
+    use crate::utils::NpmSpecifier;
+
+    let url = |version: &str| PluginSourceReference::new_remote_from_str(&format!("https://plugins.dprint.dev/json-{}.wasm", version));
+    let npm = |version: &str| PluginSourceReference {
+      path_source: PathSource::new_npm(
+        NpmSpecifier {
+          name: "@dprint/json".to_string(),
+          version: Some(version.to_string()),
+          path: "plugin.wasm".to_string(),
+        },
+        None,
+      ),
+      checksum: None,
+    };
+    let info = |old_version: &str, old_reference, new_version: &str, new_reference| PluginUpdateInfo {
+      name: "json".to_string(),
+      old_version: old_version.to_string(),
+      old_reference,
+      new_version: new_version.to_string(),
+      new_reference,
+    };
+
+    // a version bump, with or without a source move
+    assert!(info("1.0.0", url("1.0.0"), "1.1.0", url("1.1.0")).is_change());
+    assert!(info("1.0.0", url("1.0.0"), "1.1.0", npm("1.1.0")).is_change());
+    // a move to npm at the same version — otherwise nobody on the latest
+    // version would ever make the move
+    assert!(info("1.0.0", url("1.0.0"), "1.0.0", npm("1.0.0")).is_change());
+    // nothing to do
+    assert!(!info("1.0.0", url("1.0.0"), "1.0.0", url("1.0.0")).is_change());
+    assert!(!info("1.0.0", npm("1.0.0"), "1.0.0", npm("1.0.0")).is_change());
+    // a url that differs at the same version is left alone — the entry may not
+    // even be in this config file
+    assert!(!info("1.0.0", url("1.0.0"), "1.0.0", url("other")).is_change());
+  }
 
   #[test]
   pub fn add_plugins_array_empty() {

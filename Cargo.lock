@@ -755,6 +755,7 @@ dependencies = [
  "rustls",
  "rustls-native-certs",
  "rustls-pemfile",
+ "semver 1.0.27",
  "serde",
  "serde_json",
  "sha2",

@@ -132,6 +132,9 @@ Supported `npm:` specifier forms:
     // process plugin — requires a tarball checksum
     "npm:@dprint/prettier@0.50.0/plugin.json@<sha256>",
 
+    // a plugin that isn't at the root of its package
+    "npm:@dprint/example@1.0.0/json/plugin.wasm",
+
     // resolve from your local node_modules, walking up from the config file
     // (use this when an npm package manager manages the version)
     "npm:@dprint/json",
@@ -145,6 +148,7 @@ Behaviour:
 - Omitting the version (`npm:@scope/name`) tells dprint to look up the package in `node_modules` walking up from the config file's directory. Use this when you want npm and your lockfile to be the source of truth.
 - The registry is resolved from `NPM_CONFIG_REGISTRY`, then `.npmrc` files walking up from the config, then `~/.npmrc`, then the default `https://registry.npmjs.org`. Scoped registries are supported.
 - `dprint config update` will bump versioned npm specifiers to the latest published version (and compute the new checksum for process plugins). Unversioned specifiers are managed by your package manager, so they're skipped.
+- When a plugin is published to npm, `dprint init`, `dprint add` and `dprint config update` write the `npm:` form for it instead of a `plugins.dprint.dev` URL, and `dprint config update` moves an existing URL entry over to the package. The version always comes from the npm registry, and a plugin is never moved to a package whose latest version is older than the one in use. Only an entry served from where the registry publishes moves to npm: a plugin referenced by a local path is never touched, and a self-hosted copy of a plugin keeps its URL form (it still follows the plugin's own update URL, as it did before). An entry that comes from an `extends`ed configuration file is left to that file.
 - `dprint add npm:@scope/name` resolves to the latest version and writes the pinned form, unless the package is listed in a nearby `package.json` under `devDependencies` — in which case the unversioned form is written so npm/`package-lock.json` stays the source of truth. When you don't include a plugin path, dprint inspects the package to detect whether it's a Wasm or process plugin and writes the right form automatically — for a process plugin that means `npm:@scope/name@<version>/plugin.json@<sha256>`.
 
 Available npm packages include `@dprint/typescript`, `@dprint/json`, `@dprint/markdown`, `@dprint/toml`, `@dprint/dockerfile`, `@dprint/biome`, `@dprint/oxc`, `@dprint/ruff`, `@dprint/sql`, `@dprint/mago`, `@dprint/jupyter`, `@dprint/exec`, `@dprint/prettier`, and `@dprint/roslyn`.
