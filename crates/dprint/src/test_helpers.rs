@@ -69,7 +69,7 @@ pub static PROCESS_PLUGIN_ZIP_BYTES: Lazy<Vec<u8>> = Lazy::new(|| {
     )
     .unwrap();
   let file_bytes = std::fs::read(&*TEST_PROCESS_PLUGIN_PATH).unwrap();
-  zip.write(&file_bytes).unwrap();
+  zip.write_all(&file_bytes).unwrap();
   zip.finish().unwrap().into_inner()
 });
 pub static PROCESS_PLUGIN_ZIP_CHECKSUM: Lazy<String> = Lazy::new(|| crate::utils::get_sha256_checksum(&PROCESS_PLUGIN_ZIP_BYTES));

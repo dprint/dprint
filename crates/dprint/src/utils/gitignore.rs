@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::environment::Environment;
+use crate::utils::escape_glob_text;
 
 /// Lifted from the Deno code.
 /// Copyright 2018-2024 the Deno authors. MIT license.
@@ -182,10 +183,11 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
         builder.add_line(None, line).ok()?;
       }
     }
-    // override the gitignore contents to include these paths
+    // override the gitignore contents to include these paths (escaping so a
+    // path with glob characters in its name matches literally)
     for path in &self.options.include_paths {
       if let Ok(suffix) = path.strip_prefix(dir_path) {
-        let suffix = suffix.to_string_lossy().replace('\\', "/");
+        let suffix = escape_glob_text(&suffix.to_string_lossy().replace('\\', "/"));
         let _ignore = builder.add_line(None, &format!("!/{}", suffix));
         if !suffix.ends_with('/') {
           let _ignore = builder.add_line(None, &format!("!/{}/", suffix));
