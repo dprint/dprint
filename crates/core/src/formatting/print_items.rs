@@ -88,6 +88,18 @@ impl PrintItems {
     self.push_cow_string(Cow::Owned(item))
   }
 
+  /// Pushes a borrowed string, copying it into the printer's allocator, and computes its width at
+  /// runtime.
+  ///
+  /// Prefer `push_sc` with the `sc!` macro for text known at compile time, and
+  /// `push_str_runtime_width_computed` for a `&'static str`, since neither copies. Use this for
+  /// text the caller doesn't own: it avoids building a `String` only for the printer to copy it and
+  /// throw it away.
+  pub fn push_str(&mut self, item: &str) {
+    let string_container = thread_state::with_bump_allocator(|bump| bump.alloc_str(item));
+    self.push_item_internal(PrintItem::String(string_container));
+  }
+
   fn push_cow_string(&mut self, item: Cow<'static, str>) {
     let string_container = thread_state::with_bump_allocator(|bump| bump.alloc_string(item));
     self.push_item_internal(PrintItem::String(string_container));
