@@ -4557,6 +4557,89 @@ mod test {
   }
 
   #[test]
+  fn config_update_resolves_the_registry_from_an_npmrc_next_to_the_config() {
+    // the config file's directory is where the .npmrc walk starts, so a private
+    // registry configured beside it decides both the version an entry updates
+    // to and where the package is fetched from
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+
+    let tarball_url = |version: &str| format!("https://dprint.example.com/@dprint/test-plugin/-/test-plugin-{version}.tgz");
+    let packument = json!({
+      "dist-tags": { "latest": "0.3.0" },
+      "versions": {
+        "0.1.0": { "dist": { "tarball": tarball_url("0.1.0") } },
+        "0.3.0": { "dist": { "tarball": tarball_url("0.3.0") } },
+      }
+    });
+    let tarball = create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]);
+    let environment = TestEnvironmentBuilder::new()
+      // only the private registry serves the package — the default one has nothing
+      .add_remote_file_bytes("https://dprint.example.com/@dprint/test-plugin", packument.to_string().into_bytes())
+      .add_remote_file_bytes(&tarball_url("0.1.0"), tarball.clone())
+      .add_remote_file_bytes(&tarball_url("0.3.0"), tarball)
+      .write_file("/.npmrc", "@dprint:registry=https://dprint.example.com")
+      .with_info_file(|_| {})
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("npm:@dprint/test-plugin@0.1.0");
+      })
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("\"npm:@dprint/test-plugin@0.3.0\""), "got: {dprint_json}");
+    // the package came from the private registry, not the default
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "Updating test-plugin 0.1.0 to 0.3.0...",
+        "Compiling /cache/npm/dprint.example.com/@dprint__test-plugin@0.3.0/plugin.wasm",
+      ]
+    );
+  }
+
+  #[test]
+  fn config_update_moves_a_url_plugin_to_a_registry_from_an_npmrc() {
+    // the same .npmrc walk decides where a plugin moving off its url is
+    // fetched from, so the entry it writes points at the private registry
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+
+    let tarball_url = "https://dprint.example.com/@dprint/test-plugin/-/test-plugin-0.3.0.tgz";
+    let packument = json!({
+      "dist-tags": { "latest": "0.3.0" },
+      "versions": { "0.3.0": { "dist": { "tarball": tarball_url } } }
+    });
+    let environment = TestEnvironmentBuilder::new()
+      // only the private registry serves the package — the default one has nothing
+      .add_remote_file_bytes("https://dprint.example.com/@dprint/test-plugin", packument.to_string().into_bytes())
+      .add_remote_file_bytes(tarball_url, create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]))
+      .add_remote_wasm_0_1_0_plugin()
+      .write_file("/.npmrc", "@dprint:registry=https://dprint.example.com")
+      .with_info_file(|_| {})
+      .add_remote_file("https://plugins.dprint.dev/dprint/test-plugin/latest.json", &test_plugin_latest_json(true))
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("https://plugins.dprint.dev/test-plugin-0.1.0.wasm");
+      })
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("\"npm:@dprint/test-plugin@0.3.0\""), "got: {dprint_json}");
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "Updating test-plugin 0.1.0 to npm:@dprint/test-plugin@0.3.0...",
+        "Compiling /cache/npm/dprint.example.com/@dprint__test-plugin@0.3.0/plugin.wasm",
+      ]
+    );
+  }
+
+  #[test]
   fn config_update_only_moves_plugins_from_the_info_files_origin() {
     // plugins are matched to the info file by name, so a self-hosted build that
     // happens to share a name isn't dragged onto the registry's npm package
