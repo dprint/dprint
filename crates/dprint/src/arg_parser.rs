@@ -585,7 +585,12 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
   fn add_command() -> Command {
     Command::new("add")
       .about("Adds a plugin to the configuration file.")
-      .arg(Arg::new("url-or-plugin-name").required(false).num_args(1..))
+      .arg(
+        Arg::new("url-or-plugin-name")
+          .required(false)
+          .num_args(1..)
+          .value_hint(clap::ValueHint::AnyPath),
+      )
       .arg(
         Arg::new("global")
           .long("global")
@@ -720,6 +725,7 @@ EXAMPLES:
             .long("stdin")
             .value_name("extension/file-name/file-path")
             .help("Format stdin and output the result to stdout. Provide an absolute file path to apply the inclusion and exclusion rules or an extension or file name to always format the text.")
+            .value_hint(clap::ValueHint::AnyPath)
             .conflicts_with("stdin-files")
             .required(false)
             .num_args(1)
@@ -841,6 +847,7 @@ EXAMPLES:
             .long("file")
             .value_name("file")
             .help("Limit the output to only the plugins that would format this file.")
+            .value_hint(clap::ValueHint::AnyPath)
             .num_args(1)
             .required(false)
         )
@@ -901,6 +908,7 @@ EXAMPLES:
         .long("config")
         .short('c')
         .help("Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.")
+        .value_hint(clap::ValueHint::AnyPath)
         .global(true)
         .num_args(1)
     )
@@ -920,6 +928,7 @@ EXAMPLES:
         .long("plugins")
         .value_name("urls/files")
         .help("List of urls or file paths of plugins to use. This overrides what is specified in the config file.")
+        .value_hint(clap::ValueHint::AnyPath)
         .global(true)
         .num_args(1..)
     )
@@ -947,8 +956,8 @@ EXAMPLES:
     app = app.subcommand(
       Command::new("hidden")
         .hide(true)
-        .subcommand(Command::new("windows-install").arg(Arg::new("install-path").num_args(1).required(true)))
-        .subcommand(Command::new("windows-uninstall").arg(Arg::new("install-path").num_args(1).required(true))),
+        .subcommand(Command::new("windows-install").arg(Arg::new("install-path").num_args(1).required(true).value_hint(clap::ValueHint::AnyPath)))
+        .subcommand(Command::new("windows-uninstall").arg(Arg::new("install-path").num_args(1).required(true).value_hint(clap::ValueHint::AnyPath))),
     );
   }
 
@@ -970,6 +979,7 @@ impl ClapExtensions for clap::Command {
       .arg(
         Arg::new("files")
           .help("List of files, directories, or file patterns to format. This can be a subset of what is found in the config file.")
+          .value_hint(clap::ValueHint::AnyPath)
           .num_args(1..),
       )
       .arg(

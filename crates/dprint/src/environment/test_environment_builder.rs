@@ -177,9 +177,19 @@ pub struct TestInfoFilePlugin {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub checksum: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
+  pub npm: Option<TestInfoFileNpm>,
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub default_config: Option<serde_json::Value>,
   #[serde(skip_serializing_if = "Vec::is_empty")]
   pub config_items: Vec<TestInfoFileConfigItem>,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TestInfoFileNpm {
+  pub name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub path: Option<String>,
 }
 
 #[derive(Serialize, Default)]

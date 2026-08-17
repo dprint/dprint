@@ -67,15 +67,24 @@ impl BumpAllocator {
   }
 
   pub fn alloc_string(&self, item: Cow<'static, str>) -> UnsafePrintLifetime<StringContainer> {
-    let string = match item {
-      Cow::Borrowed(item) => item,
-      Cow::Owned(item) => {
-        let string = self.bump.alloc(bumpalo::collections::String::from_str_in(&item, &self.bump));
-        unsafe { std::mem::transmute::<&bumpalo::collections::String, UnsafePrintLifetime<bumpalo::collections::String>>(string) }
-      }
-    };
-    let string = StringContainer::new(string);
-    let string = self.bump.alloc(string);
+    match item {
+      Cow::Borrowed(item) => self.alloc_string_container(item),
+      Cow::Owned(item) => self.alloc_str(&item),
+    }
+  }
+
+  /// Copies the string into the bump allocator, where it lives for the rest of the print.
+  ///
+  /// This exists so a caller holding a string it doesn't own can hand it over without allocating a
+  /// `String` first, which would be copied here and then immediately freed.
+  pub fn alloc_str(&self, item: &str) -> UnsafePrintLifetime<StringContainer> {
+    let string = self.bump.alloc_str(item);
+    let string = unsafe { std::mem::transmute::<&str, UnsafePrintLifetime<str>>(string) };
+    self.alloc_string_container(string)
+  }
+
+  fn alloc_string_container(&self, text: UnsafePrintLifetime<str>) -> UnsafePrintLifetime<StringContainer> {
+    let string = self.bump.alloc(StringContainer::new(text));
     unsafe { std::mem::transmute::<&StringContainer, UnsafePrintLifetime<StringContainer>>(string) }
   }
 
