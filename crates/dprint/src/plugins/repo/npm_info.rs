@@ -13,6 +13,7 @@ use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::parse_npm_specifier;
 use crate::utils::validate_plugin_extension;
+use crate::utils::validate_safe_version;
 
 /// The file within an npm package that holds a process plugin's manifest.
 const NPM_PROCESS_PLUGIN_FILE: &str = "plugin.json";
@@ -80,6 +81,11 @@ impl PluginNpmInfo {
       environment,
     )
     .await?;
+    // the registry's `latest` tag hasn't been through the specifier parser, so
+    // it gets the same check a user-written version does. a version holding a
+    // '/' would otherwise render into the config as a path and come back as a
+    // process plugin — a native binary in place of the wasm this resolved as
+    validate_safe_version(&latest.version, &format!("npm:{}@{}", self.name, latest.version))?;
     Ok(ResolvedNpmPlugin {
       reference: PluginSourceReference {
         path_source: PathSource::new_npm(
