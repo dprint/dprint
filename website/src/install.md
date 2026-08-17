@@ -14,9 +14,6 @@ Install using one of the methods below.
   curl -fsSL https://dprint.dev/install.sh | sh
   ```
 
-- Windows Installer
-
-  [Download](https://github.com/dprint/dprint/releases/latest/download/dprint-x86_64-pc-windows-msvc-installer.exe)
 - Powershell (Windows):
 
   ```sh
@@ -42,28 +39,6 @@ Install using one of the methods below.
   cargo install --locked dprint
   ```
 
-- [Deno](https://deno.land):
-
-  For just your project, run `deno install npm:dprint` then you can configure a task like so:
-
-  ```json
-  {
-    "tasks": {
-      "fmt": "dprint fmt",
-      "fmt:check": "dprint check"
-    }
-  }
-  ```
-
-  Then run `deno task dprint init` to initialize and format by running: `deno task fmt`
-
-  Also, you could install it globally via Deno:
-
-  ```sh
-  deno install -g -A npm:dprint
-  dprint help
-  ```
-
 - [npm](https://www.npmjs.com/):
 
   ```sh
@@ -81,6 +56,18 @@ Install using one of the methods below.
   ```sh
   uv add dprint-py
   uv run dprint help
+  ```
+
+  [mise](https://mise.jdx.dev):
+
+  ```sh
+  # for your project
+  mise use dprint
+  mise x dprint -- dprint help
+
+  # or install globally
+  mise use dprint --global
+  dprint help
   ```
 
 - [asdf-vm](https://asdf-vm.com/) ([asdf-dprint](https://github.com/asdf-community/asdf-dprint)):

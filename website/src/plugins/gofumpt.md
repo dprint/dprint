@@ -4,13 +4,6 @@ description: Documentation on the gofumpt code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/gofumpt">Gofumpt</a></li>
-  </ul>
-</nav>
-
 # Gofumpt Plugin
 
 Adapter plugin that formats Go code via [gofumpt](https://github.com/mvdan/gofumpt).

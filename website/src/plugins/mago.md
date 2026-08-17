@@ -4,13 +4,6 @@ description: Documentation on the Mago code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/mago">Mago</a></li>
-  </ul>
-</nav>
-
 # Mago Plugin
 
 Adapter plugin that formats PHP code via [Mago](https://github.com/carthage-software/mago).
@@ -23,6 +16,8 @@ In your project's directory with a dprint.json file, run:
 
 ```shellsession
 dprint add mago
+# or install from npm
+dprint add npm:@dprint/mago
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"mago"` property to add configuration:

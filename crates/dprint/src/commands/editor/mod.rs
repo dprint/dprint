@@ -229,7 +229,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
 
             let body = match result {
               Ok(text) => EditorMessageBody::FormatResponse(message.id, text),
-              Err(err) => EditorMessageBody::Error(message.id, format!("{:#}", err).into_bytes()),
+              Err(err) => EditorMessageBody::Error(message.id, dprint_core::plugins::error_to_string(&err).into_bytes()),
             };
             send_response_body(&context, body);
           });
@@ -318,6 +318,7 @@ mod test {
   use dprint_core::communication::RcIdStore;
   use dprint_core::communication::SingleThreadMessageWriter;
   use dprint_core::configuration::ConfigKeyMap;
+  use dprint_core::plugins::FormatError;
   use dprint_core::plugins::FormatRange;
   use dprint_core::plugins::FormatResult;
   use pretty_assertions::assert_eq;
@@ -480,6 +481,7 @@ mod test {
           Arc::new(token),
         )
         .await
+        .map_err(FormatError::new)
     }
 
     pub async fn exit(&self) -> Result<()> {
@@ -1100,6 +1102,54 @@ mod test {
     });
 
     run_test_cli(vec!["editor-service", "--parent-pid", &std::process::id().to_string()], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_format_with_config_overrides_for_editor_service() {
+    let file_path = "/package.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .write_file(file_path, "")
+      .build();
+
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+
+          assert_eq!(communicator.check_file(&file_path).await.unwrap(), true);
+          assert_eq!(
+            communicator
+              .format_text(&file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_package"
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
 
     result.join().unwrap();
   }

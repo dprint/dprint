@@ -4,13 +4,6 @@ description: Documentation on the GraphQL code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
-  </ul>
-</nav>
-
 # Pretty GraphQL Plugin
 
 Adapter plugin that formats GraphQL files via [Pretty GraphQL](https://github.com/g-plane/pretty_graphql).

@@ -4,15 +4,27 @@ use once_cell::sync::Lazy;
 use parking_lot::Condvar;
 use parking_lot::Mutex;
 use path_clean::PathClean;
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::future::Future;
 use std::io;
 use std::io::Read;
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use sys_traits::BaseEnvVar;
+use sys_traits::BaseFsCreateDir;
+use sys_traits::BaseFsMetadata;
+use sys_traits::BaseFsOpen;
+use sys_traits::BaseFsRead;
+use sys_traits::BaseFsRemoveFile;
+use sys_traits::BaseFsRename;
+use sys_traits::BaseFsSetPermissions;
+use sys_traits::CreateDirOptions;
 use sys_traits::EnvCurrentDir;
 use sys_traits::EnvRemoveVar;
 use sys_traits::EnvSetCurrentDir;
@@ -29,14 +41,20 @@ use sys_traits::FsRemoveFile;
 use sys_traits::FsRename;
 use sys_traits::FsSetPermissions;
 use sys_traits::FsWrite;
+use sys_traits::SystemRandom;
+use sys_traits::SystemTimeNow;
+use sys_traits::ThreadSleep;
 use sys_traits::impls::InMemorySys;
+use url::Url;
 
 use dprint_core::async_runtime::async_trait;
 
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
+use super::DownloadedFile;
 use super::Environment;
 use super::FilePermissions;
+use super::PathKind;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
 use crate::utils::LogLevel;
@@ -118,9 +136,14 @@ pub struct TestEnvironment {
   log_level: Arc<Mutex<LogLevel>>,
   sys: Arc<InMemorySys>,
   staged_files: Arc<Mutex<Vec<PathBuf>>>,
+  dirty_files: Arc<Mutex<Vec<PathBuf>>>,
+  global_gitignore_path: Arc<Mutex<Option<PathBuf>>>,
   stdout_messages: Arc<Mutex<Vec<String>>>,
   stderr_messages: Arc<Mutex<Vec<String>>>,
   remote_files: Arc<Mutex<HashMap<String, Result<Vec<u8>>>>>,
+  remote_file_redirects: Arc<Mutex<HashMap<String, String>>>,
+  /// Last auth header seen for each URL.
+  remote_file_auth: Arc<Mutex<HashMap<String, Option<String>>>>,
   selection_result: Arc<Mutex<usize>>,
   multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>>>>>,
@@ -136,6 +159,17 @@ pub struct TestEnvironment {
   current_exe_path: Arc<Mutex<PathBuf>>,
   is_terminal_interactive: Arc<Mutex<bool>>,
   run_command_results: Arc<Mutex<Vec<(Vec<OsString>, io::Result<Option<i32>>)>>>,
+  /// Executables of processes that are pretending to be running, each paired
+  /// with the number of times it will "restart" (re-lock its directory) after
+  /// being killed. A directory containing one of these can't be removed
+  /// (simulating a locked executable) until the process stays killed via
+  /// `kill_processes_using_dir`. The restart count models an editor such as the
+  /// VSCode extension respawning its process plugins.
+  running_processes: Arc<Mutex<Vec<(PathBuf, usize)>>>,
+  /// Number of times `remove_dir_all` should fail with a transient error before
+  /// succeeding, independent of any running process. Models a flaky deletion
+  /// (e.g. a file briefly locked) that succeeds on retry.
+  remove_dir_all_failures: Arc<Mutex<usize>>,
 }
 
 impl TestEnvironment {
@@ -144,9 +178,13 @@ impl TestEnvironment {
       log_level: Arc::new(Mutex::new(LogLevel::Info)),
       sys: Default::default(),
       staged_files: Default::default(),
+      dirty_files: Default::default(),
+      global_gitignore_path: Default::default(),
       stdout_messages: Default::default(),
       stderr_messages: Default::default(),
       remote_files: Default::default(),
+      remote_file_redirects: Default::default(),
+      remote_file_auth: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
       multi_selection_result: Arc::new(Mutex::new(None)),
       confirm_results: Default::default(),
@@ -168,6 +206,8 @@ impl TestEnvironment {
       current_exe_path: Arc::new(Mutex::new(PathBuf::from("/dprint"))),
       is_terminal_interactive: Arc::new(Mutex::new(true)),
       run_command_results: Default::default(),
+      running_processes: Default::default(),
+      remove_dir_all_failures: Default::default(),
     };
     env.mk_dir_all("/").unwrap();
     env
@@ -207,6 +247,14 @@ impl TestEnvironment {
     }
   }
 
+  pub fn add_remote_file_redirect(&self, from: &str, to: &str) {
+    self.remote_file_redirects.lock().insert(from.to_string(), to.to_string());
+  }
+
+  pub fn take_remote_file_auth(&self, url: &str) -> Option<String> {
+    self.remote_file_auth.lock().remove(url).flatten()
+  }
+
   pub fn set_env_var(&self, name: &str, value: Option<&str>) {
     match value {
       Some(value) => self.sys.env_set_var(name, value),
@@ -234,6 +282,15 @@ impl TestEnvironment {
     self.sys.env_set_current_dir(new_path).unwrap();
   }
 
+  /// Pins the in-memory filesystem clock so subsequent writes get a
+  /// deterministic modification time. Advancing it between writes lets tests
+  /// exercise mtime-based cache invalidation without depending on wall-clock.
+  pub fn set_fs_time(&self, secs_since_epoch: u64) {
+    self
+      .sys
+      .set_time(Some(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs_since_epoch)));
+  }
+
   pub fn set_stdout_machine_readable(&self, value: bool) {
     *self.is_stdout_machine_readable.lock() = value;
   }
@@ -257,6 +314,12 @@ impl TestEnvironment {
 
   pub fn set_staged_file(&self, file: impl AsRef<Path>) {
     self.staged_files.lock().push(file.as_ref().to_path_buf())
+  }
+  pub fn set_dirty_file(&self, file: impl AsRef<Path>) {
+    self.dirty_files.lock().push(file.as_ref().to_path_buf())
+  }
+  pub fn set_global_gitignore_path(&self, path: impl AsRef<Path>) {
+    *self.global_gitignore_path.lock() = Some(path.as_ref().to_path_buf());
   }
   pub fn set_dir_info_error(&self, err: io::Error) {
     *self.dir_info_error.lock() = Some(err);
@@ -282,13 +345,41 @@ impl TestEnvironment {
     self.run_command_results.lock().push((Vec::new(), result));
   }
 
+  /// Simulates a running process whose executable is at the given path. A
+  /// directory containing it can't be removed until the process is killed.
+  pub fn add_running_process(&self, exe_path: impl AsRef<Path>) {
+    self.add_running_process_with_restarts(exe_path, 0);
+  }
+
+  /// Like [`Self::add_running_process`], but the process re-locks its directory
+  /// `restarts` times after being killed before it stays dead — simulating an
+  /// editor respawning its process plugins between delete attempts.
+  pub fn add_running_process_with_restarts(&self, exe_path: impl AsRef<Path>, restarts: usize) {
+    self.running_processes.lock().push((self.clean_path(exe_path), restarts));
+  }
+
+  pub fn is_process_running(&self, exe_path: impl AsRef<Path>) -> bool {
+    let exe_path = self.clean_path(exe_path);
+    self.running_processes.lock().iter().any(|(p, _)| *p == exe_path)
+  }
+
+  /// Makes the next `count` `remove_dir_all` calls fail with a transient error
+  /// before succeeding, regardless of any running process.
+  pub fn set_remove_dir_all_failures(&self, count: usize) {
+    *self.remove_dir_all_failures.lock() = count;
+  }
+
   pub fn take_run_commands(&self) -> Vec<(Vec<OsString>, io::Result<Option<i32>>)> {
     self.run_command_results.lock().drain(..).collect()
   }
 
   /// Remember to drop the plugins collection manually if using this with one.
   pub fn run_in_runtime<T>(&self, future: impl Future<Output = T>) -> T {
-    let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+      .enable_time()
+      .thread_stack_size(crate::plugins::WASM_PLUGIN_THREAD_STACK_SIZE)
+      .build()
+      .unwrap();
     rt.block_on(future)
   }
 
@@ -325,10 +416,105 @@ impl Drop for TestEnvironment {
   }
 }
 
+impl std::fmt::Debug for TestEnvironment {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("TestEnvironment").finish()
+  }
+}
+
+impl BaseFsCreateDir for TestEnvironment {
+  fn base_fs_create_dir(&self, path: &Path, options: &CreateDirOptions) -> io::Result<()> {
+    (*self.sys).base_fs_create_dir(path, options)
+  }
+}
+
+impl BaseEnvVar for TestEnvironment {
+  fn base_env_var_os(&self, key: &OsStr) -> Option<OsString> {
+    (*self.sys).base_env_var_os(key)
+  }
+}
+
+impl BaseFsMetadata for TestEnvironment {
+  type Metadata = sys_traits::impls::InMemoryMetadata;
+
+  fn base_fs_metadata(&self, path: &Path) -> io::Result<Self::Metadata> {
+    (*self.sys).base_fs_metadata(path)
+  }
+
+  fn base_fs_symlink_metadata(&self, path: &Path) -> io::Result<Self::Metadata> {
+    (*self.sys).base_fs_symlink_metadata(path)
+  }
+}
+
+impl BaseFsOpen for TestEnvironment {
+  type File = sys_traits::impls::InMemoryFile;
+
+  fn base_fs_open(&self, path: &Path, options: &sys_traits::OpenOptions) -> io::Result<Self::File> {
+    (*self.sys).base_fs_open(path, options)
+  }
+}
+
+impl BaseFsRead for TestEnvironment {
+  fn base_fs_read(&self, path: &Path) -> io::Result<Cow<'static, [u8]>> {
+    (*self.sys).base_fs_read(path)
+  }
+}
+
+impl BaseFsRemoveFile for TestEnvironment {
+  fn base_fs_remove_file(&self, path: &Path) -> io::Result<()> {
+    (*self.sys).base_fs_remove_file(path)
+  }
+}
+
+impl BaseFsRename for TestEnvironment {
+  fn base_fs_rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+    (*self.sys).base_fs_rename(from, to)
+  }
+}
+
+impl BaseFsSetPermissions for TestEnvironment {
+  fn base_fs_set_permissions(&self, path: &Path, mode: u32) -> io::Result<()> {
+    (*self.sys).base_fs_set_permissions(path, mode)
+  }
+}
+
+impl ThreadSleep for TestEnvironment {
+  fn thread_sleep(&self, duration: std::time::Duration) {
+    (*self.sys).thread_sleep(duration);
+  }
+}
+
+impl SystemRandom for TestEnvironment {
+  fn sys_random(&self, buf: &mut [u8]) -> io::Result<()> {
+    (*self.sys).sys_random(buf)
+  }
+}
+
+impl SystemTimeNow for TestEnvironment {
+  fn sys_time_now(&self) -> std::time::SystemTime {
+    (*self.sys).sys_time_now()
+  }
+}
+
 #[async_trait(?Send)]
 impl UrlDownloader for TestEnvironment {
-  async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
-    self.get_remote_file(url)
+  async fn download_file_no_redirects(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
+    self.remote_file_auth.lock().insert(url.to_string(), auth.map(|s| s.to_string()));
+
+    // check for a redirect first
+    let redirects = self.remote_file_redirects.lock();
+    if let Some(target) = redirects.get(url.as_str()) {
+      return Ok(Some(DownloadedFile {
+        headers: [("location".to_string(), target.clone())].into_iter().collect(),
+        content: vec![],
+      }));
+    }
+    drop(redirects);
+
+    Ok(self.get_remote_file(url.as_str())?.map(|content| DownloadedFile {
+      headers: Default::default(),
+      content,
+    }))
   }
 }
 
@@ -344,6 +530,14 @@ impl Environment for TestEnvironment {
 
   fn get_staged_files(&self) -> Result<Vec<PathBuf>> {
     Ok(self.staged_files.lock().clone())
+  }
+
+  fn get_dirty_files(&self) -> Result<Vec<PathBuf>> {
+    Ok(self.dirty_files.lock().clone())
+  }
+
+  fn global_gitignore_path(&self) -> Option<PathBuf> {
+    self.global_gitignore_path.lock().clone()
   }
 
   fn read_file(&self, file_path: impl AsRef<Path>) -> io::Result<String> {
@@ -374,7 +568,44 @@ impl Environment for TestEnvironment {
 
   fn remove_dir_all(&self, dir_path: impl AsRef<Path>) -> io::Result<()> {
     let dir_path = self.clean_path(dir_path);
+    {
+      let mut failures = self.remove_dir_all_failures.lock();
+      if *failures > 0 {
+        *failures -= 1;
+        return Err(io::Error::new(
+          io::ErrorKind::PermissionDenied,
+          format!("Error deleting directory '{}': transient failure", dir_path.display()),
+        ));
+      }
+    }
+    // simulate a running process locking its executable (e.g. on Windows)
+    if self.running_processes.lock().iter().any(|(exe, _)| exe.starts_with(&dir_path)) {
+      return Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!("Error deleting directory '{}': a process is using a file within it", dir_path.display()),
+      ));
+    }
     self.sys.fs_remove_dir_all(dir_path)
+  }
+
+  fn kill_processes_using_dir(&self, dir_path: impl AsRef<Path>) -> usize {
+    let dir_path = self.clean_path(dir_path);
+    let mut killed = 0;
+    self.running_processes.lock().retain_mut(|(exe, restarts)| {
+      if !exe.starts_with(&dir_path) {
+        return true;
+      }
+      killed += 1;
+      // simulate an editor restarting the plugin: it stays "running" while it
+      // still has restarts left, otherwise the kill sticks
+      if *restarts > 0 {
+        *restarts -= 1;
+        true
+      } else {
+        false
+      }
+    });
+    killed
   }
 
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
@@ -403,6 +634,21 @@ impl Environment for TestEnvironment {
   fn path_exists(&self, file_path: impl AsRef<Path>) -> bool {
     let path = self.clean_path(file_path);
     self.sys.fs_exists_no_err(path)
+  }
+
+  fn path_is_file(&self, file_path: impl AsRef<Path>) -> bool {
+    let path = self.clean_path(file_path);
+    self.sys.fs_is_file_no_err(path)
+  }
+
+  fn path_kind(&self, file_path: impl AsRef<Path>) -> Option<PathKind> {
+    let path = self.clean_path(file_path);
+    let metadata = self.sys.fs_symlink_metadata(path).ok()?;
+    Some(match metadata.file_type() {
+      sys_traits::FileType::Dir => PathKind::Dir,
+      sys_traits::FileType::Symlink => PathKind::Symlink,
+      sys_traits::FileType::File | sys_traits::FileType::Unknown => PathKind::File,
+    })
   }
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
@@ -509,8 +755,8 @@ impl Environment for TestEnvironment {
     self.os.lock().clone()
   }
 
-  fn max_threads(&self) -> usize {
-    *self.max_threads_count.lock()
+  fn available_parallelism(&self) -> Option<NonZeroUsize> {
+    NonZeroUsize::new(*self.max_threads_count.lock())
   }
 
   fn cli_version(&self) -> String {

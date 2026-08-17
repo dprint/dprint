@@ -1,13 +1,13 @@
 #!/usr/bin/env -S deno run -A
-import $ from "https://deno.land/x/dax@0.33.0/mod.ts";
-// @ts-types="npm:@types/decompress@4.2.7"
 import { parseArgs } from "https://deno.land/std@0.208.0/cli/parse_args.ts";
+import $ from "jsr:@david/dax@0.45.0";
+// @ts-types="npm:@types/decompress@4.2.7"
 import decompress from "npm:decompress@4.2.1";
 
 interface Package {
   zipFileName: string;
-  os: "win32" | "darwin" | "linux";
-  cpu: "x64" | "arm64" | "riscv64" | "loong64";
+  os: "win32" | "darwin" | "linux" | "android";
+  cpu: "x64" | "arm64" | "riscv64" | "loong64" | "ppc64";
   libc?: "glibc" | "musl";
 }
 
@@ -19,8 +19,7 @@ const packages: Package[] = [{
   os: "win32",
   cpu: "x64",
 }, {
-  // use x64_64 until there's an arm64 build
-  zipFileName: "dprint-x86_64-pc-windows-msvc.zip",
+  zipFileName: "dprint-aarch64-pc-windows-msvc.zip",
   os: "win32",
   cpu: "arm64",
 }, {
@@ -66,6 +65,27 @@ const packages: Package[] = [{
   os: "linux",
   cpu: "loong64",
   libc: "musl",
+}, {
+  // Node reports ppc64le as "ppc64"
+  zipFileName: "dprint-powerpc64le-unknown-linux-gnu.zip",
+  os: "linux",
+  cpu: "ppc64",
+  libc: "glibc",
+}, {
+  zipFileName: "dprint-powerpc64le-unknown-linux-musl.zip",
+  os: "linux",
+  cpu: "ppc64",
+  libc: "musl",
+}, {
+  // android (Termux): Node reports the platform as "android" and the arch as
+  // "arm64"/"x64". bionic libc, so no libc field (npm only knows glibc/musl).
+  zipFileName: "dprint-aarch64-linux-android.zip",
+  os: "android",
+  cpu: "arm64",
+}, {
+  zipFileName: "dprint-x86_64-linux-android.zip",
+  os: "android",
+  cpu: "x64",
 }];
 
 const markdownText = `# dprint
@@ -73,7 +93,7 @@ const markdownText = `# dprint
 npm CLI distribution for [dprint](https://dprint.dev)—a pluggable and configurable code formatting platform.
 `;
 
-const currentDir = $.path(import.meta).parentOrThrow();
+const currentDir = $.path(import.meta.url).parentOrThrow();
 const rootDir = currentDir.parentOrThrow().parentOrThrow();
 const outputDir = currentDir.join("./dist");
 const scopeDir = outputDir.join("@dprint");
@@ -127,6 +147,7 @@ if (!args["publish-only"]) {
     dprintDir.join(".npmignore").writeTextSync("dprint\ndprint.exe\n");
 
     // setup each binary package
+    const executableHashes: Record<string, string> = {};
     for (const pkg of packages) {
       const pkgName = getPackageNameNoScope(pkg);
       $.logStep(`Setting up @dprint/${pkgName}...`);
@@ -140,6 +161,11 @@ if (!args["publish-only"]) {
       await $.request(zipUrl).showProgress().pipeToPath(zipPath);
       await decompress(zipPath.toString(), pkgDir.toString());
       zipPath.removeSync();
+
+      // record the executable's hash so the dprint package can verify it when
+      // downloading the binary as a fallback (e.g. for `npm install --omit=optional`)
+      const executableName = pkg.os === "win32" ? "dprint.exe" : "dprint";
+      executableHashes[pkgName] = await sha256Hex(pkgDir.join(executableName).toString());
 
       // create the package.json and readme
       pkgDir.join("README.md").writeTextSync(`# @dprint/${pkgName}\n\n${pkgName} distribution of dprint.\n`);
@@ -164,6 +190,10 @@ if (!args["publish-only"]) {
         libc: pkg.libc == null ? undefined : [pkg.libc],
       });
     }
+
+    // write the executable hashes into the dprint package so the download
+    // fallback can verify the binary it fetches from the registry
+    dprintDir.join("hashes.json").writeJsonPrettySync(executableHashes);
   }
 
   // verify that the package is created correctly
@@ -224,6 +254,14 @@ if (args.publish || args["publish-only"]) {
 
   $.logStep(`Publishing dprint...`);
   await $`cd ${dprintDir} && npm publish --provenance --access public`;
+}
+
+async function sha256Hex(filePath: string) {
+  const data = await Deno.readFile(filePath);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function getPackageNameNoScope(name: Package) {

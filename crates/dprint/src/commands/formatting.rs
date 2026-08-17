@@ -1,5 +1,5 @@
 use anyhow::Result;
-use crossterm::style::Stylize;
+use deno_terminal::colors;
 use dprint_core::communication::AtomicFlag;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
@@ -22,6 +22,7 @@ use crate::format::RunForFilePathError;
 use crate::format::run_parallelized;
 use crate::incremental::get_incremental_file;
 use crate::patterns::FileMatcher;
+use crate::patterns::FileMatcherOptions;
 use crate::plugins::PluginResolver;
 use crate::resolution::PluginsScope;
 use crate::resolution::ResolvePluginsScopeAndPathsOptions;
@@ -43,11 +44,21 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
 
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
-    let file_matcher = FileMatcher::new(environment.clone(), plugins_scope.config.as_ref().unwrap(), &cmd.patterns, &environment.cwd())?;
     // canonicalize the file path, then check if it's in the list of file paths.
     let resolved_file_path = environment.canonicalize(&cmd.file_name_or_path)?;
+    let mut file_matcher = FileMatcher::new(
+      environment.clone(),
+      FileMatcherOptions {
+        config: plugins_scope.config.as_ref().unwrap(),
+        args: &cmd.patterns,
+        root_dir: &environment.cwd(),
+        specified_file_path: Some(resolved_file_path.as_ref()),
+      },
+    )?;
     // log the file text as-is since it's not in the list of files to format
-    if !file_matcher.matches(resolved_file_path) {
+    // (checking the ancestor directories too so exclusions apply the same
+    // way as a normal `fmt`, ex. a file in an excluded directory)
+    if !file_matcher.matches_and_dir_not_ignored(resolved_file_path.as_ref()) {
       environment.log_machine_readable(&cmd.file_bytes);
       return Ok(());
     }
@@ -119,9 +130,9 @@ pub async fn output_format_times<TEnvironment: Environment>(
 #[error("{}", match self {
   Self::Files { count } => format!(
     "Found {} not formatted {}. Run {} to fix.",
-    count.to_string().bold(),
+    colors::bold(count.to_string()),
     if *count == 1 { "file" } else { "files" },
-    "dprint fmt".bold(),
+    colors::bold("dprint fmt"),
   ),
   Self::DisplayNone => "".to_string(), // no output
 })]
@@ -238,7 +249,7 @@ fn output_difference(file_path: &Path, file_bytes: &[u8], formatted_bytes: &[u8]
     }
   };
   let difference_text = get_difference(&file_text, &formatted_text);
-  log_stdout_info!(environment, "{} {}:\n{}\n--", "from".bold().red(), file_path.display(), difference_text);
+  log_stdout_info!(environment, "{} {}:\n{}\n--", colors::red_bold("from"), file_path.display(), difference_text);
 }
 
 pub async fn format<TEnvironment: Environment>(
@@ -303,7 +314,7 @@ pub async fn format<TEnvironment: Environment>(
   let formatted_files_count = formatted_files_count.get();
   if formatted_files_count > 0 {
     let suffix = if formatted_files_count == 1 { "file" } else { "files" };
-    log_stdout_info!(environment, "Formatted {} {}.", formatted_files_count.to_string().bold(), suffix);
+    log_stdout_info!(environment, "Formatted {} {}.", colors::bold(formatted_files_count.to_string()), suffix);
     if cmd.fail_on_change {
       return Err(CheckError::Files { count: formatted_files_count }.into());
     }
@@ -314,7 +325,7 @@ pub async fn format<TEnvironment: Environment>(
 
 #[cfg(test)]
 mod test {
-  use crossterm::style::Stylize;
+  use deno_terminal::colors;
   use pretty_assertions::assert_eq;
 
   use crate::environment::Environment;
@@ -373,6 +384,57 @@ mod test {
   }
 
   #[test]
+  fn should_format_directory_arg() {
+    let file_path1 = "/sub-dir/file.txt";
+    let file_path2 = "/sub-dir/nested/file.txt";
+    let file_path3 = "/other/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(file_path1, "text")
+      .write_file(file_path2, "text2")
+      .write_file(file_path3, "text3")
+      .build();
+    run_test_cli(vec!["fmt", "/sub-dir"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted");
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text3");
+  }
+
+  #[test]
+  fn should_format_files_from_stdin_files() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/sub dir/file with space.txt";
+    let file_path3 = "/not-included.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text2")
+      .write_file(&file_path3, "text3")
+      .build();
+    // include a blank line and a path containing spaces to ensure both are handled
+    let test_std_in = TestStdInReader::from(format!("{}\n\n{}\n", file_path1, file_path2));
+    run_test_cli_with_stdin(vec!["fmt", "--stdin-files"], &environment, test_std_in).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_formatted");
+    // wasn't in the list, so it's left untouched
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text3");
+  }
+
+  #[test]
+  fn should_check_files_from_stdin_files() {
+    let file_path1 = "/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(&file_path1, "text")
+      .build();
+    let test_std_in = TestStdInReader::from(format!("{}\n", file_path1));
+    let error_message = run_test_cli_with_stdin(vec!["check", "--stdin-files", "--list-different"], &environment, test_std_in)
+      .err()
+      .unwrap();
+    error_message.assert_exit_code(20);
+    assert_eq!(environment.take_stdout_messages(), vec![file_path1.to_string()]);
+  }
+
+  #[test]
   fn should_format_only_staged_files() {
     let file_path1 = "/file.txt";
     let file_path2 = "/file.txt_ps";
@@ -387,6 +449,44 @@ mod test {
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_1_formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text_2");
+  }
+
+  #[test]
+  fn should_format_only_dirty_files() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/file.txt_ps";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .write_file(&file_path1, "text_1")
+      .write_file(&file_path2, "text_2")
+      .add_dirty_file(file_path1)
+      .build();
+
+    environment.set_max_threads(1);
+    run_test_cli(vec!["fmt", "--dirty"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_1_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text_2");
+  }
+
+  #[test]
+  fn should_format_only_dirty_files_while_respecting_includes() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/file.txt_ps";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("./dprint.json", |c| {
+        c.add_includes("**/*.txt_ps").add_remote_wasm_plugin().add_remote_process_plugin();
+      })
+      .write_file(&file_path1, "text_1")
+      .write_file(&file_path2, "text_2")
+      .add_dirty_file(file_path1)
+      .add_dirty_file(file_path2)
+      .build();
+
+    environment.set_max_threads(1);
+    run_test_cli(vec!["fmt", "--dirty"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_1");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text_2_formatted_process");
   }
 
   #[test]
@@ -626,6 +726,21 @@ mod test {
   }
 
   #[test]
+  fn should_format_dot_slash_dir_arg() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/file.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "./"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_formatted");
+  }
+
+  #[test]
   fn should_ignore_files_in_node_modules_by_default() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .write_file("/node_modules/file.txt", "")
@@ -634,6 +749,103 @@ mod test {
       .build();
     run_test_cli(vec!["fmt", "**/*.txt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+  }
+
+  #[test]
+  fn should_ignore_files_in_node_modules_in_ancestor_dir_arg() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/node_modules/file.txt", "text")
+      .write_file("/file.txt", "text")
+      .write_file("/sub/node_modules/file.txt", "text")
+      .write_file("/sub/file.txt", "text")
+      .set_cwd("/sub")
+      .build();
+
+    // the dir arg reaches above the cwd, so node_modules must be excluded
+    // based at the config's directory rather than only at the cwd
+    run_test_cli(vec!["fmt", ".."], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_formatted");
+    assert_eq!(environment.read_file("/sub/file.txt").unwrap(), "text_formatted");
+    assert_eq!(environment.read_file("/node_modules/file.txt").unwrap(), "text");
+    assert_eq!(environment.read_file("/sub/node_modules/file.txt").unwrap(), "text");
+  }
+
+  #[test]
+  fn should_ignore_files_in_node_modules_in_dir_outside_config_dir() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_global_config(|config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "global-config" }"#);
+      })
+      .write_file("/other/file.txt", "text")
+      .write_file("/other/node_modules/file.txt", "text")
+      .set_cwd("/project")
+      .initialize()
+      .build();
+
+    // the outside path is formatted by the global config's scope, whose base
+    // path is the root directory rather than the cwd
+    run_test_cli(vec!["fmt", "../other"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/other/file.txt").unwrap(), "text_global-config");
+    assert_eq!(environment.read_file("/other/node_modules/file.txt").unwrap(), "text");
+  }
+
+  #[test]
+  fn should_allow_node_modules_implicitly_when_cwd_inside_one() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/node_modules/pkg/file.txt", "text")
+      .set_cwd("/node_modules/pkg")
+      .build();
+
+    // changing into a `node_modules` directory implicitly allows formatting
+    // there, since otherwise there would be nothing to format no matter what
+    // the user asked for
+    for args in [
+      vec!["fmt", "file.txt"],
+      vec!["fmt"],
+      // an includes override moves the matcher's base to the cwd, which must
+      // not change whether the implicit exclude applies
+      vec!["fmt", "--includes-override", "**/*.txt"],
+      vec!["fmt", "--allow-node-modules"],
+    ] {
+      environment.write_file("/node_modules/pkg/file.txt", "text").unwrap();
+      run_test_cli(args, &environment).unwrap();
+      assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+      assert_eq!(environment.read_file("/node_modules/pkg/file.txt").unwrap(), "text_formatted");
+    }
+  }
+
+  #[test]
+  fn should_allow_nested_node_modules_when_cwd_inside_one() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/node_modules/pkg/file.txt", "text")
+      .write_file("/node_modules/pkg/node_modules/dep/file.txt", "text")
+      .set_cwd("/node_modules/pkg")
+      .build();
+
+    // the implicit allow behaves exactly like passing the flag, so a nested
+    // `node_modules` below the cwd is formatted too
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/node_modules/pkg/file.txt").unwrap(), "text_formatted");
+    assert_eq!(environment.read_file("/node_modules/pkg/node_modules/dep/file.txt").unwrap(), "text_formatted");
   }
 
   #[test]
@@ -759,11 +971,10 @@ mod test {
           "Did you mean to create (dprint init) or specify one (--config <path>)?",
           "\n\n{}",
         ),
-        concat!(
+        colors::gray(concat!(
           "Note: dprint now supports global configuration. Set it up with ",
           "`dprint init --global` then edit with `dprint config edit --global`",
-        )
-        .grey()
+        ))
       )
     );
   }
@@ -794,6 +1005,79 @@ mod test {
     );
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_custom-formatted");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_custom-formatted");
+  }
+
+  #[test]
+  fn should_use_extended_config_when_specifying_same_plugin_as_extended_config() {
+    // https://github.com/dprint/dprint/issues/1043
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "shared-ending" }"#);
+      })
+      .with_default_config(|c| {
+        c.add_config_section("extends", r#""https://dprint.dev/shared.json""#).add_remote_wasm_plugin();
+      })
+      .write_file("/file.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_shared-ending");
+  }
+
+  #[test]
+  fn should_use_extended_config_when_specifying_different_version_of_extended_config_plugin() {
+    // https://github.com/dprint/dprint/issues/1043
+    // The local config pins a newer version of a plugin that the config it extends
+    // also specifies. The local version wins and still picks up the extended
+    // config's configuration for it.
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .add_remote_wasm_0_1_0_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_remote_wasm_plugin_0_1_0()
+          .add_config_section("test-plugin", r#"{ "ending": "shared-ending" }"#);
+      })
+      .with_default_config(|c| {
+        c.add_config_section("extends", r#""https://dprint.dev/shared.json""#).add_remote_wasm_plugin();
+      })
+      .write_file("/file.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_shared-ending");
+  }
+
+  #[test]
+  fn should_ignore_config_file_in_start_dir_when_config_file_url_specified() {
+    // a remote config file has no local path, so nothing identifies the local
+    // config file in the directory the traversal starts in as the one in use
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_remote_config("https://dprint.dev/test.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "custom-formatted" }"#);
+      })
+      .with_local_config("/dprint.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "local-formatted" }"#);
+      })
+      .write_file("/file1.txt", "text")
+      .write_file("/sub/file2.txt", "text2")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "https://dprint.dev/test.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
+    assert_eq!(environment.read_file("/file1.txt").unwrap(), "text_custom-formatted");
+    assert_eq!(environment.read_file("/sub/file2.txt").unwrap(), "text2_custom-formatted");
   }
 
   #[test]
@@ -839,14 +1123,49 @@ mod test {
 
     run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
 
-    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(5)]);
-    assert_eq!(environment.read_file(&file_path1).unwrap(), "text"); // not matched in any associations
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(6)]);
+    // associations are additive, so the test plugin still matches its default `.txt` extension
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_wasm");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_wasm");
     assert_eq!(environment.read_file(&file_path3).unwrap(), "text3_ps");
     assert_eq!(environment.read_file(&file_path4).unwrap(), "text4_ps");
     assert_eq!(environment.read_file(&file_path5).unwrap(), "text5_wasm");
     // this will request formatting a .txt_ps file, but should be caught be the associations
     assert_eq!(environment.read_file(&file_path6).unwrap(), "plugin: text6_wasm_wasm");
+  }
+
+  #[test]
+  fn should_use_request_override_config_over_config_file_overrides() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "associations": ["**/*.txt"],
+              "ending": "wasm"
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "associations": ["**/*.txt_ps"],
+              "ending": "process",
+              "overrides": {
+                "files": "**/test.txt_ps",
+                "ending": "config_file"
+              }
+            }"#,
+          );
+      })
+      .write_file("/file.txt", "plugin-config: text")
+      .build();
+
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "plugin-config: text_custom_config_wasm");
   }
 
   #[test]
@@ -905,6 +1224,64 @@ mod test {
   }
 
   #[test]
+  fn should_format_files_with_config_overrides() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .write_file("/file.txt", "text")
+      .write_file("/package.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_base");
+    assert_eq!(environment.read_file("/package.txt").unwrap(), "text_package");
+  }
+
+  #[test]
+  fn should_format_files_with_multiple_matching_config_overrides_in_order() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": [
+              {
+                "files": "**/*.txt",
+                "ending": "txt"
+              },
+              {
+                "files": "**/package.txt",
+                "ending": "package"
+              }
+            ]
+          }"#,
+        );
+      })
+      .write_file("/file.txt", "text")
+      .write_file("/package.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_txt");
+    assert_eq!(environment.read_file("/package.txt").unwrap(), "text_package");
+  }
+
+  #[test]
   fn should_format_files_all_negated_associations_no_config_excludes() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
@@ -930,6 +1307,64 @@ mod test {
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "text_wasm");
     assert_eq!(environment.read_file(&file_path2).unwrap(), "text2"); // ignored
+  }
+
+  #[test]
+  fn should_format_files_associations_are_additive_to_defaults() {
+    let file_path1 = "/file1.txt"; // matched by default extension
+    let file_path2 = "/file2.other"; // added via associations
+    let file_path3 = "/file3.asdf"; // not matched by anything
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+              "associations": [
+                "**/*.other"
+              ],
+              "ending": "wasm"
+            }"#,
+        );
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text2")
+      .write_file(&file_path3, "text3")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_wasm"); // default extension kept
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_wasm"); // added via associations
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text3"); // not matched
+  }
+
+  #[test]
+  fn should_cancel_default_extension_with_negated_association() {
+    let file_path1 = "/file1.txt"; // default extension, but cancelled by the negated glob
+    let file_path2 = "/file2.other"; // added via associations
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+              "associations": [
+                "**/*.other",
+                "!**/*.txt"
+              ],
+              "ending": "wasm"
+            }"#,
+        );
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text2")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text"); // default `.txt` cancelled by `!**/*.txt`
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_wasm"); // added via associations
   }
 
   #[test]
@@ -1055,7 +1490,8 @@ mod test {
             }"#,
           );
       })
-      .write_file("/test.txt", "text")
+      // `.asdf` isn't matched by any plugin's defaults or associations
+      .write_file("/test.asdf", "text")
       .write_file("/shared_file", "text")
       .build();
 
@@ -1069,7 +1505,7 @@ mod test {
         "[test-process-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
       ]
     );
-    assert_eq!(environment.read_file("/test.txt").unwrap(), "text");
+    assert_eq!(environment.read_file("/test.asdf").unwrap(), "text");
     assert_eq!(environment.read_file("/shared_file").unwrap(), "text");
   }
 
@@ -1259,6 +1695,895 @@ mod test {
   }
 
   #[test]
+  fn should_format_files_in_specified_dir() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/sub/file1.txt", "text1")
+      .write_file("/sub/nested/file2.txt", "text2")
+      .write_file("/other/file3.txt", "text3")
+      .build();
+
+    run_test_cli(vec!["fmt", "sub"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/sub/file1.txt").unwrap(), "text1_formatted");
+    assert_eq!(environment.read_file("/sub/nested/file2.txt").unwrap(), "text2_formatted");
+    assert_eq!(environment.read_file("/other/file3.txt").unwrap(), "text3");
+  }
+
+  #[test]
+  fn should_format_files_matching_character_class_glob_arg() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/file1.txt", "text1")
+      .write_file("/file_a.txt", "other")
+      .build();
+
+    run_test_cli(vec!["fmt", "file[0-9].txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file1.txt").unwrap(), "text1_formatted");
+    assert_eq!(environment.read_file("/file_a.txt").unwrap(), "other");
+  }
+
+  #[test]
+  fn should_format_file_with_glob_chars_when_path_exists() {
+    // https://github.com/dprint/dprint/issues/552
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/routes/[id].txt", "text1")
+      // a character class interpretation would match this file instead
+      .write_file("/routes/i.txt", "other")
+      .build();
+
+    run_test_cli(vec!["fmt", "routes/[id].txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/routes/[id].txt").unwrap(), "text1_formatted");
+    assert_eq!(environment.read_file("/routes/i.txt").unwrap(), "other");
+  }
+
+  #[test]
+  fn should_format_file_with_curly_braces_when_path_exists() {
+    // https://github.com/dprint/dprint/issues/947 -- this pattern isn't
+    // even a valid glob (nested alternate groups), so it previously errored
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/{{myfile}}.txt", "text1")
+      .build();
+
+    run_test_cli(vec!["fmt", "{{myfile}}.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/{{myfile}}.txt").unwrap(), "text1_formatted");
+  }
+
+  #[test]
+  fn should_format_dir_with_glob_chars_when_path_exists() {
+    // https://github.com/dprint/dprint/issues/920
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/[a]/file.txt", "text1")
+      .write_file("/[a]/nested/file.txt", "text2")
+      // a character class interpretation would match this directory instead
+      .write_file("/a/file.txt", "other")
+      .build();
+
+    run_test_cli(vec!["fmt", "[a]"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/[a]/file.txt").unwrap(), "text1_formatted");
+    assert_eq!(environment.read_file("/[a]/nested/file.txt").unwrap(), "text2_formatted");
+    assert_eq!(environment.read_file("/a/file.txt").unwrap(), "other");
+  }
+
+  #[test]
+  fn should_format_file_specified_inside_dir_with_glob_chars() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/[a]/file.txt", "text1")
+      .build();
+
+    run_test_cli(vec!["fmt", "[a]/file.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/[a]/file.txt").unwrap(), "text1_formatted");
+  }
+
+  #[test]
+  fn should_format_file_when_cwd_has_glob_chars() {
+    // formatting should work the same regardless of the arg spelling
+    for args in [
+      vec!["fmt", "file.txt"],
+      vec!["fmt", "."],
+      vec!["fmt", "*.txt"],
+      vec!["fmt", "/[a]/file.txt"],
+      vec!["fmt"],
+    ] {
+      let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+        .with_default_config(|config| {
+          config.add_remote_wasm_plugin();
+        })
+        .write_file("/[a]/file.txt", "text1")
+        .set_cwd("/[a]")
+        .build();
+
+      run_test_cli(args.clone(), &environment).unwrap();
+
+      assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()], "args: {:?}", args);
+      assert_eq!(environment.read_file("/[a]/file.txt").unwrap(), "text1_formatted", "args: {:?}", args);
+    }
+  }
+
+  #[test]
+  fn should_format_parent_path_with_glob_chars_from_subdirectory() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/[a].txt", "text1")
+      .write_file("/sub/other.txt", "other")
+      .set_cwd("/sub")
+      .build();
+
+    run_test_cli(vec!["fmt", "../[a].txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/[a].txt").unwrap(), "text1_formatted");
+    assert_eq!(environment.read_file("/sub/other.txt").unwrap(), "other");
+  }
+
+  #[test]
+  fn should_exclude_dir_with_glob_chars_when_path_exists() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/[a]/file.txt", "text1")
+      .write_file("/other.txt", "text2")
+      .build();
+
+    run_test_cli(vec!["fmt", "**/*.txt", "--excludes", "[a]"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/[a]/file.txt").unwrap(), "text1");
+    assert_eq!(environment.read_file("/other.txt").unwrap(), "text2_formatted");
+  }
+
+  #[test]
+  fn should_not_format_file_negated_by_arg_with_glob_chars() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/routes/[id].txt", "text1")
+      // a character class interpretation would negate this file instead
+      .write_file("/routes/i.txt", "text2")
+      .build();
+
+    run_test_cli(vec!["fmt", "**/*.txt", "!routes/[id].txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/routes/[id].txt").unwrap(), "text1");
+    assert_eq!(environment.read_file("/routes/i.txt").unwrap(), "text2_formatted");
+  }
+
+  #[test]
+  fn should_format_specified_gitignored_file_with_glob_chars() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      // the escaped entry targets the literal file name in git semantics
+      .write_file("/.gitignore", "\\[id\\].txt")
+      .write_file("/routes/[id].txt", "text1")
+      .write_file("/a.txt", "text2")
+      .build();
+
+    // explicitly specifying the file overrides the gitignore entry, and the
+    // result is the same when another glob arg triggers a traversal
+    run_test_cli(vec!["fmt", "routes/[id].txt", "a*.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/routes/[id].txt").unwrap(), "text1_formatted");
+    assert_eq!(environment.read_file("/a.txt").unwrap(), "text2_formatted");
+  }
+
+  #[test]
+  fn should_format_file_with_glob_chars_in_includes_override() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/routes/[id].txt", "text1")
+      // a character class interpretation would match this file instead
+      .write_file("/routes/i.txt", "text2")
+      .build();
+
+    run_test_cli(vec!["fmt", "--includes-override", "routes/[id].txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/routes/[id].txt").unwrap(), "text1_formatted");
+    assert_eq!(environment.read_file("/routes/i.txt").unwrap(), "text2");
+  }
+
+  #[test]
+  fn should_exclude_dir_with_glob_chars_in_excludes_override() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/[a]/file.txt", "text1")
+      .write_file("/other.txt", "text2")
+      .build();
+
+    run_test_cli(vec!["fmt", "--excludes-override", "[a]"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/[a]/file.txt").unwrap(), "text1");
+    assert_eq!(environment.read_file("/other.txt").unwrap(), "text2_formatted");
+  }
+
+  #[test]
+  fn should_not_double_format_config_dir_with_glob_chars_when_formatting_ancestor() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/[app]/dprint.json", |config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "app-config" }"#);
+      })
+      .write_file("/root.txt", "r")
+      .write_file("/[app]/file.txt", "a")
+      .set_cwd("/[app]")
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["fmt", ".."], &environment).unwrap();
+
+    // each file formats exactly once with the config in its directory tree
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/[app]/file.txt").unwrap(), "a_app-config");
+    assert_eq!(environment.read_file("/root.txt").unwrap(), "r_formatted");
+  }
+
+  #[test]
+  fn should_format_parent_paths_from_subdirectory() {
+    // https://github.com/dprint/dprint/issues/1199
+    for (cwd, file_arg) in [("/sub", "../file.txt"), ("/sub", "/file.txt"), ("/sub/nested", "../../file.txt")] {
+      let file_path = "/file.txt";
+      let other_file_path = format!("{cwd}/other.txt");
+      let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+        .with_local_config("/dprint.json", |c| {
+          c.add_remote_wasm_plugin();
+        })
+        .write_file(file_path, "text")
+        .write_file(&other_file_path, "other")
+        .set_cwd(cwd)
+        .initialize()
+        .build();
+
+      run_test_cli(vec!["fmt", "--", file_arg], &environment).unwrap();
+
+      assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+      assert_eq!(environment.read_file(file_path).unwrap(), "text_formatted");
+      // the file in the cwd was not specified, so it should not be formatted
+      assert_eq!(environment.read_file(&other_file_path).unwrap(), "other");
+    }
+  }
+
+  #[test]
+  fn should_format_glob_and_parent_path_args_together() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/dprint.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file("/parent.txt", "parent")
+      .write_file("/sub/file1.txt", "text1")
+      .write_file("/sub/file2.txt", "text2")
+      .set_cwd("/sub")
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["fmt", "*.txt", "../parent.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    assert_eq!(environment.read_file("/parent.txt").unwrap(), "parent_formatted");
+    assert_eq!(environment.read_file("/sub/file1.txt").unwrap(), "text1_formatted");
+    assert_eq!(environment.read_file("/sub/file2.txt").unwrap(), "text2_formatted");
+  }
+
+  #[test]
+  fn should_format_parent_dir_arg_from_subdirectory() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/file.txt", "text1")
+      .write_file("/sub/other.txt", "text2")
+      .set_cwd("/sub")
+      .build();
+
+    run_test_cli(vec!["fmt", ".."], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text1_formatted");
+    assert_eq!(environment.read_file("/sub/other.txt").unwrap(), "text2_formatted");
+  }
+
+  #[test]
+  fn should_format_sibling_dir_arg_from_subdirectory() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/dprint.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file("/other_dir/file1.txt", "text1")
+      .write_file("/other_dir/nested/file2.txt", "text2")
+      .write_file("/sub/file3.txt", "text3")
+      .set_cwd("/sub")
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["fmt", "../other_dir"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/other_dir/file1.txt").unwrap(), "text1_formatted");
+    assert_eq!(environment.read_file("/other_dir/nested/file2.txt").unwrap(), "text2_formatted");
+    assert_eq!(environment.read_file("/sub/file3.txt").unwrap(), "text3");
+  }
+
+  #[test]
+  fn should_format_specified_gitignored_file() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/.gitignore", "file.txt")
+      .write_file("/file.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "file.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_formatted");
+  }
+
+  #[test]
+  fn should_not_format_specified_file_in_gitignored_dir() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/.gitignore", "sub")
+      .write_file("/sub/file.txt", "text")
+      .write_file("/a.txt", "other")
+      .build();
+
+    // a gitignored ancestor directory hides the file even when it's
+    // explicitly specified (only file-level gitignore entries are overridden
+    // by specifying the file), and the result is the same whether or not a
+    // glob arg triggers a traversal
+    let error = run_test_cli(vec!["fmt", "sub/file.txt"], &environment).err().unwrap();
+    assert_no_files_found(&error, &environment);
+    assert_eq!(environment.read_file("/sub/file.txt").unwrap(), "text");
+
+    run_test_cli(vec!["fmt", "sub/file.txt", "a*.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/sub/file.txt").unwrap(), "text");
+    assert_eq!(environment.read_file("/a.txt").unwrap(), "other_formatted");
+  }
+
+  #[test]
+  fn should_discover_sibling_configs_when_formatting_ancestor_dir() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/other/dprint.json", |config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "other-config" }"#);
+      })
+      .with_global_config(|config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "global-config" }"#);
+      })
+      .write_file("/project/a.txt", "a")
+      .write_file("/other/b.txt", "b")
+      .write_file("/root.txt", "r")
+      .set_cwd("/project")
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["fmt", ".."], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    // formatting from an ancestor directory works like running dprint from
+    // that directory: each file uses the config in its own directory tree
+    // and ungoverned files use the global config
+    assert_eq!(environment.read_file("/project/a.txt").unwrap(), "a_formatted");
+    assert_eq!(environment.read_file("/other/b.txt").unwrap(), "b_other-config");
+    assert_eq!(environment.read_file("/root.txt").unwrap(), "r_global-config");
+  }
+
+  #[test]
+  fn should_format_file_in_global_config_dir_with_global_config_in_use() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_global_config(|config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "global-config" }"#);
+      })
+      .write_file("/global-config/file.txt", "text")
+      .set_cwd("/")
+      .initialize()
+      .build();
+
+    // a file in the global config's own directory is formatted by the
+    // global config's scope instead of being dropped because the config
+    // file in use was rediscovered as a descendant config (issue #1111)
+    run_test_cli(vec!["fmt", "global-config/file.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/global-config/file.txt").unwrap(), "text_global-config");
+
+    // same when found via traversal
+    environment.write_file("/global-config/file.txt", "text").unwrap();
+    run_test_cli(vec!["fmt", "."], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/global-config/file.txt").unwrap(), "text_global-config");
+  }
+
+  #[test]
+  fn should_discover_sibling_configs_when_formatting_ancestor_glob() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/other/dprint.json", |config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "other-config" }"#);
+      })
+      .with_global_config(|config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "global-config" }"#);
+      })
+      .write_file("/project/a.txt", "a")
+      .write_file("/other/b.txt", "b")
+      .write_file("/root.txt", "r")
+      .set_cwd("/project")
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["fmt", "../**/*.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    assert_eq!(environment.read_file("/project/a.txt").unwrap(), "a_formatted");
+    assert_eq!(environment.read_file("/other/b.txt").unwrap(), "b_other-config");
+    assert_eq!(environment.read_file("/root.txt").unwrap(), "r_global-config");
+  }
+
+  #[test]
+  fn should_format_ancestor_dir_with_explicitly_specified_config() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      // ignored because a config was explicitly specified
+      .with_local_config("/other/dprint.json", |config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "other-config" }"#);
+      })
+      .write_file("/project/a.txt", "a")
+      .write_file("/other/b.txt", "b")
+      .write_file("/root.txt", "r")
+      .set_cwd("/project")
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/project/dprint.json", ".."], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    assert_eq!(environment.read_file("/project/a.txt").unwrap(), "a_formatted");
+    assert_eq!(environment.read_file("/other/b.txt").unwrap(), "b_formatted");
+    assert_eq!(environment.read_file("/root.txt").unwrap(), "r_formatted");
+  }
+
+  #[test]
+  fn should_error_formatting_ancestor_dir_without_global_config() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/project/a.txt", "a")
+      .write_file("/root.txt", "r")
+      .set_cwd("/project")
+      .initialize()
+      .build();
+
+    // the area above the config's directory has no governing config, the
+    // same as running dprint from that directory
+    let error = run_test_cli(vec!["fmt", ".."], &environment).err().unwrap();
+
+    assert!(error.to_string().starts_with("No dprint config file found for '"), "{}", error);
+    assert_eq!(environment.read_file("/project/a.txt").unwrap(), "a");
+    assert_eq!(environment.read_file("/root.txt").unwrap(), "r");
+  }
+
+  #[test]
+  fn should_format_path_outside_config_dir_using_its_tree_config() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/other/dprint.json", |config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "other-config" }"#);
+      })
+      .write_file("/other/file.txt", "text")
+      .set_cwd("/project")
+      .build();
+
+    run_test_cli(vec!["fmt", "../other/file.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    // formatted with the config file found in the path's own directory tree
+    assert_eq!(environment.read_file("/other/file.txt").unwrap(), "text_other-config");
+  }
+
+  #[test]
+  fn should_error_formatting_path_outside_config_dir_without_config() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/other/file.txt", "text")
+      .set_cwd("/project")
+      .initialize()
+      .build();
+
+    let error = run_test_cli(vec!["fmt", "../other/file.txt"], &environment).err().unwrap();
+
+    assert!(error.to_string().starts_with("No dprint config file found for '"), "{}", error);
+    assert_eq!(environment.read_file("/other/file.txt").unwrap(), "text");
+  }
+
+  #[test]
+  fn should_error_formatting_outside_path_with_global_config_when_config_discovery_disabled() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_global_config(|config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "global-config" }"#);
+      })
+      .write_file("/project/other.txt", "other")
+      .write_file("/other/file.txt", "text")
+      .set_cwd("/project")
+      .initialize()
+      .build();
+
+    let error = run_test_cli(
+      vec![
+        "fmt",
+        "--config-discovery=false",
+        "--plugins",
+        "https://plugins.dprint.dev/test-plugin.wasm",
+        "--",
+        "../other/file.txt",
+      ],
+      &environment,
+    )
+    .err()
+    .unwrap();
+
+    // the global config file should not be consulted when config discovery is disabled
+    assert!(error.to_string().starts_with("No dprint config file found for '"), "{}", error);
+    assert_eq!(environment.read_file("/other/file.txt").unwrap(), "text");
+  }
+
+  #[test]
+  fn should_format_path_outside_config_dir_with_global_config() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_global_config(|config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "global-config" }"#);
+      })
+      .write_file("/other/file.txt", "text")
+      .set_cwd("/project")
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["fmt", "../other/file.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    // no config file exists in the path's directory tree, so the global config is used
+    assert_eq!(environment.read_file("/other/file.txt").unwrap(), "text_global-config");
+  }
+
+  #[test]
+  fn should_format_path_outside_cwd_when_global_config_in_use() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_global_config(|config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "global-config" }"#);
+      })
+      .write_file("/project/other.txt", "other")
+      .write_file("/other/file.txt", "text")
+      .set_cwd("/project")
+      .initialize()
+      .build();
+
+    // no config file in the cwd's or the path's directory tree, so the
+    // global config in use governs the explicitly specified path
+    run_test_cli(vec!["fmt", "../other/file.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/other/file.txt").unwrap(), "text_global-config");
+    assert_eq!(environment.read_file("/project/other.txt").unwrap(), "other");
+  }
+
+  #[test]
+  fn should_format_path_outside_config_dir_with_explicitly_specified_config() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      // this config would win if it wasn't for the explicitly specified config
+      .with_local_config("/other/dprint.json", |config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "other-config" }"#);
+      })
+      .write_file("/other/file.txt", "text")
+      .set_cwd("/project")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/project/dprint.json", "../other/file.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/other/file.txt").unwrap(), "text_formatted");
+  }
+
+  #[test]
+  fn should_not_format_outside_path_excluded_by_arg_with_explicit_config() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/other/a.txt", "a")
+      .write_file("/other/b.txt", "b")
+      .set_cwd("/project")
+      .build();
+
+    run_test_cli(
+      vec![
+        "fmt",
+        "--config",
+        "/project/dprint.json",
+        "../other/a.txt",
+        "../other/b.txt",
+        "--excludes",
+        "../other/b.txt",
+      ],
+      &environment,
+    )
+    .unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/other/a.txt").unwrap(), "a_formatted");
+    // the exclude must apply to outside paths too
+    assert_eq!(environment.read_file("/other/b.txt").unwrap(), "b");
+  }
+
+  #[test]
+  fn should_not_format_outside_path_excluded_by_arg_with_global_config_in_use() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_global_config(|config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "global-config" }"#);
+      })
+      .write_file("/project/other.txt", "other")
+      .write_file("/other/a.txt", "a")
+      .write_file("/other/b.txt", "b")
+      .set_cwd("/project")
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["fmt", "../other/a.txt", "../other/b.txt", "--excludes", "../other/b.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/other/a.txt").unwrap(), "a_global-config");
+    assert_eq!(environment.read_file("/other/b.txt").unwrap(), "b");
+  }
+
+  #[test]
+  fn should_not_format_outside_path_negated_by_arg() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/other/dprint.json", |config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "other-config" }"#);
+      })
+      .write_file("/other/a.txt", "a")
+      .write_file("/other/b.txt", "b")
+      .set_cwd("/project")
+      .build();
+
+    run_test_cli(vec!["fmt", "../other/a.txt", "../other/b.txt", "!../other/b.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/other/a.txt").unwrap(), "a_other-config");
+    assert_eq!(environment.read_file("/other/b.txt").unwrap(), "b");
+  }
+
+  #[test]
+  fn should_not_format_outside_path_excluded_by_dir_arg() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/other/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/project/file.txt", "text")
+      .write_file("/other/file.txt", "other")
+      .set_cwd("/project")
+      .build();
+
+    // an exclude naming the directory an outside path is in
+    run_test_cli(vec!["fmt", "file.txt", "../other/file.txt", "--excludes", "../other"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/project/file.txt").unwrap(), "text_formatted");
+    assert_eq!(environment.read_file("/other/file.txt").unwrap(), "other");
+
+    // an exclude naming the same directory as an outside dir arg
+    environment.write_file("/project/file.txt", "text").unwrap();
+    run_test_cli(vec!["fmt", "file.txt", "../other", "--excludes", "../other"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/project/file.txt").unwrap(), "text_formatted");
+    assert_eq!(environment.read_file("/other/file.txt").unwrap(), "other");
+  }
+
+  #[test]
+  fn should_format_outside_dir_with_config_inside_it() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/standalone/dprint.json", |config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "standalone" }"#);
+      })
+      .write_file("/standalone/file.txt", "text")
+      .set_cwd("/project")
+      .build();
+
+    run_test_cli(vec!["fmt", "../standalone"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    // the config directly inside the specified directory governs it
+    assert_eq!(environment.read_file("/standalone/file.txt").unwrap(), "text_standalone");
+  }
+
+  #[test]
+  fn should_format_outside_dir_with_explicitly_specified_config() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/other/file1.txt", "text1")
+      .write_file("/other/nested/file2.txt", "text2")
+      .set_cwd("/project")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/project/dprint.json", "../other"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/other/file1.txt").unwrap(), "text1_formatted");
+    assert_eq!(environment.read_file("/other/nested/file2.txt").unwrap(), "text2_formatted");
+  }
+
+  #[test]
+  fn should_format_outside_glob_pattern_using_its_tree_config() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/other/dprint.json", |config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "other-config" }"#);
+      })
+      .write_file("/other/a.txt", "a")
+      .write_file("/other/nested/b.txt", "b")
+      .write_file("/other/c.json", "c")
+      .set_cwd("/project")
+      .build();
+
+    run_test_cli(vec!["fmt", "../other/**/*.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/other/a.txt").unwrap(), "a_other-config");
+    assert_eq!(environment.read_file("/other/nested/b.txt").unwrap(), "b_other-config");
+    assert_eq!(environment.read_file("/other/c.json").unwrap(), "c");
+  }
+
+  #[test]
+  fn should_skip_outside_path_without_config_when_allow_no_files() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/project/a.txt", "a")
+      .write_file("/other/file.txt", "text")
+      .set_cwd("/project")
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["fmt", "--allow-no-files", "a.txt", "../other/file.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["WARNING: Skipping '/other/file.txt' because no dprint config file was found for it."]
+    );
+    assert_eq!(environment.read_file("/project/a.txt").unwrap(), "a_formatted");
+    // skipped with a warning instead of erroring
+    assert_eq!(environment.read_file("/other/file.txt").unwrap(), "text");
+  }
+
+  #[test]
+  fn should_skip_outside_path_without_config_when_outputting_file_paths() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/project/a.txt", "a")
+      .write_file("/other/file.txt", "text")
+      .set_cwd("/project")
+      .initialize()
+      .build();
+
+    // this is the command users are told to run to see what dprint is finding,
+    // so it should show what it resolved rather than error out
+    run_test_cli(vec!["output-file-paths", "a.txt", "../other/file.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec!["/project/a.txt"]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["WARNING: Skipping '/other/file.txt' because no dprint config file was found for it."]
+    );
+  }
+
+  #[test]
   fn should_format_files_with_specific_config_includes() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
@@ -1407,6 +2732,53 @@ mod test {
   }
 
   #[test]
+  fn should_format_with_includes_override_when_cwd_deep_below_config_dir() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file("/sub/dir/file.txt", "text")
+      .write_file("/other.txt", "other")
+      .set_cwd("/sub/dir")
+      .build();
+
+    // the override patterns resolve relative to the cwd, which is multiple
+    // directories below the config directory here
+    for args in [
+      vec!["fmt", "--includes-override", "**/*.txt"],
+      vec!["fmt", "--includes-override", "**/*.txt", "file.txt"],
+    ] {
+      environment.write_file("/sub/dir/file.txt", "text").unwrap();
+      run_test_cli(args, &environment).unwrap();
+      assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+      assert_eq!(environment.read_file("/sub/dir/file.txt").unwrap(), "text_formatted");
+      assert_eq!(environment.read_file("/other.txt").unwrap(), "other");
+    }
+  }
+
+  #[test]
+  fn should_keep_config_excludes_with_includes_override_when_cwd_below_config_dir() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_excludes("dist");
+      })
+      .write_file("/sub/dist/a.txt", "a")
+      .write_file("/sub/b.txt", "b")
+      .set_cwd("/sub")
+      .build();
+
+    // the override moves the matcher's base directory to the cwd, but the
+    // config exclude matches its name at any depth, so it still applies
+    for args in [vec!["fmt"], vec!["fmt", "--includes-override", "**/*.txt"]] {
+      environment.write_file("/sub/b.txt", "b").unwrap();
+      run_test_cli(args, &environment).unwrap();
+      assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+      assert_eq!(environment.read_file("/sub/b.txt").unwrap(), "b_formatted");
+      assert_eq!(environment.read_file("/sub/dist/a.txt").unwrap(), "a");
+    }
+  }
+
+  #[test]
   fn should_not_format_explicitly_specified_file_when_excluded() {
     let file_path1 = "/file1.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
@@ -1420,6 +2792,58 @@ mod test {
     // this is done for tools like lint staged
     let error = run_test_cli(vec!["fmt", "file1.txt"], &environment).err().unwrap();
     assert_no_files_found(&error, &environment);
+  }
+
+  #[test]
+  fn should_not_format_specified_file_excluded_by_config() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin().add_excludes("ignored/**");
+      })
+      .write_file("/ignored/file.txt", "text")
+      .build();
+
+    let error = run_test_cli(vec!["fmt", "ignored/file.txt"], &environment).err().unwrap();
+
+    assert_no_files_found(&error, &environment);
+    assert_eq!(environment.read_file("/ignored/file.txt").unwrap(), "text");
+  }
+
+  #[test]
+  fn should_not_format_specified_file_in_excluded_dir() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        // excludes the directory itself rather than the files within it
+        config.add_remote_wasm_plugin().add_excludes("./ignored");
+      })
+      .write_file("/ignored/file.txt", "text")
+      .build();
+
+    let error = run_test_cli(vec!["fmt", "ignored/file.txt"], &environment).err().unwrap();
+
+    assert_no_files_found(&error, &environment);
+    assert_eq!(environment.read_file("/ignored/file.txt").unwrap(), "text");
+  }
+
+  #[test]
+  fn should_not_format_when_cwd_inside_config_excluded_dir() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin().add_excludes("**/node_modules");
+      })
+      .write_file("/node_modules/pkg/file.txt", "text")
+      .set_cwd("/node_modules/pkg")
+      .build();
+
+    // matching works the same regardless of the cwd, so running from inside
+    // an excluded directory matches nothing whether the file is specified
+    // directly, matched by a glob, or found by traversing the cwd
+    for args in [vec!["fmt", "file.txt"], vec!["fmt", "file.txt", "*.nomatch"], vec!["fmt"]] {
+      let error = run_test_cli(args, &environment).err().unwrap();
+      assert!(error.to_string().starts_with("No files found to format"), "{}", error);
+      error.assert_exit_code(14);
+      assert_eq!(environment.read_file("/node_modules/pkg/file.txt").unwrap(), "text");
+    }
   }
 
   #[test]
@@ -1679,6 +3103,57 @@ mod test {
   }
 
   #[test]
+  fn should_check_config_diagnostics_when_config_changes_with_incremental() {
+    // regression test for https://github.com/dprint/dprint/issues/403
+    let file_path1 = "/file1.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file(&file_path1, "text1")
+      .build();
+
+    // first run with a valid config -- caches the file as formatted
+    run_test_cli(vec!["fmt", "--incremental"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text1_formatted");
+
+    // now introduce a config diagnostic (unknown property)
+    environment
+      .write_file(
+        "./dprint.json",
+        r#"{
+          "test-plugin": { "non-existent": 25 },
+          "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#,
+      )
+      .unwrap();
+
+    // the diagnostic should be reported even though the file is unchanged and cached
+    let err = run_test_cli(vec!["fmt", "--incremental"], &environment).err().unwrap();
+    assert_eq!(err.to_string(), "Had 1 error formatting.");
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "[test-plugin]: Unknown property in configuration (non-existent)",
+        "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
+      ]
+    );
+
+    // running again with the same invalid config should report the diagnostic again
+    // (the invalid config must never get cached as "formatted")
+    let err = run_test_cli(vec!["fmt", "--incremental"], &environment).err().unwrap();
+    assert_eq!(err.to_string(), "Had 1 error formatting.");
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "[test-plugin]: Unknown property in configuration (non-existent)",
+        "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s)."
+      ]
+    );
+  }
+
+  #[test]
   fn should_format_incrementally_when_specified_via_config() {
     let file_path1 = "/file1.txt";
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
@@ -1697,6 +3172,56 @@ mod test {
     environment.clear_logs();
     run_test_cli(vec!["fmt", "--log-level=debug"], &environment).unwrap();
     assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains("No change: /file1.txt")), true);
+  }
+
+  #[test]
+  fn should_format_incrementally_when_config_override_changes() {
+    let file_path = "/package.txt";
+    let no_change_msg = "No change: /package.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .write_file(file_path, "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "--incremental"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(file_path).unwrap(), "text_package");
+
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
+    assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)), true);
+
+    environment
+      .write_file(
+        "./dprint.json",
+        r#"{
+          "test-plugin": {
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "updated"
+            }
+          },
+          "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"#,
+      )
+      .unwrap();
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
+    assert_eq!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)), false);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(file_path).unwrap(), "text_package_updated");
   }
 
   #[test]
@@ -1823,7 +3348,7 @@ mod test {
       vec![
         format!(
           "{}\n{}\n--",
-          format!("{} /file.txt:", "from".bold().red().to_string()),
+          format!("{} /file.txt:", colors::red_bold("from").to_string()),
           get_difference("const t=4;", "const t=4;_formatted"),
         ),
         get_singular_formatted_text()
@@ -1852,7 +3377,7 @@ mod test {
       environment.take_stdout_messages(),
       vec![format!(
         "{}\n{}\n--",
-        format!("{} /file.txt:", "from".bold().red().to_string()),
+        format!("{} /file.txt:", colors::red_bold("from").to_string()),
         get_difference("const t=4;", "const t=4;_formatted"),
       ),]
     );
@@ -1875,12 +3400,12 @@ mod test {
       vec![
         format!(
           "{}\n{}\n--",
-          format!("{} /file1.txt:", "from".bold().red().to_string()),
+          format!("{} /file1.txt:", colors::red_bold("from").to_string()),
           get_difference("const t=4;", "const t=4;_formatted"),
         ),
         format!(
           "{}\n{}\n--",
-          format!("{} /file2.txt:", "from".bold().red().to_string()),
+          format!("{} /file2.txt:", colors::red_bold("from").to_string()),
           get_difference("const t=5;", "const t=5;_formatted"),
         ),
       ]
@@ -1997,6 +3522,29 @@ mod test {
   }
 
   #[test]
+  fn should_format_stdin_with_config_overrides() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .build();
+    let test_std_in = TestStdInReader::from("text");
+
+    run_test_cli_with_stdin(vec!["fmt", "--stdin", "package.txt"], &environment, test_std_in).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec!["text_package"]);
+  }
+
+  #[test]
   fn should_format_for_stdin_fmt_with_extension() {
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {
@@ -2075,6 +3623,22 @@ mod test {
   }
 
   #[test]
+  fn should_not_format_stdin_file_excluded_by_arg_with_glob_chars() {
+    // stdin matching must agree with a normal `fmt` about an exclude arg
+    // naming an existing directory with glob characters
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file("/[a]/file.txt", "")
+      .build();
+
+    let test_std_in = TestStdInReader::from("text");
+    run_test_cli_with_stdin(vec!["fmt", "--stdin", "/[a]/file.txt", "--excludes", "[a]"], &environment, test_std_in).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["text"]);
+  }
+
+  #[test]
   fn should_not_format_stdin_resolving_config_file_from_provided_path_when_relative() {
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {
@@ -2141,6 +3705,80 @@ mod test {
         actual_plugin_file_checksum,
       ),
     );
+  }
+
+  #[test]
+  fn should_resolve_wasm_plugin_behind_redirect() {
+    // Regression test: GitHub Releases redirects .wasm URLs to a CDN URL without
+    // the .wasm extension. Plugin type detection must use the original URL.
+    let original_url = "https://plugins.dprint.dev/test-plugin.wasm";
+    let redirected_url = "https://release-assets.githubusercontent.com/github-production-release-asset/abc123";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin_at_url(redirected_url)
+      .with_default_config(|c| {
+        c.add_plugin(original_url);
+      })
+      .write_file("/test.txt", "text")
+      .build();
+    environment.add_remote_file_redirect(original_url, redirected_url);
+    run_test_cli(vec!["fmt", "*.*"], &environment).unwrap();
+    assert_eq!(environment.take_stderr_messages(), vec![format!("Compiling {}", redirected_url)]);
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+  }
+
+  #[test]
+  fn should_use_extended_config_checksum_for_wasm_plugin_specified_without_one() {
+    // the plugin is deduped down to the local config's entry, which specifies no
+    // checksum, so the extended config's checksum must carry over to it
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_remote_wasm_plugin_with_checksum("asdf");
+      })
+      .with_default_config(|c| {
+        c.add_config_section("extends", r#""https://dprint.dev/shared.json""#).add_remote_wasm_plugin();
+      })
+      .write_file("/test.txt", "")
+      .build();
+    let actual_plugin_file_checksum = test_helpers::get_test_wasm_plugin_checksum();
+    let err = run_test_cli(vec!["fmt", "*.*"], &environment).err().unwrap();
+    err.assert_exit_code(12);
+
+    assert_eq!(
+      err.to_string(),
+      format!(
+        concat!(
+          "Error resolving plugin https://plugins.dprint.dev/test-plugin.wasm: Invalid checksum specified ",
+          "in configuration file. Check the plugin's release notes for what the expected checksum is.\n\n",
+          "The checksum did not match the expected checksum.\n\n",
+          "Actual: {}\n",
+          "Expected: asdf"
+        ),
+        actual_plugin_file_checksum,
+      )
+    );
+  }
+
+  #[test]
+  fn should_use_extended_config_checksum_for_process_plugin_specified_without_one() {
+    // a process plugin requires a checksum, so dropping the extended config's
+    // checksum when deduping would fail this outright
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .with_local_config("/shared.json", |c| {
+        c.add_remote_process_plugin();
+      })
+      .with_default_config(|c| {
+        c.add_config_section("extends", r#""./shared.json""#)
+          .add_plugin("https://plugins.dprint.dev/test-process.json");
+      })
+      .write_file("/test.txt_ps", "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "*.*"], &environment).unwrap();
+
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
+    assert_eq!(environment.read_file("/test.txt_ps").unwrap(), "text_formatted_process");
   }
 
   #[test]
@@ -2344,6 +3982,117 @@ mod test {
   }
 
   #[test]
+  fn should_inherit_ancestor_config_in_nested_config() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/sub_dir/file.txt";
+    let file_path3 = "/sub_dir/nested/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "root" }"#);
+      })
+      // inherits the ancestor's plugin, but overrides its configuration
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true).add_config_section("test-plugin", r#"{ "ending": "sub" }"#);
+      })
+      // inherits without overriding anything, so it uses the ancestor's configuration
+      .with_local_config("/sub_dir/nested/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text")
+      .write_file(&file_path3, "text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_root");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text_sub");
+    // the nested config inherits the merged ancestor config (sub_dir, then root)
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text_sub");
+  }
+
+  #[test]
+  fn should_inherit_ancestor_excludes_in_nested_config() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/sub_dir/file.txt";
+    let file_path3 = "/sub_dir/skip/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin().add_excludes("**/skip");
+      })
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text")
+      .write_file(&file_path3, "text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text_formatted");
+    // the ancestor's "**/skip" exclude is inherited and still matches in the nested scope
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text");
+  }
+
+  #[test]
+  fn should_not_inherit_ancestor_plugins_without_inherit_true() {
+    // inheriting is opt-in, so a nested config without `"inherit": true`
+    // and without any plugins of its own should error
+    let file_path1 = "/file.txt";
+    let file_path2 = "/sub_dir/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.add_config_section("test-plugin", r#"{ "ending": "sub" }"#);
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text")
+      .build();
+    let err = run_test_cli(vec!["fmt"], &environment).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      "No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file."
+    );
+    err.assert_exit_code(13);
+  }
+
+  #[test]
+  fn should_combine_nested_config_plugins_with_inherited_plugins() {
+    // a nested config that inherits gets the ancestor's plugins in addition
+    // to any plugins it specifies itself (issue #711, project-c)
+    let file_path1 = "/file.txt";
+    let file_path2 = "/sub_dir/file.txt";
+    let file_path3 = "/sub_dir/file.txt_ps";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      // additionally pulls in the process plugin while inheriting the wasm plugin
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true).add_remote_process_plugin();
+      })
+      .initialize()
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text")
+      .write_file(&file_path3, "text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    // the process plugin is only used in the nested scope, so it's extracted lazily there
+    assert_eq!(environment.take_stderr_messages(), vec!["Extracting zip for test-process-plugin"]);
+    // only the wasm plugin in the root scope
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
+    // the nested scope inherits the wasm plugin
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text_formatted");
+    // ...and additionally has the process plugin it specified (handles .txt_ps)
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text_formatted_process");
+  }
+
+  #[test]
   fn should_not_error_nested_config_no_matching_files_in_scope_cli_args() {
     let file_path1 = "/sub_dir/file.txt";
     let file_path2 = "/sub_dir/sub_dir/file.txt";
@@ -2369,6 +4118,72 @@ mod test {
     // now try with a pattern that doesn't match any file in any scope and it should error
     let err = run_test_cli(vec!["fmt", "**/*.no_matching"], &environment).unwrap_err();
     assert_no_files_found(&err, &environment);
+  }
+
+  #[test]
+  fn should_format_specified_file_using_sub_dir_config() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "custom-formatted" }"#);
+      })
+      .write_file("/sub_dir/file.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "sub_dir/file.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    // formatted with the sub directory config's settings
+    assert_eq!(environment.read_file("/sub_dir/file.txt").unwrap(), "text_custom-formatted");
+  }
+
+  #[test]
+  fn should_format_files_under_nested_config_when_dir_arg_specified() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/dir/sub/dprint.json", |config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "custom-formatted" }"#);
+      })
+      .write_file("/dir/file1.txt", "text1")
+      .write_file("/dir/sub/file2.txt", "text2")
+      .build();
+
+    run_test_cli(vec!["fmt", "dir"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/dir/file1.txt").unwrap(), "text1_formatted");
+    // must not be silently skipped by the nested config's scope
+    assert_eq!(environment.read_file("/dir/sub/file2.txt").unwrap(), "text2_custom-formatted");
+  }
+
+  #[test]
+  fn should_format_files_under_nested_config_when_dot_arg_specified() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/sub/dprint.json", |config| {
+        config
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "custom-formatted" }"#);
+      })
+      .write_file("/root.txt", "text1")
+      .write_file("/sub/file.txt", "text2")
+      .build();
+
+    run_test_cli(vec!["fmt", "."], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/root.txt").unwrap(), "text1_formatted");
+    assert_eq!(environment.read_file("/sub/file.txt").unwrap(), "text2_custom-formatted");
   }
 
   #[test]
@@ -2672,5 +4487,364 @@ mod test {
     run_test_cli(vec!["fmt", "--config-discovery=global"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(&file_path1).unwrap(), "hello_formatted");
+  }
+
+  // ---- npm: plugin specifiers ----
+
+  #[test]
+  fn should_format_with_versioned_npm_wasm_plugin() {
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin("npm:test-plugin@1.0.0");
+      })
+      .write_file("/file.txt", "text")
+      .build();
+
+    // mock the npm registry: packument + tarball
+    let packument = serde_json::json!({
+      "versions": {
+        "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/test-plugin/-/test-plugin-1.0.0.tgz" } }
+      }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-plugin", packument.to_string().into_bytes());
+    environment.add_remote_file_bytes(
+      "https://registry.npmjs.org/test-plugin/-/test-plugin-1.0.0.tgz",
+      create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]),
+    );
+
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_formatted");
+
+    // tarball should be extracted under the registry-scoped cache dir
+    let extract_dir = environment.get_cache_dir().join("npm").join("registry.npmjs.org").join("test-plugin@1.0.0");
+    assert!(environment.path_exists(&extract_dir.join("plugin.wasm")));
+
+    let _ = environment.take_stderr_messages(); // drain wasm-compile progress
+  }
+
+  #[test]
+  fn should_format_with_unversioned_npm_wasm_plugin_from_node_modules() {
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin("npm:test-plugin");
+      })
+      .write_file("/node_modules/test-plugin/plugin.wasm", WASM_PLUGIN_BYTES)
+      .write_file("/file.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_formatted");
+
+    let _ = environment.take_stderr_messages(); // drain wasm-compile progress
+  }
+
+  #[test]
+  fn should_resolve_unversioned_npm_plugin_from_config_dir_node_modules() {
+    // dprint.json lives below the workspace root and the dependency is
+    // installed beside it. The npm resolver must start at the config
+    // directory itself, not at the config directory's parent.
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/repo/packages/web/dprint.json", |c| {
+        c.add_plugin("npm:test-plugin");
+      })
+      .write_file("/repo/packages/web/node_modules/test-plugin/plugin.wasm", WASM_PLUGIN_BYTES)
+      .write_file("/repo/packages/web/file.txt", "text")
+      .set_cwd("/repo/packages/web")
+      .build();
+
+    run_test_cli(vec!["fmt", "/repo/packages/web/file.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/repo/packages/web/file.txt").unwrap(), "text_formatted");
+
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn should_walk_past_child_node_modules_lacking_plugin_to_reach_workspace_root() {
+    // monorepo layout: dprint.json lives in a child workspace whose own
+    // node_modules doesn't have the plugin (only a different package). The
+    // resolver must walk past it and pick up the plugin from the workspace
+    // root's node_modules, matching how npm itself resolves dependencies.
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/repo/packages/web/dprint.json", |c| {
+        c.add_plugin("npm:test-plugin");
+      })
+      // child node_modules exists but lacks the plugin — must not stop the walk here
+      .write_file("/repo/packages/web/node_modules/other-package/index.js", "// noise")
+      .write_file("/repo/node_modules/test-plugin/plugin.wasm", WASM_PLUGIN_BYTES)
+      .write_file("/repo/packages/web/file.txt", "text")
+      .set_cwd("/repo/packages/web")
+      .build();
+
+    run_test_cli(vec!["fmt", "/repo/packages/web/file.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/repo/packages/web/file.txt").unwrap(), "text_formatted");
+
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn should_format_with_versioned_npm_process_plugin() {
+    // a self-contained npm-published process plugin: the npm tarball ships
+    // both `plugin.json` and `bin.zip`; the manifest references the zip with
+    // a relative path that resolves against the extracted package dir.
+    use crate::test_helpers::PROCESS_PLUGIN_ZIP_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+    use crate::utils::get_sha256_checksum;
+
+    let zip_bytes: &[u8] = &PROCESS_PLUGIN_ZIP_BYTES;
+    let zip_checksum = get_sha256_checksum(zip_bytes);
+    let plugin_json = format!(
+      r#"{{
+  "schemaVersion": 2,
+  "name": "test-process-plugin",
+  "version": "0.1.0",
+  "linux-x86_64":    {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "linux-aarch64":   {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "darwin-x86_64":   {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "darwin-aarch64":  {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "windows-x86_64":  {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "windows-aarch64": {{ "reference": "./bin.zip", "checksum": "{0}" }}
+}}"#,
+      zip_checksum
+    );
+    let tarball = create_test_npm_tarball(&[("package/plugin.json", plugin_json.as_bytes()), ("package/bin.zip", zip_bytes)]);
+    let tarball_checksum = get_sha256_checksum(&tarball);
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin(&format!("npm:test-process@1.0.0/plugin.json@{}", tarball_checksum));
+      })
+      .write_file("/file.txt_ps", "text")
+      .build();
+
+    let packument = serde_json::json!({
+      "versions": {
+        "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz" } }
+      }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process", packument.to_string().into_bytes());
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz", tarball);
+
+    run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_formatted_process");
+
+    let _ = environment.take_stderr_messages(); // drain process-plugin extract progress
+  }
+
+  #[test]
+  fn should_format_with_versioned_npm_process_plugin_with_npm_per_platform_reference() {
+    // a versioned (registry) top-level process plugin whose plugin.json
+    // points each per-platform entry at another versioned npm package via
+    // `npm:`. Exercises the per-platform tarball fetch flow from the
+    // registry top-level path (not just the node_modules path).
+    use crate::test_helpers::PROCESS_PLUGIN_BINARY_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+    use crate::test_helpers::process_plugin_binary_filename;
+    use crate::utils::get_sha256_checksum;
+
+    let binary_bytes: &[u8] = &PROCESS_PLUGIN_BINARY_BYTES;
+    let binary_filename = process_plugin_binary_filename();
+    let per_platform_tarball = create_test_npm_tarball(&[(&format!("package/{}", binary_filename), binary_bytes)]);
+    let per_platform_checksum = get_sha256_checksum(&per_platform_tarball);
+
+    let plugin_json = format!(
+      r#"{{
+  "schemaVersion": 2,
+  "name": "test-process-plugin",
+  "version": "0.1.0",
+  "linux-x86_64":    {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "linux-aarch64":   {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "darwin-x86_64":   {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "darwin-aarch64":  {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "windows-x86_64":  {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "windows-aarch64": {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }}
+}}"#,
+      per_platform_checksum, binary_filename,
+    );
+    let top_tarball = create_test_npm_tarball(&[("package/plugin.json", plugin_json.as_bytes())]);
+    let top_checksum = get_sha256_checksum(&top_tarball);
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin(&format!("npm:test-process@1.0.0/plugin.json@{}", top_checksum));
+      })
+      .write_file("/file.txt_ps", "text")
+      .build();
+
+    let top_packument = serde_json::json!({
+      "versions": {
+        "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz" } }
+      }
+    });
+    let per_platform_packument = serde_json::json!({
+      "versions": {
+        "0.1.0": { "dist": { "tarball": "https://registry.npmjs.org/test-process-bin/-/test-process-bin-0.1.0.tgz" } }
+      }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process", top_packument.to_string().into_bytes());
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz", top_tarball);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process-bin", per_platform_packument.to_string().into_bytes());
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process-bin/-/test-process-bin-0.1.0.tgz", per_platform_tarball);
+
+    run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_formatted_process");
+
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn should_reject_versioned_npm_process_plugin_with_https_reference() {
+    // mirror of the test above, except the manifest references the platform
+    // binary over the network — must be rejected before any http fetch.
+    use crate::test_helpers::TestProcessPluginFile;
+    use crate::test_helpers::create_test_npm_tarball;
+    use crate::utils::get_sha256_checksum;
+
+    let plugin_file = TestProcessPluginFile::default(); // uses an https:// reference
+    let tarball = create_test_npm_tarball(&[("package/plugin.json", plugin_file.text().as_bytes())]);
+    let tarball_checksum = get_sha256_checksum(&tarball);
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin(&format!("npm:test-process@1.0.0/plugin.json@{}", tarball_checksum));
+      })
+      .write_file("/file.txt_ps", "text")
+      .build();
+
+    let packument = serde_json::json!({
+      "versions": {
+        "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz" } }
+      }
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process", packument.to_string().into_bytes());
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz", tarball);
+
+    let err = run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).err().expect("expected an error");
+    err.assert_exit_code(12);
+    let msg = format!("{err:#}");
+    assert!(msg.contains("Network references aren't allowed"), "got: {msg}");
+    // file should not have been formatted
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text");
+
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn should_format_with_npm_process_plugin_using_relative_zip_reference() {
+    // a self-contained npm-installed process plugin: a single package ships
+    // both `plugin.json` and `bin.zip`, with the manifest referencing the zip
+    // by relative path. Must resolve against the package directory in
+    // node_modules (no separate per-arch npm package needed).
+    use crate::test_helpers::PROCESS_PLUGIN_ZIP_BYTES;
+    use crate::utils::get_sha256_checksum;
+
+    let zip_bytes: &[u8] = &PROCESS_PLUGIN_ZIP_BYTES;
+    let zip_checksum = get_sha256_checksum(zip_bytes);
+
+    // every-platform reference is `./bin.zip` (resolved against
+    // /node_modules/test-process/ where plugin.json lives)
+    let plugin_json = format!(
+      r#"{{
+  "schemaVersion": 2,
+  "name": "test-process-plugin",
+  "version": "0.1.0",
+  "linux-x86_64":    {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "linux-aarch64":   {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "darwin-x86_64":   {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "darwin-aarch64":  {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "windows-x86_64":  {{ "reference": "./bin.zip", "checksum": "{0}" }},
+  "windows-aarch64": {{ "reference": "./bin.zip", "checksum": "{0}" }}
+}}"#,
+      zip_checksum
+    );
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin("npm:test-process/plugin.json");
+      })
+      .write_file("/node_modules/test-process/plugin.json", plugin_json.as_bytes())
+      .write_file("/node_modules/test-process/bin.zip", zip_bytes)
+      .write_file("/file.txt_ps", "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_formatted_process");
+
+    let _ = environment.take_stderr_messages(); // drain process-plugin extract progress
+  }
+
+  #[test]
+  fn should_format_with_unversioned_npm_process_plugin_from_node_modules() {
+    // unversioned top-level process plugin: plugin.json lives in node_modules,
+    // and each per-platform entry references a versioned `npm:` package. The
+    // per-platform package's tarball is fetched from the registry and its
+    // SHA-256 verified against plugin.json's checksum (covering every file in
+    // the tarball, not just the binary).
+    use crate::test_helpers::PROCESS_PLUGIN_BINARY_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+    use crate::test_helpers::process_plugin_binary_filename;
+    use crate::utils::get_sha256_checksum;
+
+    let binary_bytes: &[u8] = &PROCESS_PLUGIN_BINARY_BYTES;
+    let binary_filename = process_plugin_binary_filename();
+
+    // build the per-platform npm tarball with the binary inside it
+    let tarball_inner_path = format!("package/{}", binary_filename);
+    let tarball = create_test_npm_tarball(&[(&tarball_inner_path, binary_bytes)]);
+    let tarball_checksum = get_sha256_checksum(&tarball);
+
+    // craft a plugin.json whose every-platform reference is `npm:` and points
+    // at the same dep package (so this test is platform-independent)
+    let plugin_json = format!(
+      r#"{{
+  "schemaVersion": 2,
+  "name": "test-process-plugin",
+  "version": "0.1.0",
+  "linux-x86_64":    {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "linux-aarch64":   {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "darwin-x86_64":   {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "darwin-aarch64":  {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "windows-x86_64":  {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }},
+  "windows-aarch64": {{ "reference": "npm:test-process-bin@0.1.0/{1}", "checksum": "{0}" }}
+}}"#,
+      tarball_checksum, binary_filename,
+    );
+
+    let packument = serde_json::json!({
+      "versions": {
+        "0.1.0": { "dist": { "tarball": "https://registry.npmjs.org/test-process-bin/-/test-process-bin-0.1.0.tgz" } }
+      }
+    });
+
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/dprint.json", |c| {
+        c.add_plugin("npm:test-process/plugin.json");
+      })
+      .write_file("/node_modules/test-process/plugin.json", plugin_json.as_bytes())
+      .add_remote_file("https://registry.npmjs.org/test-process-bin", &packument.to_string())
+      .add_remote_file_bytes("https://registry.npmjs.org/test-process-bin/-/test-process-bin-0.1.0.tgz", tarball)
+      .write_file("/file.txt_ps", "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_formatted_process");
+
+    let _ = environment.take_stderr_messages(); // drain process-plugin extract progress
   }
 }

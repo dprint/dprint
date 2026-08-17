@@ -5,9 +5,14 @@ use jsonc_parser::JsonValue;
 use jsonc_parser::parse_to_value;
 use url::Url;
 
+use crate::environment::Environment;
 use crate::environment::UrlDownloader;
+use crate::plugins::PluginNpmInfo;
 use crate::plugins::PluginSourceReference;
+use crate::plugins::ResolveNpmLatestOptions;
+use crate::plugins::ResolvedNpmPlugin;
 use crate::utils::PathSource;
+use crate::utils::PluginKind;
 
 const SCHEMA_VERSION: u8 = 1;
 
@@ -16,11 +21,34 @@ pub struct PluginUpdateUrlInfo {
   pub url: String,
   pub version: String,
   pub checksum: Option<String>,
+  /// The npm package the plugin is published to. When present, the CLI writes
+  /// an npm specifier into config files instead of the plugin's url.
+  pub npm: Option<PluginNpmInfo>,
 }
 
 impl PluginUpdateUrlInfo {
+  /// Resolves this plugin's npm package from the registry, when it's
+  /// distributed on npm. `None` means it isn't, so its url is what belongs in
+  /// a config file.
+  pub async fn resolve_npm(&self, environment: &impl Environment, options: ResolveNpmLatestOptions) -> Option<Result<ResolvedNpmPlugin>> {
+    Some(self.npm.as_ref()?.resolve_latest(environment, self.plugin_kind(), options).await)
+  }
+
+  /// The plugin's url as a source reference.
+  pub fn as_source_reference(&self) -> Result<PluginSourceReference> {
+    Ok(PluginSourceReference {
+      path_source: PathSource::new_remote(Url::parse(&self.url)?),
+      checksum: self.checksum.clone(),
+    })
+  }
+
   pub fn is_wasm(&self) -> bool {
     self.url.to_lowercase().ends_with(".wasm")
+  }
+
+  /// Whether the plugin's file is a wasm or a process plugin.
+  pub fn plugin_kind(&self) -> PluginKind {
+    if self.is_wasm() { PluginKind::Wasm } else { PluginKind::Process }
   }
 
   pub fn full_url(&self) -> String {
@@ -33,18 +61,11 @@ impl PluginUpdateUrlInfo {
   pub fn full_url_no_wasm_checksum(&self) -> String {
     if self.is_wasm() { self.url.to_string() } else { self.full_url() }
   }
-
-  pub fn as_source_reference(&self) -> Result<PluginSourceReference> {
-    Ok(PluginSourceReference {
-      path_source: PathSource::new_remote(Url::parse(&self.url)?),
-      checksum: self.checksum.clone(),
-    })
-  }
 }
 
-pub async fn read_update_url(downloader: &impl UrlDownloader, url: &str) -> Result<Option<PluginUpdateUrlInfo>> {
-  let info_bytes = match downloader.download_file(url).await? {
-    Some(info_bytes) => info_bytes,
+pub async fn read_update_url(downloader: &impl UrlDownloader, url: &Url) -> Result<Option<PluginUpdateUrlInfo>> {
+  let info_bytes = match downloader.download_file(url, None).await?.1 {
+    Some(result) => result.content,
     None => return Ok(None),
   };
   let info_text = String::from_utf8(info_bytes.to_vec())?;
@@ -76,11 +97,15 @@ pub async fn read_update_url(downloader: &impl UrlDownloader, url: &str) -> Resu
     .ok_or_else(|| anyhow!("Expected to find a version property in the data."))?;
   let url = obj.take_string("url").ok_or_else(|| anyhow!("Expected to find a url property in the data."))?;
   let checksum = obj.take_string("checksum");
+  // a malformed `npm` property is ignored (keeping the url) rather than
+  // failing the update lookup
+  let npm = obj.take_object("npm").and_then(PluginNpmInfo::parse);
 
   Ok(Some(PluginUpdateUrlInfo {
     version: version.to_string(),
     url: url.to_string(),
     checksum: checksum.map(|c| c.to_string()),
+    npm,
   }))
 }
 
@@ -104,23 +129,77 @@ mod test {
     let environment = builder.build();
     environment.clone().run_in_runtime(async move {
       assert_eq!(
-        read_update_url(&environment, "https://plugins.dprint.dev/plugin/latest.json").await.unwrap(),
+        read_update_url(&environment, &Url::parse("https://plugins.dprint.dev/plugin/latest.json").unwrap())
+          .await
+          .unwrap(),
         Some(PluginUpdateUrlInfo {
           version: "version".to_string(),
           url: "url".to_string(),
           checksum: None,
+          npm: None,
         })
       );
       assert_eq!(
-        read_update_url(&environment, "https://plugins.dprint.dev/plugin/latest-checksum.json")
+        read_update_url(&environment, &Url::parse("https://plugins.dprint.dev/plugin/latest-checksum.json").unwrap())
           .await
           .unwrap(),
         Some(PluginUpdateUrlInfo {
           version: "version2".to_string(),
           url: "url2".to_string(),
           checksum: Some("checksum".to_string()),
+          npm: None,
         })
       );
+    })
+  }
+
+  #[test]
+  fn should_resolve_npm_package_from_the_registry() {
+    // the version comes from npm, not from the (possibly stale) latest.json
+    let mut builder = TestEnvironmentBuilder::new();
+    builder
+      .add_remote_file(
+        "https://plugins.dprint.dev/plugin/latest.json",
+        r#"{
+  "schemaVersion": 1,
+  "url": "https://plugins.dprint.dev/json-1.0.0.wasm",
+  "version": "1.0.0",
+  "npm": { "name": "@dprint/json" }
+}"#,
+      )
+      .add_remote_file_bytes(
+        "https://registry.npmjs.org/@dprint/json",
+        serde_json::json!({ "dist-tags": { "latest": "1.1.0" }, "versions": { "1.1.0": {} } })
+          .to_string()
+          .into_bytes(),
+      );
+    let environment = builder.build();
+    environment.clone().run_in_runtime(async move {
+      let plugin = read_update_url(&environment, &Url::parse("https://plugins.dprint.dev/plugin/latest.json").unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+      assert_eq!(
+        plugin.npm,
+        Some(PluginNpmInfo {
+          name: "@dprint/json".to_string(),
+          path: None,
+        })
+      );
+
+      let resolved = plugin
+        .resolve_npm(
+          &environment,
+          ResolveNpmLatestOptions {
+            force_checksum: false,
+            base_dir: None,
+          },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+      assert_eq!(resolved.version, "1.1.0");
+      assert_eq!(resolved.config_file_entry(), "npm:@dprint/json@1.1.0");
     })
   }
 
@@ -134,7 +213,7 @@ mod test {
     let environment = builder.build();
     environment.clone().run_in_runtime(async move {
       assert_eq!(
-        read_update_url(&environment, "https://plugins.dprint.dev/plugin/latest.json")
+        read_update_url(&environment, &Url::parse("https://plugins.dprint.dev/plugin/latest.json").unwrap())
           .await
           .err()
           .unwrap()
@@ -145,7 +224,7 @@ mod test {
         )
       );
       assert_eq!(
-        read_update_url(&environment, "https://plugins.dprint.dev/plugin/not-exists.json")
+        read_update_url(&environment, &Url::parse("https://plugins.dprint.dev/plugin/not-exists.json").unwrap())
           .await
           .unwrap(),
         None,

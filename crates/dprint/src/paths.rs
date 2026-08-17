@@ -12,6 +12,7 @@ use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::patterns::get_all_file_patterns;
+use crate::patterns::process_cli_path_args;
 use crate::patterns::process_config_patterns;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::resolution::PluginWithConfig;
@@ -93,29 +94,33 @@ pub async fn get_and_resolve_file_paths<'a>(
   environment: &impl Environment,
 ) -> Result<GlobOutput> {
   let cwd = environment.cwd();
-  let mut file_patterns = get_all_file_patterns(config, args, &cwd);
+  let mut file_patterns = get_all_file_patterns(config, args, &cwd, environment);
 
   if args.only_staged {
     let staged_files = environment.get_staged_files().context("Failed running git staged.")?;
-    file_patterns.arg_includes = Some(GlobPattern::new_vec(
-      staged_files.into_iter().map(|path| path.to_string_lossy().into_owned()).collect(),
-      cwd.clone(),
-    ));
+    file_patterns.arg_includes = Some(process_cli_path_args(&staged_files, &cwd, environment));
+  } else if args.only_dirty {
+    let dirty_files = environment.get_dirty_files().context("Failed running git status.")?;
+    file_patterns.arg_includes = Some(process_cli_path_args(&dirty_files, &cwd, environment));
   }
 
   if file_patterns.config_includes.is_none() {
     // If no includes patterns were specified, derive one from the list of plugins
     // as this is a massive performance improvement, because it collects less file
     // paths to examine and match to plugins later.
-    file_patterns.config_includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), cwd.clone()));
+    //
+    // These are based at the config dir rather than the cwd so that explicitly
+    // specified paths outside the cwd (ex. ../file.txt) can still match them.
+    file_patterns.config_includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), config.base_path.clone()));
   }
 
-  get_and_resolve_file_patterns(config, file_patterns, config_discovery, environment).await
+  get_and_resolve_file_patterns(config, file_patterns, args.no_gitignore, config_discovery, environment).await
 }
 
 async fn get_and_resolve_file_patterns(
   config: &ResolvedConfig,
   file_patterns: GlobPatterns,
+  no_gitignore: bool,
   config_discovery: ConfigDiscovery,
   environment: &impl Environment,
 ) -> Result<GlobOutput> {
@@ -125,6 +130,7 @@ async fn get_and_resolve_file_patterns(
   let start_dir = if is_in_sub_dir { cwd } else { config.base_path.clone() };
   let environment = environment.clone();
   let pattern_base = config.base_path.clone();
+  let current_config_path = config.source.maybe_local_path().map(|p| p.as_ref().to_path_buf());
 
   // This is intensive so do it in a blocking task
   dprint_core::async_runtime::spawn_blocking(move || {
@@ -135,6 +141,8 @@ async fn get_and_resolve_file_patterns(
         file_patterns,
         pattern_base,
         config_discovery,
+        current_config_path,
+        no_gitignore,
       },
     )
   })
@@ -147,18 +155,16 @@ fn get_plugin_patterns<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>) 
   let mut file_exts = HashSet::new();
   let mut association_globs = Vec::new();
   for plugin in plugins {
-    let mut had_positive_association = false;
+    // associations add to the plugin's default file matching, so always include
+    // the plugin's default file names and extensions plus any positive globs
+    file_names.extend(&plugin.file_matching.file_names);
+    file_exts.extend(&plugin.file_matching.file_extensions);
     if let Some(associations) = plugin.associations.as_ref() {
       for pattern in process_config_patterns(associations) {
         if !is_negated_glob(&pattern) {
-          had_positive_association = true;
           association_globs.push(pattern);
         }
       }
-    }
-    if !had_positive_association {
-      file_names.extend(&plugin.file_matching.file_names);
-      file_exts.extend(&plugin.file_matching.file_extensions);
     }
   }
   let mut result = Vec::new();

@@ -10,12 +10,36 @@ use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
+use dprint_core::plugins::CriticalFormatError;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
+use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::process::HostFormatCallback;
+
+/// Looks for a [`CriticalFormatError`] in an `anyhow::Error`, whether it was
+/// stored directly or wrapped in a [`FormatError`].
+pub fn maybe_critical_format_error(err: &anyhow::Error) -> Option<&CriticalFormatError> {
+  if let Some(critical) = err.downcast_ref::<CriticalFormatError>() {
+    Some(critical)
+  } else {
+    err.downcast_ref::<FormatError>().and_then(|err| err.downcast_ref::<CriticalFormatError>())
+  }
+}
+
+/// Converts an `anyhow::Error` into a [`FormatError`] while preserving a
+/// possible [`CriticalFormatError`] so it can still be detected later.
+pub fn anyhow_to_format_error(err: anyhow::Error) -> FormatError {
+  match err.downcast::<FormatError>() {
+    Ok(err) => err,
+    Err(err) => match err.downcast::<CriticalFormatError>() {
+      Ok(critical) => FormatError::from(critical),
+      Err(err) => FormatError::new(err),
+    },
+  }
+}
 
 #[async_trait(?Send)]
 pub trait Plugin: Send + Sync {

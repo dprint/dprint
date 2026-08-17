@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crossterm::style::Stylize;
+use deno_terminal::colors;
 use similar::ChangeTag;
 use similar::TextDiffConfig;
 
@@ -92,22 +92,22 @@ fn get_number_char_count(numbers: impl Iterator<Item = usize>) -> usize {
 }
 
 fn get_addition_text(text: &str) -> String {
-  text.green().to_string()
+  colors::green(text).to_string()
 }
 
 fn get_addition_highlight_text(text: &str) -> String {
   let text = text.replace('\t', "\u{21E5}");
-  text.black().on_green().to_string()
+  colors::black_on_green(text).to_string()
 }
 
 fn get_removal_text(text: &str) -> String {
   let text = text.replace('\t', "\u{21E5}");
-  text.red().to_string()
+  colors::red(text).to_string()
 }
 
 fn get_removal_highlight_text(text: &str) -> String {
   let text = text.replace('\t', "\u{21E5}");
-  text.white().on_red().to_string()
+  colors::white_on_red(text).to_string()
 }
 
 fn annotate_whitespace(text: &str) -> String {

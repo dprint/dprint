@@ -10,33 +10,42 @@ if ! command -v unzip >/dev/null; then
 fi
 
 if [ "$OS" = "Windows_NT" ]; then
-	target="x86_64-pc-windows-msvc"
+	case "$PROCESSOR_ARCHITECTURE" in
+		ARM64) target="aarch64-pc-windows-msvc" ;;
+		*) target="x86_64-pc-windows-msvc" ;;
+	esac
 else
 	case $(uname -sm) in
 		"Darwin x86_64") target="x86_64-apple-darwin" ;;
 		"Darwin arm64") target="aarch64-apple-darwin" ;;
+		# Termux reports "Linux aarch64"/"Linux x86_64" but uses Android's bionic libc, so check uname -o.
 		"Linux aarch64")
-			is_musl=$(ldd /bin/sh | grep 'musl' || true)
-			if [ -z "$is_musl" ]; then
-				target="aarch64-unknown-linux-gnu"
+			if [ "$(uname -o 2>/dev/null)" = "Android" ]; then
+				target="aarch64-linux-android"
 			else
-				target="aarch64-unknown-linux-musl"
-			fi ;;
-		"Linux riscv64")
-			is_musl=$(ldd /bin/sh | grep 'musl' || true)
-			if [ -z "$is_musl" ]; then
-				target="riscv64-unknown-linux-gnu"
+				target="aarch64-unknown-linux"
+			fi
+			;;
+		"Linux x86_64")
+			if [ "$(uname -o 2>/dev/null)" = "Android" ]; then
+				target="x86_64-linux-android"
 			else
-				target="riscv64-unknown-linux-musl"
-			fi ;;
-		*)
-			is_musl=$(ldd /bin/sh | grep 'musl' || true)
-			if [ -z "$is_musl" ]; then
-				target="x86_64-unknown-linux-gnu"
-			else
-				target="x86_64-unknown-linux-musl"
-			fi ;;
+				target="x86_64-unknown-linux"
+			fi
+			;;
+		"Linux loongarch64") target="loongarch64-unknown-linux" ;;
+		"Linux riscv64") target="riscv64gc-unknown-linux-gnu" ;; # riscv64 build only has a GNU libc variant.
+		"Linux ppc64le") target="powerpc64le-unknown-linux" ;;
+		*) target="x86_64-unknown-linux" ;;
 	esac
+fi
+if [ "${target%-linux}" != "$target" ]; then # check "-linux" suffix
+	is_musl=$(ldd /bin/sh | grep 'musl' || true)
+	if [ -z "$is_musl" ]; then
+		target="$target-gnu"
+	else
+		target="$target-musl"
+	fi
 fi
 
 if [ $# -eq 0 ]; then
@@ -47,23 +56,31 @@ fi
 
 dprint_install="${DPRINT_INSTALL:-$HOME/.dprint}"
 bin_dir="$dprint_install/bin"
-exe="$bin_dir/dprint"
-
 if [ ! -d "$bin_dir" ]; then
 	mkdir -p "$bin_dir"
 fi
+dprint_install="$(realpath "$dprint_install")"
+bin_dir="$dprint_install/bin"
+
+exe="$bin_dir/dprint"
+zip="$exe.zip"
+
+# append .exe for Windows
+case "$target" in
+	*-pc-windows-msvc) exe="$exe.exe" ;;
+esac
 
 # download
-curl --fail --location --progress-bar --output "$exe.zip" "$dprint_uri"
+curl --fail --location --progress-bar --output "$zip" "$dprint_uri"
 
 # stop any running dprint editor services
 pkill -9 "dprint" || true
 
 # install
 cd "$bin_dir"
-unzip -o "$exe.zip"
+unzip -o "$zip"
 chmod +x "$exe"
-rm "$exe.zip"
+rm "$zip"
 
 echo "dprint was installed successfully to $exe"
 if command -v dprint >/dev/null; then

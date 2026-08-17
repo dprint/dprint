@@ -15,6 +15,8 @@ It would be ideal for all plugins to be Wasm plugins, but unfortunately many lan
 
 The setup for both is the same except process plugins require a checksum to be specified to ensure the downloaded file is the same as what was built on the CI pipeline.
 
+For the latest version and copy-paste URL of every plugin, see [plugins.dprint.dev](https://plugins.dprint.dev).
+
 ## Wasm Plugins
 
 - [Typescript / JavaScript](/plugins/typescript)
@@ -37,6 +39,7 @@ The setup for both is the same except process plugins require a checksum to be s
 
 - [Prettier](/plugins/prettier)
 - [Roslyn](/plugins/roslyn) (C#/VB)
+- [Swift](/plugins/swift) (SwiftFormat)
 - [Exec](/plugins/exec) - Works with any formatting CLI installed on the system.
 
 ## Using Wasm Plugins in the Browser, Deno, or Node.js

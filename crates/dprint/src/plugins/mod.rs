@@ -1,22 +1,26 @@
 mod cache;
 mod cache_fs_locks;
-mod cache_manifest;
+mod cache_meta;
 mod helpers;
 mod implementations;
 mod name_resolution;
+mod npm_resolution;
 mod plugin;
 mod repo;
 mod resolver;
 mod types;
 
 pub use cache::*;
-pub use cache_manifest::CachePluginKind;
-use cache_manifest::*;
 pub use helpers::*;
 pub use plugin::*;
 pub use repo::*;
 pub use resolver::*;
 pub use types::*;
 
+pub use implementations::WASM_PLUGIN_THREAD_STACK_SIZE;
 pub use implementations::compile_wasm;
 pub use name_resolution::PluginNameResolutionMaps;
+pub use npm_resolution::FetchNpmLatestInfo;
+pub use npm_resolution::detect_npm_plugin_kind_in_node_modules;
+pub use npm_resolution::fetch_npm_latest_info;
+pub use npm_resolution::resolve_npm_latest_version;
