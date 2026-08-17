@@ -5,9 +5,10 @@ use dprint_core::formatting::ir_helpers;
 /// Builds `depth` groups of separated values inside one another, each surrounded by brackets the way
 /// a plugin writes an array, with the innermost group written over several lines.
 ///
-/// Every group above the innermost one therefore has to be multi-line as well, which it only finds
-/// out after printing its values.
-fn print_nested(depth: usize) -> String {
+/// Every group above the innermost one therefore has to be multi-line as well. When
+/// `declare_known_multi_line` is set, each group is told that in advance rather than leaving it to
+/// be found out by printing.
+fn print_nested(depth: usize, declare_known_multi_line: bool) -> String {
   dprint_core::formatting::format(
     || {
       let mut inner = {
@@ -25,6 +26,8 @@ fn print_nested(depth: usize) -> String {
                 lines_span: None,
                 allow_inline_multi_line: false,
                 allow_inline_single_line: false,
+                // every group but the innermost holds a group that is already multi-line
+                is_known_multi_line: declare_known_multi_line && i > 0,
               },
               ir_helpers::GeneratedValue {
                 items: {
@@ -35,6 +38,7 @@ fn print_nested(depth: usize) -> String {
                 lines_span: None,
                 allow_inline_multi_line: false,
                 allow_inline_single_line: false,
+                is_known_multi_line: false,
               },
             ]
           },
@@ -73,9 +77,9 @@ fn print_nested(depth: usize) -> String {
 fn should_print_nested_groups_over_multiple_lines() {
   // the separator is only used when a group fits on one line, so a caller that wants trailing
   // commas appends them to each value itself
-  assert_eq!(print_nested(1), "[\n  innermost\n  second\n]");
+  assert_eq!(print_nested(1, false), "[\n  innermost\n  second\n]");
   assert_eq!(
-    print_nested(3),
+    print_nested(3, false),
     concat!(
       "[\n",
       "  [\n",
@@ -89,6 +93,14 @@ fn should_print_nested_groups_over_multiple_lines() {
       "]",
     )
   );
+}
+
+#[test]
+fn should_print_the_same_whether_or_not_multi_line_is_declared() {
+  // declaring it only saves the work of finding out, so it must not change the result
+  for depth in 1..8 {
+    assert_eq!(print_nested(depth, true), print_nested(depth, false), "at depth {depth}");
+  }
 }
 
 /// Printing this is exponential in the nesting depth either way, so it is a question of how large
@@ -105,8 +117,16 @@ fn should_print_nested_groups_over_multiple_lines() {
 #[ignore = "measures elapsed time; run explicitly and in release"]
 fn should_not_print_values_twice_per_level() {
   let start = std::time::Instant::now();
-  let text = print_nested(24);
+  let text = print_nested(24, false);
   let elapsed = start.elapsed();
   assert!(text.contains("innermost"));
   assert!(elapsed.as_secs() < 5, "took {elapsed:?}, so the base of the growth has gone up again");
+
+  // telling the groups what they would otherwise have to find out removes the guessing entirely,
+  // so this is no longer exponential and a depth that could not be printed at all is instant
+  let start = std::time::Instant::now();
+  let text = print_nested(200, true);
+  let elapsed = start.elapsed();
+  assert!(text.contains("innermost"));
+  assert!(elapsed.as_secs() < 5, "took {elapsed:?} for a depth that should now be linear");
 }
