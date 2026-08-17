@@ -3,10 +3,10 @@ use anyhow::Error;
 use anyhow::Result;
 use anyhow::anyhow;
 use anyhow::bail;
+use deno_semver::Version;
 use deno_terminal::colors;
 use dprint_core::async_runtime::future;
 use dprint_core::plugins;
-use semver::Version;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -1394,10 +1394,12 @@ async fn get_npm_info_plugins(environment: &impl Environment) -> HashMap<String,
 /// updates to, and it can be behind the plugin's releases (a package that's
 /// published later than the plugin, or a version that was unpublished).
 ///
-/// A version that isn't semver can't be compared, so it's not treated as a
-/// downgrade — the source of the version stays trusted, as before.
+/// Both versions are parsed the lenient way npm does, since a package's
+/// versions are whatever npm accepted at publish time. One that doesn't parse
+/// can't be compared, so it isn't treated as a downgrade — the source of the
+/// version stays trusted, as before.
 fn is_version_downgrade(old_version: &str, new_version: &str) -> bool {
-  match (Version::parse(old_version), Version::parse(new_version)) {
+  match (Version::parse_from_npm(old_version), Version::parse_from_npm(new_version)) {
     (Ok(old_version), Ok(new_version)) => new_version < old_version,
     _ => false,
   }
