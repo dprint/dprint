@@ -891,8 +891,14 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
             } else {
               log_stderr_info!(environment, "Updating {} {}{} to {}...", info.name, info.old_version, in_config, new_target);
             }
-            file_text = new_file_text;
-            updated_plugins.push(info);
+            // only record an update that rewrote an entry in this file. a plugin
+            // from an `extends`ed config is reported (its version really did
+            // move) but has nothing here to rewrite, and running its config
+            // updates would be acting on a plugin this file didn't change
+            if new_file_text != file_text {
+              file_text = new_file_text;
+              updated_plugins.push(info);
+            }
           }
         }
         Err(err_info) => {
@@ -1068,10 +1074,11 @@ async fn run_plugin_config_updates<TEnvironment: Environment>(
     };
     let mut all_diagnostics = Vec::new();
     for plugin in scope.scope.plugins.values() {
-      let Some(update_info) = updated_plugins
-        .iter()
-        .find(|info| info.name == plugin.info().name && info.new_version == plugin.info().version)
-      else {
+      // matching on name alone is exact: these updates all rewrote an entry in
+      // this config file, and a scope holds one plugin per name. the version
+      // isn't usable here — an npm entry's version is its package's, which is a
+      // different line from the version a plugin reports about itself
+      let Some(update_info) = updated_plugins.iter().find(|info| info.name == plugin.info().name) else {
         continue;
       };
       log_debug!(environment, "Updating for {}", plugin.name());
@@ -4504,6 +4511,49 @@ mod test {
         "Compiling https://plugins.dprint.dev/test-plugin.wasm",
       ]
     );
+  }
+
+  #[test]
+  fn config_update_runs_plugin_config_updates_for_an_npm_plugin() {
+    // the entry's version is its package's, which needn't match the version the
+    // plugin reports about itself — the plugin's own config updates still have
+    // to run after it moves
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+
+    let tarball_url = |version: &str| format!("https://registry.npmjs.org/@dprint/test-plugin/-/test-plugin-{version}.tgz");
+    // the package is at 0.3.0 while the wasm inside reports 0.2.0
+    let packument = json!({
+      "dist-tags": { "latest": "0.3.0" },
+      "versions": {
+        "0.1.0": { "dist": { "tarball": tarball_url("0.1.0") } },
+        "0.3.0": { "dist": { "tarball": tarball_url("0.3.0") } },
+      }
+    });
+    let tarball = create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]);
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .add_remote_file_bytes(&tarball_url("0.1.0"), tarball.clone())
+      .add_remote_file_bytes(&tarball_url("0.3.0"), tarball)
+      .with_info_file(|_| {})
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("npm:@dprint/test-plugin@0.1.0").add_config_section(
+          "test-plugin",
+          r#"{
+  "should_set": "asdf"
+}"#,
+        );
+      })
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["config", "update", "--yes"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("\"npm:@dprint/test-plugin@0.3.0\""), "got: {dprint_json}");
+    // the plugin's own config updates ran against the moved entry
+    assert!(dprint_json.contains("\"should_set\": \"new_value_wasm\""), "got: {dprint_json}");
+    environment.take_stderr_messages();
   }
 
   #[test]
