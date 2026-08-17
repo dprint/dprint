@@ -141,6 +141,16 @@ pub struct GeneratedValue {
   /// when it is single line. In other words, it being on a single line
   /// won't trigger all the values to be multi-line.
   pub allow_inline_single_line: bool,
+  /// Whether this value is already known to be written over more than one line.
+  ///
+  /// Set this when it can be told without printing the value — say because it holds a string that
+  /// spans lines, or a collection the author had already broken up. It saves the values being
+  /// printed on the assumption that they fit on one line, only for that to turn out wrong and the
+  /// work to be done again, which for values nested inside one another repeats at every level.
+  ///
+  /// `false` means only that it isn't known in advance, not that the value is on a single line, so
+  /// leaving it `false` is always safe.
+  pub is_known_multi_line: bool,
 }
 
 impl GeneratedValue {
@@ -151,6 +161,7 @@ impl GeneratedValue {
       lines_span: None,
       allow_inline_multi_line: false,
       allow_inline_single_line: false,
+      is_known_multi_line: false,
     }
   }
 }
@@ -166,6 +177,7 @@ struct GeneratedValueData {
   line_start_indent_level: LineStartIndentLevel,
   allow_inline_multi_line: bool,
   allow_inline_single_line: bool,
+  is_known_multi_line: bool,
 }
 
 pub fn gen_separated_values(
@@ -315,6 +327,7 @@ pub fn gen_separated_values(
         line_start_indent_level: start_line_start_indent_level,
         allow_inline_multi_line: generated_value.allow_inline_multi_line,
         allow_inline_single_line: generated_value.allow_inline_single_line,
+        is_known_multi_line: generated_value.is_known_multi_line,
       });
 
       if i == 0 {
@@ -582,6 +595,22 @@ fn get_is_multi_line_for_multi_line(
   ) -> Option<bool> {
     // todo: This is slightly confusing because it works on the "last" value rather than the current
     let is_start_standalone_line = condition_context.resolved_condition(is_start_standalone_line_ref)?;
+
+    // A value the caller already knows spans lines settles this before anything has to be printed.
+    // Reaching the same answer by printing means printing the values on the assumption they fit on
+    // one line, finding out they don't, and doing it again — at every level of nesting.
+    //
+    // The first value is passed over when the group starts a line of its own, matching the loop
+    // below, which ignores it because it is always at the start of its line.
+    for (i, value_data) in value_datas.borrow().iter().enumerate() {
+      if i == 0 && is_start_standalone_line {
+        continue;
+      }
+      if value_data.is_known_multi_line && !value_data.allow_inline_multi_line {
+        return Some(true);
+      }
+    }
+
     let start_ln = condition_context.resolved_line_number(start_ln)?;
     let end_ln = condition_context.resolved_line_number(end_ln)?;
     let mut last_ln = start_ln;
