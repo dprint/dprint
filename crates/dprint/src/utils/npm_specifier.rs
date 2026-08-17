@@ -220,9 +220,14 @@ fn validate_safe_sub_path(path: &str, original: &str) -> Result<()> {
 /// flows into the npm extract cache dir (`name@version`) and into the
 /// packument/tarball URL, so restrict it to the characters a real semver
 /// version uses — blocking path-traversal segments and URL/whitespace
-/// injection. (`/` and `@` can't reach here: the parser splits the version off
-/// at those, so a multi-segment traversal is already impossible.)
-fn validate_safe_version(version: &str, original: &str) -> Result<()> {
+/// injection.
+///
+/// A version parsed out of a specifier can't contain `/` or `@` (the parser
+/// splits on those), but one resolved from a registry's `dist-tags` hasn't
+/// been through the parser at all, so it has to be checked before it's put in
+/// a [`NpmSpecifier`] — a `/` there would re-parse as a path and change the
+/// plugin's kind.
+pub fn validate_safe_version(version: &str, original: &str) -> Result<()> {
   if version == "." || version == ".." {
     bail!("Version in npm specifier must not be '.' or '..' (got '{}'): {}", version, original);
   }

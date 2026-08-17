@@ -132,6 +132,9 @@ Supported `npm:` specifier forms:
     // process plugin — requires a tarball checksum
     "npm:@dprint/prettier@0.50.0/plugin.json@<sha256>",
 
+    // a plugin that isn't at the root of its package
+    "npm:@dprint/example@1.0.0/json/plugin.wasm",
+
     // resolve from your local node_modules, walking up from the config file
     // (use this when an npm package manager manages the version)
     "npm:@dprint/json",
