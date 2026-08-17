@@ -855,6 +855,18 @@ SOFTWARE.
   }
 
   #[test]
+  fn should_complete_file_paths_for_positional_args() {
+    let environment = TestEnvironment::new();
+    run_test_cli(vec!["completions", "zsh"], &environment).unwrap();
+    let logged_messages = environment.take_stdout_messages();
+    assert_eq!(logged_messages.len(), 1);
+    // the `files` positional on the `fmt` subcommand should have a file completion
+    // action so that `dprint fmt f<TAB>` completes to `dprint fmt foo.py`
+    let fmt_section = logged_messages[0].split("(fmt)").nth(1).unwrap().split("(check)").next().unwrap();
+    assert!(fmt_section.lines().any(|line| line.contains("*::files -- ") && line.contains(":_files")));
+  }
+
+  #[test]
   fn should_output_incremental_state() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
     run_test_cli(vec!["incremental-state"], &environment).unwrap();
