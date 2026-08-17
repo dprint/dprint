@@ -1075,6 +1075,14 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
     self.printer.clear_info(info.into())
   }
 
+  /// Moves an already resolved line number by `delta` lines.
+  ///
+  /// Use this instead of clearing when the text the line number refers to has only moved up or down
+  /// the page, so that it stays correct relative to everything around it.
+  pub fn shift_line_number(&mut self, info: LineNumber, delta: isize) {
+    self.printer.shift_line_number(info, delta)
+  }
+
   /// Gets if the printer is currently forcing no newlines.
   pub fn is_forcing_no_newlines(&self) -> bool {
     self.printer.is_forcing_no_newlines()

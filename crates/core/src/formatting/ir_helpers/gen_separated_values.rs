@@ -455,7 +455,6 @@ pub fn gen_separated_values(
 fn clear_resolutions_on_position_change(value_datas: Rc<RefCell<Vec<GeneratedValueData>>>, end_line_number: LineNumber) -> PrintItems {
   let mut items = PrintItems::new();
   let column_number = ColumnNumber::new("clearer");
-  // todo: use anchors instead of taking line number into account here
   let line_number = LineNumber::new("clearer");
   items.push_condition(Condition::new(
     "clearWhenPositionChanges",
@@ -463,14 +462,31 @@ fn clear_resolutions_on_position_change(value_datas: Rc<RefCell<Vec<GeneratedVal
       condition: Rc::new(move |condition_context| {
         let column_number = condition_context.resolved_column_number(column_number)?;
         let line_number = condition_context.resolved_line_number(line_number)?;
-        // when the position changes, clear all the infos so they get re-evaluated again
-        if column_number != condition_context.writer_info.column_number || line_number != condition_context.writer_info.line_number {
+        if column_number != condition_context.writer_info.column_number {
+          // The values now begin at a different column, so they may break differently and nothing
+          // recorded about them can be trusted. Clear it all so it gets worked out again.
           for value_data in value_datas.borrow().iter() {
             condition_context.clear_info(value_data.line_number);
             condition_context.clear_info(value_data.is_start_of_line);
             condition_context.clear_info(value_data.line_start_indent_level);
           }
           condition_context.clear_info(end_line_number);
+        } else {
+          let delta = condition_context.writer_info.line_number as isize - line_number as isize;
+          if delta != 0 {
+            // The values only moved up or down the page. Beginning at the same column they break the
+            // same way, so every line number within moved by the same amount, and only the distances
+            // between them are ever compared. Shifting them keeps them usable.
+            //
+            // Clearing here instead would be correct but ruinously slow: each value would have to be
+            // worked out again, along with every value nested inside it, so a group nested n deep
+            // would be printed 2^n times. Whether the values start at the start of a line, and at
+            // what indent, does not depend on which line they are on, so those stay as they are.
+            for value_data in value_datas.borrow().iter() {
+              condition_context.shift_line_number(value_data.line_number, delta);
+            }
+            condition_context.shift_line_number(end_line_number, delta);
+          }
         }
 
         None
