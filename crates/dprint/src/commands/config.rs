@@ -195,7 +195,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
       force_checksum: checksum,
       base_dir: config_path.parent(),
     };
-    let url = match selected.resolve_npm(npm_options, environment).await {
+    let url = match selected.resolve_npm(environment, npm_options).await {
       Some(resolved) => resolved?.config_file_entry(),
       None if checksum => ensure_url_checksum(selected.full_url(), plugin_resolver).await?,
       None => selected.full_url_no_wasm_checksum(),
@@ -372,7 +372,7 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
             let file_text = environment.read_file(config_path)?;
             // a user who pinned a checksum on the entry being replaced keeps one
             let keep_checksum = checksum || config_plugin_reference.checksum.is_some();
-            let npm_resolution = plugin.resolve_npm(npm_options(keep_checksum), environment).await.transpose()?;
+            let npm_resolution = plugin.resolve_npm(environment, npm_options(keep_checksum)).await.transpose()?;
             let (new_version, new_reference) = match npm_resolution {
               Some(resolved) => (resolved.version.clone(), resolved.as_source_reference()),
               None => (plugin.version.clone(), plugin.as_source_reference()?),
@@ -392,7 +392,7 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
           }
         }
       }
-      match plugin.resolve_npm(npm_options(checksum), environment).await.transpose()? {
+      match plugin.resolve_npm(environment, npm_options(checksum)).await.transpose()? {
         Some(resolved) => Ok(Some(resolved.config_file_entry())),
         None if checksum => Ok(Some(ensure_url_checksum(plugin.full_url(), plugin_resolver).await?)),
         None => Ok(Some(plugin.full_url_no_wasm_checksum())),
@@ -1240,7 +1240,7 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
     // the plugin may have moved to npm, in which case the entry goes to its
     // package at the registry's latest version instead of following its url
     if let Some((npm, plugin_kind)) = npm_package_for_update(&plugin_reference, plugin.info().name.as_str(), latest.as_ref(), &context) {
-      match npm.resolve_latest(plugin_kind, context.npm_options(old_had_checksum), environment).await {
+      match npm.resolve_latest(environment, plugin_kind, context.npm_options(old_had_checksum)).await {
         // the package publish may lag behind the plugin's releases, and moving
         // to npm isn't worth going backwards for — stay on the url, which will
         // still update as it always has

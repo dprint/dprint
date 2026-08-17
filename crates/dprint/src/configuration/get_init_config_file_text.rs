@@ -134,7 +134,7 @@ async fn resolve_plugin_entry(plugin: &InfoFilePluginInfo, environment: &impl En
     force_checksum: false,
     base_dir: Some(environment.cwd()),
   };
-  match plugin.resolve_npm(options, environment).await {
+  match plugin.resolve_npm(environment, options).await {
     Some(Ok(resolved)) => resolved.config_file_entry(),
     Some(Err(err)) => {
       log_warn!(

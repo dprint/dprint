@@ -66,7 +66,7 @@ impl PluginNpmInfo {
   /// `plugin_kind` says whether the package ships a wasm or a process plugin,
   /// which decides the file within it and whether a checksum is required. A
   /// package that declares its own `path` decides both from that instead.
-  pub async fn resolve_latest(&self, plugin_kind: PluginKind, options: ResolveNpmLatestOptions, environment: &impl Environment) -> Result<ResolvedNpmPlugin> {
+  pub async fn resolve_latest(&self, environment: &impl Environment, plugin_kind: PluginKind, options: ResolveNpmLatestOptions) -> Result<ResolvedNpmPlugin> {
     let ResolveNpmLatestOptions { force_checksum, base_dir } = options;
     let unversioned = self.unversioned_specifier(plugin_kind)?;
     // a process plugin's checksum is fetched regardless of `force_checksum` —
@@ -232,14 +232,14 @@ mod test {
       };
 
       // a wasm plugin is written without a checksum...
-      let resolved = npm.resolve_latest(PluginKind::Wasm, options(false), &environment).await.unwrap();
+      let resolved = npm.resolve_latest(&environment, PluginKind::Wasm, options(false)).await.unwrap();
       assert_eq!(resolved.version, "1.2.3");
       assert_eq!(resolved.config_file_entry(), "npm:@dprint/json@1.2.3");
       // ...unless one was asked for
-      let resolved = npm.resolve_latest(PluginKind::Wasm, options(true), &environment).await.unwrap();
+      let resolved = npm.resolve_latest(&environment, PluginKind::Wasm, options(true)).await.unwrap();
       assert_eq!(resolved.config_file_entry(), format!("npm:@dprint/json@1.2.3@{}", tarball_checksum));
       // a process plugin always carries the package's checksum
-      let resolved = npm.resolve_latest(PluginKind::Process, options(false), &environment).await.unwrap();
+      let resolved = npm.resolve_latest(&environment, PluginKind::Process, options(false)).await.unwrap();
       assert_eq!(resolved.config_file_entry(), format!("npm:@dprint/json@1.2.3/plugin.json@{}", tarball_checksum));
       assert_eq!(resolved.as_source_reference().to_full_string(), resolved.config_file_entry());
 
@@ -250,12 +250,12 @@ mod test {
         path: Some(path.to_string()),
       };
       let resolved = with_path("json/plugin.wasm")
-        .resolve_latest(PluginKind::Process, options(false), &environment)
+        .resolve_latest(&environment, PluginKind::Process, options(false))
         .await
         .unwrap();
       assert_eq!(resolved.config_file_entry(), "npm:@dprint/json@1.2.3/json/plugin.wasm");
       let resolved = with_path("exec/plugin.json")
-        .resolve_latest(PluginKind::Wasm, options(false), &environment)
+        .resolve_latest(&environment, PluginKind::Wasm, options(false))
         .await
         .unwrap();
       assert_eq!(

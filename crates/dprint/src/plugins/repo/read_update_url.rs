@@ -30,8 +30,8 @@ impl PluginUpdateUrlInfo {
   /// Resolves this plugin's npm package from the registry, when it's
   /// distributed on npm. `None` means it isn't, so its url is what belongs in
   /// a config file.
-  pub async fn resolve_npm(&self, options: ResolveNpmLatestOptions, environment: &impl Environment) -> Option<Result<ResolvedNpmPlugin>> {
-    Some(self.npm.as_ref()?.resolve_latest(self.plugin_kind(), options, environment).await)
+  pub async fn resolve_npm(&self, environment: &impl Environment, options: ResolveNpmLatestOptions) -> Option<Result<ResolvedNpmPlugin>> {
+    Some(self.npm.as_ref()?.resolve_latest(environment, self.plugin_kind(), options).await)
   }
 
   /// The plugin's url as a source reference.
@@ -189,11 +189,11 @@ mod test {
 
       let resolved = plugin
         .resolve_npm(
+          &environment,
           ResolveNpmLatestOptions {
             force_checksum: false,
             base_dir: None,
           },
-          &environment,
         )
         .await
         .unwrap()
