@@ -1244,23 +1244,12 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
     // package at the registry's latest version instead of following its url
     if let Some((npm, plugin_kind)) = npm_package_for_update(&plugin_reference, plugin.info().name.as_str(), latest.as_ref(), &context) {
       match npm.resolve_latest(environment, plugin_kind, context.npm_options(old_had_checksum)).await {
-        // the package publish may lag behind the plugin's releases, and moving
-        // to npm isn't worth going backwards for — stay on the url, which will
-        // still update as it always has.
-        //
-        // there's no package version in the config yet to compare against, so
-        // this weighs the plugin's own version against the package's, which
-        // only lines up while the package versions in lockstep with the plugin
-        // it ships. a package that doesn't (ex. one holding several plugins)
-        // may not move to npm — it keeps updating by url, so the cost of
-        // guessing wrong here is a migration that doesn't happen.
-        Ok(resolved) if is_version_downgrade(&plugin.info().version, &resolved.version) => log_warn!(
-          environment,
-          "Not moving {} to npm. Its package's latest version ({}) is older than the {} in use.",
-          plugin.info().name,
-          resolved.version,
-          plugin.info().version,
-        ),
+        // a package lagging the plugin's releases isn't checked for here: there's
+        // no package version in the config yet, so the only comparison available
+        // is the plugin's own version against the package's, and those are
+        // different version lines whenever a package doesn't version in lockstep
+        // with what it ships. the entry moves to whatever the registry publishes
+        // as latest, the same as `init` and `add` write
         Ok(resolved) => {
           let new_reference = resolved.as_source_reference();
           return Some(Ok(PluginUpdateInfo {
@@ -1400,14 +1389,16 @@ async fn get_npm_info_plugins(environment: &impl Environment) -> HashMap<String,
 
 /// Whether going from `old_version` to `new_version` would move backwards.
 ///
-/// The npm registry's `latest` tag is what decides the version an npm plugin
-/// updates to, and it can be behind the plugin's releases (a package that's
-/// published later than the plugin, or a version that was unpublished).
+/// The npm registry's `latest` tag decides the version an npm entry updates to,
+/// and it can move backwards (ex. a version was unpublished). Both sides must
+/// be versions of the same package for this to mean anything, which is why it
+/// only guards an entry that already names one — a plugin's own version and its
+/// package's are different lines.
 ///
-/// Both versions are parsed the lenient way npm does, since a package's
-/// versions are whatever npm accepted at publish time. One that doesn't parse
-/// can't be compared, so it isn't treated as a downgrade — the source of the
-/// version stays trusted, as before.
+/// Both are parsed the lenient way npm does, since a package's versions are
+/// whatever npm accepted at publish time. One that doesn't parse can't be
+/// compared, so it isn't treated as a downgrade — the source of the version
+/// stays trusted, as before.
 fn is_version_downgrade(old_version: &str, new_version: &str) -> bool {
   match (Version::parse_from_npm(old_version), Version::parse_from_npm(new_version)) {
     (Ok(old_version), Ok(new_version)) => new_version < old_version,
@@ -4310,9 +4301,11 @@ mod test {
   }
 
   #[test]
-  fn config_update_keeps_the_url_when_the_npm_package_is_behind() {
-    // the package publish can lag the plugin's releases, and the move isn't
-    // worth a downgrade
+  fn config_update_moves_to_npm_even_when_the_package_version_is_behind() {
+    // the package's version and the plugin's own are different lines, so a
+    // package numbered below the plugin it ships says nothing about whether the
+    // move goes backwards — the entry takes whatever the registry publishes,
+    // the same as `init` and `add` write
     let mut builder = TestEnvironmentBuilder::new();
     let environment = add_npm_test_plugin_package(&mut builder, "0.1.0")
       .add_remote_wasm_plugin()
@@ -4327,14 +4320,13 @@ mod test {
     run_test_cli(vec!["config", "update"], &environment).unwrap();
 
     let dprint_json = environment.read_file("/dprint.json").unwrap();
-    assert!(dprint_json.contains("\"https://plugins.dprint.dev/test-plugin.wasm\""), "got: {dprint_json}");
-    assert!(!dprint_json.contains("npm:"), "got: {dprint_json}");
-    let stderr = environment.take_stderr_messages();
-    assert!(
-      stderr
-        .iter()
-        .any(|m| m.contains("Not moving test-plugin to npm. Its package's latest version (0.1.0) is older than the 0.2.0 in use.")),
-      "got: {stderr:?}"
+    assert!(dprint_json.contains("\"npm:@dprint/test-plugin@0.1.0\""), "got: {dprint_json}");
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "Updating test-plugin 0.2.0 to npm:@dprint/test-plugin@0.1.0...",
+        "Compiling /cache/npm/registry.npmjs.org/@dprint__test-plugin@0.1.0/plugin.wasm",
+      ]
     );
   }
 
