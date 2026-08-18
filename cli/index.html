@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en"><head>
-    <script async="" src="/scripts.f1699439c8.js"></script>
+    <script async="" src="/scripts.35d1f380bc.js"></script>
     <meta charset="utf-8">
     <title>CLI - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -99,6 +99,10 @@
   
     <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
   
+    <li><a href="/plugins/panache">Panache (Quarto/Pandoc/Markdown)</a></li>
+  
+    <li><a href="/plugins/swift">Swift (SwiftFormat)</a></li>
+  
     <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
   
     <li><a href="/plugin-dev">Creating a Plugin</a></li>
@@ -124,8 +128,9 @@
 <p>After <a href="/setup">setting up a configuration file</a>, run the <code>fmt</code> command:</p>
 <pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span>
 </code></pre>
-<p>To format a subset of the files the configuration file matches, you may specify the file paths to format or not format:</p>
-<pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> **/*.js --excludes **/data
+<p>To format a subset of the files the configuration file matches, you may specify the file paths, directories, or file patterns to format or not format:</p>
+<pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> src
+dprint <span class="hljs-built_in">fmt</span> **/*.js --excludes **/data
 </code></pre>
 <p>A rare use case, but to override/ignore the patterns in the config file, use the <code>--includes-override</code> and <code>--excludes-override</code> flags:</p>
 <pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --includes-override **/*.js --excludes-override **/data

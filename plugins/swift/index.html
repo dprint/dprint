@@ -2,15 +2,15 @@
 <html lang="en"><head>
     <script async="" src="/scripts.35d1f380bc.js"></script>
     <meta charset="utf-8">
-    <title>Configuration - Oxc - dprint - Code Formatter</title>
+    <title>Swift Plugin - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#1e1e1e">
-    <meta name="description" content="Documentation on the configuration file for the Oxc code formatting plugin for dprint.">
+    <meta name="description" content="Documentation on the Swift code formatting plugin for dprint.">
     <meta name="author" content="Dprint Code Formatting">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:site" content="@dprintfmt">
-    <meta name="twitter:title" content="Configuration - Oxc">
-    <meta name="twitter:description" content="Documentation on the configuration file for the Oxc code formatting plugin for dprint.">
+    <meta name="twitter:title" content="Swift Plugin">
+    <meta name="twitter:description" content="Documentation on the Swift code formatting plugin for dprint.">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
@@ -87,7 +87,7 @@
   
     <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
   
-    <li><a href="/plugins/oxc" class="active">Oxc (JS/TS)</a></li>
+    <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
   
     <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
   
@@ -101,7 +101,7 @@
   
     <li><a href="/plugins/panache">Panache (Quarto/Pandoc/Markdown)</a></li>
   
-    <li><a href="/plugins/swift">Swift (SwiftFormat)</a></li>
+    <li><a href="/plugins/swift" class="active">Swift (SwiftFormat)</a></li>
   
     <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
   
@@ -115,10 +115,36 @@
     
     
     <div class="eyebrow">// plugins</div>
-    <h1>Oxc - Configuration</h1>
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-oxc/latest/schema.json">
-  Loading...
+    <h1>Swift Plugin</h1>
+<p>Adapter plugin that formats Swift code via bundled <a href="https://github.com/nicklockwood/SwiftFormat">SwiftFormat</a>.</p>
+<p>Formats <code>.swift</code> files on macOS and Linux (x86_64 and aarch64).</p>
+<div class="message is-warning">
+  <div class="message-body">
+    This is a process plugin. Using this will cause the CLI to download, run, and communicate with a separate process that is not sandboxed (unlike Wasm plugins).
+  </div>
 </div>
+<h2 id="install-and-setup" tabindex="-1"><a class="header-anchor" href="#install-and-setup">Install and Setup</a></h2>
+<p>In your project's directory with a dprint.json file, run:</p>
+<pre><code class="language-shellsession hljs language-shell">dprint add drluckyspin/swift
+</code></pre>
+<p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"swiftformat"</code> property to add configuration:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"swiftformat"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">"swiftVersion"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"5.9"</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/drluckyspin/swift-vx.x.x.json@&lt;checksum&gt;"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>Update to the latest release with <code>dprint config update</code>.</p>
+<h2 id="configuration" tabindex="-1"><a class="header-anchor" href="#configuration">Configuration</a></h2>
+<p>See the plugin repository for configuration options and the JSON schema:</p>
+<ul>
+<li><a href="https://github.com/drluckyspin/dprint-plugin-swift">dprint-plugin-swift</a></li>
+<li><a href="https://plugins.dprint.dev/drluckyspin/dprint-plugin-swift/v0.1.0/schema.json">schema.json</a></li>
+</ul>
+<p>You can also keep a <code>.swiftformat</code> file in your project. The plugin passes <code>--stdinpath</code> so SwiftFormat discovers it automatically.</p>
 
   </main>
 </div>

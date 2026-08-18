@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en"><head>
-    <script async="" src="/scripts.f1699439c8.js"></script>
+    <script async="" src="/scripts.35d1f380bc.js"></script>
     <meta charset="utf-8">
     <title>Configuration - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -99,6 +99,10 @@
   
     <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
   
+    <li><a href="/plugins/panache">Panache (Quarto/Pandoc/Markdown)</a></li>
+  
+    <li><a href="/plugins/swift">Swift (SwiftFormat)</a></li>
+  
     <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
   
     <li><a href="/plugin-dev">Creating a Plugin</a></li>
@@ -192,6 +196,9 @@
     <span class="hljs-comment">// process plugin — requires a tarball checksum</span>
     <span class="hljs-string">"npm:@dprint/prettier@0.50.0/plugin.json@&lt;sha256&gt;"</span><span class="hljs-punctuation">,</span>
 
+    <span class="hljs-comment">// a plugin that isn't at the root of its package</span>
+    <span class="hljs-string">"npm:@dprint/example@1.0.0/json/plugin.wasm"</span><span class="hljs-punctuation">,</span>
+
     <span class="hljs-comment">// resolve from your local node_modules, walking up from the config file</span>
     <span class="hljs-comment">// (use this when an npm package manager manages the version)</span>
     <span class="hljs-string">"npm:@dprint/json"</span><span class="hljs-punctuation">,</span>
@@ -252,6 +259,17 @@
 <span class="hljs-punctuation">}</span>
 </code></pre>
 <p>Alternatively, you can disable all <code>.gitignore</code> handling with the <code>--no-gitignore</code> CLI flag (see <a href="/cli#ignoring-gitignore">CLI docs</a>).</p>
+<h3 id="escaping-glob-characters" tabindex="-1"><a class="header-anchor" href="#escaping-glob-characters">Escaping glob characters</a></h3>
+<p>To match a path that contains glob characters (ex. <code>[</code> or <code>{</code>) in <code>includes</code>/<code>excludes</code>, wrap each one in a character class:</p>
+<pre><code class="language-jsonc hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"excludes"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-comment">// excludes a file named {{myfile}}.json</span>
+    <span class="hljs-string">"[{][{]myfile[}][}].json"</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-comment">// excludes a directory named [id]</span>
+    <span class="hljs-string">"routes/[[]id[]]"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
 <h2 id="includes" tabindex="-1"><a class="header-anchor" href="#includes">Includes</a></h2>
 <p>The <code>includes</code> property can be used to limit dprint to only formatting certain files. Generally, you don't need to bother providing this.</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
