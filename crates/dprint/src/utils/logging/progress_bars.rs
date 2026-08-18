@@ -16,6 +16,11 @@ use super::LoggerTextItem;
 // what's going on under the hood and it works better with the multi-threading model
 // going on in dprint.
 
+/// Maximum width the bar section (elapsed text + bar) may take up.
+const MAX_BAR_SECTION_WIDTH: usize = 50;
+/// Width to assume when the terminal size can't be determined.
+const DEFAULT_TERMINAL_WIDTH: u16 = 80;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ProgressBarStyle {
   Download,
@@ -140,7 +145,7 @@ impl ProgressBars {
             break;
           }
 
-          let terminal_width = get_terminal_size().unwrap().cols;
+          let terminal_width = get_terminal_size().map(|s| s.cols).unwrap_or(DEFAULT_TERMINAL_WIDTH);
           let mut text = String::new();
           for (i, progress_bar) in internal_state.progress_bars.iter().enumerate() {
             if i > 0 {
@@ -180,7 +185,12 @@ fn get_progress_bar_text(terminal_width: u16, pos: usize, total: usize, pb_style
   // get progress bar
   let percent = pos as f32 / total as f32;
   // don't include the bytes text in this because a string going from X.XXMB to XX.XXMB should not adjust the progress bar
-  let total_bars = (std::cmp::min(50, terminal_width - 15) as usize) - elapsed_text.len() - 1 - 2;
+  let total_bars = get_total_bars(terminal_width, elapsed_text.len());
+  if total_bars == 0 {
+    // the terminal is too narrow to draw a bar
+    text.push_str(&bytes_text);
+    return text;
+  }
   let completed_bars = (total_bars as f32 * percent).floor() as usize;
   text.push_str(" [");
   if completed_bars != total_bars {
@@ -197,6 +207,13 @@ fn get_progress_bar_text(terminal_width: u16, pos: usize, total: usize, pb_style
   text.push_str(&bytes_text);
 
   text
+}
+
+fn get_total_bars(terminal_width: u16, elapsed_text_len: usize) -> usize {
+  // reserve some space at the end for the bytes text
+  let available_width = (terminal_width.saturating_sub(15) as usize).min(MAX_BAR_SECTION_WIDTH);
+  // the bar is surrounded by ` [` and `]`, which the elapsed text is not
+  available_width.saturating_sub(elapsed_text_len + 3)
 }
 
 fn get_bytes_text(byte_count: usize, total_bytes: usize) -> String {
@@ -226,6 +243,46 @@ fn get_elapsed_text(elapsed: Duration) -> String {
 mod test {
   use super::*;
   use std::time::Duration;
+
+  #[test]
+  fn should_get_total_bars() {
+    // "[00:00]".len() == 7
+    assert_eq!(get_total_bars(80, 7), 40);
+    assert_eq!(get_total_bars(65, 7), 40);
+    assert_eq!(get_total_bars(64, 7), 39);
+    assert_eq!(get_total_bars(40, 7), 15);
+    assert_eq!(get_total_bars(26, 7), 1);
+    assert_eq!(get_total_bars(25, 7), 0);
+    // these used to underflow and panic with a capacity overflow (#1222)
+    assert_eq!(get_total_bars(24, 7), 0);
+    assert_eq!(get_total_bars(15, 7), 0);
+    assert_eq!(get_total_bars(14, 7), 0);
+    assert_eq!(get_total_bars(0, 7), 0);
+    // "[5940:00]".len() == 9
+    assert_eq!(get_total_bars(80, 9), 38);
+    assert_eq!(get_total_bars(27, 9), 0);
+  }
+
+  #[test]
+  fn should_not_draw_bar_when_terminal_too_narrow() {
+    let text = get_progress_bar_text(20, 0, 10, ProgressBarStyle::Action, Duration::from_secs(1));
+    assert_eq!(text, "[00:01]");
+    let text = get_progress_bar_text(20, 5, 10, ProgressBarStyle::Download, Duration::from_secs(1));
+    assert_eq!(text, "[00:01] 0.00KB/0.01KB");
+  }
+
+  #[test]
+  fn should_get_progress_bar_text_for_any_terminal_width() {
+    for terminal_width in 0..=200u16 {
+      for style in [ProgressBarStyle::Action, ProgressBarStyle::Download] {
+        for (pos, total) in [(0, 0), (0, 10), (1, 10), (5, 10), (10, 10), (20, 10)] {
+          for duration in [Duration::from_secs(0), Duration::from_secs(60 * 60 * 99)] {
+            get_progress_bar_text(terminal_width, pos, total, style, duration);
+          }
+        }
+      }
+    }
+  }
 
   #[test]
   fn should_get_bytes_text() {
