@@ -2,6 +2,28 @@
   var __defProp = Object.defineProperty;
   var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
+  // scripts/anchor-scroll.js
+  function restoreAnchorScroll() {
+    const target = getHashTarget();
+    if (target == null || document.fonts == null) {
+      return;
+    }
+    const scrollYBefore = window.scrollY;
+    document.fonts.ready.then(() => {
+      if (window.scrollY === scrollYBefore && getHashTarget() === target) {
+        target.scrollIntoView();
+      }
+    });
+  }
+  __name(restoreAnchorScroll, "restoreAnchorScroll");
+  function getHashTarget() {
+    if (location.hash.length <= 1) {
+      return null;
+    }
+    return document.getElementById(decodeURIComponent(location.hash.slice(1)));
+  }
+  __name(getHashTarget, "getHashTarget");
+
   // scripts/doc-menu-toggle.js
   function setupDocMenu() {
     const details = document.querySelector("details.doc-nav");
@@ -60,6 +82,26 @@
     }
   }
   __name(addInstallTabsEvent, "addInstallTabsEvent");
+
+  // scripts/nav-height.js
+  function setupNavHeight() {
+    const nav = document.querySelector(".site-nav");
+    if (nav == null) {
+      return;
+    }
+    update();
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(update).observe(nav);
+    } else {
+      window.addEventListener("resize", update);
+    }
+    function update() {
+      const height = Math.round(nav.getBoundingClientRect().height);
+      document.documentElement.style.setProperty("--nav-h", `${height}px`);
+    }
+    __name(update, "update");
+  }
+  __name(setupNavHeight, "setupNavHeight");
 
   // scripts/plugin-config-table-replacer.js
   function replaceConfigTable() {
@@ -322,6 +364,8 @@
     document.addEventListener("DOMContentLoaded", onLoad);
   }
   function onLoad() {
+    setupNavHeight();
+    restoreAnchorScroll();
     replacePluginUrls();
     replaceConfigTable();
     addInstallTabsEvent();
