@@ -12,6 +12,9 @@ use crate::environment::Environment;
 use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::ResolveNpmLatestOptions;
 use crate::plugins::read_info_file;
+use crate::plugins::resolve_dependency_age_cutoff;
+use crate::utils::DependencyAgeCutoff;
+use crate::utils::MinimumDependencyAge;
 
 /// Maximum number of files to look at when scanning the current directory to
 /// decide which plugins to pre-select. Keeps `dprint init` fast in large repos.
@@ -25,6 +28,8 @@ pub struct GetInitConfigFileTextOptions {
   /// Skip the interactive plugin prompt and accept the plugins selected based
   /// on the files in the current directory.
   pub non_interactive: bool,
+  /// Don't write an npm plugin version published more recently than this.
+  pub minimum_dependency_age: Option<MinimumDependencyAge>,
 }
 
 pub async fn get_init_config_file_text(environment: &impl Environment, options: GetInitConfigFileTextOptions) -> Result<String> {
@@ -83,8 +88,17 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
     // keep the config file in info.json order regardless of the display order
     selected_indexes.sort_unstable();
 
+    // the config file lands in the current directory, so that's where an
+    // .npmrc setting `min-release-age` is looked for
+    let cwd = environment.cwd();
+    let age_cutoff = resolve_dependency_age_cutoff(options.minimum_dependency_age.as_ref(), Some(cwd.as_ref()), environment);
     // resolve concurrently — a plugin distributed on npm costs a registry round trip
-    let entries = future::join_all(selected_indexes.iter().map(|&index| resolve_plugin_entry(&latest_plugins[index], environment))).await;
+    let entries = future::join_all(
+      selected_indexes
+        .iter()
+        .map(|&index| resolve_plugin_entry(&latest_plugins[index], age_cutoff.as_ref(), environment)),
+    )
+    .await;
     let selected_plugins = selected_indexes
       .into_iter()
       .zip(entries)
@@ -129,10 +143,11 @@ struct SelectedPlugin {
 /// The npm registry is resolved from the current directory: that's where the
 /// config file lands in the normal case, and where the user ran the command in
 /// any case.
-async fn resolve_plugin_entry(plugin: &InfoFilePluginInfo, environment: &impl Environment) -> String {
+async fn resolve_plugin_entry(plugin: &InfoFilePluginInfo, age_cutoff: Option<&DependencyAgeCutoff>, environment: &impl Environment) -> String {
   let options = ResolveNpmLatestOptions {
     force_checksum: false,
     base_dir: Some(environment.cwd()),
+    minimum_dependency_age: age_cutoff.cloned(),
   };
   match plugin.resolve_npm(environment, options).await {
     Some(Ok(resolved)) => resolved.config_file_entry(),
@@ -628,9 +643,15 @@ mod test {
       .write_file("/main.rs", "")
       .build();
     environment.clone().run_in_runtime(async move {
-      let text = get_init_config_file_text(&environment, GetInitConfigFileTextOptions { non_interactive: true })
-        .await
-        .unwrap();
+      let text = get_init_config_file_text(
+        &environment,
+        GetInitConfigFileTextOptions {
+          non_interactive: true,
+          ..Default::default()
+        },
+      )
+      .await
+      .unwrap();
       // exec is auto-selected by the .rs file with no prompt
       assert!(text.contains("\"command\": \"rustfmt\""), "{text}");
       assert!(text.contains("exec-0.5.0.json@checksum"), "{text}");
@@ -1216,9 +1237,15 @@ mod test {
       .write_file("/file.ts", "")
       .build();
     environment.clone().run_in_runtime(async move {
-      let text = get_init_config_file_text(&environment, GetInitConfigFileTextOptions { non_interactive: true })
-        .await
-        .unwrap();
+      let text = get_init_config_file_text(
+        &environment,
+        GetInitConfigFileTextOptions {
+          non_interactive: true,
+          ..Default::default()
+        },
+      )
+      .await
+      .unwrap();
       assert_eq!(
         text,
         r#"{

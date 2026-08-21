@@ -282,9 +282,11 @@ impl TestEnvironment {
     self.sys.env_set_current_dir(new_path).unwrap();
   }
 
-  /// Pins the in-memory filesystem clock so subsequent writes get a
-  /// deterministic modification time. Advancing it between writes lets tests
-  /// exercise mtime-based cache invalidation without depending on wall-clock.
+  /// Pins the in-memory clock so subsequent writes get a deterministic
+  /// modification time. Advancing it between writes lets tests exercise
+  /// mtime-based cache invalidation without depending on wall-clock. It's the
+  /// same clock `sys_time_now` reads, so it also fixes "now" for anything
+  /// comparing against it (ex. the minimum dependency age).
   pub fn set_fs_time(&self, secs_since_epoch: u64) {
     self
       .sys

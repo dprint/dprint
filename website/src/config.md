@@ -105,6 +105,29 @@ dprint add --checksum typescript
 
 Note: `dprint config add` also works and is equivalent.
 
+### Minimum Dependency Age
+
+A version published minutes ago is the one a compromised npm package arrives in, and such a release is usually pulled within a day or two of being noticed. `--minimum-dependency-age` makes the commands that pick a version for you — `dprint init`, `dprint config add` and `dprint config update` — pass over releases newer than a given age and settle on the newest one older than it:
+
+```sh
+dprint config update --minimum-dependency-age=P3D
+```
+
+The value takes the same forms Deno's flag of the same name does: an ISO-8601 duration (`P3D`, `PT72H`), a plain number of minutes (`1440`), an absolute date (`2026-01-15`) or RFC3339 timestamp to hold everything published after it, or `0` to turn the requirement off.
+
+With no flag, dprint reads `min-release-age` (in whole days) from the nearest `.npmrc`, the same npm setting other tools honour:
+
+```
+min-release-age=3
+```
+
+There is no minimum otherwise — a version is only ever held back when you ask for one. Some other notes:
+
+- It applies to npm-distributed plugins only. Plugins served from a URL carry no publish date for dprint to check, so they resolve as they always have.
+- It never rewrites what's already in your configuration file: existing plugin entries are left alone until you run one of the commands above, and a version you write out yourself (`dprint config add npm:@dprint/json@1.2.3`) is taken as your decision and added as-is.
+- Only stable releases at or below the package's `latest` tag are considered when walking back, so a prerelease can't be selected by a walk back you didn't ask for.
+- `dprint config update` leaves a plugin where it is when no version of its package is old enough, reporting it rather than failing. `dprint config add` errors in the same situation, since there's nothing to add.
+
 ### Updating Plugins via CLI
 
 Plugins can be updated to the latest version in the configuration file by running:
@@ -147,7 +170,7 @@ Behaviour:
 - A version after `@` makes dprint fetch the package from the npm registry and cache it. Wasm plugins don't need a checksum; process plugins do (the `@<sha256>` after the path).
 - Omitting the version (`npm:@scope/name`) tells dprint to look up the package in `node_modules` walking up from the config file's directory. Use this when you want npm and your lockfile to be the source of truth.
 - The registry is resolved from `NPM_CONFIG_REGISTRY`, then `.npmrc` files walking up from the config, then `~/.npmrc`, then the default `https://registry.npmjs.org`. Scoped registries are supported.
-- `dprint config update` will bump versioned npm specifiers to the latest published version (and compute the new checksum for process plugins). Unversioned specifiers are managed by your package manager, so they're skipped.
+- `dprint config update` will bump versioned npm specifiers to the latest published version (and compute the new checksum for process plugins). Unversioned specifiers are managed by your package manager, so they're skipped. See [Minimum Dependency Age](#minimum-dependency-age) to hold off on releases that are only days old.
 - `dprint add npm:@scope/name` resolves to the latest version and writes the pinned form, unless the package is listed in a nearby `package.json` under `devDependencies` — in which case the unversioned form is written so npm/`package-lock.json` stays the source of truth. When you don't include a plugin path, dprint inspects the package to detect whether it's a Wasm or process plugin and writes the right form automatically — for a process plugin that means `npm:@scope/name@<version>/plugin.json@<sha256>`.
 
 Available npm packages include `@dprint/typescript`, `@dprint/json`, `@dprint/markdown`, `@dprint/toml`, `@dprint/dockerfile`, `@dprint/biome`, `@dprint/oxc`, `@dprint/ruff`, `@dprint/sql`, `@dprint/mago`, `@dprint/jupyter`, `@dprint/exec`, `@dprint/prettier`, and `@dprint/roslyn`.

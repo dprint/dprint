@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -8,12 +9,16 @@ use flate2::read::GzDecoder;
 use tar::Archive;
 
 use deno_npmrc::RegistryConfig;
+use deno_semver::Version;
 
 use crate::environment::Environment;
+use crate::utils::DependencyAgeCutoff;
+use crate::utils::MinimumDependencyAge;
 use crate::utils::NpmSpecifier;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::get_sha256_checksum;
+use crate::utils::parse_rfc3339;
 use crate::utils::verify_sha256_checksum;
 
 /// Resolved npm registry for a package, including the auth header to send
@@ -81,6 +86,9 @@ pub struct FetchNpmLatestInfo<'a> {
   /// pins to the new tarball rather than carrying the stale hash. Non-wasm
   /// plugins always compute the checksum regardless.
   pub want_tarball_sha: bool,
+  /// When set, a version published after the cutoff is passed over for the
+  /// newest one old enough. See [`select_version_from_packument`].
+  pub minimum_dependency_age: Option<&'a DependencyAgeCutoff>,
 }
 
 /// Fetches the latest version of an npm-distributed plugin (and, when needed,
@@ -90,10 +98,11 @@ pub async fn fetch_npm_latest_info(args: FetchNpmLatestInfo<'_>, environment: &i
     specifier,
     start_dir,
     want_tarball_sha,
+    minimum_dependency_age,
   } = args;
   let registry = resolve_registry_for_package(&specifier.name, start_dir, environment);
   let (packument, packument_url) = fetch_packument(&specifier.name, &registry, environment).await?;
-  let latest_version = latest_version_from_packument(&packument, &specifier.name)?;
+  let latest_version = select_version_from_packument(&packument, &specifier.name, minimum_dependency_age, environment)?;
 
   let need_tarball_sha = want_tarball_sha || specifier.plugin_kind() != PluginKind::Wasm;
   let tarball_sha256 = if need_tarball_sha {
@@ -117,10 +126,15 @@ pub async fn fetch_npm_latest_info(args: FetchNpmLatestInfo<'_>, environment: &i
 
 /// Resolves the latest published version of a package from its packument.
 /// Used by `dprint add` to pin an unversioned specifier before setup.
-pub async fn resolve_npm_latest_version(name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Result<String> {
+pub async fn resolve_npm_latest_version(
+  name: &str,
+  start_dir: Option<&Path>,
+  minimum_dependency_age: Option<&DependencyAgeCutoff>,
+  environment: &impl Environment,
+) -> Result<String> {
   let registry = resolve_registry_for_package(name, start_dir, environment);
   let (packument, _) = fetch_packument(name, &registry, environment).await?;
-  latest_version_from_packument(&packument, name)
+  select_version_from_packument(&packument, name, minimum_dependency_age, environment)
 }
 
 /// Reads the cached tarball checksum for `name@version`, if a prior setup
@@ -178,6 +192,189 @@ async fn fetch_packument(name: &str, registry: &NpmRegistryResolution, environme
     .with_context(|| format!("Failed to fetch npm packument for {}", name))?;
   let packument = serde_json::from_slice(&packument_file.content).with_context(|| format!("Failed to parse npm packument for {}", name))?;
   Ok((packument, packument_url))
+}
+
+/// Picks the version of a package to resolve to, which is `dist-tags.latest`
+/// unless a minimum dependency age is configured and that version is younger
+/// than it. In that case the newest version published before the cutoff is
+/// used instead — the newest release is the one a supply chain attack lands
+/// in, so holding off on it for a few days is what the option buys.
+///
+/// Only stable versions at or below `dist-tags.latest` are considered, so a
+/// package publishing a `next` prerelease can't have it selected here by a
+/// walk back that the user didn't ask for.
+///
+/// A registry that reports no publish date for the latest version is taken at
+/// its word with a warning: the age can't be checked, and failing every add
+/// against a registry that doesn't serve `time` would be worse than saying so.
+/// Once there is a date to compare against, though, a version *missing* one is
+/// passed over rather than silently selected in place of the newest release.
+fn select_version_from_packument(
+  packument: &serde_json::Value,
+  name: &str,
+  cutoff: Option<&DependencyAgeCutoff>,
+  environment: &impl Environment,
+) -> Result<String> {
+  let latest = latest_version_from_packument(packument, name)?;
+  let Some(cutoff) = cutoff else {
+    return Ok(latest);
+  };
+  let times = packument.get("time").and_then(|time| time.as_object());
+  let Some(times) = times else {
+    log_warn!(
+      environment,
+      "Could not check the age of {} — its registry doesn't report publish times. Using {}.",
+      name,
+      latest
+    );
+    return Ok(latest);
+  };
+  match published_time(times, &latest) {
+    Some(published) if !cutoff.is_too_new(published) => return Ok(latest),
+    None => {
+      log_warn!(
+        environment,
+        "Could not check the age of {}@{} — its registry doesn't report when it was published. Using it anyway.",
+        name,
+        latest
+      );
+      return Ok(latest);
+    }
+    Some(_) => {} // too new — fall through and walk back
+  }
+
+  let latest_version = Version::parse_from_npm(&latest).ok();
+  let mut best: Option<(Version, &str)> = None;
+  for version_text in packument.get("versions").and_then(|v| v.as_object()).into_iter().flatten().map(|(key, _)| key) {
+    let Ok(version) = Version::parse_from_npm(version_text) else {
+      continue;
+    };
+    if !version.pre.is_empty() {
+      continue;
+    }
+    if latest_version.as_ref().is_some_and(|latest_version| version > *latest_version) {
+      continue;
+    }
+    let Some(published) = published_time(times, version_text) else {
+      continue;
+    };
+    if cutoff.is_too_new(published) {
+      continue;
+    }
+    if best.as_ref().is_none_or(|(best, _)| version > *best) {
+      best = Some((version, version_text));
+    }
+  }
+
+  match best {
+    Some((_, version)) => {
+      log_stderr_info!(
+        environment,
+        "Using {} {} instead of {}, which is newer than the minimum dependency age ({}).",
+        name,
+        version,
+        latest,
+        cutoff.description(),
+      );
+      Ok(version.to_string())
+    }
+    None => Err(
+      MinimumDependencyAgeError {
+        name: name.to_string(),
+        latest,
+        configured: cutoff.description().to_string(),
+      }
+      .into(),
+    ),
+  }
+}
+
+/// No published version of a package is old enough to satisfy the configured
+/// minimum dependency age. Distinguished from other resolution failures so
+/// `dprint config update` can leave the plugin where it is instead of
+/// reporting an error.
+#[derive(Debug, thiserror::Error)]
+#[error("No version of {name} is older than the minimum dependency age ({configured}). Its most recent version is {latest}.")]
+pub struct MinimumDependencyAgeError {
+  pub name: String,
+  pub latest: String,
+  pub configured: String,
+}
+
+/// When a packument says a version was published, or `None` when it reports no
+/// date for it (or one this dprint can't read).
+fn published_time(times: &serde_json::Map<String, serde_json::Value>, version: &str) -> Option<SystemTime> {
+  parse_rfc3339(times.get(version)?.as_str()?)
+}
+
+/// Resolves the minimum dependency age in effect, checking (in order):
+/// 1. the `--minimum-dependency-age` flag
+/// 2. `min-release-age` in the nearest .npmrc walking up from `start_dir`
+/// 3. `min-release-age` in ~/.npmrc
+///
+/// `None` means no age requirement, which is dprint's default — a version is
+/// only held back when the user asks for it.
+pub fn resolve_dependency_age_cutoff(
+  flag: Option<&MinimumDependencyAge>,
+  start_dir: Option<&Path>,
+  environment: &impl Environment,
+) -> Option<DependencyAgeCutoff> {
+  let now = environment.sys_time_now();
+  // an explicit flag decides it, including `--minimum-dependency-age=0`
+  // turning off an age an .npmrc would otherwise set
+  if let Some(age) = flag {
+    return DependencyAgeCutoff::new(age, describe_age_flag(age), now);
+  }
+  let days = resolve_min_release_age_days(start_dir, environment)?;
+  DependencyAgeCutoff::new(&MinimumDependencyAge::from_days(days), format!("min-release-age={} in .npmrc", days), now)
+}
+
+/// Reads `min-release-age` (a whole number of days) from the nearest .npmrc
+/// that sets it. Unlike the registry, which is resolved per package, this is a
+/// single value, so the first file setting it wins.
+fn resolve_min_release_age_days(start_dir: Option<&Path>, environment: &impl Environment) -> Option<u64> {
+  fn read(npmrc_path: &Path, environment: &impl Environment) -> Option<u64> {
+    let text = environment.read_file(npmrc_path).ok()?;
+    deno_npmrc::NpmRc::parse(environment, &text).ok()?.min_release_age_days
+  }
+
+  if let Some(start) = start_dir {
+    for dir in start.ancestors() {
+      if let Some(days) = read(&dir.join(".npmrc"), environment) {
+        return Some(days);
+      }
+    }
+  }
+  let home_dir = environment.get_home_dir()?;
+  read(&home_dir.join(".npmrc"), environment)
+}
+
+/// How a `--minimum-dependency-age` value reads back in a message. An absolute
+/// cutoff has no text of its own to echo, so it's described by what it does.
+fn describe_age_flag(age: &MinimumDependencyAge) -> String {
+  match age {
+    MinimumDependencyAge::Cutoff(_) => "--minimum-dependency-age".to_string(),
+    _ => format!("--minimum-dependency-age {}", DurationText(age)),
+  }
+}
+
+/// Renders an age back as an approximate ISO-8601 duration for messages.
+struct DurationText<'a>(&'a MinimumDependencyAge);
+
+impl std::fmt::Display for DurationText<'_> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let seconds = match self.0 {
+      MinimumDependencyAge::Age(age) => age.as_secs(),
+      _ => 0,
+    };
+    if seconds % (60 * 60 * 24) == 0 {
+      write!(f, "P{}D", seconds / (60 * 60 * 24))
+    } else if seconds % (60 * 60) == 0 {
+      write!(f, "PT{}H", seconds / (60 * 60))
+    } else {
+      write!(f, "PT{}M", seconds / 60)
+    }
+  }
 }
 
 /// Reads `dist-tags.latest` from a packument.
@@ -1307,6 +1504,7 @@ mod tests {
       FetchNpmLatestInfo {
         specifier: &specifier,
         start_dir: Some(std::path::Path::new("/repo")),
+        minimum_dependency_age: None,
         want_tarball_sha: false,
       },
       &environment,
@@ -1318,6 +1516,173 @@ mod tests {
     // verify the Authorization header was sent
     let seen = environment.take_remote_file_auth("https://dprint.example.com/@dprint/foo");
     assert_eq!(seen.as_deref(), Some("Bearer MYTOKEN"));
+  }
+
+  /// 2024-05-10T00:00:00Z — the "now" the minimum dependency age tests run at.
+  const NOW: u64 = 1715299200;
+
+  /// A packument for a wasm plugin package with a publish time per version.
+  /// A version given no time stands for one the registry reports no date for.
+  fn packument_with_times(latest: &str, versions: &[(&str, Option<&str>)]) -> serde_json::Value {
+    let mut version_map = serde_json::Map::new();
+    let mut time_map = serde_json::Map::new();
+    for (version, time) in versions {
+      version_map.insert(
+        version.to_string(),
+        serde_json::json!({ "dist": { "tarball": format!("https://registry.npmjs.org/foo/-/foo-{}.tgz", version) } }),
+      );
+      if let Some(time) = time {
+        time_map.insert(version.to_string(), serde_json::json!(time));
+      }
+    }
+    serde_json::json!({
+      "dist-tags": { "latest": latest },
+      "versions": version_map,
+      "time": time_map,
+    })
+  }
+
+  /// Resolves the version `dprint add` would pin for `foo`, at [`NOW`] with the
+  /// given age. Returns the stderr the resolution logged alongside it.
+  async fn resolve_version_with_age(packument: serde_json::Value, age: &str) -> (Result<String>, Vec<String>) {
+    use crate::environment::TestEnvironment;
+    use std::str::FromStr;
+    let environment = TestEnvironment::new();
+    environment.set_fs_time(NOW);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    let age = MinimumDependencyAge::from_str(age).unwrap();
+    let cutoff = resolve_dependency_age_cutoff(Some(&age), None, &environment);
+    let result = resolve_npm_latest_version("foo", None, cutoff.as_ref(), &environment).await;
+    let logged = environment.take_stderr_messages();
+    (result, logged)
+  }
+
+  #[tokio::test]
+  async fn minimum_dependency_age_keeps_latest_when_it_is_old_enough() {
+    let packument = packument_with_times("1.1.0", &[("1.0.0", Some("2024-01-01T00:00:00Z")), ("1.1.0", Some("2024-05-01T00:00:00Z"))]);
+    let (version, logged) = resolve_version_with_age(packument, "P3D").await;
+    assert_eq!(version.unwrap(), "1.1.0");
+    assert!(logged.is_empty(), "expected nothing logged, got {:?}", logged);
+  }
+
+  #[tokio::test]
+  async fn minimum_dependency_age_walks_back_to_the_newest_version_old_enough() {
+    let packument = packument_with_times(
+      "1.1.0",
+      &[
+        ("1.0.0", Some("2024-01-01T00:00:00Z")),
+        ("1.0.1", Some("2024-02-01T00:00:00Z")),
+        // published the day before `NOW`, so a three day minimum rules it out
+        ("1.1.0", Some("2024-05-09T00:00:00Z")),
+      ],
+    );
+    let (version, logged) = resolve_version_with_age(packument, "P3D").await;
+    assert_eq!(version.unwrap(), "1.0.1");
+    assert_eq!(
+      logged,
+      vec!["Using foo 1.0.1 instead of 1.1.0, which is newer than the minimum dependency age (--minimum-dependency-age P3D).".to_string()]
+    );
+  }
+
+  #[tokio::test]
+  async fn minimum_dependency_age_never_walks_back_to_a_prerelease_or_past_latest() {
+    let packument = packument_with_times(
+      "1.1.0",
+      &[
+        ("0.9.0", Some("2024-01-01T00:00:00Z")),
+        // a `next` tagged prerelease and a version above latest are both old
+        // enough, but neither is what the user asked for by adding the package
+        ("2.0.0-rc.1", Some("2024-01-02T00:00:00Z")),
+        ("2.0.0", Some("2024-01-03T00:00:00Z")),
+        ("1.1.0", Some("2024-05-09T00:00:00Z")),
+      ],
+    );
+    let (version, _) = resolve_version_with_age(packument, "P3D").await;
+    assert_eq!(version.unwrap(), "0.9.0");
+  }
+
+  #[tokio::test]
+  async fn minimum_dependency_age_passes_over_a_version_with_no_publish_date() {
+    let packument = packument_with_times(
+      "1.1.0",
+      &[
+        ("1.0.0", Some("2024-01-01T00:00:00Z")),
+        ("1.0.5", None),
+        ("1.1.0", Some("2024-05-09T00:00:00Z")),
+      ],
+    );
+    let (version, _) = resolve_version_with_age(packument, "P3D").await;
+    assert_eq!(version.unwrap(), "1.0.0");
+  }
+
+  #[tokio::test]
+  async fn minimum_dependency_age_errors_when_nothing_is_old_enough() {
+    let packument = packument_with_times("1.1.0", &[("1.0.0", Some("2024-05-09T00:00:00Z")), ("1.1.0", Some("2024-05-09T12:00:00Z"))]);
+    let (result, _) = resolve_version_with_age(packument, "P3D").await;
+    let err = result.unwrap_err();
+    assert_eq!(
+      err.to_string(),
+      "No version of foo is older than the minimum dependency age (--minimum-dependency-age P3D). Its most recent version is 1.1.0."
+    );
+    assert!(err.downcast_ref::<MinimumDependencyAgeError>().is_some(), "expected the age error type");
+  }
+
+  #[tokio::test]
+  async fn minimum_dependency_age_uses_latest_when_the_registry_reports_no_times() {
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "1.1.0" },
+      "versions": { "1.1.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.1.0.tgz" } } }
+    });
+    let (version, logged) = resolve_version_with_age(packument, "P3D").await;
+    assert_eq!(version.unwrap(), "1.1.0");
+    assert_eq!(
+      logged,
+      vec!["Could not check the age of foo — its registry doesn't report publish times. Using 1.1.0.".to_string()]
+    );
+  }
+
+  #[tokio::test]
+  async fn minimum_dependency_age_uses_latest_when_it_has_no_publish_date() {
+    let packument = packument_with_times("1.1.0", &[("1.0.0", Some("2024-01-01T00:00:00Z")), ("1.1.0", None)]);
+    let (version, logged) = resolve_version_with_age(packument, "P3D").await;
+    assert_eq!(version.unwrap(), "1.1.0");
+    assert_eq!(
+      logged,
+      vec!["Could not check the age of foo@1.1.0 — its registry doesn't report when it was published. Using it anyway.".to_string()]
+    );
+  }
+
+  #[test]
+  fn resolve_dependency_age_cutoff_defaults_to_no_minimum() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.set_fs_time(NOW);
+    assert_eq!(resolve_dependency_age_cutoff(None, Some(Path::new("/repo")), &environment), None);
+  }
+
+  #[test]
+  fn resolve_dependency_age_cutoff_reads_min_release_age_from_npmrc() {
+    use crate::environment::TestEnvironment;
+    use std::str::FromStr;
+    let environment = TestEnvironment::new();
+    environment.set_fs_time(NOW);
+    environment.mk_dir_all("/repo/sub").unwrap();
+    environment.write_file("/repo/.npmrc", "min-release-age=3").unwrap();
+
+    let cutoff = resolve_dependency_age_cutoff(None, Some(Path::new("/repo/sub")), &environment).unwrap();
+    assert_eq!(cutoff.description(), "min-release-age=3 in .npmrc");
+    // 3 days before `NOW`
+    assert!(cutoff.is_too_new(parse_rfc3339("2024-05-08T00:00:00Z").unwrap()));
+    assert!(!cutoff.is_too_new(parse_rfc3339("2024-05-06T00:00:00Z").unwrap()));
+
+    // the flag wins over the .npmrc, including when it turns the age off
+    let flag = MinimumDependencyAge::from_str("P1D").unwrap();
+    let cutoff = resolve_dependency_age_cutoff(Some(&flag), Some(Path::new("/repo/sub")), &environment).unwrap();
+    assert_eq!(cutoff.description(), "--minimum-dependency-age P1D");
+    assert!(!cutoff.is_too_new(parse_rfc3339("2024-05-08T00:00:00Z").unwrap()));
+
+    let off = MinimumDependencyAge::from_str("0").unwrap();
+    assert_eq!(resolve_dependency_age_cutoff(Some(&off), Some(Path::new("/repo/sub")), &environment), None);
   }
 
   #[test]
@@ -1381,6 +1746,7 @@ mod tests {
       FetchNpmLatestInfo {
         specifier: &specifier,
         start_dir: None,
+        minimum_dependency_age: None,
         want_tarball_sha: false,
       },
       &environment,
@@ -1415,6 +1781,7 @@ mod tests {
       FetchNpmLatestInfo {
         specifier: &specifier,
         start_dir: None,
+        minimum_dependency_age: None,
         want_tarball_sha: true,
       },
       &environment,
@@ -1447,6 +1814,7 @@ mod tests {
       FetchNpmLatestInfo {
         specifier: &specifier,
         start_dir: None,
+        minimum_dependency_age: None,
         want_tarball_sha: false,
       },
       &environment,
