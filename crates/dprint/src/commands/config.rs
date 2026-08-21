@@ -25,6 +25,7 @@ use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::FetchNpmLatestInfo;
 use crate::plugins::InfoFilePluginInfo;
+use crate::plugins::MinimumDependencyAgeError;
 use crate::plugins::PluginNpmInfo;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginSourceReference;
@@ -35,12 +36,15 @@ use crate::plugins::detect_npm_plugin_kind_in_node_modules;
 use crate::plugins::fetch_npm_latest_info;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
+use crate::plugins::resolve_dependency_age_cutoff;
 use crate::plugins::resolve_npm_latest_version;
 use crate::resolution::GetPluginResult;
 use crate::resolution::ResolvePluginsScopeAndPathsOptions;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::utils::CachedDownloader;
+use crate::utils::DependencyAgeCutoff;
+use crate::utils::MinimumDependencyAgeArg;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::pretty_print_json_text;
@@ -50,6 +54,8 @@ pub struct InitConfigFileOptions<'a> {
   pub config_arg: Option<&'a str>,
   /// Skip the interactive plugin prompt and accept the smart defaults.
   pub non_interactive: bool,
+  /// Don't write an npm plugin version published more recently than this.
+  pub minimum_dependency_age: Option<MinimumDependencyAgeArg>,
 }
 
 pub async fn init_config_file(environment: &impl Environment, options: InitConfigFileOptions<'_>) -> Result<()> {
@@ -79,7 +85,14 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
   let config_file_path = config_file_paths.remove(0);
   // skip the interactive prompt when asked to or when there's no interactive terminal (ex. CI)
   let non_interactive = options.non_interactive || !environment.is_terminal_interactive();
-  let text = get_init_config_file_text(environment, GetInitConfigFileTextOptions { non_interactive }).await?;
+  let text = get_init_config_file_text(
+    environment,
+    GetInitConfigFileTextOptions {
+      non_interactive,
+      minimum_dependency_age: options.minimum_dependency_age,
+    },
+  )
+  .await?;
   if let Some(parent) = config_file_path.parent() {
     _ = environment.mk_dir_all(parent);
   }
@@ -148,6 +161,9 @@ pub struct AddPluginsOptions<'a> {
   /// Force a checksum onto each written entry, even for Wasm plugins (which
   /// are otherwise added without one).
   pub checksum: bool,
+  /// Don't resolve a version published more recently than this. A version the
+  /// user wrote out themselves is always written as-is.
+  pub minimum_dependency_age: Option<MinimumDependencyAgeArg>,
 }
 
 pub async fn add_plugin_config_file<TEnvironment: Environment>(
@@ -161,12 +177,17 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
     no_version,
     update_package_json,
     checksum,
+    minimum_dependency_age,
   } = options;
   let config = resolve_config_from_args(args, environment).await?;
   let config_path = match config.source {
     PathSource::Local(source) => source.path,
     PathSource::Remote(_) | PathSource::Npm(_) => bail!("Cannot update plugins in a remote configuration."),
   };
+  // the config file's directory is where an .npmrc setting `min-release-age`
+  // is looked for, the same place the registry is resolved from
+  let config_dir = config_path.parent();
+  let age_cutoff = resolve_dependency_age_cutoff(minimum_dependency_age.as_ref(), config_dir.as_ref().map(|dir| dir.as_ref()), environment);
 
   // Track npm packages we still need to write to package.json after the
   // config update succeeds. Walked-up package.json lookup happens once at
@@ -193,7 +214,8 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
     let selected = possible_plugins.remove(index);
     let npm_options = ResolveNpmLatestOptions {
       force_checksum: checksum,
-      base_dir: config_path.parent(),
+      base_dir: config_dir.clone(),
+      minimum_dependency_age: age_cutoff.clone(),
     };
     let url = match selected.resolve_npm(environment, npm_options).await {
       Some(resolved) => resolved?.config_file_entry(),
@@ -212,6 +234,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
           no_version,
           update_package_json,
           checksum,
+          minimum_dependency_age: age_cutoff.as_ref(),
         },
         &mut package_json_additions,
         &mut npm_packages_to_replace,
@@ -247,6 +270,7 @@ struct ResolvePluginUrlOptions<'a> {
   no_version: bool,
   update_package_json: bool,
   checksum: bool,
+  minimum_dependency_age: Option<&'a DependencyAgeCutoff>,
 }
 
 /// What `resolve_npm_plugin_to_add` decided to write into the config plus
@@ -281,6 +305,7 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
     no_version,
     update_package_json,
     checksum,
+    minimum_dependency_age,
   } = options;
   // intercept npm: specifiers before URL parsing. For unversioned forms,
   // defer to package.json devDependencies if present (so npm/node_modules
@@ -295,6 +320,7 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
         no_version,
         update_package_json,
         checksum,
+        minimum_dependency_age,
       },
       environment,
       plugin_resolver,
@@ -359,6 +385,7 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
       let npm_options = |force_checksum: bool| ResolveNpmLatestOptions {
         force_checksum,
         base_dir: config_dir.clone(),
+        minimum_dependency_age: minimum_dependency_age.cloned(),
       };
 
       for (config_plugin_reference, config_plugin) in get_config_file_plugins(plugin_resolver, config_plugins.to_vec()).await {
@@ -431,6 +458,9 @@ struct ResolveNpmAddOptions<'a> {
   /// Force a checksum onto the written entry even for Wasm plugins. Process
   /// plugins always carry one regardless.
   checksum: bool,
+  /// Don't resolve a version published more recently than this. Ignored when
+  /// the specifier already names a version — that's the user's own choice.
+  minimum_dependency_age: Option<&'a DependencyAgeCutoff>,
 }
 
 /// Resolves an `npm:` specifier from `dprint add` into the string to write
@@ -475,6 +505,7 @@ async fn resolve_npm_plugin_to_add<TEnvironment: Environment>(
     no_version,
     update_package_json,
     checksum,
+    minimum_dependency_age,
   } = options;
   let parsed = crate::utils::parse_npm_specifier(text)?;
   // when the user wrote an explicit plugin path, enforce the same .wasm/.json
@@ -536,6 +567,7 @@ async fn resolve_npm_plugin_to_add<TEnvironment: Environment>(
           specifier: &parsed.specifier,
           start_dir: Some(start_dir_ref),
           want_tarball_sha: false,
+          minimum_dependency_age,
         },
         environment,
       )
@@ -567,7 +599,7 @@ async fn resolve_npm_plugin_to_add<TEnvironment: Environment>(
   // download) when there's actually something to compute: a pathless specifier
   // (to detect the kind), a process plugin, or `--checksum`. A wasm plugin with
   // an explicit path and no `--checksum` just needs the version.
-  let version = resolve_npm_latest_version(&name, Some(start_dir_ref), environment).await?;
+  let version = resolve_npm_latest_version(&name, Some(start_dir_ref), minimum_dependency_age, environment).await?;
   let needs_setup = !explicit_path || checksum || parsed.specifier.plugin_kind() == PluginKind::Process;
   if !needs_setup {
     let pinned = crate::utils::NpmSpecifier {
@@ -758,6 +790,8 @@ pub struct UpdatePluginsOptions {
   pub yes_to_prompts: bool,
   /// Print the updates that would be made without modifying any files.
   pub dry_run: bool,
+  /// Hold plugins back from npm versions published more recently than this.
+  pub minimum_dependency_age: Option<MinimumDependencyAgeArg>,
 }
 
 pub async fn update_plugins_config_file<TEnvironment: Environment>(
@@ -766,7 +800,11 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   options: UpdatePluginsOptions,
 ) -> Result<()> {
-  let UpdatePluginsOptions { yes_to_prompts, dry_run } = options;
+  let UpdatePluginsOptions {
+    yes_to_prompts,
+    dry_run,
+    minimum_dependency_age,
+  } = options;
   if !args.plugins.is_empty() {
     bail!("Cannot specify plugins for this sub command. Sorry, too much work for me.");
   }
@@ -815,13 +853,18 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
     };
 
     let mut file_text = environment.read_file(config_path)?;
+    // each config file resolves its own age: the .npmrc that applies is the
+    // one nearest it, which differs between scopes
+    let config_dir = config_path.parent();
+    let age_cutoff = resolve_dependency_age_cutoff(minimum_dependency_age.as_ref(), config_dir.as_ref().map(|dir| dir.as_ref()), environment);
     let plugins_to_update = get_plugins_to_update(
       environment,
       plugin_resolver,
       config.plugins.clone(),
       PluginUpdateContext {
         npm_info_plugins: npm_info_plugins.clone(),
-        config_dir: config_path.parent(),
+        config_dir,
+        age_cutoff,
       },
     )
     .await?;
@@ -1143,6 +1186,10 @@ struct PluginUpdateContext {
   /// The directory the config file being updated lives in, used to resolve the
   /// npm registry and stored on new npm references for later resolution.
   config_dir: Option<CanonicalizedPathBuf>,
+  /// Holds a plugin back from a version published more recently than this.
+  /// Plugins that aren't distributed on npm have no publish date to check and
+  /// so update as they always have.
+  age_cutoff: Option<DependencyAgeCutoff>,
 }
 
 impl PluginUpdateContext {
@@ -1153,6 +1200,7 @@ impl PluginUpdateContext {
     ResolveNpmLatestOptions {
       force_checksum,
       base_dir: self.config_dir.clone(),
+      minimum_dependency_age: self.age_cutoff.clone(),
     }
   }
 }
@@ -1204,15 +1252,23 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
         specifier: &npm_source.specifier,
         start_dir,
         want_tarball_sha: plugin_reference.checksum.is_some(),
+        minimum_dependency_age: context.age_cutoff.as_ref(),
       };
       match fetch_npm_latest_info(args, environment).await {
         // an update should never take the user backwards, which the registry's
-        // latest tag can do (ex. a version was unpublished)
+        // latest tag can do (ex. a version was unpublished) and which the
+        // minimum dependency age can do by holding a newer release back
         Ok(info) if is_version_downgrade(current_version, &info.version) => {
+          let reason = if context.age_cutoff.is_some() {
+            "The newest version old enough for the minimum dependency age"
+          } else {
+            "Its package's latest version"
+          };
           log_warn!(
             environment,
-            "Skipping {}. Its package's latest version ({}) is older than the {} in use.",
+            "Skipping {}. {} ({}) is older than the {} in use.",
             plugin.info().name,
+            reason,
             info.version,
             current_version,
           );
@@ -1237,6 +1293,12 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
           }));
         }
         Err(err) => {
+          // being held back by the minimum dependency age isn't a failure to
+          // update — the plugin stays where it is until its version ages in
+          if let Some(err) = err.downcast_ref::<MinimumDependencyAgeError>() {
+            log_warn!(environment, "Skipping {}. {}", plugin.info().name, err);
+            return None;
+          }
           return Some(Err(PluginUpdateError {
             name: plugin_reference.path_source.display(),
             error: err,
@@ -1268,6 +1330,9 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
           }));
         }
         // keep the plugin on its url, which still works
+        Err(err) if err.downcast_ref::<MinimumDependencyAgeError>().is_some() => {
+          log_warn!(environment, "Not moving {} to npm yet. {}", plugin.info().name, err)
+        }
         Err(err) => log_warn!(
           environment,
           "Failed resolving the npm package for {}. Keeping its url. {:#}",
@@ -1640,6 +1705,45 @@ mod test {
     let created = environment.read_file("./dprint.json").unwrap();
     assert!(created.contains("typescript-0.17.2.wasm"));
     assert!(!created.contains("json-0.2.3.wasm"));
+  }
+
+  #[test]
+  fn should_initialize_with_minimum_dependency_age() {
+    // the version init writes is held back the same way `add` and `update` are
+    let mut builder = TestEnvironmentBuilder::new();
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "test-plugin".to_string(),
+          version: "0.2.0".to_string(),
+          url: "https://plugins.dprint.dev/test-plugin.wasm".to_string(),
+          config_key: Some("test-plugin".to_string()),
+          file_extensions: vec!["ts".to_string()],
+          npm: Some(crate::environment::TestInfoFileNpm {
+            name: "@dprint/test-plugin".to_string(),
+            ..Default::default()
+          }),
+          ..Default::default()
+        });
+      })
+      .write_file("./file.ts", "")
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+
+    run_test_cli(vec!["init", "--yes", "--minimum-dependency-age", "P3D"], &environment).unwrap();
+
+    let created = environment.read_file("./dprint.json").unwrap();
+    assert!(created.contains("\"npm:@dprint/test-plugin@0.2.0\""), "got: {created}");
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr
+        .iter()
+        .any(|m| m.contains("Using @dprint/test-plugin 0.2.0 instead of 0.3.0, which is newer than the minimum dependency age")),
+      "got: {stderr:?}"
+    );
+    environment.take_stdout_messages();
   }
 
   #[test]
@@ -3299,6 +3403,7 @@ mod test {
     let plugin_resolver = test_plugin_resolver(environment);
     let result = super::resolve_npm_plugin_to_add(
       super::ResolveNpmAddOptions {
+        minimum_dependency_age: None,
         text,
         config_path,
         no_version,
@@ -3314,6 +3419,161 @@ mod test {
     let _ = environment.take_stderr_messages();
     let _ = environment.take_stdout_messages();
     result
+  }
+
+  /// 2100-01-01T00:00:00Z — the "now" the minimum dependency age tests run at.
+  /// Far enough ahead of any real clock that pinning it never moves the
+  /// in-memory filesystem's time backwards.
+  const AGE_TEST_NOW: u64 = 4102444800;
+
+  /// A packument for `foo` with two wasm releases: 1.0.0 published long ago and
+  /// 1.1.0 published the day before [`AGE_TEST_NOW`].
+  fn aged_foo_packument() -> serde_json::Value {
+    json!({
+      "dist-tags": { "latest": "1.1.0" },
+      "versions": {
+        "1.0.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.0.0.tgz" } },
+        "1.1.0": { "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-1.1.0.tgz" } },
+      },
+      "time": {
+        "1.0.0": "2099-01-01T00:00:00Z",
+        "1.1.0": "2099-12-31T00:00:00Z",
+      }
+    })
+  }
+
+  /// Like [`call_resolve_npm_plugin_to_add`] but with a minimum dependency age.
+  /// `package_json` is the `--package-json` form, which implies `--no-version`.
+  async fn call_resolve_npm_plugin_to_add_age(
+    text: &str,
+    config_path: &CanonicalizedPathBuf,
+    age: &str,
+    package_json: bool,
+    environment: &TestEnvironment,
+  ) -> Result<super::ResolvedNpmPluginAdd> {
+    use std::str::FromStr;
+    let age = crate::utils::MinimumDependencyAgeArg::from_str(age).unwrap();
+    let cutoff = crate::plugins::resolve_dependency_age_cutoff(Some(&age), None, environment);
+    let plugin_resolver = test_plugin_resolver(environment);
+    let result = super::resolve_npm_plugin_to_add(
+      super::ResolveNpmAddOptions {
+        minimum_dependency_age: cutoff.as_ref(),
+        text,
+        config_path,
+        no_version: package_json,
+        update_package_json: package_json,
+        checksum: false,
+      },
+      environment,
+      &plugin_resolver,
+    )
+    .await;
+    let _ = environment.take_stderr_messages();
+    let _ = environment.take_stdout_messages();
+    result
+  }
+
+  #[tokio::test]
+  async fn npm_add_minimum_dependency_age_pins_the_newest_version_old_enough() {
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+    let environment = TestEnvironment::new();
+    environment.set_fs_time(AGE_TEST_NOW);
+    environment.write_file("/dprint.json", "{}").unwrap();
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", aged_foo_packument().to_string().into_bytes());
+    environment.add_remote_file_bytes(
+      "https://registry.npmjs.org/foo/-/foo-1.0.0.tgz",
+      create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]),
+    );
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+
+    let result = call_resolve_npm_plugin_to_add_age("npm:foo", &config_path, "P3D", false, &environment)
+      .await
+      .unwrap();
+
+    // 1.1.0 is a day old, so the add settles on the release before it
+    assert_eq!(result.url, "npm:foo@1.0.0");
+  }
+
+  #[tokio::test]
+  async fn npm_add_package_json_caret_range_respects_the_minimum_dependency_age() {
+    // `--package-json` writes the unversioned spec to dprint.json and a caret
+    // range to package.json, and that range is held back the same way a pin is
+    let environment = TestEnvironment::new();
+    environment.set_fs_time(AGE_TEST_NOW);
+    environment.write_file("/dprint.json", "{}").unwrap();
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", aged_foo_packument().to_string().into_bytes());
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+
+    let result = call_resolve_npm_plugin_to_add_age("npm:foo", &config_path, "P3D", true, &environment)
+      .await
+      .unwrap();
+
+    assert_eq!(result.url, "npm:foo");
+    assert_eq!(result.package_json_addition, Some(("foo".to_string(), "^1.0.0".to_string())));
+  }
+
+  #[tokio::test]
+  async fn npm_add_package_json_errors_when_nothing_is_old_enough() {
+    // the dprint.json entry would be unversioned, but leaving package.json out
+    // of sync is worse than failing the whole add
+    let environment = TestEnvironment::new();
+    environment.set_fs_time(AGE_TEST_NOW);
+    environment.write_file("/dprint.json", "{}").unwrap();
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", aged_foo_packument().to_string().into_bytes());
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+
+    let err = call_resolve_npm_plugin_to_add_age("npm:foo", &config_path, "P400D", true, &environment)
+      .await
+      .unwrap_err();
+
+    let message = format!("{err:#}");
+    assert!(message.contains("Resolving latest version for package.json entry of foo"), "got: {message}");
+    assert!(
+      message.contains("No version of foo at or below 1.1.0 is old enough for the minimum dependency age"),
+      "got: {message}"
+    );
+  }
+
+  #[tokio::test]
+  async fn npm_add_minimum_dependency_age_leaves_an_explicit_version_alone() {
+    // the age only governs versions dprint picks — one the user wrote out is
+    // a deliberate choice and gets written as-is
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+    let environment = TestEnvironment::new();
+    environment.set_fs_time(AGE_TEST_NOW);
+    environment.write_file("/dprint.json", "{}").unwrap();
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", aged_foo_packument().to_string().into_bytes());
+    environment.add_remote_file_bytes(
+      "https://registry.npmjs.org/foo/-/foo-1.1.0.tgz",
+      create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]),
+    );
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+
+    let result = call_resolve_npm_plugin_to_add_age("npm:foo@1.1.0", &config_path, "P3D", false, &environment)
+      .await
+      .unwrap();
+
+    assert_eq!(result.url, "npm:foo@1.1.0");
+  }
+
+  #[tokio::test]
+  async fn npm_add_minimum_dependency_age_errors_when_nothing_is_old_enough() {
+    let environment = TestEnvironment::new();
+    environment.set_fs_time(AGE_TEST_NOW);
+    environment.write_file("/dprint.json", "{}").unwrap();
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", aged_foo_packument().to_string().into_bytes());
+    let config_path = environment.canonicalize("/dprint.json").unwrap();
+
+    let err = call_resolve_npm_plugin_to_add_age("npm:foo", &config_path, "P400D", false, &environment)
+      .await
+      .unwrap_err();
+
+    assert_eq!(
+      err.to_string(),
+      "No version of foo at or below 1.1.0 is old enough for the minimum dependency age (--minimum-dependency-age P400D)."
+    );
   }
 
   #[tokio::test]
@@ -3875,6 +4135,57 @@ mod test {
   }
 
   #[test]
+  fn config_add_npm_specifier_pins_the_newest_version_old_enough() {
+    let mut builder = TestEnvironmentBuilder::new();
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .with_local_config("/dprint.json", |config| {
+        config.ensure_plugins_section();
+      })
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+
+    run_test_cli(
+      vec!["config", "add", "npm:@dprint/test-plugin", "--minimum-dependency-age", "P3D"],
+      &environment,
+    )
+    .unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("\"npm:@dprint/test-plugin@0.2.0\""), "got: {dprint_json}");
+    let _ = environment.take_stdout_messages();
+    let _ = environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_add_npm_specifier_reads_min_release_age_from_an_npmrc() {
+    // with no flag the age comes from the .npmrc nearest the config file
+    let mut builder = TestEnvironmentBuilder::new();
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .with_local_config("/dprint.json", |config| {
+        config.ensure_plugins_section();
+      })
+      .write_file("/.npmrc", "min-release-age=3")
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+
+    run_test_cli(vec!["config", "add", "npm:@dprint/test-plugin"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("\"npm:@dprint/test-plugin@0.2.0\""), "got: {dprint_json}");
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr.iter().any(|m| m
+        .contains("Using @dprint/test-plugin 0.2.0 instead of 0.3.0, which is newer than the minimum dependency age allows (min-release-age=3 in .npmrc).")),
+      "got: {stderr:?}"
+    );
+    let _ = environment.take_stdout_messages();
+  }
+
+  #[test]
   fn config_add_npm_replaces_existing_entry_for_same_package() {
     // re-adding a package that's already present should replace the existing
     // entry (any version) rather than append a duplicate. A versioned add
@@ -4373,6 +4684,367 @@ mod test {
         .any(|m| m.contains("Skipping test-plugin. Its package's latest version (0.1.0) is older than the 0.2.0 in use.")),
       "got: {stderr:?}"
     );
+  }
+
+  /// A `@dprint/test-plugin` packument whose releases carry publish times,
+  /// with `latest` published the day before [`AGE_TEST_NOW`].
+  fn aged_test_plugin_packument(latest_time: &str) -> serde_json::Value {
+    let tarball_url = |version: &str| format!("https://registry.npmjs.org/@dprint/test-plugin/-/test-plugin-{version}.tgz");
+    json!({
+      "dist-tags": { "latest": "0.3.0" },
+      "versions": {
+        "0.1.0": { "dist": { "tarball": tarball_url("0.1.0") } },
+        "0.2.0": { "dist": { "tarball": tarball_url("0.2.0") } },
+        "0.3.0": { "dist": { "tarball": tarball_url("0.3.0") } },
+      },
+      "time": {
+        "0.1.0": "2098-01-01T00:00:00Z",
+        "0.2.0": "2099-01-01T00:00:00Z",
+        "0.3.0": latest_time,
+      }
+    })
+  }
+
+  /// Serves the tarball for each version of the aged test plugin package.
+  fn add_aged_test_plugin_tarballs(builder: &mut TestEnvironmentBuilder) -> &mut TestEnvironmentBuilder {
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+    for version in ["0.1.0", "0.2.0", "0.3.0"] {
+      builder.add_remote_file_bytes(
+        &format!("https://registry.npmjs.org/@dprint/test-plugin/-/test-plugin-{version}.tgz"),
+        create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]),
+      );
+    }
+    builder
+  }
+
+  #[test]
+  fn config_update_stops_at_the_newest_version_old_enough() {
+    let mut builder = TestEnvironmentBuilder::new();
+    // 0.3.0 landed the day before "now", so a three day minimum holds it back
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .with_info_file(|_| {})
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("npm:@dprint/test-plugin@0.1.0");
+      })
+      .initialize()
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+
+    run_test_cli(vec!["config", "update", "--minimum-dependency-age", "P3D"], &environment).unwrap();
+
+    assert!(
+      environment.read_file("/dprint.json").unwrap().contains("npm:@dprint/test-plugin@0.2.0"),
+      "got: {}",
+      environment.read_file("/dprint.json").unwrap()
+    );
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr
+        .iter()
+        .any(|m| m.contains("Using @dprint/test-plugin 0.2.0 instead of 0.3.0, which is newer than the minimum dependency age")),
+      "got: {stderr:?}"
+    );
+  }
+
+  #[test]
+  fn config_update_skips_a_plugin_with_no_version_old_enough() {
+    let mut builder = TestEnvironmentBuilder::new();
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .with_info_file(|_| {})
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("npm:@dprint/test-plugin@0.1.0");
+      })
+      .initialize()
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+    let before = environment.read_file("/dprint.json").unwrap();
+
+    // every release is younger than a thousand year minimum
+    run_test_cli(vec!["config", "update", "--minimum-dependency-age", "P365000D"], &environment).unwrap();
+
+    assert_eq!(environment.read_file("/dprint.json").unwrap(), before);
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr
+        .iter()
+        .any(|m| m
+          .contains("Skipping test-plugin. No version of @dprint/test-plugin at or below 0.3.0 is old enough for the minimum dependency age (--minimum-dependency-age P365000D).")),
+      "got: {stderr:?}"
+    );
+  }
+
+  #[test]
+  fn config_update_is_not_held_back_without_the_flag() {
+    // the age is opt-in: nothing changes for a config that doesn't ask for one
+    let mut builder = TestEnvironmentBuilder::new();
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .with_info_file(|_| {})
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("npm:@dprint/test-plugin@0.1.0");
+      })
+      .initialize()
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    assert!(
+      environment.read_file("/dprint.json").unwrap().contains("npm:@dprint/test-plugin@0.3.0"),
+      "got: {}",
+      environment.read_file("/dprint.json").unwrap()
+    );
+    environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_update_reads_min_release_age_from_an_npmrc() {
+    let mut builder = TestEnvironmentBuilder::new();
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .with_info_file(|_| {})
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("npm:@dprint/test-plugin@0.1.0");
+      })
+      .initialize()
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+    environment.write_file("/.npmrc", "min-release-age=3").unwrap();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    assert!(
+      environment.read_file("/dprint.json").unwrap().contains("npm:@dprint/test-plugin@0.2.0"),
+      "got: {}",
+      environment.read_file("/dprint.json").unwrap()
+    );
+    environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_update_reads_min_release_age_from_a_parent_directory_npmrc() {
+    // the .npmrc doesn't have to sit next to the config file — the walk goes up
+    // from the config's directory, the same as the registry lookup does
+    let mut builder = TestEnvironmentBuilder::new();
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .with_info_file(|_| {})
+      .with_local_config("/sub/dprint.json", |config| {
+        config.add_plugin("npm:@dprint/test-plugin@0.1.0");
+      })
+      .set_cwd("/sub")
+      .initialize()
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+    environment.write_file("/.npmrc", "min-release-age=3").unwrap();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    assert!(
+      environment.read_file("/sub/dprint.json").unwrap().contains("npm:@dprint/test-plugin@0.2.0"),
+      "got: {}",
+      environment.read_file("/sub/dprint.json").unwrap()
+    );
+    environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_update_resolves_the_min_release_age_per_config_file() {
+    // the .npmrc that applies is the one nearest each config file, so a
+    // recursive update can hold one file back while the other moves on
+    let mut builder = TestEnvironmentBuilder::new();
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .with_info_file(|_| {})
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("npm:@dprint/test-plugin@0.1.0");
+      })
+      .with_local_config("/sub/dprint.json", |config| {
+        config.add_plugin("npm:@dprint/test-plugin@0.1.0");
+      })
+      .initialize()
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+    environment.write_file("/sub/.npmrc", "min-release-age=3").unwrap();
+
+    run_test_cli(vec!["config", "update", "--recursive"], &environment).unwrap();
+
+    let root = environment.read_file("/dprint.json").unwrap();
+    assert!(root.contains("npm:@dprint/test-plugin@0.3.0"), "got: {root}");
+    let sub = environment.read_file("/sub/dprint.json").unwrap();
+    assert!(sub.contains("npm:@dprint/test-plugin@0.2.0"), "got: {sub}");
+    environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_update_flag_turns_off_an_npmrc_min_release_age() {
+    // `--minimum-dependency-age 0` is how a user overrides an .npmrc for a
+    // single run, so the latest version is written despite the file
+    let mut builder = TestEnvironmentBuilder::new();
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .with_info_file(|_| {})
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("npm:@dprint/test-plugin@0.1.0");
+      })
+      .initialize()
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+    environment.write_file("/.npmrc", "min-release-age=3").unwrap();
+
+    run_test_cli(vec!["config", "update", "--minimum-dependency-age", "0"], &environment).unwrap();
+
+    assert!(
+      environment.read_file("/dprint.json").unwrap().contains("npm:@dprint/test-plugin@0.3.0"),
+      "got: {}",
+      environment.read_file("/dprint.json").unwrap()
+    );
+    environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_update_does_nothing_when_the_newest_version_old_enough_is_in_use() {
+    // the walk back lands on the version already in the config, which isn't an
+    // update — the file is left byte for byte alone
+    let mut builder = TestEnvironmentBuilder::new();
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .with_info_file(|_| {})
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("npm:@dprint/test-plugin@0.2.0");
+      })
+      .initialize()
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+    let before = environment.read_file("/dprint.json").unwrap();
+
+    run_test_cli(vec!["config", "update", "--minimum-dependency-age", "P3D"], &environment).unwrap();
+
+    assert_eq!(environment.read_file("/dprint.json").unwrap(), before);
+    let stderr = environment.take_stderr_messages();
+    assert!(!stderr.iter().any(|m| m.contains("Updating")), "got: {stderr:?}");
+  }
+
+  #[test]
+  fn config_update_does_not_downgrade_when_the_version_in_use_is_too_new() {
+    // the config is already on a version the age would hold back, which is the
+    // user's business — an update must never take them backwards
+    let mut builder = TestEnvironmentBuilder::new();
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .with_info_file(|_| {})
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("npm:@dprint/test-plugin@0.3.0");
+      })
+      .initialize()
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+    let before = environment.read_file("/dprint.json").unwrap();
+
+    run_test_cli(vec!["config", "update", "--minimum-dependency-age", "P3D"], &environment).unwrap();
+
+    assert_eq!(environment.read_file("/dprint.json").unwrap(), before);
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr
+        .iter()
+        .any(|m| m.contains("Skipping test-plugin. The newest version old enough for the minimum dependency age (0.2.0) is older than the 0.3.0 in use.")),
+      "got: {stderr:?}"
+    );
+  }
+
+  #[test]
+  fn config_update_moves_url_plugin_to_npm_at_an_older_version() {
+    // the move to npm goes to the newest version old enough rather than the
+    // registry's latest
+    let mut builder = TestEnvironmentBuilder::new();
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .add_remote_wasm_0_1_0_plugin()
+      .with_info_file(|_| {})
+      .add_remote_file("https://plugins.dprint.dev/dprint/test-plugin/latest.json", &test_plugin_latest_json(true))
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("https://plugins.dprint.dev/test-plugin-0.1.0.wasm");
+      })
+      .initialize()
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+
+    run_test_cli(vec!["config", "update", "--minimum-dependency-age", "P3D"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("\"npm:@dprint/test-plugin@0.2.0\""), "got: {dprint_json}");
+    environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_update_keeps_the_url_when_no_npm_version_is_old_enough() {
+    // nothing on npm is old enough yet, so the plugin stays on its url and
+    // still follows it — the move happens on a later run
+    let mut builder = TestEnvironmentBuilder::new();
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .add_remote_wasm_plugin()
+      .add_remote_wasm_0_1_0_plugin()
+      .with_info_file(|_| {})
+      .add_remote_file("https://plugins.dprint.dev/dprint/test-plugin/latest.json", &test_plugin_latest_json(true))
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("https://plugins.dprint.dev/test-plugin-0.1.0.wasm");
+      })
+      .initialize()
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+
+    run_test_cli(vec!["config", "update", "--minimum-dependency-age", "P365000D"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("\"https://plugins.dprint.dev/test-plugin.wasm\""), "got: {dprint_json}");
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr.iter().any(|m| m.contains(
+        "Not moving test-plugin to npm yet. No version of @dprint/test-plugin at or below 0.3.0 is old enough for the minimum dependency age (--minimum-dependency-age P365000D)."
+      )),
+      "got: {stderr:?}"
+    );
+  }
+
+  #[test]
+  fn config_add_by_name_uses_the_newest_version_old_enough() {
+    // `dprint config add <name>` resolves the package through latest.json, so
+    // the age applies to what it writes too
+    let mut builder = TestEnvironmentBuilder::new();
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .add_remote_wasm_plugin()
+      .with_info_file(|_| {})
+      .add_remote_file("https://plugins.dprint.dev/dprint/test-plugin/latest.json", &test_plugin_latest_json(true))
+      .with_local_config("/dprint.json", |config| {
+        config.ensure_plugins_section();
+      })
+      .initialize()
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+
+    run_test_cli(vec!["config", "add", "test-plugin", "--minimum-dependency-age", "P3D"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("\"npm:@dprint/test-plugin@0.2.0\""), "got: {dprint_json}");
+    environment.take_stderr_messages();
   }
 
   #[test]

@@ -7,6 +7,7 @@ use thiserror::Error;
 
 use crate::environment::Environment;
 use crate::utils::LogLevel;
+use crate::utils::MinimumDependencyAgeArg;
 use crate::utils::StdInReader;
 
 #[derive(Debug, Clone, Copy)]
@@ -207,11 +208,13 @@ pub enum ConfigSubCommand {
     global: bool,
     /// Skip the interactive plugin prompt and accept the smart defaults.
     yes: bool,
+    minimum_dependency_age: Option<MinimumDependencyAgeArg>,
   },
   Update {
     yes: bool,
     /// Print the updates that would be made without modifying any files.
     dry_run: bool,
+    minimum_dependency_age: Option<MinimumDependencyAgeArg>,
   },
   Add {
     names: Vec<String>,
@@ -226,6 +229,10 @@ pub enum ConfigSubCommand {
     /// (which are otherwise added without one). Conflicts with `no_version` /
     /// `package_json`, since an unversioned entry can't carry a checksum.
     checksum: bool,
+    /// Don't resolve an npm plugin version published more recently than this.
+    /// Only applies to versions dprint picks — a version the user wrote out
+    /// themselves is written as-is.
+    minimum_dependency_age: Option<MinimumDependencyAgeArg>,
   },
   Edit,
 }
@@ -294,14 +301,15 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
 }
 
 fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: TStdInReader) -> Result<CliArgs> {
-  fn parse_init(matches: &ArgMatches) -> ConfigSubCommand {
-    ConfigSubCommand::Init {
+  fn parse_init(matches: &ArgMatches) -> Result<ConfigSubCommand> {
+    Ok(ConfigSubCommand::Init {
       global: matches.get_flag("global"),
       yes: matches.get_flag("yes"),
-    }
+      minimum_dependency_age: parse_minimum_dependency_age(matches)?,
+    })
   }
 
-  fn parse_add(matches: &ArgMatches) -> ConfigSubCommand {
+  fn parse_add(matches: &ArgMatches) -> Result<ConfigSubCommand> {
     let names = matches
       .get_many::<String>("url-or-plugin-name")
       .map(|v| v.cloned().collect())
@@ -311,11 +319,21 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     // dprint.json on top of a devDependencies entry would be duplication.
     let no_version = package_json || matches.get_flag("no-version");
     let checksum = matches.get_flag("checksum");
-    ConfigSubCommand::Add {
+    Ok(ConfigSubCommand::Add {
       names,
       no_version,
       package_json,
       checksum,
+      minimum_dependency_age: parse_minimum_dependency_age(matches)?,
+    })
+  }
+
+  /// Parses `--minimum-dependency-age`. `None` leaves the age to any
+  /// `min-release-age` an .npmrc sets.
+  fn parse_minimum_dependency_age(matches: &ArgMatches) -> Result<Option<MinimumDependencyAgeArg>> {
+    match matches.get_one::<String>("minimum-dependency-age") {
+      Some(text) => Ok(Some(MinimumDependencyAgeArg::from_str(text)?)),
+      None => Ok(None),
     }
   }
 
@@ -407,16 +425,16 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         fail_fast,
       })
     }
-    ("init", matches) => SubCommand::Config(parse_init(matches)),
+    ("init", matches) => SubCommand::Config(parse_init(matches)?),
     ("add", matches) => {
       is_global_config = matches.get_flag("global");
-      SubCommand::Config(parse_add(matches))
+      SubCommand::Config(parse_add(matches)?)
     }
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
-      ("init", matches) => parse_init(matches),
+      ("init", matches) => parse_init(matches)?,
       ("add", matches) => {
         is_global_config = matches.get_flag("global");
-        parse_add(matches)
+        parse_add(matches)?
       }
       ("update", matches) => {
         is_global_config = matches.get_flag("global");
@@ -425,6 +443,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         ConfigSubCommand::Update {
           yes: *matches.get_one::<bool>("yes").unwrap(),
           dry_run: *matches.get_one::<bool>("dry-run").unwrap(),
+          minimum_dependency_age: parse_minimum_dependency_age(matches)?,
         }
       }
       ("edit", matches) => {
@@ -586,6 +605,7 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
           .num_args(0)
           .required(false),
       )
+      .arg(minimum_dependency_age_arg())
   }
 
   fn add_command() -> Command {
@@ -630,6 +650,22 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
           .required(false)
           .conflicts_with_all(["no-version", "package-json"]),
       )
+      .arg(minimum_dependency_age_arg())
+  }
+
+  /// `--minimum-dependency-age`, shared by the commands that resolve a plugin
+  /// version from npm on the user's behalf.
+  fn minimum_dependency_age_arg() -> Arg {
+    Arg::new("minimum-dependency-age")
+      .long("minimum-dependency-age")
+      .value_name("AGE")
+      .help(concat!(
+        "Don't resolve npm plugin versions published more recently than this. Accepts an ISO-8601 duration ",
+        "(ex. 'P3D', 'PT72H'), a number of minutes (ex. '1440'), a date or RFC3339 timestamp (ex. '2026-01-15'), or '0' to disable. ",
+        "Defaults to min-release-age in .npmrc, otherwise no minimum.",
+      ))
+      .num_args(1)
+      .required(false)
   }
 
   use clap::Arg;
@@ -819,6 +855,7 @@ EXAMPLES:
                 .num_args(0)
                 .required(false)
             )
+            .arg(minimum_dependency_age_arg())
         )
         .subcommand(add_command())
         .subcommand(
@@ -1087,6 +1124,7 @@ mod test {
   use crate::utils::TestStdInReader;
 
   use super::*;
+  use crate::utils::MinimumDependencyAge;
 
   #[test]
   fn output_prefixed_command_aliases() {
@@ -1278,6 +1316,7 @@ mod test {
         no_version,
         package_json,
         checksum,
+        ..
       }) => {
         assert!(names.is_empty());
         assert!(!no_version);
@@ -1313,6 +1352,7 @@ mod test {
         no_version,
         package_json,
         checksum,
+        ..
       }) => {
         assert_eq!(names, &["npm:@dprint/typescript"]);
         assert!(*no_version);
@@ -1333,6 +1373,55 @@ mod test {
       }
       _ => unreachable!(),
     }
+  }
+
+  #[test]
+  fn add_minimum_dependency_age_flag() {
+    let args = test_args(vec!["add", "--minimum-dependency-age", "P3D", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { minimum_dependency_age, .. }) => {
+        let arg = minimum_dependency_age.as_ref().unwrap();
+        assert_eq!(*arg.age(), MinimumDependencyAge::Age(std::time::Duration::from_secs(3 * 86400)));
+        // the text is kept as written so messages can quote it back
+        assert_eq!(arg.text(), "P3D");
+      }
+      _ => unreachable!(),
+    }
+
+    // the same flag is available on the commands that resolve a version on
+    // the user's behalf, and defaults to leaving the age to the .npmrc
+    let args = test_args(vec!["config", "update", "--minimum-dependency-age", "0"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Update { minimum_dependency_age, .. }) => {
+        assert_eq!(*minimum_dependency_age.as_ref().unwrap().age(), MinimumDependencyAge::Disabled);
+      }
+      _ => unreachable!(),
+    }
+    let args = test_args(vec!["init", "--minimum-dependency-age", "1440"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Init { minimum_dependency_age, .. }) => {
+        assert_eq!(
+          *minimum_dependency_age.as_ref().unwrap().age(),
+          MinimumDependencyAge::Age(std::time::Duration::from_secs(86400))
+        );
+      }
+      _ => unreachable!(),
+    }
+    let args = test_args(vec!["add", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { minimum_dependency_age, .. }) => {
+        assert_eq!(*minimum_dependency_age, None);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn add_minimum_dependency_age_rejects_an_invalid_value() {
+    let err = test_args(vec!["add", "--minimum-dependency-age", "3 days", "npm:@dprint/typescript"])
+      .err()
+      .unwrap();
+    assert!(err.to_string().contains("Invalid minimum dependency age"), "got: {}", err);
   }
 
   #[test]
@@ -1357,7 +1446,7 @@ mod test {
   fn config_upgrade_alias() {
     let args = test_args(vec!["config", "upgrade"]).unwrap();
     match args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Update { yes, dry_run }) => {
+      SubCommand::Config(ConfigSubCommand::Update { yes, dry_run, .. }) => {
         assert!(!yes);
         assert!(!dry_run);
       }
@@ -1369,7 +1458,7 @@ mod test {
   fn config_update_dry_run_arg() {
     let args = test_args(vec!["config", "update", "--dry-run"]).unwrap();
     match args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Update { yes, dry_run }) => {
+      SubCommand::Config(ConfigSubCommand::Update { yes, dry_run, .. }) => {
         assert!(!yes);
         assert!(dry_run);
       }

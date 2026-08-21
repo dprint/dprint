@@ -117,13 +117,18 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
     SubCommand::Lsp => commands::run_language_server(args, environment, plugin_resolver).await,
     SubCommand::ClearCache => commands::clear_cache(environment),
     SubCommand::Config(cmd) => match cmd {
-      ConfigSubCommand::Init { global, yes } => {
+      ConfigSubCommand::Init {
+        global,
+        yes,
+        minimum_dependency_age,
+      } => {
         commands::init_config_file(
           environment,
           InitConfigFileOptions {
             global: *global,
             config_arg: args.config.as_deref(),
             non_interactive: *yes,
+            minimum_dependency_age: minimum_dependency_age.clone(),
           },
         )
         .await
@@ -133,6 +138,7 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
         no_version,
         package_json,
         checksum,
+        minimum_dependency_age,
       } => {
         commands::add_plugin_config_file(
           args,
@@ -141,13 +147,18 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
             no_version: *no_version,
             update_package_json: *package_json,
             checksum: *checksum,
+            minimum_dependency_age: minimum_dependency_age.clone(),
           },
           environment,
           plugin_resolver,
         )
         .await
       }
-      ConfigSubCommand::Update { yes, dry_run } => {
+      ConfigSubCommand::Update {
+        yes,
+        dry_run,
+        minimum_dependency_age,
+      } => {
         commands::update_plugins_config_file(
           args,
           environment,
@@ -155,6 +166,7 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
           commands::UpdatePluginsOptions {
             yes_to_prompts: *yes,
             dry_run: *dry_run,
+            minimum_dependency_age: minimum_dependency_age.clone(),
           },
         )
         .await
