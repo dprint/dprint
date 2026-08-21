@@ -155,12 +155,11 @@ pub fn get_patterns_as_glob_matcher(patterns: &[String], config_base_path: &Cano
 pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf, environment: &impl Environment) -> GlobPatterns {
   GlobPatterns {
     config_includes: get_config_includes_file_patterns(config, args, cwd, environment),
-    arg_includes: if args.include_patterns.is_empty() {
-      None
-    } else {
-      // resolve CLI patterns based on the current working directory
-      Some(args.include_patterns.iter().map(|p| process_cli_pattern(p, cwd, environment)).collect())
-    },
+    // resolve CLI patterns based on the current working directory
+    arg_includes: args
+      .include_patterns
+      .as_ref()
+      .map(|patterns| patterns.iter().map(|p| process_cli_pattern(p, cwd, environment)).collect()),
     config_excludes: get_config_exclude_file_patterns(config, args, cwd, environment),
     arg_excludes: if args.exclude_patterns.is_empty() {
       None

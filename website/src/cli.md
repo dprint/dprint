@@ -107,7 +107,7 @@ generate_files | dprint fmt --stdin-files
 
 Unlike piping through `xargs`, this handles file paths containing spaces since the only delimiter is the newline (blank lines are ignored). It also avoids the command line length limits that apply when passing many paths as arguments.
 
-The paths are resolved against the inclusion/exclusion rules of your dprint configuration file, the same way file patterns passed on the command line are. This flag is also available for the `check`, `file-paths`, and `format-times` subcommands.
+The paths are resolved against the inclusion/exclusion rules of your dprint configuration file, the same way file patterns passed on the command line are. When stdin provides no file paths, nothing is formatted (rather than falling back to the configuration file's includes). This flag is also available for the `check`, `file-paths`, and `format-times` subcommands.
 
 ## Checking What Files Aren't Formatted
 

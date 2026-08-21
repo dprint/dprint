@@ -270,7 +270,12 @@ pub enum HiddenSubCommand {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct FilePatternArgs {
-  pub include_patterns: Vec<String>,
+  /// File patterns specified on the command line or via `--stdin-files`.
+  ///
+  /// `None` means none were specified, which is different from specifying
+  /// an empty list (ex. `--stdin-files` with no lines) as that means there
+  /// are no files to format.
+  pub include_patterns: Option<Vec<String>>,
   pub include_pattern_overrides: Option<Vec<String>>,
   pub exclude_patterns: Vec<String>,
   pub exclude_pattern_overrides: Option<Vec<String>>,
@@ -485,13 +490,14 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
 
 fn parse_file_patterns<TStdInReader: StdInReader>(matches: &ArgMatches, std_in_reader: &TStdInReader) -> Result<FilePatternArgs> {
   let plugins = maybe_values_to_vec(matches.get_many("plugins"));
-  let mut file_patterns = maybe_values_to_vec(matches.get_many("files"));
+  // these two are mutually exclusive, so only one of them provides the patterns
+  let file_patterns = if matches.get_flag("stdin-files") {
+    Some(std_in_reader.read_non_empty_lines()?)
+  } else {
+    matches.get_many("files").map(values_to_vec)
+  };
 
-  if matches.get_flag("stdin-files") {
-    file_patterns.extend(std_in_reader.read_non_empty_lines()?);
-  }
-
-  if !plugins.is_empty() && file_patterns.is_empty() {
+  if !plugins.is_empty() && file_patterns.as_ref().is_none_or(|p| p.is_empty()) {
     validate_plugin_args_when_no_files(&plugins)?;
   }
 
@@ -1193,7 +1199,27 @@ mod test {
     match args.sub_command {
       SubCommand::Fmt(cmd) => {
         // blank lines are skipped and paths with spaces are preserved
-        assert_eq!(cmd.patterns.include_patterns, vec!["/file1.txt".to_string(), "/sub dir/file 2.txt".to_string()]);
+        assert_eq!(
+          cmd.patterns.include_patterns,
+          Some(vec!["/file1.txt".to_string(), "/sub dir/file 2.txt".to_string()])
+        );
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn stdin_files_arg_empty() {
+    let stdin_reader = TestStdInReader::from(
+      "
+
+",
+    );
+    let args = parse_args(vec!["".to_string(), "fmt".to_string(), "--stdin-files".to_string()], stdin_reader).unwrap();
+    match args.sub_command {
+      SubCommand::Fmt(cmd) => {
+        // an empty list of files is not the same as not specifying any files
+        assert_eq!(cmd.patterns.include_patterns, Some(Vec::new()));
       }
       _ => unreachable!(),
     }

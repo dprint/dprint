@@ -517,23 +517,29 @@ impl<TEnvironment: Environment> PluginsScopeAndPathsCollection<TEnvironment> {
 
     // ensure we found some files
     if !cli_args.sub_command.allow_no_files() {
-      let has_cli_file_patterns = cli_args.sub_command.file_patterns().map(|p| !p.include_patterns.is_empty()).unwrap_or(false);
-      // when the user specifies a pattern on the command line, just ensure that one scope matched
-      if has_cli_file_patterns {
-        let all_empty = self.iter().all(|s| s.file_paths_by_plugins.is_empty());
-        if all_empty {
-          return Err(
-            NoFilesFoundError {
-              base_path: self.environment.cwd(),
-            }
-            .into(),
-          );
+      let cli_file_patterns = cli_args.sub_command.file_patterns().and_then(|p| p.include_patterns.as_ref());
+      match cli_file_patterns {
+        // the user explicitly specified no files to format (ex. `--stdin-files`
+        // with no lines), so there's nothing to format and that's ok
+        Some(patterns) if patterns.is_empty() => {}
+        // when the user specifies a pattern on the command line, just ensure that one scope matched
+        Some(_) => {
+          let all_empty = self.iter().all(|s| s.file_paths_by_plugins.is_empty());
+          if all_empty {
+            return Err(
+              NoFilesFoundError {
+                base_path: self.environment.cwd(),
+              }
+              .into(),
+            );
+          }
         }
-      } else {
         // if no args specified then ensure all scopes have files
-        for scope in &self.inner {
-          if let Some(config) = scope.scope.config.as_ref() {
-            scope.file_paths_by_plugins.ensure_not_empty(&config.base_path)?;
+        None => {
+          for scope in &self.inner {
+            if let Some(config) = scope.scope.config.as_ref() {
+              scope.file_paths_by_plugins.ensure_not_empty(&config.base_path)?;
+            }
           }
         }
       }
@@ -737,13 +743,13 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     // command line keep applying in the new scope, but only resolve the
     // grouped paths so files matched by the other args don't get formatted
     // a second time
-    include_patterns.extend(self.patterns.include_patterns.iter().filter(|p| is_negated_glob(p)).cloned());
+    include_patterns.extend(self.patterns.include_patterns.iter().flatten().filter(|p| is_negated_glob(p)).cloned());
     // the current scope already handles everything in the config's
     // directory (ex. a `dprint fmt ..` arg covers it with `**`), escaping
     // in case the directory path contains glob characters (ex. `[app]`)
     include_patterns.push(format!("!{}/**", escape_glob_text_for_cli(&config.base_path.to_string_lossy())));
     let patterns = Rc::new(FilePatternArgs {
-      include_patterns,
+      include_patterns: Some(include_patterns),
       only_staged: false,
       only_dirty: false,
       ..self.patterns.clone()
