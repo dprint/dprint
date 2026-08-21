@@ -28,6 +28,7 @@ use super::implementations::SetupPluginDest;
 use super::implementations::SetupPluginOptions;
 use super::implementations::get_process_plugin_os_path;
 use super::implementations::parse_process_plugin_file;
+use super::implementations::process::deno::DenoPermissions;
 use super::implementations::setup_plugin;
 use super::npm_resolution;
 use crate::environment::CanonicalizedPathBuf;
@@ -44,6 +45,8 @@ pub struct PluginCacheItem {
   pub file_path: PathBuf,
   pub info: PluginInfo,
   pub plugin_kind: PluginKind,
+  /// `Some` for a Deno plugin, holding the permissions it launches with.
+  pub deno_permissions: Option<DenoPermissions>,
 }
 
 /// What [`PluginCache::resolve_npm_for_add`] resolved: the plugin kind, the
@@ -553,6 +556,7 @@ where
       created_time: self.environment.get_time_secs(),
       info: setup_result.plugin_info.clone(),
       executable_sub_path: setup_result.executable_sub_path,
+      deno_permissions: setup_result.deno_permissions.clone(),
       local_stamps,
     };
     write_meta(hash, &meta, &self.environment)?;
@@ -561,6 +565,7 @@ where
       file_path: setup_result.file_path,
       info: setup_result.plugin_info,
       plugin_kind,
+      deno_permissions: setup_result.deno_permissions,
     })
   }
 
@@ -581,6 +586,7 @@ where
       file_path: meta.artifact_file_path(hash, &self.environment),
       info: meta.info,
       plugin_kind: meta.plugin_kind,
+      deno_permissions: meta.deno_permissions,
     })
   }
 
@@ -760,6 +766,7 @@ mod test {
         update_url: None,
       },
       executable_sub_path: None,
+      deno_permissions: None,
       local_stamps: None,
     }
   }

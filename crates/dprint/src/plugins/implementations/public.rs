@@ -2,9 +2,13 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 use dprint_core::plugins::PluginInfo;
+use dprint_core::plugins::process::ProcessPluginLaunchInfo;
 
 use super::WasmModuleCreator;
 use super::process;
+use super::process::deno::DenoPermissions;
+use super::process::deno::build_deno_pre_args;
+use super::process::deno::resolve_deno_executable;
 use super::wasm;
 use crate::environment::Environment;
 use crate::plugins::Plugin;
@@ -21,6 +25,9 @@ pub struct SetupPluginResult {
   /// Stored in the cache meta so the file path can be re-derived on a hit
   /// without re-extracting. `None` for wasm plugins.
   pub executable_sub_path: Option<String>,
+  /// Permissions a Deno plugin is launched with, resolved from its manifest.
+  /// `Some` marks the plugin as a Deno plugin; `None` for everything else.
+  pub deno_permissions: Option<DenoPermissions>,
 }
 
 /// Where a freshly set-up plugin's artifact should be written. Both paths are
@@ -54,6 +61,11 @@ pub async fn setup_plugin<TEnvironment: Environment>(options: SetupPluginOptions
   } = options;
   match plugin_kind {
     PluginKind::Wasm => wasm::setup_wasm_plugin(resolved_source, file_bytes, &dest.wasm_file_path, environment).await,
+    // a Deno plugin ships the same `.json` manifest as a native process plugin,
+    // so the kind is only distinguishable from the file's contents
+    PluginKind::Process if process::peek_plugin_kind(&file_bytes).as_deref() == Some("deno") => {
+      process::setup_deno_plugin(resolved_source, &file_bytes, &dest.process_dir_path, environment).await
+    }
     PluginKind::Process => process::setup_process_plugin(resolved_source, &file_bytes, pre_resolved_tarball, &dest.process_dir_path, environment).await,
   }
 }
@@ -114,8 +126,20 @@ pub async fn create_plugin<TEnvironment: Environment>(
         cache_item
       };
 
-      let executable_path = super::process::get_test_safe_executable_path(&cache_item.info.version, cache_item.file_path, &environment);
-      Ok(Box::new(process::ProcessPlugin::new(environment, executable_path, cache_item.info)))
+      let launch_info = match &cache_item.deno_permissions {
+        Some(permissions) => {
+          let plugin_dir = cache_item.file_path.parent().unwrap_or(&cache_item.file_path);
+          ProcessPluginLaunchInfo {
+            executable: resolve_deno_executable(&environment)?,
+            pre_args: build_deno_pre_args(permissions, plugin_dir, &cache_item.file_path),
+          }
+        }
+        None => {
+          let executable_path = super::process::get_test_safe_executable_path(&cache_item.info.version, cache_item.file_path, &environment);
+          ProcessPluginLaunchInfo::from_executable(executable_path)
+        }
+      };
+      Ok(Box::new(process::ProcessPlugin::new(environment, launch_info, cache_item.info)))
     }
   }
 }
