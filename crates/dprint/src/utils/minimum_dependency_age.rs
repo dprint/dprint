@@ -23,10 +23,14 @@ pub enum MinimumDependencyAge {
 
 impl MinimumDependencyAge {
   /// A whole number of days, as `.npmrc`'s `min-release-age` expresses it.
+  ///
+  /// An absurd number of days saturates rather than overflowing. That rules
+  /// every version out, which is the safe direction to fail for a value that
+  /// asked for more caution than the calendar can express.
   pub fn from_days(days: u64) -> Self {
     match days {
       0 => MinimumDependencyAge::Disabled,
-      days => MinimumDependencyAge::Age(Duration::from_secs(days * 60 * 60 * 24)),
+      days => MinimumDependencyAge::Age(Duration::from_secs(days.saturating_mul(60 * 60 * 24))),
     }
   }
 
@@ -40,6 +44,38 @@ impl MinimumDependencyAge {
       MinimumDependencyAge::Age(age) => Some(now.checked_sub(*age).unwrap_or(SystemTime::UNIX_EPOCH)),
       MinimumDependencyAge::Cutoff(time) => Some(*time),
     }
+  }
+}
+
+/// A `--minimum-dependency-age` value together with the text it was written
+/// as, so a message about a version being held back can quote what the user
+/// actually passed instead of a canonicalized rendering of it (`1440` reading
+/// back as `P1D`, or an absolute cutoff having no text at all).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MinimumDependencyAgeArg {
+  age: MinimumDependencyAge,
+  text: String,
+}
+
+impl MinimumDependencyAgeArg {
+  pub fn age(&self) -> &MinimumDependencyAge {
+    &self.age
+  }
+
+  /// How the value was written on the command line.
+  pub fn text(&self) -> &str {
+    &self.text
+  }
+}
+
+impl FromStr for MinimumDependencyAgeArg {
+  type Err = anyhow::Error;
+
+  fn from_str(text: &str) -> Result<Self> {
+    Ok(MinimumDependencyAgeArg {
+      age: MinimumDependencyAge::from_str(text)?,
+      text: text.trim().to_string(),
+    })
   }
 }
 
@@ -83,12 +119,11 @@ impl FromStr for MinimumDependencyAge {
     }
     // a bare integer is a count of minutes, the same as npm's --before-style config
     if text.bytes().all(|b| b.is_ascii_digit()) {
-      let minutes = text
-        .parse::<u64>()
-        .map_err(|_| anyhow::anyhow!("Minimum dependency age in minutes is too large: '{}'", text))?;
+      let too_large = || anyhow::anyhow!("Minimum dependency age in minutes is too large: '{}'", text);
+      let minutes = text.parse::<u64>().map_err(|_| too_large())?;
       return Ok(match minutes {
         0 => MinimumDependencyAge::Disabled,
-        minutes => MinimumDependencyAge::Age(Duration::from_secs(minutes * 60)),
+        minutes => MinimumDependencyAge::Age(Duration::from_secs(minutes.checked_mul(60).ok_or_else(too_large)?)),
       });
     }
     if text.starts_with('P') || text.starts_with('p') {
@@ -106,11 +141,6 @@ impl FromStr for MinimumDependencyAge {
   }
 }
 
-const INVALID_VALUE_MESSAGE: &str = concat!(
-  "Invalid minimum dependency age. Expected an ISO-8601 duration (ex. 'P3D' or 'PT72H'), ",
-  "a number of minutes (ex. '1440'), a date (ex. '2026-01-15') or RFC3339 timestamp, or '0' to disable.",
-);
-
 /// Parses an RFC3339 timestamp (as npm publishes in a packument's `time`
 /// property) or a plain `YYYY-MM-DD` date, which is taken as midnight UTC.
 ///
@@ -120,7 +150,9 @@ const INVALID_VALUE_MESSAGE: &str = concat!(
 pub fn parse_rfc3339(text: &str) -> Option<SystemTime> {
   let (date, rest) = text.split_once(['T', 't']).unwrap_or((text, ""));
   let mut date_parts = date.splitn(3, '-');
-  let year = date_parts.next()?.parse::<i64>().ok()?;
+  // RFC3339 years are four digits, and holding to that keeps the civil-date
+  // arithmetic below well within range for any year that can be written
+  let year = date_parts.next().filter(|year| year.len() == 4)?.parse::<i64>().ok()?;
   let month = date_parts.next()?.parse::<u32>().ok()?;
   let day = date_parts.next()?.parse::<u32>().ok()?;
   if !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
@@ -154,6 +186,11 @@ pub fn parse_rfc3339(text: &str) -> Option<SystemTime> {
     SystemTime::UNIX_EPOCH.checked_sub(Duration::from_secs(seconds.unsigned_abs()))
   }
 }
+
+const INVALID_VALUE_MESSAGE: &str = concat!(
+  "Invalid minimum dependency age. Expected an ISO-8601 duration (ex. 'P3D' or 'PT72H'), ",
+  "a number of minutes (ex. '1440'), a date (ex. '2026-01-15') or RFC3339 timestamp, or '0' to disable.",
+);
 
 /// Splits a timestamp's time portion from its UTC offset, returning the offset
 /// in seconds. A timestamp with no offset is read as UTC — npm always publishes
@@ -287,9 +324,9 @@ mod test {
     assert_eq!(age_secs("P3D"), 3 * 86400);
     assert_eq!(age_secs("PT72H"), 72 * 3600);
     assert_eq!(age_secs("P1W"), 7 * 86400);
+    // the date part's `M` is months while the time part's is minutes
     assert_eq!(age_secs("P1DT12H30M15S"), 86400 + 12 * 3600 + 30 * 60 + 15);
     assert_eq!(age_secs("PT30M"), 30 * 60);
-    // the date part's `M` is months while the time part's is minutes
     assert_eq!(age_secs("p2d"), 2 * 86400);
   }
 
@@ -323,9 +360,43 @@ mod test {
   }
 
   #[test]
+  fn rejects_a_number_of_minutes_that_would_overflow() {
+    // the value parses as a u64 and only overflows on the conversion to
+    // seconds, so the guard has to sit on the multiply
+    for text in ["307445734561825861", "18446744073709551615"] {
+      let err = parse(text).unwrap_err().to_string();
+      assert!(err.contains("too large"), "expected '{}' to be rejected, got: {}", text, err);
+    }
+    assert_eq!(age_secs("307445734561825860"), 307445734561825860 * 60);
+  }
+
+  #[test]
+  fn rejects_a_year_that_is_not_four_digits() {
+    // an unbounded year would overflow the civil-date arithmetic
+    for text in ["9223372036854775807-01-01", "25000000000000000-01-01", "999-01-01", "20260-01-01"] {
+      assert_eq!(parse_rfc3339(text), None, "expected '{}' to be unreadable", text);
+    }
+    assert!(parse_rfc3339("9999-12-31").is_some());
+  }
+
+  #[test]
   fn from_days_matches_npmrc_semantics() {
     assert_eq!(MinimumDependencyAge::from_days(0), MinimumDependencyAge::Disabled);
     assert_eq!(MinimumDependencyAge::from_days(3), MinimumDependencyAge::Age(Duration::from_secs(3 * 86400)));
+    // an absurd .npmrc value saturates rather than overflowing, ruling every
+    // version out instead of wrapping to a tiny age
+    assert_eq!(
+      MinimumDependencyAge::from_days(u64::MAX),
+      MinimumDependencyAge::Age(Duration::from_secs(u64::MAX))
+    );
+  }
+
+  #[test]
+  fn arg_keeps_the_text_it_was_written_as() {
+    let arg = MinimumDependencyAgeArg::from_str(" 1440 ").unwrap();
+    assert_eq!(*arg.age(), MinimumDependencyAge::Age(Duration::from_secs(1440 * 60)));
+    assert_eq!(arg.text(), "1440");
+    assert!(MinimumDependencyAgeArg::from_str("nonsense").is_err());
   }
 
   #[test]

@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::environment::Environment;
 use crate::utils::LogLevel;
-use crate::utils::MinimumDependencyAge;
+use crate::utils::MinimumDependencyAgeArg;
 use crate::utils::StdInReader;
 
 #[derive(Debug, Clone, Copy)]
@@ -208,13 +208,13 @@ pub enum ConfigSubCommand {
     global: bool,
     /// Skip the interactive plugin prompt and accept the smart defaults.
     yes: bool,
-    minimum_dependency_age: Option<MinimumDependencyAge>,
+    minimum_dependency_age: Option<MinimumDependencyAgeArg>,
   },
   Update {
     yes: bool,
     /// Print the updates that would be made without modifying any files.
     dry_run: bool,
-    minimum_dependency_age: Option<MinimumDependencyAge>,
+    minimum_dependency_age: Option<MinimumDependencyAgeArg>,
   },
   Add {
     names: Vec<String>,
@@ -232,7 +232,7 @@ pub enum ConfigSubCommand {
     /// Don't resolve an npm plugin version published more recently than this.
     /// Only applies to versions dprint picks — a version the user wrote out
     /// themselves is written as-is.
-    minimum_dependency_age: Option<MinimumDependencyAge>,
+    minimum_dependency_age: Option<MinimumDependencyAgeArg>,
   },
   Edit,
 }
@@ -330,9 +330,9 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
 
   /// Parses `--minimum-dependency-age`. `None` leaves the age to any
   /// `min-release-age` an .npmrc sets.
-  fn parse_minimum_dependency_age(matches: &ArgMatches) -> Result<Option<MinimumDependencyAge>> {
+  fn parse_minimum_dependency_age(matches: &ArgMatches) -> Result<Option<MinimumDependencyAgeArg>> {
     match matches.get_one::<String>("minimum-dependency-age") {
-      Some(text) => Ok(Some(MinimumDependencyAge::from_str(text)?)),
+      Some(text) => Ok(Some(MinimumDependencyAgeArg::from_str(text)?)),
       None => Ok(None),
     }
   }
@@ -661,7 +661,7 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
       .value_name("AGE")
       .help(concat!(
         "Don't resolve npm plugin versions published more recently than this. Accepts an ISO-8601 duration ",
-        "(ex. 'P3D', 'PT72H'), a number of minutes (ex. '1440'), a date (ex. '2026-01-15'), or '0' to disable. ",
+        "(ex. 'P3D', 'PT72H'), a number of minutes (ex. '1440'), a date or RFC3339 timestamp (ex. '2026-01-15'), or '0' to disable. ",
         "Defaults to min-release-age in .npmrc, otherwise no minimum.",
       ))
       .num_args(1)
@@ -1124,6 +1124,7 @@ mod test {
   use crate::utils::TestStdInReader;
 
   use super::*;
+  use crate::utils::MinimumDependencyAge;
 
   #[test]
   fn output_prefixed_command_aliases() {
@@ -1379,10 +1380,10 @@ mod test {
     let args = test_args(vec!["add", "--minimum-dependency-age", "P3D", "npm:@dprint/typescript"]).unwrap();
     match &args.sub_command {
       SubCommand::Config(ConfigSubCommand::Add { minimum_dependency_age, .. }) => {
-        assert_eq!(
-          *minimum_dependency_age,
-          Some(MinimumDependencyAge::Age(std::time::Duration::from_secs(3 * 86400)))
-        );
+        let arg = minimum_dependency_age.as_ref().unwrap();
+        assert_eq!(*arg.age(), MinimumDependencyAge::Age(std::time::Duration::from_secs(3 * 86400)));
+        // the text is kept as written so messages can quote it back
+        assert_eq!(arg.text(), "P3D");
       }
       _ => unreachable!(),
     }
@@ -1392,14 +1393,17 @@ mod test {
     let args = test_args(vec!["config", "update", "--minimum-dependency-age", "0"]).unwrap();
     match &args.sub_command {
       SubCommand::Config(ConfigSubCommand::Update { minimum_dependency_age, .. }) => {
-        assert_eq!(*minimum_dependency_age, Some(MinimumDependencyAge::Disabled));
+        assert_eq!(*minimum_dependency_age.as_ref().unwrap().age(), MinimumDependencyAge::Disabled);
       }
       _ => unreachable!(),
     }
     let args = test_args(vec!["init", "--minimum-dependency-age", "1440"]).unwrap();
     match &args.sub_command {
       SubCommand::Config(ConfigSubCommand::Init { minimum_dependency_age, .. }) => {
-        assert_eq!(*minimum_dependency_age, Some(MinimumDependencyAge::Age(std::time::Duration::from_secs(86400))));
+        assert_eq!(
+          *minimum_dependency_age.as_ref().unwrap().age(),
+          MinimumDependencyAge::Age(std::time::Duration::from_secs(86400))
+        );
       }
       _ => unreachable!(),
     }

@@ -10,11 +10,12 @@ use jsonc_parser::cst::CstRootNode;
 use crate::environment::DirEntry;
 use crate::environment::Environment;
 use crate::plugins::InfoFilePluginInfo;
+use crate::plugins::MinimumDependencyAgeError;
 use crate::plugins::ResolveNpmLatestOptions;
 use crate::plugins::read_info_file;
 use crate::plugins::resolve_dependency_age_cutoff;
 use crate::utils::DependencyAgeCutoff;
-use crate::utils::MinimumDependencyAge;
+use crate::utils::MinimumDependencyAgeArg;
 
 /// Maximum number of files to look at when scanning the current directory to
 /// decide which plugins to pre-select. Keeps `dprint init` fast in large repos.
@@ -29,7 +30,7 @@ pub struct GetInitConfigFileTextOptions {
   /// on the files in the current directory.
   pub non_interactive: bool,
   /// Don't write an npm plugin version published more recently than this.
-  pub minimum_dependency_age: Option<MinimumDependencyAge>,
+  pub minimum_dependency_age: Option<MinimumDependencyAgeArg>,
 }
 
 pub async fn get_init_config_file_text(environment: &impl Environment, options: GetInitConfigFileTextOptions) -> Result<String> {
@@ -98,7 +99,9 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
         .iter()
         .map(|&index| resolve_plugin_entry(&latest_plugins[index], age_cutoff.as_ref(), environment)),
     )
-    .await;
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>>>()?;
     let selected_plugins = selected_indexes
       .into_iter()
       .zip(entries)
@@ -138,19 +141,23 @@ struct SelectedPlugin {
 /// source of truth for the version), otherwise its url.
 ///
 /// A registry lookup that fails falls back to the url with a warning — `init`
-/// is best-effort and a starting point is more useful than no config file.
+/// is best-effort and a starting point is more useful than no config file. The
+/// one failure that isn't fallen back from is a minimum dependency age holding
+/// every version back: the url names the plugin's newest release, so writing
+/// it would hand back the very version the age ruled out.
 ///
 /// The npm registry is resolved from the current directory: that's where the
 /// config file lands in the normal case, and where the user ran the command in
 /// any case.
-async fn resolve_plugin_entry(plugin: &InfoFilePluginInfo, age_cutoff: Option<&DependencyAgeCutoff>, environment: &impl Environment) -> String {
+async fn resolve_plugin_entry(plugin: &InfoFilePluginInfo, age_cutoff: Option<&DependencyAgeCutoff>, environment: &impl Environment) -> Result<String> {
   let options = ResolveNpmLatestOptions {
     force_checksum: false,
     base_dir: Some(environment.cwd()),
     minimum_dependency_age: age_cutoff.cloned(),
   };
   match plugin.resolve_npm(environment, options).await {
-    Some(Ok(resolved)) => resolved.config_file_entry(),
+    Some(Ok(resolved)) => Ok(resolved.config_file_entry()),
+    Some(Err(err)) if err.downcast_ref::<MinimumDependencyAgeError>().is_some() => Err(err),
     Some(Err(err)) => {
       log_warn!(
         environment,
@@ -158,9 +165,9 @@ async fn resolve_plugin_entry(plugin: &InfoFilePluginInfo, age_cutoff: Option<&D
         plugin.name,
         err
       );
-      plugin.full_url_no_wasm_checksum()
+      Ok(plugin.full_url_no_wasm_checksum())
     }
-    None => plugin.full_url_no_wasm_checksum(),
+    None => Ok(plugin.full_url_no_wasm_checksum()),
   }
 }
 
@@ -1049,25 +1056,25 @@ mod test {
       // 1.1.0 landed the day before "now", so the release before it is written
       assert!(text.contains("\"npm:@dprint/a@1.0.0\""), "{text}");
       let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
-      expected_messages.push("Using @dprint/a 1.0.0 instead of 1.1.0, which is newer than the minimum dependency age (--minimum-dependency-age P3D).");
+      expected_messages.push("Using @dprint/a 1.0.0 instead of 1.1.0, which is newer than the minimum dependency age allows (--minimum-dependency-age P3D).");
       assert_eq!(environment.take_stderr_messages(), expected_messages);
     });
   }
 
   #[test]
-  fn should_fall_back_to_the_url_when_no_npm_version_is_old_enough() {
-    // init is best-effort, so a package with nothing old enough keeps the url
-    // from the info file rather than failing the command
+  fn should_error_when_no_npm_version_is_old_enough() {
+    // init falls back to a plugin's url when the registry can't be reached,
+    // but not here: the url names the newest release, so falling back would
+    // write the very version the age ruled out
     let environment = age_test_builder("2099-12-31T00:00:00Z").build();
     environment.set_fs_time(AGE_TEST_NOW);
     environment.clone().run_in_runtime(async move {
-      let text = get_init_config_file_text(&environment, age_test_options("P400D")).await.unwrap();
-      assert!(text.contains("\"https://plugins.dprint.dev/a-1.0.0.wasm\""), "{text}");
-      let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
-      expected_messages.push(
-        "Failed resolving the npm package for a. Using its url instead. No version of @dprint/a is older than the minimum dependency age (--minimum-dependency-age P400D). Its most recent version is 1.1.0.",
+      let err = get_init_config_file_text(&environment, age_test_options("P400D")).await.err().unwrap();
+      assert_eq!(
+        err.to_string(),
+        "No version of @dprint/a at or below 1.1.0 is old enough for the minimum dependency age (--minimum-dependency-age P400D)."
       );
-      assert_eq!(environment.take_stderr_messages(), expected_messages);
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages_no_plugin_selection());
     });
   }
 
@@ -1113,7 +1120,7 @@ mod test {
     use std::str::FromStr;
     GetInitConfigFileTextOptions {
       non_interactive: true,
-      minimum_dependency_age: Some(MinimumDependencyAge::from_str(age).unwrap()),
+      minimum_dependency_age: Some(MinimumDependencyAgeArg::from_str(age).unwrap()),
     }
   }
 

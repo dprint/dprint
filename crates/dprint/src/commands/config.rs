@@ -44,7 +44,7 @@ use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::utils::CachedDownloader;
 use crate::utils::DependencyAgeCutoff;
-use crate::utils::MinimumDependencyAge;
+use crate::utils::MinimumDependencyAgeArg;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::pretty_print_json_text;
@@ -55,7 +55,7 @@ pub struct InitConfigFileOptions<'a> {
   /// Skip the interactive plugin prompt and accept the smart defaults.
   pub non_interactive: bool,
   /// Don't write an npm plugin version published more recently than this.
-  pub minimum_dependency_age: Option<MinimumDependencyAge>,
+  pub minimum_dependency_age: Option<MinimumDependencyAgeArg>,
 }
 
 pub async fn init_config_file(environment: &impl Environment, options: InitConfigFileOptions<'_>) -> Result<()> {
@@ -163,7 +163,7 @@ pub struct AddPluginsOptions<'a> {
   pub checksum: bool,
   /// Don't resolve a version published more recently than this. A version the
   /// user wrote out themselves is always written as-is.
-  pub minimum_dependency_age: Option<MinimumDependencyAge>,
+  pub minimum_dependency_age: Option<MinimumDependencyAgeArg>,
 }
 
 pub async fn add_plugin_config_file<TEnvironment: Environment>(
@@ -791,7 +791,7 @@ pub struct UpdatePluginsOptions {
   /// Print the updates that would be made without modifying any files.
   pub dry_run: bool,
   /// Hold plugins back from npm versions published more recently than this.
-  pub minimum_dependency_age: Option<MinimumDependencyAge>,
+  pub minimum_dependency_age: Option<MinimumDependencyAgeArg>,
 }
 
 pub async fn update_plugins_config_file<TEnvironment: Environment>(
@@ -1256,12 +1256,19 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
       };
       match fetch_npm_latest_info(args, environment).await {
         // an update should never take the user backwards, which the registry's
-        // latest tag can do (ex. a version was unpublished)
+        // latest tag can do (ex. a version was unpublished) and which the
+        // minimum dependency age can do by holding a newer release back
         Ok(info) if is_version_downgrade(current_version, &info.version) => {
+          let reason = if context.age_cutoff.is_some() {
+            "The newest version old enough for the minimum dependency age"
+          } else {
+            "Its package's latest version"
+          };
           log_warn!(
             environment,
-            "Skipping {}. Its package's latest version ({}) is older than the {} in use.",
+            "Skipping {}. {} ({}) is older than the {} in use.",
             plugin.info().name,
+            reason,
             info.version,
             current_version,
           );
@@ -3445,7 +3452,7 @@ mod test {
     environment: &TestEnvironment,
   ) -> Result<super::ResolvedNpmPluginAdd> {
     use std::str::FromStr;
-    let age = crate::utils::MinimumDependencyAge::from_str(age).unwrap();
+    let age = crate::utils::MinimumDependencyAgeArg::from_str(age).unwrap();
     let cutoff = crate::plugins::resolve_dependency_age_cutoff(Some(&age), None, environment);
     let plugin_resolver = test_plugin_resolver(environment);
     let result = super::resolve_npm_plugin_to_add(
@@ -3522,7 +3529,10 @@ mod test {
 
     let message = format!("{err:#}");
     assert!(message.contains("Resolving latest version for package.json entry of foo"), "got: {message}");
-    assert!(message.contains("No version of foo is older than the minimum dependency age"), "got: {message}");
+    assert!(
+      message.contains("No version of foo at or below 1.1.0 is old enough for the minimum dependency age"),
+      "got: {message}"
+    );
   }
 
   #[tokio::test]
@@ -3562,7 +3572,7 @@ mod test {
 
     assert_eq!(
       err.to_string(),
-      "No version of foo is older than the minimum dependency age (--minimum-dependency-age P400D). Its most recent version is 1.1.0."
+      "No version of foo at or below 1.1.0 is old enough for the minimum dependency age (--minimum-dependency-age P400D)."
     );
   }
 
@@ -4168,9 +4178,8 @@ mod test {
     assert!(dprint_json.contains("\"npm:@dprint/test-plugin@0.2.0\""), "got: {dprint_json}");
     let stderr = environment.take_stderr_messages();
     assert!(
-      stderr
-        .iter()
-        .any(|m| m.contains("Using @dprint/test-plugin 0.2.0 instead of 0.3.0, which is newer than the minimum dependency age (min-release-age=3 in .npmrc).")),
+      stderr.iter().any(|m| m
+        .contains("Using @dprint/test-plugin 0.2.0 instead of 0.3.0, which is newer than the minimum dependency age allows (min-release-age=3 in .npmrc).")),
       "got: {stderr:?}"
     );
     let _ = environment.take_stdout_messages();
@@ -4764,7 +4773,7 @@ mod test {
       stderr
         .iter()
         .any(|m| m
-          .contains("Skipping test-plugin. No version of @dprint/test-plugin is older than the minimum dependency age (--minimum-dependency-age P365000D).")),
+          .contains("Skipping test-plugin. No version of @dprint/test-plugin at or below 0.3.0 is old enough for the minimum dependency age (--minimum-dependency-age P365000D).")),
       "got: {stderr:?}"
     );
   }
@@ -4951,7 +4960,7 @@ mod test {
     assert!(
       stderr
         .iter()
-        .any(|m| m.contains("Skipping test-plugin. Its package's latest version (0.2.0) is older than the 0.3.0 in use.")),
+        .any(|m| m.contains("Skipping test-plugin. The newest version old enough for the minimum dependency age (0.2.0) is older than the 0.3.0 in use.")),
       "got: {stderr:?}"
     );
   }
@@ -5007,7 +5016,7 @@ mod test {
     let stderr = environment.take_stderr_messages();
     assert!(
       stderr.iter().any(|m| m.contains(
-        "Not moving test-plugin to npm yet. No version of @dprint/test-plugin is older than the minimum dependency age (--minimum-dependency-age P365000D)."
+        "Not moving test-plugin to npm yet. No version of @dprint/test-plugin at or below 0.3.0 is old enough for the minimum dependency age (--minimum-dependency-age P365000D)."
       )),
       "got: {stderr:?}"
     );

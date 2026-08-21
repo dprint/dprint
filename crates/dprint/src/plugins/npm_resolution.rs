@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use anyhow::Context;
+use anyhow::Error;
 use anyhow::Result;
 use anyhow::bail;
 use flate2::read::GzDecoder;
@@ -14,6 +15,7 @@ use deno_semver::Version;
 use crate::environment::Environment;
 use crate::utils::DependencyAgeCutoff;
 use crate::utils::MinimumDependencyAge;
+use crate::utils::MinimumDependencyAgeArg;
 use crate::utils::NpmSpecifier;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
@@ -180,6 +182,40 @@ pub fn detect_npm_plugin_kind_in_node_modules(package_name: &str, start_dir: &Pa
   }
 }
 
+/// Resolves the minimum dependency age in effect, checking (in order):
+/// 1. the `--minimum-dependency-age` flag
+/// 2. `min-release-age` in the nearest .npmrc walking up from `start_dir`
+/// 3. `min-release-age` in ~/.npmrc
+///
+/// `None` means no age requirement, which is dprint's default — a version is
+/// only held back when the user asks for it.
+pub fn resolve_dependency_age_cutoff(
+  flag: Option<&MinimumDependencyAgeArg>,
+  start_dir: Option<&Path>,
+  environment: &impl Environment,
+) -> Option<DependencyAgeCutoff> {
+  let now = environment.sys_time_now();
+  // an explicit flag decides it, including `--minimum-dependency-age=0`
+  // turning off an age an .npmrc would otherwise set
+  if let Some(flag) = flag {
+    return DependencyAgeCutoff::new(flag.age(), format!("--minimum-dependency-age {}", flag.text()), now);
+  }
+  let days = resolve_min_release_age_days(start_dir, environment)?;
+  DependencyAgeCutoff::new(&MinimumDependencyAge::from_days(days), format!("min-release-age={} in .npmrc", days), now)
+}
+
+/// No published version of a package is old enough to satisfy the configured
+/// minimum dependency age. Distinguished from other resolution failures so
+/// `dprint config update` can leave the plugin where it is instead of
+/// reporting an error.
+#[derive(Debug, thiserror::Error)]
+#[error("No version of {name} at or below {latest} is old enough for the minimum dependency age ({configured}).")]
+pub struct MinimumDependencyAgeError {
+  pub name: String,
+  pub latest: String,
+  pub configured: String,
+}
+
 /// Fetches and parses a package's packument, returning it alongside the URL it
 /// was fetched from (needed for the same-origin check when downloading the
 /// tarball).
@@ -200,15 +236,15 @@ async fn fetch_packument(name: &str, registry: &NpmRegistryResolution, environme
 /// used instead — the newest release is the one a supply chain attack lands
 /// in, so holding off on it for a few days is what the option buys.
 ///
-/// Only stable versions at or below `dist-tags.latest` are considered, so a
-/// package publishing a `next` prerelease can't have it selected here by a
-/// walk back that the user didn't ask for.
+/// Only versions at or below `dist-tags.latest` are considered, and
+/// prereleases are passed over unless the latest tag is itself one — so a
+/// package publishing a `next` prerelease can't have it selected by a walk
+/// back the user didn't ask for, while a package with nothing but prereleases
+/// still resolves.
 ///
-/// A registry that reports no publish date for the latest version is taken at
-/// its word with a warning: the age can't be checked, and failing every add
-/// against a registry that doesn't serve `time` would be worse than saying so.
-/// Once there is a date to compare against, though, a version *missing* one is
-/// passed over rather than silently selected in place of the newest release.
+/// A version the registry reports no publish date for can't be shown to be
+/// too new, so it stays eligible and the caller is warned. Failing against a
+/// registry that doesn't serve `time` would be worse than saying so.
 fn select_version_from_packument(
   packument: &serde_json::Value,
   name: &str,
@@ -243,34 +279,54 @@ fn select_version_from_packument(
     Some(_) => {} // too new — fall through and walk back
   }
 
-  let latest_version = Version::parse_from_npm(&latest).ok();
+  // a latest tag that isn't a version leaves nothing to measure the rest of
+  // the package against, so the walk back is refused rather than run without
+  // its ceiling — which would let it reach past the release the tag names
+  let Ok(latest_version) = Version::parse_from_npm(&latest) else {
+    return Err(too_new_error(name, &latest, cutoff));
+  };
+  // a package whose latest tag is itself a prerelease has nothing but
+  // prereleases to walk back through, so they're only passed over when there's
+  // a stable line to walk back along
+  let allow_prerelease = !latest_version.pre.is_empty();
   let mut best: Option<(Version, &str)> = None;
+  let mut best_is_undated = false;
   for version_text in packument.get("versions").and_then(|v| v.as_object()).into_iter().flatten().map(|(key, _)| key) {
     let Ok(version) = Version::parse_from_npm(version_text) else {
       continue;
     };
-    if !version.pre.is_empty() {
+    if !allow_prerelease && !version.pre.is_empty() {
       continue;
     }
-    if latest_version.as_ref().is_some_and(|latest_version| version > *latest_version) {
+    if version > latest_version {
       continue;
     }
-    let Some(published) = published_time(times, version_text) else {
-      continue;
-    };
-    if cutoff.is_too_new(published) {
+    // a version the registry reports no date for can't be shown to be too new,
+    // so it stays in the running (matching what happens when the latest version
+    // has no date) and the caller is warned about the one that gets picked
+    let published = published_time(times, version_text);
+    if published.is_some_and(|published| cutoff.is_too_new(published)) {
       continue;
     }
     if best.as_ref().is_none_or(|(best, _)| version > *best) {
+      best_is_undated = published.is_none();
       best = Some((version, version_text));
     }
   }
 
   match best {
     Some((_, version)) => {
+      if best_is_undated {
+        log_warn!(
+          environment,
+          "Could not check the age of {}@{} — its registry doesn't report when it was published. Using it anyway.",
+          name,
+          version
+        );
+      }
       log_stderr_info!(
         environment,
-        "Using {} {} instead of {}, which is newer than the minimum dependency age ({}).",
+        "Using {} {} instead of {}, which is newer than the minimum dependency age allows ({}).",
         name,
         version,
         latest,
@@ -278,55 +334,25 @@ fn select_version_from_packument(
       );
       Ok(version.to_string())
     }
-    None => Err(
-      MinimumDependencyAgeError {
-        name: name.to_string(),
-        latest,
-        configured: cutoff.description().to_string(),
-      }
-      .into(),
-    ),
+    None => Err(too_new_error(name, &latest, cutoff)),
   }
 }
 
-/// No published version of a package is old enough to satisfy the configured
-/// minimum dependency age. Distinguished from other resolution failures so
-/// `dprint config update` can leave the plugin where it is instead of
-/// reporting an error.
-#[derive(Debug, thiserror::Error)]
-#[error("No version of {name} is older than the minimum dependency age ({configured}). Its most recent version is {latest}.")]
-pub struct MinimumDependencyAgeError {
-  pub name: String,
-  pub latest: String,
-  pub configured: String,
+/// The error for a package with nothing left to select once the minimum
+/// dependency age has ruled its newest releases out.
+fn too_new_error(name: &str, latest: &str, cutoff: &DependencyAgeCutoff) -> Error {
+  MinimumDependencyAgeError {
+    name: name.to_string(),
+    latest: latest.to_string(),
+    configured: cutoff.description().to_string(),
+  }
+  .into()
 }
 
 /// When a packument says a version was published, or `None` when it reports no
 /// date for it (or one this dprint can't read).
 fn published_time(times: &serde_json::Map<String, serde_json::Value>, version: &str) -> Option<SystemTime> {
   parse_rfc3339(times.get(version)?.as_str()?)
-}
-
-/// Resolves the minimum dependency age in effect, checking (in order):
-/// 1. the `--minimum-dependency-age` flag
-/// 2. `min-release-age` in the nearest .npmrc walking up from `start_dir`
-/// 3. `min-release-age` in ~/.npmrc
-///
-/// `None` means no age requirement, which is dprint's default — a version is
-/// only held back when the user asks for it.
-pub fn resolve_dependency_age_cutoff(
-  flag: Option<&MinimumDependencyAge>,
-  start_dir: Option<&Path>,
-  environment: &impl Environment,
-) -> Option<DependencyAgeCutoff> {
-  let now = environment.sys_time_now();
-  // an explicit flag decides it, including `--minimum-dependency-age=0`
-  // turning off an age an .npmrc would otherwise set
-  if let Some(age) = flag {
-    return DependencyAgeCutoff::new(age, describe_age_flag(age), now);
-  }
-  let days = resolve_min_release_age_days(start_dir, environment)?;
-  DependencyAgeCutoff::new(&MinimumDependencyAge::from_days(days), format!("min-release-age={} in .npmrc", days), now)
 }
 
 /// Reads `min-release-age` (a whole number of days) from the nearest .npmrc
@@ -347,34 +373,6 @@ fn resolve_min_release_age_days(start_dir: Option<&Path>, environment: &impl Env
   }
   let home_dir = environment.get_home_dir()?;
   read(&home_dir.join(".npmrc"), environment)
-}
-
-/// How a `--minimum-dependency-age` value reads back in a message. An absolute
-/// cutoff has no text of its own to echo, so it's described by what it does.
-fn describe_age_flag(age: &MinimumDependencyAge) -> String {
-  match age {
-    MinimumDependencyAge::Cutoff(_) => "--minimum-dependency-age".to_string(),
-    _ => format!("--minimum-dependency-age {}", DurationText(age)),
-  }
-}
-
-/// Renders an age back as an approximate ISO-8601 duration for messages.
-struct DurationText<'a>(&'a MinimumDependencyAge);
-
-impl std::fmt::Display for DurationText<'_> {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    let seconds = match self.0 {
-      MinimumDependencyAge::Age(age) => age.as_secs(),
-      _ => 0,
-    };
-    if seconds % (60 * 60 * 24) == 0 {
-      write!(f, "P{}D", seconds / (60 * 60 * 24))
-    } else if seconds % (60 * 60) == 0 {
-      write!(f, "PT{}H", seconds / (60 * 60))
-    } else {
-      write!(f, "PT{}M", seconds / 60)
-    }
-  }
 }
 
 /// Reads `dist-tags.latest` from a packument.
@@ -1550,7 +1548,7 @@ mod tests {
     let environment = TestEnvironment::new();
     environment.set_fs_time(NOW);
     environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
-    let age = MinimumDependencyAge::from_str(age).unwrap();
+    let age = MinimumDependencyAgeArg::from_str(age).unwrap();
     let cutoff = resolve_dependency_age_cutoff(Some(&age), None, &environment);
     let result = resolve_npm_latest_version("foo", None, cutoff.as_ref(), &environment).await;
     let logged = environment.take_stderr_messages();
@@ -1580,7 +1578,7 @@ mod tests {
     assert_eq!(version.unwrap(), "1.0.1");
     assert_eq!(
       logged,
-      vec!["Using foo 1.0.1 instead of 1.1.0, which is newer than the minimum dependency age (--minimum-dependency-age P3D).".to_string()]
+      vec!["Using foo 1.0.1 instead of 1.1.0, which is newer than the minimum dependency age allows (--minimum-dependency-age P3D).".to_string()]
     );
   }
 
@@ -1602,7 +1600,9 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn minimum_dependency_age_passes_over_a_version_with_no_publish_date() {
+  async fn minimum_dependency_age_keeps_a_version_with_no_publish_date_in_the_running() {
+    // an undated version can't be shown to be too new, so it stays eligible
+    // and the caller is told the age couldn't be checked for it
     let packument = packument_with_times(
       "1.1.0",
       &[
@@ -1611,8 +1611,38 @@ mod tests {
         ("1.1.0", Some("2024-05-09T00:00:00Z")),
       ],
     );
+    let (version, logged) = resolve_version_with_age(packument, "P3D").await;
+    assert_eq!(version.unwrap(), "1.0.5");
+    assert_eq!(
+      logged,
+      vec![
+        "Could not check the age of foo@1.0.5 — its registry doesn't report when it was published. Using it anyway.".to_string(),
+        "Using foo 1.0.5 instead of 1.1.0, which is newer than the minimum dependency age allows (--minimum-dependency-age P3D).".to_string(),
+      ]
+    );
+  }
+
+  #[tokio::test]
+  async fn minimum_dependency_age_walks_back_through_prereleases_when_latest_is_one() {
+    // a package whose latest tag is a prerelease has nothing but prereleases
+    // to walk back through, so skipping them would leave it unresolvable
+    let packument = packument_with_times(
+      "1.0.0-rc.2",
+      &[("1.0.0-rc.1", Some("2024-01-01T00:00:00Z")), ("1.0.0-rc.2", Some("2024-05-09T00:00:00Z"))],
+    );
     let (version, _) = resolve_version_with_age(packument, "P3D").await;
-    assert_eq!(version.unwrap(), "1.0.0");
+    assert_eq!(version.unwrap(), "1.0.0-rc.1");
+  }
+
+  #[tokio::test]
+  async fn minimum_dependency_age_refuses_to_walk_back_without_a_ceiling() {
+    // a latest tag that isn't a version leaves nothing to bound the walk back,
+    // which would otherwise reach past the release the tag names
+    let mut packument = packument_with_times("1.0.0", &[("1.0.0", Some("2024-05-09T00:00:00Z")), ("2.0.0", Some("2024-01-01T00:00:00Z"))]);
+    packument["dist-tags"]["latest"] = serde_json::json!("not-a-version");
+    packument["time"]["not-a-version"] = serde_json::json!("2024-05-09T00:00:00Z");
+    let (result, _) = resolve_version_with_age(packument, "P3D").await;
+    assert!(result.unwrap_err().downcast_ref::<MinimumDependencyAgeError>().is_some());
   }
 
   #[tokio::test]
@@ -1622,7 +1652,7 @@ mod tests {
     let err = result.unwrap_err();
     assert_eq!(
       err.to_string(),
-      "No version of foo is older than the minimum dependency age (--minimum-dependency-age P3D). Its most recent version is 1.1.0."
+      "No version of foo at or below 1.1.0 is old enough for the minimum dependency age (--minimum-dependency-age P3D)."
     );
     assert!(err.downcast_ref::<MinimumDependencyAgeError>().is_some(), "expected the age error type");
   }
@@ -1676,12 +1706,12 @@ mod tests {
     assert!(!cutoff.is_too_new(parse_rfc3339("2024-05-06T00:00:00Z").unwrap()));
 
     // the flag wins over the .npmrc, including when it turns the age off
-    let flag = MinimumDependencyAge::from_str("P1D").unwrap();
+    let flag = MinimumDependencyAgeArg::from_str("P1D").unwrap();
     let cutoff = resolve_dependency_age_cutoff(Some(&flag), Some(Path::new("/repo/sub")), &environment).unwrap();
     assert_eq!(cutoff.description(), "--minimum-dependency-age P1D");
     assert!(!cutoff.is_too_new(parse_rfc3339("2024-05-08T00:00:00Z").unwrap()));
 
-    let off = MinimumDependencyAge::from_str("0").unwrap();
+    let off = MinimumDependencyAgeArg::from_str("0").unwrap();
     assert_eq!(resolve_dependency_age_cutoff(Some(&off), Some(Path::new("/repo/sub")), &environment), None);
   }
 
@@ -1712,19 +1742,19 @@ mod tests {
   }
 
   #[test]
-  fn resolve_dependency_age_cutoff_describes_ages_that_are_not_whole_days() {
+  fn resolve_dependency_age_cutoff_describes_the_value_as_it_was_written() {
     use crate::environment::TestEnvironment;
     use std::str::FromStr;
     let environment = TestEnvironment::new();
     environment.set_fs_time(NOW);
     let describe = |text: &str| {
-      let age = MinimumDependencyAge::from_str(text).unwrap();
+      let age = MinimumDependencyAgeArg::from_str(text).unwrap();
       resolve_dependency_age_cutoff(Some(&age), None, &environment).unwrap().description().to_string()
     };
     assert_eq!(describe("PT36H"), "--minimum-dependency-age PT36H");
-    assert_eq!(describe("90"), "--minimum-dependency-age PT90M");
-    // an absolute cutoff has no duration to echo back
-    assert_eq!(describe("2024-05-05"), "--minimum-dependency-age");
+    // the value is quoted back as the user typed it rather than canonicalized
+    assert_eq!(describe("90"), "--minimum-dependency-age 90");
+    assert_eq!(describe("2024-05-05"), "--minimum-dependency-age 2024-05-05");
   }
 
   #[tokio::test]
@@ -1735,7 +1765,7 @@ mod tests {
     assert_eq!(version.unwrap(), "1.0.0");
     assert_eq!(
       logged,
-      vec!["Using foo 1.0.0 instead of 1.1.0, which is newer than the minimum dependency age (--minimum-dependency-age).".to_string()]
+      vec!["Using foo 1.0.0 instead of 1.1.0, which is newer than the minimum dependency age allows (--minimum-dependency-age 2024-05-05).".to_string()]
     );
   }
 
