@@ -1686,6 +1686,60 @@ mod tests {
   }
 
   #[test]
+  fn resolve_dependency_age_cutoff_falls_back_to_the_home_npmrc() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.set_fs_time(NOW);
+    environment.mk_dir_all("/home").unwrap();
+    environment.mk_dir_all("/repo").unwrap();
+    environment.write_file("/home/.npmrc", "min-release-age=5").unwrap();
+
+    // nothing above the start dir sets it, so the user-level file decides
+    let cutoff = resolve_dependency_age_cutoff(None, Some(Path::new("/repo")), &environment).unwrap();
+    assert_eq!(cutoff.description(), "min-release-age=5 in .npmrc");
+    assert!(cutoff.is_too_new(parse_rfc3339("2024-05-06T00:00:00Z").unwrap()));
+    assert!(!cutoff.is_too_new(parse_rfc3339("2024-05-04T00:00:00Z").unwrap()));
+
+    // ...and with no start dir at all, which is how a command with no config
+    // file on disk resolves it
+    let cutoff = resolve_dependency_age_cutoff(None, None, &environment).unwrap();
+    assert_eq!(cutoff.description(), "min-release-age=5 in .npmrc");
+
+    // a nearer .npmrc wins over the user-level one
+    environment.write_file("/repo/.npmrc", "min-release-age=1").unwrap();
+    let cutoff = resolve_dependency_age_cutoff(None, Some(Path::new("/repo")), &environment).unwrap();
+    assert_eq!(cutoff.description(), "min-release-age=1 in .npmrc");
+  }
+
+  #[test]
+  fn resolve_dependency_age_cutoff_describes_ages_that_are_not_whole_days() {
+    use crate::environment::TestEnvironment;
+    use std::str::FromStr;
+    let environment = TestEnvironment::new();
+    environment.set_fs_time(NOW);
+    let describe = |text: &str| {
+      let age = MinimumDependencyAge::from_str(text).unwrap();
+      resolve_dependency_age_cutoff(Some(&age), None, &environment).unwrap().description().to_string()
+    };
+    assert_eq!(describe("PT36H"), "--minimum-dependency-age PT36H");
+    assert_eq!(describe("90"), "--minimum-dependency-age PT90M");
+    // an absolute cutoff has no duration to echo back
+    assert_eq!(describe("2024-05-05"), "--minimum-dependency-age");
+  }
+
+  #[tokio::test]
+  async fn minimum_dependency_age_accepts_an_absolute_cutoff_date() {
+    let packument = packument_with_times("1.1.0", &[("1.0.0", Some("2024-01-01T00:00:00Z")), ("1.1.0", Some("2024-05-09T00:00:00Z"))]);
+    // 1.1.0 landed after the cutoff date, so the release before it is used
+    let (version, logged) = resolve_version_with_age(packument, "2024-05-05").await;
+    assert_eq!(version.unwrap(), "1.0.0");
+    assert_eq!(
+      logged,
+      vec!["Using foo 1.0.0 instead of 1.1.0, which is newer than the minimum dependency age (--minimum-dependency-age).".to_string()]
+    );
+  }
+
+  #[test]
   fn test_get_packument_url_scoped() {
     assert_eq!(
       get_packument_url("https://registry.npmjs.org", "@dprint/typescript"),
