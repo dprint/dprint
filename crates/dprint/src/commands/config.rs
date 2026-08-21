@@ -772,7 +772,7 @@ pub async fn update_plugins_config_file<TEnvironment: Environment>(
   }
 
   let file_pattern_args = FilePatternArgs {
-    include_patterns: Vec::new(),
+    include_patterns: None,
     include_pattern_overrides: None,
     exclude_patterns: Vec::new(),
     exclude_pattern_overrides: None,

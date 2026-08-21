@@ -421,6 +421,32 @@ mod test {
   }
 
   #[test]
+  fn should_format_no_files_when_stdin_files_is_empty() {
+    let file_path1 = "/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(&file_path1, "text")
+      .build();
+    let test_std_in = TestStdInReader::from(
+      "
+",
+    );
+    run_test_cli_with_stdin(vec!["fmt", "--stdin-files"], &environment, test_std_in).unwrap();
+    assert_eq!(environment.take_stdout_messages(), Vec::<String>::new());
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text");
+  }
+
+  #[test]
+  fn should_check_no_files_when_stdin_files_is_empty() {
+    let file_path1 = "/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(&file_path1, "text")
+      .build();
+    let test_std_in = TestStdInReader::from("");
+    run_test_cli_with_stdin(vec!["check", "--stdin-files"], &environment, test_std_in).unwrap();
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text");
+  }
+
+  #[test]
   fn should_check_files_from_stdin_files() {
     let file_path1 = "/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
