@@ -1,4 +1,5 @@
 use anyhow::Result;
+use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
@@ -19,11 +20,26 @@ pub struct PluginNameResolutionMaps {
   association_matchers: Vec<(String, Rc<GlobMatcher>)>,
   /// Associations matchers in a map.
   association_matchers_map: HashMap<String, Rc<GlobMatcher>>,
+  /// Maps a file's shebang line to a file extension so extensionless scripts
+  /// can be routed to a plugin.
+  shebang_to_extension: HashMap<String, String>,
 }
 
 impl PluginNameResolutionMaps {
-  pub fn from_plugins<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>, config_base_path: &CanonicalizedPathBuf) -> Result<Self> {
+  pub fn from_plugins<'a>(
+    plugins: impl Iterator<Item = &'a PluginWithConfig>,
+    config_base_path: &CanonicalizedPathBuf,
+    shebangs: Option<&IndexMap<String, String>>,
+  ) -> Result<Self> {
     let mut plugin_name_maps = PluginNameResolutionMaps::default();
+    if let Some(shebangs) = shebangs {
+      for (shebang, extension) in shebangs {
+        // extensions are stored lowercased and without a leading dot so they
+        // resolve the same way as a real file extension
+        let extension = extension.trim_start_matches('.').to_lowercase();
+        plugin_name_maps.shebang_to_extension.insert(shebang.trim().to_string(), extension);
+      }
+    }
     for plugin in plugins {
       let plugin_name = plugin.name();
 
@@ -85,6 +101,32 @@ impl PluginNameResolutionMaps {
     }
 
     plugin_names
+  }
+
+  pub fn has_shebang_mappings(&self) -> bool {
+    !self.shebang_to_extension.is_empty()
+  }
+
+  /// Resolves plugins for an extensionless file based on its first line (the
+  /// shebang). The shebang is looked up in the configured mapping to get an
+  /// extension, then the file is resolved as if it had that extension.
+  pub fn get_plugin_names_from_shebang_line(&self, file_path: &Path, first_line: &str) -> Vec<String> {
+    let shebang = first_line.trim();
+    if !shebang.starts_with("#!") {
+      return Vec::new();
+    }
+    match self.shebang_to_extension.get(shebang) {
+      Some(extension) => {
+        let mut file_name = match file_path.file_name() {
+          Some(file_name) => file_name.to_os_string(),
+          None => return Vec::new(),
+        };
+        file_name.push(".");
+        file_name.push(extension);
+        self.get_plugin_names_from_file_path(&file_path.with_file_name(file_name))
+      }
+      None => Vec::new(),
+    }
   }
 
   fn is_not_associations_excluded(&self, plugin_name: &str, file_path: &Path) -> bool {

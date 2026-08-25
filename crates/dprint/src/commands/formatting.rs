@@ -1224,6 +1224,39 @@ mod test {
   }
 
   #[test]
+  fn should_format_extensionless_files_by_shebang() {
+    let script_path = "/scripts/build";
+    let bash_path = "/scripts/deploy";
+    let no_shebang_path = "/scripts/notes";
+    let has_ext_path = "/scripts/keep.md";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "txt",
+            "#!/usr/bin/env bash": "txt"
+          }"##,
+        );
+      })
+      .write_file(&script_path, "#!/bin/sh\ntext")
+      .write_file(&bash_path, "#!/usr/bin/env bash\ntext2")
+      // no shebang, so it should be left alone
+      .write_file(&no_shebang_path, "text3")
+      // has an extension the plugin doesn't match, so the shebang is ignored
+      .write_file(&has_ext_path, "#!/bin/sh\ntext4")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&script_path).unwrap(), "#!/bin/sh\ntext_formatted");
+    assert_eq!(environment.read_file(&bash_path).unwrap(), "#!/usr/bin/env bash\ntext2_formatted");
+    assert_eq!(environment.read_file(&no_shebang_path).unwrap(), "text3");
+    assert_eq!(environment.read_file(&has_ext_path).unwrap(), "#!/bin/sh\ntext4");
+  }
+
+  #[test]
   fn should_format_files_with_config_overrides() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {

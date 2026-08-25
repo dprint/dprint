@@ -2,6 +2,7 @@ use anyhow::Context;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::path::Path;
 use std::path::PathBuf;
 use std::str::Split;
 use thiserror::Error;
@@ -20,6 +21,7 @@ use crate::utils::GlobOptions;
 use crate::utils::GlobOutput;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
+use crate::utils::get_lowercase_file_extension;
 use crate::utils::glob;
 use crate::utils::is_negated_glob;
 
@@ -70,11 +72,24 @@ impl FilesPathsByPlugins {
   }
 }
 
-pub fn get_file_paths_by_plugins(plugin_name_maps: &PluginNameResolutionMaps, file_paths: Vec<PathBuf>) -> Result<FilesPathsByPlugins> {
+pub fn get_file_paths_by_plugins(
+  plugin_name_maps: &PluginNameResolutionMaps,
+  file_paths: Vec<PathBuf>,
+  environment: &impl Environment,
+) -> Result<FilesPathsByPlugins> {
   let mut file_paths_by_plugin: HashMap<PluginNames, Vec<PathBuf>> = HashMap::new();
 
   for file_path in file_paths.into_iter() {
-    let plugin_names = plugin_name_maps.get_plugin_names_from_file_path(&file_path);
+    let mut plugin_names = plugin_name_maps.get_plugin_names_from_file_path(&file_path);
+
+    // fall back to the shebang when an extensionless file didn't match a plugin
+    if plugin_names.is_empty()
+      && plugin_name_maps.has_shebang_mappings()
+      && get_lowercase_file_extension(&file_path).is_none()
+      && let Some(first_line) = read_shebang_line(environment, &file_path)
+    {
+      plugin_names = plugin_name_maps.get_plugin_names_from_shebang_line(&file_path, &first_line);
+    }
 
     if !plugin_names.is_empty() {
       let plugin_names_key = PluginNames::from_plugin_names(&plugin_names);
@@ -84,6 +99,17 @@ pub fn get_file_paths_by_plugins(plugin_name_maps: &PluginNameResolutionMaps, fi
   }
 
   Ok(FilesPathsByPlugins(file_paths_by_plugin))
+}
+
+/// Reads the first line of a file when it starts with a shebang (`#!`),
+/// otherwise returns `None`. Avoids reading files that aren't scripts.
+fn read_shebang_line(environment: &impl Environment, file_path: &Path) -> Option<String> {
+  let bytes = environment.read_file_bytes(file_path).ok()?;
+  if !bytes.starts_with(b"#!") {
+    return None;
+  }
+  let end = bytes.iter().position(|b| *b == b'\n').unwrap_or(bytes.len());
+  std::str::from_utf8(&bytes[..end]).ok().map(|line| line.to_string())
 }
 
 pub async fn get_and_resolve_file_paths<'a>(
@@ -111,7 +137,14 @@ pub async fn get_and_resolve_file_paths<'a>(
     //
     // These are based at the config dir rather than the cwd so that explicitly
     // specified paths outside the cwd (ex. ../file.txt) can still match them.
-    file_patterns.config_includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), config.base_path.clone()));
+    let mut patterns = get_plugin_patterns(plugins);
+    // shebang scripts are extensionless, so they can't be matched by extension up
+    // front. Widen discovery to all files when shebang mappings are configured and
+    // let plugin resolution filter them down to just the shebang matches.
+    if config.shebangs.as_ref().is_some_and(|shebangs| !shebangs.is_empty()) {
+      patterns.push("**/*".to_string());
+    }
+    file_patterns.config_includes = Some(GlobPattern::new_vec(patterns, config.base_path.clone()));
   }
 
   get_and_resolve_file_patterns(config, file_patterns, args.no_gitignore, config_discovery, environment).await

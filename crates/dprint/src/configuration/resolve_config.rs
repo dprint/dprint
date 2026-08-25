@@ -44,6 +44,9 @@ pub struct ResolvedConfig {
   pub excludes: Option<Vec<String>>,
   pub plugins: Vec<PluginSourceReference>,
   pub incremental: Option<bool>,
+  /// Maps a shebang line (ex. `#!/usr/bin/env bash`) to a file extension so
+  /// extensionless scripts can be routed to a plugin.
+  pub shebangs: Option<IndexMap<String, String>>,
   /// Whether a nested (directory specific) configuration file should inherit
   /// the plugins and configuration of its ancestor configuration file.
   pub inherit: Option<bool>,
@@ -129,6 +132,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
           excludes: None,
           includes: None,
           incremental: None,
+          shebangs: None,
           inherit: None,
           plugins: Vec::new(),
         }
@@ -196,6 +200,7 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   let excludes = take_array_from_config_map(&mut config_map, "excludes")?;
 
   let incremental = take_bool_from_config_map(&mut config_map, "incremental")?;
+  let shebangs = take_shebangs_from_config_map(&mut config_map)?;
   let inherit = take_bool_from_config_map(&mut config_map, "inherit")?;
   config_map.shift_remove("projectType"); // this was an old config property that's no longer used
   let extends = take_extends(&mut config_map)?;
@@ -208,6 +213,7 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
     excludes,
     plugins,
     incremental,
+    shebangs,
     inherit,
   };
 
@@ -235,6 +241,11 @@ pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Re
   // inherit the incremental flag when not specified in the nested config
   if config.incremental.is_none() {
     config.incremental = parent.incremental;
+  }
+
+  // inherit the shebang mappings when not specified in the nested config
+  if config.shebangs.is_none() {
+    config.shebangs = parent.shebangs.clone();
   }
 
   merge_config_map_into(&mut config.config_map, parent.config_map.clone())?;
@@ -576,6 +587,28 @@ fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -
   match config_map.shift_remove(property_name) {
     Some(ConfigMapValue::Vec(elements)) => Ok(Some(elements)),
     Some(_) => bail!("Expected array in '{}' property.", property_name),
+    None => Ok(None),
+  }
+}
+
+fn take_shebangs_from_config_map(config_map: &mut ConfigMap) -> Result<Option<IndexMap<String, String>>> {
+  match config_map.shift_remove("shebangs") {
+    Some(ConfigMapValue::PluginConfig(plugin_config)) => {
+      if plugin_config.locked || !plugin_config.overrides.is_empty() || plugin_config.associations.is_some() {
+        bail!("The 'shebangs' property must be an object that maps shebang lines to file extensions.");
+      }
+      let mut map = IndexMap::with_capacity(plugin_config.properties.len());
+      for (shebang, value) in plugin_config.properties {
+        match value {
+          ConfigKeyValue::String(extension) => {
+            map.insert(shebang, extension);
+          }
+          _ => bail!("Expected a string file extension for shebang '{}' in the 'shebangs' property.", shebang),
+        }
+      }
+      Ok(Some(map))
+    }
+    Some(_) => bail!("Expected object in 'shebangs' property."),
     None => Ok(None),
   }
 }
@@ -1974,6 +2007,53 @@ mod tests {
   }
 
   #[test]
+  fn should_parse_shebangs_property() {
+    let environment = TestEnvironment::new();
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r##"{
+            "shebangs": {
+              "#!/bin/sh": "sh",
+              "#!/usr/bin/env node": ".js"
+            },
+            "plugins": ["./testing/asdf.wasm"],
+        }"##,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      let shebangs = result.shebangs.unwrap();
+      assert_eq!(shebangs.get("#!/bin/sh").map(|s| s.as_str()), Some("sh"));
+      // the leading dot is kept as written here, it's normalized later during resolution
+      assert_eq!(shebangs.get("#!/usr/bin/env node").map(|s| s.as_str()), Some(".js"));
+    });
+  }
+
+  #[test]
+  fn should_error_when_shebangs_value_not_a_string() {
+    let environment = TestEnvironment::new();
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r##"{
+            "shebangs": {
+              "#!/bin/sh": 5
+            },
+            "plugins": ["./testing/asdf.wasm"],
+        }"##,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let err = get_result("/test.json", &environment).await.err().unwrap();
+      assert!(err.to_string().contains("Expected a string file extension for shebang '#!/bin/sh'"));
+    });
+  }
+
+  #[test]
   fn should_parse_inherit_property() {
     let environment = TestEnvironment::new();
     environment
@@ -2009,6 +2089,7 @@ mod tests {
         PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/json.wasm"),
       ],
       incremental: Some(true),
+      shebangs: None,
       inherit: None,
       config_map: ConfigMap::from([
         ("lineWidth".to_string(), ConfigMapValue::from_i32(80)),
@@ -2035,6 +2116,7 @@ mod tests {
       // a plugin specified in the child has precedence over the ancestor's
       plugins: vec![PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm")],
       incremental: None,
+      shebangs: None,
       inherit: Some(true),
       config_map: ConfigMap::from([(
         "test".to_string(),
@@ -2149,6 +2231,7 @@ mod tests {
       excludes: None,
       plugins: Vec::new(),
       incremental: None,
+      shebangs: None,
       inherit: None,
       config_map: ConfigMap::from([(
         "test".to_string(),
@@ -2168,6 +2251,7 @@ mod tests {
       excludes: None,
       plugins: Vec::new(),
       incremental: None,
+      shebangs: None,
       inherit: Some(true),
       config_map: ConfigMap::from([(
         "test".to_string(),

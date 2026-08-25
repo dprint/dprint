@@ -299,6 +299,21 @@ In the following example, both the TypeScript plugin and Prettier plugin support
 }
 ```
 
+## Shebangs
+
+Scripts on POSIX systems often have no file extension and are identified only by their shebang (ex. `#!/usr/bin/env bash`). The `"shebangs"` config maps a shebang line to a file extension so these files get picked up by a plugin. It only applies to files that have no extension and didn't otherwise match a plugin, and dprint only reads the first line of such files.
+
+```json
+{
+  "shebangs": {
+    "#!/bin/sh": "sh",
+    "#!/usr/bin/env bash": "sh"
+  }
+}
+```
+
+With the above, a file named `build` starting with `#!/bin/sh` is formatted as if it were a `.sh` file. The shebang is matched exactly against the file's first line, so list every variation you use.
+
 ## Overrides
 
 The plugin `"overrides"` config changes plugin configuration for specific files

@@ -80,6 +80,14 @@
         "type": "string"
       }
     },
+    "shebangs": {
+      "description": "Maps a shebang line (ex. \"#!/usr/bin/env bash\") to a file extension so extensionless scripts can be routed to a plugin.",
+      "type": "object",
+      "additionalProperties": {
+        "description": "The file extension to treat matching files as (ex. \"sh\").",
+        "type": "string"
+      }
+    },
     "plugins": {
       "description": "Array of plugin URLs to format files.",
       "type": "array",
