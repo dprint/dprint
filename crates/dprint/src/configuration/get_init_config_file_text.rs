@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use dprint_core::async_runtime::future;
@@ -31,6 +32,11 @@ pub struct GetInitConfigFileTextOptions {
   pub non_interactive: bool,
   /// Don't write an npm plugin version published more recently than this.
   pub minimum_dependency_age: Option<MinimumDependencyAgeArg>,
+  /// Directory the config file will be written to. An .npmrc setting
+  /// `min-release-age` is looked for here and in its ancestors, so the
+  /// age that applies is the one nearest the config file rather than the
+  /// process cwd (which differs for `--global` and `--config`).
+  pub config_dir: Option<PathBuf>,
 }
 
 pub async fn get_init_config_file_text(environment: &impl Environment, options: GetInitConfigFileTextOptions) -> Result<String> {
@@ -89,10 +95,9 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
     // keep the config file in info.json order regardless of the display order
     selected_indexes.sort_unstable();
 
-    // the config file lands in the current directory, so that's where an
-    // .npmrc setting `min-release-age` is looked for
-    let cwd = environment.cwd();
-    let age_cutoff = resolve_dependency_age_cutoff(options.minimum_dependency_age.as_ref(), Some(cwd.as_ref()), environment);
+    // an .npmrc setting `min-release-age` is looked for where the config file
+    // is going to be written
+    let age_cutoff = resolve_dependency_age_cutoff(options.minimum_dependency_age.as_ref(), options.config_dir.as_deref(), environment);
     // resolve concurrently — a plugin distributed on npm costs a registry round trip
     let entries = future::join_all(
       selected_indexes
@@ -1121,6 +1126,7 @@ mod test {
     GetInitConfigFileTextOptions {
       non_interactive: true,
       minimum_dependency_age: Some(MinimumDependencyAgeArg::from_str(age).unwrap()),
+      config_dir: None,
     }
   }
 

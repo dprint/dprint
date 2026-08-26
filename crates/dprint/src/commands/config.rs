@@ -83,6 +83,9 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
     }
   }
   let config_file_path = config_file_paths.remove(0);
+  // a relative path (the default file names, or a relative --config) is
+  // relative to the cwd; resolved so the .npmrc walk starts from the right place
+  let config_dir = environment.cwd().join(&config_file_path).parent().map(|dir| dir.to_path_buf());
   // skip the interactive prompt when asked to or when there's no interactive terminal (ex. CI)
   let non_interactive = options.non_interactive || !environment.is_terminal_interactive();
   let text = get_init_config_file_text(
@@ -90,6 +93,7 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
     GetInitConfigFileTextOptions {
       non_interactive,
       minimum_dependency_age: options.minimum_dependency_age,
+      config_dir,
     },
   )
   .await?;
@@ -1257,18 +1261,13 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
       match fetch_npm_latest_info(args, environment).await {
         // an update should never take the user backwards, which the registry's
         // latest tag can do (ex. a version was unpublished) and which the
-        // minimum dependency age can do by holding a newer release back
+        // minimum dependency age can do by holding a newer release back (the
+        // resolution says so itself when that happens, so this stays neutral)
         Ok(info) if is_version_downgrade(current_version, &info.version) => {
-          let reason = if context.age_cutoff.is_some() {
-            "The newest version old enough for the minimum dependency age"
-          } else {
-            "Its package's latest version"
-          };
           log_warn!(
             environment,
-            "Skipping {}. {} ({}) is older than the {} in use.",
+            "Skipping {}. The version resolved ({}) is older than the {} in use.",
             plugin.info().name,
-            reason,
             info.version,
             current_version,
           );
@@ -1741,6 +1740,48 @@ mod test {
       stderr
         .iter()
         .any(|m| m.contains("Using @dprint/test-plugin 0.2.0 instead of 0.3.0, which is newer than the minimum dependency age")),
+      "got: {stderr:?}"
+    );
+    environment.take_stdout_messages();
+  }
+
+  #[test]
+  fn should_initialize_reading_min_release_age_from_the_config_file_directory_npmrc() {
+    // with no flag the age comes from the .npmrc nearest where the config
+    // file is written, which isn't the cwd when --config points elsewhere
+    let mut builder = TestEnvironmentBuilder::new();
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    let environment = add_aged_test_plugin_tarballs(&mut builder)
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "test-plugin".to_string(),
+          version: "0.2.0".to_string(),
+          url: "https://plugins.dprint.dev/test-plugin.wasm".to_string(),
+          config_key: Some("test-plugin".to_string()),
+          file_extensions: vec!["ts".to_string()],
+          npm: Some(crate::environment::TestInfoFileNpm {
+            name: "@dprint/test-plugin".to_string(),
+            ..Default::default()
+          }),
+          ..Default::default()
+        });
+      })
+      .write_file("./file.ts", "")
+      // the cwd's .npmrc doesn't apply to a config file written elsewhere
+      .write_file("./.npmrc", "min-release-age=0")
+      .write_file("/other/.npmrc", "min-release-age=3")
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+
+    run_test_cli(vec!["init", "--yes", "--config", "/other/dprint.json"], &environment).unwrap();
+
+    let created = environment.read_file("/other/dprint.json").unwrap();
+    assert!(created.contains("\"npm:@dprint/test-plugin@0.2.0\""), "got: {created}");
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr.iter().any(|m| m
+        .contains("Using @dprint/test-plugin 0.2.0 instead of 0.3.0, which is newer than the minimum dependency age allows (min-release-age=3 in .npmrc).")),
       "got: {stderr:?}"
     );
     environment.take_stdout_messages();
@@ -4681,7 +4722,7 @@ mod test {
     assert!(
       stderr
         .iter()
-        .any(|m| m.contains("Skipping test-plugin. Its package's latest version (0.1.0) is older than the 0.2.0 in use.")),
+        .any(|m| m.contains("Skipping test-plugin. The version resolved (0.1.0) is older than the 0.2.0 in use.")),
       "got: {stderr:?}"
     );
   }
@@ -4960,7 +5001,7 @@ mod test {
     assert!(
       stderr
         .iter()
-        .any(|m| m.contains("Skipping test-plugin. The newest version old enough for the minimum dependency age (0.2.0) is older than the 0.3.0 in use.")),
+        .any(|m| m.contains("Skipping test-plugin. The version resolved (0.2.0) is older than the 0.3.0 in use.")),
       "got: {stderr:?}"
     );
   }
