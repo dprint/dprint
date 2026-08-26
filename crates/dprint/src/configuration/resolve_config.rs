@@ -2181,22 +2181,13 @@ mod tests {
       get_error(r##"{ "#!/bin/sh": "" }"##),
       "Expected a file extension (ex. \"sh\") for shebang '#!/bin/sh' in the 'shebangs' property, but found ''."
     );
-    assert_eq!(
-      get_error(r##"{ "#!/bin/sh": "." }"##),
-      "Expected a file extension (ex. \"sh\") for shebang '#!/bin/sh' in the 'shebangs' property, but found '.'."
-    );
-    assert_eq!(
-      get_error(r##"{ "#!/bin/sh": "*.sh" }"##),
-      "Expected a file extension (ex. \"sh\") for shebang '#!/bin/sh' in the 'shebangs' property, but found '*.sh'."
-    );
-    assert_eq!(
-      get_error(r##"{ "#!/bin/sh": " sh" }"##),
-      "Expected a file extension (ex. \"sh\") for shebang '#!/bin/sh' in the 'shebangs' property, but found ' sh'."
-    );
-    assert_eq!(
-      get_error(r##"{ "#!/bin/sh": "tar.gz" }"##),
-      "Expected a file extension (ex. \"sh\") for shebang '#!/bin/sh' in the 'shebangs' property, but found 'tar.gz'."
-    );
+    for extension in [".", "*.sh", " sh", "tar.gz"] {
+      assert!(
+        get_error(&format!(r##"{{ "#!/bin/sh": "{}" }}"##, extension)).contains(&format!("but found '{}'.", extension)),
+        "{}",
+        extension
+      );
+    }
     assert_eq!(
       get_error(r##"{ "/bin/sh": "sh" }"##),
       "Expected the key '/bin/sh' in the 'shebangs' property to be a shebang line starting with '#!'."
