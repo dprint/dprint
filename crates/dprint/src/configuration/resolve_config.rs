@@ -608,8 +608,21 @@ fn take_shebangs_from_config_map(config_map: &mut ConfigMap) -> Result<Option<In
       }
       let mut map = IndexMap::with_capacity(plugin_config.properties.len());
       for (shebang, value) in plugin_config.properties {
+        if !shebang.trim_start().starts_with("#!") {
+          bail!("Expected the key '{}' in the 'shebangs' property to start with '#!'.", shebang);
+        }
         match value {
           ConfigKeyValue::String(extension) => {
+            let trimmed_extension = extension.trim_start_matches('.');
+            if trimmed_extension.is_empty()
+              || trimmed_extension.contains(|c: char| c.is_whitespace() || matches!(c, '.' | '/' | '\\' | '*' | '?' | '[' | ']' | '{' | '}'))
+            {
+              bail!(
+                "Expected a file extension (ex. \"sh\") for shebang '{}' in the 'shebangs' property, but found '{}'.",
+                shebang,
+                extension
+              );
+            }
             map.insert(shebang, extension);
           }
           _ => bail!("Expected a string file extension for shebang '{}' in the 'shebangs' property.", shebang),
@@ -2083,6 +2096,48 @@ mod tests {
       );
       assert!(!result.config_map.contains_key("shebangs"));
     });
+  }
+
+  #[test]
+  fn should_error_when_shebangs_value_invalid() {
+    fn get_error(shebangs: &str) -> String {
+      let environment = TestEnvironment::new();
+      environment
+        .write_file(
+          &PathBuf::from("/test.json"),
+          &format!(r##"{{ "shebangs": {}, "plugins": ["./testing/asdf.wasm"] }}"##, shebangs),
+        )
+        .unwrap();
+      environment.clone().run_in_runtime(async move {
+        let err = get_result("/test.json", &environment).await.err().unwrap();
+        err.to_string()
+      })
+    }
+
+    assert_eq!(
+      get_error(r##"{ "#!/bin/sh": "" }"##),
+      "Expected a file extension (ex. \"sh\") for shebang '#!/bin/sh' in the 'shebangs' property, but found ''."
+    );
+    assert_eq!(
+      get_error(r##"{ "#!/bin/sh": "." }"##),
+      "Expected a file extension (ex. \"sh\") for shebang '#!/bin/sh' in the 'shebangs' property, but found '.'."
+    );
+    assert_eq!(
+      get_error(r##"{ "#!/bin/sh": "*.sh" }"##),
+      "Expected a file extension (ex. \"sh\") for shebang '#!/bin/sh' in the 'shebangs' property, but found '*.sh'."
+    );
+    assert_eq!(
+      get_error(r##"{ "#!/bin/sh": " sh" }"##),
+      "Expected a file extension (ex. \"sh\") for shebang '#!/bin/sh' in the 'shebangs' property, but found ' sh'."
+    );
+    assert_eq!(
+      get_error(r##"{ "#!/bin/sh": "tar.gz" }"##),
+      "Expected a file extension (ex. \"sh\") for shebang '#!/bin/sh' in the 'shebangs' property, but found 'tar.gz'."
+    );
+    assert_eq!(
+      get_error(r##"{ "/bin/sh": "sh" }"##),
+      "Expected the key '/bin/sh' in the 'shebangs' property to start with '#!'."
+    );
   }
 
   #[test]
