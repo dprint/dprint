@@ -4,6 +4,12 @@ use deno_terminal::colors;
 use similar::ChangeTag;
 use similar::TextDiffConfig;
 
+/// Gets a plain unified diff (as `git diff` would output it) without any colors.
+pub fn get_unified_difference(old_text: &str, new_text: &str) -> String {
+  let diff = text_diff_config().diff_lines(old_text, new_text);
+  diff.unified_diff().header("original", "formatted").to_string()
+}
+
 /// Gets a string showing the difference between two strings.
 pub fn get_difference(old_text: &str, new_text: &str) -> String {
   debug_assert!(old_text != new_text);
@@ -16,10 +22,7 @@ pub fn get_difference(old_text: &str, new_text: &str) -> String {
     return String::from(" | Text differed by line endings.");
   }
 
-  let mut config = TextDiffConfig::default();
-  config.timeout(Duration::from_millis(500));
-
-  let diff = config.diff_lines(&old_text, &new_text);
+  let diff = text_diff_config().diff_lines(&old_text, &new_text);
 
   let mut output = String::new();
   for hunk in diff.unified_diff().iter_hunks() {
@@ -114,10 +117,26 @@ fn annotate_whitespace(text: &str) -> String {
   text.replace('\t', "\u{2192}").replace(' ', "\u{00B7}")
 }
 
+fn text_diff_config() -> TextDiffConfig {
+  let mut config = TextDiffConfig::default();
+  config.timeout(Duration::from_millis(500));
+  config
+}
+
 #[cfg(test)]
 mod test {
   use super::*;
   use pretty_assertions::assert_eq;
+
+  #[test]
+  fn should_get_unified_difference() {
+    assert_eq!(
+      get_unified_difference("a\nb\n", "a\nc\n"),
+      "--- original\n+++ formatted\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n"
+    );
+    // does not normalize line endings
+    assert_eq!(get_unified_difference("a\r\n", "a\n"), "--- original\n+++ formatted\n@@ -1 +1 @@\n-a\r\n+a\n");
+  }
 
   #[test]
   fn should_get_when_differs_by_line_endings() {
