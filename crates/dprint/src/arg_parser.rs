@@ -183,12 +183,22 @@ impl SubCommand {
   }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DiffFormat {
+  /// dprint's own human readable diff with line numbers and colors.
+  #[default]
+  Pretty,
+  /// Standard unified diff that can be piped to other tools or applied with `patch`.
+  Unified,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct CheckSubCommand {
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
   pub list_different: bool,
   pub json: bool,
+  pub diff_format: DiffFormat,
   pub allow_no_files: bool,
   pub only_staged: bool,
   pub only_dirty: bool,
@@ -198,6 +208,7 @@ pub struct CheckSubCommand {
 #[derive(Debug, PartialEq, Eq)]
 pub struct FmtSubCommand {
   pub diff: bool,
+  pub diff_format: DiffFormat,
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
   pub enable_stable_format: bool,
@@ -379,6 +390,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         let enable_stable_format = !matches.get_flag("skip-stable-format");
         SubCommand::Fmt(FmtSubCommand {
           diff: matches.get_flag("diff"),
+          diff_format: parse_diff_format(matches, DiffFormat::Pretty),
           patterns: parse_file_patterns(matches, &std_in_reader)?,
           incremental: if enable_stable_format { parse_incremental(matches) } else { Some(false) },
           enable_stable_format,
@@ -412,6 +424,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         only_dirty: matches.get_flag("dirty"),
         list_different: matches.get_flag("list-different"),
         json,
+        diff_format: parse_diff_format(matches, if json { DiffFormat::Unified } else { DiffFormat::Pretty }),
         allow_no_files: matches.get_flag("allow-no-files"),
         fail_fast,
       })
@@ -520,6 +533,14 @@ fn parse_file_patterns<TStdInReader: StdInReader>(matches: &ArgMatches, std_in_r
     exclude_patterns: maybe_values_to_vec(matches.get_many("excludes")),
     exclude_pattern_overrides: matches.get_many("excludes-override").map(values_to_vec),
   })
+}
+
+fn parse_diff_format(matches: &ArgMatches, default: DiffFormat) -> DiffFormat {
+  match matches.get_one::<String>("diff-format").map(|s| s.as_str()) {
+    Some("unified") => DiffFormat::Unified,
+    Some("pretty") => DiffFormat::Pretty,
+    _ => default,
+  }
 }
 
 fn parse_incremental(matches: &ArgMatches) -> Option<bool> {
@@ -752,6 +773,7 @@ EXAMPLES:
             .num_args(0)
             .required(false)
         )
+        .add_diff_format_arg()
         .add_only_staged_arg()
         .add_only_dirty_arg()
         .add_allow_no_files_arg()
@@ -791,6 +813,7 @@ EXAMPLES:
             .num_args(0)
             .conflicts_with("list-different")
         )
+        .add_diff_format_arg()
         .arg(
           Arg::new("fail-fast")
             .long("fail-fast")
@@ -990,6 +1013,7 @@ trait ClapExtensions {
   fn add_resolve_file_path_args(self) -> Self;
   fn add_incremental_arg(self) -> Self;
   fn add_allow_no_files_arg(self) -> Self;
+  fn add_diff_format_arg(self) -> Self;
   fn add_only_staged_arg(self) -> Self;
   fn add_only_dirty_arg(self) -> Self;
 }
@@ -1070,6 +1094,18 @@ impl ClapExtensions for clap::Command {
         .long("allow-no-files")
         .help("Causes dprint to exit with exit code 0 when no files are found instead of exit code 14.")
         .num_args(0)
+        .required(false),
+    )
+  }
+
+  fn add_diff_format_arg(self) -> Self {
+    use clap::Arg;
+    self.arg(
+      Arg::new("diff-format")
+        .long("diff-format")
+        .help("The format to output diffs in. Use `unified` to output a standard unified diff that can be piped to other tools or applied with `patch`. Defaults to `pretty`, or `unified` when outputting json.")
+        .num_args(1)
+        .value_parser(["pretty", "unified"])
         .required(false),
     )
   }
@@ -1412,6 +1448,31 @@ mod test {
     assert!(test_args(vec!["check", "--json", "--list-different"]).is_err());
     let check_cmd = parse_check_sub_command(vec!["check", "--json", "--fail-fast"]).unwrap();
     assert!(check_cmd.fail_fast);
+  }
+
+  #[test]
+  fn diff_format_arg() {
+    let check_cmd = parse_check_sub_command(vec!["check"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Pretty);
+    let check_cmd = parse_check_sub_command(vec!["check", "--diff-format", "unified"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Unified);
+    let check_cmd = parse_check_sub_command(vec!["check", "--diff-format=pretty"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Pretty);
+    assert!(test_args(vec!["check", "--diff-format", "other"]).is_err());
+    // defaults to unified with --json
+    let check_cmd = parse_check_sub_command(vec!["check", "--json"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Unified);
+    let check_cmd = parse_check_sub_command(vec!["check", "--json", "--diff-format", "pretty"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Pretty);
+
+    match test_args(vec!["fmt", "--diff", "--diff-format", "unified"]).unwrap().sub_command {
+      SubCommand::Fmt(cmd) => assert_eq!(cmd.diff_format, DiffFormat::Unified),
+      _ => unreachable!(),
+    }
+    match test_args(vec!["fmt"]).unwrap().sub_command {
+      SubCommand::Fmt(cmd) => assert_eq!(cmd.diff_format, DiffFormat::Pretty),
+      _ => unreachable!(),
+    }
   }
 
   #[test]
