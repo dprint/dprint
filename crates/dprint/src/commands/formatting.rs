@@ -1473,6 +1473,46 @@ mod test {
   }
 
   #[test]
+  fn should_match_shebang_prefix_with_most_specific_winning() {
+    let run_path = "/scripts/run";
+    let bare_path = "/scripts/bare";
+    let runtest_path = "/scripts/runtest";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin().add_remote_process_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/usr/bin/env deno": "txt_ps",
+            "#!/usr/bin/env deno run": "txt"
+          }"##,
+        );
+      })
+      // matches the more specific `deno run` entry (wasm plugin)
+      .write_file(&run_path, "#!/usr/bin/env deno run --allow-read\ntext")
+      // only matches the `deno` entry (process plugin)
+      .write_file(&bare_path, "#!/usr/bin/env deno --version\ntext")
+      // `runtest` is not a word boundary match for `deno run`, so falls back to `deno`
+      .write_file(&runtest_path, "#!/usr/bin/env deno runtest\ntext")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    assert_eq!(
+      environment.read_file(&run_path).unwrap(),
+      "#!/usr/bin/env deno run --allow-read\ntext_formatted"
+    );
+    assert_eq!(
+      environment.read_file(&bare_path).unwrap(),
+      "#!/usr/bin/env deno --version\ntext_formatted_process"
+    );
+    assert_eq!(
+      environment.read_file(&runtest_path).unwrap(),
+      "#!/usr/bin/env deno runtest\ntext_formatted_process"
+    );
+  }
+
+  #[test]
   fn should_format_extensionless_files_by_shebang_with_includes() {
     let script_path = "/scripts/build";
     let other_path = "/other/build";

@@ -335,7 +335,7 @@ Scripts on POSIX systems often have no file extension and are identified only by
 }
 ```
 
-With the above, a file named `build` starting with `#!/bin/sh` is formatted as if it were a `.sh` file. The shebang is matched exactly against the file's first line, so list every variation you use. When shebangs are configured, extensionless files are discovered regardless of the `"includes"` patterns (they're still subject to `"excludes"` and the gitignore), so only the files whose first line matches a configured shebang get formatted.
+With the above, a file named `build` starting with `#!/bin/sh` is formatted as if it were a `.sh` file. A configured shebang matches when the file's first line equals it or starts with it followed by whitespace, so `#!/usr/bin/env deno run` matches `#!/usr/bin/env deno run --allow-read` (but not `#!/usr/bin/env deno runtest`). When multiple entries match, the longest one wins. Note that `#!/usr/bin/env -S deno run` is a different line, so list it separately if you use it. When shebangs are configured, extensionless files are discovered regardless of the `"includes"` patterns (they're still subject to `"excludes"` and the gitignore), so only the files whose first line matches a configured shebang get formatted.
 
 ## Overrides
 

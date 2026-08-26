@@ -21,8 +21,9 @@ pub struct PluginNameResolutionMaps {
   /// Associations matchers in a map.
   association_matchers_map: HashMap<String, Rc<GlobMatcher>>,
   /// Maps a file's shebang line to a file extension so extensionless scripts
-  /// can be routed to a plugin.
-  shebang_to_extension: HashMap<String, String>,
+  /// can be routed to a plugin. Sorted by shebang length descending so the
+  /// most specific entry matches first.
+  shebang_to_extension: Vec<(String, String)>,
 }
 
 impl PluginNameResolutionMaps {
@@ -37,8 +38,12 @@ impl PluginNameResolutionMaps {
         // extensions are stored lowercased and without a leading dot so they
         // resolve the same way as a real file extension
         let extension = extension.trim_start_matches('.').to_lowercase();
-        plugin_name_maps.shebang_to_extension.insert(shebang.trim().to_string(), extension);
+        plugin_name_maps.shebang_to_extension.push((shebang.trim().to_string(), extension));
       }
+      // longest first so a more specific shebang wins (ex. `deno run` over `deno`)
+      plugin_name_maps
+        .shebang_to_extension
+        .sort_by_key(|(shebang, _)| std::cmp::Reverse(shebang.len()));
     }
     for plugin in plugins {
       let plugin_name = plugin.name();
@@ -124,6 +129,10 @@ impl PluginNameResolutionMaps {
   /// shebang). The shebang is looked up in the configured mapping to get an
   /// extension, then the plugins for that extension are resolved. Association
   /// patterns are evaluated against the real file path.
+  ///
+  /// A configured shebang matches when the file's shebang line equals it or
+  /// starts with it followed by whitespace, so `#!/usr/bin/env deno run` matches
+  /// `#!/usr/bin/env deno run --allow-read` but not `#!/usr/bin/env deno runtest`.
   pub fn get_plugin_names_from_shebang(&self, file_path: &Path, file_bytes_start: &[u8]) -> Vec<String> {
     if !self.may_match_shebang(file_path) {
       return Vec::new();
@@ -131,7 +140,12 @@ impl PluginNameResolutionMaps {
     let Some(shebang) = get_shebang_line(file_bytes_start) else {
       return Vec::new();
     };
-    let Some(extension) = self.shebang_to_extension.get(shebang) else {
+    let Some(extension) = self
+      .shebang_to_extension
+      .iter()
+      .find(|(configured_shebang, _)| is_shebang_prefix_match(shebang, configured_shebang))
+      .map(|(_, extension)| extension)
+    else {
       return Vec::new();
     };
     let Some(plugin_names) = self.extension_to_plugin_names_map.get(extension) else {
@@ -165,9 +179,35 @@ fn get_shebang_line(file_bytes_start: &[u8]) -> Option<&str> {
   std::str::from_utf8(&file_bytes_start[..end]).ok().map(|line| line.trim())
 }
 
+/// Whether the shebang line equals the configured shebang or starts with it
+/// followed by whitespace.
+fn is_shebang_prefix_match(shebang_line: &str, configured_shebang: &str) -> bool {
+  match shebang_line.strip_prefix(configured_shebang) {
+    Some(rest) => rest.is_empty() || rest.starts_with(char::is_whitespace),
+    None => false,
+  }
+}
+
 fn get_plugin_association_glob_matcher(plugin: &PluginWithConfig, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>> {
   match plugin.associations.as_deref() {
     Some(associations) => Ok(Some(get_patterns_as_glob_matcher(associations, config_base_path)?)),
     None => Ok(None),
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn shebang_prefix_match() {
+    assert!(is_shebang_prefix_match("#!/usr/bin/env deno run", "#!/usr/bin/env deno run"));
+    assert!(is_shebang_prefix_match("#!/usr/bin/env deno run --allow-read", "#!/usr/bin/env deno run"));
+    assert!(is_shebang_prefix_match("#!/usr/bin/env deno run --allow-read", "#!/usr/bin/env deno"));
+    assert!(is_shebang_prefix_match("#!/usr/bin/env deno\trun", "#!/usr/bin/env deno"));
+    assert!(!is_shebang_prefix_match("#!/usr/bin/env deno runtest", "#!/usr/bin/env deno run"));
+    assert!(!is_shebang_prefix_match("#!/usr/bin/env nodemon", "#!/usr/bin/env node"));
+    assert!(!is_shebang_prefix_match("#!/bin/shell", "#!/bin/sh"));
+    assert!(!is_shebang_prefix_match("#!/bin/sh", "#!/bin/sh -e"));
   }
 }
