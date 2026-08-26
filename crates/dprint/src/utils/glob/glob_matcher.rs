@@ -49,6 +49,7 @@ pub struct GlobMatcher {
   arg_include_matcher: Option<ArgIncludeMatcher>,
   config_exclude_matcher: ExcludeMatcher,
   arg_exclude_matcher: Option<ExcludeMatcher>,
+  include_extensionless_files: bool,
 }
 
 impl GlobMatcher {
@@ -103,6 +104,7 @@ impl GlobMatcher {
         Some(excludes) => Some(build_exclude_matcher(&excludes, opts, &base_dir)?),
         None => None,
       },
+      include_extensionless_files: patterns.include_extensionless_files,
       base_dir,
     })
   }
@@ -138,12 +140,21 @@ impl GlobMatcher {
     };
 
     if self.arg_include_matcher.as_ref().map(|m| m.include.is_match(&path)).unwrap_or(true)
-      && self.config_include_matcher.as_ref().map(|m| m.is_match(&path)).unwrap_or(true)
+      && self
+        .config_include_matcher
+        .as_ref()
+        .map(|m| self.is_extensionless_include(&path) || m.is_match(&path))
+        .unwrap_or(true)
     {
       matched_result
     } else {
       GlobMatchesDetail::NotMatched
     }
+  }
+
+  /// A cheap check for extensionless files that runs before the glob matcher.
+  fn is_extensionless_include(&self, path: &Path) -> bool {
+    self.include_extensionless_files && path.extension().is_none()
   }
 
   pub fn check_exclude(&self, path: &Path, is_dir: bool) -> ExcludeMatchDetail {
@@ -363,10 +374,52 @@ mod test {
   use super::*;
 
   #[test]
+  fn include_extensionless_files() {
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        include_extensionless_files: true,
+        arg_includes: None,
+        config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
+        arg_excludes: None,
+        config_excludes: vec![GlobPattern::new("**/excluded".to_string(), cwd.clone())],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd.clone(),
+      },
+    )
+    .unwrap();
+    assert!(glob_matcher.matches("/testing/dir/match.ts"));
+    assert!(glob_matcher.matches("/testing/dir/scripts/build"));
+    assert!(!glob_matcher.matches("/testing/dir/scripts/build.sh"));
+    // excludes still apply
+    assert!(!glob_matcher.matches("/testing/dir/scripts/excluded"));
+    // the arg includes still restrict the files
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        include_extensionless_files: true,
+        arg_includes: Some(vec![GlobPattern::new("sub/**".to_string(), cwd.clone())]),
+        config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
+        arg_excludes: None,
+        config_excludes: vec![],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd.clone(),
+      },
+    )
+    .unwrap();
+    assert!(glob_matcher.matches("/testing/dir/sub/build"));
+    assert!(!glob_matcher.matches("/testing/dir/build"));
+  }
+
+  #[test]
   fn works() {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("*.ts".to_string(), cwd.clone())]),
         arg_excludes: None,
@@ -388,6 +441,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: Some(vec![GlobPattern::new("src/*.ts".to_string(), cwd.clone())]),
         config_includes: Some(vec![GlobPattern::new("*.ts".to_string(), cwd.clone())]),
         arg_excludes: Some(vec![GlobPattern::new("no-match2.ts".to_string(), cwd.clone())]),
@@ -414,6 +468,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: Some(vec![
           GlobPattern::new("./a.ts".to_string(), cwd.clone()),
           GlobPattern::new("./sub/b.ts".to_string(), cwd.clone()),
@@ -447,6 +502,7 @@ mod test {
       .collect();
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: Some(arg_includes),
         config_includes: None,
         arg_excludes: None,
@@ -473,6 +529,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: None,
         config_includes: Some(vec![
           GlobPattern::new("./a.ts".to_string(), cwd.clone()),
@@ -502,6 +559,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("a.ts".to_string(), cwd.clone())]),
         arg_excludes: None,
@@ -525,6 +583,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
         arg_excludes: Some(vec![GlobPattern::new("./dist".to_string(), cwd.clone())]),
@@ -548,6 +607,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: None,
         config_includes: Some(vec![
           GlobPattern::new("./a.ts".to_string(), cwd.clone()),
@@ -575,6 +635,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
         arg_excludes: None,
@@ -599,6 +660,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
         arg_excludes: Some(vec![GlobPattern::new("./keep.ts".to_string(), cwd.clone()).invert()]),
@@ -622,6 +684,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("./a.ts".to_string(), cwd.clone())]),
         arg_excludes: None,
@@ -643,6 +706,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("./a?.ts".to_string(), cwd.clone())]),
         arg_excludes: None,
@@ -665,6 +729,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: Some(vec![GlobPattern::new("./sub/a.ts".to_string(), cwd.clone())]),
         config_includes: None,
         arg_excludes: None,
@@ -688,6 +753,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("C:\\testing\\dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: Some(vec![GlobPattern::new("./sub/a.ts".to_string(), cwd.clone())]),
         config_includes: None,
         arg_excludes: None,
@@ -708,6 +774,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: Some(vec![GlobPattern::new("src/*.ts".to_string(), cwd.clone())]),
         config_includes: Some(vec![GlobPattern::new("*.ts".to_string(), cwd.clone())]),
         arg_excludes: Some(vec![GlobPattern::new("no-match2.ts".to_string(), cwd.clone())]),
@@ -729,6 +796,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("/testing/dir/*.ts".to_string(), cwd.clone())]),
         arg_excludes: None,
@@ -749,6 +817,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("\\?\\UNC\\wsl$\\Ubuntu\\home\\david");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        include_extensionless_files: false,
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("*.ts".to_string(), cwd.clone())]),
         arg_excludes: None,

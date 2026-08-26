@@ -335,7 +335,7 @@ Scripts on POSIX systems often have no file extension and are identified only by
 }
 ```
 
-With the above, a file named `build` starting with `#!/bin/sh` is formatted as if it were a `.sh` file. The shebang is matched exactly against the file's first line, so list every variation you use.
+With the above, a file named `build` starting with `#!/bin/sh` is formatted as if it were a `.sh` file. The shebang is matched exactly against the file's first line, so list every variation you use. When shebangs are configured, extensionless files are discovered regardless of the `"includes"` patterns (they're still subject to `"excludes"` and the gitignore), so only the files whose first line matches a configured shebang get formatted.
 
 ## Overrides
 

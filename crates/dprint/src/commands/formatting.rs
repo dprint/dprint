@@ -1473,6 +1473,47 @@ mod test {
   }
 
   #[test]
+  fn should_format_extensionless_files_by_shebang_with_includes() {
+    let script_path = "/scripts/build";
+    let other_path = "/other/build";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_includes("scripts/**").add_remote_wasm_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+        );
+      })
+      .write_file(
+        &script_path,
+        "#!/bin/sh
+text",
+      )
+      // extensionless files are discovered even when includes is specified
+      .write_file(
+        &other_path,
+        "#!/bin/sh
+text2",
+      )
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(
+      environment.read_file(&script_path).unwrap(),
+      "#!/bin/sh
+text_formatted"
+    );
+    assert_eq!(
+      environment.read_file(&other_path).unwrap(),
+      "#!/bin/sh
+text2_formatted"
+    );
+  }
+
+  #[test]
   fn should_evaluate_associations_against_real_path_for_shebang_files() {
     let script_path = "/scripts/build";
     let excluded_path = "/scripts/legacy-build";

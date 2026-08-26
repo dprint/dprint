@@ -29,6 +29,9 @@ pub struct GlobPatterns {
   pub config_includes: Option<Vec<GlobPattern>>,
   pub arg_excludes: Option<Vec<GlobPattern>>,
   pub config_excludes: Vec<GlobPattern>,
+  /// Whether to also match files without an extension regardless of the
+  /// config includes (used to discover shebang scripts).
+  pub include_extensionless_files: bool,
 }
 
 impl GlobPatterns {

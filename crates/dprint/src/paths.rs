@@ -133,14 +133,7 @@ pub async fn get_and_resolve_file_paths<'a>(
     //
     // These are based at the config dir rather than the cwd so that explicitly
     // specified paths outside the cwd (ex. ../file.txt) can still match them.
-    let mut patterns = get_plugin_patterns(plugins);
-    // shebang scripts are extensionless, so they can't be matched by extension up
-    // front. Widen discovery to all files when shebang mappings are configured and
-    // let plugin resolution filter them down to just the shebang matches.
-    if config.shebangs.as_ref().is_some_and(|shebangs| !shebangs.is_empty()) {
-      patterns.push("**/*".to_string());
-    }
-    file_patterns.config_includes = Some(GlobPattern::new_vec(patterns, config.base_path.clone()));
+    file_patterns.config_includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), config.base_path.clone()));
   }
 
   get_and_resolve_file_patterns(config, file_patterns, args.no_gitignore, config_discovery, environment).await
