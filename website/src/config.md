@@ -324,18 +324,25 @@ In the following example, both the TypeScript plugin and Prettier plugin support
 
 ## Shebangs
 
-Scripts on POSIX systems often have no file extension and are identified only by their shebang (ex. `#!/usr/bin/env bash`). The `"shebangs"` config maps a shebang line to a file extension so these files get picked up by a plugin. It only applies to files that have no extension and didn't otherwise match a plugin, and dprint only reads the first line of such files.
+Scripts on POSIX systems often have no file extension and are identified only by their shebang (ex. `#!/usr/bin/env bash`). The `"shebangs"` config maps a shebang line to a file extension so these files get picked up by the plugin that handles that extension.
 
 ```json
 {
   "shebangs": {
     "#!/bin/sh": "sh",
-    "#!/usr/bin/env bash": "sh"
+    "#!/usr/bin/env bash": "sh",
+    "#!/usr/bin/env deno run": "ts"
   }
 }
 ```
 
-With the above, a file named `build` starting with `#!/bin/sh` is formatted as if it were a `.sh` file. A configured shebang matches when the file's first line equals it or starts with it followed by whitespace, so `#!/usr/bin/env deno run` matches `#!/usr/bin/env deno run --allow-read` (but not `#!/usr/bin/env deno runtest`). When multiple entries match, the longest one wins. Note that `#!/usr/bin/env -S deno run` is a different line, so list it separately if you use it. When shebangs are configured, extensionless files are discovered regardless of the `"includes"` patterns (they're still subject to `"excludes"` and the gitignore), so only the files whose first line matches a configured shebang get formatted.
+With the above, a file named `build` starting with `#!/bin/sh` is formatted as if it were a `.sh` file. Some notes:
+
+- It only applies to files that have no extension and didn't otherwise match a plugin (a plugin's `"associations"` still win, and a negated association pattern is checked against the file's real path). A plugin that handles the mapped extension must be in the `"plugins"` list, otherwise the file is skipped.
+- A configured shebang matches when the file's first line equals it or starts with it followed by whitespace, so `#!/usr/bin/env deno run` matches `#!/usr/bin/env deno run --allow-read` but not `#!/usr/bin/env deno runtest`. When multiple entries match, the longest one wins. `#!/usr/bin/env -S deno run` is a different line, so list it separately if you use it.
+- Extensionless files are checked for a matching shebang regardless of the config file's `"includes"` patterns. Negated include patterns, `"excludes"`, gitignore, and file patterns provided on the command line (including `--includes-override`) still apply.
+- dprint only reads the first line of extensionless files to check for a shebang.
+- When using `"extends"`, the shebangs are merged with the extending config's entries taking precedence. A nested config inherits them with `"inherit": true` unless it specifies its own.
 
 ## Overrides
 

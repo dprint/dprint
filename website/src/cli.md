@@ -329,7 +329,7 @@ Example output:
 
 ### Outputting incremental state (advanced, for very large repositories)
 
-When [incremental formatting](#incremental-formatting) is enabled, dprint keeps a cache and reuses it as long as nothing that affects formatting output has changed. The whole cache for a configuration file is thrown away when its plugins, plugin versions, resolved configuration, associations, overrides, or global configuration change.
+When [incremental formatting](#incremental-formatting) is enabled, dprint keeps a cache and reuses it as long as nothing that affects formatting output has changed. The whole cache for a configuration file is thrown away when its plugins, plugin versions, resolved configuration, associations, shebangs, overrides, or global configuration change.
 
 The `incremental-state` subcommand prints the exact signal dprint uses to make that decision, so you can compare it between two revisions and find out ahead of time whether the cache would be reused or invalidated:
 
