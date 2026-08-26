@@ -365,10 +365,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
   }
 
   let cli_parser = create_cli_parser(CliArgParserKind::Default);
-  let matches = match cli_parser.try_get_matches_from(&args) {
-    Ok(result) => result,
-    Err(err) => return Err(err.into()),
-  };
+  let matches = cli_parser.try_get_matches_from(&args)?;
 
   let mut is_global_config = false;
   let mut config_update_recursive = false;
