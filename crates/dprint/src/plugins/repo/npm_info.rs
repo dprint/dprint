@@ -8,6 +8,7 @@ use crate::environment::Environment;
 use crate::plugins::FetchNpmLatestInfo;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::fetch_npm_latest_info;
+use crate::utils::DependencyAgeCutoff;
 use crate::utils::NpmSpecifier;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
@@ -42,6 +43,9 @@ pub struct ResolveNpmLatestOptions {
   /// registry (`.npmrc`) is resolved from it, and it's recorded on the
   /// resulting reference for resolving the package later.
   pub base_dir: Option<CanonicalizedPathBuf>,
+  /// How old the resolved version must be, when the user asked for a minimum
+  /// dependency age. `None` selects whatever the registry tags as latest.
+  pub minimum_dependency_age: Option<DependencyAgeCutoff>,
 }
 
 impl PluginNpmInfo {
@@ -68,7 +72,11 @@ impl PluginNpmInfo {
   /// which decides the file within it and whether a checksum is required. A
   /// package that declares its own `path` decides both from that instead.
   pub async fn resolve_latest(&self, environment: &impl Environment, plugin_kind: PluginKind, options: ResolveNpmLatestOptions) -> Result<ResolvedNpmPlugin> {
-    let ResolveNpmLatestOptions { force_checksum, base_dir } = options;
+    let ResolveNpmLatestOptions {
+      force_checksum,
+      base_dir,
+      minimum_dependency_age,
+    } = options;
     let unversioned = self.unversioned_specifier(plugin_kind)?;
     // a process plugin's checksum is fetched regardless of `force_checksum` —
     // it can't be resolved without one
@@ -77,6 +85,7 @@ impl PluginNpmInfo {
         specifier: &unversioned,
         start_dir: base_dir.as_ref().map(|dir| dir.as_ref()),
         want_tarball_sha: force_checksum,
+        minimum_dependency_age: minimum_dependency_age.as_ref(),
       },
       environment,
     )
@@ -233,6 +242,7 @@ mod test {
 
     environment.clone().run_in_runtime(async move {
       let options = |force_checksum| ResolveNpmLatestOptions {
+        minimum_dependency_age: None,
         force_checksum,
         base_dir: None,
       };

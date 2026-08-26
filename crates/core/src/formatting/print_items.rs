@@ -163,11 +163,11 @@ impl PrintItems {
             text.push_str(&get_line(format!("Condition: {}", condition.name), &indent_text));
             if let Some(true_path) = &condition.true_path {
               text.push_str(&get_line(String::from("  true:"), &indent_text));
-              text.push_str(&get_items_as_text(true_path, format!("{}    ", &indent_text)));
+              text.push_str(&get_items_as_text(true_path, format!("{}    ", indent_text)));
             }
             if let Some(false_path) = &condition.false_path {
               text.push_str(&get_line(String::from("  false:"), &indent_text));
-              text.push_str(&get_items_as_text(false_path, format!("{}    ", &indent_text)));
+              text.push_str(&get_items_as_text(false_path, format!("{}    ", indent_text)));
             }
           }
           PrintItem::String(str_text) => text.push_str(&get_line(format!("`{}`", str_text.text), &indent_text)),

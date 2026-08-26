@@ -118,7 +118,7 @@ impl PendingTokens {
 
   pub fn cancel_all(&mut self) {
     let mut pending_tokens = self.tokens.borrow_mut();
-    for (_, token) in pending_tokens.iter() {
+    for token in pending_tokens.values() {
       token.cancel();
     }
     pending_tokens.clear();

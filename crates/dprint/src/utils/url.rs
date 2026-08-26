@@ -41,7 +41,7 @@ impl ProxyProvider for RealProxyUrlProvider {
       std::env::var(env_var_name.to_uppercase())
         .ok()
         .or_else(|| std::env::var(env_var_name.to_lowercase()).ok())
-        .and_then(|v| if v.is_empty() { None } else { Some(v) })
+        .filter(|v| !v.is_empty())
     }
 
     static HTTP_PROXY: OnceLock<Option<String>> = OnceLock::new();

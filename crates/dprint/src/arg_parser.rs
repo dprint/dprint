@@ -7,6 +7,7 @@ use thiserror::Error;
 
 use crate::environment::Environment;
 use crate::utils::LogLevel;
+use crate::utils::MinimumDependencyAgeArg;
 use crate::utils::StdInReader;
 
 #[derive(Debug, Clone, Copy)]
@@ -79,7 +80,12 @@ impl CliArgs {
     // these output json or other text that's read by stdout
     matches!(
       self.sub_command,
-      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig(..) | SubCommand::IncrementalState | SubCommand::Completions(..)
+      SubCommand::StdInFmt(..)
+        | SubCommand::EditorInfo
+        | SubCommand::OutputResolvedConfig(..)
+        | SubCommand::IncrementalState
+        | SubCommand::Completions(..)
+        | SubCommand::Check(CheckSubCommand { json: true, .. })
     )
   }
 
@@ -178,11 +184,22 @@ impl SubCommand {
   }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DiffFormat {
+  /// dprint's own human readable diff with line numbers and colors.
+  #[default]
+  Pretty,
+  /// Standard unified diff that can be piped to other tools or applied with `patch`.
+  Unified,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct CheckSubCommand {
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
   pub list_different: bool,
+  pub json: bool,
+  pub diff_format: DiffFormat,
   pub allow_no_files: bool,
   pub only_staged: bool,
   pub only_dirty: bool,
@@ -192,6 +209,7 @@ pub struct CheckSubCommand {
 #[derive(Debug, PartialEq, Eq)]
 pub struct FmtSubCommand {
   pub diff: bool,
+  pub diff_format: DiffFormat,
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
   pub enable_stable_format: bool,
@@ -207,11 +225,13 @@ pub enum ConfigSubCommand {
     global: bool,
     /// Skip the interactive plugin prompt and accept the smart defaults.
     yes: bool,
+    minimum_dependency_age: Option<MinimumDependencyAgeArg>,
   },
   Update {
     yes: bool,
     /// Print the updates that would be made without modifying any files.
     dry_run: bool,
+    minimum_dependency_age: Option<MinimumDependencyAgeArg>,
   },
   Add {
     names: Vec<String>,
@@ -226,6 +246,10 @@ pub enum ConfigSubCommand {
     /// (which are otherwise added without one). Conflicts with `no_version` /
     /// `package_json`, since an unversioned entry can't carry a checksum.
     checksum: bool,
+    /// Don't resolve an npm plugin version published more recently than this.
+    /// Only applies to versions dprint picks — a version the user wrote out
+    /// themselves is written as-is.
+    minimum_dependency_age: Option<MinimumDependencyAgeArg>,
   },
   Edit,
 }
@@ -270,7 +294,12 @@ pub enum HiddenSubCommand {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct FilePatternArgs {
-  pub include_patterns: Vec<String>,
+  /// File patterns specified on the command line or via `--stdin-files`.
+  ///
+  /// `None` means none were specified, which is different from specifying
+  /// an empty list (ex. `--stdin-files` with no lines) as that means there
+  /// are no files to format.
+  pub include_patterns: Option<Vec<String>>,
   pub include_pattern_overrides: Option<Vec<String>>,
   pub exclude_patterns: Vec<String>,
   pub exclude_pattern_overrides: Option<Vec<String>>,
@@ -289,14 +318,15 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
 }
 
 fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: TStdInReader) -> Result<CliArgs> {
-  fn parse_init(matches: &ArgMatches) -> ConfigSubCommand {
-    ConfigSubCommand::Init {
+  fn parse_init(matches: &ArgMatches) -> Result<ConfigSubCommand> {
+    Ok(ConfigSubCommand::Init {
       global: matches.get_flag("global"),
       yes: matches.get_flag("yes"),
-    }
+      minimum_dependency_age: parse_minimum_dependency_age(matches)?,
+    })
   }
 
-  fn parse_add(matches: &ArgMatches) -> ConfigSubCommand {
+  fn parse_add(matches: &ArgMatches) -> Result<ConfigSubCommand> {
     let names = matches
       .get_many::<String>("url-or-plugin-name")
       .map(|v| v.cloned().collect())
@@ -306,11 +336,21 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     // dprint.json on top of a devDependencies entry would be duplication.
     let no_version = package_json || matches.get_flag("no-version");
     let checksum = matches.get_flag("checksum");
-    ConfigSubCommand::Add {
+    Ok(ConfigSubCommand::Add {
       names,
       no_version,
       package_json,
       checksum,
+      minimum_dependency_age: parse_minimum_dependency_age(matches)?,
+    })
+  }
+
+  /// Parses `--minimum-dependency-age`. `None` leaves the age to any
+  /// `min-release-age` an .npmrc sets.
+  fn parse_minimum_dependency_age(matches: &ArgMatches) -> Result<Option<MinimumDependencyAgeArg>> {
+    match matches.get_one::<String>("minimum-dependency-age") {
+      Some(text) => Ok(Some(MinimumDependencyAgeArg::from_str(text)?)),
+      None => Ok(None),
     }
   }
 
@@ -325,10 +365,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
   }
 
   let cli_parser = create_cli_parser(CliArgParserKind::Default);
-  let matches = match cli_parser.try_get_matches_from(&args) {
-    Ok(result) => result,
-    Err(err) => return Err(err.into()),
-  };
+  let matches = cli_parser.try_get_matches_from(&args)?;
 
   let mut is_global_config = false;
   let mut config_update_recursive = false;
@@ -368,6 +405,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         let enable_stable_format = !matches.get_flag("skip-stable-format");
         SubCommand::Fmt(FmtSubCommand {
           diff: matches.get_flag("diff"),
+          diff_format: parse_diff_format(matches, DiffFormat::Pretty),
           patterns: parse_file_patterns(matches, &std_in_reader)?,
           incremental: if enable_stable_format { parse_incremental(matches) } else { Some(false) },
           enable_stable_format,
@@ -383,13 +421,15 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       }
     }
     ("check", matches) => {
-      // when log level is silent, default fail_fast to true unless explicitly provided by user
+      let json = matches.get_flag("json");
+      // when log level is silent, default fail_fast to true unless explicitly provided by
+      // user or outputting json (which is still output when silent and should be complete)
       let fail_fast = if let Some(value) = matches.get_one::<String>("fail-fast") {
         value != "false"
       } else if matches.contains_id("fail-fast") {
         true
       } else {
-        log_level == LogLevel::Silent
+        log_level == LogLevel::Silent && !json
       };
 
       SubCommand::Check(CheckSubCommand {
@@ -398,20 +438,22 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         only_staged: matches.get_flag("staged"),
         only_dirty: matches.get_flag("dirty"),
         list_different: matches.get_flag("list-different"),
+        json,
+        diff_format: parse_diff_format(matches, if json { DiffFormat::Unified } else { DiffFormat::Pretty }),
         allow_no_files: matches.get_flag("allow-no-files"),
         fail_fast,
       })
     }
-    ("init", matches) => SubCommand::Config(parse_init(matches)),
+    ("init", matches) => SubCommand::Config(parse_init(matches)?),
     ("add", matches) => {
       is_global_config = matches.get_flag("global");
-      SubCommand::Config(parse_add(matches))
+      SubCommand::Config(parse_add(matches)?)
     }
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
-      ("init", matches) => parse_init(matches),
+      ("init", matches) => parse_init(matches)?,
       ("add", matches) => {
         is_global_config = matches.get_flag("global");
-        parse_add(matches)
+        parse_add(matches)?
       }
       ("update", matches) => {
         is_global_config = matches.get_flag("global");
@@ -420,6 +462,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         ConfigSubCommand::Update {
           yes: *matches.get_one::<bool>("yes").unwrap(),
           dry_run: *matches.get_one::<bool>("dry-run").unwrap(),
+          minimum_dependency_age: parse_minimum_dependency_age(matches)?,
         }
       }
       ("edit", matches) => {
@@ -485,13 +528,14 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
 
 fn parse_file_patterns<TStdInReader: StdInReader>(matches: &ArgMatches, std_in_reader: &TStdInReader) -> Result<FilePatternArgs> {
   let plugins = maybe_values_to_vec(matches.get_many("plugins"));
-  let mut file_patterns = maybe_values_to_vec(matches.get_many("files"));
+  // these two are mutually exclusive, so only one of them provides the patterns
+  let file_patterns = if matches.get_flag("stdin-files") {
+    Some(std_in_reader.read_non_empty_lines()?)
+  } else {
+    matches.get_many("files").map(values_to_vec)
+  };
 
-  if matches.get_flag("stdin-files") {
-    file_patterns.extend(std_in_reader.read_non_empty_lines()?);
-  }
-
-  if !plugins.is_empty() && file_patterns.is_empty() {
+  if !plugins.is_empty() && file_patterns.as_ref().is_none_or(|p| p.is_empty()) {
     validate_plugin_args_when_no_files(&plugins)?;
   }
 
@@ -505,6 +549,14 @@ fn parse_file_patterns<TStdInReader: StdInReader>(matches: &ArgMatches, std_in_r
     exclude_patterns: maybe_values_to_vec(matches.get_many("excludes")),
     exclude_pattern_overrides: matches.get_many("excludes-override").map(values_to_vec),
   })
+}
+
+fn parse_diff_format(matches: &ArgMatches, default: DiffFormat) -> DiffFormat {
+  match matches.get_one::<String>("diff-format").map(|s| s.as_str()) {
+    Some("unified") => DiffFormat::Unified,
+    Some("pretty") => DiffFormat::Pretty,
+    _ => default,
+  }
 }
 
 fn parse_incremental(matches: &ArgMatches) -> Option<bool> {
@@ -580,6 +632,7 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
           .num_args(0)
           .required(false),
       )
+      .arg(minimum_dependency_age_arg())
   }
 
   fn add_command() -> Command {
@@ -624,6 +677,22 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
           .required(false)
           .conflicts_with_all(["no-version", "package-json"]),
       )
+      .arg(minimum_dependency_age_arg())
+  }
+
+  /// `--minimum-dependency-age`, shared by the commands that resolve a plugin
+  /// version from npm on the user's behalf.
+  fn minimum_dependency_age_arg() -> Arg {
+    Arg::new("minimum-dependency-age")
+      .long("minimum-dependency-age")
+      .value_name("AGE")
+      .help(concat!(
+        "Don't resolve npm plugin versions published more recently than this. Accepts an ISO-8601 duration ",
+        "(ex. 'P3D', 'PT72H'), a number of minutes (ex. '1440'), a date or RFC3339 timestamp (ex. '2026-01-15'), or '0' to disable. ",
+        "Defaults to min-release-age in .npmrc, otherwise no minimum.",
+      ))
+      .num_args(1)
+      .required(false)
   }
 
   use clap::Arg;
@@ -737,6 +806,7 @@ EXAMPLES:
             .num_args(0)
             .required(false)
         )
+        .add_diff_format_arg()
         .add_only_staged_arg()
         .add_only_dirty_arg()
         .add_allow_no_files_arg()
@@ -769,6 +839,14 @@ EXAMPLES:
             .help("Only outputs file paths that aren't formatted and doesn't output diffs.")
             .num_args(0)
         )
+        .arg(
+          Arg::new("json")
+            .long("json")
+            .help("Outputs a JSON object per line for each file that isn't formatted.")
+            .num_args(0)
+            .conflicts_with("list-different")
+        )
+        .add_diff_format_arg()
         .arg(
           Arg::new("fail-fast")
             .long("fail-fast")
@@ -813,6 +891,7 @@ EXAMPLES:
                 .num_args(0)
                 .required(false)
             )
+            .arg(minimum_dependency_age_arg())
         )
         .subcommand(add_command())
         .subcommand(
@@ -968,6 +1047,7 @@ trait ClapExtensions {
   fn add_resolve_file_path_args(self) -> Self;
   fn add_incremental_arg(self) -> Self;
   fn add_allow_no_files_arg(self) -> Self;
+  fn add_diff_format_arg(self) -> Self;
   fn add_only_staged_arg(self) -> Self;
   fn add_only_dirty_arg(self) -> Self;
 }
@@ -1052,6 +1132,18 @@ impl ClapExtensions for clap::Command {
     )
   }
 
+  fn add_diff_format_arg(self) -> Self {
+    use clap::Arg;
+    self.arg(
+      Arg::new("diff-format")
+        .long("diff-format")
+        .help("The format to output diffs in. Use `unified` to output a standard unified diff that can be piped to other tools or applied with `patch`. Defaults to `pretty`, or `unified` when outputting json.")
+        .num_args(1)
+        .value_parser(["pretty", "unified"])
+        .required(false),
+    )
+  }
+
   fn add_only_staged_arg(self) -> Self {
     use clap::Arg;
     self.arg(
@@ -1081,6 +1173,7 @@ mod test {
   use crate::utils::TestStdInReader;
 
   use super::*;
+  use crate::utils::MinimumDependencyAge;
 
   #[test]
   fn output_prefixed_command_aliases() {
@@ -1193,7 +1286,27 @@ mod test {
     match args.sub_command {
       SubCommand::Fmt(cmd) => {
         // blank lines are skipped and paths with spaces are preserved
-        assert_eq!(cmd.patterns.include_patterns, vec!["/file1.txt".to_string(), "/sub dir/file 2.txt".to_string()]);
+        assert_eq!(
+          cmd.patterns.include_patterns,
+          Some(vec!["/file1.txt".to_string(), "/sub dir/file 2.txt".to_string()])
+        );
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn stdin_files_arg_empty() {
+    let stdin_reader = TestStdInReader::from(
+      "
+
+",
+    );
+    let args = parse_args(vec!["".to_string(), "fmt".to_string(), "--stdin-files".to_string()], stdin_reader).unwrap();
+    match args.sub_command {
+      SubCommand::Fmt(cmd) => {
+        // an empty list of files is not the same as not specifying any files
+        assert_eq!(cmd.patterns.include_patterns, Some(Vec::new()));
       }
       _ => unreachable!(),
     }
@@ -1252,6 +1365,7 @@ mod test {
         no_version,
         package_json,
         checksum,
+        ..
       }) => {
         assert!(names.is_empty());
         assert!(!no_version);
@@ -1287,6 +1401,7 @@ mod test {
         no_version,
         package_json,
         checksum,
+        ..
       }) => {
         assert_eq!(names, &["npm:@dprint/typescript"]);
         assert!(*no_version);
@@ -1307,6 +1422,55 @@ mod test {
       }
       _ => unreachable!(),
     }
+  }
+
+  #[test]
+  fn add_minimum_dependency_age_flag() {
+    let args = test_args(vec!["add", "--minimum-dependency-age", "P3D", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { minimum_dependency_age, .. }) => {
+        let arg = minimum_dependency_age.as_ref().unwrap();
+        assert_eq!(*arg.age(), MinimumDependencyAge::Age(std::time::Duration::from_secs(3 * 86400)));
+        // the text is kept as written so messages can quote it back
+        assert_eq!(arg.text(), "P3D");
+      }
+      _ => unreachable!(),
+    }
+
+    // the same flag is available on the commands that resolve a version on
+    // the user's behalf, and defaults to leaving the age to the .npmrc
+    let args = test_args(vec!["config", "update", "--minimum-dependency-age", "0"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Update { minimum_dependency_age, .. }) => {
+        assert_eq!(*minimum_dependency_age.as_ref().unwrap().age(), MinimumDependencyAge::Disabled);
+      }
+      _ => unreachable!(),
+    }
+    let args = test_args(vec!["init", "--minimum-dependency-age", "1440"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Init { minimum_dependency_age, .. }) => {
+        assert_eq!(
+          *minimum_dependency_age.as_ref().unwrap().age(),
+          MinimumDependencyAge::Age(std::time::Duration::from_secs(86400))
+        );
+      }
+      _ => unreachable!(),
+    }
+    let args = test_args(vec!["add", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { minimum_dependency_age, .. }) => {
+        assert_eq!(*minimum_dependency_age, None);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn add_minimum_dependency_age_rejects_an_invalid_value() {
+    let err = test_args(vec!["add", "--minimum-dependency-age", "3 days", "npm:@dprint/typescript"])
+      .err()
+      .unwrap();
+    assert!(err.to_string().contains("Invalid minimum dependency age"), "got: {}", err);
   }
 
   #[test]
@@ -1331,7 +1495,7 @@ mod test {
   fn config_upgrade_alias() {
     let args = test_args(vec!["config", "upgrade"]).unwrap();
     match args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Update { yes, dry_run }) => {
+      SubCommand::Config(ConfigSubCommand::Update { yes, dry_run, .. }) => {
         assert!(!yes);
         assert!(!dry_run);
       }
@@ -1343,7 +1507,7 @@ mod test {
   fn config_update_dry_run_arg() {
     let args = test_args(vec!["config", "update", "--dry-run"]).unwrap();
     match args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Update { yes, dry_run }) => {
+      SubCommand::Config(ConfigSubCommand::Update { yes, dry_run, .. }) => {
         assert!(!yes);
         assert!(dry_run);
       }
@@ -1357,6 +1521,52 @@ mod test {
     assert_eq!(check_cmd.fail_fast, false);
     let check_cmd = parse_check_sub_command(vec!["check", "--fail-fast"]).unwrap();
     assert_eq!(check_cmd.fail_fast, true);
+  }
+
+  #[test]
+  fn check_json_arg() {
+    let check_cmd = parse_check_sub_command(vec!["check"]).unwrap();
+    assert!(!check_cmd.json);
+    let check_cmd = parse_check_sub_command(vec!["check", "--json"]).unwrap();
+    assert!(check_cmd.json);
+    assert!(test_args(vec!["check", "--json"]).unwrap().is_stdout_machine_readable());
+    assert!(!test_args(vec!["check"]).unwrap().is_stdout_machine_readable());
+    assert!(test_args(vec!["check", "--json", "--list-different"]).is_err());
+    let check_cmd = parse_check_sub_command(vec!["check", "--json", "--fail-fast"]).unwrap();
+    assert!(check_cmd.fail_fast);
+  }
+
+  #[test]
+  fn diff_format_arg() {
+    let check_cmd = parse_check_sub_command(vec!["check"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Pretty);
+    let check_cmd = parse_check_sub_command(vec!["check", "--diff-format", "unified"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Unified);
+    let check_cmd = parse_check_sub_command(vec!["check", "--diff-format=pretty"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Pretty);
+    assert!(test_args(vec!["check", "--diff-format", "other"]).is_err());
+    // defaults to unified with --json
+    let check_cmd = parse_check_sub_command(vec!["check", "--json"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Unified);
+    let check_cmd = parse_check_sub_command(vec!["check", "--json", "--diff-format", "pretty"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Pretty);
+
+    match test_args(vec!["fmt", "--diff", "--diff-format", "unified"]).unwrap().sub_command {
+      SubCommand::Fmt(cmd) => assert_eq!(cmd.diff_format, DiffFormat::Unified),
+      _ => unreachable!(),
+    }
+    match test_args(vec!["fmt"]).unwrap().sub_command {
+      SubCommand::Fmt(cmd) => assert_eq!(cmd.diff_format, DiffFormat::Pretty),
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn check_json_does_not_default_fail_fast_with_silent_log_level() {
+    let check_cmd = parse_check_sub_command(vec!["check", "--json", "--log-level=silent"]).unwrap();
+    assert!(!check_cmd.fail_fast);
+    let check_cmd = parse_check_sub_command(vec!["check", "--json", "--log-level=silent", "--fail-fast"]).unwrap();
+    assert!(check_cmd.fail_fast);
   }
 
   #[test]

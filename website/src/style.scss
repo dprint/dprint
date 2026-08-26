@@ -9,6 +9,8 @@
   --accent: #8b93a1;
   --glow: 0.22;
   --max: 1200px;
+  /* height of the sticky nav; kept exact by scripts/nav-height.js */
+  --nav-h: 74px;
 }
 
 * {
@@ -23,6 +25,8 @@ body {
 
 html {
   min-height: 100%;
+  /* keep anchor targets (e.g. /cli/#some-heading) out from under the sticky nav */
+  scroll-padding-top: calc(var(--nav-h) + 24px);
 }
 
 body {
@@ -163,6 +167,9 @@ a {
 }
 
 @media (max-width: 768px) {
+  :root {
+    --nav-h: 145px;
+  }
   .nav-inner {
     flex-wrap: wrap;
     gap: 14px;
@@ -690,10 +697,10 @@ a {
 }
 .doc-sidebar {
   position: sticky;
-  top: 73px;
+  top: var(--nav-h);
   align-self: start;
   padding: 36px 0 60px;
-  max-height: calc(100vh - 73px);
+  max-height: calc(100vh - var(--nav-h));
   overflow-y: auto;
   scrollbar-width: none; /* firefox */
   -ms-overflow-style: none; /* legacy edge */
