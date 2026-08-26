@@ -22,12 +22,12 @@
   "plugins": [
     "npm:@dprint/typescript@0.96.1",
     "npm:@dprint/json@0.23.0",
-    "npm:@dprint/markdown@0.22.1",
-    "npm:@dprint/toml@0.7.0",
+    "npm:@dprint/markdown@0.23.0",
+    "npm:@dprint/toml@0.8.0",
     "npm:@dprint/exec@0.7.3/plugin.json@704701df449dd7e942a71144773778ac529d68c2e4657bfc236d393b898b9a67",
     "npm:dprint-plugin-malva@0.16.0",
     "npm:dprint-plugin-markup@0.27.3",
     "npm:dprint-plugin-yaml@0.6.0",
-    "npm:@dprint/dockerfile@0.5.0"
+    "npm:@dprint/dockerfile@0.6.0"
   ]
 }
