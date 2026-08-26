@@ -23,7 +23,7 @@ use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
-use crate::paths::read_file_bytes_start;
+use crate::paths::read_file_shebang_line;
 use crate::plugins::FetchNpmLatestInfo;
 use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::MinimumDependencyAgeError;
@@ -1522,14 +1522,14 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
   let included_plugin_names = cmd.file_path.as_ref().map(|file_path| {
     let file_path = environment.cwd().join(file_path);
     // the file might not exist, in which case it can't match by shebang
-    let file_bytes_start = if plugins_scope.plugin_name_maps.may_match_shebang(&file_path) {
-      read_file_bytes_start(environment, &file_path).unwrap_or_default()
+    let shebang_line = if plugins_scope.plugin_name_maps.may_match_shebang(&file_path) {
+      read_file_shebang_line(environment, &file_path).ok().flatten().unwrap_or_default()
     } else {
       Vec::new()
     };
     plugins_scope
       .plugin_name_maps
-      .get_plugin_names_from_file_path_and_bytes(&file_path, &file_bytes_start)
+      .get_plugin_names_from_file_path_and_bytes(&file_path, &shebang_line)
       .into_iter()
       .collect::<HashSet<_>>()
   });

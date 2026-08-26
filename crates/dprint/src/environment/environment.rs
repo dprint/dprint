@@ -20,7 +20,6 @@ use sys_traits::BaseFsRead;
 use sys_traits::BaseFsRemoveFile;
 use sys_traits::BaseFsRename;
 use sys_traits::BaseFsSetPermissions;
-use sys_traits::FsOpen;
 use sys_traits::SystemRandom;
 use sys_traits::SystemTimeNow;
 use sys_traits::ThreadSleep;
@@ -235,20 +234,6 @@ pub trait Environment:
     }
   }
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> io::Result<Vec<u8>>;
-  /// Reads at most `max_bytes` from the start of a file without reading the
-  /// whole file into memory.
-  fn read_file_bytes_prefix(&self, file_path: impl AsRef<Path>, max_bytes: usize) -> io::Result<Vec<u8>> {
-    use std::io::Read;
-    let file_path = file_path.as_ref();
-    log_debug!(self, "Reading file prefix: {}", file_path.display());
-    let file = self.fs_open(file_path, &sys_traits::OpenOptions::new_read())?;
-    let mut bytes = Vec::new();
-    file
-      .take(max_bytes as u64)
-      .read_to_end(&mut bytes)
-      .map_err(|err| io::Error::new(err.kind(), format!("Error reading file {}: {:#}", file_path.display(), err)))?;
-    Ok(bytes)
-  }
   fn write_file(&self, file_path: impl AsRef<Path>, file_text: &str) -> io::Result<()> {
     self.write_file_bytes(file_path, file_text.as_bytes())
   }
