@@ -34,12 +34,7 @@ impl PluginNameResolutionMaps {
   ) -> Result<Self> {
     let mut plugin_name_maps = PluginNameResolutionMaps::default();
     if let Some(shebangs) = shebangs {
-      for (shebang, extension) in shebangs {
-        // extensions are stored lowercased and without a leading dot so they
-        // resolve the same way as a real file extension
-        let extension = extension.trim_start_matches('.').to_lowercase();
-        plugin_name_maps.shebang_to_extension.push((shebang.trim().to_string(), extension));
-      }
+      plugin_name_maps.shebang_to_extension = shebangs.iter().map(|(shebang, extension)| (shebang.clone(), extension.clone())).collect();
       // longest first so a more specific shebang wins (ex. `deno run` over `deno`)
       plugin_name_maps
         .shebang_to_extension

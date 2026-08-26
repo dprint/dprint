@@ -606,16 +606,21 @@ fn take_shebangs_from_config_map(config_map: &mut ConfigMap) -> Result<Option<In
       if plugin_config.locked || !plugin_config.overrides.is_empty() || plugin_config.associations.is_some() {
         bail!("The 'shebangs' property must be an object that maps shebang lines to file extensions.");
       }
+      // the shebangs and extensions are normalized here so the rest of the
+      // code (ex. merging, hashing, resolution) can compare them directly
       let mut map = IndexMap::with_capacity(plugin_config.properties.len());
       for (shebang, value) in plugin_config.properties {
-        if !shebang.trim_start().starts_with("#!") {
-          bail!("Expected the key '{}' in the 'shebangs' property to start with '#!'.", shebang);
+        if !shebang.starts_with("#!") || shebang.contains(['\r', '\n']) {
+          bail!(
+            "Expected the key '{}' in the 'shebangs' property to be a shebang line starting with '#!'.",
+            shebang
+          );
         }
         match value {
           ConfigKeyValue::String(extension) => {
-            let trimmed_extension = extension.trim_start_matches('.');
-            if trimmed_extension.is_empty()
-              || trimmed_extension.contains(|c: char| c.is_whitespace() || matches!(c, '.' | '/' | '\\' | '*' | '?' | '[' | ']' | '{' | '}'))
+            let extension_without_dot = extension.strip_prefix('.').unwrap_or(&extension);
+            if extension_without_dot.is_empty()
+              || extension_without_dot.contains(|c: char| c.is_whitespace() || matches!(c, '.' | '/' | '\\' | '*' | '?' | '[' | ']' | '{' | '}'))
             {
               bail!(
                 "Expected a file extension (ex. \"sh\") for shebang '{}' in the 'shebangs' property, but found '{}'.",
@@ -623,7 +628,9 @@ fn take_shebangs_from_config_map(config_map: &mut ConfigMap) -> Result<Option<In
                 extension
               );
             }
-            map.insert(shebang, extension);
+            // stored lowercased and without a leading dot so it resolves the
+            // same way as a real file extension
+            map.insert(shebang.trim_end().to_string(), extension_without_dot.to_lowercase());
           }
           _ => bail!("Expected a string file extension for shebang '{}' in the 'shebangs' property.", shebang),
         }
@@ -2037,7 +2044,8 @@ mod tests {
         r##"{
             "shebangs": {
               "#!/bin/sh": "sh",
-              "#!/usr/bin/env node": ".js"
+              "#!/usr/bin/env node": ".js",
+              "#!/usr/bin/env deno  ": "TS"
             },
             "plugins": ["./testing/asdf.wasm"],
         }"##,
@@ -2049,8 +2057,9 @@ mod tests {
       assert_eq!(environment.take_stdout_messages().len(), 0);
       let shebangs = result.shebangs.unwrap();
       assert_eq!(shebangs.get("#!/bin/sh").map(|s| s.as_str()), Some("sh"));
-      // the leading dot is kept as written here, it's normalized later during resolution
-      assert_eq!(shebangs.get("#!/usr/bin/env node").map(|s| s.as_str()), Some(".js"));
+      // the leading dot is removed and the extension lowercased
+      assert_eq!(shebangs.get("#!/usr/bin/env node").map(|s| s.as_str()), Some("js"));
+      assert_eq!(shebangs.get("#!/usr/bin/env deno").map(|s| s.as_str()), Some("ts"));
     });
   }
 
@@ -2136,8 +2145,10 @@ mod tests {
     );
     assert_eq!(
       get_error(r##"{ "/bin/sh": "sh" }"##),
-      "Expected the key '/bin/sh' in the 'shebangs' property to start with '#!'."
+      "Expected the key '/bin/sh' in the 'shebangs' property to be a shebang line starting with '#!'."
     );
+    assert!(get_error(r##"{ " #!/bin/sh": "sh" }"##).contains("to be a shebang line starting with '#!'"));
+    assert!(get_error(r##"{ "#!/bin/sh\ntext": "sh" }"##).contains("to be a shebang line starting with '#!'"));
   }
 
   #[test]
