@@ -179,7 +179,14 @@ pub async fn check<TEnvironment: Environment>(
         if formatted_bytes != file_bytes {
           not_formatted_files_count.inc();
           if output_json {
-            output_json_difference(&file_path, &file_bytes, &formatted_bytes, &environment);
+            output_json_difference(
+              OutputJsonDifferenceOptions {
+                file_path: &file_path,
+                file_bytes: &file_bytes,
+                formatted_bytes: &formatted_bytes,
+              },
+              &environment,
+            );
           } else if list_different {
             log_stdout_info!(environment, "{}", file_path.display());
           } else {
@@ -258,7 +265,13 @@ fn output_difference(file_path: &Path, file_bytes: &[u8], formatted_bytes: &[u8]
   log_stdout_info!(environment, "{} {}:\n{}\n--", colors::red_bold("from"), file_path.display(), difference_text);
 }
 
-fn output_json_difference(file_path: &Path, file_bytes: &[u8], formatted_bytes: &[u8], environment: &impl Environment) {
+struct OutputJsonDifferenceOptions<'a> {
+  file_path: &'a Path,
+  file_bytes: &'a [u8],
+  formatted_bytes: &'a [u8],
+}
+
+fn output_json_difference(options: OutputJsonDifferenceOptions, environment: &impl Environment) {
   #[derive(Serialize)]
   struct UnformattedFile<'a> {
     file: Cow<'a, str>,
@@ -267,13 +280,13 @@ fn output_json_difference(file_path: &Path, file_bytes: &[u8], formatted_bytes: 
     diff: Option<String>,
   }
 
-  let diff = match (std::str::from_utf8(file_bytes), std::str::from_utf8(formatted_bytes)) {
+  let diff = match (std::str::from_utf8(options.file_bytes), std::str::from_utf8(options.formatted_bytes)) {
     (Ok(file_text), Ok(formatted_text)) => Some(get_unified_difference(file_text, formatted_text)),
     _ => None,
   };
   // infallible because the struct only contains strings
   let mut line = serde_json::to_vec(&UnformattedFile {
-    file: file_path.to_string_lossy(),
+    file: options.file_path.to_string_lossy(),
     diff,
   })
   .unwrap();
