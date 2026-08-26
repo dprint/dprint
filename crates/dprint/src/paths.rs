@@ -2,6 +2,7 @@ use anyhow::Context;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::Split;
@@ -83,11 +84,10 @@ pub fn get_file_paths_by_plugins(
 
     // fall back to the shebang when an extensionless file didn't match a plugin
     if plugin_names.is_empty()
-      && plugin_name_maps.has_shebang_mappings()
-      && file_path.extension().is_none()
-      && let Some(first_line) = read_shebang_line(environment, &file_path)
+      && plugin_name_maps.may_match_shebang(&file_path)
+      && let Ok(file_bytes_start) = read_file_bytes_start(environment, &file_path)
     {
-      plugin_names = plugin_name_maps.get_plugin_names_from_shebang_line(&file_path, &first_line);
+      plugin_names = plugin_name_maps.get_plugin_names_from_shebang(&file_path, &file_bytes_start);
     }
 
     if !plugin_names.is_empty() {
@@ -100,18 +100,12 @@ pub fn get_file_paths_by_plugins(
   Ok(FilesPathsByPlugins(file_paths_by_plugin))
 }
 
-/// Reads the first line of a file when it starts with a shebang (`#!`),
-/// otherwise returns `None`. Avoids reading files that aren't scripts.
-fn read_shebang_line(environment: &impl Environment, file_path: &Path) -> Option<String> {
+/// Reads the start of a file, which is enough to check for a shebang line.
+fn read_file_bytes_start(environment: &impl Environment, file_path: &Path) -> io::Result<Vec<u8>> {
   // only read the start of the file since a shebang line is short and files
   // matched here could be large (ex. extensionless binaries)
   const MAX_SHEBANG_BYTES: usize = 256;
-  let bytes = environment.read_file_bytes_prefix(file_path, MAX_SHEBANG_BYTES).ok()?;
-  if !bytes.starts_with(b"#!") {
-    return None;
-  }
-  let end = bytes.iter().position(|b| *b == b'\n').unwrap_or(bytes.len());
-  std::str::from_utf8(&bytes[..end]).ok().map(|line| line.to_string())
+  environment.read_file_bytes_prefix(file_path, MAX_SHEBANG_BYTES)
 }
 
 pub async fn get_and_resolve_file_paths<'a>(

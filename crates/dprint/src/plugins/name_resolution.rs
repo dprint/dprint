@@ -103,30 +103,35 @@ impl PluginNameResolutionMaps {
     plugin_names
   }
 
-  pub fn has_shebang_mappings(&self) -> bool {
-    !self.shebang_to_extension.is_empty()
+  /// Whether the file might be resolved by its shebang line. This is the case
+  /// when shebang mappings are configured and the file has no extension.
+  pub fn may_match_shebang(&self, file_path: &Path) -> bool {
+    !self.shebang_to_extension.is_empty() && file_path.extension().is_none()
   }
 
   /// Resolves plugins for an extensionless file based on its first line (the
   /// shebang). The shebang is looked up in the configured mapping to get an
-  /// extension, then the file is resolved as if it had that extension.
-  pub fn get_plugin_names_from_shebang_line(&self, file_path: &Path, first_line: &str) -> Vec<String> {
-    let shebang = first_line.trim();
-    if !shebang.starts_with("#!") {
+  /// extension, then the plugins for that extension are resolved. Association
+  /// patterns are evaluated against the real file path.
+  pub fn get_plugin_names_from_shebang(&self, file_path: &Path, file_bytes_start: &[u8]) -> Vec<String> {
+    if !self.may_match_shebang(file_path) {
       return Vec::new();
     }
-    match self.shebang_to_extension.get(shebang) {
-      Some(extension) => {
-        let mut file_name = match file_path.file_name() {
-          Some(file_name) => file_name.to_os_string(),
-          None => return Vec::new(),
-        };
-        file_name.push(".");
-        file_name.push(extension);
-        self.get_plugin_names_from_file_path(&file_path.with_file_name(file_name))
+    let Some(shebang) = get_shebang_line(file_bytes_start) else {
+      return Vec::new();
+    };
+    let Some(extension) = self.shebang_to_extension.get(shebang) else {
+      return Vec::new();
+    };
+    let Some(plugin_names) = self.extension_to_plugin_names_map.get(extension) else {
+      return Vec::new();
+    };
+    for plugin_name in plugin_names {
+      if self.is_not_associations_excluded(plugin_name, file_path) {
+        return vec![plugin_name.clone()];
       }
-      None => Vec::new(),
     }
+    Vec::new()
   }
 
   fn is_not_associations_excluded(&self, plugin_name: &str, file_path: &Path) -> bool {
@@ -138,6 +143,15 @@ impl PluginNameResolutionMaps {
       None => true,
     }
   }
+}
+
+/// Gets the trimmed first line of the file when it starts with a shebang (`#!`).
+fn get_shebang_line(file_bytes_start: &[u8]) -> Option<&str> {
+  if !file_bytes_start.starts_with(b"#!") {
+    return None;
+  }
+  let end = file_bytes_start.iter().position(|b| *b == b'\n').unwrap_or(file_bytes_start.len());
+  std::str::from_utf8(&file_bytes_start[..end]).ok().map(|line| line.trim())
 }
 
 fn get_plugin_association_glob_matcher(plugin: &PluginWithConfig, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>> {

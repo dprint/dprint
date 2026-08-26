@@ -1257,6 +1257,56 @@ mod test {
   }
 
   #[test]
+  fn should_evaluate_associations_against_real_path_for_shebang_files() {
+    let script_path = "/scripts/build";
+    let excluded_path = "/scripts/legacy-build";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_config_section(
+            "shebangs",
+            r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+          )
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "associations": [
+                "!**/legacy-build"
+              ]
+            }"#,
+          );
+      })
+      .write_file(
+        &script_path,
+        "#!/bin/sh
+text",
+      )
+      // excluded by a negated association pattern on its real path
+      .write_file(
+        &excluded_path,
+        "#!/bin/sh
+text2",
+      )
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(
+      environment.read_file(&script_path).unwrap(),
+      "#!/bin/sh
+text_formatted"
+    );
+    assert_eq!(
+      environment.read_file(&excluded_path).unwrap(),
+      "#!/bin/sh
+text2"
+    );
+  }
+
+  #[test]
   fn should_format_files_with_config_overrides() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
