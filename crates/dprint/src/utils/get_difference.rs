@@ -5,9 +5,9 @@ use similar::ChangeTag;
 use similar::TextDiffConfig;
 
 /// Gets a plain unified diff (as `git diff` would output it) without any colors.
-pub fn get_unified_difference(old_text: &str, new_text: &str) -> String {
+pub fn get_unified_difference(old_text: &str, new_text: &str, old_header: &str, new_header: &str) -> String {
   let diff = text_diff_config().diff_lines(old_text, new_text);
-  diff.unified_diff().header("original", "formatted").to_string()
+  diff.unified_diff().header(old_header, new_header).to_string()
 }
 
 /// Gets a string showing the difference between two strings.
@@ -131,11 +131,14 @@ mod test {
   #[test]
   fn should_get_unified_difference() {
     assert_eq!(
-      get_unified_difference("a\nb\n", "a\nc\n"),
-      "--- original\n+++ formatted\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n"
+      get_unified_difference("a\nb\n", "a\nc\n", "a/file.txt", "b/file.txt"),
+      "--- a/file.txt\n+++ b/file.txt\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n"
     );
     // does not normalize line endings
-    assert_eq!(get_unified_difference("a\r\n", "a\n"), "--- original\n+++ formatted\n@@ -1 +1 @@\n-a\r\n+a\n");
+    assert_eq!(
+      get_unified_difference("a\r\n", "a\n", "original", "formatted"),
+      "--- original\n+++ formatted\n@@ -1 +1 @@\n-a\r\n+a\n"
+    );
   }
 
   #[test]
