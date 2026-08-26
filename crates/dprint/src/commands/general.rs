@@ -332,6 +332,29 @@ mod test {
   }
 
   #[test]
+  fn should_output_resolved_file_paths_with_shebangs() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+        );
+      })
+      .write_file("/file.txt", "text")
+      .write_file("/scripts/build", "#!/bin/sh\ntext")
+      // no matching shebang
+      .write_file("/scripts/other", "#!/bin/bash\ntext")
+      .write_file("/scripts/notes", "text")
+      .build();
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.txt", "/scripts/build"]);
+  }
+
+  #[test]
   fn should_not_output_file_paths_not_supported_by_plugins() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .write_file("/file.ts", "const t=4;")

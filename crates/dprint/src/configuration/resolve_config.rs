@@ -2108,6 +2108,60 @@ mod tests {
   }
 
   #[test]
+  fn should_merge_shebangs_from_local_extends_chain() {
+    let environment = TestEnvironment::new();
+    environment
+      .write_file(
+        &PathBuf::from("/base2.json"),
+        r##"{
+            "shebangs": {
+              "#!/bin/sh": "base2",
+              "#!/usr/bin/env node": "base2",
+              "#!/usr/bin/env python3": "base2"
+            }
+        }"##,
+      )
+      .unwrap();
+    environment
+      .write_file(
+        &PathBuf::from("/base1.json"),
+        r##"{
+            "extends": "./base2.json",
+            "shebangs": {
+              "#!/usr/bin/env node": "base1",
+              "#!/usr/bin/env python3": "base1"
+            }
+        }"##,
+      )
+      .unwrap();
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r##"{
+            "extends": "./base1.json",
+            "shebangs": {
+              "#!/usr/bin/env python3": "test"
+            },
+            "plugins": ["./testing/asdf.wasm"],
+        }"##,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(
+        result.shebangs.unwrap().into_iter().collect::<Vec<_>>(),
+        vec![
+          ("#!/usr/bin/env python3".to_string(), "test".to_string()),
+          ("#!/usr/bin/env node".to_string(), "base1".to_string()),
+          ("#!/bin/sh".to_string(), "base2".to_string()),
+        ]
+      );
+    });
+  }
+
+  #[test]
   fn should_error_when_shebangs_value_invalid() {
     fn get_error(shebangs: &str) -> String {
       let environment = TestEnvironment::new();
