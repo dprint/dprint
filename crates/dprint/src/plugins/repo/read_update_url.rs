@@ -191,6 +191,7 @@ mod test {
         .resolve_npm(
           &environment,
           ResolveNpmLatestOptions {
+            minimum_dependency_age: None,
             force_checksum: false,
             base_dir: None,
           },
