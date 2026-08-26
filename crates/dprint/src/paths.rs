@@ -122,8 +122,16 @@ pub fn read_file_shebang_line(environment: &impl Environment, file_path: &Path) 
   if start != *b"#!" {
     return Ok(None);
   }
+  // bail when the line is unreasonably long since it can't be a shebang
+  // (ex. a binary file that happens to start with `#!`). This is well above
+  // the kernel's shebang line limit.
+  const MAX_SHEBANG_LINE_LEN: u64 = 4096;
   let mut line = start.to_vec();
-  reader.read_until(b'\n', &mut line).map_err(map_err)?;
+  let read_count = reader.take(MAX_SHEBANG_LINE_LEN).read_until(b'\n', &mut line).map_err(map_err)?;
+  let found_newline = line.last() == Some(&b'\n');
+  if !found_newline && read_count as u64 >= MAX_SHEBANG_LINE_LEN {
+    return Ok(None);
+  }
   Ok(Some(line))
 }
 
