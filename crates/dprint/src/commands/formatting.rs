@@ -3628,6 +3628,39 @@ text2"
   }
 
   #[test]
+  fn should_format_for_stdin_fmt_with_shebang() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+        );
+      })
+      .build();
+
+    // extensionless file with a mapped shebang
+    let test_std_in = TestStdInReader::from(
+      "#!/bin/sh
+text",
+    );
+    run_test_cli_with_stdin(vec!["fmt", "--stdin", "scripts/build"], &environment, test_std_in).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![
+        "#!/bin/sh
+text_formatted"
+      ]
+    );
+
+    // no shebang, so it's output as-is
+    let test_std_in = TestStdInReader::from("text");
+    run_test_cli_with_stdin(vec!["fmt", "--stdin", "scripts/build"], &environment, test_std_in).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["text"]);
+  }
+
+  #[test]
   fn should_format_for_stdin_fmt_with_extension() {
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
       .with_default_config(|c| {

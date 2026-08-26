@@ -101,7 +101,7 @@ pub fn get_file_paths_by_plugins(
 }
 
 /// Reads the start of a file, which is enough to check for a shebang line.
-fn read_file_bytes_start(environment: &impl Environment, file_path: &Path) -> io::Result<Vec<u8>> {
+pub fn read_file_bytes_start(environment: &impl Environment, file_path: &Path) -> io::Result<Vec<u8>> {
   // only read the start of the file since a shebang line is short and files
   // matched here could be large (ex. extensionless binaries)
   const MAX_SHEBANG_BYTES: usize = 256;

@@ -461,7 +461,9 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 
   pub fn format(self: &Rc<Self>, request: HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> {
-    let plugin_names = self.plugin_name_maps.get_plugin_names_from_file_path(&request.file_path);
+    let plugin_names = self
+      .plugin_name_maps
+      .get_plugin_names_from_file_path_and_bytes(&request.file_path, &request.file_bytes);
     log_debug!(
       self.environment,
       "Host formatting {} - File length: {} - Plugins: [{}] - Range: {:?}",

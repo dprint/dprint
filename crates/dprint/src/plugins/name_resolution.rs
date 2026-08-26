@@ -103,6 +103,17 @@ impl PluginNameResolutionMaps {
     plugin_names
   }
 
+  /// Resolves plugins for a file, falling back to its shebang line when it's
+  /// extensionless and no plugin matched by path. `file_bytes_start` only
+  /// needs to contain the start of the file.
+  pub fn get_plugin_names_from_file_path_and_bytes(&self, file_path: &Path, file_bytes_start: &[u8]) -> Vec<String> {
+    let plugin_names = self.get_plugin_names_from_file_path(file_path);
+    if !plugin_names.is_empty() {
+      return plugin_names;
+    }
+    self.get_plugin_names_from_shebang(file_path, file_bytes_start)
+  }
+
   /// Whether the file might be resolved by its shebang line. This is the case
   /// when shebang mappings are configured and the file has no extension.
   pub fn may_match_shebang(&self, file_path: &Path) -> bool {
