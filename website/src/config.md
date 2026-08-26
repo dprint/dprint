@@ -107,13 +107,13 @@ Note: `dprint config add` also works and is equivalent.
 
 ### Minimum Dependency Age
 
-Supply chain attacks on npm arrive in freshly published versions, and a compromised release is typically pulled from the registry within a day or two. `--minimum-dependency-age` makes the commands that pick a version for you — `dprint init`, `dprint add` (a.k.a. `dprint config add`) and `dprint config update` — pass over releases newer than a given age and settle on the newest one older than it:
+For plugins on npm, you can specify a `--minimum-dependency-age`:
 
 ```sh
 dprint config update --minimum-dependency-age=P3D
 ```
 
-The value takes the same forms Deno's flag of the same name does: an ISO-8601 duration (`P3D`, `PT72H`), a plain number of minutes (`1440`), an absolute date (`2026-01-15`) or RFC3339 timestamp to hold back everything published after it, or `0` to turn the requirement off.
+The value takes the following forms: an ISO-8601 duration (`P3D`, `PT72H`), a plain number of minutes (`1440`), an absolute date (`2026-01-15`) or RFC3339 timestamp to hold back everything published after it, or `0` to turn the requirement off.
 
 With no flag, dprint reads `min-release-age` (in whole days) from the nearest `.npmrc` walking up from the configuration file, then `~/.npmrc` — the same npm setting other tools honour:
 
@@ -123,11 +123,10 @@ min-release-age=3
 
 There is no minimum otherwise — a version is only ever held back when you ask for one. Some other notes:
 
-- It applies to npm-distributed plugins. Plugins served from a URL carry no publish date for dprint to check, so they resolve as they always have — except that `dprint config update` won't migrate a URL plugin onto an npm specifier until a version of its package is old enough.
+- It applies to npm-distributed plugins. Plugins served from a URL carry no publish date for dprint to check, so they resolve as they always have.
 - It never downgrades an entry you already have. Existing plugin versions are left alone, and a version you write out yourself (`dprint config add npm:@dprint/json@1.2.3`) is taken as your decision and added as-is — so an explicit version is a way to opt a single plugin out.
 - Only stable releases at or below the package's `latest` tag are considered when walking back, so a prerelease can't be selected by a walk back you didn't ask for. A package whose `latest` tag is itself a prerelease walks back through prereleases, since that's all it has.
 - `dprint config update` leaves a plugin where it is when no version of its package is old enough, reporting it rather than failing. `dprint init` and `dprint config add` error in the same situation, since there's nothing to write.
-- `dprint config add --package-json` writes a caret range built from the held-back version, so your package manager may still resolve something newer. Set `min-release-age` in `.npmrc` if you want npm to apply the same rule at install time.
 
 ### Updating Plugins via CLI
 
