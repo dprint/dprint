@@ -1588,8 +1588,10 @@ mod tests {
       "1.1.0",
       &[
         ("0.9.0", Some("2024-01-01T00:00:00Z")),
-        // a `next` tagged prerelease and a version above latest are both old
-        // enough, but neither is what the user asked for by adding the package
+        // a prerelease below latest, a `next` tagged prerelease and a version
+        // above latest are all old enough, but none is what the user asked for
+        // by adding the package
+        ("1.0.0-beta.1", Some("2024-01-02T00:00:00Z")),
         ("2.0.0-rc.1", Some("2024-01-02T00:00:00Z")),
         ("2.0.0", Some("2024-01-03T00:00:00Z")),
         ("1.1.0", Some("2024-05-09T00:00:00Z")),
