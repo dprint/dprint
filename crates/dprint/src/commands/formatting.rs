@@ -1554,6 +1554,47 @@ text2_formatted"
   }
 
   #[test]
+  fn should_respect_negated_includes_and_cli_includes_for_shebang_files() {
+    let script_path = "/scripts/build";
+    let vendor_path = "/vendor/build";
+    let other_path = "/other/build";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_includes("**/*.txt")
+          .add_includes("!**/vendor/**")
+          .add_remote_wasm_plugin()
+          .add_config_section(
+            "shebangs",
+            r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+          );
+      })
+      .write_file(&script_path, "#!/bin/sh\ntext")
+      // excluded by a negated include pattern
+      .write_file(&vendor_path, "#!/bin/sh\ntext2")
+      .write_file(&other_path, "#!/bin/sh\ntext3")
+      .build();
+
+    // cli patterns restrict the files
+    run_test_cli(vec!["fmt", "--config", "/config.json", "scripts/**"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&script_path).unwrap(), "#!/bin/sh\ntext_formatted");
+    assert_eq!(environment.read_file(&other_path).unwrap(), "#!/bin/sh\ntext3");
+
+    let err = run_test_cli(vec!["fmt", "--config", "/config.json", "--includes-override", "**/*.txt"], &environment)
+      .err()
+      .unwrap();
+    assert!(err.to_string().starts_with("No files found to format"));
+    err.assert_exit_code(14);
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&other_path).unwrap(), "#!/bin/sh\ntext3_formatted");
+    assert_eq!(environment.read_file(&vendor_path).unwrap(), "#!/bin/sh\ntext2");
+  }
+
+  #[test]
   fn should_evaluate_associations_against_real_path_for_shebang_files() {
     let script_path = "/scripts/build";
     let excluded_path = "/scripts/legacy-build";

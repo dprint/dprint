@@ -170,8 +170,9 @@ pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cw
     },
     // Shebang scripts are extensionless, so they can't be matched by the
     // includes up front. Discover them when shebang mappings are configured and
-    // let plugin resolution filter them down to just the shebang matches.
-    include_extensionless_files: config.shebangs.as_ref().is_some_and(|shebangs| !shebangs.is_empty()),
+    // let plugin resolution filter them down to just the shebang matches. This
+    // doesn't apply to an includes override since that should restrict the files.
+    include_extensionless_files: args.include_pattern_overrides.is_none() && config.shebangs.as_ref().is_some_and(|shebangs| !shebangs.is_empty()),
   }
 }
 

@@ -143,18 +143,13 @@ impl GlobMatcher {
       && self
         .config_include_matcher
         .as_ref()
-        .map(|m| self.is_extensionless_include(&path) || m.is_match(&path))
+        .map(|m| m.is_match_or_extensionless(&path, self.include_extensionless_files))
         .unwrap_or(true)
     {
       matched_result
     } else {
       GlobMatchesDetail::NotMatched
     }
-  }
-
-  /// A cheap check for extensionless files that runs before the glob matcher.
-  fn is_extensionless_include(&self, path: &Path) -> bool {
-    self.include_extensionless_files && path.extension().is_none()
   }
 
   pub fn check_exclude(&self, path: &Path, is_dir: bool) -> ExcludeMatchDetail {
@@ -210,11 +205,30 @@ struct ArgIncludeMatcher {
 struct IncludeMatcher {
   literal_paths: HashSet<PathBuf>,
   matcher: Override,
+  /// Only the negated include patterns, so an extensionless file that's
+  /// included regardless of the patterns can still be excluded by them
+  /// (`Override` doesn't distinguish a negated match from no match).
+  negated_matcher: Option<Gitignore>,
 }
 
 impl IncludeMatcher {
   fn is_match(&self, path: &Path) -> bool {
-    self.literal_paths.contains(path) || matches!(self.matcher.matched(path, false), Match::Whitelist(_))
+    self.is_match_or_extensionless(path, false)
+  }
+
+  /// Matches the include patterns, additionally matching files without an
+  /// extension when `include_extensionless` is true. A negated include pattern
+  /// still excludes an extensionless file.
+  fn is_match_or_extensionless(&self, path: &Path, include_extensionless: bool) -> bool {
+    if self.literal_paths.contains(path) || matches!(self.matcher.matched(path, false), Match::Whitelist(_)) {
+      return true;
+    }
+    include_extensionless
+      && path.extension().is_none()
+      && !self
+        .negated_matcher
+        .as_ref()
+        .is_some_and(|m| matches!(m.matched(path, false), Match::Ignore(_)))
   }
 }
 
@@ -243,18 +257,32 @@ fn build_include_matcher(patterns: &[GlobPattern], opts: &GlobMatcherOptions, ba
   let mut literal_paths = HashSet::new();
   let mut builder = OverrideBuilder::new(base_dir);
   builder.case_insensitive(!opts.case_sensitive)?;
+  let mut negated_builder: Option<GitignoreBuilder> = None;
 
   for pattern in patterns {
     if use_fast_path && let Some(path) = literal_relative_path(pattern) {
       literal_paths.insert(path);
     } else {
-      add_override_pattern(&mut builder, pattern, base_dir)?;
+      let pattern_text = get_include_pattern_text(pattern, base_dir);
+      if let Some(negated_text) = pattern_text.strip_prefix('!') {
+        let negated_builder = negated_builder.get_or_insert_with(|| {
+          let mut builder = GitignoreBuilder::new(base_dir);
+          let _ = builder.case_insensitive(!opts.case_sensitive);
+          builder
+        });
+        negated_builder.add_line(None, negated_text)?;
+      }
+      builder.add(&pattern_text)?;
     }
   }
 
   Ok(IncludeMatcher {
     literal_paths,
     matcher: builder.build().with_context(too_many_patterns_message)?,
+    negated_matcher: match negated_builder {
+      Some(builder) => Some(builder.build().with_context(too_many_patterns_message)?),
+      None => None,
+    },
   })
 }
 
@@ -316,20 +344,15 @@ fn literal_relative_path(pattern: &GlobPattern) -> Option<PathBuf> {
 
 /// Adds an include pattern to the override builder (only the include matcher
 /// uses overrides—excludes go straight into a gitignore matcher).
-fn add_override_pattern(builder: &mut OverrideBuilder, pattern: &GlobPattern, base_dir: &CanonicalizedPathBuf) -> Result<()> {
+fn get_include_pattern_text(pattern: &GlobPattern, base_dir: &CanonicalizedPathBuf) -> String {
   if pattern.base_dir != *base_dir {
     match pattern.clone().into_new_base(base_dir.clone(), GlobPatternKind::Include) {
-      Some(pattern) => {
-        builder.add(&normalize_pattern(&pattern))?;
-      }
-      None => {
-        builder.add(&pattern.as_absolute_pattern_text())?;
-      }
+      Some(pattern) => normalize_pattern(&pattern).into_owned(),
+      None => pattern.as_absolute_pattern_text(),
     }
   } else {
-    builder.add(&normalize_pattern(pattern))?;
+    normalize_pattern(pattern).into_owned()
   }
-  Ok(())
 }
 
 /// Surfaces a helpful message when the compiled glob exceeds the regex size
@@ -395,6 +418,27 @@ mod test {
     assert!(!glob_matcher.matches("/testing/dir/scripts/build.sh"));
     // excludes still apply
     assert!(!glob_matcher.matches("/testing/dir/scripts/excluded"));
+    // negated includes still apply
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        include_extensionless_files: true,
+        arg_includes: None,
+        config_includes: Some(vec![
+          GlobPattern::new("**/*.ts".to_string(), cwd.clone()),
+          GlobPattern::new("!**/vendor/**".to_string(), cwd.clone()),
+        ]),
+        arg_excludes: None,
+        config_excludes: vec![],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd.clone(),
+      },
+    )
+    .unwrap();
+    assert!(glob_matcher.matches("/testing/dir/scripts/build"));
+    assert!(!glob_matcher.matches("/testing/dir/vendor/build"));
+    assert!(!glob_matcher.matches("/testing/dir/vendor/build.ts"));
     // the arg includes still restrict the files
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
