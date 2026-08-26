@@ -5,6 +5,7 @@ use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -260,7 +261,7 @@ fn output_difference(file_path: &Path, file_bytes: &[u8], formatted_bytes: &[u8]
 fn output_json_difference(file_path: &Path, file_bytes: &[u8], formatted_bytes: &[u8], environment: &impl Environment) {
   #[derive(Serialize)]
   struct UnformattedFile<'a> {
-    file: &'a Path,
+    file: Cow<'a, str>,
     /// Unified diff of the file's text to its formatted text. `None` when
     /// either isn't valid utf-8.
     diff: Option<String>,
@@ -270,7 +271,12 @@ fn output_json_difference(file_path: &Path, file_bytes: &[u8], formatted_bytes: 
     (Ok(file_text), Ok(formatted_text)) => Some(get_unified_difference(file_text, formatted_text)),
     _ => None,
   };
-  let mut line = serde_json::to_vec(&UnformattedFile { file: file_path, diff }).unwrap();
+  // infallible because the struct only contains strings
+  let mut line = serde_json::to_vec(&UnformattedFile {
+    file: file_path.to_string_lossy(),
+    diff,
+  })
+  .unwrap();
   line.push(b'\n');
   environment.log_machine_readable(&line);
 }
@@ -498,6 +504,31 @@ mod test {
         "\n"
       )]
     );
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+  }
+
+  #[test]
+  fn should_check_files_with_json_output_when_all_formatted() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file("/file1.txt", "text_formatted")
+      .build();
+    run_test_cli(vec!["check", "--json"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), Vec::<String>::new());
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+  }
+
+  #[test]
+  fn should_check_files_with_json_output_and_fail_fast() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file("/file1.txt", "text")
+      .write_file("/file2.txt", "text")
+      .build();
+    environment.set_max_threads(1);
+    let error_message = run_test_cli(vec!["check", "--json", "--fail-fast"], &environment).err().unwrap();
+    error_message.assert_exit_code(20);
+    let messages = environment.take_stdout_messages();
+    assert_eq!(messages.len(), 1);
+    assert!(messages[0].starts_with(r#"{"file":"/file"#));
     assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
   }
 
