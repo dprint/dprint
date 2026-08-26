@@ -21,7 +21,6 @@ use crate::utils::GlobOptions;
 use crate::utils::GlobOutput;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
-use crate::utils::get_lowercase_file_extension;
 use crate::utils::glob;
 use crate::utils::is_negated_glob;
 
@@ -85,7 +84,7 @@ pub fn get_file_paths_by_plugins(
     // fall back to the shebang when an extensionless file didn't match a plugin
     if plugin_names.is_empty()
       && plugin_name_maps.has_shebang_mappings()
-      && get_lowercase_file_extension(&file_path).is_none()
+      && file_path.extension().is_none()
       && let Some(first_line) = read_shebang_line(environment, &file_path)
     {
       plugin_names = plugin_name_maps.get_plugin_names_from_shebang_line(&file_path, &first_line);
@@ -104,7 +103,10 @@ pub fn get_file_paths_by_plugins(
 /// Reads the first line of a file when it starts with a shebang (`#!`),
 /// otherwise returns `None`. Avoids reading files that aren't scripts.
 fn read_shebang_line(environment: &impl Environment, file_path: &Path) -> Option<String> {
-  let bytes = environment.read_file_bytes(file_path).ok()?;
+  // only read the start of the file since a shebang line is short and files
+  // matched here could be large (ex. extensionless binaries)
+  const MAX_SHEBANG_BYTES: usize = 256;
+  let bytes = environment.read_file_bytes_prefix(file_path, MAX_SHEBANG_BYTES).ok()?;
   if !bytes.starts_with(b"#!") {
     return None;
   }
