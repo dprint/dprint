@@ -2,14 +2,8 @@ use anyhow::Context;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::io;
-use std::io::BufRead;
-use std::io::Read;
-use std::path::Path;
 use std::path::PathBuf;
 use std::str::Split;
-use sys_traits::FsOpen;
-use sys_traits::OpenOptions;
 use thiserror::Error;
 
 use crate::arg_parser::ConfigDiscovery;
@@ -28,6 +22,7 @@ use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
 use crate::utils::glob;
 use crate::utils::is_negated_glob;
+use crate::utils::read_file_shebang_line;
 
 /// Struct that allows using plugin names as a key
 /// in a hash map.
@@ -102,37 +97,6 @@ pub fn get_file_paths_by_plugins(
   }
 
   Ok(FilesPathsByPlugins(file_paths_by_plugin))
-}
-
-/// Reads the first line of a file when it starts with a shebang (`#!`),
-/// otherwise returns `None`. Only reads up to the end of the first line, so
-/// large files that aren't scripts don't get read into memory.
-pub fn read_file_shebang_line(environment: &impl Environment, file_path: &Path) -> io::Result<Option<Vec<u8>>> {
-  log_debug!(environment, "Reading shebang line: {}", file_path.display());
-  let map_err = |err: io::Error| io::Error::new(err.kind(), format!("Error reading file {}: {:#}", file_path.display(), err));
-  let file = environment.fs_open(file_path, &OpenOptions::new_read()).map_err(map_err)?;
-  let mut reader = io::BufReader::new(file);
-  let mut start = [0u8; 2];
-  match reader.read_exact(&mut start) {
-    Ok(()) => {}
-    // the file is shorter than a shebang
-    Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
-    Err(err) => return Err(map_err(err)),
-  }
-  if start != *b"#!" {
-    return Ok(None);
-  }
-  // bail when the line is unreasonably long since it can't be a shebang
-  // (ex. a binary file that happens to start with `#!`). This is well above
-  // the kernel's shebang line limit.
-  const MAX_SHEBANG_LINE_LEN: u64 = 4096;
-  let mut line = start.to_vec();
-  let read_count = reader.take(MAX_SHEBANG_LINE_LEN).read_until(b'\n', &mut line).map_err(map_err)?;
-  let found_newline = line.last() == Some(&b'\n');
-  if !found_newline && read_count as u64 >= MAX_SHEBANG_LINE_LEN {
-    return Ok(None);
-  }
-  Ok(Some(line))
 }
 
 pub async fn get_and_resolve_file_paths<'a>(

@@ -23,7 +23,6 @@ use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
-use crate::paths::read_file_shebang_line;
 use crate::plugins::FetchNpmLatestInfo;
 use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::MinimumDependencyAgeError;
@@ -49,6 +48,7 @@ use crate::utils::MinimumDependencyAgeArg;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::pretty_print_json_text;
+use crate::utils::read_file_shebang_line;
 
 pub struct InitConfigFileOptions<'a> {
   pub global: bool,

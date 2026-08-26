@@ -11,6 +11,8 @@ use crate::utils::GlobMatcher;
 use crate::utils::GlobMatchesDetail;
 use crate::utils::get_lowercase_file_extension;
 use crate::utils::get_lowercase_file_name;
+use crate::utils::get_shebang_line;
+use crate::utils::is_shebang_prefix_match;
 
 #[derive(Default)]
 pub struct PluginNameResolutionMaps {
@@ -165,44 +167,9 @@ impl PluginNameResolutionMaps {
   }
 }
 
-/// Gets the trimmed first line of the file when it starts with a shebang (`#!`).
-fn get_shebang_line(file_bytes_start: &[u8]) -> Option<&str> {
-  if !file_bytes_start.starts_with(b"#!") {
-    return None;
-  }
-  let end = file_bytes_start.iter().position(|b| *b == b'\n').unwrap_or(file_bytes_start.len());
-  std::str::from_utf8(&file_bytes_start[..end]).ok().map(|line| line.trim())
-}
-
-/// Whether the shebang line equals the configured shebang or starts with it
-/// followed by whitespace.
-fn is_shebang_prefix_match(shebang_line: &str, configured_shebang: &str) -> bool {
-  match shebang_line.strip_prefix(configured_shebang) {
-    Some(rest) => rest.is_empty() || rest.starts_with(char::is_whitespace),
-    None => false,
-  }
-}
-
 fn get_plugin_association_glob_matcher(plugin: &PluginWithConfig, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>> {
   match plugin.associations.as_deref() {
     Some(associations) => Ok(Some(get_patterns_as_glob_matcher(associations, config_base_path)?)),
     None => Ok(None),
-  }
-}
-
-#[cfg(test)]
-mod test {
-  use super::*;
-
-  #[test]
-  fn shebang_prefix_match() {
-    assert!(is_shebang_prefix_match("#!/usr/bin/env deno run", "#!/usr/bin/env deno run"));
-    assert!(is_shebang_prefix_match("#!/usr/bin/env deno run --allow-read", "#!/usr/bin/env deno run"));
-    assert!(is_shebang_prefix_match("#!/usr/bin/env deno run --allow-read", "#!/usr/bin/env deno"));
-    assert!(is_shebang_prefix_match("#!/usr/bin/env deno\trun", "#!/usr/bin/env deno"));
-    assert!(!is_shebang_prefix_match("#!/usr/bin/env deno runtest", "#!/usr/bin/env deno run"));
-    assert!(!is_shebang_prefix_match("#!/usr/bin/env nodemon", "#!/usr/bin/env node"));
-    assert!(!is_shebang_prefix_match("#!/bin/shell", "#!/bin/sh"));
-    assert!(!is_shebang_prefix_match("#!/bin/sh", "#!/bin/sh -e"));
   }
 }

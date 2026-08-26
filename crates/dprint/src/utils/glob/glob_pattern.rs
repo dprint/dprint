@@ -29,9 +29,10 @@ pub struct GlobPatterns {
   pub config_includes: Option<Vec<GlobPattern>>,
   pub arg_excludes: Option<Vec<GlobPattern>>,
   pub config_excludes: Vec<GlobPattern>,
-  /// Whether to also match files without an extension regardless of the
-  /// config includes (used to discover shebang scripts).
-  pub include_extensionless_files: bool,
+  /// The configured shebang lines. When non-empty, files without an
+  /// extension whose first line matches one of these are also matched
+  /// regardless of the config includes.
+  pub shebangs: Vec<String>,
 }
 
 impl GlobPatterns {
