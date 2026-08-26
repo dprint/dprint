@@ -8,6 +8,7 @@ use serde::Serialize;
 use dprint_core::plugins::PluginInfo;
 
 use super::implementations::WASM_CACHE_VERSION;
+use super::implementations::process::deno::DenoPermissions;
 use crate::environment::Environment;
 use crate::utils::FastInsecureHasher;
 use crate::utils::PluginKind;
@@ -55,6 +56,11 @@ pub struct PluginCacheMeta {
   /// Executable path relative to the plugin's extract dir. Process plugins only.
   #[serde(skip_serializing_if = "Option::is_none", default)]
   pub executable_sub_path: Option<String>,
+  /// Permissions a Deno plugin is launched with, resolved at setup time.
+  /// `Some` marks the entry as a Deno plugin — a process plugin run through the
+  /// `deno` executable rather than as a native binary. `None` for everything else.
+  #[serde(skip_serializing_if = "Option::is_none", default)]
+  pub deno_permissions: Option<DenoPermissions>,
   /// Modification stamps for the local source file(s). Present only for local
   /// sources, where edits must invalidate the cache; absent for content-pinned
   /// remote and versioned-npm sources, whose mere presence is a cache hit.
@@ -173,6 +179,7 @@ mod test {
         update_url: None,
       },
       executable_sub_path: None,
+      deno_permissions: None,
       local_stamps: None,
     }
   }

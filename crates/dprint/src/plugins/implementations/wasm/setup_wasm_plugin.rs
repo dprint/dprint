@@ -38,5 +38,6 @@ pub async fn setup_wasm_plugin<TEnvironment: Environment>(
     plugin_info: compile_result.plugin_info,
     file_path: dest_file_path.to_path_buf(),
     executable_sub_path: None,
+    deno_permissions: None,
   })
 }
