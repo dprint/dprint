@@ -390,7 +390,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         let enable_stable_format = !matches.get_flag("skip-stable-format");
         SubCommand::Fmt(FmtSubCommand {
           diff: matches.get_flag("diff"),
-          diff_format: parse_diff_format(matches),
+          diff_format: parse_diff_format(matches, DiffFormat::Pretty),
           patterns: parse_file_patterns(matches, &std_in_reader)?,
           incremental: if enable_stable_format { parse_incremental(matches) } else { Some(false) },
           enable_stable_format,
@@ -424,7 +424,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         only_dirty: matches.get_flag("dirty"),
         list_different: matches.get_flag("list-different"),
         json,
-        diff_format: parse_diff_format(matches),
+        diff_format: parse_diff_format(matches, if json { DiffFormat::Unified } else { DiffFormat::Pretty }),
         allow_no_files: matches.get_flag("allow-no-files"),
         fail_fast,
       })
@@ -535,10 +535,11 @@ fn parse_file_patterns<TStdInReader: StdInReader>(matches: &ArgMatches, std_in_r
   })
 }
 
-fn parse_diff_format(matches: &ArgMatches) -> DiffFormat {
+fn parse_diff_format(matches: &ArgMatches, default: DiffFormat) -> DiffFormat {
   match matches.get_one::<String>("diff-format").map(|s| s.as_str()) {
     Some("unified") => DiffFormat::Unified,
-    _ => DiffFormat::Pretty,
+    Some("pretty") => DiffFormat::Pretty,
+    _ => default,
   }
 }
 
@@ -1102,10 +1103,9 @@ impl ClapExtensions for clap::Command {
     self.arg(
       Arg::new("diff-format")
         .long("diff-format")
-        .help("The format to output diffs in. Use `unified` to output a standard unified diff that can be piped to other tools or applied with `patch`.")
+        .help("The format to output diffs in. Use `unified` to output a standard unified diff that can be piped to other tools or applied with `patch`. Defaults to `pretty`, or `unified` when outputting json.")
         .num_args(1)
         .value_parser(["pretty", "unified"])
-        .default_value("pretty")
         .required(false),
     )
   }
@@ -1459,6 +1459,11 @@ mod test {
     let check_cmd = parse_check_sub_command(vec!["check", "--diff-format=pretty"]).unwrap();
     assert_eq!(check_cmd.diff_format, DiffFormat::Pretty);
     assert!(test_args(vec!["check", "--diff-format", "other"]).is_err());
+    // defaults to unified with --json
+    let check_cmd = parse_check_sub_command(vec!["check", "--json"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Unified);
+    let check_cmd = parse_check_sub_command(vec!["check", "--json", "--diff-format", "pretty"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Pretty);
 
     match test_args(vec!["fmt", "--diff", "--diff-format", "unified"]).unwrap().sub_command {
       SubCommand::Fmt(cmd) => assert_eq!(cmd.diff_format, DiffFormat::Unified),

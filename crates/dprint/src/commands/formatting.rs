@@ -32,6 +32,7 @@ use crate::resolution::ResolvePluginsScopeAndPathsOptions;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::utils::AtomicCounter;
+use crate::utils::UnifiedDifferenceOptions;
 use crate::utils::get_difference;
 use crate::utils::get_unified_difference;
 
@@ -186,13 +187,22 @@ pub async fn check<TEnvironment: Environment>(
                 file_path: &file_path,
                 file_bytes: &file_bytes,
                 formatted_bytes: &formatted_bytes,
+                diff_format,
               },
               &environment,
             );
           } else if list_different {
             log_stdout_info!(environment, "{}", file_path.display());
           } else {
-            output_difference(&file_path, &file_bytes, &formatted_bytes, diff_format, &environment);
+            output_difference(
+              OutputDifferenceOptions {
+                file_path: &file_path,
+                file_bytes: &file_bytes,
+                formatted_bytes: &formatted_bytes,
+                diff_format,
+              },
+              &environment,
+            );
           }
           if let Some(fail_fast_flag) = &fail_fast_flag {
             fail_fast_flag.raise();
@@ -238,8 +248,16 @@ pub async fn check<TEnvironment: Environment>(
   }
 }
 
-fn output_difference(file_path: &Path, file_bytes: &[u8], formatted_bytes: &[u8], diff_format: DiffFormat, environment: &impl Environment) {
-  let file_text = match String::from_utf8(file_bytes.to_vec()) {
+struct OutputDifferenceOptions<'a> {
+  file_path: &'a Path,
+  file_bytes: &'a [u8],
+  formatted_bytes: &'a [u8],
+  diff_format: DiffFormat,
+}
+
+fn output_difference(options: OutputDifferenceOptions, environment: &impl Environment) {
+  let file_path = options.file_path;
+  let file_text = match String::from_utf8(options.file_bytes.to_vec()) {
     Ok(text) => text,
     Err(err) => {
       log_warn!(
@@ -251,7 +269,7 @@ fn output_difference(file_path: &Path, file_bytes: &[u8], formatted_bytes: &[u8]
       return;
     }
   };
-  let formatted_text = match String::from_utf8(formatted_bytes.to_vec()) {
+  let formatted_text = match String::from_utf8(options.formatted_bytes.to_vec()) {
     Ok(text) => text,
     Err(err) => {
       log_warn!(
@@ -263,14 +281,19 @@ fn output_difference(file_path: &Path, file_bytes: &[u8], formatted_bytes: &[u8]
       return;
     }
   };
-  match diff_format {
+  match options.diff_format {
     DiffFormat::Pretty => {
       let difference_text = get_difference(&file_text, &formatted_text);
       log_stdout_info!(environment, "{} {}:\n{}\n--", colors::red_bold("from"), file_path.display(), difference_text);
     }
     DiffFormat::Unified => {
       let display_path = get_unified_diff_display_path(file_path, environment);
-      let difference_text = get_unified_difference(&file_text, &formatted_text, &format!("a/{}", display_path), &format!("b/{}", display_path));
+      let difference_text = get_unified_difference(UnifiedDifferenceOptions {
+        old_text: &file_text,
+        new_text: &formatted_text,
+        old_header: &format!("a/{}", display_path),
+        new_header: &format!("b/{}", display_path),
+      });
       // the logger adds a trailing newline
       log_stdout_info!(environment, "{}", difference_text.strip_suffix('\n').unwrap_or(&difference_text));
     }
@@ -288,19 +311,28 @@ struct OutputJsonDifferenceOptions<'a> {
   file_path: &'a Path,
   file_bytes: &'a [u8],
   formatted_bytes: &'a [u8],
+  diff_format: DiffFormat,
 }
 
 fn output_json_difference(options: OutputJsonDifferenceOptions, environment: &impl Environment) {
   #[derive(Serialize)]
   struct UnformattedFile<'a> {
     file: Cow<'a, str>,
-    /// Unified diff of the file's text to its formatted text. `None` when
-    /// either isn't valid utf-8.
+    /// Diff of the file's text to its formatted text in the requested
+    /// format. `None` when either isn't valid utf-8.
     diff: Option<String>,
   }
 
   let diff = match (std::str::from_utf8(options.file_bytes), std::str::from_utf8(options.formatted_bytes)) {
-    (Ok(file_text), Ok(formatted_text)) => Some(get_unified_difference(file_text, formatted_text, "original", "formatted")),
+    (Ok(file_text), Ok(formatted_text)) => Some(match options.diff_format {
+      DiffFormat::Pretty => get_difference(file_text, formatted_text),
+      DiffFormat::Unified => get_unified_difference(UnifiedDifferenceOptions {
+        old_text: file_text,
+        new_text: formatted_text,
+        old_header: "original",
+        new_header: "formatted",
+      }),
+    }),
     _ => None,
   };
   // infallible because the struct only contains strings
@@ -355,7 +387,15 @@ pub async fn format<TEnvironment: Environment>(
 
           if formatted_bytes != file_bytes {
             if output_diff {
-              output_difference(&file_path, &file_bytes, &formatted_bytes, diff_format, &environment);
+              output_difference(
+                OutputDifferenceOptions {
+                  file_path: &file_path,
+                  file_bytes: &file_bytes,
+                  formatted_bytes: &formatted_bytes,
+                  diff_format,
+                },
+                &environment,
+              );
             }
 
             formatted_files_count.inc();
@@ -538,6 +578,20 @@ mod test {
       )]
     );
     assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+  }
+
+  #[test]
+  fn should_check_files_with_json_output_and_pretty_diff_format() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file("/file1.txt", "text")
+      .build();
+    let error_message = run_test_cli(vec!["check", "--json", "--diff-format", "pretty"], &environment).err().unwrap();
+    error_message.assert_exit_code(20);
+    let expected = serde_json::json!({
+      "file": "/file1.txt",
+      "diff": get_difference("text", "text_formatted"),
+    });
+    assert_eq!(environment.take_stdout_messages(), vec![format!("{}\n", expected)]);
   }
 
   #[test]
