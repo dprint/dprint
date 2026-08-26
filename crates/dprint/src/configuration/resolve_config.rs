@@ -342,6 +342,15 @@ async fn handle_config_file<TEnvironment: Environment>(
     }
   }
 
+  // combine shebangs, keeping the higher-precedence (extending) config's entry
+  // when the same shebang is specified in both
+  if let Some(shebangs) = take_shebangs_from_config_map(&mut new_config_map)? {
+    let resolved_shebangs = resolved_config.shebangs.get_or_insert_default();
+    for (shebang, extension) in shebangs {
+      resolved_shebangs.entry(shebang).or_insert(extension);
+    }
+  }
+
   // Also remove any non-wasm plugins, but only for remote configurations.
   // The assumption here is that the user won't be malicious to themselves.
   let plugins = take_plugins_array_from_config_map(&mut new_config_map, &config_path_and_text.source.parent(), environment)?;
@@ -2029,6 +2038,50 @@ mod tests {
       assert_eq!(shebangs.get("#!/bin/sh").map(|s| s.as_str()), Some("sh"));
       // the leading dot is kept as written here, it's normalized later during resolution
       assert_eq!(shebangs.get("#!/usr/bin/env node").map(|s| s.as_str()), Some(".js"));
+    });
+  }
+
+  #[test]
+  fn should_merge_shebangs_from_extended_config() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r##"{
+            "shebangs": {
+              "#!/bin/sh": "sh",
+              "#!/usr/bin/env node": "js"
+            },
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"##
+        .as_bytes(),
+    );
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r##"{
+            "extends": "https://dprint.dev/test.json",
+            "shebangs": {
+              "#!/usr/bin/env node": "ts",
+              "#!/usr/bin/env python3": "py"
+            }
+        }"##,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      let shebangs = result.shebangs.unwrap();
+      assert_eq!(
+        shebangs.into_iter().collect::<Vec<_>>(),
+        vec![
+          // the extending config's entry wins
+          ("#!/usr/bin/env node".to_string(), "ts".to_string()),
+          ("#!/usr/bin/env python3".to_string(), "py".to_string()),
+          ("#!/bin/sh".to_string(), "sh".to_string()),
+        ]
+      );
+      assert!(!result.config_map.contains_key("shebangs"));
     });
   }
 
