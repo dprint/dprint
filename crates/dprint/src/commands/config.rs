@@ -23,6 +23,7 @@ use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
+use crate::paths::get_plugin_names_for_file_on_disk;
 use crate::plugins::FetchNpmLatestInfo;
 use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::MinimumDependencyAgeError;
@@ -48,7 +49,6 @@ use crate::utils::MinimumDependencyAgeArg;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::pretty_print_json_text;
-use crate::utils::read_file_shebang_line;
 
 pub struct InitConfigFileOptions<'a> {
   pub global: bool,
@@ -1521,15 +1521,7 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
   // running on a file (ex. a missing `associations` entry — see issue #794).
   let included_plugin_names = cmd.file_path.as_ref().map(|file_path| {
     let file_path = environment.cwd().join(file_path);
-    // the file might not exist, in which case it can't match by shebang
-    let shebang_line = if plugins_scope.plugin_name_maps.may_match_shebang(&file_path) {
-      read_file_shebang_line(environment, &file_path).ok().flatten().unwrap_or_default()
-    } else {
-      Vec::new()
-    };
-    plugins_scope
-      .plugin_name_maps
-      .get_plugin_names_from_file_path_and_bytes(&file_path, &shebang_line)
+    get_plugin_names_for_file_on_disk(&plugins_scope.plugin_name_maps, &file_path, environment)
       .into_iter()
       .collect::<HashSet<_>>()
   });
