@@ -79,7 +79,12 @@ impl CliArgs {
     // these output json or other text that's read by stdout
     matches!(
       self.sub_command,
-      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig(..) | SubCommand::IncrementalState | SubCommand::Completions(..)
+      SubCommand::StdInFmt(..)
+        | SubCommand::EditorInfo
+        | SubCommand::OutputResolvedConfig(..)
+        | SubCommand::IncrementalState
+        | SubCommand::Completions(..)
+        | SubCommand::Check(CheckSubCommand { json: true, .. })
     )
   }
 
@@ -183,6 +188,7 @@ pub struct CheckSubCommand {
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
   pub list_different: bool,
+  pub json: bool,
   pub allow_no_files: bool,
   pub only_staged: bool,
   pub only_dirty: bool,
@@ -403,6 +409,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         only_staged: matches.get_flag("staged"),
         only_dirty: matches.get_flag("dirty"),
         list_different: matches.get_flag("list-different"),
+        json: matches.get_flag("json"),
         allow_no_files: matches.get_flag("allow-no-files"),
         fail_fast,
       })
@@ -774,6 +781,13 @@ EXAMPLES:
             .long("list-different")
             .help("Only outputs file paths that aren't formatted and doesn't output diffs.")
             .num_args(0)
+        )
+        .arg(
+          Arg::new("json")
+            .long("json")
+            .help("Outputs a JSON object per line for each file that isn't formatted.")
+            .num_args(0)
+            .conflicts_with("list-different")
         )
         .arg(
           Arg::new("fail-fast")
@@ -1383,6 +1397,17 @@ mod test {
     assert_eq!(check_cmd.fail_fast, false);
     let check_cmd = parse_check_sub_command(vec!["check", "--fail-fast"]).unwrap();
     assert_eq!(check_cmd.fail_fast, true);
+  }
+
+  #[test]
+  fn check_json_arg() {
+    let check_cmd = parse_check_sub_command(vec!["check"]).unwrap();
+    assert!(!check_cmd.json);
+    let check_cmd = parse_check_sub_command(vec!["check", "--json"]).unwrap();
+    assert!(check_cmd.json);
+    assert!(test_args(vec!["check", "--json"]).unwrap().is_stdout_machine_readable());
+    assert!(!test_args(vec!["check"]).unwrap().is_stdout_machine_readable());
+    assert!(test_args(vec!["check", "--json", "--list-different"]).is_err());
   }
 
   #[test]

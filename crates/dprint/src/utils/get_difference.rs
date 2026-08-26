@@ -4,6 +4,14 @@ use deno_terminal::colors;
 use similar::ChangeTag;
 use similar::TextDiffConfig;
 
+/// Gets a plain unified diff (as `git diff` would output it) without any colours.
+pub fn get_unified_difference(old_text: &str, new_text: &str) -> String {
+  let mut config = TextDiffConfig::default();
+  config.timeout(Duration::from_millis(500));
+  let diff = config.diff_lines(old_text, new_text);
+  diff.unified_diff().header("original", "formatted").to_string()
+}
+
 /// Gets a string showing the difference between two strings.
 pub fn get_difference(old_text: &str, new_text: &str) -> String {
   debug_assert!(old_text != new_text);

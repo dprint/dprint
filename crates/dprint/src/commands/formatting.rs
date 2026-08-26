@@ -4,6 +4,7 @@ use dprint_core::communication::AtomicFlag;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
+use serde::Serialize;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -30,6 +31,7 @@ use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
 use crate::utils::AtomicCounter;
 use crate::utils::get_difference;
+use crate::utils::get_unified_difference;
 
 pub async fn stdin_fmt<TEnvironment: Environment>(
   cmd: &StdInFmtSubCommand,
@@ -158,6 +160,7 @@ pub async fn check<TEnvironment: Environment>(
   scopes.ensure_valid_for_cli_args(args)?;
   let not_formatted_files_count = Arc::new(AtomicCounter::default());
   let list_different = cmd.list_different;
+  let output_json = cmd.json;
   let fail_fast_flag = cmd.fail_fast.then(|| Arc::new(AtomicFlag::default()));
 
   for scope_and_paths in scopes.into_iter() {
@@ -174,7 +177,9 @@ pub async fn check<TEnvironment: Environment>(
       move |file_path, file_bytes, formatted_bytes, _, environment| {
         if formatted_bytes != file_bytes {
           not_formatted_files_count.inc();
-          if list_different {
+          if output_json {
+            output_json_difference(&file_path, &file_bytes, &formatted_bytes, &environment);
+          } else if list_different {
             log_stdout_info!(environment, "{}", file_path.display());
           } else {
             output_difference(&file_path, &file_bytes, &formatted_bytes, &environment);
@@ -211,7 +216,7 @@ pub async fn check<TEnvironment: Environment>(
     Ok(())
   } else {
     Err(
-      if list_different {
+      if list_different || output_json {
         CheckError::DisplayNone
       } else {
         CheckError::Files {
@@ -250,6 +255,24 @@ fn output_difference(file_path: &Path, file_bytes: &[u8], formatted_bytes: &[u8]
   };
   let difference_text = get_difference(&file_text, &formatted_text);
   log_stdout_info!(environment, "{} {}:\n{}\n--", colors::red_bold("from"), file_path.display(), difference_text);
+}
+
+fn output_json_difference(file_path: &Path, file_bytes: &[u8], formatted_bytes: &[u8], environment: &impl Environment) {
+  #[derive(Serialize)]
+  struct UnformattedFile<'a> {
+    file: &'a Path,
+    /// Unified diff of the file's text to its formatted text. `None` when
+    /// either isn't valid utf-8.
+    diff: Option<String>,
+  }
+
+  let diff = match (std::str::from_utf8(file_bytes), std::str::from_utf8(formatted_bytes)) {
+    (Ok(file_text), Ok(formatted_text)) => Some(get_unified_difference(file_text, formatted_text)),
+    _ => None,
+  };
+  let mut line = serde_json::to_vec(&UnformattedFile { file: file_path, diff }).unwrap();
+  line.push(b'\n');
+  environment.log_machine_readable(&line);
 }
 
 pub async fn format<TEnvironment: Environment>(
@@ -458,6 +481,24 @@ mod test {
       .unwrap();
     error_message.assert_exit_code(20);
     assert_eq!(environment.take_stdout_messages(), vec![file_path1.to_string()]);
+  }
+
+  #[test]
+  fn should_check_files_with_json_output() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file("/file1.txt", "text")
+      .write_file("/file2.txt", "text_formatted")
+      .build();
+    let error_message = run_test_cli(vec!["check", "--json"], &environment).err().unwrap();
+    error_message.assert_exit_code(20);
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![concat!(
+        r#"{"file":"/file1.txt","diff":"--- original\n+++ formatted\n@@ -1 +1 @@\n-text\n\\ No newline at end of file\n+text_formatted\n\\ No newline at end of file\n"}"#,
+        "\n"
+      )]
+    );
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
   }
 
   #[test]

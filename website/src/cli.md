@@ -129,6 +129,14 @@ Use the `--list-different` flag to display only the file paths that aren't forma
 dprint check --list-different
 ```
 
+### JSON output (dprint 0.57+)
+
+Use the `--json` flag to output a JSON object per line (newline-delimited JSON) for each file that isn't formatted. Each object has a `file` property with the file path and a `diff` property with a unified diff of the changes that would be made (or `null` if the file isn't valid utf-8).
+
+```sh
+dprint check --json
+```
+
 ### `--fail-fast` (dprint 0.51+)
 
 Instead of checking every file, you can have the CLI stop on the first failure:
