@@ -41,7 +41,9 @@ pub fn read_file_shebang_line(environment: &impl Environment, file_path: &Path) 
   // (ex. a binary file that happens to start with `#!`). This is well above
   // the kernel's shebang line limit.
   const MAX_SHEBANG_LINE_LEN: usize = 4096;
-  let mut line = start.to_vec();
+  // sized to fit a typical shebang line so `read_until` doesn't grow it
+  let mut line = Vec::with_capacity(64);
+  line.extend_from_slice(&start);
   reader
     .take((MAX_SHEBANG_LINE_LEN - line.len()) as u64)
     .read_until(b'\n', &mut line)

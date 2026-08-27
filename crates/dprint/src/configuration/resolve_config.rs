@@ -609,7 +609,7 @@ fn take_shebangs_from_config_map(config_map: &mut ConfigMap) -> Result<Option<In
       // the shebangs and extensions are normalized here so the rest of the
       // code (ex. merging, hashing, resolution) can compare them directly
       let mut map = IndexMap::with_capacity(plugin_config.properties.len());
-      for (shebang, value) in plugin_config.properties {
+      for (mut shebang, value) in plugin_config.properties {
         if !shebang.starts_with("#!") || shebang.contains(['\r', '\n']) {
           bail!(
             "Expected the key '{}' in the 'shebangs' property to be a shebang line starting with '#!'.",
@@ -630,7 +630,8 @@ fn take_shebangs_from_config_map(config_map: &mut ConfigMap) -> Result<Option<In
             }
             // stored lowercased and without a leading dot so it resolves the
             // same way as a real file extension
-            map.insert(shebang.trim_end().to_string(), extension_without_dot.to_lowercase());
+            shebang.truncate(shebang.trim_end().len());
+            map.insert(shebang, extension_without_dot.to_lowercase());
           }
           _ => bail!("Expected a string file extension for shebang '{}' in the 'shebangs' property.", shebang),
         }

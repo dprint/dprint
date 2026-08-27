@@ -352,16 +352,17 @@ fn literal_relative_path(pattern: &GlobPattern) -> Option<PathBuf> {
   Some(PathBuf::from(unescape_glob_text(relative).as_ref()))
 }
 
-/// Adds an include pattern to the override builder (only the include matcher
-/// uses overrides—excludes go straight into a gitignore matcher).
-fn get_include_pattern_text(pattern: &GlobPattern, base_dir: &CanonicalizedPathBuf) -> String {
+/// Gets the include pattern text to add to the override builder (only the
+/// include matcher uses overrides—excludes go straight into a gitignore matcher).
+fn get_include_pattern_text<'a>(pattern: &'a GlobPattern, base_dir: &CanonicalizedPathBuf) -> Cow<'a, str> {
   if pattern.base_dir != *base_dir {
     match pattern.clone().into_new_base(base_dir.clone(), GlobPatternKind::Include) {
-      Some(pattern) => normalize_pattern(&pattern).into_owned(),
-      None => pattern.as_absolute_pattern_text(),
+      // rebasing creates a new pattern, so the normalized text can't borrow from it
+      Some(pattern) => Cow::Owned(normalize_pattern(&pattern).into_owned()),
+      None => Cow::Owned(pattern.as_absolute_pattern_text()),
     }
   } else {
-    normalize_pattern(pattern).into_owned()
+    normalize_pattern(pattern)
   }
 }
 
