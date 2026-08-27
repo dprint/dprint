@@ -184,7 +184,7 @@ async fn handle_format_request<TEnvironment: Environment>(
     .map(|p| p.into_path_buf())
     .unwrap_or(request.file_path);
 
-  if !scope.can_format_for_editor(&request.file_path) {
+  if !scope.can_format_for_editor(&request.file_path, Some(request.file_text.as_bytes())) {
     log_debug!(environment, "Excluded file: {}", request.file_path.display());
     return Ok(None);
   }

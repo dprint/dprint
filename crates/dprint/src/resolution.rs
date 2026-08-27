@@ -48,6 +48,7 @@ use crate::paths::FilesPathsByPlugins;
 use crate::paths::NoFilesFoundError;
 use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins;
+use crate::paths::get_plugin_names_for_file_on_disk;
 use crate::patterns::FileMatcher;
 use crate::patterns::FileMatcherOptions;
 use crate::patterns::get_patterns_as_glob_matcher;
@@ -441,7 +442,34 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     Rc::new(move |host_request| scope.format(host_request))
   }
 
-  pub fn can_format_for_editor(&self, file_path: &Path) -> bool {
+  /// Whether the editor should ask this scope to format the file.
+  ///
+  /// `file_bytes_start` is the start of the editor's in-memory text when it has
+  /// it (ex. the LSP), which is what an extensionless file's shebang needs to be
+  /// resolved from so an unsaved shebang still matches. When it's `None` (ex. the
+  /// editor service, which only receives a path) the file on disk is used.
+  pub fn can_format_for_editor(&self, file_path: &Path, file_bytes_start: Option<&[u8]>) -> bool {
+    if !self.matches_editor_file_patterns(file_path) {
+      return false;
+    }
+
+    // Extensionless files match the includes patterns whenever any shebangs are
+    // configured because their shebang isn't known up front, so ensure one
+    // actually resolves to a plugin rather than claiming every extensionless file.
+    if self.plugin_name_maps.may_match_shebang(file_path) {
+      return match file_bytes_start {
+        Some(file_bytes_start) => !self
+          .plugin_name_maps
+          .get_plugin_names_from_file_path_and_bytes(file_path, file_bytes_start)
+          .is_empty(),
+        None => !get_plugin_names_for_file_on_disk(&self.plugin_name_maps, file_path, &self.environment).is_empty(),
+      };
+    }
+
+    true
+  }
+
+  fn matches_editor_file_patterns(&self, file_path: &Path) -> bool {
     let mut file_matcher_borrow = self.cached_editor_file_matcher.borrow_mut();
     if file_matcher_borrow.is_none() {
       let Some(config) = &self.config else {
