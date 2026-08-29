@@ -75,12 +75,17 @@ impl FilesPathsByPlugins {
 pub fn get_file_paths_by_plugins(
   plugin_name_maps: &PluginNameResolutionMaps,
   file_paths: Vec<PathBuf>,
+  mut shebang_lines: HashMap<PathBuf, Vec<u8>>,
   environment: &impl Environment,
 ) -> Result<FilesPathsByPlugins> {
   let mut file_paths_by_plugin: HashMap<PluginNames, Vec<PathBuf>> = HashMap::new();
 
   for file_path in file_paths.into_iter() {
-    let plugin_names = get_plugin_names_for_file_on_disk(plugin_name_maps, &file_path, environment);
+    let plugin_names = match shebang_lines.remove(&file_path) {
+      // the traversal already read this file's shebang line, so don't read it again
+      Some(shebang_line) => plugin_name_maps.get_plugin_names_from_file_path_and_bytes(&file_path, &shebang_line),
+      None => get_plugin_names_for_file_on_disk(plugin_name_maps, &file_path, environment),
+    };
     if !plugin_names.is_empty() {
       let plugin_names_key = PluginNames::from_plugin_names(&plugin_names);
       let file_paths = file_paths_by_plugin.entry(plugin_names_key).or_default();

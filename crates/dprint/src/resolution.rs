@@ -662,7 +662,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       .resolve_outside_base_paths(&mut glob_output, &config, config_discovery, root_config_path.clone())
       .await?;
 
-    let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths, self.environment)?;
+    let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths, glob_output.shebang_lines, self.environment)?;
 
     let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
     // todo: parallelize?
@@ -941,7 +941,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     // paths outside this config's directory were already handled when
     // resolving the root scope
     glob_output.outside_base_paths.clear();
-    let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths, self.environment)?;
+    let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths, glob_output.shebang_lines, self.environment)?;
 
     let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
     // todo: parallelize?
