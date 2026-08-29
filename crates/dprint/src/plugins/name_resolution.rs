@@ -69,12 +69,12 @@ impl PluginNameResolutionMaps {
     Ok(plugin_name_maps)
   }
 
-  pub fn get_plugin_names_from_file_path(&self, file_path: &Path) -> Vec<String> {
+  pub fn get_plugin_names_from_file_path<'a>(&'a self, file_path: &Path) -> Vec<&'a str> {
     let mut plugin_names = Vec::new();
 
     for (plugin_name, matcher) in self.association_matchers.iter() {
       if matcher.matches(file_path) {
-        plugin_names.push(plugin_name.to_owned());
+        plugin_names.push(plugin_name.as_str());
       }
     }
 
@@ -83,21 +83,21 @@ impl PluginNameResolutionMaps {
     }
 
     if let Some(file_name) = get_lowercase_file_name(file_path)
-      && let Some(plugin_names) = self.file_name_to_plugin_names_map.get(&file_name)
+      && let Some(plugin_names) = self.file_name_to_plugin_names_map.get(file_name.as_ref())
     {
       for plugin_name in plugin_names {
         if self.is_not_associations_excluded(plugin_name, file_path) {
-          return vec![plugin_name.clone()];
+          return vec![plugin_name.as_str()];
         }
       }
     }
 
     if let Some(ext) = get_lowercase_file_extension(file_path)
-      && let Some(plugin_names) = self.extension_to_plugin_names_map.get(&ext)
+      && let Some(plugin_names) = self.extension_to_plugin_names_map.get(ext.as_ref())
     {
       for plugin_name in plugin_names {
         if self.is_not_associations_excluded(plugin_name, file_path) {
-          return vec![plugin_name.clone()];
+          return vec![plugin_name.as_str()];
         }
       }
     }
@@ -108,7 +108,7 @@ impl PluginNameResolutionMaps {
   /// Resolves plugins for a file, falling back to its shebang line when it's
   /// extensionless and no plugin matched by path. `file_bytes_start` only
   /// needs to contain the start of the file.
-  pub fn get_plugin_names_from_file_path_and_bytes(&self, file_path: &Path, file_bytes_start: &[u8]) -> Vec<String> {
+  pub fn get_plugin_names_from_file_path_and_bytes<'a>(&'a self, file_path: &Path, file_bytes_start: &[u8]) -> Vec<&'a str> {
     let plugin_names = self.get_plugin_names_from_file_path(file_path);
     if !plugin_names.is_empty() {
       return plugin_names;
@@ -130,7 +130,7 @@ impl PluginNameResolutionMaps {
   /// A configured shebang matches when the file's shebang line equals it or
   /// starts with it followed by whitespace, so `#!/usr/bin/env deno run` matches
   /// `#!/usr/bin/env deno run --allow-read` but not `#!/usr/bin/env deno runtest`.
-  pub fn get_plugin_names_from_shebang(&self, file_path: &Path, file_bytes_start: &[u8]) -> Vec<String> {
+  pub fn get_plugin_names_from_shebang<'a>(&'a self, file_path: &Path, file_bytes_start: &[u8]) -> Vec<&'a str> {
     if !self.may_match_shebang(file_path) {
       return Vec::new();
     }
@@ -150,7 +150,7 @@ impl PluginNameResolutionMaps {
     };
     for plugin_name in plugin_names {
       if self.is_not_associations_excluded(plugin_name, file_path) {
-        return vec![plugin_name.clone()];
+        return vec![plugin_name.as_str()];
       }
     }
     Vec::new()

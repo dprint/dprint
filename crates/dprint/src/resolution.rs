@@ -499,9 +499,13 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 
   pub fn format(self: &Rc<Self>, request: HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> {
+    // owned because they outlive this scope by moving into the future below
     let plugin_names = self
       .plugin_name_maps
-      .get_plugin_names_from_file_path_and_bytes(&request.file_path, &request.file_bytes);
+      .get_plugin_names_from_file_path_and_bytes(&request.file_path, &request.file_bytes)
+      .into_iter()
+      .map(ToOwned::to_owned)
+      .collect::<Vec<String>>();
     log_debug!(
       self.environment,
       "Host formatting {} - File length: {} - Plugins: [{}] - Range: {:?}",
