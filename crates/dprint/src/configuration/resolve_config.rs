@@ -44,6 +44,9 @@ pub struct ResolvedConfig {
   pub excludes: Option<Vec<String>>,
   pub plugins: Vec<PluginSourceReference>,
   pub incremental: Option<bool>,
+  /// Maps a shebang line (ex. `#!/usr/bin/env bash`) to a file extension so
+  /// extensionless scripts can be routed to a plugin.
+  pub shebangs: Option<IndexMap<String, String>>,
   /// Whether a nested (directory specific) configuration file should inherit
   /// the plugins and configuration of its ancestor configuration file.
   pub inherit: Option<bool>,
@@ -129,6 +132,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
           excludes: None,
           includes: None,
           incremental: None,
+          shebangs: None,
           inherit: None,
           plugins: Vec::new(),
         }
@@ -196,6 +200,7 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   let excludes = take_array_from_config_map(&mut config_map, "excludes")?;
 
   let incremental = take_bool_from_config_map(&mut config_map, "incremental")?;
+  let shebangs = take_shebangs_from_config_map(&mut config_map)?;
   let inherit = take_bool_from_config_map(&mut config_map, "inherit")?;
   config_map.shift_remove("projectType"); // this was an old config property that's no longer used
   let extends = take_extends(&mut config_map)?;
@@ -208,6 +213,7 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
     excludes,
     plugins,
     incremental,
+    shebangs,
     inherit,
   };
 
@@ -235,6 +241,11 @@ pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Re
   // inherit the incremental flag when not specified in the nested config
   if config.incremental.is_none() {
     config.incremental = parent.incremental;
+  }
+
+  // inherit the shebang mappings when not specified in the nested config
+  if config.shebangs.is_none() {
+    config.shebangs = parent.shebangs.clone();
   }
 
   merge_config_map_into(&mut config.config_map, parent.config_map.clone())?;
@@ -328,6 +339,15 @@ async fn handle_config_file<TEnvironment: Environment>(
     match &mut resolved_config.excludes {
       Some(resolved_excludes) => resolved_excludes.extend(excludes),
       None => resolved_config.excludes = Some(excludes),
+    }
+  }
+
+  // combine shebangs, keeping the higher-precedence (extending) config's entry
+  // when the same shebang is specified in both
+  if let Some(shebangs) = take_shebangs_from_config_map(&mut new_config_map)? {
+    let resolved_shebangs = resolved_config.shebangs.get_or_insert_default();
+    for (shebang, extension) in shebangs {
+      resolved_shebangs.entry(shebang).or_insert(extension);
     }
   }
 
@@ -576,6 +596,49 @@ fn take_array_from_config_map(config_map: &mut ConfigMap, property_name: &str) -
   match config_map.shift_remove(property_name) {
     Some(ConfigMapValue::Vec(elements)) => Ok(Some(elements)),
     Some(_) => bail!("Expected array in '{}' property.", property_name),
+    None => Ok(None),
+  }
+}
+
+fn take_shebangs_from_config_map(config_map: &mut ConfigMap) -> Result<Option<IndexMap<String, String>>> {
+  match config_map.shift_remove("shebangs") {
+    Some(ConfigMapValue::PluginConfig(plugin_config)) => {
+      if plugin_config.locked || !plugin_config.overrides.is_empty() || plugin_config.associations.is_some() {
+        bail!("The 'shebangs' property must be an object that maps shebang lines to file extensions.");
+      }
+      // the shebangs and extensions are normalized here so the rest of the
+      // code (ex. merging, hashing, resolution) can compare them directly
+      let mut map = IndexMap::with_capacity(plugin_config.properties.len());
+      for (mut shebang, value) in plugin_config.properties {
+        if !shebang.starts_with("#!") || shebang.contains(['\r', '\n']) {
+          bail!(
+            "Expected the key '{}' in the 'shebangs' property to be a shebang line starting with '#!'.",
+            shebang
+          );
+        }
+        match value {
+          ConfigKeyValue::String(extension) => {
+            let extension_without_dot = extension.strip_prefix('.').unwrap_or(&extension);
+            if extension_without_dot.is_empty()
+              || extension_without_dot.contains(|c: char| c.is_whitespace() || matches!(c, '.' | '/' | '\\' | '*' | '?' | '[' | ']' | '{' | '}'))
+            {
+              bail!(
+                "Expected a file extension (ex. \"sh\") for shebang '{}' in the 'shebangs' property, but found '{}'.",
+                shebang,
+                extension
+              );
+            }
+            // stored lowercased and without a leading dot so it resolves the
+            // same way as a real file extension
+            shebang.truncate(shebang.trim_end().len());
+            map.insert(shebang, extension_without_dot.to_lowercase());
+          }
+          _ => bail!("Expected a string file extension for shebang '{}' in the 'shebangs' property.", shebang),
+        }
+      }
+      Ok(Some(map))
+    }
+    Some(_) => bail!("Expected object in 'shebangs' property."),
     None => Ok(None),
   }
 }
@@ -1974,6 +2037,188 @@ mod tests {
   }
 
   #[test]
+  fn should_parse_shebangs_property() {
+    let environment = TestEnvironment::new();
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r##"{
+            "shebangs": {
+              "#!/bin/sh": "sh",
+              "#!/usr/bin/env node": ".js",
+              "#!/usr/bin/env deno  ": "TS"
+            },
+            "plugins": ["./testing/asdf.wasm"],
+        }"##,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      let shebangs = result.shebangs.unwrap();
+      assert_eq!(shebangs.get("#!/bin/sh").map(|s| s.as_str()), Some("sh"));
+      // the leading dot is removed and the extension lowercased
+      assert_eq!(shebangs.get("#!/usr/bin/env node").map(|s| s.as_str()), Some("js"));
+      assert_eq!(shebangs.get("#!/usr/bin/env deno").map(|s| s.as_str()), Some("ts"));
+    });
+  }
+
+  #[test]
+  fn should_merge_shebangs_from_extended_config() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(
+      "https://dprint.dev/test.json",
+      r##"{
+            "shebangs": {
+              "#!/bin/sh": "sh",
+              "#!/usr/bin/env node": "js"
+            },
+            "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"]
+        }"##
+        .as_bytes(),
+    );
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r##"{
+            "extends": "https://dprint.dev/test.json",
+            "shebangs": {
+              "#!/usr/bin/env node": "ts",
+              "#!/usr/bin/env python3": "py"
+            }
+        }"##,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      let shebangs = result.shebangs.unwrap();
+      assert_eq!(
+        shebangs.into_iter().collect::<Vec<_>>(),
+        vec![
+          // the extending config's entry wins
+          ("#!/usr/bin/env node".to_string(), "ts".to_string()),
+          ("#!/usr/bin/env python3".to_string(), "py".to_string()),
+          ("#!/bin/sh".to_string(), "sh".to_string()),
+        ]
+      );
+      assert!(!result.config_map.contains_key("shebangs"));
+    });
+  }
+
+  #[test]
+  fn should_merge_shebangs_from_local_extends_chain() {
+    let environment = TestEnvironment::new();
+    environment
+      .write_file(
+        &PathBuf::from("/base2.json"),
+        r##"{
+            "shebangs": {
+              "#!/bin/sh": "base2",
+              "#!/usr/bin/env node": "base2",
+              "#!/usr/bin/env python3": "base2"
+            }
+        }"##,
+      )
+      .unwrap();
+    environment
+      .write_file(
+        &PathBuf::from("/base1.json"),
+        r##"{
+            "extends": "./base2.json",
+            "shebangs": {
+              "#!/usr/bin/env node": "base1",
+              "#!/usr/bin/env python3": "base1"
+            }
+        }"##,
+      )
+      .unwrap();
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r##"{
+            "extends": "./base1.json",
+            "shebangs": {
+              "#!/usr/bin/env python3": "test"
+            },
+            "plugins": ["./testing/asdf.wasm"],
+        }"##,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(
+        result.shebangs.unwrap().into_iter().collect::<Vec<_>>(),
+        vec![
+          ("#!/usr/bin/env python3".to_string(), "test".to_string()),
+          ("#!/usr/bin/env node".to_string(), "base1".to_string()),
+          ("#!/bin/sh".to_string(), "base2".to_string()),
+        ]
+      );
+    });
+  }
+
+  #[test]
+  fn should_error_when_shebangs_value_invalid() {
+    fn get_error(shebangs: &str) -> String {
+      let environment = TestEnvironment::new();
+      environment
+        .write_file(
+          &PathBuf::from("/test.json"),
+          &format!(r##"{{ "shebangs": {}, "plugins": ["./testing/asdf.wasm"] }}"##, shebangs),
+        )
+        .unwrap();
+      environment.clone().run_in_runtime(async move {
+        let err = get_result("/test.json", &environment).await.err().unwrap();
+        err.to_string()
+      })
+    }
+
+    assert_eq!(
+      get_error(r##"{ "#!/bin/sh": "" }"##),
+      "Expected a file extension (ex. \"sh\") for shebang '#!/bin/sh' in the 'shebangs' property, but found ''."
+    );
+    for extension in [".", "*.sh", " sh", "tar.gz"] {
+      assert!(
+        get_error(&format!(r##"{{ "#!/bin/sh": "{}" }}"##, extension)).contains(&format!("but found '{}'.", extension)),
+        "{}",
+        extension
+      );
+    }
+    assert_eq!(
+      get_error(r##"{ "/bin/sh": "sh" }"##),
+      "Expected the key '/bin/sh' in the 'shebangs' property to be a shebang line starting with '#!'."
+    );
+    assert!(get_error(r##"{ " #!/bin/sh": "sh" }"##).contains("to be a shebang line starting with '#!'"));
+    assert!(get_error(r##"{ "#!/bin/sh\ntext": "sh" }"##).contains("to be a shebang line starting with '#!'"));
+  }
+
+  #[test]
+  fn should_error_when_shebangs_value_not_a_string() {
+    let environment = TestEnvironment::new();
+    environment
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r##"{
+            "shebangs": {
+              "#!/bin/sh": 5
+            },
+            "plugins": ["./testing/asdf.wasm"],
+        }"##,
+      )
+      .unwrap();
+
+    environment.clone().run_in_runtime(async move {
+      let err = get_result("/test.json", &environment).await.err().unwrap();
+      assert!(err.to_string().contains("Expected a string file extension for shebang '#!/bin/sh'"));
+    });
+  }
+
+  #[test]
   fn should_parse_inherit_property() {
     let environment = TestEnvironment::new();
     environment
@@ -2009,6 +2254,7 @@ mod tests {
         PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/json.wasm"),
       ],
       incremental: Some(true),
+      shebangs: None,
       inherit: None,
       config_map: ConfigMap::from([
         ("lineWidth".to_string(), ConfigMapValue::from_i32(80)),
@@ -2035,6 +2281,7 @@ mod tests {
       // a plugin specified in the child has precedence over the ancestor's
       plugins: vec![PluginSourceReference::new_remote_from_str("https://plugins.dprint.dev/test-plugin.wasm")],
       incremental: None,
+      shebangs: None,
       inherit: Some(true),
       config_map: ConfigMap::from([(
         "test".to_string(),
@@ -2149,6 +2396,7 @@ mod tests {
       excludes: None,
       plugins: Vec::new(),
       incremental: None,
+      shebangs: None,
       inherit: None,
       config_map: ConfigMap::from([(
         "test".to_string(),
@@ -2168,6 +2416,7 @@ mod tests {
       excludes: None,
       plugins: Vec::new(),
       incremental: None,
+      shebangs: None,
       inherit: Some(true),
       config_map: ConfigMap::from([(
         "test".to_string(),

@@ -23,6 +23,7 @@ use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
+use crate::paths::get_plugin_names_for_file_on_disk;
 use crate::plugins::FetchNpmLatestInfo;
 use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::MinimumDependencyAgeError;
@@ -1520,9 +1521,7 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
   // running on a file (ex. a missing `associations` entry — see issue #794).
   let included_plugin_names = cmd.file_path.as_ref().map(|file_path| {
     let file_path = environment.cwd().join(file_path);
-    plugins_scope
-      .plugin_name_maps
-      .get_plugin_names_from_file_path(&file_path)
+    get_plugin_names_for_file_on_disk(&plugins_scope.plugin_name_maps, &file_path, environment)
       .into_iter()
       .collect::<HashSet<_>>()
   });
@@ -3132,6 +3131,53 @@ mod test {
     // and also the associated `.special` files
     run_test_cli(vec!["resolved-config", "--file", "file.special"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), expected_handled);
+  }
+
+  #[test]
+  fn should_output_resolved_config_for_file_path_with_shebang() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+        );
+      })
+      .write_file(
+        "/scripts/build",
+        "#!/bin/sh
+text",
+      )
+      .write_file("/scripts/notes", "text")
+      .build();
+
+    // resolved by the shebang line
+    run_test_cli(vec!["resolved-config", "--file", "/scripts/build"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![concat!(
+        "{
+",
+        "  \"test-plugin\": {
+",
+        "    \"ending\": \"formatted\",
+",
+        "    \"lineWidth\": 120
+",
+        "  }
+",
+        "}",
+      )]
+    );
+
+    // no shebang, so it's unhandled
+    run_test_cli(vec!["resolved-config", "--file", "/scripts/notes"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["{}"]);
+
+    // a file that doesn't exist is unhandled too
+    run_test_cli(vec!["resolved-config", "--file", "/scripts/missing"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["{}"]);
   }
 
   #[test]

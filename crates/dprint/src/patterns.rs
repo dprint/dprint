@@ -137,6 +137,7 @@ pub fn get_patterns_as_glob_matcher(patterns: &[String], config_base_path: &Cano
   let (includes, excludes) = patterns.into_iter().partition(|p| !is_negated_glob(p));
   GlobMatcher::new(
     GlobPatterns {
+      shebangs: Vec::new(),
       arg_includes: None,
       config_includes: Some(GlobPattern::new_vec(includes, config_base_path.clone())),
       arg_excludes: None,
@@ -166,6 +167,14 @@ pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cw
     } else {
       // resolve CLI patterns based on the current working directory
       Some(args.exclude_patterns.iter().map(|p| process_cli_pattern(p, cwd, environment)).collect())
+    },
+    // Shebang scripts are extensionless, so they can't be matched by the
+    // includes up front. Discover them when shebang mappings are configured and
+    // let plugin resolution filter them down to just the shebang matches. This
+    // doesn't apply to an includes override since that should restrict the files.
+    shebangs: match (&args.include_pattern_overrides, &config.shebangs) {
+      (None, Some(shebangs)) => shebangs.keys().cloned().collect(),
+      _ => Vec::new(),
     },
   }
 }
@@ -436,6 +445,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
         arg_excludes: None,
@@ -465,6 +475,7 @@ mod test {
     environment.mk_dir_all(&cwd).unwrap();
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        shebangs: Vec::new(),
         arg_includes: None,
         // notice cwd and base_dir are different. This will happen when the config
         // file is in an ancestor dir and the user has stepped into a folder
@@ -497,6 +508,7 @@ mod test {
     environment.write_file("/testing/dir/.gitignore", "ignored-dir/\nsub.ts/\n").unwrap();
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), base_dir.clone())]),
         arg_excludes: None,
@@ -530,6 +542,7 @@ mod test {
     environment.write_file("/testing/.gitignore", "dir/\n").unwrap();
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), base_dir.clone())]),
         arg_excludes: None,

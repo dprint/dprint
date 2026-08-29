@@ -16,6 +16,7 @@ use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DirEntry;
 use crate::environment::Environment;
 use crate::environment::PathKind;
+use crate::utils::file_has_matching_shebang;
 use crate::utils::gitignore::DirEntriesHint;
 use crate::utils::gitignore::GitIgnoreTree;
 use crate::utils::gitignore::GitIgnoreTreeOptions;
@@ -108,6 +109,7 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
       },
     ))
   };
+  let shebangs = opts.file_patterns.shebangs.clone();
   let glob_matcher = GlobMatcher::new(
     opts.file_patterns,
     &GlobMatcherOptions {
@@ -211,6 +213,7 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
         config_discovery: opts.config_discovery,
         current_config_path: opts.current_config_path,
         thread_count: read_dir_thread_count,
+        shebangs,
       },
     ));
     for _ in 0..read_dir_thread_count {
@@ -631,6 +634,8 @@ struct DirEntries {
 enum DirOrConfigEntry {
   Dir(PathBuf),
   File(PathBuf),
+  /// An extensionless file whose first line matches a configured shebang.
+  ShebangFile(PathBuf),
   // todo: get rid of this from here probably
   Config(PathBuf),
 }
@@ -643,7 +648,7 @@ fn dir_entries_hint(entries: &[DirOrConfigEntry]) -> DirEntriesHint {
   };
   for entry in entries {
     match entry {
-      DirOrConfigEntry::Dir(path) | DirOrConfigEntry::File(path) => {
+      DirOrConfigEntry::Dir(path) | DirOrConfigEntry::File(path) | DirOrConfigEntry::ShebangFile(path) => {
         match path.file_name().and_then(|f| f.to_str()) {
           // `.gitignore` is a file and `.git` is usually a directory (a file in worktrees)
           Some(".gitignore") => hint.has_gitignore = true,
@@ -667,6 +672,8 @@ struct ReadDirRunnerOptions {
   config_discovery: ConfigDiscovery,
   current_config_path: Option<PathBuf>,
   thread_count: usize,
+  /// The configured shebang lines to check extensionless files for.
+  shebangs: Vec<String>,
 }
 
 struct ReadDirRunner<TEnvironment: Environment> {
@@ -769,11 +776,23 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
           .into_iter()
           .map(|e| match e {
             DirEntry::Directory(path) => DirOrConfigEntry::Dir(path),
-            DirEntry::File { path, .. } => DirOrConfigEntry::File(path),
+            DirEntry::File { path, .. } => {
+              // check for a shebang here since these threads run in parallel
+              // and reading the file is I/O bound
+              if self.should_check_shebang(&path) && file_has_matching_shebang(&self.environment, &path, &self.options.shebangs) {
+                DirOrConfigEntry::ShebangFile(path)
+              } else {
+                DirOrConfigEntry::File(path)
+              }
+            }
           })
           .collect::<Vec<_>>(),
       ))
     }
+  }
+
+  fn should_check_shebang(&self, path: &Path) -> bool {
+    !self.options.shebangs.is_empty() && path.extension().is_none()
   }
 
   /// Waits for directories to read, returning a chunk of them or `None` once the
@@ -903,8 +922,13 @@ impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
                     pending_dirs.push(path);
                   }
                 }
-                DirOrConfigEntry::File(path) => {
-                  let is_matched = match self.glob_matcher.matches_detail(&path) {
+                DirOrConfigEntry::File(_) | DirOrConfigEntry::ShebangFile(_) => {
+                  let (path, has_matching_shebang) = match entry {
+                    DirOrConfigEntry::File(path) => (path, false),
+                    DirOrConfigEntry::ShebangFile(path) => (path, true),
+                    DirOrConfigEntry::Dir(_) | DirOrConfigEntry::Config(_) => unreachable!(),
+                  };
+                  let is_matched = match self.glob_matcher.matches_detail_with_shebang_checked(&path, has_matching_shebang) {
                     GlobMatchesDetail::Excluded => false,
                     GlobMatchesDetail::Matched => match &gitignore {
                       Some(gitignore) => {
@@ -1054,6 +1078,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
           arg_excludes: None,
@@ -1098,6 +1123,7 @@ mod test {
           start_dir: PathBuf::from("/"),
           config_discovery: ConfigDiscovery::Default,
           file_patterns: GlobPatterns {
+            shebangs: Vec::new(),
             arg_includes: None,
             config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
             arg_excludes: None,
@@ -1139,6 +1165,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
           arg_excludes: None,
@@ -1176,6 +1203,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
           arg_excludes: None,
@@ -1211,6 +1239,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
           arg_excludes: None,
@@ -1245,6 +1274,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
           arg_excludes: None,
@@ -1279,6 +1309,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: Some(vec![
             GlobPattern::new("./sub/file.txt".to_string(), root_dir.clone()),
             GlobPattern::new("./not_exists.txt".to_string(), root_dir.clone()),
@@ -1313,6 +1344,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: Some(vec![
             GlobPattern::new("./file.txt".to_string(), root_dir.clone()),
             GlobPattern::new("./sub/file.txt".to_string(), root_dir.clone()),
@@ -1348,6 +1380,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Disabled,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: Some(vec![GlobPattern::new("./sub/file.txt".to_string(), root_dir.clone())]),
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
           arg_excludes: None,
@@ -1378,6 +1411,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: Some(vec![GlobPattern::new("./ignored/file.txt".to_string(), root_dir.clone())]),
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
           arg_excludes: None,
@@ -1407,6 +1441,7 @@ mod test {
         start_dir: PathBuf::from("/sub"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: Some(vec![GlobPattern::new("./other/**".to_string(), root_dir.clone())]),
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
           arg_excludes: None,
@@ -1435,6 +1470,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: Some(vec![GlobPattern::new("./sub".to_string(), root_dir.clone())]),
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
           arg_excludes: None,
@@ -1462,6 +1498,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
           arg_excludes: None,
@@ -1488,6 +1525,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
           arg_excludes: None,
@@ -1516,6 +1554,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![
             GlobPattern::new("!**/*.*".to_string(), root_dir.clone()),
@@ -1549,6 +1588,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![
             GlobPattern::new("**/*.json".to_string(), root_dir.clone()),
@@ -1584,6 +1624,7 @@ mod test {
         start_dir: PathBuf::from("/test/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![
             GlobPattern::new("**/*.json".to_string(), test_dir.clone()),
@@ -1620,6 +1661,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![
             GlobPattern::new("**/*.java".to_string(), root_dir.clone()),
@@ -1654,6 +1696,7 @@ mod test {
         start_dir: PathBuf::from("/"),
         config_discovery: ConfigDiscovery::Default,
         file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
           arg_includes: None,
           config_includes: Some(vec![
             GlobPattern::new("**/*.*".to_string(), root_dir.clone()),

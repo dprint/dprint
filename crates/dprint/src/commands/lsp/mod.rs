@@ -184,7 +184,7 @@ async fn handle_format_request<TEnvironment: Environment>(
     .map(|p| p.into_path_buf())
     .unwrap_or(request.file_path);
 
-  if !scope.can_format_for_editor(&request.file_path) {
+  if !scope.can_format_for_editor(&request.file_path, Some(request.file_text.as_bytes())) {
     log_debug!(environment, "Excluded file: {}", request.file_path.display());
     return Ok(None);
   }
@@ -1032,6 +1032,71 @@ mod test {
             );
             did_close!(backend, file_uri);
           }
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
+  #[test]
+  fn should_format_shebang_file_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+        );
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          // extensionless file with a matching shebang
+          let file_uri = Url::parse("file:///scripts/build").unwrap();
+          did_open!(backend, file_uri, "#!/bin/sh\ntext");
+          assert_format!(
+            backend,
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(1, 4), Position::new(1, 4)),
+              new_text: "_formatted".to_string()
+            }])
+          );
+
+          // extensionless file without a shebang
+          let file_uri = Url::parse("file:///scripts/notes").unwrap();
+          did_open!(backend, file_uri, "text");
+          assert_format!(backend, file_uri, None);
 
           backend.shutdown().await.unwrap();
         }

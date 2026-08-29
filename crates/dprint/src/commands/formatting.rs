@@ -1440,6 +1440,385 @@ mod test {
   }
 
   #[test]
+  fn should_format_extensionless_files_by_shebang() {
+    let script_path = "/scripts/build";
+    let bash_path = "/scripts/deploy";
+    let no_shebang_path = "/scripts/notes";
+    let has_ext_path = "/scripts/keep.md";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "txt",
+            "#!/usr/bin/env bash": "txt"
+          }"##,
+        );
+      })
+      .write_file(&script_path, "#!/bin/sh\ntext")
+      .write_file(&bash_path, "#!/usr/bin/env bash\ntext2")
+      // no shebang, so it should be left alone
+      .write_file(&no_shebang_path, "text3")
+      // has an extension the plugin doesn't match, so the shebang is ignored
+      .write_file(&has_ext_path, "#!/bin/sh\ntext4")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&script_path).unwrap(), "#!/bin/sh\ntext_formatted");
+    assert_eq!(environment.read_file(&bash_path).unwrap(), "#!/usr/bin/env bash\ntext2_formatted");
+    assert_eq!(environment.read_file(&no_shebang_path).unwrap(), "text3");
+    assert_eq!(environment.read_file(&has_ext_path).unwrap(), "#!/bin/sh\ntext4");
+  }
+
+  #[test]
+  fn should_match_shebang_prefix_with_most_specific_winning() {
+    let run_path = "/scripts/run";
+    let bare_path = "/scripts/bare";
+    let runtest_path = "/scripts/runtest";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin().add_remote_process_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/usr/bin/env deno": "txt_ps",
+            "#!/usr/bin/env deno run": "txt"
+          }"##,
+        );
+      })
+      // matches the more specific `deno run` entry (wasm plugin)
+      .write_file(&run_path, "#!/usr/bin/env deno run --allow-read\ntext")
+      // only matches the `deno` entry (process plugin)
+      .write_file(&bare_path, "#!/usr/bin/env deno --version\ntext")
+      // `runtest` is not a word boundary match for `deno run`, so falls back to `deno`
+      .write_file(&runtest_path, "#!/usr/bin/env deno runtest\ntext")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    assert_eq!(
+      environment.read_file(&run_path).unwrap(),
+      "#!/usr/bin/env deno run --allow-read\ntext_formatted"
+    );
+    assert_eq!(
+      environment.read_file(&bare_path).unwrap(),
+      "#!/usr/bin/env deno --version\ntext_formatted_process"
+    );
+    assert_eq!(
+      environment.read_file(&runtest_path).unwrap(),
+      "#!/usr/bin/env deno runtest\ntext_formatted_process"
+    );
+  }
+
+  #[test]
+  fn should_format_extensionless_files_by_shebang_with_includes() {
+    let script_path = "/scripts/build";
+    let other_path = "/other/build";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_includes("scripts/**").add_remote_wasm_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+        );
+      })
+      .write_file(
+        &script_path,
+        "#!/bin/sh
+text",
+      )
+      // extensionless files are discovered even when includes is specified
+      .write_file(
+        &other_path,
+        "#!/bin/sh
+text2",
+      )
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(
+      environment.read_file(&script_path).unwrap(),
+      "#!/bin/sh
+text_formatted"
+    );
+    assert_eq!(
+      environment.read_file(&other_path).unwrap(),
+      "#!/bin/sh
+text2_formatted"
+    );
+  }
+
+  #[test]
+  fn should_respect_negated_includes_and_cli_includes_for_shebang_files() {
+    let script_path = "/scripts/build";
+    let vendor_path = "/vendor/build";
+    let other_path = "/other/build";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_includes("**/*.txt")
+          .add_includes("!**/vendor/**")
+          .add_remote_wasm_plugin()
+          .add_config_section(
+            "shebangs",
+            r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+          );
+      })
+      .write_file(&script_path, "#!/bin/sh\ntext")
+      // excluded by a negated include pattern
+      .write_file(&vendor_path, "#!/bin/sh\ntext2")
+      .write_file(&other_path, "#!/bin/sh\ntext3")
+      .build();
+
+    // cli patterns restrict the files
+    run_test_cli(vec!["fmt", "--config", "/config.json", "scripts/**"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&script_path).unwrap(), "#!/bin/sh\ntext_formatted");
+    assert_eq!(environment.read_file(&other_path).unwrap(), "#!/bin/sh\ntext3");
+
+    let err = run_test_cli(vec!["fmt", "--config", "/config.json", "--includes-override", "**/*.txt"], &environment)
+      .err()
+      .unwrap();
+    assert!(err.to_string().starts_with("No files found to format"));
+    err.assert_exit_code(14);
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&other_path).unwrap(), "#!/bin/sh\ntext3_formatted");
+    assert_eq!(environment.read_file(&vendor_path).unwrap(), "#!/bin/sh\ntext2");
+  }
+
+  #[test]
+  fn should_format_shebang_files_incrementally_and_reformat_when_mapping_changes() {
+    let script_path = "/scripts/build";
+    let no_change_msg = "No change: /scripts/build";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_remote_process_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+        );
+      })
+      .write_file(&script_path, "#!/bin/sh\ntext")
+      .build();
+
+    run_test_cli(vec!["fmt", "--incremental"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&script_path).unwrap(), "#!/bin/sh\ntext_formatted");
+
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
+    assert!(environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)));
+
+    // change the mapping to route to the process plugin, which should invalidate the cache
+    let config_text = environment.read_file("./dprint.json").unwrap();
+    assert!(config_text.contains(r##""#!/bin/sh": "txt""##));
+    environment
+      .write_file("./dprint.json", &config_text.replace(r##""#!/bin/sh": "txt""##, r##""#!/bin/sh": "txt_ps""##))
+      .unwrap();
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--incremental", "--log-level=debug"], &environment).unwrap();
+    assert!(!environment.take_stderr_messages().iter().any(|msg| msg.contains(no_change_msg)));
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&script_path).unwrap(), "#!/bin/sh\ntext_formatted_formatted_process");
+  }
+
+  #[test]
+  fn should_inherit_shebangs_in_nested_config() {
+    let root_path = "/build";
+    let inherited_path = "/inherit/build";
+    let overridden_sh_path = "/override/build";
+    let overridden_bash_path = "/override/run";
+    let not_inherited_path = "/no_inherit/build";
+    let not_inherited_txt_path = "/no_inherit/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+        );
+      })
+      // inherits the shebangs
+      .with_local_config("/inherit/dprint.json", |c| {
+        c.set_inherit(true);
+      })
+      // specifies its own shebangs, which replace the inherited ones
+      .with_local_config("/override/dprint.json", |c| {
+        c.set_inherit(true).add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/bash": "txt"
+          }"##,
+        );
+      })
+      // doesn't inherit, so has no shebangs
+      .with_local_config("/no_inherit/dprint.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file(&root_path, "#!/bin/sh\ntext")
+      .write_file(&inherited_path, "#!/bin/sh\ntext")
+      .write_file(&overridden_sh_path, "#!/bin/sh\ntext")
+      .write_file(&overridden_bash_path, "#!/bin/bash\ntext")
+      .write_file(&not_inherited_path, "#!/bin/sh\ntext")
+      .write_file(&not_inherited_txt_path, "text")
+      .build();
+
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(4)]);
+    assert_eq!(environment.read_file(&root_path).unwrap(), "#!/bin/sh\ntext_formatted");
+    assert_eq!(environment.read_file(&inherited_path).unwrap(), "#!/bin/sh\ntext_formatted");
+    assert_eq!(environment.read_file(&overridden_sh_path).unwrap(), "#!/bin/sh\ntext");
+    assert_eq!(environment.read_file(&overridden_bash_path).unwrap(), "#!/bin/bash\ntext_formatted");
+    assert_eq!(environment.read_file(&not_inherited_path).unwrap(), "#!/bin/sh\ntext");
+    assert_eq!(environment.read_file(&not_inherited_txt_path).unwrap(), "text_formatted");
+  }
+
+  #[test]
+  fn should_prefer_associations_over_shebang() {
+    let script_path = "/scripts/build";
+    let other_path = "/scripts/other";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "shebangs",
+            r##"{
+            "#!/bin/sh": "txt_ps"
+          }"##,
+          )
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "associations": ["**/build"]
+            }"#,
+          );
+      })
+      // matched by the wasm plugin's associations, so the shebang isn't used
+      .write_file(&script_path, "#!/bin/sh\ntext")
+      .write_file(&other_path, "#!/bin/sh\ntext2")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file(&script_path).unwrap(), "#!/bin/sh\ntext_formatted");
+    assert_eq!(environment.read_file(&other_path).unwrap(), "#!/bin/sh\ntext2_formatted_process");
+  }
+
+  #[test]
+  fn should_skip_shebang_files_when_no_plugin_handles_extension() {
+    let script_path = "/scripts/build";
+    let file_path = "/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "sh"
+          }"##,
+        );
+      })
+      .write_file(&script_path, "#!/bin/sh\ntext")
+      .write_file(&file_path, "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&script_path).unwrap(), "#!/bin/sh\ntext");
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
+  }
+
+  #[test]
+  fn should_format_shebang_files_with_normalized_extension_crlf_and_dotfiles() {
+    let script_path = "/scripts/build";
+    let crlf_path = "/scripts/crlf";
+    let dotfile_path = "/.envrc";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": ".TXT"
+          }"##,
+        );
+      })
+      .write_file(&script_path, "#!/bin/sh\ntext")
+      .write_file(&crlf_path, "#!/bin/sh\r\ntext")
+      .write_file(&dotfile_path, "#!/bin/sh\ntext")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    assert_eq!(environment.read_file(&script_path).unwrap(), "#!/bin/sh\ntext_formatted");
+    assert_eq!(environment.read_file(&crlf_path).unwrap(), "#!/bin/sh\r\ntext_formatted");
+    assert_eq!(environment.read_file(&dotfile_path).unwrap(), "#!/bin/sh\ntext_formatted");
+  }
+
+  #[test]
+  fn should_evaluate_associations_against_real_path_for_shebang_files() {
+    let script_path = "/scripts/build";
+    let excluded_path = "/scripts/legacy-build";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_config_section(
+            "shebangs",
+            r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+          )
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "associations": [
+                "!**/legacy-build"
+              ]
+            }"#,
+          );
+      })
+      .write_file(
+        &script_path,
+        "#!/bin/sh
+text",
+      )
+      // excluded by a negated association pattern on its real path
+      .write_file(
+        &excluded_path,
+        "#!/bin/sh
+text2",
+      )
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(
+      environment.read_file(&script_path).unwrap(),
+      "#!/bin/sh
+text_formatted"
+    );
+    assert_eq!(
+      environment.read_file(&excluded_path).unwrap(),
+      "#!/bin/sh
+text2"
+    );
+  }
+
+  #[test]
   fn should_format_files_with_config_overrides() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
@@ -3758,6 +4137,39 @@ mod test {
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "package.txt"], &environment, test_std_in).unwrap();
 
     assert_eq!(environment.take_stdout_messages(), vec!["text_package"]);
+  }
+
+  #[test]
+  fn should_format_for_stdin_fmt_with_shebang() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+        );
+      })
+      .build();
+
+    // extensionless file with a mapped shebang
+    let test_std_in = TestStdInReader::from(
+      "#!/bin/sh
+text",
+    );
+    run_test_cli_with_stdin(vec!["fmt", "--stdin", "scripts/build"], &environment, test_std_in).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![
+        "#!/bin/sh
+text_formatted"
+      ]
+    );
+
+    // no shebang, so it's output as-is
+    let test_std_in = TestStdInReader::from("text");
+    run_test_cli_with_stdin(vec!["fmt", "--stdin", "scripts/build"], &environment, test_std_in).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["text"]);
   }
 
   #[test]

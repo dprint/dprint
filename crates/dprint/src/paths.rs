@@ -2,6 +2,7 @@ use anyhow::Context;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::path::Path;
 use std::path::PathBuf;
 use std::str::Split;
 use thiserror::Error;
@@ -22,6 +23,7 @@ use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
 use crate::utils::glob;
 use crate::utils::is_negated_glob;
+use crate::utils::read_file_shebang_line;
 
 /// Struct that allows using plugin names as a key
 /// in a hash map.
@@ -70,12 +72,15 @@ impl FilesPathsByPlugins {
   }
 }
 
-pub fn get_file_paths_by_plugins(plugin_name_maps: &PluginNameResolutionMaps, file_paths: Vec<PathBuf>) -> Result<FilesPathsByPlugins> {
+pub fn get_file_paths_by_plugins(
+  plugin_name_maps: &PluginNameResolutionMaps,
+  file_paths: Vec<PathBuf>,
+  environment: &impl Environment,
+) -> Result<FilesPathsByPlugins> {
   let mut file_paths_by_plugin: HashMap<PluginNames, Vec<PathBuf>> = HashMap::new();
 
   for file_path in file_paths.into_iter() {
-    let plugin_names = plugin_name_maps.get_plugin_names_from_file_path(&file_path);
-
+    let plugin_names = get_plugin_names_for_file_on_disk(plugin_name_maps, &file_path, environment);
     if !plugin_names.is_empty() {
       let plugin_names_key = PluginNames::from_plugin_names(&plugin_names);
       let file_paths = file_paths_by_plugin.entry(plugin_names_key).or_default();
@@ -84,6 +89,20 @@ pub fn get_file_paths_by_plugins(plugin_name_maps: &PluginNameResolutionMaps, fi
   }
 
   Ok(FilesPathsByPlugins(file_paths_by_plugin))
+}
+
+/// Resolves the plugins for a file on disk, reading its shebang line when it's
+/// an extensionless file that didn't match a plugin by path.
+pub fn get_plugin_names_for_file_on_disk(plugin_name_maps: &PluginNameResolutionMaps, file_path: &Path, environment: &impl Environment) -> Vec<String> {
+  let plugin_names = plugin_name_maps.get_plugin_names_from_file_path(file_path);
+  if !plugin_names.is_empty() || !plugin_name_maps.may_match_shebang(file_path) {
+    return plugin_names;
+  }
+  match read_file_shebang_line(environment, file_path) {
+    Ok(Some(shebang_line)) => plugin_name_maps.get_plugin_names_from_shebang(file_path, &shebang_line),
+    // ex. the file doesn't exist or has no shebang
+    _ => Vec::new(),
+  }
 }
 
 pub async fn get_and_resolve_file_paths<'a>(

@@ -48,6 +48,7 @@ use crate::paths::FilesPathsByPlugins;
 use crate::paths::NoFilesFoundError;
 use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins;
+use crate::paths::get_plugin_names_for_file_on_disk;
 use crate::patterns::FileMatcher;
 use crate::patterns::FileMatcherOptions;
 use crate::patterns::get_patterns_as_glob_matcher;
@@ -135,8 +136,9 @@ impl PluginWithConfig {
     hasher.write(self.serialized_resolved_config.as_bytes());
 
     if let Some(associations) = &self.associations {
+      associations.len().hash(hasher);
       for association in associations {
-        hasher.write(association.as_bytes());
+        association.hash(hasher);
       }
     }
     self.overrides.len().hash(hasher);
@@ -330,7 +332,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     config: Rc<ResolvedConfig>,
     global_config_diagnostics: Vec<GlobalConfigDiagnostic>,
   ) -> Result<Self> {
-    let plugin_name_maps = PluginNameResolutionMaps::from_plugins(plugins.iter().map(|p| p.as_ref()), &config.base_path)?;
+    let plugin_name_maps = PluginNameResolutionMaps::from_plugins(plugins.iter().map(|p| p.as_ref()), &config.base_path, config.shebangs.as_ref())?;
 
     Ok(PluginsScope {
       environment,
@@ -419,9 +421,18 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 
   pub fn plugins_hash(&self) -> u64 {
+    use std::hash::Hash;
     let mut hasher = FastInsecureHasher::default();
     for plugin in self.plugins.values() {
       plugin.incremental_hash(&mut hasher);
+    }
+    // the shebang mappings affect which plugin formats a file
+    if let Some(shebangs) = self.config.as_ref().and_then(|c| c.shebangs.as_ref()) {
+      shebangs.len().hash(&mut hasher);
+      for (shebang, extension) in shebangs {
+        shebang.hash(&mut hasher);
+        extension.hash(&mut hasher);
+      }
     }
     hasher.finish()
   }
@@ -431,7 +442,34 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     Rc::new(move |host_request| scope.format(host_request))
   }
 
-  pub fn can_format_for_editor(&self, file_path: &Path) -> bool {
+  /// Whether the editor should ask this scope to format the file.
+  ///
+  /// `file_bytes_start` is the start of the editor's in-memory text when it has
+  /// it (ex. the LSP), which is what an extensionless file's shebang needs to be
+  /// resolved from so an unsaved shebang still matches. When it's `None` (ex. the
+  /// editor service, which only receives a path) the file on disk is used.
+  pub fn can_format_for_editor(&self, file_path: &Path, file_bytes_start: Option<&[u8]>) -> bool {
+    if !self.matches_editor_file_patterns(file_path) {
+      return false;
+    }
+
+    // Extensionless files match the includes patterns whenever any shebangs are
+    // configured because their shebang isn't known up front, so ensure one
+    // actually resolves to a plugin rather than claiming every extensionless file.
+    if self.plugin_name_maps.may_match_shebang(file_path) {
+      return match file_bytes_start {
+        Some(file_bytes_start) => !self
+          .plugin_name_maps
+          .get_plugin_names_from_file_path_and_bytes(file_path, file_bytes_start)
+          .is_empty(),
+        None => !get_plugin_names_for_file_on_disk(&self.plugin_name_maps, file_path, &self.environment).is_empty(),
+      };
+    }
+
+    true
+  }
+
+  fn matches_editor_file_patterns(&self, file_path: &Path) -> bool {
     let mut file_matcher_borrow = self.cached_editor_file_matcher.borrow_mut();
     if file_matcher_borrow.is_none() {
       let Some(config) = &self.config else {
@@ -461,7 +499,9 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 
   pub fn format(self: &Rc<Self>, request: HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> {
-    let plugin_names = self.plugin_name_maps.get_plugin_names_from_file_path(&request.file_path);
+    let plugin_names = self
+      .plugin_name_maps
+      .get_plugin_names_from_file_path_and_bytes(&request.file_path, &request.file_bytes);
     log_debug!(
       self.environment,
       "Host formatting {} - File length: {} - Plugins: [{}] - Range: {:?}",
@@ -622,7 +662,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       .resolve_outside_base_paths(&mut glob_output, &config, config_discovery, root_config_path.clone())
       .await?;
 
-    let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths)?;
+    let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths, self.environment)?;
 
     let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
     // todo: parallelize?
@@ -901,7 +941,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     // paths outside this config's directory were already handled when
     // resolving the root scope
     glob_output.outside_base_paths.clear();
-    let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths)?;
+    let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths, self.environment)?;
 
     let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
     // todo: parallelize?
@@ -1122,6 +1162,54 @@ mod test {
       hash_with_resolved_config(r#"{"cacheKey":"a"}"#),
       hash_with_resolved_config(r#"{"cacheKey":"a"}"#)
     );
+  }
+
+  #[test]
+  fn should_include_shebangs_in_plugins_hash() {
+    fn hash_with_shebangs(shebangs: Option<IndexMap<String, String>>) -> u64 {
+      let environment = crate::environment::TestEnvironment::new();
+      let base_path = CanonicalizedPathBuf::new_for_testing("/");
+      let config = Rc::new(ResolvedConfig {
+        config_map: Default::default(),
+        base_path: base_path.clone(),
+        source: PathSource::new_local(base_path.join_panic_relative("dprint.json")),
+        is_global: false,
+        excludes: None,
+        includes: None,
+        incremental: None,
+        shebangs,
+        inherit: None,
+        plugins: Vec::new(),
+      });
+      let scope = PluginsScope::new(environment, vec![Rc::new(create_plugin_with_overrides(Vec::new()))], config, Vec::new()).unwrap();
+      scope.plugins_hash()
+    }
+    fn shebangs(entries: &[(&str, &str)]) -> Option<IndexMap<String, String>> {
+      Some(entries.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())
+    }
+
+    assert_eq!(hash_with_shebangs(None), hash_with_shebangs(None));
+    assert_eq!(
+      hash_with_shebangs(shebangs(&[("#!/bin/sh", "sh")])),
+      hash_with_shebangs(shebangs(&[("#!/bin/sh", "sh")]))
+    );
+    assert_ne!(hash_with_shebangs(None), hash_with_shebangs(shebangs(&[("#!/bin/sh", "sh")])));
+    // changing the mapped extension changes which plugin formats the file
+    assert_ne!(
+      hash_with_shebangs(shebangs(&[("#!/bin/sh", "sh")])),
+      hash_with_shebangs(shebangs(&[("#!/bin/sh", "txt")]))
+    );
+  }
+
+  #[test]
+  fn should_hash_associations_with_boundaries() {
+    fn hash_with_associations(associations: Vec<&str>) -> u64 {
+      let mut plugin = create_plugin_with_overrides(Vec::new());
+      plugin.associations = Some(associations.into_iter().map(ToOwned::to_owned).collect());
+      get_plugin_hash(&plugin)
+    }
+
+    assert_ne!(hash_with_associations(vec!["ab", "c"]), hash_with_associations(vec!["a", "bc"]));
   }
 
   #[test]
