@@ -69,7 +69,7 @@ fn global_gitignore_enabled(environment: &impl Environment) -> bool {
 /// Whether `.gitignore` and `.git` are present in a directory the caller has
 /// already listed. Providing this lets resolution skip file system calls for
 /// files it can already tell are absent.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct DirEntriesHint {
   pub has_gitignore: bool,
   pub has_git: bool,
