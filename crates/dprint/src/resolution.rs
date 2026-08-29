@@ -499,9 +499,13 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 
   pub fn format(self: &Rc<Self>, request: HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> {
+    // owned because they outlive this scope by moving into the future below
     let plugin_names = self
       .plugin_name_maps
-      .get_plugin_names_from_file_path_and_bytes(&request.file_path, &request.file_bytes);
+      .get_plugin_names_from_file_path_and_bytes(&request.file_path, &request.file_bytes)
+      .into_iter()
+      .map(ToOwned::to_owned)
+      .collect::<Vec<String>>();
     log_debug!(
       self.environment,
       "Host formatting {} - File length: {} - Plugins: [{}] - Range: {:?}",
@@ -662,7 +666,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       .resolve_outside_base_paths(&mut glob_output, &config, config_discovery, root_config_path.clone())
       .await?;
 
-    let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths, self.environment)?;
+    let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths, glob_output.shebang_lines, self.environment)?;
 
     let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
     // todo: parallelize?
@@ -941,7 +945,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     // paths outside this config's directory were already handled when
     // resolving the root scope
     glob_output.outside_base_paths.clear();
-    let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths, self.environment)?;
+    let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths, glob_output.shebang_lines, self.environment)?;
 
     let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
     // todo: parallelize?

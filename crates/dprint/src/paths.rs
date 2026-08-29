@@ -1,5 +1,6 @@
 use anyhow::Context;
 use anyhow::Result;
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
@@ -33,12 +34,48 @@ pub struct PluginNames(String);
 impl PluginNames {
   const SEPARATOR: &'static str = "~~";
 
-  pub fn from_plugin_names(names: &[String]) -> Self {
-    Self(names.join(PluginNames::SEPARATOR))
-  }
-
   pub fn names(&self) -> Split<'_, &str> {
     self.0.split(PluginNames::SEPARATOR)
+  }
+}
+
+impl Borrow<str> for PluginNames {
+  fn borrow(&self) -> &str {
+    &self.0
+  }
+}
+
+/// Builds `PluginNames` keys in a buffer it reuses, so that resolving the
+/// plugins for many files doesn't allocate a key for every one of them.
+#[derive(Default)]
+struct PluginNamesBuilder {
+  buffer: String,
+}
+
+impl PluginNamesBuilder {
+  fn build(&mut self, names: &[&str]) -> PluginNamesKey<'_> {
+    self.buffer.clear();
+    for (i, name) in names.iter().enumerate() {
+      if i > 0 {
+        self.buffer.push_str(PluginNames::SEPARATOR);
+      }
+      self.buffer.push_str(name);
+    }
+    PluginNamesKey(&self.buffer)
+  }
+}
+
+/// A key borrowed from a `PluginNamesBuilder`, which can be looked up without
+/// allocating and only turned into a `PluginNames` when it's not in the map yet.
+struct PluginNamesKey<'a>(&'a str);
+
+impl PluginNamesKey<'_> {
+  fn as_str(&self) -> &str {
+    self.0
+  }
+
+  fn to_plugin_names(&self) -> PluginNames {
+    PluginNames(self.0.to_string())
   }
 }
 
@@ -75,16 +112,28 @@ impl FilesPathsByPlugins {
 pub fn get_file_paths_by_plugins(
   plugin_name_maps: &PluginNameResolutionMaps,
   file_paths: Vec<PathBuf>,
+  mut shebang_lines: HashMap<PathBuf, Vec<u8>>,
   environment: &impl Environment,
 ) -> Result<FilesPathsByPlugins> {
   let mut file_paths_by_plugin: HashMap<PluginNames, Vec<PathBuf>> = HashMap::new();
+  let mut plugin_names_builder = PluginNamesBuilder::default();
 
   for file_path in file_paths.into_iter() {
-    let plugin_names = get_plugin_names_for_file_on_disk(plugin_name_maps, &file_path, environment);
+    let plugin_names = match shebang_lines.remove(&file_path) {
+      // the traversal already read this file's shebang line, so don't read it again
+      Some(shebang_line) => plugin_name_maps.get_plugin_names_from_file_path_and_bytes(&file_path, &shebang_line),
+      None => get_plugin_names_for_file_on_disk(plugin_name_maps, &file_path, environment),
+    };
     if !plugin_names.is_empty() {
-      let plugin_names_key = PluginNames::from_plugin_names(&plugin_names);
-      let file_paths = file_paths_by_plugin.entry(plugin_names_key).or_default();
-      file_paths.push(file_path);
+      // only a handful of distinct keys exist no matter how many files there
+      // are, so allocate one only when the key hasn't been seen yet
+      let key = plugin_names_builder.build(&plugin_names);
+      match file_paths_by_plugin.get_mut(key.as_str()) {
+        Some(file_paths) => file_paths.push(file_path),
+        None => {
+          file_paths_by_plugin.insert(key.to_plugin_names(), vec![file_path]);
+        }
+      }
     }
   }
 
@@ -93,7 +142,7 @@ pub fn get_file_paths_by_plugins(
 
 /// Resolves the plugins for a file on disk, reading its shebang line when it's
 /// an extensionless file that didn't match a plugin by path.
-pub fn get_plugin_names_for_file_on_disk(plugin_name_maps: &PluginNameResolutionMaps, file_path: &Path, environment: &impl Environment) -> Vec<String> {
+pub fn get_plugin_names_for_file_on_disk<'a>(plugin_name_maps: &'a PluginNameResolutionMaps, file_path: &Path, environment: &impl Environment) -> Vec<&'a str> {
   let plugin_names = plugin_name_maps.get_plugin_names_from_file_path(file_path);
   if !plugin_names.is_empty() || !plugin_name_maps.may_match_shebang(file_path) {
     return plugin_names;

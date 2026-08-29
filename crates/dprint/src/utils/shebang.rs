@@ -8,15 +8,18 @@ use sys_traits::OpenOptions;
 
 use crate::environment::Environment;
 
-/// Whether the file's first line is a shebang matching one of the configured shebangs.
-pub fn file_has_matching_shebang(environment: &impl Environment, file_path: &Path, shebangs: &[String]) -> bool {
-  let Ok(Some(shebang_line)) = read_file_shebang_line(environment, file_path) else {
-    return false;
+/// Reads the file's first line when it's a shebang matching one of the
+/// configured shebangs, otherwise returns `None`.
+///
+/// The line is returned rather than a bool so the caller can hand it to plugin
+/// resolution instead of the file having to be read a second time.
+pub fn read_matching_shebang_line(environment: &impl Environment, file_path: &Path, shebangs: &[String]) -> Option<Vec<u8>> {
+  let line = read_file_shebang_line(environment, file_path).ok()??;
+  let has_match = match get_shebang_line(&line) {
+    Some(shebang_line) => shebangs.iter().any(|shebang| is_shebang_prefix_match(shebang_line, shebang)),
+    None => false,
   };
-  let Some(shebang_line) = get_shebang_line(&shebang_line) else {
-    return false;
-  };
-  shebangs.iter().any(|shebang| is_shebang_prefix_match(shebang_line, shebang))
+  if has_match { Some(line) } else { None }
 }
 
 /// Reads the first line of a file when it starts with a shebang (`#!`),

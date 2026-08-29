@@ -16,11 +16,11 @@ use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DirEntry;
 use crate::environment::Environment;
 use crate::environment::PathKind;
-use crate::utils::file_has_matching_shebang;
 use crate::utils::gitignore::DirEntriesHint;
 use crate::utils::gitignore::GitIgnoreTree;
 use crate::utils::gitignore::GitIgnoreTreeOptions;
 use crate::utils::gitignore::resolve_global_gitignore_lines;
+use crate::utils::read_matching_shebang_line;
 
 use super::ExcludeMatchDetail;
 use super::GlobMatcher;
@@ -36,6 +36,9 @@ use super::unescape_glob_text;
 #[derive(Debug, Default, Clone)]
 pub struct GlobOutput {
   pub file_paths: Vec<PathBuf>,
+  /// The shebang lines read while traversing, keyed by file path, so that
+  /// resolving the plugin for a shebang file doesn't have to read it again.
+  pub shebang_lines: HashMap<PathBuf, Vec<u8>>,
   pub config_files: Vec<PathBuf>,
   /// CLI paths and patterns that are outside the pattern base directory.
   /// The caller resolves the config file to use for these separately.
@@ -225,6 +228,7 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
     let mut glob_matching_processor = GlobMatchingProcessor::new(shared_state, glob_matcher, git_ignore_tree);
     let results = glob_matching_processor.run()?;
     output.file_paths.extend(results.file_paths);
+    output.shebang_lines.extend(results.shebang_lines);
     for config_file in results.config_files {
       // the traversal skips the directories the checks above already handled,
       // so this shouldn't overlap with them, but dedup anyway because a
@@ -633,9 +637,12 @@ struct DirEntries {
 
 enum DirOrConfigEntry {
   Dir(PathBuf),
-  File(PathBuf),
-  /// An extensionless file whose first line matches a configured shebang.
-  ShebangFile(PathBuf),
+  File {
+    path: PathBuf,
+    /// The first line of an extensionless file when it matches a configured
+    /// shebang, which the matching thread hands to plugin resolution.
+    shebang_line: Option<Vec<u8>>,
+  },
   // todo: get rid of this from here probably
   Config(PathBuf),
 }
@@ -648,7 +655,7 @@ fn dir_entries_hint(entries: &[DirOrConfigEntry]) -> DirEntriesHint {
   };
   for entry in entries {
     match entry {
-      DirOrConfigEntry::Dir(path) | DirOrConfigEntry::File(path) | DirOrConfigEntry::ShebangFile(path) => {
+      DirOrConfigEntry::Dir(path) | DirOrConfigEntry::File { path, .. } => {
         match path.file_name().and_then(|f| f.to_str()) {
           // `.gitignore` is a file and `.git` is usually a directory (a file in worktrees)
           Some(".gitignore") => hint.has_gitignore = true,
@@ -779,11 +786,8 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
             DirEntry::File { path, .. } => {
               // check for a shebang here since these threads run in parallel
               // and reading the file is I/O bound
-              if self.should_check_shebang(&path) && file_has_matching_shebang(&self.environment, &path, &self.options.shebangs) {
-                DirOrConfigEntry::ShebangFile(path)
-              } else {
-                DirOrConfigEntry::File(path)
-              }
+              let shebang_line = self.maybe_read_shebang_line(&path);
+              DirOrConfigEntry::File { path, shebang_line }
             }
           })
           .collect::<Vec<_>>(),
@@ -791,8 +795,11 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     }
   }
 
-  fn should_check_shebang(&self, path: &Path) -> bool {
-    !self.options.shebangs.is_empty() && path.extension().is_none()
+  fn maybe_read_shebang_line(&self, path: &Path) -> Option<Vec<u8>> {
+    if self.options.shebangs.is_empty() || path.extension().is_some() {
+      return None;
+    }
+    read_matching_shebang_line(&self.environment, path, &self.options.shebangs)
   }
 
   /// Waits for directories to read, returning a chunk of them or `None` once the
@@ -922,13 +929,8 @@ impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
                     pending_dirs.push(path);
                   }
                 }
-                DirOrConfigEntry::File(_) | DirOrConfigEntry::ShebangFile(_) => {
-                  let (path, has_matching_shebang) = match entry {
-                    DirOrConfigEntry::File(path) => (path, false),
-                    DirOrConfigEntry::ShebangFile(path) => (path, true),
-                    DirOrConfigEntry::Dir(_) | DirOrConfigEntry::Config(_) => unreachable!(),
-                  };
-                  let is_matched = match self.glob_matcher.matches_detail_with_shebang_checked(&path, has_matching_shebang) {
+                DirOrConfigEntry::File { path, shebang_line } => {
+                  let is_matched = match self.glob_matcher.matches_detail_with_shebang_checked(&path, shebang_line.is_some()) {
                     GlobMatchesDetail::Excluded => false,
                     GlobMatchesDetail::Matched => match &gitignore {
                       Some(gitignore) => {
@@ -940,6 +942,9 @@ impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
                     GlobMatchesDetail::NotMatched => false,
                   };
                   if is_matched {
+                    if let Some(shebang_line) = shebang_line {
+                      output.shebang_lines.insert(path.clone(), shebang_line);
+                    }
                     output.file_paths.push(path);
                   }
                 }
@@ -1093,6 +1098,44 @@ mod test {
     result.sort();
     expected_matches.sort();
     assert_eq!(result, expected_matches);
+  }
+
+  #[tokio::test]
+  async fn should_keep_shebang_lines_of_matched_files() {
+    let mut builder = TestEnvironmentBuilder::new();
+    builder.write_file("/a.txt", "");
+    builder.write_file("/scripts/build", "#!/bin/sh\ntext");
+    builder.write_file("/scripts/notes", "text");
+    builder.write_file("/scripts/other", "#!/usr/bin/env node\ntext");
+    let environment = builder.build();
+    let root_dir = environment.canonicalize("/").unwrap();
+    let result = glob(
+      &environment,
+      GlobOptions {
+        current_config_path: None,
+        start_dir: PathBuf::from("/"),
+        config_discovery: ConfigDiscovery::Default,
+        file_patterns: GlobPatterns {
+          shebangs: vec!["#!/bin/sh".to_string()],
+          arg_includes: None,
+          config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir)]),
+          arg_excludes: None,
+          config_excludes: Vec::new(),
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+        no_gitignore: false,
+      },
+    )
+    .unwrap();
+    let mut file_paths = result.file_paths.iter().map(|p| p.to_string_lossy().to_string()).collect::<Vec<_>>();
+    file_paths.sort();
+    assert_eq!(file_paths, vec!["/a.txt".to_string(), "/scripts/build".to_string()]);
+    // the line is kept around so that resolving the plugin for the file
+    // doesn't have to read it a second time
+    assert_eq!(
+      result.shebang_lines,
+      HashMap::from([(PathBuf::from("/scripts/build"), b"#!/bin/sh\n".to_vec())])
+    );
   }
 
   #[tokio::test]
