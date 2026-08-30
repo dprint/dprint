@@ -640,9 +640,8 @@ struct DirEntries {
   entries: Vec<DirOrConfigEntry>,
 }
 
-/// An entry that made it past the pattern matching done on the reader threads.
-/// All that's left for the matching thread to do is apply the gitignore, which
-/// it resolves lazily and so can't be shared with them.
+/// An entry that made it past the pattern matching done on the reader threads,
+/// leaving only the gitignore for the matching thread to apply.
 enum DirOrConfigEntry {
   Dir {
     path: PathBuf,
@@ -717,8 +716,10 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
       let mut all_entries = Vec::new();
       for current_dir in pending_dirs {
         match self.read_dir_entries(current_dir) {
-          Ok(Some(dir_entries)) => {
-            pending_count += dir_entries.entries.len();
+          Ok(Some((entries_read, dir_entries))) => {
+            // count what was read rather than what matched so that narrow
+            // includes don't stop the readers from handing work over
+            pending_count += entries_read;
             all_entries.push(dir_entries);
             // it is much faster to batch these than to hit the lock every time
             if pending_count > PUSH_DIR_ENTRIES_BATCH_COUNT {
@@ -747,7 +748,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
   /// `Ok(None)` means the directory contributed nothing and should be skipped
   /// (it was empty, nothing in it matched, or it couldn't be read for a
   /// non-fatal reason).
-  fn read_dir_entries(&self, current_dir: PathBuf) -> Result<Option<DirEntries>> {
+  fn read_dir_entries(&self, current_dir: PathBuf) -> Result<Option<(usize, DirEntries)>> {
     let entries = match self.environment.dir_info(&current_dir) {
       Ok(entries) => entries,
       Err(err) => {
@@ -764,6 +765,10 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     if entries.is_empty() {
       return Ok(None);
     }
+    let entries_read = entries.len();
+    // derive this before filtering, because the `.gitignore` that the hint is
+    // about is itself usually not a file that matches the patterns
+    let hint = dir_entries_hint(&entries);
     // Note the start directory is exempt from config file detection because the
     // traversal starts there, so a config file in it would take over the entire
     // scope. Usually `current_config_path` already filters it out, but not when
@@ -796,35 +801,33 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     };
     if let Some(config_file) = maybe_config_file {
       let config_file = config_file.clone();
-      return Ok(Some(DirEntries {
-        path: current_dir,
-        // the directory is handed to the scope the config file creates, so
-        // nothing here needs a gitignore
-        hint: DirEntriesHint::default(),
-        entries: vec![DirOrConfigEntry::Config(config_file)],
-      }));
+      return Ok(Some((
+        entries_read,
+        DirEntries {
+          path: current_dir,
+          hint,
+          entries: vec![DirOrConfigEntry::Config(config_file)],
+        },
+      )));
     }
 
-    // derive this before filtering, because the `.gitignore` that the hint is
-    // about is itself usually not a file that matches the patterns
-    let hint = dir_entries_hint(&entries);
-    // `filter_map` has no useful size hint, so reserve up front rather than
-    // letting the vec grow a directory's worth of entries a few bytes at a time
-    let mut matched = Vec::with_capacity(entries.len());
-    matched.extend(entries.into_iter().filter_map(|e| self.match_entry(e)));
-    let entries = matched;
-    if entries.is_empty() {
-      return Ok(None); // no directories to descend into and nothing matched
+    let mut matched_entries = Vec::with_capacity(entries.len());
+    matched_entries.extend(entries.into_iter().filter_map(|e| self.match_entry(e)));
+    if matched_entries.is_empty() {
+      // nothing matched means no `Dir` entry was produced either, so nothing
+      // below this directory is ever traversed and its gitignore is never needed
+      return Ok(None);
     }
-    Ok(Some(DirEntries {
-      path: current_dir,
-      hint,
-      entries,
-    }))
+    Ok(Some((
+      entries_read,
+      DirEntries {
+        path: current_dir,
+        hint,
+        entries: matched_entries,
+      },
+    )))
   }
 
-  /// Matches a directory entry against the patterns, returning `None` when it's
-  /// excluded or doesn't match.
   fn match_entry(&self, entry: DirEntry) -> Option<DirOrConfigEntry> {
     match entry {
       DirEntry::Directory(path) => {
@@ -1191,12 +1194,21 @@ mod test {
     // order dependency) this would catch it.
     let mut builder = TestEnvironmentBuilder::new();
     builder.write_file("/.git/HEAD", "");
-    builder.write_file("/.gitignore", "ignored\n");
+    // `keep.txt` is gitignored so that opting it back in has to beat the
+    // gitignore as well as the exclude
+    builder.write_file("/.gitignore", "ignored\nkeep.txt\n");
     for i in 0..200 {
       builder.write_file(format!("/dir{}/a.txt", i), "");
       builder.write_file(format!("/dir{}/nested/deep/b.txt", i), "");
       // excluded by the root .gitignore
       builder.write_file(format!("/dir{}/ignored/c.txt", i), "");
+      // excluded by the config excludes
+      builder.write_file(format!("/dir{}/skip/d.txt", i), "");
+      // opted back in, which has to beat both the exclude and the gitignore
+      builder.write_file(format!("/dir{}/skip/keep.txt", i), "");
+      // resolved by its shebang rather than by the includes
+      builder.write_file(format!("/dir{}/script", i), "#!/bin/sh\n");
+      builder.write_file(format!("/dir{}/notes", i), "not a script\n");
     }
     let environment = builder.build();
     let root_dir = environment.canonicalize("/").unwrap();
@@ -1209,11 +1221,14 @@ mod test {
           start_dir: PathBuf::from("/"),
           config_discovery: ConfigDiscovery::Default,
           file_patterns: GlobPatterns {
-            shebangs: Vec::new(),
+            shebangs: vec!["#!/bin/sh".to_string()],
             arg_includes: None,
             config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
             arg_excludes: None,
-            config_excludes: Vec::new(),
+            config_excludes: vec![
+              GlobPattern::new("**/skip/**".to_string(), root_dir.clone()),
+              GlobPattern::new("!**/skip/keep.txt".to_string(), root_dir.clone()),
+            ],
           },
           pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
           no_gitignore: false,
@@ -1228,10 +1243,49 @@ mod test {
     let serial = run("1");
     let parallel = run("16");
     assert_eq!(serial, parallel);
-    // sanity: matched a.txt and nested/deep/b.txt for each dir, and the
-    // gitignored files were excluded
-    assert_eq!(serial.len(), 400);
+    // a.txt, nested/deep/b.txt, skip/keep.txt and the shebang script per dir
+    assert_eq!(serial.len(), 800);
     assert!(serial.iter().all(|p| !p.contains("ignored")));
+    assert_eq!(serial.iter().filter(|p| p.ends_with("/skip/keep.txt")).count(), 200);
+    assert_eq!(serial.iter().filter(|p| p.ends_with("/skip/d.txt")).count(), 0);
+    assert_eq!(serial.iter().filter(|p| p.ends_with("/script")).count(), 200);
+    assert_eq!(serial.iter().filter(|p| p.ends_with("/notes")).count(), 0);
+  }
+
+  #[tokio::test]
+  async fn should_skip_a_directory_where_nothing_matched() {
+    // `/sub` yields no entries at all after matching: the gitignore doesn't
+    // match the includes, the binary doesn't either, and `skip` is excluded. it
+    // gets dropped on the reader thread, which is only safe because dropping it
+    // also means nothing below it is ever traversed.
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/a.txt", "")
+      .write_file("/sub/.gitignore", "whatever\n")
+      .write_file("/sub/only.bin", "")
+      .write_file("/sub/skip/b.txt", "")
+      .build();
+    let root_dir = environment.canonicalize("/").unwrap();
+    let result = glob(
+      &environment,
+      GlobOptions {
+        current_config_path: None,
+        start_dir: PathBuf::from("/"),
+        config_discovery: ConfigDiscovery::Default,
+        file_patterns: GlobPatterns {
+          shebangs: Vec::new(),
+          arg_includes: None,
+          config_includes: Some(vec![GlobPattern::new("**/*.txt".to_string(), root_dir.clone())]),
+          arg_excludes: None,
+          config_excludes: vec![GlobPattern::new("**/skip".to_string(), root_dir)],
+        },
+        pattern_base: CanonicalizedPathBuf::new_for_testing("/"),
+        no_gitignore: false,
+      },
+    )
+    .unwrap();
+
+    let result = result.file_paths.into_iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>();
+    assert_eq!(result, vec!["/a.txt"]);
   }
 
   #[tokio::test]
