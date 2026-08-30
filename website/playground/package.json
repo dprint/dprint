@@ -20,6 +20,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "test": "deno test",
     "build": "vite build",
     "preview": "vite preview"
   },
