@@ -808,7 +808,11 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     // derive this before filtering, because the `.gitignore` that the hint is
     // about is itself usually not a file that matches the patterns
     let hint = dir_entries_hint(&entries);
-    let entries = entries.into_iter().filter_map(|e| self.match_entry(e)).collect::<Vec<_>>();
+    // `filter_map` has no useful size hint, so reserve up front rather than
+    // letting the vec grow a directory's worth of entries a few bytes at a time
+    let mut matched = Vec::with_capacity(entries.len());
+    matched.extend(entries.into_iter().filter_map(|e| self.match_entry(e)));
+    let entries = matched;
     if entries.is_empty() {
       return Ok(None); // no directories to descend into and nothing matched
     }
