@@ -5,8 +5,8 @@ const buildSteps = step(
   { name: "Checkout", uses: "actions/checkout@v6", with: { "persist-credentials": false } },
   { uses: "denoland/setup-deno@v2", with: { cache: true, "deno-version": "canary" } },
   { name: "Install dependencies", run: "(cd website && deno install)" },
-  { name: "Test playground", run: "(cd website/playground && deno task test)" },
   { name: "Build playground", run: "(cd website/playground && deno task build)" },
+  { name: "Test playground", run: "(cd website/playground && deno task test)" },
   { name: "Build website", run: "(cd website && deno task build:ci)" },
 );
 
