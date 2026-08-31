@@ -517,7 +517,7 @@ const draftReleaseJob = job("draft_release", {
     }),
     step({
       name: "Generate artifact attestations",
-      uses: "actions/attest-build-provenance@v3",
+      uses: "actions/attest-build-provenance@v4",
       with: {
         "subject-checksums": "SHASUMS256.txt",
       },

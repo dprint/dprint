@@ -547,7 +547,7 @@ jobs:
           echo "${{ needs.build.outputs.ZIP_CHECKSUM_AARCH64_LINUX_ANDROID }} dprint-aarch64-linux-android.zip" >> SHASUMS256.txt
           echo "${{ needs.build.outputs.ZIP_CHECKSUM_X86_64_LINUX_ANDROID }} dprint-x86_64-linux-android.zip" >> SHASUMS256.txt
       - name: Generate artifact attestations
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-checksums: SHASUMS256.txt
       - name: Draft release
