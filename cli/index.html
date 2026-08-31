@@ -167,7 +167,7 @@ dprint <span class="hljs-built_in">fmt</span> **/*.js --excludes **/data
 <pre><code class="language-sh hljs language-bash">generate_files | dprint <span class="hljs-built_in">fmt</span> --stdin-files
 </code></pre>
 <p>Unlike piping through <code>xargs</code>, this handles file paths containing spaces since the only delimiter is the newline (blank lines are ignored). It also avoids the command line length limits that apply when passing many paths as arguments.</p>
-<p>The paths are resolved against the inclusion/exclusion rules of your dprint configuration file, the same way file patterns passed on the command line are. This flag is also available for the <code>check</code>, <code>file-paths</code>, and <code>format-times</code> subcommands.</p>
+<p>The paths are resolved against the inclusion/exclusion rules of your dprint configuration file, the same way file patterns passed on the command line are. When stdin provides no file paths, nothing is formatted (rather than falling back to the configuration file's includes). This flag is also available for the <code>check</code>, <code>file-paths</code>, and <code>format-times</code> subcommands.</p>
 <h2 id="checking-what-files-aren't-formatted" tabindex="-1"><a class="header-anchor" href="#checking-what-files-aren't-formatted">Checking What Files Aren't Formatted</a></h2>
 <p>Instead of formatting files, you can get a report of any files that aren't formatted by running:</p>
 <pre><code class="language-sh hljs language-bash">dprint check
@@ -177,6 +177,15 @@ dprint <span class="hljs-built_in">fmt</span> **/*.js --excludes **/data
 <h3 id="list-file-paths-only" tabindex="-1"><a class="header-anchor" href="#list-file-paths-only">List file paths only</a></h3>
 <p>Use the <code>--list-different</code> flag to display only the file paths that aren't formatted.</p>
 <pre><code class="language-sh hljs language-bash">dprint check --list-different
+</code></pre>
+<h3 id="json-output-(dprint-0.57%2B)" tabindex="-1"><a class="header-anchor" href="#json-output-(dprint-0.57%2B)">JSON output (dprint 0.57+)</a></h3>
+<p>Use the <code>--json</code> flag to output a JSON object per line (newline-delimited JSON) for each file that isn't formatted. Each object has a <code>file</code> property with the file path and a <code>diff</code> property with a unified diff of the changes that would be made (or <code>null</code> if the file isn't valid utf-8). Specify <code>--diff-format pretty</code> to get dprint's human readable diff in the <code>diff</code> property instead.</p>
+<pre><code class="language-sh hljs language-bash">dprint check --json
+</code></pre>
+<h3 id="unified-diff-output-(dprint-0.57%2B)" tabindex="-1"><a class="header-anchor" href="#unified-diff-output-(dprint-0.57%2B)">Unified diff output (dprint 0.57+)</a></h3>
+<p>By default, <code>dprint check</code> and <code>dprint fmt --diff</code> output a human readable diff with line numbers and colours. Use <code>--diff-format unified</code> to output a standard unified diff instead, which can be piped to tools like <a href="https://github.com/dandavison/delta">delta</a> or applied with <code>patch</code>/<code>git apply</code> from the current directory:</p>
+<pre><code class="language-sh hljs language-bash">dprint check --diff-format unified
+dprint <span class="hljs-built_in">fmt</span> --diff --diff-format unified
 </code></pre>
 <h3 id="--fail-fast-(dprint-0.51%2B)" tabindex="-1"><a class="header-anchor" href="#--fail-fast-(dprint-0.51%2B)"><code>--fail-fast</code> (dprint 0.51+)</a></h3>
 <p>Instead of checking every file, you can have the CLI stop on the first failure:</p>
@@ -308,7 +317,7 @@ C:\dev\my-project\website\playground\src\components\Spinner.tsx
 54ms - C:\dev\my-project\build.js
 </code></pre>
 <h3 id="outputting-incremental-state-(advanced%2C-for-very-large-repositories)" tabindex="-1"><a class="header-anchor" href="#outputting-incremental-state-(advanced%2C-for-very-large-repositories)">Outputting incremental state (advanced, for very large repositories)</a></h3>
-<p>When <a href="#incremental-formatting">incremental formatting</a> is enabled, dprint keeps a cache and reuses it as long as nothing that affects formatting output has changed. The whole cache for a configuration file is thrown away when its plugins, plugin versions, resolved configuration, associations, overrides, or global configuration change.</p>
+<p>When <a href="#incremental-formatting">incremental formatting</a> is enabled, dprint keeps a cache and reuses it as long as nothing that affects formatting output has changed. The whole cache for a configuration file is thrown away when its plugins, plugin versions, resolved configuration, associations, shebangs, overrides, or global configuration change.</p>
 <p>The <code>incremental-state</code> subcommand prints the exact signal dprint uses to make that decision, so you can compare it between two revisions and find out ahead of time whether the cache would be reused or invalidated:</p>
 <pre><code class="language-sh hljs language-bash">dprint incremental-state
 </code></pre>
