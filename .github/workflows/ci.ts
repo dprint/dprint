@@ -477,6 +477,13 @@ const draftReleaseJob = job("draft_release", {
   runsOn: "ubuntu-latest",
   needs: [buildJob],
   if: isTag,
+  // contents: drafting the release. id-token + attestations: signing the
+  // build provenance attestation.
+  permissions: {
+    contents: "write",
+    "id-token": "write",
+    attestations: "write",
+  },
   steps: [
     step({
       name: "Download artifacts",
@@ -508,6 +515,13 @@ const draftReleaseJob = job("draft_release", {
       }).flat(),
     }),
     step({
+      name: "Generate artifact attestations",
+      uses: "actions/attest-build-provenance@v4",
+      with: {
+        "subject-checksums": "SHASUMS256.txt",
+      },
+    }),
+    step({
       name: "Draft release",
       uses: "softprops/action-gh-release@v2",
       env: {
@@ -535,6 +549,15 @@ const draftReleaseJob = job("draft_release", {
 ## Install
 
 Run \`dprint upgrade\` or see https://dprint.dev/install/
+
+## Verification
+
+These artifacts have [build provenance attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds).
+Verify a download with the [GitHub CLI](https://cli.github.com/):
+
+\`\`\`shell
+gh attestation verify dprint-x86_64-unknown-linux-gnu.zip --repo dprint/dprint
+\`\`\`
 
 ## Checksums
 
@@ -567,6 +590,9 @@ workflow({
   on: {
     pull_request: { branches: ["main"] },
     push: { branches: ["main"], tags: ["*"] },
+  },
+  permissions: {
+    contents: "read",
   },
   concurrency: {
     // https://stackoverflow.com/a/72408109/188246

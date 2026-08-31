@@ -10,6 +10,8 @@ on:
       - main
     tags:
       - "*"
+permissions:
+  contents: read
 concurrency:
   group: "${{ github.workflow }}-${{ github.head_ref || github.run_id }}"
   cancel-in-progress: true
@@ -501,6 +503,10 @@ jobs:
       - build
     if: 'startsWith(github.ref, ''refs/tags/'')'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
@@ -540,6 +546,10 @@ jobs:
           echo "${{ needs.build.outputs.ZIP_CHECKSUM_POWERPC64LE_UNKNOWN_LINUX_MUSL }} dprint-powerpc64le-unknown-linux-musl.zip" >> SHASUMS256.txt
           echo "${{ needs.build.outputs.ZIP_CHECKSUM_AARCH64_LINUX_ANDROID }} dprint-aarch64-linux-android.zip" >> SHASUMS256.txt
           echo "${{ needs.build.outputs.ZIP_CHECKSUM_X86_64_LINUX_ANDROID }} dprint-x86_64-linux-android.zip" >> SHASUMS256.txt
+      - name: Generate artifact attestations
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-checksums: SHASUMS256.txt
       - name: Draft release
         uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
         env:
@@ -571,6 +581,15 @@ jobs:
             ## Install
 
             Run `dprint upgrade` or see https://dprint.dev/install/
+
+            ## Verification
+
+            These artifacts have [build provenance attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds).
+            Verify a download with the [GitHub CLI](https://cli.github.com/):
+
+            ```shell
+            gh attestation verify dprint-x86_64-unknown-linux-gnu.zip --repo dprint/dprint
+            ```
 
             ## Checksums
 
