@@ -576,6 +576,15 @@ jobs:
 
             Run `dprint upgrade` or see https://dprint.dev/install/
 
+            ## Verification
+
+            These artifacts have [build provenance attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds).
+            Verify a download with the [GitHub CLI](https://cli.github.com/):
+
+            ```shell
+            gh attestation verify dprint-x86_64-unknown-linux-gnu.zip --repo dprint/dprint
+            ```
+
             ## Checksums
 
             |Artifact|SHA-256 Checksum|
