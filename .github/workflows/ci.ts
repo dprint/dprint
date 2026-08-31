@@ -477,6 +477,14 @@ const draftReleaseJob = job("draft_release", {
   runsOn: "ubuntu-latest",
   needs: [buildJob],
   if: isTag,
+  // contents: drafting the release. id-token + attestations: signing the
+  // build provenance attestation. Scoped to this job so the build matrix,
+  // which compiles in third party cross/musl images, doesn't get them.
+  permissions: {
+    contents: "write",
+    "id-token": "write",
+    attestations: "write",
+  },
   steps: [
     step({
       name: "Download artifacts",
@@ -506,6 +514,13 @@ const draftReleaseJob = job("draft_release", {
         }
         return output;
       }).flat(),
+    }),
+    step({
+      name: "Generate artifact attestations",
+      uses: "actions/attest-build-provenance@v3",
+      with: {
+        "subject-checksums": "SHASUMS256.txt",
+      },
     }),
     step({
       name: "Draft release",
@@ -566,13 +581,6 @@ ${
         draft: true,
       },
     }),
-    step({
-      name: "Generate artifact attestations",
-      uses: "actions/attest-build-provenance@v3",
-      with: {
-        "subject-checksums": "SHASUMS256.txt",
-      },
-    }),
   ],
 });
 
@@ -585,9 +593,7 @@ workflow({
     push: { branches: ["main"], tags: ["*"] },
   },
   permissions: {
-    "id-token": "write",
-    attestations: "write",
-    contents: "write",
+    contents: "read",
   },
   concurrency: {
     // https://stackoverflow.com/a/72408109/188246

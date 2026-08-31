@@ -11,9 +11,7 @@ on:
     tags:
       - "*"
 permissions:
-  id-token: write
-  attestations: write
-  contents: write
+  contents: read
 concurrency:
   group: "${{ github.workflow }}-${{ github.head_ref || github.run_id }}"
   cancel-in-progress: true
@@ -505,6 +503,10 @@ jobs:
       - build
     if: 'startsWith(github.ref, ''refs/tags/'')'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
@@ -544,6 +546,10 @@ jobs:
           echo "${{ needs.build.outputs.ZIP_CHECKSUM_POWERPC64LE_UNKNOWN_LINUX_MUSL }} dprint-powerpc64le-unknown-linux-musl.zip" >> SHASUMS256.txt
           echo "${{ needs.build.outputs.ZIP_CHECKSUM_AARCH64_LINUX_ANDROID }} dprint-aarch64-linux-android.zip" >> SHASUMS256.txt
           echo "${{ needs.build.outputs.ZIP_CHECKSUM_X86_64_LINUX_ANDROID }} dprint-x86_64-linux-android.zip" >> SHASUMS256.txt
+      - name: Generate artifact attestations
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-checksums: SHASUMS256.txt
       - name: Draft release
         uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
         env:
@@ -606,7 +612,3 @@ jobs:
             |dprint-aarch64-linux-android.zip|${{ needs.build.outputs.ZIP_CHECKSUM_AARCH64_LINUX_ANDROID }}|
             |dprint-x86_64-linux-android.zip|${{ needs.build.outputs.ZIP_CHECKSUM_X86_64_LINUX_ANDROID }}|
           draft: true
-      - name: Generate artifact attestations
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
-        with:
-          subject-checksums: SHASUMS256.txt
