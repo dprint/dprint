@@ -507,7 +507,32 @@ jobs:
       contents: write
       id-token: write
       attestations: write
+      artifact-metadata: write
     steps:
+      - name: Clone repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+      - name: Generate changelog
+        id: changelog
+        run: |-
+          previous_tag="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          if [ -n "$previous_tag" ]; then
+            echo "Collecting commits since $previous_tag"
+            range="$previous_tag..HEAD"
+          else
+            echo "No previous tag found -- using full history"
+            range=HEAD
+          fi
+          {
+            echo "changelog<<CHANGELOG_EOF"
+            git log --reverse --pretty=format:%s "$range" \
+              | grep -Ev '^(chore|refactor)(\([^)]*\))?!?: ' \
+              | grep -Ev '^[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sed 's/^/* /'
+            echo ""
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
       - name: Download artifacts
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
       - name: Output checksums
@@ -576,7 +601,7 @@ jobs:
           body: |
             ## Changes
 
-            * TODO
+            ${{ steps.changelog.outputs.changelog }}
 
             ## Install
 

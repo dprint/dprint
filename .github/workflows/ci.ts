@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 import $ from "jsr:@david/dax@0.45.0";
-import { conditions, defineMatrix, expr, type ExpressionValue, isLinting, job, step, workflow } from "jsr:@david/gagen@0.5.0";
+import { conditions, defineMatrix, expr, type ExpressionValue, isLinting, job, step, workflow } from "jsr:@david/gagen@0.6.0";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
@@ -472,19 +472,58 @@ const buildJob = job("build", {
 
 // === draft_release job ===
 
+// Builds the "## Changes" list from the commits between the previous release
+// tag and the tag being released. chore/refactor commits and the version bump
+// commit itself are noise in release notes, so they're filtered out.
+const changelog = step({
+  name: "Generate changelog",
+  id: "changelog",
+  run: [
+    `previous_tag="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"`,
+    `if [ -n "$previous_tag" ]; then`,
+    `  echo "Collecting commits since $previous_tag"`,
+    `  range="$previous_tag..HEAD"`,
+    `else`,
+    `  echo "No previous tag found -- using full history"`,
+    `  range=HEAD`,
+    `fi`,
+    `{`,
+    `  echo "changelog<<CHANGELOG_EOF"`,
+    `  git log --reverse --pretty=format:%s "$range" \\`,
+    `    | grep -Ev '^(chore|refactor)(\\([^)]*\\))?!?: ' \\`,
+    `    | grep -Ev '^[0-9]+\\.[0-9]+\\.[0-9]+$' \\`,
+    `    | sed 's/^/* /'`,
+    `  echo ""`,
+    `  echo "CHANGELOG_EOF"`,
+    `} >> "$GITHUB_OUTPUT"`,
+  ],
+  outputs: ["changelog"] as const,
+});
+
 const draftReleaseJob = job("draft_release", {
   name: "draft_release",
   runsOn: "ubuntu-latest",
   needs: [buildJob],
   if: isTag,
   // contents: drafting the release. id-token + attestations: signing the
-  // build provenance attestation.
+  // build provenance attestation. artifact-metadata: creating the artifact
+  // storage record, which actions/attest documents as required.
   permissions: {
     contents: "write",
     "id-token": "write",
     attestations: "write",
+    "artifact-metadata": "write",
   },
   steps: [
+    // must come before the artifact download -- checkout wipes the workspace
+    // when it isn't already a git repo. Full history so the changelog step can
+    // reach the previous tag.
+    step({
+      name: "Clone repository",
+      uses: "actions/checkout@v6",
+      with: { "fetch-depth": 0 },
+    }),
+    changelog,
     step({
       name: "Download artifacts",
       uses: "actions/download-artifact@v6",
@@ -544,7 +583,7 @@ const draftReleaseJob = job("draft_release", {
         ].join("\n"),
         body: `## Changes
 
-* TODO
+${changelog.outputs.changelog}
 
 ## Install
 
