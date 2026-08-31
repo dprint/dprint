@@ -20,15 +20,23 @@ use tower_lsp::LanguageServer;
 use tower_lsp::LspService;
 use tower_lsp::Server;
 use tower_lsp::jsonrpc::Result as LspResult;
+use tower_lsp::lsp_types::CompletionItem;
+use tower_lsp::lsp_types::CompletionOptions;
+use tower_lsp::lsp_types::CompletionParams;
+use tower_lsp::lsp_types::CompletionResponse;
 use tower_lsp::lsp_types::DidChangeTextDocumentParams;
 use tower_lsp::lsp_types::DidCloseTextDocumentParams;
 use tower_lsp::lsp_types::DidOpenTextDocumentParams;
 use tower_lsp::lsp_types::DocumentFormattingParams;
 use tower_lsp::lsp_types::DocumentRangeFormattingParams;
+use tower_lsp::lsp_types::Hover;
+use tower_lsp::lsp_types::HoverParams;
+use tower_lsp::lsp_types::HoverProviderCapability;
 use tower_lsp::lsp_types::InitializeParams;
 use tower_lsp::lsp_types::InitializeResult;
 use tower_lsp::lsp_types::InitializedParams;
 use tower_lsp::lsp_types::OneOf;
+use tower_lsp::lsp_types::Position;
 use tower_lsp::lsp_types::ServerCapabilities;
 use tower_lsp::lsp_types::ServerInfo;
 use tower_lsp::lsp_types::TextDocumentSyncCapability;
@@ -43,12 +51,16 @@ use crate::plugins::PluginResolver;
 
 use self::client::ClientWrapper;
 use self::config::LspPluginsScopeContainer;
+use self::config_completion::ConfigCompletions;
+use self::config_completion::is_config_uri;
 use self::documents::Documents;
 use self::text::LineIndex;
 use self::text::get_edits;
+use self::text::normalize_to_source_line_endings;
 
 mod client;
 mod config;
+mod config_completion;
 mod documents;
 mod text;
 
@@ -106,7 +118,7 @@ impl PendingTokens {
 
   pub fn cancel_all(&mut self) {
     let mut pending_tokens = self.tokens.borrow_mut();
-    for (_, token) in pending_tokens.iter() {
+    for token in pending_tokens.values() {
       token.cancel();
     }
     pending_tokens.clear();
@@ -131,8 +143,16 @@ struct EditorFormatRequest {
   pub token: Arc<CancellationToken>,
 }
 
+struct ConfigEditorRequest {
+  pub file_path: PathBuf,
+  pub file_text: String,
+  pub position: Position,
+}
+
 enum ChannelMessage {
   Format(EditorFormatRequest, oneshot::Sender<Result<Option<Vec<TextEdit>>>>),
+  Completion(ConfigEditorRequest, oneshot::Sender<Option<Vec<CompletionItem>>>),
+  Hover(ConfigEditorRequest, oneshot::Sender<Option<Hover>>),
   Shutdown(oneshot::Sender<()>),
   /// This message is used for testing.
   #[cfg(test)]
@@ -164,7 +184,7 @@ async fn handle_format_request<TEnvironment: Environment>(
     .map(|p| p.into_path_buf())
     .unwrap_or(request.file_path);
 
-  if !scope.can_format_for_editor(&request.file_path) {
+  if !scope.can_format_for_editor(&request.file_path, Some(request.file_text.as_bytes())) {
     log_debug!(environment, "Excluded file: {}", request.file_path.display());
     return Ok(None);
   }
@@ -183,6 +203,9 @@ async fn handle_format_request<TEnvironment: Environment>(
   };
   dprint_core::async_runtime::spawn_blocking(move || {
     let new_text = String::from_utf8(result).context("Failed converting formatted text to utf-8.")?;
+    // the editor owns the document's line endings, so match them rather than
+    // imposing the plugin's configured newline kind (see #965)
+    let new_text = normalize_to_source_line_endings(&request.file_text, new_text);
     let line_index = request.maybe_line_index.unwrap_or_else(|| LineIndex::new(&request.file_text));
     Ok(Some(get_edits(&request.file_text, &new_text, &line_index)))
   })
@@ -190,7 +213,7 @@ async fn handle_format_request<TEnvironment: Environment>(
 }
 
 pub async fn run_language_server<TEnvironment: Environment>(
-  _args: &CliArgs,
+  args: &CliArgs,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> anyhow::Result<()> {
@@ -198,7 +221,8 @@ pub async fn run_language_server<TEnvironment: Environment>(
   let stdout = tokio::io::stdout();
   let (tx, rx) = mpsc::unbounded_channel();
 
-  let recv_task = start_message_handler(environment, plugin_resolver, rx);
+  let config_path = args.config.as_ref().map(|config| environment.cwd().join(config));
+  let recv_task = start_message_handler(environment, plugin_resolver, config_path, rx);
 
   let environment = environment.clone();
   let lsp_task = dprint_core::async_runtime::spawn(async move {
@@ -217,6 +241,7 @@ pub async fn run_language_server<TEnvironment: Environment>(
 fn start_message_handler<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  config_override: Option<PathBuf>,
   mut rx: mpsc::UnboundedReceiver<ChannelMessage>,
 ) -> JoinHandle<()> {
   // tower_lsp requires Backend to implement Send and Sync, but
@@ -225,7 +250,8 @@ fn start_message_handler<TEnvironment: Environment>(
   let max_cores = environment.max_threads();
   let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
   let environment = environment.clone();
-  let scope_container = Rc::new(LspPluginsScopeContainer::new(environment.clone(), plugin_resolver.clone()));
+  let scope_container = Rc::new(LspPluginsScopeContainer::new(environment.clone(), plugin_resolver.clone(), config_override));
+  let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
   dprint_core::async_runtime::spawn(async move {
     let mut pending_tokens = PendingTokens::default();
     while let Some(message) = rx.recv().await {
@@ -240,6 +266,20 @@ fn start_message_handler<TEnvironment: Environment>(
             let result = handle_format_request(request, scope_container, &environment).await;
             let _ = sender.send(result);
             drop(token_guard); // remove the token from the pending tokens
+          });
+        }
+        ChannelMessage::Completion(request, sender) => {
+          let config_completions = config_completions.clone();
+          dprint_core::async_runtime::spawn(async move {
+            let result = config_completions.completions(&request.file_path, &request.file_text, request.position).await;
+            let _ = sender.send(result);
+          });
+        }
+        ChannelMessage::Hover(request, sender) => {
+          let config_completions = config_completions.clone();
+          dprint_core::async_runtime::spawn(async move {
+            let result = config_completions.hover(&request.file_path, &request.file_text, request.position).await;
+            let _ = sender.send(result);
           });
         }
         ChannelMessage::Shutdown(sender) => {
@@ -344,6 +384,12 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         })),
         document_formatting_provider: Some(OneOf::Left(true)),
         document_range_formatting_provider: Some(OneOf::Left(true)),
+        completion_provider: Some(CompletionOptions {
+          // `"` opens a property/value string, `:` moves to a value position
+          trigger_characters: Some(vec!["\"".to_string(), ":".to_string()]),
+          ..Default::default()
+        }),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
         ..ServerCapabilities::default()
       },
     })
@@ -411,6 +457,52 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         },
       )
       .await
+  }
+
+  async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
+    let uri = params.text_document_position.text_document.uri;
+    if !is_config_uri(&uri) {
+      return Ok(None);
+    }
+    let Some(file_path) = url_to_file_path(&uri) else {
+      return Ok(None);
+    };
+    let Some((file_text, _)) = self.state.lock().documents.get_content(&uri) else {
+      return Ok(None);
+    };
+    let (sender, receiver) = oneshot::channel();
+    let request = ConfigEditorRequest {
+      file_path,
+      file_text,
+      position: params.text_document_position.position,
+    };
+    if self.sender.send(ChannelMessage::Completion(request, sender)).is_err() {
+      return Ok(None);
+    }
+    Ok(receiver.await.ok().flatten().map(CompletionResponse::Array))
+  }
+
+  async fn hover(&self, params: HoverParams) -> LspResult<Option<Hover>> {
+    let uri = params.text_document_position_params.text_document.uri;
+    if !is_config_uri(&uri) {
+      return Ok(None);
+    }
+    let Some(file_path) = url_to_file_path(&uri) else {
+      return Ok(None);
+    };
+    let Some((file_text, _)) = self.state.lock().documents.get_content(&uri) else {
+      return Ok(None);
+    };
+    let (sender, receiver) = oneshot::channel();
+    let request = ConfigEditorRequest {
+      file_path,
+      file_text,
+      position: params.text_document_position_params.position,
+    };
+    if self.sender.send(ChannelMessage::Hover(request, sender)).is_err() {
+      return Ok(None);
+    }
+    Ok(receiver.await.ok().flatten())
   }
 
   async fn shutdown(&self) -> LspResult<()> {
@@ -688,10 +780,20 @@ mod test {
             .await;
           assert_eq!(
             result.unwrap().unwrap(),
-            vec![TextEdit {
-              range: Range::new(Position::new(0, 1), Position::new(0, 7)),
-              new_text: "_formatted_process_sting_formatted_process".to_string()
-            }]
+            vec![
+              TextEdit {
+                range: Range::new(Position::new(0, 1), Position::new(0, 1)),
+                new_text: "_formatted_proc".to_string()
+              },
+              TextEdit {
+                range: Range::new(Position::new(0, 3), Position::new(0, 3)),
+                new_text: "s_s".to_string()
+              },
+              TextEdit {
+                range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+                new_text: "_formatted_process".to_string()
+              },
+            ]
           );
 
           // cancellation via a drop
@@ -837,6 +939,33 @@ mod test {
             }])
           );
 
+          // rewrite config with an override for package.txt
+          {
+            let mut config_file = TestConfigFileBuilder::new(environment.clone());
+            config_file.add_remote_wasm_plugin().add_config_section(
+              "test-plugin",
+              r#"{
+                "ending": "base",
+                "overrides": {
+                  "files": "**/package.txt",
+                  "ending": "package"
+                }
+              }"#,
+            );
+            environment.write_file("/dprint.json", &config_file.to_string()).unwrap();
+          }
+
+          let file_uri = Url::parse("file:///package.txt").unwrap();
+          did_open!(backend, file_uri, "text");
+          assert_format!(
+            backend,
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+              new_text: "_package".to_string()
+            }])
+          );
+
           // now ensure formatting works with a sub folder config file that has different config
           {
             let mut config_file = TestConfigFileBuilder::new(environment.clone());
@@ -924,6 +1053,71 @@ mod test {
   }
 
   #[test]
+  fn should_format_shebang_file_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+        );
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          // extensionless file with a matching shebang
+          let file_uri = Url::parse("file:///scripts/build").unwrap();
+          did_open!(backend, file_uri, "#!/bin/sh\ntext");
+          assert_format!(
+            backend,
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(1, 4), Position::new(1, 4)),
+              new_text: "_formatted".to_string()
+            }])
+          );
+
+          // extensionless file without a shebang
+          let file_uri = Url::parse("file:///scripts/notes").unwrap();
+          did_open!(backend, file_uri, "text");
+          assert_format!(backend, file_uri, None);
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
+  #[test]
   fn should_format_with_lsp_using_global_config() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
@@ -988,11 +1182,80 @@ mod test {
     });
   }
 
+  #[test]
+  fn should_format_with_lsp_using_config_override() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      // default config with a custom ending so we can tell which config is used
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin()
+          .add_includes("**/*.txt")
+          .add_config_section("test-plugin", r#"{"ending": "default"}"#);
+      })
+      // override config at a non-default path with a different ending
+      .with_local_config("/custom/dprint.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_includes("**/*.txt")
+          .add_config_section("test-plugin", r#"{"ending": "custom"}"#);
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      // pass the override config path
+      let (backend, recv_task, test_client) = setup_backend_with_config(environment.clone(), Some(PathBuf::from("/custom/dprint.json")));
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          // should format using the overridden config (ending "custom"), not the default (ending "default")
+          let file_uri = Url::parse("file:///custom/file.txt").unwrap();
+          did_open!(backend, file_uri, "testing");
+          assert_format!(
+            backend,
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+              new_text: "_custom".to_string()
+            }])
+          );
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
   fn setup_backend(environment: TestEnvironment) -> (Backend<TestEnvironment>, JoinHandle<()>, Arc<TestClient>) {
+    setup_backend_with_config(environment, None)
+  }
+
+  fn setup_backend_with_config(environment: TestEnvironment, config_override: Option<PathBuf>) -> (Backend<TestEnvironment>, JoinHandle<()>, Arc<TestClient>) {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
     let (tx, rx) = mpsc::unbounded_channel();
-    let recv_task = start_message_handler(&environment, &plugin_resolver, rx);
+    let recv_task = start_message_handler(&environment, &plugin_resolver, config_override, rx);
     let test_client = Arc::new(TestClient::default());
     (Backend::new(ClientWrapper::new(test_client.clone()), environment, tx), recv_task, test_client)
   }

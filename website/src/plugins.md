@@ -15,6 +15,8 @@ It would be ideal for all plugins to be Wasm plugins, but unfortunately many lan
 
 The setup for both is the same except process plugins require a checksum to be specified to ensure the downloaded file is the same as what was built on the CI pipeline.
 
+For the latest version and copy-paste URL of every plugin, see [plugins.dprint.dev](https://plugins.dprint.dev).
+
 ## Wasm Plugins
 
 - [Typescript / JavaScript](/plugins/typescript)
@@ -28,13 +30,17 @@ The setup for both is the same except process plugins require a checksum to be s
 - [Markup_fmt](/plugins/markup_fmt) (HTML/Vue/Svelte/Astro/Angular/Jinja/Twig/Nunjucks/Vento)
 - [Pretty GraphQL](/plugins/pretty_graphql) (GraphQL)
 - [Pretty YAML](/plugins/pretty_yaml) (YAML)
+- [Mago](/plugins/mago) (PHP)
 - [Ruff](/plugins/ruff) (Python)
 - [Jupyter](/plugins/jupyter)
+- [Gofumpt](/plugins/gofumpt) (Go)
+- [Panache](/plugins/panache) (Quarto/Pandoc/R Markdown/Markdown)
 
 ## Process Plugins
 
 - [Prettier](/plugins/prettier)
 - [Roslyn](/plugins/roslyn) (C#/VB)
+- [Swift](/plugins/swift) (SwiftFormat)
 - [Exec](/plugins/exec) - Works with any formatting CLI installed on the system.
 
 ## Using Wasm Plugins in the Browser, Deno, or Node.js

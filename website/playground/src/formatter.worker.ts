@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import { createFromBuffer, Formatter } from "@dprint/formatter";
+import { formatTextUntilStable } from "./stableFormat";
 
 let formatter: Promise<Formatter> | undefined;
 let config: Record<string, unknown> | undefined;
@@ -85,7 +86,7 @@ function setConfigSync(f: Formatter, config: Record<string, unknown>) {
 function formatSync(f: Formatter, filePath: string, fileText: string) {
   let result;
   try {
-    result = f.formatText({ filePath, fileText });
+    result = formatTextUntilStable(fileText, fileText => f.formatText({ filePath, fileText }));
   } catch (err: any) {
     result = err.message;
   }

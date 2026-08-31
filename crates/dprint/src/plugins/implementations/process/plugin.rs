@@ -6,6 +6,7 @@ use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
+use parking_lot::Mutex;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -19,47 +20,46 @@ use crate::plugins::Plugin;
 
 use super::InitializedProcessPluginCommunicator;
 
-static PLUGIN_FILE_INITIALIZE: std::sync::Once = std::sync::Once::new();
-
 /// Use this to get an executable file name that also works in the tests.
-pub fn get_test_safe_executable_path(executable_file_path: PathBuf, environment: &impl Environment) -> PathBuf {
+///
+/// In the test environment the cached "executable" is an in-memory copy of the
+/// real test process plugin binary, which can't actually be launched. Copy it
+/// out to a real temp file (named per version, since the test binary reports
+/// its version from its own path — e.g. `temp-plugin-0.3.0`) and run that. The
+/// cache layout no longer carries the version in the path, so it's passed in.
+pub fn get_test_safe_executable_path(version: &str, executable_file_path: PathBuf, environment: &impl Environment) -> PathBuf {
   if environment.is_real() {
-    executable_file_path
+    return executable_file_path;
+  }
+
+  static CREATED_TEMP_FILES: once_cell::sync::Lazy<Mutex<std::collections::HashSet<PathBuf>>> = once_cell::sync::Lazy::new(Default::default);
+
+  let tmp_dir = PathBuf::from("temp");
+  let file_name = if cfg!(target_os = "windows") {
+    format!("temp-plugin-{version}.exe")
   } else {
-    // do this so that we can launch the process in the tests
-    let tmp_dir = PathBuf::from("temp");
-    let temp_process_plugin_file = tmp_dir.join(if cfg!(target_os = "windows") { "temp-plugin.exe" } else { "temp-plugin" });
-    let temp_process_plugin_file_0_3_0 = tmp_dir.join(if cfg!(target_os = "windows") {
-      "temp-plugin-0.3.0.exe"
-    } else {
-      "temp-plugin-0.3.0"
-    });
-    PLUGIN_FILE_INITIALIZE.call_once(|| {
-      fn create_for_file(file_path: &PathBuf, bytes: &[u8]) {
-        #[allow(clippy::disallowed_methods)]
-        let _ = std::fs::write(file_path, bytes);
-        if cfg!(unix) {
-          std::process::Command::new("sh")
-            .arg("-c")
-            .arg(format!("chmod +x {}", file_path.to_string_lossy()))
-            .status()
-            .unwrap();
-        }
-      }
-      #[allow(clippy::disallowed_methods)]
-      let _ = std::fs::create_dir(&tmp_dir);
-      let bytes = environment.read_file_bytes(&executable_file_path).unwrap();
-      create_for_file(&temp_process_plugin_file, &bytes);
-      create_for_file(&temp_process_plugin_file_0_3_0, &bytes);
-    });
-    if executable_file_path.to_string_lossy().contains("0.1.0") {
-      temp_process_plugin_file
-    } else if executable_file_path.to_string_lossy().contains("0.3.0") {
-      temp_process_plugin_file_0_3_0
-    } else {
-      unreachable!();
+    format!("temp-plugin-{version}")
+  };
+  let temp_file = tmp_dir.join(file_name);
+
+  // create the per-version temp executable once, from the (identical across
+  // every test process plugin) binary bytes
+  let mut created = CREATED_TEMP_FILES.lock();
+  if created.insert(temp_file.clone()) {
+    #[allow(clippy::disallowed_methods)]
+    let _ = std::fs::create_dir(&tmp_dir);
+    let bytes = environment.read_file_bytes(&executable_file_path).unwrap();
+    #[allow(clippy::disallowed_methods)]
+    let _ = std::fs::write(&temp_file, &bytes);
+    if cfg!(unix) {
+      std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("chmod +x {}", temp_file.to_string_lossy()))
+        .status()
+        .unwrap();
     }
   }
+  temp_file
 }
 
 pub struct ProcessPlugin<TEnvironment: Environment> {

@@ -229,7 +229,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
 
             let body = match result {
               Ok(text) => EditorMessageBody::FormatResponse(message.id, text),
-              Err(err) => EditorMessageBody::Error(message.id, format!("{:#}", err).into_bytes()),
+              Err(err) => EditorMessageBody::Error(message.id, dprint_core::plugins::error_to_string(&err).into_bytes()),
             };
             send_response_body(&context, body);
           });
@@ -258,7 +258,9 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       .map(|p| p.into_path_buf())
       .unwrap_or(file_path.to_path_buf());
     log_debug!(self.environment, "Checking can format: {}", file_path.display());
-    Ok(self.plugins_scope.as_ref().map(|s| s.can_format_for_editor(&file_path)).unwrap_or(false))
+    // the editor service only receives a path, so an extensionless file's
+    // shebang is resolved from the file on disk
+    Ok(self.plugins_scope.as_ref().map(|s| s.can_format_for_editor(&file_path, None)).unwrap_or(false))
   }
 
   async fn ensure_latest_config(&mut self) -> Result<Rc<ResolvedConfig>> {
@@ -318,6 +320,7 @@ mod test {
   use dprint_core::communication::RcIdStore;
   use dprint_core::communication::SingleThreadMessageWriter;
   use dprint_core::configuration::ConfigKeyMap;
+  use dprint_core::plugins::FormatError;
   use dprint_core::plugins::FormatRange;
   use dprint_core::plugins::FormatResult;
   use pretty_assertions::assert_eq;
@@ -480,6 +483,7 @@ mod test {
           Arc::new(token),
         )
         .await
+        .map_err(FormatError::new)
     }
 
     pub async fn exit(&self) -> Result<()> {
@@ -973,6 +977,70 @@ mod test {
   }
 
   #[test]
+  fn should_format_shebang_file_for_editor_service() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt").add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+        );
+      })
+      .write_file("/file.txt", "text")
+      .write_file("/scripts/build", "#!/bin/sh\ntext")
+      .write_file("/scripts/notes", "text")
+      .initialize()
+      .build();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+
+          assert_eq!(communicator.check_file("/file.txt").await.unwrap(), true);
+          assert_eq!(communicator.check_file("/file.asdf").await.unwrap(), false);
+          assert_eq!(communicator.check_file("/scripts/build").await.unwrap(), true);
+          // an extensionless file with no shebang isn't handled by any plugin
+          assert_eq!(communicator.check_file("/scripts/notes").await.unwrap(), false);
+          // nor is one that doesn't exist on disk
+          assert_eq!(communicator.check_file("/scripts/missing").await.unwrap(), false);
+
+          // formatting resolves the plugin from the shebang in the provided bytes
+          assert_eq!(
+            bytes_to_string(
+              communicator
+                .format_text("/scripts/build", b"#!/bin/sh\ntext".to_vec(), None, Default::default(), Default::default())
+                .await
+                .unwrap()
+                .unwrap()
+            ),
+            "#!/bin/sh\ntext_formatted"
+          );
+          // no shebang -> no plugin -> no change
+          assert_eq!(
+            communicator
+              .format_text("/scripts/notes", b"text".to_vec(), None, Default::default(), Default::default())
+              .await
+              .unwrap(),
+            None
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
   fn should_format_with_config_associations_for_editor_service() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt_ps";
@@ -1100,6 +1168,54 @@ mod test {
     });
 
     run_test_cli(vec!["editor-service", "--parent-pid", &std::process::id().to_string()], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_format_with_config_overrides_for_editor_service() {
+    let file_path = "/package.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .write_file(file_path, "")
+      .build();
+
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+
+          assert_eq!(communicator.check_file(&file_path).await.unwrap(), true);
+          assert_eq!(
+            communicator
+              .format_text(&file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_package"
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
 
     result.join().unwrap();
   }

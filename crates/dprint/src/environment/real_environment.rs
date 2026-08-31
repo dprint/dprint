@@ -3,6 +3,9 @@ use anyhow::bail;
 use once_cell::sync::Lazy;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
+use std::borrow::Cow;
+use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs;
 use std::hash::Hash;
@@ -13,14 +16,30 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::SystemTime;
+use sys_traits::BaseEnvVar;
+use sys_traits::BaseFsCreateDir;
+use sys_traits::BaseFsMetadata;
+use sys_traits::BaseFsOpen;
+use sys_traits::BaseFsRead;
+use sys_traits::BaseFsRemoveFile;
+use sys_traits::BaseFsRename;
+use sys_traits::BaseFsSetPermissions;
+use sys_traits::CreateDirOptions;
+use sys_traits::SystemRandom;
+use sys_traits::SystemTimeNow;
+use sys_traits::ThreadSleep;
+use sys_traits::impls::RealSys;
 use sysinfo::System;
+use url::Url;
 
 use dprint_core::async_runtime::async_trait;
 
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
+use super::DownloadedFile;
 use super::Environment;
 use super::FilePermissions;
+use super::PathKind;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
 use crate::utils::FastInsecureHasher;
@@ -40,6 +59,10 @@ use crate::utils::show_select;
 
 // cache the cwd because it's much faster than looking it up each time
 static CACHED_CWD: OnceCell<CanonicalizedPathBuf> = OnceCell::new();
+// cache the global gitignore path because resolving it spawns a git subprocess
+// and the path is stable for the process (used by the lsp and editor-service,
+// which rebuild their file matchers on every config change)
+static CACHED_GLOBAL_GITIGNORE_PATH: OnceCell<Option<PathBuf>> = OnceCell::new();
 
 pub struct RealEnvironmentOptions {
   pub log_level: LogLevel,
@@ -87,9 +110,53 @@ impl RealEnvironment {
     Ok(environment)
   }
 
+  /// Expands a leading `~` to the user's home directory, mirroring how git
+  /// expands `core.excludesFile`.
+  fn expand_user_path(&self, value: &str) -> Option<PathBuf> {
+    if value == "~" {
+      Some(self.get_home_dir()?.into_path_buf())
+    } else if let Some(rest) = value.strip_prefix("~/") {
+      Some(self.get_home_dir()?.join(rest))
+    } else {
+      Some(PathBuf::from(value))
+    }
+  }
+
+  /// Resolves git's global excludes file path. Prefer the cached
+  /// `global_gitignore_path` over calling this directly, as this spawns a git
+  /// subprocess.
+  fn resolve_global_gitignore_path(&self) -> Option<PathBuf> {
+    // prefer the path configured via `git config core.excludesFile`
+    let configured = Command::new("git")
+      .arg("config")
+      .arg("--get")
+      .arg("core.excludesFile")
+      .output()
+      .ok()
+      .filter(|output| output.status.success())
+      .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+      .filter(|value| !value.is_empty());
+
+    match configured {
+      Some(value) => self.expand_user_path(&value),
+      None => {
+        // git's default location when `core.excludesFile` is unset
+        let base = match std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
+          Some(xdg) => PathBuf::from(xdg),
+          None => self.get_home_dir()?.join(".config"),
+        };
+        Some(base.join("git").join("ignore"))
+      }
+    }
+  }
+
   #[cfg(test)]
   pub fn run_test_with_real_env(run_with_env: impl Fn(RealEnvironment) -> dprint_core::async_runtime::LocalBoxFuture<'static, ()>) {
-    let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+      .enable_time()
+      .thread_stack_size(crate::plugins::WASM_PLUGIN_THREAD_STACK_SIZE)
+      .build()
+      .unwrap();
     let env = RealEnvironment::new(RealEnvironmentOptions {
       log_level: LogLevel::Info,
       is_stdout_machine_readable: false,
@@ -100,14 +167,97 @@ impl RealEnvironment {
   }
 }
 
+impl std::fmt::Debug for RealEnvironment {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("RealEnvironment").finish()
+  }
+}
+
+impl BaseFsCreateDir for RealEnvironment {
+  fn base_fs_create_dir(&self, path: &Path, options: &CreateDirOptions) -> io::Result<()> {
+    RealSys.base_fs_create_dir(path, options)
+  }
+}
+
+impl BaseEnvVar for RealEnvironment {
+  fn base_env_var_os(&self, key: &OsStr) -> Option<OsString> {
+    RealSys.base_env_var_os(key)
+  }
+}
+
+impl BaseFsMetadata for RealEnvironment {
+  type Metadata = sys_traits::impls::RealFsMetadata;
+
+  fn base_fs_metadata(&self, path: &Path) -> io::Result<Self::Metadata> {
+    RealSys.base_fs_metadata(path)
+  }
+
+  fn base_fs_symlink_metadata(&self, path: &Path) -> io::Result<Self::Metadata> {
+    RealSys.base_fs_symlink_metadata(path)
+  }
+}
+
+impl BaseFsOpen for RealEnvironment {
+  type File = sys_traits::impls::RealFsFile;
+
+  fn base_fs_open(&self, path: &Path, options: &sys_traits::OpenOptions) -> io::Result<Self::File> {
+    RealSys.base_fs_open(path, options)
+  }
+}
+
+impl BaseFsRead for RealEnvironment {
+  fn base_fs_read(&self, path: &Path) -> io::Result<Cow<'static, [u8]>> {
+    RealSys.base_fs_read(path)
+  }
+}
+
+impl BaseFsRemoveFile for RealEnvironment {
+  fn base_fs_remove_file(&self, path: &Path) -> io::Result<()> {
+    RealSys.base_fs_remove_file(path)
+  }
+}
+
+impl BaseFsRename for RealEnvironment {
+  fn base_fs_rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+    RealSys.base_fs_rename(from, to)
+  }
+}
+
+impl BaseFsSetPermissions for RealEnvironment {
+  fn base_fs_set_permissions(&self, path: &Path, mode: u32) -> io::Result<()> {
+    RealSys.base_fs_set_permissions(path, mode)
+  }
+}
+
+impl ThreadSleep for RealEnvironment {
+  fn thread_sleep(&self, duration: std::time::Duration) {
+    std::thread::sleep(duration);
+  }
+}
+
+impl SystemRandom for RealEnvironment {
+  fn sys_random(&self, buf: &mut [u8]) -> io::Result<()> {
+    use rand::RngCore;
+    rand::rng().fill_bytes(buf);
+    Ok(())
+  }
+}
+
+impl SystemTimeNow for RealEnvironment {
+  fn sys_time_now(&self) -> SystemTime {
+    SystemTime::now()
+  }
+}
+
 #[async_trait(?Send)]
 impl UrlDownloader for RealEnvironment {
-  async fn download_file(&self, url: &str) -> Result<Option<Vec<u8>>> {
+  async fn download_file_no_redirects(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
     log_debug!(self, "Downloading url: {}", url);
 
     let downloader = self.url_downloader.clone();
-    let url = url.to_string();
-    dprint_core::async_runtime::spawn_blocking(move || downloader.download(&url)).await?
+    let url = url.clone();
+    let auth = auth.map(|s| s.to_string());
+    dprint_core::async_runtime::spawn_blocking(move || downloader.download_with_auth(&url, auth.as_deref())).await?
   }
 }
 
@@ -153,6 +303,39 @@ impl Environment for RealEnvironment {
       .output()?;
 
     Ok(String::from_utf8_lossy(&output.stdout).lines().map(PathBuf::from).collect())
+  }
+
+  fn get_dirty_files(&self) -> Result<Vec<PathBuf>> {
+    // collect every file with uncommitted changes in the working directory:
+    // unstaged tracked changes, staged tracked changes, and untracked files
+    // that aren't gitignored. each is gathered the same way `get_staged_files`
+    // gathers staged files so the behaviour (e.g. renamed files yielding their
+    // new path, deletions being skipped) stays consistent.
+    fn git_lines(args: &[&str]) -> Result<Vec<PathBuf>> {
+      let output = Command::new("git").args(args).output()?;
+      Ok(String::from_utf8_lossy(&output.stdout).lines().map(PathBuf::from).collect())
+    }
+
+    let mut files = Vec::new();
+    let mut seen = HashSet::new();
+    let groups = [
+      // unstaged tracked changes
+      git_lines(&["diff", "--name-only", "--relative", "--diff-filter=ACMR"])?,
+      // staged tracked changes
+      git_lines(&["diff", "--name-only", "--relative", "--staged", "--diff-filter=ACMR"])?,
+      // untracked files that aren't gitignored
+      git_lines(&["ls-files", "--others", "--exclude-standard"])?,
+    ];
+    for file in groups.into_iter().flatten() {
+      if seen.insert(file.clone()) {
+        files.push(file);
+      }
+    }
+    Ok(files)
+  }
+
+  fn global_gitignore_path(&self) -> Option<PathBuf> {
+    CACHED_GLOBAL_GITIGNORE_PATH.get_or_init(|| self.resolve_global_gitignore_path()).clone()
   }
 
   fn write_file_bytes(&self, file_path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
@@ -209,6 +392,42 @@ impl Environment for RealEnvironment {
     }
   }
 
+  fn kill_processes_using_dir(&self, dir_path: impl AsRef<Path>) -> usize {
+    let dir_path = dir_path.as_ref();
+    let mut system = self.system.lock();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let mut killed_pids = Vec::new();
+    for process in system.processes().values() {
+      let Some(exe) = process.exe() else {
+        continue;
+      };
+      if exe.starts_with(dir_path) {
+        log_debug!(self, "Killing process {} using executable: {}", process.pid(), exe.display());
+        if process.kill() {
+          killed_pids.push(process.pid());
+        }
+      }
+    }
+
+    // wait for the killed processes to actually exit so their executables are no
+    // longer locked before the caller tries to delete them again. poll with a
+    // timeout rather than `Process::wait`, which blocks indefinitely (e.g. on a
+    // process we couldn't kill, or a zombie its real parent hasn't reaped yet).
+    if !killed_pids.is_empty() {
+      let mut remaining_polls = 100; // ~2s at 20ms per poll
+      while remaining_polls > 0 {
+        system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&killed_pids), true);
+        if killed_pids.iter().all(|pid| system.process(*pid).is_none()) {
+          break;
+        }
+        remaining_polls -= 1;
+        std::thread::sleep(std::time::Duration::from_millis(20));
+      }
+    }
+
+    killed_pids.len()
+  }
+
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
     let mut entries = Vec::new();
 
@@ -235,6 +454,25 @@ impl Environment for RealEnvironment {
     log_debug!(self, "Checking path exists: {}", file_path.as_ref().display());
     #[allow(clippy::disallowed_methods)]
     file_path.as_ref().exists()
+  }
+
+  fn path_is_file(&self, file_path: impl AsRef<Path>) -> bool {
+    log_debug!(self, "Checking path is file: {}", file_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
+    file_path.as_ref().is_file()
+  }
+
+  fn path_kind(&self, file_path: impl AsRef<Path>) -> Option<PathKind> {
+    log_debug!(self, "Statting path: {}", file_path.as_ref().display());
+    #[allow(clippy::disallowed_methods)]
+    let file_type = file_path.as_ref().symlink_metadata().ok()?.file_type();
+    Some(if file_type.is_symlink() {
+      PathKind::Symlink
+    } else if file_type.is_dir() {
+      PathKind::Dir
+    } else {
+      PathKind::File
+    })
   }
 
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
@@ -348,9 +586,8 @@ impl Environment for RealEnvironment {
     }
   }
 
-  fn max_threads(&self) -> usize {
-    #[allow(clippy::disallowed_methods)]
-    resolve_max_threads(std::env::var("DPRINT_MAX_THREADS").ok(), std::thread::available_parallelism().ok())
+  fn available_parallelism(&self) -> Option<NonZeroUsize> {
+    std::thread::available_parallelism().ok()
   }
 
   fn cli_version(&self) -> String {
@@ -410,16 +647,12 @@ impl Environment for RealEnvironment {
 
   fn wasm_cache_key(&self) -> String {
     let cpu = self.cpu_arch();
-    // need to also hash on the CPU features
-    // https://github.com/dprint/dprint/issues/735
     let mut hash = FastInsecureHasher::default();
-    let mut features = wasmer::sys::CpuFeature::for_host().into_iter().map(|c| c.to_string()).collect::<Vec<_>>();
-    features.sort(); // ensure this is stable
-    for feature in features {
-      feature.hash(&mut hash);
-    }
-    // include the rustc version in the hash because wasmer's deserialization
-    // of wasm plugins sometimes breaks with a rust upgrade
+    // wasmtime tunes native code to the host CPU features and embeds a
+    // compatibility check in the serialized artifact, refusing to deserialize an
+    // incompatible one (the caller then recompiles). that covers CPU-feature
+    // drift; we still hash the rustc version because deserialization can break
+    // across a rust upgrade. https://github.com/dprint/dprint/issues/735
     env!("RUSTC_VERSION_TEXT").hash(&mut hash);
     format!("{}-{}", cpu, hash.finish())
   }
@@ -512,22 +745,6 @@ impl Environment for RealEnvironment {
   }
 }
 
-fn resolve_max_threads(env_var: Option<String>, available_parallelism: Option<NonZeroUsize>) -> usize {
-  fn maybe_specified_threads(env_var: Option<String>) -> Option<usize> {
-    let value = env_var?.parse::<usize>().ok()?;
-    if value > 0 { Some(value) } else { None }
-  }
-
-  let maybe_actual_count = available_parallelism.map(|p| p.get());
-  match maybe_specified_threads(env_var) {
-    Some(specified_count) => match maybe_actual_count {
-      Some(actual_count) if specified_count > actual_count => actual_count,
-      _ => specified_count,
-    },
-    _ => maybe_actual_count.unwrap_or(4),
-  }
-}
-
 fn canonicalize_path(path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
   // use this to avoid //?//C:/etc... like paths on windows (UNC)
   match dunce::canonicalize(path.as_ref()) {
@@ -596,16 +813,5 @@ mod test {
       result.unwrap().to_string(),
       "The DPRINT_CACHE_DIR environment variable must specify an absolute path."
     );
-  }
-
-  #[test]
-  fn should_resolve_num_threads() {
-    assert_eq!(resolve_max_threads(None, None), 4);
-    assert_eq!(resolve_max_threads(None, NonZeroUsize::new(1)), 1);
-    assert_eq!(resolve_max_threads(None, NonZeroUsize::new(4)), 4);
-    assert_eq!(resolve_max_threads(Some("2".to_string()), NonZeroUsize::new(4)), 2);
-    assert_eq!(resolve_max_threads(Some("0".to_string()), NonZeroUsize::new(4)), 4);
-    assert_eq!(resolve_max_threads(Some("5".to_string()), NonZeroUsize::new(4)), 4);
-    assert_eq!(resolve_max_threads(Some("4".to_string()), NonZeroUsize::new(4)), 4);
   }
 }

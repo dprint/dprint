@@ -4,13 +4,6 @@ description: Documentation on the TOML code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/toml">TOML</a></li>
-  </ul>
-</nav>
-
 # TOML Code Formatter
 
 Formats [TOML](https://toml.io) files.
@@ -20,7 +13,9 @@ Formats [TOML](https://toml.io) files.
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint config add toml
+dprint add toml
+# or install from npm
+dprint add npm:@dprint/toml
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"toml"` property to add configuration:

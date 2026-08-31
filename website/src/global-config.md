@@ -29,7 +29,7 @@ You can customize the global config directory by setting the `DPRINT_CONFIG_DIR`
 Add plugins to your global configuration (alternatively use the `-g` alias instead of `--global`):
 
 ```sh
-dprint config add --global typescript
+dprint add --global typescript
 ```
 
 Update plugins in your global configuration:
@@ -44,7 +44,7 @@ Edit your global configuration file:
 dprint config edit --global
 ```
 
-The editor to use for the global config follows the same rules as [Editing Config via CLI](config/#updating-config-via-cli) (set the `DPRINT_EDITOR` environment variable to customize it)
+The editor to use for the global config follows the same rules as [Editing Config via CLI](/config#editing-config-via-cli) (set the `DPRINT_EDITOR` environment variable to customize it)
 
 ## Using the Global Configuration
 

@@ -1,13 +1,13 @@
-// eslint-disable-next-line import/no-webpack-loader-syntax
-import createWorker from "workerize-loader!./formatter.worker";
-
 import type { FileMatchingInfo, PluginInfo } from "@dprint/formatter";
 
-const formatterWorker = createWorker();
 const pluginInfoListeners: ((info: PluginInfo) => void)[] = [];
 const fileMatchingListeners: ((info: FileMatchingInfo) => void)[] = [];
 const formatListeners: ((text: string) => void)[] = [];
 const errorListeners: ((err: string) => void)[] = [];
+
+const formatterWorker = new Worker(new URL("./formatter.worker.ts", import.meta.url), {
+  type: "module",
+});
 
 formatterWorker.addEventListener("message", ev => {
   switch (ev.data.type) {

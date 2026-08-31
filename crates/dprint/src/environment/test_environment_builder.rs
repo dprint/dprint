@@ -13,6 +13,7 @@ use crate::utils::get_sha256_checksum;
 pub struct TestConfigFileBuilder {
   environment: TestEnvironment,
   incremental: Option<bool>,
+  inherit: Option<bool>,
   includes: Option<Vec<String>>,
   excludes: Option<Vec<String>>,
   plugins: Option<Vec<String>>,
@@ -24,6 +25,7 @@ impl TestConfigFileBuilder {
     TestConfigFileBuilder {
       environment,
       incremental: None,
+      inherit: None,
       includes: None,
       excludes: None,
       plugins: None,
@@ -33,6 +35,9 @@ impl TestConfigFileBuilder {
 
   pub fn to_string(&self) -> String {
     let mut parts = Vec::new();
+    if let Some(inherit) = self.inherit.as_ref() {
+      parts.push(format!(r#""inherit": {}"#, inherit));
+    }
     for (key, value) in self.sections.iter() {
       parts.push(format!("\"{}\": {}", key, value));
     }
@@ -60,6 +65,11 @@ impl TestConfigFileBuilder {
 
   pub fn set_incremental(&mut self, value: bool) -> &mut Self {
     self.incremental = Some(value);
+    self
+  }
+
+  pub fn set_inherit(&mut self, value: bool) -> &mut Self {
+    self.inherit = Some(value);
     self
   }
 
@@ -159,8 +169,6 @@ pub struct TestInfoFilePlugin {
   pub version: String,
   pub url: String,
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub selected: Option<bool>,
-  #[serde(skip_serializing_if = "Option::is_none")]
   pub file_names: Option<Vec<String>>,
   pub file_extensions: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -168,6 +176,37 @@ pub struct TestInfoFilePlugin {
   pub config_excludes: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub checksum: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub npm: Option<TestInfoFileNpm>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub default_config: Option<serde_json::Value>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub config_items: Vec<TestInfoFileConfigItem>,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TestInfoFileNpm {
+  pub name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub path: Option<String>,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TestInfoFileConfigItem {
+  #[serde(rename = "match")]
+  pub file_match: TestInfoFileMatch,
+  pub config: serde_json::Value,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TestInfoFileMatch {
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub file_extensions: Vec<String>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub file_names: Vec<String>,
 }
 
 impl TestInfoFileBuilder {
@@ -339,8 +378,18 @@ impl TestEnvironmentBuilder {
     self
   }
 
+  pub fn add_dirty_file(&mut self, file_path: impl AsRef<Path>) -> &mut Self {
+    self.environment.set_dirty_file(file_path);
+    self
+  }
+
   pub fn add_remote_file(&mut self, path: &str, text: &str) -> &mut Self {
     self.environment.add_remote_file_bytes(path, text.to_string().into_bytes());
+    self
+  }
+
+  pub fn add_remote_file_bytes(&mut self, path: &str, bytes: impl Into<Vec<u8>>) -> &mut Self {
+    self.environment.add_remote_file_bytes(path, bytes.into());
     self
   }
 

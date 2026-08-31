@@ -14,9 +14,6 @@ Install using one of the methods below.
   curl -fsSL https://dprint.dev/install.sh | sh
   ```
 
-- Windows Installer
-
-  [Download](https://github.com/dprint/dprint/releases/latest/download/dprint-x86_64-pc-windows-msvc-installer.exe)
 - Powershell (Windows):
 
   ```sh
@@ -42,29 +39,6 @@ Install using one of the methods below.
   cargo install --locked dprint
   ```
 
-- [Deno](https://deno.land):
-
-  For just your project, add a [deno task](https://deno.land/manual/tools/task_runner) to your deno.json file:
-
-  ```json
-  {
-    "tasks": {
-      "fmt": "deno task dprint fmt",
-      "fmt:check": "deno task dprint check",
-      "dprint": "deno run -A npm:dprint"
-    }
-  }
-  ```
-
-  Then run `deno task dprint init` to initialize and format by running: `deno task fmt`
-
-  Also, you could install it globally via Deno, but like npm it has a startup and memory cost since it needs to run Deno then run dprint. It's recommended to install it globally via another method.
-
-  ```sh
-  deno install -A npm:dprint
-  dprint help
-  ```
-
 - [npm](https://www.npmjs.com/):
 
   ```sh
@@ -72,7 +46,7 @@ Install using one of the methods below.
   npm install dprint
   npx dprint help
 
-  # or install globally (not recommended because it has a startup and memory cost)
+  # or install globally
   npm install -g dprint
   dprint help
   ```
@@ -82,6 +56,18 @@ Install using one of the methods below.
   ```sh
   uv add dprint-py
   uv run dprint help
+  ```
+
+  [mise](https://mise.jdx.dev):
+
+  ```sh
+  # for your project
+  mise use dprint
+  mise x dprint -- dprint help
+
+  # or install globally
+  mise use dprint --global
+  dprint help
   ```
 
 - [asdf-vm](https://asdf-vm.com/) ([asdf-dprint](https://github.com/asdf-community/asdf-dprint)):

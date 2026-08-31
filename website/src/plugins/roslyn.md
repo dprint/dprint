@@ -4,13 +4,6 @@ description: Documentation on the Roslyn code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/roslyn">Roslyn</a></li>
-  </ul>
-</nav>
-
 # Roslyn Plugin
 
 Adapter plugin that formats C# and Visual Basic code via [Roslyn](https://github.com/dotnet/roslyn).
@@ -23,7 +16,24 @@ Adapter plugin that formats C# and Visual Basic code via [Roslyn](https://github
 
 ## Install and Setup
 
-Follow the instructions at [https://github.com/dprint/dprint-plugin-roslyn/releases/](https://github.com/dprint/dprint-plugin-roslyn/releases/)
+In your project's directory with a dprint.json file, run:
+
+```shellsession
+dprint add roslyn
+# or install from npm
+dprint add npm:@dprint/roslyn
+```
+
+This will update your config file to have an entry for the plugin. Then optionally specify a `"roslyn"` property to add configuration:
+
+```json
+{
+  "roslyn": {
+    // roslyn's config goes here
+  }
+  // etc...
+}
+```
 
 ## Configuration
 

@@ -1,6 +1,7 @@
 # dprint
 
-[![CI](https://github.com/dprint/dprint/workflows/CI/badge.svg)](https://github.com/dprint/dprint/actions?query=workflow%3ACI)
+[![npm](https://img.shields.io/npm/v/dprint.svg)](https://www.npmjs.com/package/dprint)
+[![crates.io](https://img.shields.io/crates/v/dprint.svg)](https://crates.io/crates/dprint)
 [![Homebrew](https://img.shields.io/badge/dynamic/json.svg?url=https://formulae.brew.sh/api/formula/dprint.json&query=$.versions.stable&label=homebrew)](https://formulae.brew.sh/formula/dprint)
 
 Monorepo for dprint—a pluggable and configurable code formatting platform.
@@ -27,12 +28,16 @@ Repos:
 - [dprint-plugin-oxc](https://github.com/dprint/dprint-plugin-oxc) - Oxc (JS/TS) wrapper plugin.
 - [dprint-plugin-prettier](https://github.com/dprint/dprint-plugin-prettier) - Prettier wrapper plugin.
 - [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - Roslyn (C#/VB) wrapper plugin.
+- [dprint-plugin-mago](https://github.com/dprint/dprint-plugin-mago) - Mago (PHP) wrapper plugin.
 - [dprint-plugin-ruff](https://github.com/dprint/dprint-plugin-ruff) - Ruff (Python) wrapper plugin.
 - [dprint-plugin-exec](https://github.com/dprint/dprint-plugin-exec) - Formats code with any CLI executable.
 - [Malva](https://github.com/g-plane/malva) - CSS, SCSS, Sass, and Less formatter
 - [markup_fmt](https://github.com/g-plane/markup_fmt) - HTML, Vue, Svelte, Astro, Angular, Jinja, Twig, Nunjucks, Vento, Mustache and XML formatter.
 - [pretty_graphql](https://github.com/g-plane/pretty_graphql) - GraphQL formatter.
 - [pretty_yaml](https://github.com/g-plane/pretty_yaml) - YAML formatter.
+- [dprint-plugin-gofumpt](https://github.com/jakebailey/dprint-plugin-gofumpt) - Go (gofumpt) formatter.
+- [panache](https://github.com/jolars/dprint-plugin-panache) - Quarto, Pandoc, R Markdown, and Markdown formatter.
+- [dprint-plugin-swift](https://github.com/drluckyspin/dprint-plugin-swift) - Swift (SwiftFormat) formatter.
 
 ## Notes
 

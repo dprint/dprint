@@ -117,23 +117,66 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
     SubCommand::Lsp => commands::run_language_server(args, environment, plugin_resolver).await,
     SubCommand::ClearCache => commands::clear_cache(environment),
     SubCommand::Config(cmd) => match cmd {
-      ConfigSubCommand::Init { global } => {
+      ConfigSubCommand::Init {
+        global,
+        yes,
+        minimum_dependency_age,
+      } => {
         commands::init_config_file(
           environment,
           InitConfigFileOptions {
             global: *global,
             config_arg: args.config.as_deref(),
+            non_interactive: *yes,
+            minimum_dependency_age: minimum_dependency_age.clone(),
           },
         )
         .await
       }
-      ConfigSubCommand::Add(plugin_name_or_url) => commands::add_plugin_config_file(args, plugin_name_or_url.as_ref(), environment, plugin_resolver).await,
-      ConfigSubCommand::Update { yes } => commands::update_plugins_config_file(args, environment, plugin_resolver, *yes).await,
+      ConfigSubCommand::Add {
+        names,
+        no_version,
+        package_json,
+        checksum,
+        minimum_dependency_age,
+      } => {
+        commands::add_plugin_config_file(
+          args,
+          commands::AddPluginsOptions {
+            plugin_names_or_urls: names,
+            no_version: *no_version,
+            update_package_json: *package_json,
+            checksum: *checksum,
+            minimum_dependency_age: minimum_dependency_age.clone(),
+          },
+          environment,
+          plugin_resolver,
+        )
+        .await
+      }
+      ConfigSubCommand::Update {
+        yes,
+        dry_run,
+        minimum_dependency_age,
+      } => {
+        commands::update_plugins_config_file(
+          args,
+          environment,
+          plugin_resolver,
+          commands::UpdatePluginsOptions {
+            yes_to_prompts: *yes,
+            dry_run: *dry_run,
+            minimum_dependency_age: minimum_dependency_age.clone(),
+          },
+        )
+        .await
+      }
       ConfigSubCommand::Edit => commands::edit_config_file(args, environment).await,
     },
     SubCommand::Version => commands::output_version(environment),
     SubCommand::StdInFmt(cmd) => commands::stdin_fmt(cmd, args, environment, plugin_resolver).await,
-    SubCommand::OutputResolvedConfig => commands::output_resolved_config(args, environment, plugin_resolver).await,
+    SubCommand::OutputResolvedConfig(cmd) => commands::output_resolved_config(cmd, args, environment, plugin_resolver).await,
+    SubCommand::IncrementalState => commands::incremental_state(args, environment, plugin_resolver).await,
     SubCommand::OutputFilePaths(cmd) => commands::output_file_paths(cmd, args, environment, plugin_resolver).await,
     SubCommand::OutputFormatTimes(cmd) => commands::output_format_times(cmd, args, environment, plugin_resolver).await,
     SubCommand::Check(cmd) => commands::check(cmd, args, environment, plugin_resolver).await,

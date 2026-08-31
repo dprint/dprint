@@ -11,7 +11,7 @@ export interface CodeEditorProps {
   scrollTop?: number;
   jsonSchemaUrl?: string;
   onScrollTopChange?: (scrollTop: number) => void;
-  language: "typescript" | "json" | "markdown" | "toml" | "dockerfile" | "plaintext" | "css" | "html" | "yaml" | undefined;
+  language: "typescript" | "json" | "markdown" | "toml" | "dockerfile" | "plaintext" | "css" | "html" | "yaml" | "php" | undefined;
 }
 
 export interface CodeEditorState {
@@ -35,12 +35,12 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
     import("monaco-editor").then(monacoEditor => {
       this.monacoEditor = monacoEditor;
       if (this.props.language === "typescript") {
-        monacoEditor.languages.typescript.typescriptDefaults.setCompilerOptions({
+        monacoEditor.typescript.typescriptDefaults.setCompilerOptions({
           noLib: true,
-          target: monacoEditor.languages.typescript.ScriptTarget.ESNext,
+          target: monacoEditor.typescript.ScriptTarget.ESNext,
           allowNonTsExtensions: true,
         });
-        monacoEditor.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+        monacoEditor.typescript.typescriptDefaults.setDiagnosticsOptions({
           noSyntaxValidation: true,
           noSemanticValidation: true,
         });
@@ -51,6 +51,7 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
         inherit: true,
         rules: [],
         colors: {
+          "editor.background": "#181a1e",
           "editorRuler.foreground": "#283430",
         },
       });
@@ -87,10 +88,10 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
 
   private getEditor() {
     if (this.state.editorComponent == null) {
-      return <Spinner backgroundColor="#1e1e1e" />;
+      return <Spinner backgroundColor="#181a1e" />;
     }
     if (this.state.editorComponent === false) {
-      return <div className={"errorMessage"}>Error loading code editor. Please refresh the page to try again.</div>;
+      return <div className="errorMessage">Error loading code editor. Please refresh the page to try again.</div>;
     }
 
     return (
@@ -172,8 +173,8 @@ export class CodeEditor extends React.Component<CodeEditorProps, CodeEditorState
 
   private updateJsonSchema() {
     if (this.monacoEditor != null && this.props.jsonSchemaUrl != null) {
-      if (this.monacoEditor.languages.json.jsonDefaults.diagnosticsOptions.schemas?.[0]?.uri !== this.props.jsonSchemaUrl) {
-        this.monacoEditor.languages.json.jsonDefaults.setDiagnosticsOptions({
+      if (this.monacoEditor.json.jsonDefaults.diagnosticsOptions.schemas?.[0]?.uri !== this.props.jsonSchemaUrl) {
+        this.monacoEditor.json.jsonDefaults.setDiagnosticsOptions({
           validate: true,
           allowComments: true,
           enableSchemaRequest: true,

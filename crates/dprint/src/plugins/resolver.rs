@@ -98,6 +98,25 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     Ok(plugins)
   }
 
+  /// Sets up a versioned npm plugin for `dprint add` — downloads, resolves the
+  /// plugin file (detecting it when the specifier has no path), computes the
+  /// checksum, and warms the cache — returning the resolved path + checksum to
+  /// write into config. See [`PluginCache::resolve_npm_for_add`].
+  pub async fn resolve_npm_for_add(
+    &self,
+    specifier: &crate::utils::NpmSpecifier,
+    path_was_explicit: bool,
+    base_dir: Option<&crate::environment::CanonicalizedPathBuf>,
+  ) -> Result<crate::plugins::NpmAddResolution> {
+    self.plugin_cache.resolve_npm_for_add(specifier, path_was_explicit, base_dir).await
+  }
+
+  /// Downloads a remote plugin for `dprint add`, computes its checksum, and
+  /// warms the cache. See [`PluginCache::resolve_remote_for_add`].
+  pub async fn resolve_remote_for_add(&self, plugin_reference: &PluginSourceReference) -> Result<String> {
+    self.plugin_cache.resolve_remote_for_add(plugin_reference).await
+  }
+
   pub async fn resolve_plugin(&self, plugin_reference: PluginSourceReference) -> Result<Rc<PluginWrapper>> {
     let cell = {
       let mut mem_cache = self.memory_cache.borrow_mut();

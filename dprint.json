@@ -12,7 +12,7 @@
     "blockSelectorLinebreak": "always"
   },
   "excludes": [
-    "website/playground/build",
+    "website/playground/dist",
     "website/_site",
     "**/node_modules",
     "**/dist",
@@ -20,13 +20,14 @@
     "**/*-lock.json"
   ],
   "plugins": [
-    "https://plugins.dprint.dev/typescript-0.95.13.wasm",
-    "https://plugins.dprint.dev/json-0.21.0.wasm",
-    "https://plugins.dprint.dev/markdown-0.20.0.wasm",
-    "https://plugins.dprint.dev/toml-0.7.0.wasm",
-    "https://plugins.dprint.dev/exec-0.6.0.json@a054130d458f124f9b5c91484833828950723a5af3f8ff2bd1523bd47b83b364",
-    "https://plugins.dprint.dev/g-plane/malva-v0.15.1.wasm",
-    "https://plugins.dprint.dev/g-plane/markup_fmt-v0.25.1.wasm",
-    "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.5.1.wasm"
+    "npm:@dprint/typescript@0.96.1",
+    "npm:@dprint/json@0.23.0",
+    "npm:@dprint/markdown@0.23.0",
+    "npm:@dprint/toml@0.8.0",
+    "npm:@dprint/exec@0.7.3/plugin.json@704701df449dd7e942a71144773778ac529d68c2e4657bfc236d393b898b9a67",
+    "npm:dprint-plugin-malva@0.16.0",
+    "npm:dprint-plugin-markup@0.27.3",
+    "npm:dprint-plugin-yaml@0.6.0",
+    "npm:@dprint/dockerfile@0.6.0"
   ]
 }

@@ -4,13 +4,6 @@ description: Documentation on the Markdown code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/markdown">Markdown</a></li>
-  </ul>
-</nav>
-
 # Markdown Code Formatter
 
 ## Install and Setup
@@ -18,7 +11,9 @@ layout: layouts/documentation.njk
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint config add markdown
+dprint add markdown
+# or install from npm
+dprint add npm:@dprint/markdown
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"markdown"` property to add configuration:
