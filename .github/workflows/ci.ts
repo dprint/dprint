@@ -478,8 +478,7 @@ const draftReleaseJob = job("draft_release", {
   needs: [buildJob],
   if: isTag,
   // contents: drafting the release. id-token + attestations: signing the
-  // build provenance attestation. Scoped to this job so the build matrix,
-  // which compiles in third party cross/musl images, doesn't get them.
+  // build provenance attestation.
   permissions: {
     contents: "write",
     "id-token": "write",
