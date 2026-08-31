@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 import $ from "jsr:@david/dax@0.45.0";
-import { conditions, defineMatrix, expr, type ExpressionValue, isLinting, job, step, workflow } from "jsr:@david/gagen@0.5.0";
+import { conditions, defineMatrix, expr, type ExpressionValue, isLinting, job, step, workflow } from "jsr:@david/gagen@0.6.0";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
@@ -506,11 +506,13 @@ const draftReleaseJob = job("draft_release", {
   needs: [buildJob],
   if: isTag,
   // contents: drafting the release. id-token + attestations: signing the
-  // build provenance attestation.
+  // build provenance attestation. artifact-metadata: creating the artifact
+  // storage record, which actions/attest documents as required.
   permissions: {
     contents: "write",
     "id-token": "write",
     attestations: "write",
+    "artifact-metadata": "write",
   },
   steps: [
     // must come before the artifact download -- checkout wipes the workspace
