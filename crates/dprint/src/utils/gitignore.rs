@@ -3,6 +3,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use crate::environment::DirEntry;
 use crate::environment::Environment;
 use crate::utils::escape_glob_text;
 
@@ -73,6 +74,32 @@ fn global_gitignore_enabled(environment: &impl Environment) -> bool {
 pub struct DirEntriesHint {
   pub has_gitignore: bool,
   pub has_git: bool,
+}
+
+impl DirEntriesHint {
+  /// Derives a hint from an already-read directory listing.
+  pub fn from_dir_entries(entries: &[DirEntry]) -> Self {
+    let mut hint = DirEntriesHint {
+      has_git: false,
+      has_gitignore: false,
+    };
+    for entry in entries {
+      let name = match entry {
+        // `.gitignore` is a file and `.git` is usually a directory (a file in worktrees)
+        DirEntry::Directory(path) => path.file_name().and_then(|f| f.to_str()),
+        DirEntry::File { name, .. } => name.to_str(),
+      };
+      match name {
+        Some(".gitignore") => hint.has_gitignore = true,
+        Some(".git") => hint.has_git = true,
+        _ => continue,
+      }
+      if hint.has_gitignore && hint.has_git {
+        break; // nothing left to learn
+      }
+    }
+    hint
+  }
 }
 
 #[derive(Default)]
