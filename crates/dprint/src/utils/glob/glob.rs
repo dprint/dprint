@@ -658,30 +658,6 @@ enum DirOrConfigEntry {
   Config(PathBuf),
 }
 
-/// Derives a gitignore resolution hint from an already-read directory listing.
-fn dir_entries_hint(entries: &[DirEntry]) -> DirEntriesHint {
-  let mut hint = DirEntriesHint {
-    has_git: false,
-    has_gitignore: false,
-  };
-  for entry in entries {
-    let name = match entry {
-      // `.gitignore` is a file and `.git` is usually a directory (a file in worktrees)
-      DirEntry::Directory(path) => path.file_name().and_then(|f| f.to_str()),
-      DirEntry::File { name, .. } => name.to_str(),
-    };
-    match name {
-      Some(".gitignore") => hint.has_gitignore = true,
-      Some(".git") => hint.has_git = true,
-      _ => continue,
-    }
-    if hint.has_gitignore && hint.has_git {
-      break; // nothing left to learn
-    }
-  }
-  hint
-}
-
 const PUSH_DIR_ENTRIES_BATCH_COUNT: usize = 500;
 
 struct ReadDirRunnerOptions {
@@ -768,7 +744,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     let entries_read = entries.len();
     // derive this before filtering, because the `.gitignore` that the hint is
     // about is itself usually not a file that matches the patterns
-    let hint = dir_entries_hint(&entries);
+    let hint = DirEntriesHint::from_dir_entries(&entries);
     // Note the start directory is exempt from config file detection because the
     // traversal starts there, so a config file in it would take over the entire
     // scope. Usually `current_config_path` already filters it out, but not when
