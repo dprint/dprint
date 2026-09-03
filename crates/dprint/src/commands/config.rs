@@ -59,7 +59,11 @@ pub struct InitConfigFileOptions<'a> {
   pub minimum_dependency_age: Option<MinimumDependencyAgeArg>,
 }
 
-pub async fn init_config_file(environment: &impl Environment, options: InitConfigFileOptions<'_>) -> Result<()> {
+pub async fn init_config_file<TEnvironment: Environment>(
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  options: InitConfigFileOptions<'_>,
+) -> Result<()> {
   fn get_config_paths(environment: &impl Environment, options: &InitConfigFileOptions<'_>) -> Result<Vec<PathBuf>> {
     if options.global {
       let directory = crate::configuration::resolve_global_config_dir(environment).with_context(|| {
@@ -78,17 +82,20 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
   }
 
   let mut config_file_paths = get_config_paths(environment, &options)?;
-  for config_path in &config_file_paths {
-    if environment.path_exists(config_path) {
-      bail!("Configuration file '{}' already exists.", config_path.display())
+  // skip the interactive prompt when asked to or when there's no interactive terminal (ex. CI)
+  let non_interactive = options.non_interactive || !environment.is_terminal_interactive();
+  if let Some(existing_path) = config_file_paths.iter().find(|path| environment.path_exists(path)) {
+    // there's nothing to prompt with when there's no terminal, so keep telling
+    // the user the file is there rather than doing something they didn't ask for
+    if non_interactive {
+      bail!("Configuration file '{}' already exists.", existing_path.display())
     }
+    return add_missing_plugins_to_config_file(environment, plugin_resolver, existing_path.clone(), &options).await;
   }
   let config_file_path = config_file_paths.remove(0);
   // a relative path (the default file names, or a relative --config) is
   // relative to the cwd; resolved so the .npmrc walk starts from the right place
   let config_dir = environment.cwd().join(&config_file_path).parent().map(|dir| dir.to_path_buf());
-  // skip the interactive prompt when asked to or when there's no interactive terminal (ex. CI)
-  let non_interactive = options.non_interactive || !environment.is_terminal_interactive();
   let text = get_init_config_file_text(
     environment,
     GetInitConfigFileTextOptions {
@@ -109,6 +116,67 @@ pub async fn init_config_file(environment: &impl Environment, options: InitConfi
   log_stdout_info!(
     environment,
     "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
+  );
+  Ok(())
+}
+
+/// Adds plugins to a config file that already exists, which is what `dprint
+/// init` does instead of erroring when it's run interactively in a directory
+/// that's already set up. The plugins the config file has are shown in the
+/// prompt, but can't be selected.
+async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  config_file_path: PathBuf,
+  options: &InitConfigFileOptions<'_>,
+) -> Result<()> {
+  let config_file_path = environment.canonicalize(&config_file_path)?;
+  let config_dir = config_file_path.parent();
+  let config = resolve_config_from_path_with_bytes(
+    &ResolvedConfigPathWithText {
+      source: PathSource::new_local(config_file_path.clone()),
+      is_first_download: false,
+      content: environment.read_file(&config_file_path)?,
+      base_path: config_dir.clone().unwrap_or_else(|| environment.cwd()),
+      is_global_config: options.global,
+    },
+    environment,
+  )
+  .await?;
+  let existing_plugin_names = get_config_file_plugin_names(environment, plugin_resolver, config.plugins).await;
+  let plugins_to_add = get_init_plugins_to_add(
+    environment,
+    GetInitPluginsToAddOptions {
+      existing_plugin_names,
+      minimum_dependency_age: options.minimum_dependency_age.clone(),
+      config_dir: config_dir.map(|dir| dir.into_path_buf()),
+    },
+  )
+  .await?;
+  let entries = match plugins_to_add {
+    InitPluginsToAdd::AllPluginsConfigured => {
+      log_stdout_info!(environment, "{} already has every plugin dprint knows about.", config_file_path.display());
+      return Ok(());
+    }
+    InitPluginsToAdd::Entries(entries) => entries,
+  };
+  if entries.is_empty() {
+    log_stdout_info!(environment, "\nNo plugins were added.");
+    return Ok(());
+  }
+
+  let file_text = environment.read_file(&config_file_path)?;
+  let file_text = add_plugins_to_config(&file_text, &[], &entries)?;
+  environment.write_file(&config_file_path, &file_text)?;
+  log_stdout_info!(
+    environment,
+    "\nAdded {} to {}",
+    if entries.len() == 1 {
+      "1 plugin".to_string()
+    } else {
+      format!("{} plugins", entries.len())
+    },
+    config_file_path.display()
   );
   Ok(())
 }
@@ -786,17 +854,7 @@ async fn get_possible_plugins_to_add<TEnvironment: Environment>(
   let info_file = read_info_file(environment)
     .await
     .map_err(|err| anyhow!("Failed downloading info file. {:#}", err))?;
-  let current_plugin_names = get_config_file_plugins(plugin_resolver, current_plugins)
-    .await
-    .into_iter()
-    .filter_map(|(plugin_reference, plugin_result)| match plugin_result {
-      Ok(plugin) => Some(plugin.info().name.to_string()),
-      Err(err) => {
-        log_warn!(environment, "Failed resolving plugin: {}\n\n{:#}", plugin_reference.path_source.display(), err);
-        None
-      }
-    })
-    .collect::<HashSet<_>>();
+  let current_plugin_names = get_config_file_plugin_names(environment, plugin_resolver, current_plugins).await;
   Ok(
     info_file
       .latest_plugins
@@ -1559,6 +1617,26 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
   Ok(())
 }
 
+/// The names of the plugins a config file resolves to, skipping (with a
+/// warning) the ones that fail to resolve.
+async fn get_config_file_plugin_names<TEnvironment: Environment>(
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  current_plugins: Vec<PluginSourceReference>,
+) -> HashSet<String> {
+  get_config_file_plugins(plugin_resolver, current_plugins)
+    .await
+    .into_iter()
+    .filter_map(|(plugin_reference, plugin_result)| match plugin_result {
+      Ok(plugin) => Some(plugin.info().name.to_string()),
+      Err(err) => {
+        log_warn!(environment, "Failed resolving plugin: {}\n\n{:#}", plugin_reference.path_source.display(), err);
+        None
+      }
+    })
+    .collect()
+}
+
 async fn get_config_file_plugins<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   current_plugins: Vec<PluginSourceReference>,
@@ -1865,8 +1943,87 @@ mod test {
         c.add_includes("**/*.txt");
       })
       .build();
+    // there's nothing to prompt with, so it says the file is already there
+    let error_message = run_test_cli(vec!["init", "--yes"], &environment).err().unwrap();
+    assert_eq!(error_message.to_string(), "Configuration file 'dprint.json' already exists.");
+    environment.set_terminal_interactive(false);
     let error_message = run_test_cli(vec!["init"], &environment).err().unwrap();
     assert_eq!(error_message.to_string(), "Configuration file 'dprint.json' already exists.");
+  }
+
+  #[test]
+  fn should_add_plugins_to_existing_config_file_on_initialize() {
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: true,
+      config_has_wasm_checksum: false,
+      config_has_process: false,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: false,
+    });
+    // the plugin the config file already has isn't selectable
+    environment.set_multi_selection_result(vec![0]);
+    run_test_cli(vec!["init"], &environment).unwrap();
+    assert_eq!(
+      environment.take_multi_selection_items(),
+      vec!["[ ] test-process-plugin", "[x] test-plugin (already in config) (locked)"]
+    );
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Select plugins to add (space to toggle, type to filter, enter to finish):"]
+    );
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![format!("\nAdded 1 plugin to {}", Path::new("/").join("dprint.json").display())]
+    );
+    assert_eq!(
+      environment.read_file("./dprint.json").unwrap(),
+      r#"{
+  "plugins": [
+    "https://plugins.dprint.dev/test-plugin-0.1.0.wasm",
+    "https://plugins.dprint.dev/test-plugin-3.json"
+  ]
+}"#
+    );
+  }
+
+  #[test]
+  fn should_not_change_existing_config_file_on_initialize_when_nothing_selected() {
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: true,
+      config_has_wasm_checksum: false,
+      config_has_process: false,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: false,
+    });
+    let original_text = environment.read_file("./dprint.json").unwrap();
+    environment.set_multi_selection_result(vec![]);
+    run_test_cli(vec!["init"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Select plugins to add (space to toggle, type to filter, enter to finish):"]
+    );
+    assert_eq!(environment.take_stdout_messages(), vec!["\nNo plugins were added."]);
+    assert_eq!(environment.read_file("./dprint.json").unwrap(), original_text);
+  }
+
+  #[test]
+  fn should_not_prompt_on_initialize_when_config_file_has_every_plugin() {
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: true,
+      config_has_wasm_checksum: false,
+      config_has_process: true,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: false,
+    });
+    run_test_cli(vec!["init"], &environment).unwrap();
+    assert!(environment.take_multi_selection_items().is_empty());
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![format!(
+        "{} already has every plugin dprint knows about.",
+        Path::new("/").join("dprint.json").display()
+      )]
+    );
   }
 
   #[test]
@@ -1967,7 +2124,7 @@ mod test {
   #[test]
   fn should_error_when_global_config_file_already_exists() {
     let environment = TestEnvironmentBuilder::new().write_file("/config/dprint/dprint.json", "{}").build();
-    let error_message = run_test_cli(vec!["config", "init", "--global"], &environment).err().unwrap();
+    let error_message = run_test_cli(vec!["config", "init", "--global", "--yes"], &environment).err().unwrap();
     assert_eq!(
       error_message.to_string(),
       format!(
