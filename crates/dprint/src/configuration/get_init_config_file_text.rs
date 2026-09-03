@@ -16,7 +16,11 @@ use crate::plugins::ResolveNpmLatestOptions;
 use crate::plugins::read_info_file;
 use crate::plugins::resolve_dependency_age_cutoff;
 use crate::utils::DependencyAgeCutoff;
+use crate::utils::DirEntriesHint;
+use crate::utils::GitIgnoreTree;
+use crate::utils::GitIgnoreTreeOptions;
 use crate::utils::MinimumDependencyAgeArg;
+use crate::utils::resolve_global_gitignore_lines;
 
 /// Maximum number of files to look at when scanning the current directory to
 /// decide which plugins to pre-select. Keeps `dprint init` fast in large repos.
@@ -404,14 +408,23 @@ fn deep_merge(base: &mut serde_json::Value, other: serde_json::Value) {
 }
 
 /// Scans the current directory for files in order to decide which plugins to
-/// pre-select. The scan is bounded by [`MAX_SCAN_FILES`] and [`MAX_SCAN_DIRS`]
-/// to stay fast in large repositories and best-effort ignores errors.
+/// pre-select. Files and directories the gitignore excludes are skipped, as
+/// are the directories in [`is_ignored_dir`]. The scan is bounded by
+/// [`MAX_SCAN_FILES`] and [`MAX_SCAN_DIRS`] to stay fast in large repositories
+/// and best-effort ignores errors.
 fn scan_project_files(environment: &impl Environment) -> ProjectFiles {
   let mut extensions = HashSet::new();
   let mut file_names = HashSet::new();
   let mut files_remaining = MAX_SCAN_FILES;
   let mut dirs_remaining = MAX_SCAN_DIRS;
   let mut pending_dirs = VecDeque::from([environment.cwd().into_path_buf()]);
+  let mut gitignores = GitIgnoreTree::new(
+    environment.clone(),
+    GitIgnoreTreeOptions {
+      include_paths: Vec::new(),
+      global_gitignore_lines: resolve_global_gitignore_lines(environment),
+    },
+  );
 
   'outer: while let Some(dir) = pending_dirs.pop_front() {
     if dirs_remaining == 0 {
@@ -421,14 +434,22 @@ fn scan_project_files(environment: &impl Environment) -> ProjectFiles {
     let Ok(entries) = environment.dir_info(&dir) else {
       continue; // best-effort: skip directories we can't read
     };
+    let gitignore = gitignores.get_resolved_git_ignore_for_dir_children(&dir, DirEntriesHint::from_dir_entries(&entries));
+    let is_ignored = |path: &PathBuf, is_dir: bool| gitignore.as_ref().is_some_and(|gitignore| gitignore.is_ignored(path, is_dir));
     for entry in entries {
       match entry {
         DirEntry::Directory(path) => {
-          if path.file_name().and_then(|name| name.to_str()).is_some_and(|name| !is_ignored_dir(name)) {
+          let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+          };
+          if !is_ignored_dir(name) && !is_ignored(&path, true) {
             pending_dirs.push_back(path);
           }
         }
         DirEntry::File { name, path } => {
+          if is_ignored(&path, false) {
+            continue;
+          }
           if files_remaining == 0 {
             break 'outer;
           }
@@ -445,10 +466,11 @@ fn scan_project_files(environment: &impl Environment) -> ProjectFiles {
   ProjectFiles { extensions, file_names }
 }
 
-/// Directories that are skipped while scanning. Hidden directories (those
-/// starting with a dot) are always skipped.
+/// Directories that are skipped while scanning. Hidden directories other than
+/// `.git` are scanned because they may hold files worth formatting (ex.
+/// `.github/workflows`), and the ones that don't are usually gitignored.
 fn is_ignored_dir(name: &str) -> bool {
-  name.starts_with('.') || matches!(name, "node_modules" | "target" | "vendor" | "dist" | "build" | "out" | "bin" | "obj")
+  matches!(name, ".git" | "node_modules" | "target" | "vendor" | "dist" | "build" | "out" | "bin" | "obj")
 }
 
 /// Gets the unique items in the vector in the same order
@@ -1282,6 +1304,53 @@ mod test {
       // matching files only exist within ignored directories
       .write_file("/node_modules/dep/app.ts", "")
       .write_file("/.git/hooks/config.json", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      assert_eq!(
+        text,
+        r#"{
+  "excludes": [],
+  "plugins": [
+    // specify plugin urls here
+  ]
+}
+"#
+      );
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_scan_files_in_hidden_directories() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        for plugin in get_multi_plugins_config() {
+          info.add_plugin(plugin);
+        }
+      })
+      // hidden directories other than `.git` may hold files worth formatting
+      .write_file("/.github/renovate.json", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      assert!(text.contains("https://plugins.dprint.dev/json-0.2.3.wasm"), "{text}");
+      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+    });
+  }
+
+  #[test]
+  fn should_not_scan_gitignored_files() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        for plugin in get_multi_plugins_config() {
+          info.add_plugin(plugin);
+        }
+      })
+      .write_file("/.gitignore", "generated/\nlock.json\n")
+      // matching files only exist where the gitignore excludes them
+      .write_file("/generated/app.ts", "")
+      .write_file("/lock.json", "")
       .build();
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
