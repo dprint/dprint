@@ -46,6 +46,7 @@ use crate::utils::FastInsecureHasher;
 use crate::utils::LogLevel;
 use crate::utils::Logger;
 use crate::utils::LoggerOptions;
+use crate::utils::MultiSelectItem;
 use crate::utils::NoProxy;
 use crate::utils::ProgressBars;
 use crate::utils::RealUrlDownloader;
@@ -602,14 +603,8 @@ impl Environment for RealEnvironment {
     show_select(&self.logger, "dprint", prompt_message, item_indent_width, items)
   }
 
-  fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>> {
-    show_multi_select(
-      &self.logger,
-      "dprint",
-      prompt_message,
-      item_indent_width,
-      items.iter().map(|(value, text)| (value.to_owned(), text)).collect(),
-    )
+  fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: Vec<MultiSelectItem>) -> Result<Vec<usize>> {
+    show_multi_select(&self.logger, "dprint", prompt_message, item_indent_width, items)
   }
 
   fn confirm_with_strategy(&self, strategy: &dyn ShowConfirmStrategy) -> Result<bool> {

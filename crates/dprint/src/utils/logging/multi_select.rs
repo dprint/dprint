@@ -3,6 +3,7 @@ use anyhow::bail;
 use crossterm::event::Event;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyModifiers;
+use deno_terminal::colors;
 
 use crate::utils::terminal::get_terminal_size;
 use crate::utils::terminal::read_terminal_key_press;
@@ -11,10 +12,40 @@ use super::Logger;
 use super::LoggerRefreshItemKind;
 use super::LoggerTextItem;
 
+/// An item in a multi-select prompt.
+pub struct MultiSelectItem {
+  pub text: String,
+  /// Whether the item starts out selected.
+  pub is_selected: bool,
+  /// Whether the user can toggle the item. A non-selectable item is shown for
+  /// context (ex. a plugin that's already in the config file) and is never
+  /// part of the result.
+  pub is_selectable: bool,
+}
+
+impl MultiSelectItem {
+  pub fn new(text: String, is_selected: bool) -> Self {
+    MultiSelectItem {
+      text,
+      is_selected,
+      is_selectable: true,
+    }
+  }
+
+  /// An item shown as selected that the user can't toggle.
+  pub fn non_selectable(text: String) -> Self {
+    MultiSelectItem {
+      text,
+      is_selected: true,
+      is_selectable: false,
+    }
+  }
+}
+
 struct MultiSelectData<'a> {
   prompt: &'a str,
   item_hanging_indent: u16,
-  items: Vec<(bool, &'a String)>,
+  items: Vec<MultiSelectItem>,
   /// Text typed by the user to narrow down the visible items.
   filter: String,
   /// Index into the currently visible (filtered) items.
@@ -23,7 +54,9 @@ struct MultiSelectData<'a> {
   scroll_offset: usize,
 }
 
-pub fn show_multi_select(logger: &Logger, context_name: &str, prompt: &str, item_hanging_indent: u16, items: Vec<(bool, &String)>) -> Result<Vec<usize>> {
+/// Shows a multi-select prompt, returning the indexes of the selected items.
+/// Non-selectable items are shown but never returned.
+pub fn show_multi_select(logger: &Logger, context_name: &str, prompt: &str, item_hanging_indent: u16, items: Vec<MultiSelectItem>) -> Result<Vec<usize>> {
   let mut data = MultiSelectData {
     prompt,
     items,
@@ -65,7 +98,10 @@ pub fn show_multi_select(logger: &Logger, context_name: &str, prompt: &str, item
         KeyCode::Char(' ') => {
           // toggle the active item's selection
           if let Some(&item_index) = visible.get(data.active_index) {
-            data.items[item_index].0 = !data.items[item_index].0;
+            let item = &mut data.items[item_index];
+            if item.is_selectable {
+              item.is_selected = !item.is_selected;
+            }
           }
         }
         KeyCode::Backspace => {
@@ -101,8 +137,8 @@ pub fn show_multi_select(logger: &Logger, context_name: &str, prompt: &str, item
 
   // return the selected indexes
   let mut result = Vec::new();
-  for (i, (is_selected, _)) in data.items.iter().enumerate() {
-    if *is_selected {
+  for (i, item) in data.items.iter().enumerate() {
+    if item.is_selected && item.is_selectable {
       result.push(i);
     }
   }
@@ -119,7 +155,7 @@ fn visible_indexes(data: &MultiSelectData) -> Vec<usize> {
     .items
     .iter()
     .enumerate()
-    .filter(|(_, (_, text))| text.to_lowercase().contains(&filter))
+    .filter(|(_, item)| item.text.to_lowercase().contains(&filter))
     .map(|(i, _)| i)
     .collect()
 }
@@ -169,13 +205,18 @@ fn render_multi_select(data: &MultiSelectData, visible: &[usize], max_visible_ro
   }
 
   for (visible_pos, &item_index) in visible.iter().enumerate().take(end).skip(data.scroll_offset) {
-    let (is_selected, item_text) = &data.items[item_index];
+    let item = &data.items[item_index];
     let mut text = String::new();
     text.push_str(if visible_pos == data.active_index { ">" } else { " " });
     text.push_str(" [");
-    text.push_str(if *is_selected { "x" } else { " " });
+    text.push_str(if item.is_selected { "x" } else { " " });
     text.push_str("] ");
-    text.push_str(item_text);
+    // dim the items that can't be toggled so it's clear they're only context
+    if item.is_selectable {
+      text.push_str(&item.text);
+    } else {
+      text.push_str(&colors::gray(&item.text).to_string());
+    }
 
     result.push(LoggerTextItem::HangingText {
       text,
@@ -190,17 +231,18 @@ fn render_multi_select(data: &MultiSelectData, visible: &[usize], max_visible_ro
   result
 }
 
+/// The prompt's final state, logged once it's done: only what the user chose,
+/// since the non-selectable items were shown for context.
 fn render_complete(data: &MultiSelectData) -> Vec<LoggerTextItem> {
   let mut result = Vec::new();
-  if data.items.iter().any(|(is_selected, _)| *is_selected) {
+  let is_chosen = |item: &MultiSelectItem| item.is_selected && item.is_selectable;
+  if data.items.iter().any(is_chosen) {
     result.push(LoggerTextItem::Text(data.prompt.to_string()));
-    for (is_selected, item_text) in data.items.iter() {
-      if *is_selected {
-        result.push(LoggerTextItem::HangingText {
-          text: format!(" * {}", item_text),
-          indent: 3 + data.item_hanging_indent,
-        });
-      }
+    for item in data.items.iter().filter(|item| is_chosen(item)) {
+      result.push(LoggerTextItem::HangingText {
+        text: format!(" * {}", item.text),
+        indent: 3 + data.item_hanging_indent,
+      });
     }
   }
   result
@@ -211,11 +253,15 @@ mod test {
   use super::*;
   use pretty_assertions::assert_eq;
 
-  fn build_data(items: &[(bool, String)]) -> MultiSelectData<'_> {
+  fn build_data(items: &[(bool, String)]) -> MultiSelectData<'static> {
+    build_data_with_items(items.iter().map(|(selected, text)| MultiSelectItem::new(text.clone(), *selected)).collect())
+  }
+
+  fn build_data_with_items(items: Vec<MultiSelectItem>) -> MultiSelectData<'static> {
     MultiSelectData {
       prompt: "Select:",
       item_hanging_indent: 0,
-      items: items.iter().map(|(selected, text)| (*selected, text)).collect(),
+      items,
       filter: String::new(),
       active_index: 0,
       scroll_offset: 0,
@@ -293,6 +339,30 @@ mod test {
       rendered_lines(&render_multi_select(&data, &visible, 10)),
       vec!["Select:", "  [x] alpha", "> [ ] beta"]
     );
+  }
+
+  #[test]
+  fn render_dims_non_selectable_items() {
+    let data = build_data_with_items(vec![
+      MultiSelectItem::new("alpha".to_string(), false),
+      MultiSelectItem::non_selectable("beta".to_string()),
+    ]);
+    let visible = visible_indexes(&data);
+    assert_eq!(
+      rendered_lines(&render_multi_select(&data, &visible, 10)),
+      vec!["Select:".to_string(), "> [ ] alpha".to_string(), format!("  [x] {}", colors::gray("beta")),]
+    );
+  }
+
+  #[test]
+  fn render_complete_only_shows_what_was_chosen() {
+    let data = build_data_with_items(vec![
+      MultiSelectItem::new("alpha".to_string(), true),
+      MultiSelectItem::new("beta".to_string(), false),
+      // shown while selecting, but not something the user chose
+      MultiSelectItem::non_selectable("gamma".to_string()),
+    ]);
+    assert_eq!(rendered_lines(&render_complete(&data)), vec!["Select:", " * alpha"]);
   }
 
   #[test]

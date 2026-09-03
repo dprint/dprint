@@ -58,6 +58,7 @@ use super::PathKind;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
 use crate::utils::LogLevel;
+use crate::utils::MultiSelectItem;
 use crate::utils::ShowConfirmStrategy;
 use crate::utils::get_bytes_hash;
 
@@ -146,6 +147,8 @@ pub struct TestEnvironment {
   remote_file_auth: Arc<Mutex<HashMap<String, Option<String>>>>,
   selection_result: Arc<Mutex<usize>>,
   multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
+  /// The items of the last multi-selection prompt, rendered for assertions.
+  multi_selection_items: Arc<Mutex<Vec<String>>>,
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>>>>>,
   is_stdout_machine_readable: Arc<Mutex<bool>>,
   dir_info_error: Arc<Mutex<Option<io::Error>>>,
@@ -187,6 +190,7 @@ impl TestEnvironment {
       remote_file_auth: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
       multi_selection_result: Arc::new(Mutex::new(None)),
+      multi_selection_items: Default::default(),
       confirm_results: Default::default(),
       is_stdout_machine_readable: Arc::new(Mutex::new(false)),
       dir_info_error: Arc::new(Mutex::new(None)),
@@ -268,6 +272,12 @@ impl TestEnvironment {
 
   pub fn set_multi_selection_result(&self, indexes: Vec<usize>) {
     *self.multi_selection_result.lock() = Some(indexes);
+  }
+
+  /// The items of the last multi-selection prompt, each rendered as it would
+  /// appear in the terminal (ex. `[x] dprint-plugin-json (locked)`).
+  pub fn take_multi_selection_items(&self) -> Vec<String> {
+    std::mem::take(&mut *self.multi_selection_items.lock())
   }
 
   pub fn set_confirm_results(&self, values: Vec<Result<Option<bool>>>) {
@@ -774,12 +784,23 @@ impl Environment for TestEnvironment {
     Ok(*self.selection_result.lock())
   }
 
-  fn get_multi_selection(&self, prompt_message: &str, _: u16, items: &[(bool, String)]) -> Result<Vec<usize>> {
+  fn get_multi_selection(&self, prompt_message: &str, _: u16, items: Vec<MultiSelectItem>) -> Result<Vec<usize>> {
     self.__log_stderr__(prompt_message);
+    *self.multi_selection_items.lock() = items
+      .iter()
+      .map(|item| {
+        format!(
+          "[{}] {}{}",
+          if item.is_selected { "x" } else { " " },
+          item.text,
+          if item.is_selectable { "" } else { " (locked)" }
+        )
+      })
+      .collect();
     let default_values = items
       .iter()
       .enumerate()
-      .filter_map(|(i, (selected, _))| if *selected { Some(i) } else { None })
+      .filter_map(|(i, item)| (item.is_selected && item.is_selectable).then_some(i))
       .collect();
     Ok(self.multi_selection_result.lock().clone().unwrap_or(default_values))
   }

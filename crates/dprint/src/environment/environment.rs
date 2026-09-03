@@ -27,6 +27,7 @@ use sys_traits::ThreadSleep;
 use crate::plugins::CompilationResult;
 use crate::utils::BasicShowConfirmStrategy;
 use crate::utils::LogLevel;
+use crate::utils::MultiSelectItem;
 use crate::utils::ProgressBars;
 use crate::utils::ShowConfirmStrategy;
 
@@ -313,7 +314,9 @@ pub trait Environment:
   fn cli_version(&self) -> String;
   fn get_time_secs(&self) -> u64;
   fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize>;
-  fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[(bool, String)]) -> Result<Vec<usize>>;
+  /// Prompts for multiple items, returning the indexes of the selected ones.
+  /// Items that aren't selectable are shown but never returned.
+  fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: Vec<MultiSelectItem>) -> Result<Vec<usize>>;
   fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool> {
     self.confirm_with_strategy(&BasicShowConfirmStrategy {
       prompt: prompt_message,

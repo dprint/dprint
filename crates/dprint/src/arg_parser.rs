@@ -614,7 +614,7 @@ pub enum CliArgParserKind {
 pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
   fn init_command() -> Command {
     Command::new("init")
-      .about("Initializes a configuration file in the current directory.")
+      .about("Initializes a configuration file in the current directory, or adds plugins to an existing one.")
       .arg(
         Arg::new("global")
           .long("global")

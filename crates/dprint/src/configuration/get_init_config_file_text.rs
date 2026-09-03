@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 
 use anyhow::Result;
+use anyhow::bail;
 use dprint_core::async_runtime::future;
 use dprint_core::plugins::wasm::{self};
 use jsonc_parser::cst::CstInputValue;
@@ -10,6 +11,7 @@ use jsonc_parser::cst::CstRootNode;
 
 use crate::environment::DirEntry;
 use crate::environment::Environment;
+use crate::plugins::InfoFile;
 use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::MinimumDependencyAgeError;
 use crate::plugins::ResolveNpmLatestOptions;
@@ -20,6 +22,7 @@ use crate::utils::DirEntriesHint;
 use crate::utils::GitIgnoreTree;
 use crate::utils::GitIgnoreTreeOptions;
 use crate::utils::MinimumDependencyAgeArg;
+use crate::utils::MultiSelectItem;
 use crate::utils::resolve_global_gitignore_lines;
 
 /// Maximum number of files to look at when scanning the current directory to
@@ -43,57 +46,49 @@ pub struct GetInitConfigFileTextOptions {
   pub config_dir: Option<PathBuf>,
 }
 
+/// Options for [`get_init_plugins_to_add`].
+pub struct GetInitPluginsToAddOptions {
+  /// Names, as they appear in the info file, of the plugins the config file
+  /// already has. They're shown in the prompt, but can't be selected.
+  pub existing_plugin_names: HashSet<String>,
+  /// Don't add an npm plugin version published more recently than this.
+  pub minimum_dependency_age: Option<MinimumDependencyAgeArg>,
+  /// Directory of the config file being added to. An .npmrc setting
+  /// `min-release-age` is looked for here and in its ancestors.
+  pub config_dir: Option<PathBuf>,
+}
+
+/// The outcome of prompting for plugins to add to a config file that already
+/// exists.
+pub enum InitPluginsToAdd {
+  /// The config file already has every plugin the info file knows about, so
+  /// there was nothing to prompt for.
+  AllPluginsConfigured,
+  /// The entries to append to the config file's `plugins` array. Empty when
+  /// the user selected nothing.
+  Entries(Vec<String>),
+}
+
 pub async fn get_init_config_file_text(environment: &impl Environment, options: GetInitConfigFileTextOptions) -> Result<String> {
-  let info = match read_info_file(environment).await {
-    Ok(info) => {
-      // ok to only check wasm here because the configuration file is only ever initialized with wasm plugins
-      if wasm::PLUGIN_SYSTEM_SCHEMA_VERSION < info.plugin_system_schema_version {
-        log_error!(
-          environment,
-          concat!(
-            "You are using an old version of dprint so the created config file may not be as helpful of a starting point. ",
-            "Consider upgrading to support new plugins. ",
-            "Plugin system schema version is {}, latest is {}."
-          ),
-          wasm::PLUGIN_SYSTEM_SCHEMA_VERSION,
-          info.plugin_system_schema_version,
-        );
-        None
-      } else {
-        Some(info)
-      }
-    }
-    Err(err) => {
-      log_error!(
-        environment,
-        concat!(
-          "There was a problem getting the latest plugin info. ",
-          "The created config file may not be as helpful of a starting point. ",
-          "Error: {}"
-        ),
-        err,
-      );
-      None
-    }
-  };
+  let info = read_plugin_info_file(environment).await;
 
   let selected_plugins = if let Some(info) = info {
     let latest_plugins = info.latest_plugins;
     // pre-select the plugins that match files found in the current directory
     let project_files = scan_project_files(environment);
-    let defaults = compute_default_selections(&latest_plugins, &project_files);
+    let defaults = compute_default_selections(&latest_plugins, &project_files, &[]);
 
     let mut selected_indexes = if options.non_interactive {
       defaults.iter().enumerate().filter_map(|(i, on)| on.then_some(i)).collect::<Vec<_>>()
     } else {
       // show the pre-selected plugins at the top of the list
-      let order = display_order(&defaults);
+      let order = display_order(&defaults, &[]);
       let prompt_message = "Select plugins (space to toggle, type to filter, enter to finish):";
       let items = order
         .iter()
-        .map(|&i| (defaults[i], plugin_display_text(&latest_plugins[i])))
+        .map(|&i| MultiSelectItem::new(plugin_display_text(&latest_plugins[i]), defaults[i]))
         .collect::<Vec<_>>();
-      let chosen = environment.get_multi_selection(prompt_message, 0, &items)?;
+      let chosen = environment.get_multi_selection(prompt_message, 0, items)?;
       chosen.into_iter().map(|display_index| order[display_index]).collect::<Vec<_>>()
     };
     // keep the config file in info.json order regardless of the display order
@@ -134,6 +129,96 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
   };
 
   Ok(json_text)
+}
+
+/// Prompts for plugins to add to a config file that already exists,
+/// pre-selecting the ones that match files in the current directory the config
+/// doesn't already have a plugin for. The plugins it does have are shown in
+/// the prompt for context, but can't be selected.
+pub async fn get_init_plugins_to_add(environment: &impl Environment, options: GetInitPluginsToAddOptions) -> Result<InitPluginsToAdd> {
+  let Some(info) = read_plugin_info_file(environment).await else {
+    bail!("Could not get the latest plugin info, so there's nothing to select from.");
+  };
+  let latest_plugins = info.latest_plugins;
+  let already_configured = latest_plugins
+    .iter()
+    .map(|plugin| options.existing_plugin_names.contains(&plugin.name))
+    .collect::<Vec<_>>();
+  if already_configured.iter().all(|configured| *configured) {
+    return Ok(InitPluginsToAdd::AllPluginsConfigured);
+  }
+
+  // pre-select the plugins matching files in the current directory, leaving out
+  // the file types the config file's plugins already handle
+  let project_files = scan_project_files(environment);
+  let defaults = compute_default_selections(&latest_plugins, &project_files, &already_configured);
+  // show the pre-selected plugins at the top and the ones already in the config at the bottom
+  let order = display_order(&defaults, &already_configured);
+  let prompt_message = "Select plugins to add (space to toggle, type to filter, enter to finish):";
+  let items = order
+    .iter()
+    .map(|&i| {
+      if already_configured[i] {
+        MultiSelectItem::non_selectable(format!("{} (already in config)", latest_plugins[i].name))
+      } else {
+        MultiSelectItem::new(plugin_display_text(&latest_plugins[i]), defaults[i])
+      }
+    })
+    .collect::<Vec<_>>();
+  let chosen = environment.get_multi_selection(prompt_message, 0, items)?;
+  let mut selected_indexes = chosen.into_iter().map(|display_index| order[display_index]).collect::<Vec<_>>();
+  // add them to the config file in info.json order regardless of the display order
+  selected_indexes.sort_unstable();
+
+  // an .npmrc setting `min-release-age` is looked for where the config file lives
+  let age_cutoff = resolve_dependency_age_cutoff(options.minimum_dependency_age.as_ref(), options.config_dir.as_deref(), environment);
+  // resolve concurrently — a plugin distributed on npm costs a registry round trip
+  let entries = future::join_all(
+    selected_indexes
+      .iter()
+      .map(|&index| resolve_plugin_entry(&latest_plugins[index], age_cutoff.as_ref(), environment)),
+  )
+  .await
+  .into_iter()
+  .collect::<Result<Vec<_>>>()?;
+  Ok(InitPluginsToAdd::Entries(entries))
+}
+
+/// Reads the plugin info file, logging why the command is going to be less
+/// helpful when it can't be read or is too new for this version of dprint.
+async fn read_plugin_info_file(environment: &impl Environment) -> Option<InfoFile> {
+  match read_info_file(environment).await {
+    Ok(info) => {
+      // ok to only check wasm here because the configuration file is only ever initialized with wasm plugins
+      if wasm::PLUGIN_SYSTEM_SCHEMA_VERSION < info.plugin_system_schema_version {
+        log_error!(
+          environment,
+          concat!(
+            "You are using an old version of dprint so the created config file may not be as helpful of a starting point. ",
+            "Consider upgrading to support new plugins. ",
+            "Plugin system schema version is {}, latest is {}."
+          ),
+          wasm::PLUGIN_SYSTEM_SCHEMA_VERSION,
+          info.plugin_system_schema_version,
+        );
+        None
+      } else {
+        Some(info)
+      }
+    }
+    Err(err) => {
+      log_error!(
+        environment,
+        concat!(
+          "There was a problem getting the latest plugin info. ",
+          "The created config file may not be as helpful of a starting point. ",
+          "Error: {}"
+        ),
+        err,
+      );
+      None
+    }
+  }
 }
 
 /// A plugin `dprint init` decided to write to the config file.
@@ -255,23 +340,36 @@ struct ProjectFiles {
 /// A plugin matches via its own file extensions / file names or via any of its
 /// config items (ex. `dprint-plugin-exec` declares no extensions of its own but
 /// pre-selects when one of its command's file types is present).
-fn compute_default_selections(plugins: &[InfoFilePluginInfo], project_files: &ProjectFiles) -> Vec<bool> {
+///
+/// `already_configured` marks the plugins a config file already has (empty when
+/// there's no config file yet). They claim their file types before anything
+/// else and are never selected, so nothing is suggested for a file type that's
+/// already handled.
+fn compute_default_selections(plugins: &[InfoFilePluginInfo], project_files: &ProjectFiles, already_configured: &[bool]) -> Vec<bool> {
+  let is_already_configured = |index: usize| already_configured.get(index).copied().unwrap_or(false);
   let mut claimed_extensions: HashSet<String> = HashSet::new();
   let mut claimed_file_names: HashSet<String> = HashSet::new();
   let mut used_config_keys: HashSet<&str> = HashSet::new();
   let mut selected = vec![false; plugins.len()];
 
   for (i, plugin) in plugins.iter().enumerate() {
+    if !is_already_configured(i) {
+      continue;
+    }
+    claimed_extensions.extend(present_extensions(plugin, project_files));
+    claimed_file_names.extend(present_file_names(plugin, project_files));
+    if let Some(config_key) = config_key(plugin) {
+      used_config_keys.insert(config_key);
+    }
+  }
+
+  for (i, plugin) in plugins.iter().enumerate() {
+    if is_already_configured(i) {
+      continue;
+    }
     // present extensions / file names that this plugin matches
-    let present_extensions = match_extensions(plugin)
-      .into_iter()
-      .filter(|ext| project_files.extensions.contains(ext))
-      .collect::<Vec<_>>();
-    let present_file_names = match_file_names(plugin)
-      .into_iter()
-      .filter(|name| project_files.file_names.contains(*name))
-      .map(|name| name.to_string())
-      .collect::<Vec<_>>();
+    let present_extensions = present_extensions(plugin, project_files);
+    let present_file_names = present_file_names(plugin, project_files);
 
     // select it only if it's the first to match at least one of those
     let claims_unclaimed =
@@ -295,12 +393,33 @@ fn compute_default_selections(plugins: &[InfoFilePluginInfo], project_files: &Pr
   selected
 }
 
+/// The extensions found in the current directory that a plugin matches.
+fn present_extensions(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> Vec<String> {
+  match_extensions(plugin)
+    .into_iter()
+    .filter(|ext| project_files.extensions.contains(ext))
+    .collect()
+}
+
+/// The file names found in the current directory that a plugin matches.
+fn present_file_names(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> Vec<String> {
+  match_file_names(plugin)
+    .into_iter()
+    .filter(|name| project_files.file_names.contains(*name))
+    .map(|name| name.to_string())
+    .collect()
+}
+
 /// The order plugins are displayed in: the pre-selected ones first (each group
-/// in info.json order), so the relevant plugins are at the top of the list.
-fn display_order(defaults: &[bool]) -> Vec<usize> {
-  let selected = (0..defaults.len()).filter(|&i| defaults[i]);
-  let unselected = (0..defaults.len()).filter(|&i| !defaults[i]);
-  selected.chain(unselected).collect()
+/// in info.json order), so the relevant plugins are at the top of the list, and
+/// the ones a config file already has at the bottom since they're only there
+/// for context.
+fn display_order(defaults: &[bool], already_configured: &[bool]) -> Vec<usize> {
+  let is_already_configured = |index: usize| already_configured.get(index).copied().unwrap_or(false);
+  let selected = (0..defaults.len()).filter(|&i| defaults[i] && !is_already_configured(i));
+  let unselected = (0..defaults.len()).filter(|&i| !defaults[i] && !is_already_configured(i));
+  let already_configured = (0..defaults.len()).filter(|&i| is_already_configured(i));
+  selected.chain(unselected).chain(already_configured).collect()
 }
 
 /// All the file extensions a plugin matches (its own plus its config items'),
@@ -819,11 +938,118 @@ mod test {
   }
 
   #[test]
+  fn should_get_plugins_to_add_to_an_existing_config_file() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info
+          .add_plugin(wasm_plugin("a", "a", &["ts"]))
+          .add_plugin(wasm_plugin("b", "b", &["json"]))
+          .add_plugin(wasm_plugin("c", "c", &["md"]));
+      })
+      .write_file("/main.ts", "")
+      .write_file("/data.json", "")
+      .build();
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let plugins = get_init_plugins_to_add(
+          &environment,
+          GetInitPluginsToAddOptions {
+            existing_plugin_names: HashSet::from(["a".to_string()]),
+            minimum_dependency_age: None,
+            config_dir: None,
+          },
+        )
+        .await
+        .unwrap();
+        // `b` is pre-selected because of the .json file, `a` is only shown for
+        // context since the config file already has it (even though .ts matched)
+        assert_eq!(
+          environment.take_multi_selection_items(),
+          vec!["[x] b (.json)", "[ ] c (.md)", "[x] a (already in config) (locked)"]
+        );
+        let InitPluginsToAdd::Entries(entries) = plugins else {
+          unreachable!();
+        };
+        assert_eq!(entries, vec!["https://plugins.dprint.dev/b-1.0.0.wasm".to_string()]);
+        assert_eq!(
+          environment.take_stderr_messages(),
+          vec!["Select plugins to add (space to toggle, type to filter, enter to finish):"]
+        );
+      }
+    });
+  }
+
+  #[test]
+  fn should_not_suggest_a_plugin_for_a_file_type_an_existing_plugin_handles() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "a", &["ts"])).add_plugin(wasm_plugin("b", "b", &["ts"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let plugins = get_init_plugins_to_add(
+          &environment,
+          GetInitPluginsToAddOptions {
+            existing_plugin_names: HashSet::from(["a".to_string()]),
+            minimum_dependency_age: None,
+            config_dir: None,
+          },
+        )
+        .await
+        .unwrap();
+        // `a` already handles .ts, so `b` isn't pre-selected
+        assert_eq!(
+          environment.take_multi_selection_items(),
+          vec!["[ ] b (.ts)", "[x] a (already in config) (locked)"]
+        );
+        let InitPluginsToAdd::Entries(entries) = plugins else {
+          unreachable!();
+        };
+        assert!(entries.is_empty());
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_not_prompt_when_the_config_file_has_every_plugin() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "a", &["ts"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let plugins = get_init_plugins_to_add(
+          &environment,
+          GetInitPluginsToAddOptions {
+            existing_plugin_names: HashSet::from(["a".to_string()]),
+            minimum_dependency_age: None,
+            config_dir: None,
+          },
+        )
+        .await
+        .unwrap();
+        assert!(matches!(plugins, InitPluginsToAdd::AllPluginsConfigured));
+        assert!(environment.take_multi_selection_items().is_empty());
+      }
+    });
+  }
+
+  #[test]
   fn display_order_lists_selected_first() {
-    assert_eq!(display_order(&[false, true, false, true]), vec![1, 3, 0, 2]);
-    assert_eq!(display_order(&[true, true]), vec![0, 1]);
-    assert_eq!(display_order(&[false, false, false]), vec![0, 1, 2]);
-    assert_eq!(display_order(&[]), Vec::<usize>::new());
+    assert_eq!(display_order(&[false, true, false, true], &[]), vec![1, 3, 0, 2]);
+    assert_eq!(display_order(&[true, true], &[]), vec![0, 1]);
+    assert_eq!(display_order(&[false, false, false], &[]), vec![0, 1, 2]);
+    assert_eq!(display_order(&[], &[]), Vec::<usize>::new());
+    // the plugins already in the config file go last
+    assert_eq!(display_order(&[false, true, false], &[true, false, false]), vec![1, 2, 0]);
   }
 
   #[test]
