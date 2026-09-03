@@ -685,6 +685,8 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
   fn minimum_dependency_age_arg() -> Arg {
     Arg::new("minimum-dependency-age")
       .long("minimum-dependency-age")
+      // undocumented alias for people used to npm's option name
+      .alias("minimum-release-age")
       .value_name("AGE")
       .help(concat!(
         "Don't resolve npm plugin versions published more recently than this. Accepts an ISO-8601 duration ",
@@ -1463,6 +1465,24 @@ mod test {
       }
       _ => unreachable!(),
     }
+  }
+
+  #[test]
+  fn minimum_release_age_is_an_undocumented_alias() {
+    let args = test_args(vec!["add", "--minimum-release-age", "P3D", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { minimum_dependency_age, .. }) => {
+        let arg = minimum_dependency_age.as_ref().unwrap();
+        assert_eq!(*arg.age(), MinimumDependencyAge::Age(std::time::Duration::from_secs(3 * 86400)));
+      }
+      _ => unreachable!(),
+    }
+
+    // it's an alias, so it stays out of the help text
+    let mut cli_parser = create_cli_parser(CliArgParserKind::ForOutputtingMainHelp);
+    cli_parser.try_get_matches_from_mut(vec![""]).unwrap();
+    let help_text = format!("{}", cli_parser.render_long_help());
+    assert!(!help_text.contains("minimum-release-age"), "got: {}", help_text);
   }
 
   #[test]
