@@ -1796,7 +1796,7 @@ mod test {
     let stderr = environment.take_stderr_messages();
     assert!(
       stderr.iter().any(|m| m
-        .contains("Using @dprint/test-plugin 0.2.0 instead of 0.3.0, which is newer than the minimum dependency age allows (min-release-age=3 in .npmrc).")),
+        .contains("Using @dprint/test-plugin 0.2.0 instead of 0.3.0, which is newer than the minimum dependency age allows (min-release-age=3 in .npmrc). Pass --minimum-dependency-age=0 to use the latest version.")),
       "got: {stderr:?}"
     );
     environment.take_stdout_messages();
@@ -4282,7 +4282,7 @@ text",
     let stderr = environment.take_stderr_messages();
     assert!(
       stderr.iter().any(|m| m
-        .contains("Using @dprint/test-plugin 0.2.0 instead of 0.3.0, which is newer than the minimum dependency age allows (min-release-age=3 in .npmrc).")),
+        .contains("Using @dprint/test-plugin 0.2.0 instead of 0.3.0, which is newer than the minimum dependency age allows (min-release-age=3 in .npmrc). Pass --minimum-dependency-age=0 to use the latest version.")),
       "got: {stderr:?}"
     );
     let _ = environment.take_stdout_messages();

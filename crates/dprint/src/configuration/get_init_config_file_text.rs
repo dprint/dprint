@@ -1061,7 +1061,7 @@ mod test {
       // 1.1.0 landed the day before "now", so the release before it is written
       assert!(text.contains("\"npm:@dprint/a@1.0.0\""), "{text}");
       let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
-      expected_messages.push("Using @dprint/a 1.0.0 instead of 1.1.0, which is newer than the minimum dependency age allows (--minimum-dependency-age P3D).");
+      expected_messages.push("Using @dprint/a 1.0.0 instead of 1.1.0, which is newer than the minimum dependency age allows (--minimum-dependency-age P3D). Pass --minimum-dependency-age=0 to use the latest version.");
       assert_eq!(environment.take_stderr_messages(), expected_messages);
     });
   }

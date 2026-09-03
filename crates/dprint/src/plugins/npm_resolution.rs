@@ -326,7 +326,7 @@ fn select_version_from_packument(
       }
       log_stderr_info!(
         environment,
-        "Using {} {} instead of {}, which is newer than the minimum dependency age allows ({}).",
+        "Using {} {} instead of {}, which is newer than the minimum dependency age allows ({}). Pass --minimum-dependency-age=0 to use the latest version.",
         name,
         version,
         latest,
@@ -1578,7 +1578,7 @@ mod tests {
     assert_eq!(version.unwrap(), "1.0.1");
     assert_eq!(
       logged,
-      vec!["Using foo 1.0.1 instead of 1.1.0, which is newer than the minimum dependency age allows (--minimum-dependency-age P3D).".to_string()]
+      vec!["Using foo 1.0.1 instead of 1.1.0, which is newer than the minimum dependency age allows (--minimum-dependency-age P3D). Pass --minimum-dependency-age=0 to use the latest version.".to_string()]
     );
   }
 
@@ -1619,7 +1619,7 @@ mod tests {
       logged,
       vec![
         "Could not check the age of foo@1.0.5 — its registry doesn't report when it was published. Using it anyway.".to_string(),
-        "Using foo 1.0.5 instead of 1.1.0, which is newer than the minimum dependency age allows (--minimum-dependency-age P3D).".to_string(),
+        "Using foo 1.0.5 instead of 1.1.0, which is newer than the minimum dependency age allows (--minimum-dependency-age P3D). Pass --minimum-dependency-age=0 to use the latest version.".to_string(),
       ]
     );
   }
@@ -1767,7 +1767,7 @@ mod tests {
     assert_eq!(version.unwrap(), "1.0.0");
     assert_eq!(
       logged,
-      vec!["Using foo 1.0.0 instead of 1.1.0, which is newer than the minimum dependency age allows (--minimum-dependency-age 2024-05-05).".to_string()]
+      vec!["Using foo 1.0.0 instead of 1.1.0, which is newer than the minimum dependency age allows (--minimum-dependency-age 2024-05-05). Pass --minimum-dependency-age=0 to use the latest version.".to_string()]
     );
   }
 
