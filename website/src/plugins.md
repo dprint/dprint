@@ -35,6 +35,7 @@ For the latest version and copy-paste URL of every plugin, see [plugins.dprint.d
 - [Jupyter](/plugins/jupyter)
 - [Gofumpt](/plugins/gofumpt) (Go)
 - [Panache](/plugins/panache) (Quarto/Pandoc/R Markdown/Markdown)
+- [Sort package.json](/plugins/sort-package-json) (package.json)
 
 ## Process Plugins
 
