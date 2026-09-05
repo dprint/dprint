@@ -343,7 +343,7 @@ Example output (JSON):
 {
   "configs": [
     {
-      "path": "/home/david/dev/my-project/dprint.json",
+      "path": "dprint.json",
       "hash": "3f9c2a7b1e4d8f60",
       "plugins": [
         { "name": "dprint-plugin-typescript", "version": "0.95.15" },
@@ -354,7 +354,7 @@ Example output (JSON):
 }
 ```
 
-A `configs` entry is emitted for every configuration file dprint discovers (including descendant configuration files), each with the `hash` that gates its incremental cache. The `hash` is the only thing that matters for cache invalidation—the `plugins` list is included so the output is easy to inspect when a hash changes. The output is deterministic across machines for an unchanged configuration.
+A `configs` entry is emitted for every configuration file dprint discovers (including descendant configuration files), each with the `hash` that gates its incremental cache. The `path` is relative to the current working directory so the output is the same regardless of where the repository is checked out. The `hash` is the only thing that matters for cache invalidation—the `plugins` list is included so the output is easy to inspect when a hash changes. The output is deterministic across machines for an unchanged configuration.
 
 This is useful in CI to avoid formatting the entire repository when only a few files changed. For example, format only the files in the changeset when the cache would survive, and otherwise fall back to formatting everything:
 
