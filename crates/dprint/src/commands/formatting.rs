@@ -3726,7 +3726,7 @@ text2"
       })
       .write_file("/file1.txt", "text1")
       .write_file("/file2.txt", "text2")
-      .write_file("/file3.txt", "text3")
+      .write_file("/subdir/file3.txt", "text3")
       .initialize()
       .build();
     let read_incremental_file = || {
@@ -3779,6 +3779,16 @@ text2"
     run_test_cli(vec!["fmt", "--log-level=debug"], &environment).unwrap();
     assert!(environment.take_stderr_messages().iter().any(|msg| msg.contains(skipped_msg)));
     assert_eq!(read_file_hashes(&read_incremental_file()).len(), 4);
+
+    // running from a sub directory only covers that directory, so it's a
+    // partial run and merges too
+    environment.write_file("/subdir/file3.txt", "asdf3").unwrap();
+    environment.set_cwd("/subdir");
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--log-level=debug"], &environment).unwrap();
+    assert!(!environment.take_stderr_messages().iter().any(|msg| msg.contains(skipped_msg)));
+    assert_eq!(read_file_hashes(&read_incremental_file()).len(), 5);
+    environment.set_cwd("/");
 
     // a full run with a change writes only the hashes it saw, pruning the stale one
     environment.write_file("/file2.txt", "asdf2").unwrap();
