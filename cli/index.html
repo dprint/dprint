@@ -325,7 +325,7 @@ C:\dev\my-project\website\playground\src\components\Spinner.tsx
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
   <span class="hljs-attr">"configs"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
     <span class="hljs-punctuation">{</span>
-      <span class="hljs-attr">"path"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"/home/david/dev/my-project/dprint.json"</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">"path"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"dprint.json"</span><span class="hljs-punctuation">,</span>
       <span class="hljs-attr">"hash"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"3f9c2a7b1e4d8f60"</span><span class="hljs-punctuation">,</span>
       <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
         <span class="hljs-punctuation">{</span> <span class="hljs-attr">"name"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"dprint-plugin-typescript"</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">"version"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"0.95.15"</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
@@ -335,7 +335,7 @@ C:\dev\my-project\website\playground\src\components\Spinner.tsx
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
-<p>A <code>configs</code> entry is emitted for every configuration file dprint discovers (including descendant configuration files), each with the <code>hash</code> that gates its incremental cache. The <code>hash</code> is the only thing that matters for cache invalidation—the <code>plugins</code> list is included so the output is easy to inspect when a hash changes. The output is deterministic across machines for an unchanged configuration.</p>
+<p>A <code>configs</code> entry is emitted for every configuration file dprint discovers (including descendant configuration files), each with the <code>hash</code> that gates its incremental cache. The <code>path</code> is relative to the current working directory so the output is the same regardless of where the repository is checked out. The <code>hash</code> is the only thing that matters for cache invalidation—the <code>plugins</code> list is included so the output is easy to inspect when a hash changes. The output is deterministic across machines for an unchanged configuration.</p>
 <p>This is useful in CI to avoid formatting the entire repository when only a few files changed. For example, format only the files in the changeset when the cache would survive, and otherwise fall back to formatting everything:</p>
 <pre><code class="language-sh hljs language-bash">git checkout main
 previous_state=$(dprint incremental-state)
