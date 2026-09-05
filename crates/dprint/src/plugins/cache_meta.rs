@@ -81,11 +81,13 @@ impl PluginCacheMeta {
 /// they get a fresh hash; the now-unreferenced old files stay on disk until
 /// `clear-cache`.
 pub fn current_signature(environment: &impl Environment) -> String {
-  // `wasm_cache_key` already covers cpu arch + rustc version; `os` distinguishes
+  // `wasm_cache_key` already covers cpu arch, rustc version and wasmtime's
+  // precompile compatibility (cpu features etc.); `os` distinguishes
   // musl/glibc/etc for process plugins. Process plugins technically don't care
   // about the wasm bits, but folding everything in keeps the key kind-agnostic
-  // (so we can hash before resolving an npm plugin's kind) at the only cost of a
-  // rare, cheap re-extract on a dprint upgrade.
+  // (so we can hash before resolving an npm plugin's kind) at the cost of a
+  // rare, cheap re-extract on a dprint upgrade and, in a cache directory shared
+  // across machines with different cpu features, an extracted copy per variant.
   format!(
     "{}-{}-{}-{}",
     PLUGIN_CACHE_SCHEMA_VERSION,

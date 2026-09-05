@@ -91,8 +91,8 @@ impl WasmModule {
 }
 
 /// A hash of everything wasmtime checks before loading a precompiled module:
-/// the target, the cpu features the code was tuned for, and the compiler
-/// settings. Including it in the plugin cache key gives artifacts compiled on
+/// the target, the cpu features the code was tuned for, the compiler settings
+/// and the wasmtime version. Including it in the plugin cache key gives artifacts compiled on
 /// different cpus distinct cache entries, so they can coexist in a cache
 /// directory shared across machines (ex. restored from a CI cache) instead of
 /// overwriting each other on every machine change.
