@@ -648,12 +648,16 @@ impl Environment for RealEnvironment {
   fn wasm_cache_key(&self) -> String {
     let cpu = self.cpu_arch();
     let mut hash = FastInsecureHasher::default();
-    // wasmtime tunes native code to the host CPU features and embeds a
-    // compatibility check in the serialized artifact, refusing to deserialize an
-    // incompatible one (the caller then recompiles). that covers CPU-feature
-    // drift; we still hash the rustc version because deserialization can break
-    // across a rust upgrade. https://github.com/dprint/dprint/issues/735
+    // wasmtime tunes native code to the host CPU features and refuses to
+    // deserialize an artifact compiled for incompatible ones (the caller then
+    // recompiles), so include what it checks in the key. that way artifacts for
+    // different CPUs get distinct cache entries and coexist in a cache directory
+    // shared across machines, such as one restored from a CI cache, rather than
+    // each machine overwriting the other's. the rustc version is hashed too
+    // because deserialization can break across a rust upgrade.
+    // https://github.com/dprint/dprint/issues/735
     env!("RUSTC_VERSION_TEXT").hash(&mut hash);
+    crate::plugins::wasm_precompile_compatibility_hash().hash(&mut hash);
     format!("{}-{}", cpu, hash.finish())
   }
 
