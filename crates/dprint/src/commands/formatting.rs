@@ -23,6 +23,7 @@ use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::format::RunForFilePathError;
 use crate::format::run_parallelized;
+use crate::incremental::GetIncrementalFileOptions;
 use crate::incremental::get_incremental_file;
 use crate::patterns::FileMatcher;
 use crate::patterns::FileMatcherOptions;
@@ -172,7 +173,17 @@ pub async fn check<TEnvironment: Environment>(
       .scope
       .config
       .as_ref()
-      .and_then(|config| get_incremental_file(cmd.incremental, config, &scope_and_paths.scope, environment))
+      .and_then(|config| {
+        get_incremental_file(
+          GetIncrementalFileOptions {
+            incremental_cli_arg: cmd.incremental,
+            is_partial_run: cmd.patterns.is_partial_run(),
+          },
+          config,
+          &scope_and_paths.scope,
+          environment,
+        )
+      })
       .map(Arc::new);
     run_parallelized(scope_and_paths, environment, incremental_file.clone(), EnsureStableFormat(false), {
       let not_formatted_files_count = not_formatted_files_count.clone();
@@ -367,7 +378,17 @@ pub async fn format<TEnvironment: Environment>(
       .scope
       .config
       .as_ref()
-      .and_then(|config| get_incremental_file(cmd.incremental, config, &scope_and_paths.scope, environment))
+      .and_then(|config| {
+        get_incremental_file(
+          GetIncrementalFileOptions {
+            incremental_cli_arg: cmd.incremental,
+            is_partial_run: cmd.patterns.is_partial_run(),
+          },
+          config,
+          &scope_and_paths.scope,
+          environment,
+        )
+      })
       .map(Arc::new);
     let output_diff = cmd.diff;
     let diff_format = cmd.diff_format;
@@ -3695,6 +3716,87 @@ text2"
         .any(|msg| msg.contains("No change: /subdir/file1.txt")),
       true
     );
+  }
+
+  #[test]
+  fn should_only_write_incremental_file_when_changed() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file("/file1.txt", "text1")
+      .write_file("/file2.txt", "text2")
+      .write_file("/subdir/file3.txt", "text3")
+      .initialize()
+      .build();
+    let read_incremental_file = || {
+      let dir = environment.get_cache_dir().join_panic_relative("incremental");
+      let entries = environment.dir_info(&dir).unwrap();
+      assert_eq!(entries.len(), 1);
+      match &entries[0] {
+        crate::environment::DirEntry::File { path, .. } => environment.read_file(path).unwrap(),
+        entry => panic!("Expected a file: {:?}", entry),
+      }
+    };
+    let read_file_hashes = |text: &str| -> Vec<u64> {
+      let data: serde_json::Value = serde_json::from_str(text).unwrap();
+      data["fileHashes"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect()
+    };
+    let skipped_msg = "Incremental file unchanged. Skipping write.";
+
+    run_test_cli(vec!["fmt", "--log-level=debug"], &environment).unwrap();
+    assert!(!environment.take_stderr_messages().iter().any(|msg| msg.contains(skipped_msg)));
+    let first_text = read_incremental_file();
+    assert_eq!(read_file_hashes(&first_text).len(), 3);
+
+    // nothing changed, so the file is not rewritten and its bytes stay the same
+    // (the hashes are serialized from a HashSet, so a rewrite would reorder them)
+    for _ in 0..3 {
+      environment.clear_logs();
+      run_test_cli(vec!["fmt", "--log-level=debug"], &environment).unwrap();
+      assert!(environment.take_stderr_messages().iter().any(|msg| msg.contains(skipped_msg)));
+      assert_eq!(read_incremental_file(), first_text);
+    }
+
+    // formatting a subset of already formatted files learns nothing new, so
+    // the file is kept as-is rather than shrunk to just the files seen
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--log-level=debug", "/file1.txt"], &environment).unwrap();
+    assert!(environment.take_stderr_messages().iter().any(|msg| msg.contains(skipped_msg)));
+    assert_eq!(read_incremental_file(), first_text);
+
+    // a file changed in a partial run, so the file is rewritten with the new
+    // hash merged into the existing ones (the old hash of the changed file is
+    // kept until a full run prunes it)
+    environment.write_file("/file1.txt", "asdf").unwrap();
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--log-level=debug", "/file1.txt"], &environment).unwrap();
+    assert!(!environment.take_stderr_messages().iter().any(|msg| msg.contains(skipped_msg)));
+    assert_eq!(read_file_hashes(&read_incremental_file()).len(), 4);
+
+    // a full run that learns nothing new doesn't prune yet
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--log-level=debug"], &environment).unwrap();
+    assert!(environment.take_stderr_messages().iter().any(|msg| msg.contains(skipped_msg)));
+    assert_eq!(read_file_hashes(&read_incremental_file()).len(), 4);
+
+    // running from a sub directory only covers that directory, so it's a
+    // partial run and merges too
+    environment.write_file("/subdir/file3.txt", "asdf3").unwrap();
+    environment.set_cwd("/subdir");
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--log-level=debug"], &environment).unwrap();
+    assert!(!environment.take_stderr_messages().iter().any(|msg| msg.contains(skipped_msg)));
+    assert_eq!(read_file_hashes(&read_incremental_file()).len(), 5);
+    environment.set_cwd("/");
+
+    // a full run with a change writes only the hashes it saw, pruning the stale one
+    environment.write_file("/file2.txt", "asdf2").unwrap();
+    environment.clear_logs();
+    run_test_cli(vec!["fmt", "--log-level=debug"], &environment).unwrap();
+    assert!(!environment.take_stderr_messages().iter().any(|msg| msg.contains(skipped_msg)));
+    assert_eq!(read_file_hashes(&read_incremental_file()).len(), 3);
+    environment.clear_logs();
   }
 
   #[test]
