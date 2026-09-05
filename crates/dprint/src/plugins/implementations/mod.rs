@@ -8,6 +8,7 @@ pub use wasm::WASM_PLUGIN_THREAD_STACK_SIZE;
 
 pub use wasm::WasmModuleCreator;
 pub use wasm::compile as compile_wasm;
+pub use wasm::precompile_compatibility_hash as wasm_precompile_compatibility_hash;
 
 pub use process::get_os_path as get_process_plugin_os_path;
 pub use process::parse_process_plugin_file;

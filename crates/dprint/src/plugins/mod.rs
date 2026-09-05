@@ -19,6 +19,7 @@ pub use types::*;
 
 pub use implementations::WASM_PLUGIN_THREAD_STACK_SIZE;
 pub use implementations::compile_wasm;
+pub use implementations::wasm_precompile_compatibility_hash;
 pub use name_resolution::PluginNameResolutionMaps;
 pub use npm_resolution::FetchNpmLatestInfo;
 pub use npm_resolution::MinimumDependencyAgeError;
