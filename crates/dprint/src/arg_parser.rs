@@ -309,6 +309,19 @@ pub struct FilePatternArgs {
   pub only_dirty: bool,
 }
 
+impl FilePatternArgs {
+  /// Whether the arguments limit the run to some of the files the
+  /// configuration would otherwise cover.
+  pub fn is_partial_run(&self) -> bool {
+    self.include_patterns.is_some()
+      || self.include_pattern_overrides.is_some()
+      || !self.exclude_patterns.is_empty()
+      || self.exclude_pattern_overrides.is_some()
+      || self.only_staged
+      || self.only_dirty
+  }
+}
+
 #[derive(Debug, Error)]
 #[error(transparent)]
 pub struct ParseArgsError(#[from] anyhow::Error);
