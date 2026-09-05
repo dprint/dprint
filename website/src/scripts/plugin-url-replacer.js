@@ -19,6 +19,7 @@ const pluginPlaceholders = new Map([
   ["\"https://plugins.dprint.dev/g-plane/pretty_graphql-vx.x.x.wasm\"", "g-plane/pretty_graphql"],
   ["\"https://plugins.dprint.dev/jakebailey/gofumpt-vx.x.x.wasm\"", "jakebailey/dprint-plugin-gofumpt"],
   ["\"https://plugins.dprint.dev/jolars/panache-x.x.x.wasm\"", "jolars/panache"],
+  ["\"https://plugins.dprint.dev/colinaaa/sort-package-json-x.x.x.wasm\"", "colinaaa/sort-package-json"],
 ]);
 
 export function replacePluginUrls() {

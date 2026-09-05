@@ -37,6 +37,7 @@ Repos:
 - [pretty_yaml](https://github.com/g-plane/pretty_yaml) - YAML formatter.
 - [dprint-plugin-gofumpt](https://github.com/jakebailey/dprint-plugin-gofumpt) - Go (gofumpt) formatter.
 - [panache](https://github.com/jolars/dprint-plugin-panache) - Quarto, Pandoc, R Markdown, and Markdown formatter.
+- [dprint-plugin-sort-package-json](https://github.com/colinaaa/dprint-plugin-sort-package-json) - Sorts package.json keys into a conventional order.
 - [dprint-plugin-swift](https://github.com/drluckyspin/dprint-plugin-swift) - Swift (SwiftFormat) formatter.
 
 ## Notes
