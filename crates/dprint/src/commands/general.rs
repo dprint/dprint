@@ -14,6 +14,7 @@ use crate::plugins::PluginResolver;
 use crate::resolution::ResolvePluginsScopeAndPathsOptions;
 use crate::resolution::get_plugins_scope_from_args;
 use crate::resolution::resolve_plugins_scope_and_paths;
+use crate::utils::PathSource;
 use crate::utils::get_table_text;
 use crate::utils::is_out_of_date;
 
@@ -185,6 +186,7 @@ pub async fn incremental_state<TEnvironment: Environment>(
   )
   .await?;
 
+  let cwd = environment.cwd();
   let mut configs = Vec::new();
   for scope_and_paths in scopes.iter() {
     let scope = &scope_and_paths.scope;
@@ -193,7 +195,7 @@ pub async fn incremental_state<TEnvironment: Environment>(
     };
     scope.ensure_valid_for_cli_args(args)?;
     configs.push(ConfigIncrementalState {
-      path: config.source.to_string(),
+      path: display_config_source(&config.source, &cwd),
       // format as fixed width hex so the value is stable and easy to diff
       hash: format!("{:016x}", scope.plugins_hash()),
       plugins: scope
@@ -226,10 +228,58 @@ pub fn completions<TEnvironment: Environment>(shell: clap_complete::Shell, envir
   Ok(())
 }
 
+/// Displays a config source relative to the cwd so the output is the same
+/// regardless of where the repository is checked out.
+fn display_config_source(source: &PathSource, cwd: &CanonicalizedPathBuf) -> String {
+  match source {
+    PathSource::Local(local) => get_relative_path(cwd, &local.path).unwrap_or_else(|| local.path.to_string_lossy().replace('\\', "/")),
+    PathSource::Remote(_) | PathSource::Npm(_) => source.to_string(),
+  }
+}
+
+/// Gets a forward slashed path from `base` to `path`, or `None` when they
+/// don't share a root (ex. different Windows drives).
+fn get_relative_path(base: &CanonicalizedPathBuf, path: &CanonicalizedPathBuf) -> Option<String> {
+  use std::path::Component;
+
+  let mut base_components = base.as_ref().components().peekable();
+  let mut path_components = path.as_ref().components().peekable();
+
+  // skip the common prefix
+  while let (Some(base_component), Some(path_component)) = (base_components.peek(), path_components.peek()) {
+    if base_component != path_component {
+      break;
+    }
+    base_components.next();
+    path_components.next();
+  }
+
+  let mut parts = Vec::new();
+  for base_component in base_components {
+    match base_component {
+      // no common root, so a relative path can't be built
+      Component::Prefix(_) | Component::RootDir => return None,
+      Component::Normal(_) => parts.push(".."),
+      Component::CurDir | Component::ParentDir => {}
+    }
+  }
+  for path_component in path_components {
+    match path_component {
+      Component::Normal(part) => parts.push(part.to_str()?),
+      // the paths are canonicalized so these shouldn't happen, but bail out
+      // rather than risk displaying a wrong relative path
+      Component::Prefix(_) | Component::RootDir | Component::CurDir | Component::ParentDir => return None,
+    }
+  }
+
+  Some(parts.join("/"))
+}
+
 #[cfg(test)]
 mod test {
   use pretty_assertions::assert_eq;
 
+  use super::*;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
@@ -899,7 +949,7 @@ SOFTWARE.
     let configs = json["configs"].as_array().unwrap();
     assert_eq!(configs.len(), 1);
     let config = &configs[0];
-    assert_eq!(config["path"], "/dprint.json");
+    assert_eq!(config["path"], "dprint.json");
     // the hash is a stable 16 character hex string
     assert_eq!(config["hash"].as_str().unwrap().len(), 16);
     let mut plugins = config["plugins"]
@@ -960,6 +1010,37 @@ SOFTWARE.
     let configs = json["configs"].as_array().unwrap();
     let paths = configs.iter().map(|c| c["path"].as_str().unwrap()).collect::<Vec<_>>();
     // sorted by path and includes both the root and descendant config
-    assert_eq!(paths, vec!["/dprint.json", "/sub/dprint.json"]);
+    assert_eq!(paths, vec!["dprint.json", "sub/dprint.json"]);
+  }
+
+  #[test]
+  fn incremental_state_path_is_relative_to_cwd() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      .write_file("/sub/dir/file.txt", "")
+      .set_cwd("/sub/dir")
+      .build();
+    run_test_cli(vec!["incremental-state", "--config", "/dprint.json"], &environment).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&environment.take_stdout_messages()[0]).unwrap();
+    assert_eq!(json["configs"][0]["path"], "../../dprint.json");
+  }
+
+  #[test]
+  fn get_relative_path_cases() {
+    fn relative(base: &str, path: &str) -> Option<String> {
+      get_relative_path(&CanonicalizedPathBuf::new_for_testing(base), &CanonicalizedPathBuf::new_for_testing(path))
+    }
+
+    assert_eq!(relative("/a/b", "/a/b/dprint.json").as_deref(), Some("dprint.json"));
+    assert_eq!(relative("/a/b", "/a/b/c/dprint.json").as_deref(), Some("c/dprint.json"));
+    assert_eq!(relative("/a/b", "/a/dprint.json").as_deref(), Some("../dprint.json"));
+    assert_eq!(relative("/a/b", "/c/d/dprint.json").as_deref(), Some("../../c/d/dprint.json"));
+    assert_eq!(relative("/", "/dprint.json").as_deref(), Some("dprint.json"));
+    if cfg!(windows) {
+      assert_eq!(relative(r"C:\a", r"C:\a\dprint.json").as_deref(), Some("dprint.json"));
+      assert_eq!(relative(r"C:\a", r"V:\dprint.json"), None);
+    }
   }
 }
