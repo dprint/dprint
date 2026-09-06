@@ -493,7 +493,7 @@ const changelog = step({
     `{`,
     `  echo "changelog<<CHANGELOG_EOF"`,
     `  git log --reverse --pretty=format:%s "$range" \\`,
-    `    | grep -Ev '^(chore|refactor)(\\([^)]*\\))?!?: ' \\`,
+    `    | grep -Ev '^(chore|refactor|ci)(\\([^)]*\\))?!?: ' \\`,
     `    | grep -Ev '^[0-9]+\\.[0-9]+\\.[0-9]+$' \\`,
     `    | sed 's/^/* /'`,
     `  echo ""`,
