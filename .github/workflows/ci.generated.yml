@@ -212,8 +212,10 @@ jobs:
       - name: Clippy
         if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''x86_64-unknown-linux-gnu'' && !startsWith(github.ref, ''refs/tags/'')'
         run: cargo clippy
-      - uses: dprint/check@9cb3a2b17a8e606d37aae341e49df3654933fc23 # v2.3
+      - uses: dprint/check@06e1a587a762d4e06663c3e3d46afedc93d9f185 # v2
         if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''x86_64-unknown-linux-gnu'' && !startsWith(github.ref, ''refs/tags/'')'
+        with:
+          cache: true
       - name: Lint CI Generation
         if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''x86_64-unknown-linux-gnu'' && !startsWith(github.ref, ''refs/tags/'')'
         run: |-

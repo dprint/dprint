@@ -208,7 +208,10 @@ const lint = step.if(isLinuxGnu.and(isNotTag))(
     run: "cargo clippy",
   }).dependsOn(setupRust),
   step({
-    uses: "dprint/check@v2.3",
+    uses: "dprint/check@v2",
+    with: {
+      cache: true,
+    },
   }).dependsOn(setupDeno),
   step({
     name: "Lint CI Generation",
