@@ -151,7 +151,7 @@ const isLinuxGnu = matrix.target.equals("x86_64-unknown-linux-gnu");
 
 // === build job ===
 
-const checkout = step({ name: "Checkout", uses: "actions/checkout@v6" });
+const checkout = step({ name: "Checkout", uses: "actions/checkout@v7" });
 const setupDeno = step({
   uses: "denoland/setup-deno@v2",
   with: {
@@ -409,7 +409,7 @@ const uploadArtifacts = step(...profiles.map((profile) => {
   return step.dependsOn(preReleaseStep)({
     name: `Upload artifacts (${profile.target})`,
     if: matrix.target.equals(profile.target).and(isTag),
-    uses: "actions/upload-artifact@v6",
+    uses: "actions/upload-artifact@v7",
     with: {
       name: profile.artifactsName,
       path: paths.join("\n"),
@@ -523,13 +523,13 @@ const draftReleaseJob = job("draft_release", {
     // reach the previous tag.
     step({
       name: "Clone repository",
-      uses: "actions/checkout@v6",
+      uses: "actions/checkout@v7",
       with: { "fetch-depth": 0 },
     }),
     changelog,
     step({
       name: "Download artifacts",
-      uses: "actions/download-artifact@v6",
+      uses: "actions/download-artifact@v8",
     }),
     step({
       name: "Output checksums",

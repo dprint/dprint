@@ -8,7 +8,7 @@ layout: layouts/documentation.njk
 
 You may desire to run `dprint check` as a step on your CI to ensure the code is formatted.
 
-## GitHub Action
+## GitHub Actions
 
 See `dprint/check`: https://github.com/marketplace/actions/dprint-check-action
 

@@ -2,7 +2,7 @@
 import { expr, job, step, workflow } from "jsr:@david/gagen@0.6.0";
 
 const buildSteps = step(
-  { name: "Checkout", uses: "actions/checkout@v6", with: { "persist-credentials": false } },
+  { name: "Checkout", uses: "actions/checkout@v7", with: { "persist-credentials": false } },
   { uses: "denoland/setup-deno@v2", with: { cache: true, "deno-version": "canary" } },
   { name: "Install dependencies", run: "(cd website && deno install)" },
   { name: "Build playground", run: "(cd website/playground && deno task build)" },

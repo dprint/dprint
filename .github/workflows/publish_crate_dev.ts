@@ -11,7 +11,7 @@ workflow({
       runsOn: "ubuntu-latest",
       timeoutMinutes: 30,
       steps: step(
-        { name: "Clone repository", uses: "actions/checkout@v6", with: { token: expr("secrets.GH_DPRINTBOT_PAT") } },
+        { name: "Clone repository", uses: "actions/checkout@v7", with: { token: expr("secrets.GH_DPRINTBOT_PAT") } },
         { uses: "dsherret/rust-toolchain-file@v1" },
         { uses: "rust-lang/crates-io-auth-action@v1", id: "auth" },
         { name: "Cargo publish", env: { CARGO_REGISTRY_TOKEN: expr("steps.auth.outputs.token") }, run: ["cd crates/development", "cargo publish"] },
