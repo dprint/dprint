@@ -208,7 +208,10 @@ const lint = step.if(isLinuxGnu.and(isNotTag))(
     run: "cargo clippy",
   }).dependsOn(setupRust),
   step({
-    uses: "dprint/check@v2.3",
+    uses: "dprint/check@v2",
+    with: {
+      cache: true,
+    },
   }).dependsOn(setupDeno),
   step({
     name: "Lint CI Generation",
@@ -490,7 +493,7 @@ const changelog = step({
     `{`,
     `  echo "changelog<<CHANGELOG_EOF"`,
     `  git log --reverse --pretty=format:%s "$range" \\`,
-    `    | grep -Ev '^(chore|refactor)(\\([^)]*\\))?!?: ' \\`,
+    `    | grep -Ev '^(chore|refactor|ci)(\\([^)]*\\))?!?: ' \\`,
     `    | grep -Ev '^[0-9]+\\.[0-9]+\\.[0-9]+$' \\`,
     `    | sed 's/^/* /'`,
     `  echo ""`,
