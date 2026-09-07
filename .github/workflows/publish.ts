@@ -10,7 +10,7 @@ const publishCargoJob = job("publish-cargo", {
   runsOn: "ubuntu-latest",
   if: isDprintRepo,
   steps: step(
-    { name: "Checkout", uses: "actions/checkout@v6" },
+    { name: "Checkout", uses: "actions/checkout@v7" },
     { uses: "dsherret/rust-toolchain-file@v1" },
     { uses: "rust-lang/crates-io-auth-action@v1", id: "auth" },
     {
@@ -32,7 +32,7 @@ const buildNpmJob = job("build-npm", {
   if: isDprintRepo,
   timeoutMinutes: 30,
   steps: step(
-    { name: "Checkout", uses: "actions/checkout@v6" },
+    { name: "Checkout", uses: "actions/checkout@v7" },
     { uses: "denoland/setup-deno@v2" },
     { name: "Build npm packages", run: `deno run -A deployment/npm/build.ts ${expr("inputs.version || ''")}` },
     { name: "Tar npm dist (preserves permissions)", run: "tar cf deployment/npm/dist.tar -C deployment/npm --exclude='node_modules' dist" },
@@ -54,7 +54,7 @@ const testNpmJob = job("test-npm", {
   strategy: { matrix: testMatrix, failFast: false },
   defaults: { run: { shell: "bash" } },
   steps: step(
-    { name: "Checkout", uses: "actions/checkout@v6" },
+    { name: "Checkout", uses: "actions/checkout@v7" },
     { name: "Install Node", uses: "actions/setup-node@v6", with: { "node-version": "24.x" } },
     npmDist.download({ dirPath: "deployment/npm" }),
     { name: "Extract npm dist", run: "tar xf deployment/npm/dist.tar -C deployment/npm" },
@@ -182,7 +182,7 @@ const publishNpmJob = job("publish-npm", {
   timeoutMinutes: 15,
   permissions: { "id-token": "write" },
   steps: step(
-    { name: "Checkout", uses: "actions/checkout@v6" },
+    { name: "Checkout", uses: "actions/checkout@v7" },
     { uses: "denoland/setup-deno@v2" },
     { name: "Install Node", uses: "actions/setup-node@v6", with: { "node-version": "24.x", "registry-url": "https://registry.npmjs.org" } },
     npmDist.download({ dirPath: "deployment/npm" }),

@@ -22,7 +22,7 @@ workflow({
       runsOn: "ubuntu-latest",
       timeoutMinutes: 30,
       steps: step(
-        { name: "Clone repository", uses: "actions/checkout@v6", with: { token: expr("secrets.GH_DPRINTBOT_PAT") } },
+        { name: "Clone repository", uses: "actions/checkout@v7", with: { token: expr("secrets.GH_DPRINTBOT_PAT") } },
         { uses: "denoland/setup-deno@v2" },
         { uses: "dsherret/rust-toolchain-file@v1" },
         {

@@ -151,7 +151,7 @@ const isLinuxGnu = matrix.target.equals("x86_64-unknown-linux-gnu");
 
 // === build job ===
 
-const checkout = step({ name: "Checkout", uses: "actions/checkout@v6" });
+const checkout = step({ name: "Checkout", uses: "actions/checkout@v7" });
 const setupDeno = step({
   uses: "denoland/setup-deno@v2",
   with: {
@@ -523,7 +523,7 @@ const draftReleaseJob = job("draft_release", {
     // reach the previous tag.
     step({
       name: "Clone repository",
-      uses: "actions/checkout@v6",
+      uses: "actions/checkout@v7",
       with: { "fetch-depth": 0 },
     }),
     changelog,
