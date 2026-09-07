@@ -293,7 +293,7 @@ jobs:
           zip -r dprint-x86_64-apple-darwin.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-x86_64-apple-darwin.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (x86_64-apple-darwin)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: 'matrix.target == ''x86_64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: x86_64-apple-darwin-artifacts
@@ -306,7 +306,7 @@ jobs:
           zip -r dprint-aarch64-apple-darwin.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-aarch64-apple-darwin.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (aarch64-apple-darwin)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: 'matrix.target == ''aarch64-apple-darwin'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: aarch64-apple-darwin-artifacts
@@ -325,7 +325,7 @@ jobs:
           mv deployment/installer/dprint-x86_64-pc-windows-msvc-installer.exe target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe
           echo "INSTALLER_CHECKSUM=$(sha256sum target/x86_64-pc-windows-msvc/release/dprint-x86_64-pc-windows-msvc-installer.exe | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (x86_64-pc-windows-msvc)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: 'matrix.target == ''x86_64-pc-windows-msvc'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: x86_64-pc-windows-msvc-artifacts
@@ -339,7 +339,7 @@ jobs:
           (cd target/aarch64-pc-windows-msvc/release && 7z a -mx9 dprint-aarch64-pc-windows-msvc.zip dprint.exe)
           echo "ZIP_CHECKSUM=$(sha256sum target/aarch64-pc-windows-msvc/release/dprint-aarch64-pc-windows-msvc.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (aarch64-pc-windows-msvc)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: 'matrix.target == ''aarch64-pc-windows-msvc'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: aarch64-pc-windows-msvc-artifacts
@@ -352,7 +352,7 @@ jobs:
           zip -r dprint-x86_64-unknown-linux-gnu.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-x86_64-unknown-linux-gnu.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (x86_64-unknown-linux-gnu)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: 'matrix.target == ''x86_64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: x86_64-unknown-linux-gnu-artifacts
@@ -365,7 +365,7 @@ jobs:
           zip -r dprint-x86_64-unknown-linux-musl.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-x86_64-unknown-linux-musl.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (x86_64-unknown-linux-musl)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: 'matrix.target == ''x86_64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: x86_64-unknown-linux-musl-artifacts
@@ -378,7 +378,7 @@ jobs:
           zip -r dprint-aarch64-unknown-linux-gnu.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-aarch64-unknown-linux-gnu.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (aarch64-unknown-linux-gnu)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: 'matrix.target == ''aarch64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: aarch64-unknown-linux-gnu-artifacts
@@ -391,7 +391,7 @@ jobs:
           zip -r dprint-aarch64-unknown-linux-musl.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-aarch64-unknown-linux-musl.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (aarch64-unknown-linux-musl)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: 'matrix.target == ''aarch64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: aarch64-unknown-linux-musl-artifacts
@@ -404,7 +404,7 @@ jobs:
           zip -r dprint-riscv64gc-unknown-linux-gnu.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-riscv64gc-unknown-linux-gnu.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (riscv64gc-unknown-linux-gnu)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: 'matrix.target == ''riscv64gc-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: riscv64gc-unknown-linux-gnu-artifacts
@@ -417,7 +417,7 @@ jobs:
           zip -r dprint-loongarch64-unknown-linux-gnu.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-loongarch64-unknown-linux-gnu.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (loongarch64-unknown-linux-gnu)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: 'matrix.target == ''loongarch64-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: loongarch64-unknown-linux-gnu-artifacts
@@ -430,7 +430,7 @@ jobs:
           zip -r dprint-loongarch64-unknown-linux-musl.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-loongarch64-unknown-linux-musl.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (loongarch64-unknown-linux-musl)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: 'matrix.target == ''loongarch64-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: loongarch64-unknown-linux-musl-artifacts
@@ -443,7 +443,7 @@ jobs:
           zip -r dprint-powerpc64le-unknown-linux-gnu.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-powerpc64le-unknown-linux-gnu.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (powerpc64le-unknown-linux-gnu)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: 'matrix.target == ''powerpc64le-unknown-linux-gnu'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: powerpc64le-unknown-linux-gnu-artifacts
@@ -456,7 +456,7 @@ jobs:
           zip -r dprint-powerpc64le-unknown-linux-musl.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-powerpc64le-unknown-linux-musl.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (powerpc64le-unknown-linux-musl)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: 'matrix.target == ''powerpc64le-unknown-linux-musl'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: powerpc64le-unknown-linux-musl-artifacts
@@ -469,7 +469,7 @@ jobs:
           zip -r dprint-aarch64-linux-android.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-aarch64-linux-android.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (aarch64-linux-android)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: 'matrix.target == ''aarch64-linux-android'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: aarch64-linux-android-artifacts
@@ -482,7 +482,7 @@ jobs:
           zip -r dprint-x86_64-linux-android.zip dprint
           echo "ZIP_CHECKSUM=$(shasum -a 256 dprint-x86_64-linux-android.zip | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Upload artifacts (x86_64-linux-android)
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: 'matrix.target == ''x86_64-linux-android'' && startsWith(github.ref, ''refs/tags/'')'
         with:
           name: x86_64-linux-android-artifacts
@@ -536,7 +536,7 @@ jobs:
             echo "CHANGELOG_EOF"
           } >> "$GITHUB_OUTPUT"
       - name: Download artifacts
-        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
       - name: Output checksums
         run: |-
           echo "dprint-x86_64-apple-darwin.zip: ${{ needs.build.outputs.ZIP_CHECKSUM_X86_64_APPLE_DARWIN }}"

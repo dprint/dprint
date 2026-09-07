@@ -409,7 +409,7 @@ const uploadArtifacts = step(...profiles.map((profile) => {
   return step.dependsOn(preReleaseStep)({
     name: `Upload artifacts (${profile.target})`,
     if: matrix.target.equals(profile.target).and(isTag),
-    uses: "actions/upload-artifact@v6",
+    uses: "actions/upload-artifact@v7",
     with: {
       name: profile.artifactsName,
       path: paths.join("\n"),
@@ -529,7 +529,7 @@ const draftReleaseJob = job("draft_release", {
     changelog,
     step({
       name: "Download artifacts",
-      uses: "actions/download-artifact@v6",
+      uses: "actions/download-artifact@v8",
     }),
     step({
       name: "Output checksums",

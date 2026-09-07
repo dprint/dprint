@@ -55,7 +55,7 @@ const testNpmJob = job("test-npm", {
   defaults: { run: { shell: "bash" } },
   steps: step(
     { name: "Checkout", uses: "actions/checkout@v7" },
-    { name: "Install Node", uses: "actions/setup-node@v6", with: { "node-version": "24.x" } },
+    { name: "Install Node", uses: "actions/setup-node@v7", with: { "node-version": "24.x" } },
     npmDist.download({ dirPath: "deployment/npm" }),
     { name: "Extract npm dist", run: "tar xf deployment/npm/dist.tar -C deployment/npm" },
     {
@@ -184,7 +184,7 @@ const publishNpmJob = job("publish-npm", {
   steps: step(
     { name: "Checkout", uses: "actions/checkout@v7" },
     { uses: "denoland/setup-deno@v2" },
-    { name: "Install Node", uses: "actions/setup-node@v6", with: { "node-version": "24.x", "registry-url": "https://registry.npmjs.org" } },
+    { name: "Install Node", uses: "actions/setup-node@v7", with: { "node-version": "24.x", "registry-url": "https://registry.npmjs.org" } },
     npmDist.download({ dirPath: "deployment/npm" }),
     { name: "Extract npm dist", run: "tar xf deployment/npm/dist.tar -C deployment/npm" },
     { name: "Publish to npm", run: `deno run -A deployment/npm/build.ts ${expr("inputs.version || ''")} --publish-only` },
