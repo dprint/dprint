@@ -35,6 +35,9 @@ For the latest version and copy-paste URL of every plugin, see [plugins.dprint.d
 - [Jupyter](/plugins/jupyter)
 - [Gofumpt](/plugins/gofumpt) (Go)
 - [Panache](/plugins/panache) (Quarto/Pandoc/R Markdown/Markdown)
+- [Badness](/plugins/badness) (LaTeX/BibTeX)
+- [Arity](/plugins/arity) (R)
+- [Fatou](/plugins/fatou) (Julia)
 
 ## Process Plugins
 
