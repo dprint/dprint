@@ -37,6 +37,9 @@ Repos:
 - [pretty_yaml](https://github.com/g-plane/pretty_yaml) - YAML formatter.
 - [dprint-plugin-gofumpt](https://github.com/jakebailey/dprint-plugin-gofumpt) - Go (gofumpt) formatter.
 - [panache](https://github.com/jolars/dprint-plugin-panache) - Quarto, Pandoc, R Markdown, and Markdown formatter.
+- [badness](https://github.com/jolars/dprint-plugin-badness) - LaTeX and BibTeX formatter.
+- [arity](https://github.com/jolars/dprint-plugin-arity) - R formatter.
+- [fatou](https://github.com/jolars/dprint-plugin-fatou) - Julia formatter.
 - [dprint-plugin-swift](https://github.com/drluckyspin/dprint-plugin-swift) - Swift (SwiftFormat) formatter.
 
 ## Notes
