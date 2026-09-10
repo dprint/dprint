@@ -159,7 +159,9 @@ pub async fn get_init_plugins_to_add(environment: &impl Environment, options: Ge
     .iter()
     .map(|&i| {
       if already_configured[i] {
-        MultiSelectItem::non_selectable(format!("{} (already in config)", latest_plugins[i].name))
+        // shown with its extensions like the selectable items so filtering by a
+        // file type still surfaces the plugin that already handles it
+        MultiSelectItem::non_selectable(format!("{} — already in config", plugin_display_text(&latest_plugins[i])))
       } else {
         MultiSelectItem::new(plugin_display_text(&latest_plugins[i]), defaults[i])
       }
@@ -194,7 +196,7 @@ async fn read_plugin_info_file(environment: &impl Environment) -> Option<InfoFil
         log_error!(
           environment,
           concat!(
-            "You are using an old version of dprint so the created config file may not be as helpful of a starting point. ",
+            "You are using an old version of dprint so the latest plugins may not be suggested. ",
             "Consider upgrading to support new plugins. ",
             "Plugin system schema version is {}, latest is {}."
           ),
@@ -210,8 +212,7 @@ async fn read_plugin_info_file(environment: &impl Environment) -> Option<InfoFil
       log_error!(
         environment,
         concat!(
-          "There was a problem getting the latest plugin info. ",
-          "The created config file may not be as helpful of a starting point. ",
+          "There was a problem getting the latest plugin info, so the latest plugins may not be suggested. ",
           "Error: {}"
         ),
         err,
@@ -966,7 +967,7 @@ mod test {
         // context since the config file already has it (even though .ts matched)
         assert_eq!(
           environment.take_multi_selection_items(),
-          vec!["[x] b (.json)", "[ ] c (.md)", "[x] a (already in config) (locked)"]
+          vec!["[x] b (.json)", "[ ] c (.md)", "[x] a (.ts) — already in config (locked)"]
         );
         let InitPluginsToAdd::Entries(entries) = plugins else {
           unreachable!();
@@ -1004,7 +1005,7 @@ mod test {
         // `a` already handles .ts, so `b` isn't pre-selected
         assert_eq!(
           environment.take_multi_selection_items(),
-          vec!["[ ] b (.ts)", "[x] a (already in config) (locked)"]
+          vec!["[ ] b (.ts)", "[x] a (.ts) — already in config (locked)"]
         );
         let InitPluginsToAdd::Entries(entries) = plugins else {
           unreachable!();
@@ -1792,8 +1793,7 @@ mod test {
       );
       let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
       expected_messages.push(concat!(
-        "There was a problem getting the latest plugin info. ",
-        "The created config file may not be as helpful of a starting point. ",
+        "There was a problem getting the latest plugin info, so the latest plugins may not be suggested. ",
         "Error: Error downloading https://plugins.dprint.dev/info.json - 404 Not Found"
       ));
       assert_eq!(environment.take_stderr_messages(), expected_messages);
@@ -1870,7 +1870,7 @@ mod test {
       );
       let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
       expected_messages.push(concat!(
-        "You are using an old version of dprint so the created config file may not be as helpful of a starting point. ",
+        "You are using an old version of dprint so the latest plugins may not be suggested. ",
         "Consider upgrading to support new plugins. ",
         "Plugin system schema version is 4, latest is 999."
       ));

@@ -1965,7 +1965,7 @@ mod test {
     run_test_cli(vec!["init"], &environment).unwrap();
     assert_eq!(
       environment.take_multi_selection_items(),
-      vec!["[ ] test-process-plugin", "[x] test-plugin (already in config) (locked)"]
+      vec!["[ ] test-process-plugin", "[x] test-plugin — already in config (locked)"]
     );
     assert_eq!(
       environment.take_stderr_messages(),
