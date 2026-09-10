@@ -124,6 +124,7 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
       } => {
         commands::init_config_file(
           environment,
+          plugin_resolver,
           InitConfigFileOptions {
             global: *global,
             config_arg: args.config.as_deref(),
