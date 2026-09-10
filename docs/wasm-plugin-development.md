@@ -60,8 +60,9 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
          version: env!("CARGO_PKG_VERSION").to_string(),
          config_key: "keyGoesHere".to_string(),
          help_url: "".to_string(),          // fill this in
-         config_schema_url: "".to_string(), // leave this empty for now
-         update_url: None,                  // leave this empty for now
+         // for config_schema_url and update_url, see schema.json and latest.json helpers at https://github.com/dprint/plugins
+         config_schema_url: "https://plugins.dprint.dev/yourGitHubUser/yourGitHubProject/schema.json".to_string(), // the schema url for your config file, "".to_string() if no config
+         update_url: Some("https://plugins.dprint.dev/yourGitHubUser/yourGitHubProject/latest.json".to_string()),
        }
      }
 
