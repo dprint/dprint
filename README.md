@@ -40,6 +40,8 @@ Repos:
 - [badness](https://github.com/jolars/dprint-plugin-badness) - LaTeX and BibTeX formatter.
 - [arity](https://github.com/jolars/dprint-plugin-arity) - R formatter.
 - [fatou](https://github.com/jolars/dprint-plugin-fatou) - Julia formatter.
+- [typstyle](https://github.com/apcamargo/dprint-plugin-typstyle) - Typst (Typstyle) formatter.
+- [bibtex-tidy](https://github.com/apcamargo/dprint-plugin-bibtex-tidy) - BibTeX (bibtex-tidy) formatter.
 - [dprint-plugin-swift](https://github.com/drluckyspin/dprint-plugin-swift) - Swift (SwiftFormat) formatter.
 
 ## Notes
