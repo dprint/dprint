@@ -304,7 +304,10 @@
     ['"https://plugins.dprint.dev/g-plane/pretty_yaml-vx.x.x.wasm"', "g-plane/pretty_yaml"],
     ['"https://plugins.dprint.dev/g-plane/pretty_graphql-vx.x.x.wasm"', "g-plane/pretty_graphql"],
     ['"https://plugins.dprint.dev/jakebailey/gofumpt-vx.x.x.wasm"', "jakebailey/dprint-plugin-gofumpt"],
-    ['"https://plugins.dprint.dev/jolars/panache-x.x.x.wasm"', "jolars/panache"]
+    ['"https://plugins.dprint.dev/jolars/panache-x.x.x.wasm"', "jolars/panache"],
+    ['"https://plugins.dprint.dev/jolars/badness-vx.x.x.wasm"', "jolars/badness"],
+    ['"https://plugins.dprint.dev/jolars/arity-vx.x.x.wasm"', "jolars/arity"],
+    ['"https://plugins.dprint.dev/jolars/fatou-vx.x.x.wasm"', "jolars/fatou"]
   ]);
   function replacePluginUrls() {
     const elements = getPluginUrlElements();

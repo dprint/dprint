@@ -2,15 +2,15 @@
 <html lang="en"><head>
     <script async="" src="/scripts.d9ec9dfe2b.js"></script>
     <meta charset="utf-8">
-    <title>markup_fmt Plugin - dprint - Code Formatter</title>
+    <title>Configuration - Fatou - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#1e1e1e">
-    <meta name="description" content="Documentation on the markup_fmt code formatting plugin for dprint.">
+    <meta name="description" content="Documentation on the configuration file for the Fatou code formatting plugin for dprint.">
     <meta name="author" content="Dprint Code Formatting">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:site" content="@dprintfmt">
-    <meta name="twitter:title" content="markup_fmt Plugin">
-    <meta name="twitter:description" content="Documentation on the markup_fmt code formatting plugin for dprint.">
+    <meta name="twitter:title" content="Configuration - Fatou">
+    <meta name="twitter:description" content="Documentation on the configuration file for the Fatou code formatting plugin for dprint.">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
@@ -81,7 +81,7 @@
   
     <li><a href="/plugins/malva">Malva (CSS/SCSS/Sass/Less)</a></li>
   
-    <li><a href="/plugins/markup_fmt" class="active">Markup_fmt (HTML/Vue/Svelte/Astro)</a></li>
+    <li><a href="/plugins/markup_fmt">Markup_fmt (HTML/Vue/Svelte/Astro)</a></li>
   
     <li><a href="/plugins/prettier">Prettier</a></li>
   
@@ -105,7 +105,7 @@
   
     <li><a href="/plugins/arity">Arity (R)</a></li>
   
-    <li><a href="/plugins/fatou">Fatou (Julia)</a></li>
+    <li><a href="/plugins/fatou" class="active">Fatou (Julia)</a></li>
   
     <li><a href="/plugins/swift">Swift (SwiftFormat)</a></li>
   
@@ -121,26 +121,44 @@
     
     
     <div class="eyebrow">// plugins</div>
-    <h1>Markup_fmt Plugin</h1>
-<p>Adapter plugin that formats HTML, Vue, Svelte, Astro, Angular, Jinja, Twig, Nunjucks, Vento, Mustache, and XML files via <a href="https://github.com/g-plane/markup_fmt">markup_fmt</a>.</p>
-<h2 id="install-and-setup" tabindex="-1"><a class="header-anchor" href="#install-and-setup">Install and Setup</a></h2>
-<p>In your project's directory with a dprint.json file, run:</p>
-<pre><code class="language-shellsession hljs language-shell">dprint add g-plane/markup_fmt
-</code></pre>
-<p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"markup"</code> property (not <code>"markup_fmt"</code>) to add configuration:</p>
-<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
-  <span class="hljs-attr">"markup"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-comment">// not "markup_fmt"</span>
-    <span class="hljs-comment">// markup_fmt config goes here</span>
-  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
-  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
-    <span class="hljs-string">"https://plugins.dprint.dev/g-plane/markup_fmt-vx.x.x.wasm"</span>
-  <span class="hljs-punctuation">]</span>
-<span class="hljs-punctuation">}</span>
-</code></pre>
-<h2 id="configuration" tabindex="-1"><a class="header-anchor" href="#configuration">Configuration</a></h2>
-<p>See <a href="/plugins/markup_fmt/config">Configuration</a> or read <a href="https://markup-fmt.netlify.app/">full documentation site</a> with code examples.</p>
-<h2 id="playground" tabindex="-1"><a class="header-anchor" href="#playground">Playground</a></h2>
-<p>See <a href="https://dprint.dev/playground#plugin/markup_fmt">Playground</a></p>
+    <nav class="breadcrumb" aria-label="breadcrumbs">
+  <ul>
+    <li><a href="/plugins">Plugins</a></li>
+    <li><a href="/plugins/fatou">Fatou</a></li>
+    <li><a href="/plugins/fatou/config">Configuration</a></li>
+  </ul>
+</nav>
+<h1>Fatou - Configuration</h1>
+<p>Specify configuration under the <code>"fatou"</code> key in your dprint configuration file.</p>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Values</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lineWidth</code></td>
+<td>Integer</td>
+<td>Global <code>lineWidth</code>, or <code>92</code></td>
+</tr>
+<tr>
+<td><code>indentWidth</code></td>
+<td>Integer</td>
+<td>Global <code>indentWidth</code>, or <code>4</code></td>
+</tr>
+<tr>
+<td><code>lineEnding</code></td>
+<td><code>"auto"</code>, <code>"lf"</code>, <code>"crlf"</code>, <code>"native"</code></td>
+<td>Global <code>newLineKind</code>, or <code>"auto"</code></td>
+</tr>
+</tbody>
+</table>
+<p>Fatou always indents with spaces, so the global <code>useTabs</code> setting has no effect.</p>
+<p>See the <a href="https://github.com/jolars/dprint-plugin-fatou#configuration">plugin documentation</a> and
+<a href="https://plugins.dprint.dev/jolars/fatou/latest/schema.json">JSON schema</a> for details.</p>
 
   </main>
 </div>
