@@ -35,4 +35,12 @@ pub struct FileMatchingInfo {
   /// The file names this plugin should format.
   #[serde(default = "Vec::new")]
   pub file_names: Vec<String>,
+  /// Whether the plugin formats a file it matches in addition to the plugin
+  /// that claims the file, rather than claiming the file itself.
+  ///
+  /// This is for plugins that do something to a file other than format it
+  /// from scratch (ex. sorting the keys of a `package.json`), which would
+  /// otherwise stop the file's usual formatter from running.
+  #[serde(default)]
+  pub additive: bool,
 }

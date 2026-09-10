@@ -1146,6 +1146,7 @@ mod test {
           file_matching: FileMatchingInfo {
             file_extensions: vec!["txt".to_string()],
             file_names: vec![],
+            additive: false,
           },
           overrides: Vec::new(),
           serialized_resolved_config: resolved_config.to_string(),
@@ -1268,6 +1269,7 @@ mod test {
         file_matching: FileMatchingInfo {
           file_extensions: vec!["txt".to_string()],
           file_names: Vec::new(),
+          additive: false,
         },
         overrides,
         serialized_resolved_config: String::new(),

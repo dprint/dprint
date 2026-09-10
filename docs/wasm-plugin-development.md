@@ -84,6 +84,9 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
            // these can be derived from the config
            file_extensions: vec!["txt".to_string()],
            file_names: vec![],
+           // set to true to format a matched file in addition to the plugin
+           // that claims it, rather than claiming the file
+           additive: false,
          },
        }
      }
