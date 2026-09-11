@@ -25,6 +25,13 @@ pub struct PluginInfo {
   pub update_url: Option<String>,
 }
 
+/// Message for when a plugin's [`FileMatchingInfo`] can't be deserialized. A
+/// newer plugin may describe its file matching in a way this version of the CLI
+/// doesn't understand, so point at upgrading rather than leaving the user with
+/// only a deserialization error.
+pub const FILE_MATCHING_INFO_ERROR_MESSAGE: &str =
+  "Failed getting the plugin's file matching info. This plugin may require a newer version of the dprint CLI. Try running: dprint upgrade";
+
 /// The plugin file matching information based on the configuration.
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

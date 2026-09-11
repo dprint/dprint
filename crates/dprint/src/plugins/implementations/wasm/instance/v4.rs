@@ -3,6 +3,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
 use anyhow::bail;
@@ -13,6 +14,7 @@ use dprint_core::plugins::CancellationToken;
 use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
+use dprint_core::plugins::FILE_MATCHING_INFO_ERROR_MESSAGE;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::FormatError;
@@ -415,7 +417,7 @@ impl InitializedWasmPluginInstance for InitializedWasmPluginInstanceV4 {
     self.ensure_config(config)?;
     let len = self.wasm_functions.get_config_file_matching(config.id)?;
     let json_text = self.receive_string(len)?;
-    Ok(serde_json::from_str(&json_text)?)
+    serde_json::from_str(&json_text).with_context(|| FILE_MATCHING_INFO_ERROR_MESSAGE)
   }
 
   fn format_text(
