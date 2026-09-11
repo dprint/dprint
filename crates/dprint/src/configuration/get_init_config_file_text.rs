@@ -75,7 +75,10 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
   let selected_plugins = if let Some(info) = info {
     let latest_plugins = info.latest_plugins;
     // pre-select the plugins that match files found in the current directory
-    let project_files = scan_project_files(environment);
+    let mut project_files = scan_project_files(environment);
+    // the config file about to be written is JSON, so it counts as a project
+    // file even though it doesn't exist yet — a json plugin is always relevant
+    project_files.extensions.insert("json".to_string());
     let defaults = compute_default_selections(&latest_plugins, &project_files, &[]);
 
     let mut selected_indexes = if options.non_interactive {
@@ -150,7 +153,10 @@ pub async fn get_init_plugins_to_add(environment: &impl Environment, options: Ge
 
   // pre-select the plugins matching files in the current directory, leaving out
   // the file types the config file's plugins already handle
-  let project_files = scan_project_files(environment);
+  let mut project_files = scan_project_files(environment);
+  // the config file being added to is JSON, so a json plugin is always
+  // relevant (the scan doesn't see it for a global config outside the cwd)
+  project_files.extensions.insert("json".to_string());
   let defaults = compute_default_selections(&latest_plugins, &project_files, &already_configured);
   // show the pre-selected plugins at the top and the ones already in the config at the bottom
   let order = display_order(&defaults, &already_configured);
@@ -1609,7 +1615,8 @@ mod test {
   }
 
   #[test]
-  fn should_select_no_plugins_when_no_files_match() {
+  fn should_only_select_the_json_plugin_when_no_files_match() {
+    // the config file that's about to be written is the only json file there is
     let environment = TestEnvironmentBuilder::new()
       .with_info_file(|info| {
         for plugin in get_multi_plugins_config() {
@@ -1623,9 +1630,13 @@ mod test {
       assert_eq!(
         text,
         r#"{
-  "excludes": [],
+  "json": {
+  },
+  "excludes": [
+    "**/*-asdf.json"
+  ],
   "plugins": [
-    // specify plugin urls here
+    "https://plugins.dprint.dev/json-0.2.3.wasm"
   ]
 }
 "#
@@ -1651,11 +1662,15 @@ mod test {
       assert_eq!(
         text,
         r#"{
+  "json": {
+  },
   "excludes": [
+    "**/*-asdf.json",
     "**/something",
     "**other"
   ],
   "plugins": [
+    "https://plugins.dprint.dev/json-0.2.3.wasm",
     "https://plugins.dprint.dev/final-0.1.2.wasm"
   ]
 }
@@ -1682,8 +1697,13 @@ mod test {
       assert_eq!(
         text,
         r#"{
-  "excludes": [],
+  "json": {
+  },
+  "excludes": [
+    "**/*-asdf.json"
+  ],
   "plugins": [
+    "https://plugins.dprint.dev/json-0.2.3.wasm",
     "https://plugins.dprint.dev/process-0.1.0.json@test-checksum"
   ]
 }
@@ -1722,16 +1742,21 @@ mod test {
       })
       // matching files only exist within ignored directories
       .write_file("/node_modules/dep/app.ts", "")
-      .write_file("/.git/hooks/config.json", "")
+      .write_file("/.git/hooks/Cargo.toml", "")
       .build();
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      // only the json plugin, which is selected for the config file itself
       assert_eq!(
         text,
         r#"{
-  "excludes": [],
+  "json": {
+  },
+  "excludes": [
+    "**/*-asdf.json"
+  ],
   "plugins": [
-    // specify plugin urls here
+    "https://plugins.dprint.dev/json-0.2.3.wasm"
   ]
 }
 "#
@@ -1766,19 +1791,24 @@ mod test {
           info.add_plugin(plugin);
         }
       })
-      .write_file("/.gitignore", "generated/\nlock.json\n")
+      .write_file("/.gitignore", "generated/\nCargo.toml\n")
       // matching files only exist where the gitignore excludes them
       .write_file("/generated/app.ts", "")
-      .write_file("/lock.json", "")
+      .write_file("/Cargo.toml", "")
       .build();
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      // only the json plugin, which is selected for the config file itself
       assert_eq!(
         text,
         r#"{
-  "excludes": [],
+  "json": {
+  },
+  "excludes": [
+    "**/*-asdf.json"
+  ],
   "plugins": [
-    // specify plugin urls here
+    "https://plugins.dprint.dev/json-0.2.3.wasm"
   ]
 }
 "#
@@ -1829,11 +1859,15 @@ mod test {
         r#"{
   "typescript": {
   },
+  "json": {
+  },
   "excludes": [
-    "**/something"
+    "**/something",
+    "**/*-asdf.json"
   ],
   "plugins": [
-    "https://plugins.dprint.dev/typescript-0.17.2.wasm"
+    "https://plugins.dprint.dev/typescript-0.17.2.wasm",
+    "https://plugins.dprint.dev/json-0.2.3.wasm"
   ]
 }
 "#
@@ -1890,7 +1924,8 @@ mod test {
         }
       })
       .build();
-    environment.set_multi_selection_result(vec![1]);
+    // the pre-selected json plugin is shown first, so this is it
+    environment.set_multi_selection_result(vec![0]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(

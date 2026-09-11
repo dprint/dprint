@@ -1793,10 +1793,11 @@ mod test {
         "\nIf you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor"
       ]
     );
-    // only the typescript plugin should be selected based on the .ts file
+    // the typescript plugin is selected based on the .ts file and the json
+    // plugin based on the config file being created
     let created = environment.read_file("./dprint.json").unwrap();
     assert!(created.contains("typescript-0.17.2.wasm"));
-    assert!(!created.contains("json-0.2.3.wasm"));
+    assert!(created.contains("json-0.2.3.wasm"));
   }
 
   #[test]
