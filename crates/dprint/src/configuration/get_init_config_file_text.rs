@@ -835,10 +835,10 @@ mod test {
 
   fn additive_info_plugin() -> TestInfoFilePlugin {
     TestInfoFilePlugin {
-      name: "colinaaa/sort-package-json".to_string(),
+      name: "dprint-plugin-additive".to_string(),
       version: "0.1.0".to_string(),
-      url: "https://plugins.dprint.dev/sort-package-json-0.1.0.wasm".to_string(),
-      config_key: Some("sortPackageJson".to_string()),
+      url: "https://plugins.dprint.dev/additive-0.1.0.wasm".to_string(),
+      config_key: Some("additivePlugin".to_string()),
       file_extensions: vec![],
       file_names: Some(vec!["package.json".to_string()]),
       config_excludes: vec![],
@@ -872,12 +872,12 @@ mod test {
         r#"{
   "json": {
   },
-  "sortPackageJson": {
+  "additivePlugin": {
   },
   "excludes": [],
   "plugins": [
     "https://plugins.dprint.dev/json-0.19.2.wasm",
-    "https://plugins.dprint.dev/sort-package-json-0.1.0.wasm"
+    "https://plugins.dprint.dev/additive-0.1.0.wasm"
   ]
 }
 "#
@@ -908,7 +908,7 @@ mod test {
       .unwrap();
       // the json plugin is still pre-selected for the .json file
       assert!(text.contains("json-0.19.2.wasm"), "{text}");
-      assert!(text.contains("sort-package-json-0.1.0.wasm"), "{text}");
+      assert!(text.contains("additive-0.1.0.wasm"), "{text}");
     });
   }
 
@@ -935,7 +935,7 @@ mod test {
       .unwrap();
       // the earlier plugin wins the config key, so the additive one is left out
       assert!(text.contains("json-0.19.2.wasm"), "{text}");
-      assert!(!text.contains("sort-package-json-0.1.0.wasm"), "{text}");
+      assert!(!text.contains("additive-0.1.0.wasm"), "{text}");
     });
   }
 
@@ -957,7 +957,7 @@ mod test {
       )
       .await
       .unwrap();
-      assert!(!text.contains("sortPackageJson"), "{text}");
+      assert!(!text.contains("additivePlugin"), "{text}");
       assert!(text.contains("json-0.19.2.wasm"), "{text}");
     });
   }
@@ -965,16 +965,19 @@ mod test {
   #[test]
   fn plugin_display_text_marks_additive_plugins() {
     let mut plugin = info_plugin_with_extensions(vec![], vec![]);
-    plugin.name = "sort-package-json".to_string();
+    plugin.name = "dprint-plugin-additive".to_string();
     plugin.additive = true;
     // a plugin with no extensions of its own shows the file names it matches
     plugin.file_names = vec!["package.json".to_string()];
     assert_eq!(
       plugin_display_text(&plugin),
-      "sort-package-json (package.json, runs in addition to other plugins)"
+      "dprint-plugin-additive (package.json, runs in addition to other plugins)"
     );
     plugin.file_extensions = vec!["json".to_string()];
-    assert_eq!(plugin_display_text(&plugin), "sort-package-json (.json, runs in addition to other plugins)");
+    assert_eq!(
+      plugin_display_text(&plugin),
+      "dprint-plugin-additive (.json, runs in addition to other plugins)"
+    );
   }
 
   #[test]
