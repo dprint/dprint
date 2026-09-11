@@ -89,6 +89,9 @@ Implementing a Process plugin is easy if you're using Rust as there are several 
          file_matching: FileMatchingInfo {
            file_extensions: vec!["txt_ps".to_string()],
            file_names: vec![],
+           // set to true to format a matched file in addition to the plugin
+           // that claims it, rather than claiming the file
+           additive: false,
          },
          config: Configuration { ending, line_width },
          diagnostics,

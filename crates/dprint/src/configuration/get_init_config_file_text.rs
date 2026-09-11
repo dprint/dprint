@@ -338,6 +338,12 @@ struct ProjectFiles {
 /// 2. Two plugins that share a config key are never both selected — the earlier
 ///    one in the list wins.
 ///
+/// An additive plugin sits outside the first rule: it formats a file in addition
+/// to the plugin that claims it, so it's pre-selected whenever one of its files
+/// is present and it never claims anything away from another plugin. The config
+/// key rule still applies to it, because two config blocks with the same key
+/// can't both be written to the config file.
+///
 /// A plugin matches via its own file extensions / file names or via any of its
 /// config items (ex. `dprint-plugin-exec` declares no extensions of its own but
 /// pre-selects when one of its command's file types is present).
@@ -372,11 +378,20 @@ fn compute_default_selections(plugins: &[InfoFilePluginInfo], project_files: &Pr
     let present_extensions = present_extensions(plugin, project_files);
     let present_file_names = present_file_names(plugin, project_files);
 
-    // select it only if it's the first to match at least one of those
-    let claims_unclaimed =
-      present_extensions.iter().any(|ext| !claimed_extensions.contains(ext)) || present_file_names.iter().any(|name| !claimed_file_names.contains(name));
-    if !claims_unclaimed {
+    // an additive plugin is selected whenever one of its files is present,
+    // without claiming it from the plugin that formats it
+    let matches_present_file = !present_extensions.is_empty() || !present_file_names.is_empty();
+    if plugin.additive && !matches_present_file {
       continue;
+    }
+
+    // select a claiming plugin only if it's the first to match at least one of those
+    if !plugin.additive {
+      let claims_unclaimed =
+        present_extensions.iter().any(|ext| !claimed_extensions.contains(ext)) || present_file_names.iter().any(|name| !claimed_file_names.contains(name));
+      if !claims_unclaimed {
+        continue;
+      }
     }
 
     // never select two plugins that share a config key (earlier one wins)
@@ -387,8 +402,10 @@ fn compute_default_selections(plugins: &[InfoFilePluginInfo], project_files: &Pr
     }
 
     selected[i] = true;
-    claimed_extensions.extend(present_extensions);
-    claimed_file_names.extend(present_file_names);
+    if !plugin.additive {
+      claimed_extensions.extend(present_extensions);
+      claimed_file_names.extend(present_file_names);
+    }
   }
 
   selected
@@ -455,16 +472,31 @@ fn matches_project_files(file_extensions: &[String], file_names: &[String], proj
     || file_names.iter().any(|name| project_files.file_names.contains(name))
 }
 
-/// The text shown for a plugin in the selection list. The supported file
-/// extensions are appended so unfamiliar plugins are easier to tell apart.
+/// The text shown for a plugin in the selection list. The files it formats are
+/// appended so unfamiliar plugins are easier to tell apart, and an additive
+/// plugin is marked because it runs alongside another plugin rather than
+/// replacing it.
 fn plugin_display_text(plugin: &InfoFilePluginInfo) -> String {
-  let extensions = display_extensions(plugin);
-  if extensions.is_empty() {
+  let mut details = display_file_matches(plugin);
+  if plugin.additive {
+    details.push("runs in addition to other plugins".to_string());
+  }
+  if details.is_empty() {
     plugin.name.clone()
   } else {
-    let extensions = extensions.iter().map(|ext| format!(".{}", ext)).collect::<Vec<_>>().join(", ");
-    format!("{} ({})", plugin.name, extensions)
+    format!("{} ({})", plugin.name, details.join(", "))
   }
+}
+
+/// The files to show beside a plugin's name: its extensions, falling back to the
+/// extensions of its config items, then to the file names it matches (ex. a
+/// plugin that only formats `package.json` declares no extensions at all).
+fn display_file_matches(plugin: &InfoFilePluginInfo) -> Vec<String> {
+  let extensions = display_extensions(plugin);
+  if !extensions.is_empty() {
+    return extensions.iter().map(|ext| format!(".{}", ext)).collect();
+  }
+  get_unique_items(match_file_names(plugin).into_iter().map(ToOwned::to_owned).collect())
 }
 
 /// The extensions to show beside a plugin's name, falling back to the extensions
@@ -662,6 +694,7 @@ mod test {
       file_names: vec![],
       config_excludes: vec![],
       checksum: None,
+      additive: false,
       npm: None,
       default_config: None,
       config_items: config_item_extensions
@@ -786,6 +819,165 @@ mod test {
       );
       assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
     });
+  }
+
+  fn json_info_plugin() -> TestInfoFilePlugin {
+    TestInfoFilePlugin {
+      name: "dprint-plugin-json".to_string(),
+      version: "0.19.2".to_string(),
+      url: "https://plugins.dprint.dev/json-0.19.2.wasm".to_string(),
+      config_key: Some("json".to_string()),
+      file_extensions: vec!["json".to_string()],
+      config_excludes: vec![],
+      ..Default::default()
+    }
+  }
+
+  fn additive_info_plugin() -> TestInfoFilePlugin {
+    TestInfoFilePlugin {
+      name: "dprint-plugin-additive".to_string(),
+      version: "0.1.0".to_string(),
+      url: "https://plugins.dprint.dev/additive-0.1.0.wasm".to_string(),
+      config_key: Some("additivePlugin".to_string()),
+      file_extensions: vec![],
+      file_names: Some(vec!["package.json".to_string()]),
+      config_excludes: vec![],
+      additive: true,
+      ..Default::default()
+    }
+  }
+
+  #[test]
+  fn should_pre_select_additive_plugin_alongside_the_plugin_that_claims_the_file() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(json_info_plugin()).add_plugin(additive_info_plugin());
+      })
+      .write_file("/package.json", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(
+        &environment,
+        GetInitConfigFileTextOptions {
+          non_interactive: true,
+          ..Default::default()
+        },
+      )
+      .await
+      .unwrap();
+      // the additive plugin matching package.json doesn't stop the json plugin
+      // from being pre-selected for it
+      assert_eq!(
+        text,
+        r#"{
+  "json": {
+  },
+  "additivePlugin": {
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/json-0.19.2.wasm",
+    "https://plugins.dprint.dev/additive-0.1.0.wasm"
+  ]
+}
+"#
+      );
+    });
+  }
+
+  #[test]
+  fn should_not_let_an_additive_plugin_claim_files_from_a_later_plugin() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        // the additive plugin matches the same extension and is listed first
+        let mut additive = additive_info_plugin();
+        additive.file_extensions = vec!["json".to_string()];
+        info.add_plugin(additive).add_plugin(json_info_plugin());
+      })
+      .write_file("/data.json", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(
+        &environment,
+        GetInitConfigFileTextOptions {
+          non_interactive: true,
+          ..Default::default()
+        },
+      )
+      .await
+      .unwrap();
+      // the json plugin is still pre-selected for the .json file
+      assert!(text.contains("json-0.19.2.wasm"), "{text}");
+      assert!(text.contains("additive-0.1.0.wasm"), "{text}");
+    });
+  }
+
+  #[test]
+  fn should_not_pre_select_an_additive_plugin_that_shares_a_config_key() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        let mut additive = additive_info_plugin();
+        // the same config key as the json plugin, which can only be written once
+        additive.config_key = Some("json".to_string());
+        info.add_plugin(json_info_plugin()).add_plugin(additive);
+      })
+      .write_file("/package.json", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(
+        &environment,
+        GetInitConfigFileTextOptions {
+          non_interactive: true,
+          ..Default::default()
+        },
+      )
+      .await
+      .unwrap();
+      // the earlier plugin wins the config key, so the additive one is left out
+      assert!(text.contains("json-0.19.2.wasm"), "{text}");
+      assert!(!text.contains("additive-0.1.0.wasm"), "{text}");
+    });
+  }
+
+  #[test]
+  fn should_not_pre_select_additive_plugin_when_its_files_arent_present() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(json_info_plugin()).add_plugin(additive_info_plugin());
+      })
+      .write_file("/data.json", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(
+        &environment,
+        GetInitConfigFileTextOptions {
+          non_interactive: true,
+          ..Default::default()
+        },
+      )
+      .await
+      .unwrap();
+      assert!(!text.contains("additivePlugin"), "{text}");
+      assert!(text.contains("json-0.19.2.wasm"), "{text}");
+    });
+  }
+
+  #[test]
+  fn plugin_display_text_marks_additive_plugins() {
+    let mut plugin = info_plugin_with_extensions(vec![], vec![]);
+    plugin.name = "dprint-plugin-additive".to_string();
+    plugin.additive = true;
+    // a plugin with no extensions of its own shows the file names it matches
+    plugin.file_names = vec!["package.json".to_string()];
+    assert_eq!(
+      plugin_display_text(&plugin),
+      "dprint-plugin-additive (package.json, runs in addition to other plugins)"
+    );
+    plugin.file_extensions = vec!["json".to_string()];
+    assert_eq!(
+      plugin_display_text(&plugin),
+      "dprint-plugin-additive (.json, runs in addition to other plugins)"
+    );
   }
 
   #[test]

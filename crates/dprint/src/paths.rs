@@ -141,16 +141,20 @@ pub fn get_file_paths_by_plugins(
 }
 
 /// Resolves the plugins for a file on disk, reading its shebang line when it's
-/// an extensionless file that didn't match a plugin by path.
+/// an extensionless file that no plugin claimed by path.
 pub fn get_plugin_names_for_file_on_disk<'a>(plugin_name_maps: &'a PluginNameResolutionMaps, file_path: &Path, environment: &impl Environment) -> Vec<&'a str> {
-  let plugin_names = plugin_name_maps.get_plugin_names_from_file_path(file_path);
-  if !plugin_names.is_empty() || !plugin_name_maps.may_match_shebang(file_path) {
-    return plugin_names;
+  let path_plugin_names = plugin_name_maps.get_plugin_names_from_file_path(file_path);
+  if path_plugin_names.has_claiming_plugin() || !plugin_name_maps.may_match_shebang(file_path) {
+    return path_plugin_names.into_names();
   }
   match read_file_shebang_line(environment, file_path) {
-    Ok(Some(shebang_line)) => plugin_name_maps.get_plugin_names_from_shebang(file_path, &shebang_line),
+    // an additive plugin may still have matched by path, so keep those when the
+    // shebang doesn't resolve to a plugin
+    Ok(Some(shebang_line)) => plugin_name_maps
+      .get_plugin_names_from_shebang(file_path, &shebang_line)
+      .unwrap_or_else(|| path_plugin_names.into_names()),
     // ex. the file doesn't exist or has no shebang
-    _ => Vec::new(),
+    _ => path_plugin_names.into_names(),
   }
 }
 

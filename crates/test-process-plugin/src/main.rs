@@ -104,11 +104,16 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
 
     let file_extensions = get_string_vec(&mut config, "file_extensions", &mut diagnostics).unwrap_or_else(|| vec!["txt_ps".to_string()]);
     let file_names = get_string_vec(&mut config, "file_names", &mut diagnostics).unwrap_or_else(|| vec!["test-process-plugin-exact-file".to_string()]);
+    let additive = get_value(&mut config, "additive", false, &mut diagnostics);
 
     diagnostics.extend(get_unknown_property_diagnostics(config));
 
     PluginResolveConfigurationResult {
-      file_matching: FileMatchingInfo { file_extensions, file_names },
+      file_matching: FileMatchingInfo {
+        file_extensions,
+        file_names,
+        additive,
+      },
       config: Configuration { ending, line_width },
       diagnostics,
     }

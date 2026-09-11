@@ -38,6 +38,7 @@ use crate::configuration::ConfigurationDiagnostic;
 use crate::configuration::GlobalConfiguration;
 use crate::plugins::ConfigChange;
 use crate::plugins::CriticalFormatError;
+use crate::plugins::FILE_MATCHING_INFO_ERROR_MESSAGE;
 use crate::plugins::FileMatchingInfo;
 use crate::plugins::FormatConfigId;
 use crate::plugins::FormatError;
@@ -332,7 +333,8 @@ impl ProcessPluginCommunicator {
   }
 
   pub async fn file_matching_info(&self, config_id: FormatConfigId) -> Result<FileMatchingInfo> {
-    self.send_receiving_data(MessageBody::GetFileMatchingInfo(config_id)).await
+    let data = self.send_receiving_bytes(MessageBody::GetFileMatchingInfo(config_id)).await??;
+    serde_json::from_slice(&data).map_err(|err| FormatError::new(format!("{FILE_MATCHING_INFO_ERROR_MESSAGE}\n\n{err:#}")))
   }
 
   pub async fn config_diagnostics(&self, config_id: FormatConfigId) -> Result<Vec<ConfigurationDiagnostic>> {

@@ -30,6 +30,11 @@ pub struct InfoFilePluginInfo {
   pub file_names: Vec<String>,
   pub config_excludes: Vec<String>,
   pub checksum: Option<String>,
+  /// Whether the plugin formats a file it matches in addition to the plugin
+  /// that claims it. Only used by `dprint init`, which doesn't let an additive
+  /// plugin's file matching stop another plugin from being pre-selected. The
+  /// CLI gets this from the plugin itself when formatting.
+  pub additive: bool,
   /// The npm package the plugin is published to. When present, the CLI writes
   /// an npm specifier into config files instead of the plugin's url.
   pub npm: Option<PluginNpmInfo>,
@@ -143,6 +148,7 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo> {
   let npm = obj.take_object("npm").and_then(PluginNpmInfo::parse);
   // these are only used by `dprint init`, so parse them leniently rather than
   // failing the whole info file when a single entry is malformed
+  let additive = obj.take_boolean("additive").unwrap_or(false);
   let default_config = obj.take_object("defaultConfig").map(|o| jsonc_to_serde(JsonValue::Object(o)));
   let config_items = obj.take_array("configItems").map(parse_config_items).unwrap_or_default();
 
@@ -155,6 +161,7 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo> {
     file_names,
     config_excludes,
     checksum,
+    additive,
     npm,
     default_config,
     config_items,
@@ -272,6 +279,7 @@ mod test {
             file_names: Some(vec!["test-file".to_string()]),
             config_excludes: vec!["**/*-lock.json".to_string()],
             checksum: Some("test-checksum".to_string()),
+            additive: true,
             ..Default::default()
           });
       })
@@ -292,6 +300,7 @@ mod test {
               file_names: vec![],
               config_excludes: vec!["**/node_modules".to_string()],
               checksum: None,
+              additive: false,
               npm: None,
               default_config: None,
               config_items: vec![],
@@ -305,6 +314,7 @@ mod test {
               file_names: vec!["test-file".to_string()],
               config_excludes: vec!["**/*-lock.json".to_string()],
               checksum: Some("test-checksum".to_string()),
+              additive: true,
               npm: None,
               default_config: None,
               config_items: vec![],
@@ -416,6 +426,7 @@ mod test {
     "url": "https://plugins.dprint.dev/p.wasm",
     "fileExtensions": ["x"],
     "configExcludes": [],
+    "additive": "not-a-bool",
     "defaultConfig": "not-an-object",
     "configItems": [
       "not-an-object",
@@ -429,6 +440,8 @@ mod test {
     environment.clone().run_in_runtime(async move {
       let info_file = read_info_file(&environment).await.unwrap();
       let plugin = &info_file.latest_plugins[0];
+      // a non-boolean additive is ignored rather than failing the whole info file
+      assert!(!plugin.additive);
       // a non-object defaultConfig is ignored rather than failing the whole info file
       assert_eq!(plugin.default_config, None);
       assert_eq!(

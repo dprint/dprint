@@ -107,6 +107,7 @@ impl TestPlugin {
       initialized_test_plugin: InitializedTestPlugin(FileMatchingInfo {
         file_extensions: file_extensions.into_iter().map(String::from).collect(),
         file_names: file_names.into_iter().map(String::from).collect(),
+        additive: false,
       }),
     }
   }

@@ -66,13 +66,18 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
 
     let file_extensions = get_string_vec(&mut config, "file_extensions", &mut diagnostics).unwrap_or_else(|| vec!["txt".to_string()]);
     let file_names = get_string_vec(&mut config, "file_names", &mut diagnostics).unwrap_or_else(|| vec![]);
+    let additive = get_value(&mut config, "additive", false, &mut diagnostics);
 
     diagnostics.extend(get_unknown_property_diagnostics(config));
 
     PluginResolveConfigurationResult {
       config: Configuration { ending, line_width },
       diagnostics,
-      file_matching: FileMatchingInfo { file_extensions, file_names },
+      file_matching: FileMatchingInfo {
+        file_extensions,
+        file_names,
+        additive,
+      },
     }
   }
 

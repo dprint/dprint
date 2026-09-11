@@ -1461,6 +1461,265 @@ mod test {
   }
 
   #[test]
+  fn should_format_with_additive_plugin_in_addition_to_the_plugin_that_claims_the_file() {
+    let file_path1 = "/exact.txt";
+    let file_path2 = "/other.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.set_incremental(false)
+          .add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "file_extensions": ["txt"],
+              "ending": "wasm"
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "file_extensions": [],
+              "file_names": ["exact.txt"],
+              "additive": true,
+              "ending": "ps"
+            }"#,
+          );
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text2")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json", "--skip-stable-format"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    // the additive plugin matches the file name, but doesn't claim the file from the wasm plugin
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_wasm_ps");
+    // not matched by the additive plugin
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text2_wasm");
+  }
+
+  #[test]
+  fn should_format_with_additive_plugin_in_plugins_array_order() {
+    let file_path = "/exact.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        // the additive plugin is first in the plugins array, so it formats first
+        c.set_incremental(false)
+          .add_remote_process_plugin()
+          .add_remote_wasm_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "file_extensions": ["txt"],
+              "ending": "wasm"
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "file_extensions": [],
+              "file_names": ["exact.txt"],
+              "additive": true,
+              "ending": "ps"
+            }"#,
+          );
+      })
+      .write_file(&file_path, "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json", "--skip-stable-format"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text_ps_wasm");
+  }
+
+  #[test]
+  fn should_format_file_only_matched_by_an_additive_plugin() {
+    let file_path = "/file.other";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.set_incremental(false)
+          .add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "file_extensions": ["txt"],
+              "ending": "wasm"
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "file_extensions": ["other"],
+              "file_names": [],
+              "additive": true,
+              "ending": "ps"
+            }"#,
+          );
+      })
+      .write_file(&file_path, "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json", "--skip-stable-format"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    // no other plugin claims the file, so the additive plugin formats it on its own
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text_ps");
+  }
+
+  #[test]
+  fn should_format_with_an_additive_wasm_plugin() {
+    let file_path = "/exact.txt_ps";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        // the additive plugin here is the wasm one, so both plugin kinds are
+        // covered between this test and the others
+        c.set_incremental(false)
+          .add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "file_extensions": [],
+              "file_names": ["exact.txt_ps"],
+              "additive": true,
+              "ending": "wasm"
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "file_extensions": ["txt_ps"],
+              "file_names": [],
+              "ending": "ps"
+            }"#,
+          );
+      })
+      .write_file(&file_path, "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json", "--skip-stable-format"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text_wasm_ps");
+  }
+
+  #[test]
+  fn should_not_let_an_additive_plugin_claim_a_file_by_extension() {
+    let file_path = "/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        // the additive plugin is first and matches the same extension, but the
+        // process plugin still claims the file
+        c.set_incremental(false)
+          .add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "file_extensions": ["txt"],
+              "additive": true,
+              "ending": "wasm"
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "file_extensions": ["txt"],
+              "file_names": [],
+              "ending": "ps"
+            }"#,
+          );
+      })
+      .write_file(&file_path, "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json", "--skip-stable-format"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text_wasm_ps");
+  }
+
+  #[test]
+  fn should_format_extensionless_file_by_shebang_with_an_additive_plugin() {
+    let script_path = "/scripts/build";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.set_incremental(false)
+          .add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "file_extensions": ["txt"],
+              "ending": "wasm"
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "file_extensions": [],
+              "file_names": [],
+              "associations": ["**/scripts/**"],
+              "additive": true,
+              "ending": "ps"
+            }"#,
+          )
+          .add_config_section(
+            "shebangs",
+            r##"{
+              "#!/bin/sh": "txt"
+            }"##,
+          );
+      })
+      .write_file(&script_path, "#!/bin/sh\ntext")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json", "--skip-stable-format"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    // the additive plugin matching by path doesn't stop the shebang from
+    // routing the file to the plugin that claims it
+    assert_eq!(environment.read_file(&script_path).unwrap(), "#!/bin/sh\ntext_wasm_ps");
+  }
+
+  #[test]
+  fn should_not_let_an_additive_plugins_associations_claim_a_file() {
+    let file_path = "/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.set_incremental(false)
+          .add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section(
+            "test-plugin",
+            r#"{
+              "file_extensions": ["txt"],
+              "ending": "wasm"
+            }"#,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "associations": ["**/*.txt"],
+              "additive": true,
+              "ending": "ps"
+            }"#,
+          );
+      })
+      .write_file(&file_path, "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json", "--skip-stable-format"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    // associations say which files the additive plugin matches, but never make it claim one
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text_wasm_ps");
+  }
+
+  #[test]
   fn should_format_extensionless_files_by_shebang() {
     let script_path = "/scripts/build";
     let bash_path = "/scripts/deploy";
