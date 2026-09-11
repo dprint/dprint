@@ -38,6 +38,8 @@ For the latest version and copy-paste URL of every plugin, see [plugins.dprint.d
 - [Badness](/plugins/badness) (LaTeX/BibTeX)
 - [Arity](/plugins/arity) (R)
 - [Fatou](/plugins/fatou) (Julia)
+- [Typstyle](/plugins/typstyle) (Typst)
+- [bibtex-tidy](/plugins/bibtex-tidy) (BibTeX)
 
 ## Process Plugins
 
