@@ -354,10 +354,16 @@ struct ProjectFiles {
 /// config items (ex. `dprint-plugin-exec` declares no extensions of its own but
 /// pre-selects when one of its command's file types is present).
 ///
+/// A plugin marked `neverPreselect` sits outside both rules: it's skipped
+/// entirely, so it's never pre-selected and never claims a file type or a
+/// config key away from a plugin that would be. It's still offered in the
+/// picker, just never suggested.
+///
 /// `already_configured` marks the plugins a config file already has (empty when
 /// there's no config file yet). They claim their file types before anything
 /// else and are never selected, so nothing is suggested for a file type that's
-/// already handled.
+/// already handled. That includes a `neverPreselect` plugin: once it's in a
+/// config file it handles its file types like any other.
 fn compute_default_selections(plugins: &[InfoFilePluginInfo], project_files: &ProjectFiles, already_configured: &[bool]) -> Vec<bool> {
   let is_already_configured = |index: usize| already_configured.get(index).copied().unwrap_or(false);
   let mut claimed_extensions: HashSet<String> = HashSet::new();
@@ -377,7 +383,7 @@ fn compute_default_selections(plugins: &[InfoFilePluginInfo], project_files: &Pr
   }
 
   for (i, plugin) in plugins.iter().enumerate() {
-    if is_already_configured(i) {
+    if is_already_configured(i) || plugin.never_preselect {
       continue;
     }
     // present extensions / file names that this plugin matches
@@ -701,6 +707,7 @@ mod test {
       config_excludes: vec![],
       checksum: None,
       additive: false,
+      never_preselect: false,
       npm: None,
       default_config: None,
       config_items: config_item_extensions
@@ -984,6 +991,92 @@ mod test {
       plugin_display_text(&plugin),
       "dprint-plugin-additive (.json, runs in addition to other plugins)"
     );
+  }
+
+  #[test]
+  fn should_not_pre_select_a_never_preselect_plugin() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        let mut plugin = wasm_plugin("a", "a", &["txt"]);
+        plugin.never_preselect = true;
+        info.add_plugin(plugin);
+      })
+      .write_file("/notes.txt", "")
+      .build();
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+        // it matches the .txt file, but it's only offered rather than suggested
+        assert_eq!(environment.take_multi_selection_items(), vec!["[ ] a (.txt)"]);
+        assert!(!text.contains("a-1.0.0.wasm"), "{text}");
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_not_let_a_never_preselect_plugin_claim_anything_from_a_later_plugin() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        // the two plugins compete for the same file type and the same config key
+        let mut plugin = wasm_plugin("a", "shared", &["txt"]);
+        plugin.never_preselect = true;
+        info.add_plugin(plugin).add_plugin(wasm_plugin("b", "shared", &["txt"]));
+      })
+      .write_file("/notes.txt", "")
+      .build();
+    environment.clone().run_in_runtime(async move {
+      let text = get_init_config_file_text(
+        &environment,
+        GetInitConfigFileTextOptions {
+          non_interactive: true,
+          ..Default::default()
+        },
+      )
+      .await
+      .unwrap();
+      // `b` is still pre-selected for the .txt file
+      assert!(text.contains("b-1.0.0.wasm"), "{text}");
+      assert!(!text.contains("a-1.0.0.wasm"), "{text}");
+    });
+  }
+
+  #[test]
+  fn should_let_a_never_preselect_plugin_a_config_file_has_claim_its_file_types() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        let mut plugin = wasm_plugin("a", "a", &["txt"]);
+        plugin.never_preselect = true;
+        info.add_plugin(plugin).add_plugin(wasm_plugin("b", "b", &["txt"]));
+      })
+      .write_file("/notes.txt", "")
+      .build();
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let plugins = get_init_plugins_to_add(
+          &environment,
+          GetInitPluginsToAddOptions {
+            existing_plugin_names: HashSet::from(["a".to_string()]),
+            minimum_dependency_age: None,
+            config_dir: None,
+          },
+        )
+        .await
+        .unwrap();
+        // `a` handles .txt once it's in the config file, so `b` isn't suggested
+        assert_eq!(
+          environment.take_multi_selection_items(),
+          vec!["[ ] b (.txt)", "[x] a (.txt) — already in config (locked)"]
+        );
+        let InitPluginsToAdd::Entries(entries) = plugins else {
+          unreachable!();
+        };
+        assert!(entries.is_empty());
+        environment.take_stderr_messages();
+      }
+    });
   }
 
   #[test]

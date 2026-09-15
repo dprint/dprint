@@ -178,6 +178,8 @@ pub struct TestInfoFilePlugin {
   pub checksum: Option<String>,
   #[serde(skip_serializing_if = "std::ops::Not::not")]
   pub additive: bool,
+  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  pub never_preselect: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub npm: Option<TestInfoFileNpm>,
   #[serde(skip_serializing_if = "Option::is_none")]

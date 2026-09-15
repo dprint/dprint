@@ -35,6 +35,10 @@ pub struct InfoFilePluginInfo {
   /// plugin's file matching stop another plugin from being pre-selected. The
   /// CLI gets this from the plugin itself when formatting.
   pub additive: bool,
+  /// Whether `dprint init` should leave the plugin out of its pre-selection.
+  /// It's still offered in the picker, but it's never suggested and never
+  /// claims a file type away from a plugin that would be.
+  pub never_preselect: bool,
   /// The npm package the plugin is published to. When present, the CLI writes
   /// an npm specifier into config files instead of the plugin's url.
   pub npm: Option<PluginNpmInfo>,
@@ -149,6 +153,10 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo> {
   // these are only used by `dprint init`, so parse them leniently rather than
   // failing the whole info file when a single entry is malformed
   let additive = obj.take_boolean("additive").unwrap_or(false);
+  // truthy so that a value the author clearly meant to set, but set to a
+  // non-boolean, keeps the plugin out rather than pre-selecting it against their
+  // intent — the plugin is still offered in the picker either way
+  let never_preselect = obj.take("neverPreselect").is_some_and(|value| is_truthy(&value));
   let default_config = obj.take_object("defaultConfig").map(|o| jsonc_to_serde(JsonValue::Object(o)));
   let config_items = obj.take_array("configItems").map(parse_config_items).unwrap_or_default();
 
@@ -162,6 +170,7 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo> {
     config_excludes,
     checksum,
     additive,
+    never_preselect,
     npm,
     default_config,
     config_items,
@@ -192,6 +201,19 @@ fn parse_config_items(arr: JsonArray) -> Vec<InfoFileConfigItem> {
     });
   }
   items
+}
+
+/// Whether a value is truthy by JavaScript's rules: `false`, `null`, `0` and
+/// `""` are falsy and everything else (including `"false"`, `[]` and `{}`) is
+/// truthy.
+fn is_truthy(value: &JsonValue) -> bool {
+  match value {
+    JsonValue::Null => false,
+    JsonValue::Boolean(value) => *value,
+    JsonValue::Number(value) => value.parse::<f64>().map(|value| value != 0.0).unwrap_or(true),
+    JsonValue::String(value) => !value.is_empty(),
+    JsonValue::Array(_) | JsonValue::Object(_) => true,
+  }
 }
 
 /// Converts a parsed jsonc value into an owned `serde_json::Value`.
@@ -280,6 +302,7 @@ mod test {
             config_excludes: vec!["**/*-lock.json".to_string()],
             checksum: Some("test-checksum".to_string()),
             additive: true,
+            never_preselect: true,
             ..Default::default()
           });
       })
@@ -301,6 +324,7 @@ mod test {
               config_excludes: vec!["**/node_modules".to_string()],
               checksum: None,
               additive: false,
+              never_preselect: false,
               npm: None,
               default_config: None,
               config_items: vec![],
@@ -315,6 +339,7 @@ mod test {
               config_excludes: vec!["**/*-lock.json".to_string()],
               checksum: Some("test-checksum".to_string()),
               additive: true,
+              never_preselect: true,
               npm: None,
               default_config: None,
               config_items: vec![],
@@ -427,6 +452,7 @@ mod test {
     "fileExtensions": ["x"],
     "configExcludes": [],
     "additive": "not-a-bool",
+    "neverPreselect": "not-a-bool",
     "defaultConfig": "not-an-object",
     "configItems": [
       "not-an-object",
@@ -442,6 +468,8 @@ mod test {
       let plugin = &info_file.latest_plugins[0];
       // a non-boolean additive is ignored rather than failing the whole info file
       assert!(!plugin.additive);
+      // a non-boolean neverPreselect is truthy, so it keeps the plugin out
+      assert!(plugin.never_preselect);
       // a non-object defaultConfig is ignored rather than failing the whole info file
       assert_eq!(plugin.default_config, None);
       assert_eq!(
@@ -462,6 +490,26 @@ mod test {
         ]
       );
     });
+  }
+
+  #[test]
+  fn should_parse_never_preselect_as_truthy() {
+    let cases = [
+      ("false", false),
+      ("null", false),
+      ("0", false),
+      ("0.0", false),
+      ("\"\"", false),
+      ("true", true),
+      ("1", true),
+      ("\"false\"", true),
+      ("[]", true),
+      ("{}", true),
+    ];
+    for (text, expected) in cases {
+      let value = parse_to_value(text, &Default::default()).unwrap().unwrap();
+      assert_eq!(is_truthy(&value), expected, "{text}");
+    }
   }
 
   #[test]
