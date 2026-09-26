@@ -1,11 +1,11 @@
 # dprint installer script
 
-Name "dprint"
+Name "arm"
 
 RequestExecutionLevel User
 
-OutFile "dprint-x86_64-pc-windows-msvc-installer.exe"
-InstallDir $PROFILE\.dprint
+OutFile "arm-x86_64-pc-windows-msvc-installer.exe"
+InstallDir $PROFILE\.arm
 
 !macro KillDprintProcess
     # https://stackoverflow.com/a/34371858/188246
@@ -16,13 +16,13 @@ InstallDir $PROFILE\.dprint
 
 Section
 
-    !insertmacro KillDprintProcess
+    !insertmacro KillarmProcess
 
     CreateDirectory $INSTDIR\bin
     SetOutPath $INSTDIR\bin
-    File ..\..\target\x86_64-pc-windows-msvc\release\dprint.exe
+    File ..\..\target\arm_x86_64-pc-windows-msvc\release\arm.exe
 
-    nsExec::ExecToStack '"$INSTDIR\bin\dprint" hidden windows-install "$INSTDIR\bin"'
+    nsExec::ExecToStack '"$INSTDIR\bin\arm" hidden windows-install "$INSTDIR\bin"'
     Pop $0
     Pop $1
 
@@ -47,7 +47,7 @@ Section "Uninstall"
     !insertmacro KillDprintProcess
 
     Delete $INSTDIR\uninstall.exe
-    Delete $INSTDIR\bin\dprint.exe
+    Delete $INSTDIR\bin\arm.exe
     RMDir $INSTDIR\bin
     RMDir $INSTDIR
 
