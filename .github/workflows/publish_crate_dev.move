@@ -2,7 +2,7 @@
 import { expr, job, step, workflow } from "jsr:@david/gagen@0.6.0";
 
 workflow({
-  name: "cargo publish development crate",
+  name: "cargo publish develop crate",
   on: { workflow_dispatch: {} },
   permissions: { "id-token": "write", contents: "read" },
   jobs: [
