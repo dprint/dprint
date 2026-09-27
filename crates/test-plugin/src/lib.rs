@@ -89,6 +89,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
       help_url: "https://dprint.dev/plugins/test".to_string(),
       config_schema_url: "https://plugins.dprint.dev/test/schema.json".to_string(),
       update_url: Some("https://plugins.dprint.dev/dprint/test-plugin/latest.json".to_string()),
+      supports_range_formatting: true,
     }
   }
 

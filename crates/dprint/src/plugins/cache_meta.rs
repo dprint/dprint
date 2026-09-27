@@ -17,7 +17,7 @@ use std::hash::Hasher;
 /// should invalidate existing entries. Folded into each entry's signature so a
 /// bump simply orphans old entries (they stay on disk until `clear-cache`)
 /// rather than busting the whole cache.
-const PLUGIN_CACHE_SCHEMA_VERSION: usize = 10;
+const PLUGIN_CACHE_SCHEMA_VERSION: usize = 11;
 
 /// Size + modification time of a local file, captured at setup. A cache hit
 /// requires every stamp to still match (cheap stat, no read/hash).
@@ -173,6 +173,7 @@ mod test {
         help_url: "help".to_string(),
         config_schema_url: "schema".to_string(),
         update_url: None,
+        supports_range_formatting: false,
       },
       executable_sub_path: None,
       local_stamps: None,

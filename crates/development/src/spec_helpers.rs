@@ -7,6 +7,7 @@ use similar::ChangeTag;
 use similar::TextDiff;
 use std::fmt::Display;
 use std::fs;
+use std::ops::Range;
 use std::panic::AssertUnwindSafe;
 use std::panic::catch_unwind;
 use std::path::Path;
@@ -45,7 +46,9 @@ impl Display for DiffFailedMessage<'_> {
   }
 }
 
-type FormatTextFunc = dyn (Fn(&Path, &str, &SpecConfigMap) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>>) + Send + Sync;
+/// Formats the provided file text, or only the provided byte range of it when there is one.
+type FormatTextFunc =
+  dyn (Fn(&Path, &str, Option<Range<usize>>, &SpecConfigMap) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>>) + Send + Sync;
 type GetTraceJsonFunc = dyn (Fn(&Path, &str, &SpecConfigMap) -> String) + Send + Sync;
 
 #[derive(Debug, Clone)]
@@ -143,8 +146,8 @@ pub fn run_specs(
     get_trace_json: &Arc<GetTraceJsonFunc>,
   ) -> Option<FailedTestResult> {
     let spec_file_path_buf = PathBuf::from(&spec.file_name);
-    let format = |file_text: &str| -> Result<Option<String>, String> {
-      match catch_unwind(AssertUnwindSafe(|| format_text(&spec_file_path_buf, file_text, &spec.config))) {
+    let format = |file_text: &str, range: Option<Range<usize>>| -> Result<Option<String>, String> {
+      match catch_unwind(AssertUnwindSafe(|| format_text(&spec_file_path_buf, file_text, range, &spec.config))) {
         Ok(Ok(formatted)) => Ok(formatted),
         Ok(Err(err)) => Err(format!("Formatter error: {}", error_to_string(err.as_ref()))),
         Err(panic_info) => {
@@ -163,7 +166,7 @@ pub fn run_specs(
       handle_trace(spec, &trace_json);
       None
     } else {
-      let result = match format(&spec.file_text) {
+      let result = match format(&spec.file_text, spec.range.clone()) {
         Ok(formatted) => formatted.unwrap_or_else(|| spec.file_text.to_string()),
         Err(err_msg) => {
           return Some(FailedTestResult {
@@ -179,7 +182,7 @@ pub fn run_specs(
         if run_spec_options.fix_failures {
           // very rough, but good enough
           let file_text = fs::read_to_string(test_file_path).expect("Expected to read the file.");
-          let file_text = file_text.replace(&spec.expected_text, &result);
+          let file_text = file_text.replace(&with_range_markers(&spec.expected_text, &spec.expected_range), &result);
           fs::write(test_file_path, file_text).expect("Expected to write to file.");
           None
         } else {
@@ -190,9 +193,10 @@ pub fn run_specs(
             message: spec.message.clone(),
           })
         }
-      } else if run_spec_options.format_twice && !spec.skip_format_twice {
-        // ensure no changes when formatting twice
-        let twice_result = match format(&result) {
+      } else if run_spec_options.format_twice && !spec.skip_format_twice && (spec.range.is_none() || spec.expected_range.is_some()) {
+        // ensure no changes when formatting twice (a range spec needs a range in its expected text for
+        // this since the original range no longer lines up with the formatted text)
+        let twice_result = match format(&result, spec.expected_range.clone()) {
           Ok(formatted) => formatted.unwrap_or_else(|| result.to_string()),
           Err(err_msg) => {
             return Some(FailedTestResult {
@@ -280,6 +284,20 @@ pub fn run_specs(
     if run_spec_options.fix_failures {
       panic!("Cannot have 'fix_failures' as `true` in release mode.");
     }
+  }
+}
+
+fn with_range_markers(text: &str, range: &Option<Range<usize>>) -> String {
+  match range {
+    Some(range) => format!(
+      "{}{}{}{}{}",
+      &text[..range.start],
+      RANGE_START,
+      &text[range.clone()],
+      RANGE_END,
+      &text[range.end..]
+    ),
+    None => text.to_string(),
   }
 }
 

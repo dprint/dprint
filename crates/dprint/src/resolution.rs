@@ -520,6 +520,10 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       let mut had_change = false;
       for plugin_name in plugin_names {
         let plugin = scope.get_plugin(&plugin_name);
+        if request.range.is_some() && !plugin.info().supports_range_formatting {
+          log_debug!(scope.environment, "Skipping {} since it doesn't support range formatting.", plugin_name);
+          continue;
+        }
         match plugin.get_or_create_checking_config_diagnostics(&scope.environment).await {
           Ok(GetPluginResult::Success(initialized_plugin)) => {
             let result = initialized_plugin
@@ -1204,6 +1208,38 @@ mod test {
       hash_with_shebangs(shebangs(&[("#!/bin/sh", "sh")])),
       hash_with_shebangs(shebangs(&[("#!/bin/sh", "txt")]))
     );
+  }
+
+  #[tokio::test]
+  async fn should_skip_range_formatting_for_plugins_without_support() {
+    let environment = crate::environment::TestEnvironment::new();
+    let base_path = CanonicalizedPathBuf::new_for_testing("/");
+    let config = Rc::new(ResolvedConfig {
+      config_map: Default::default(),
+      base_path: base_path.clone(),
+      source: PathSource::new_local(base_path.join_panic_relative("dprint.json")),
+      is_global: false,
+      excludes: None,
+      includes: None,
+      incremental: None,
+      shebangs: None,
+      inherit: None,
+      plugins: Vec::new(),
+    });
+    let scope = Rc::new(PluginsScope::new(environment, vec![Rc::new(create_plugin_with_overrides(Vec::new()))], config, Vec::new()).unwrap());
+    let format = |range: FormatRange| {
+      scope.format(HostFormatRequest {
+        file_path: PathBuf::from("/file.txt"),
+        file_bytes: b"text".to_vec(),
+        range,
+        override_config: Default::default(),
+        token: Arc::new(dprint_core::plugins::NullCancellationToken),
+      })
+    };
+
+    // the test plugin doesn't support range formatting
+    assert_eq!(format(Some(0..1)).await.unwrap(), None);
+    assert_eq!(format(None).await.unwrap(), Some(b"text_formatted".to_vec()));
   }
 
   #[test]

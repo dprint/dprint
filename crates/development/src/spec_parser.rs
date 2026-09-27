@@ -1,15 +1,26 @@
+use std::ops::Range;
+
 #[derive(PartialEq, Eq, Debug)]
 pub struct Spec {
   pub file_name: String,
   pub message: String,
   pub file_text: String,
+  /// Byte range of `file_text` to format, marked in the spec with `[|` and `|]`.
+  pub range: Option<Range<usize>>,
   pub expected_text: String,
+  /// Byte range of `expected_text` to format when formatting it a second time.
+  pub expected_range: Option<Range<usize>>,
   pub is_only: bool,
   pub is_trace: bool,
   pub skip: bool,
   pub skip_format_twice: bool,
   pub config: SpecConfigMap,
 }
+
+/// Marks the start of the range to format in a spec's text.
+pub const RANGE_START: &str = "[|";
+/// Marks the end of the range to format in a spec's text.
+pub const RANGE_END: &str = "|]";
 
 pub type SpecConfigMap = serde_json::Map<String, serde_json::Value>;
 
@@ -102,8 +113,8 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
   fn parse_single_spec(file_name: &str, message_line: &str, lines: &[&str], config: &SpecConfigMap) -> Spec {
     let file_text = lines.join("\n");
     let parts = file_text.split("[expect]").collect::<Vec<&str>>();
-    let start_text = parts[0][0..parts[0].len() - "\n".len()].into(); // remove last newline
-    let expected_text = parts[1]["\n".len()..].into(); // remove first newline
+    let (start_text, range) = parse_range(&parts[0][0..parts[0].len() - "\n".len()]); // remove last newline
+    let (expected_text, expected_range) = parse_range(&parts[1]["\n".len()..]); // remove first newline
     let lower_case_message_line = message_line.to_ascii_lowercase();
     let message_separator = get_message_separator(file_name);
     let is_trace = lower_case_message_line.contains("(trace)");
@@ -114,13 +125,33 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
         .trim()
         .into(),
       file_text: start_text,
+      range,
       expected_text,
+      expected_range,
       is_only: lower_case_message_line.contains("(only)") || is_trace,
       is_trace,
       skip: lower_case_message_line.contains("(skip)"),
       skip_format_twice: lower_case_message_line.contains("(skip-format-twice)"),
       config: config.clone(),
     }
+  }
+
+  fn parse_range(text: &str) -> (String, Option<Range<usize>>) {
+    let Some(start) = text.find(RANGE_START) else {
+      assert!(!text.contains(RANGE_END), "Found {} without {}.", RANGE_END, RANGE_START);
+      return (text.to_string(), None);
+    };
+    let end = text[start..]
+      .find(RANGE_END)
+      .unwrap_or_else(|| panic!("Found {} without {}.", RANGE_START, RANGE_END))
+      + start
+      - RANGE_START.len();
+    let text = text.replacen(RANGE_START, "", 1).replacen(RANGE_END, "", 1);
+    assert!(
+      !text.contains(RANGE_START) && !text.contains(RANGE_END),
+      "Only one range may be specified per text."
+    );
+    (text, Some(start..end))
   }
 
   fn get_message_separator(file_name: &str) -> &'static str {
@@ -167,7 +198,9 @@ mod tests {
       Spec {
         file_name: "test.ts".into(),
         file_text: "start\nmultiple\n".into(),
+        range: None,
         expected_text: "expected\nmultiple\n".into(),
+        expected_range: None,
         message: "message 1".into(),
         is_only: false,
         is_trace: false,
@@ -181,7 +214,9 @@ mod tests {
       Spec {
         file_name: "test.ts".into(),
         file_text: "start2\n".into(),
+        range: None,
         expected_text: "expected2\n".into(),
+        expected_range: None,
         message: "message 2 (only) (skip) (skip-format-twice)".into(),
         is_only: true,
         is_trace: false,
@@ -195,7 +230,9 @@ mod tests {
       Spec {
         file_name: "test.ts".into(),
         file_text: "test\n".into(),
+        range: None,
         expected_text: "test\n".into(),
+        expected_range: None,
         message: "message 3 (trace)".into(),
         is_only: true,
         is_trace: true,
@@ -219,7 +256,9 @@ mod tests {
       Spec {
         file_name: "asdf.ts".into(),
         file_text: "start".into(),
+        range: None,
         expected_text: "expected".into(),
+        expected_range: None,
         message: "message".into(),
         is_only: false,
         is_trace: false,
@@ -251,7 +290,9 @@ mod tests {
       Spec {
         file_name: "asdf.ts".into(),
         file_text: "start".into(),
+        range: None,
         expected_text: "expected".into(),
+        expected_range: None,
         message: "message".into(),
         is_only: false,
         is_trace: false,
@@ -262,6 +303,55 @@ mod tests {
           .cloned()
           .collect(),
       }
+    );
+  }
+
+  #[test]
+  fn it_parses_ranges() {
+    let specs = parse_specs(
+      [
+        "== message ==",
+        "a [|b|] c",
+        "[expect]",
+        "a [|B|] c",
+        "",
+        "== cursor ==",
+        "a [||]b",
+        "[expect]",
+        "a b",
+      ]
+      .join(
+        "
+",
+      ),
+      &ParseSpecOptions { default_file_name: "test.ts" },
+    );
+
+    assert_eq!(specs.len(), 2);
+    assert_eq!(specs[0].file_text, "a b c");
+    assert_eq!(specs[0].range, Some(2..3));
+    assert_eq!(
+      specs[0].expected_text,
+      "a B c
+"
+    );
+    assert_eq!(specs[0].expected_range, Some(2..3));
+    assert_eq!(specs[1].file_text, "a b");
+    assert_eq!(specs[1].range, Some(2..2));
+    assert_eq!(specs[1].expected_text, "a b");
+    assert_eq!(specs[1].expected_range, None);
+  }
+
+  #[test]
+  #[should_panic(expected = "Found [| without |].")]
+  fn it_panics_on_unclosed_range() {
+    parse_specs(
+      "== message ==
+a [|b
+[expect]
+a b"
+        .to_string(),
+      &ParseSpecOptions { default_file_name: "test.ts" },
     );
   }
 
@@ -294,7 +384,9 @@ mod tests {
       Spec {
         file_name: "test.md".into(),
         file_text: "start\nmultiple\n".into(),
+        range: None,
         expected_text: "expected\nmultiple\n".into(),
+        expected_range: None,
         message: "message 1".into(),
         is_only: false,
         is_trace: false,
@@ -308,7 +400,9 @@ mod tests {
       Spec {
         file_name: "test.md".into(),
         file_text: "start2\n".into(),
+        range: None,
         expected_text: "expected2\n".into(),
+        expected_range: None,
         message: "message 2 (only) (skip) (skip-format-twice)".into(),
         is_only: true,
         is_trace: false,
