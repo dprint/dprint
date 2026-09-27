@@ -115,6 +115,10 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
     let parts = file_text.split("[expect]").collect::<Vec<&str>>();
     let (start_text, range) = parse_range(&parts[0][0..parts[0].len() - "\n".len()]); // remove last newline
     let (expected_text, expected_range) = parse_range(&parts[1]["\n".len()..]); // remove first newline
+    assert!(
+      range.is_some() || expected_range.is_none(),
+      "Only a spec with a range in its text can have a range in its expected text."
+    );
     let lower_case_message_line = message_line.to_ascii_lowercase();
     let message_separator = get_message_separator(file_name);
     let is_trace = lower_case_message_line.contains("(trace)");
@@ -141,17 +145,17 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
       assert!(!text.contains(RANGE_END), "Found {} without {}.", RANGE_END, RANGE_START);
       return (text.to_string(), None);
     };
-    let end = text[start..]
+    let inner_start = start + RANGE_START.len();
+    let inner_end = text[inner_start..]
       .find(RANGE_END)
-      .unwrap_or_else(|| panic!("Found {} without {}.", RANGE_START, RANGE_END))
-      + start
-      - RANGE_START.len();
-    let text = text.replacen(RANGE_START, "", 1).replacen(RANGE_END, "", 1);
+      .map(|index| inner_start + index)
+      .unwrap_or_else(|| panic!("Found {} without {}.", RANGE_START, RANGE_END));
+    let (before, inner, after) = (&text[..start], &text[inner_start..inner_end], &text[inner_end + RANGE_END.len()..]);
     assert!(
-      !text.contains(RANGE_START) && !text.contains(RANGE_END),
+      !before.contains(RANGE_END) && !inner.contains(RANGE_START) && !after.contains(RANGE_START) && !after.contains(RANGE_END),
       "Only one range may be specified per text."
     );
-    (text, Some(start..end))
+    (format!("{}{}{}", before, inner, after), Some(start..start + inner.len()))
   }
 
   fn get_message_separator(file_name: &str) -> &'static str {
@@ -320,21 +324,14 @@ mod tests {
         "[expect]",
         "a b",
       ]
-      .join(
-        "
-",
-      ),
+      .join("\n"),
       &ParseSpecOptions { default_file_name: "test.ts" },
     );
 
     assert_eq!(specs.len(), 2);
     assert_eq!(specs[0].file_text, "a b c");
     assert_eq!(specs[0].range, Some(2..3));
-    assert_eq!(
-      specs[0].expected_text,
-      "a B c
-"
-    );
+    assert_eq!(specs[0].expected_text, "a B c\n");
     assert_eq!(specs[0].expected_range, Some(2..3));
     assert_eq!(specs[1].file_text, "a b");
     assert_eq!(specs[1].range, Some(2..2));
@@ -345,14 +342,41 @@ mod tests {
   #[test]
   #[should_panic(expected = "Found [| without |].")]
   fn it_panics_on_unclosed_range() {
+    parse_range_spec("a [|b");
+  }
+
+  #[test]
+  #[should_panic(expected = "Found [| without |].")]
+  fn it_panics_on_overlapping_markers() {
+    parse_range_spec("a [|]b");
+  }
+
+  #[test]
+  #[should_panic(expected = "Only one range may be specified per text.")]
+  fn it_panics_on_end_before_start() {
+    parse_range_spec("a |] [|b|]");
+  }
+
+  #[test]
+  #[should_panic(expected = "Only one range may be specified per text.")]
+  fn it_panics_on_multiple_ranges() {
+    parse_range_spec("[|a|] [|b|]");
+  }
+
+  #[test]
+  #[should_panic(expected = "Only a spec with a range in its text can have a range in its expected text.")]
+  fn it_panics_on_range_only_in_expected() {
     parse_specs(
-      "== message ==
-a [|b
-[expect]
-a b"
-        .to_string(),
+      ["== message ==", "a b", "[expect]", "a [|b|]"].join("\n"),
       &ParseSpecOptions { default_file_name: "test.ts" },
     );
+  }
+
+  fn parse_range_spec(text: &str) -> Vec<Spec> {
+    parse_specs(
+      ["== message ==", text, "[expect]", "a b"].join("\n"),
+      &ParseSpecOptions { default_file_name: "test.ts" },
+    )
   }
 
   #[test]

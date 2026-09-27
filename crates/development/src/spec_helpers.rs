@@ -182,7 +182,16 @@ pub fn run_specs(
         if run_spec_options.fix_failures {
           // very rough, but good enough
           let file_text = fs::read_to_string(test_file_path).expect("Expected to read the file.");
-          let file_text = file_text.replace(&with_range_markers(&spec.expected_text, &spec.expected_range), &result);
+          // keep the range in the expected text when the text around it is unchanged
+          let result_range = spec.expected_range.as_ref().and_then(|range| {
+            let (prefix, suffix) = (&spec.expected_text[..range.start], &spec.expected_text[range.end..]);
+            let fits = result.len() >= prefix.len() + suffix.len() && result.starts_with(prefix) && result.ends_with(suffix);
+            fits.then(|| range.start..result.len() - suffix.len())
+          });
+          let file_text = file_text.replace(
+            &with_range_markers(&spec.expected_text, spec.expected_range.as_ref()),
+            &with_range_markers(&result, result_range.as_ref()),
+          );
           fs::write(test_file_path, file_text).expect("Expected to write to file.");
           None
         } else {
@@ -287,7 +296,7 @@ pub fn run_specs(
   }
 }
 
-fn with_range_markers(text: &str, range: &Option<Range<usize>>) -> String {
+fn with_range_markers(text: &str, range: Option<&Range<usize>>) -> String {
   match range {
     Some(range) => format!(
       "{}{}{}{}{}",
