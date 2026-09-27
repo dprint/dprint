@@ -103,7 +103,6 @@ impl TestPlugin {
         help_url: "https://dprint.dev/plugins/test".to_string(),
         config_schema_url: "https://plugins.dprint.dev/schemas/test.json".to_string(),
         update_url: None,
-        supports_range_formatting: false,
       },
       initialized_test_plugin: InitializedTestPlugin(FileMatchingInfo {
         file_extensions: file_extensions.into_iter().map(String::from).collect(),
