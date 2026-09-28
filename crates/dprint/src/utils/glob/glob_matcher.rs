@@ -131,17 +131,33 @@ impl GlobMatcher {
     self.matches_detail_inner(path.as_ref(), self.include_extensionless_files && has_matching_shebang)
   }
 
-  fn matches_detail_inner(&self, path: &Path, include_extensionless: bool) -> GlobMatchesDetail {
+  /// Gets whether the excludes exclude the path, opt it out of being excluded,
+  /// or don't match it, without considering the includes.
+  pub fn exclude_detail(&self, path: impl AsRef<Path>) -> ExcludeMatchDetail {
+    let path = self.base_relative_path(path.as_ref());
+    self.check_exclude(&path, false)
+  }
+
+  fn base_relative_path<'p>(&self, path: &'p Path) -> Cow<'p, Path> {
     let path = if path.is_absolute() {
       Cow::Borrowed(path)
     } else {
       Cow::Owned(self.base_dir.join(path))
     };
-    let path = if let Ok(prefix) = path.strip_prefix(&self.base_dir) {
-      Cow::Borrowed(prefix)
-    } else {
-      path
-    };
+    match path {
+      Cow::Borrowed(path) => match path.strip_prefix(&self.base_dir) {
+        Ok(prefix) => Cow::Borrowed(prefix),
+        Err(_) => Cow::Borrowed(path),
+      },
+      Cow::Owned(path) => match path.strip_prefix(&self.base_dir) {
+        Ok(prefix) => Cow::Owned(prefix.to_path_buf()),
+        Err(_) => Cow::Owned(path),
+      },
+    }
+  }
+
+  fn matches_detail_inner(&self, path: &Path, include_extensionless: bool) -> GlobMatchesDetail {
+    let path = self.base_relative_path(path);
 
     let matched_result = match self.check_exclude(&path, false) {
       ExcludeMatchDetail::Excluded => return GlobMatchesDetail::Excluded,
