@@ -52,7 +52,7 @@ use crate::paths::get_file_paths_by_plugins;
 use crate::paths::get_plugin_names_for_file_on_disk;
 use crate::patterns::FileMatcher;
 use crate::patterns::FileMatcherOptions;
-use crate::patterns::get_patterns_as_glob_matcher;
+use crate::patterns::OrderedPatternsMatcher;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
@@ -62,7 +62,6 @@ use crate::plugins::PluginResolver;
 use crate::plugins::PluginWrapper;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::utils::FastInsecureHasher;
-use crate::utils::GlobMatcher;
 use crate::utils::GlobOutput;
 use crate::utils::OutsideBasePath;
 use crate::utils::PathSource;
@@ -78,7 +77,7 @@ pub struct PluginConfigOverride {
   files: Vec<String>,
   properties: ConfigKeyMap,
   config_id: FormatConfigId,
-  matcher: GlobMatcher,
+  matcher: OrderedPatternsMatcher,
 }
 
 pub struct PluginWithConfig {
@@ -1108,7 +1107,7 @@ fn resolve_plugin_config_overrides<TEnvironment: Environment>(
   overrides
     .into_iter()
     .map(|override_config| {
-      let matcher = get_patterns_as_glob_matcher(&override_config.files, config_base_path)?;
+      let matcher = OrderedPatternsMatcher::new(&override_config.files, config_base_path)?;
       Ok(PluginConfigOverride {
         files: override_config.files,
         properties: override_config.properties,
@@ -1236,7 +1235,7 @@ mod test {
       files: vec!["**/package.txt".to_string()],
       properties: ConfigKeyMap::from([("ending".to_string(), "package".into())]),
       config_id: FormatConfigId::from_raw(2),
-      matcher: get_patterns_as_glob_matcher(&["**/package.txt".to_string()], &config_base_path).unwrap(),
+      matcher: OrderedPatternsMatcher::new(&["**/package.txt".to_string()], &config_base_path).unwrap(),
     }]);
 
     assert_ne!(get_plugin_hash(&plugin_without_override), get_plugin_hash(&plugin_with_override));
@@ -1250,7 +1249,7 @@ mod test {
 
   fn create_plugin_with_override(files: Vec<String>, properties: ConfigKeyMap) -> PluginWithConfig {
     let config_base_path = CanonicalizedPathBuf::new_for_testing("/config");
-    let matcher = get_patterns_as_glob_matcher(&files, &config_base_path).unwrap();
+    let matcher = OrderedPatternsMatcher::new(&files, &config_base_path).unwrap();
     create_plugin_with_overrides(vec![PluginConfigOverride {
       files,
       properties,

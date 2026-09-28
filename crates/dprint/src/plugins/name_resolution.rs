@@ -4,10 +4,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::environment::CanonicalizedPathBuf;
-use crate::patterns::get_patterns_as_glob_matcher;
+use crate::patterns::OrderedPatternsMatcher;
 use crate::resolution::PluginWithConfig;
-use crate::utils::GlobMatcher;
-use crate::utils::GlobMatchesDetail;
 use crate::utils::get_lowercase_file_extension;
 use crate::utils::get_lowercase_file_name;
 use crate::utils::get_shebang_line;
@@ -212,11 +210,8 @@ impl PluginNameResolutionMaps {
   fn is_not_associations_excluded(&self, index: usize, file_path: &Path) -> bool {
     // `associations` add to the plugin's default file matching, so a plugin
     // keeps matching by its default extension/file name unless a negated
-    // association pattern explicitly excludes the file
-    match &self.plugins[index].associations {
-      Some(matcher) => matcher.matches_detail(file_path) != GlobMatchesDetail::Excluded,
-      None => true,
-    }
+    // association pattern is the last one to match the file
+    !self.plugins[index].associations.as_ref().is_some_and(|matcher| matcher.is_excluded(file_path))
   }
 }
 
@@ -245,8 +240,9 @@ struct PluginEntry {
   /// that claims it, rather than claiming the file itself.
   additive: bool,
   /// The plugin's `associations` matcher, which adds to its default file
-  /// matching. A negated pattern excludes a file it would match by default.
-  associations: Option<GlobMatcher>,
+  /// matching. A negated pattern excludes a file it would match by default,
+  /// and a later pattern can match a file an earlier negated one excluded.
+  associations: Option<OrderedPatternsMatcher>,
 }
 
 /// The plugins claiming a file, as indexes into [`PluginNameResolutionMaps`]'s
@@ -279,9 +275,9 @@ fn map_contains(map: &HashMap<String, Vec<usize>>, key: &str, index: usize) -> b
   map.get(key).is_some_and(|indexes| indexes.contains(&index))
 }
 
-fn get_plugin_association_glob_matcher(plugin: &PluginWithConfig, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>> {
+fn get_plugin_association_glob_matcher(plugin: &PluginWithConfig, config_base_path: &CanonicalizedPathBuf) -> Result<Option<OrderedPatternsMatcher>> {
   match plugin.associations.as_deref() {
-    Some(associations) => Ok(Some(get_patterns_as_glob_matcher(associations, config_base_path)?)),
+    Some(associations) => Ok(Some(OrderedPatternsMatcher::new(associations, config_base_path)?)),
     None => Ok(None),
   }
 }

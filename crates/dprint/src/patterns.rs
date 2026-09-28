@@ -132,25 +132,45 @@ impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
   }
 }
 
-pub fn get_patterns_as_glob_matcher(patterns: &[String], config_base_path: &CanonicalizedPathBuf) -> Result<GlobMatcher> {
-  let patterns = process_config_patterns(patterns);
-  let (includes, excludes): (Vec<_>, Vec<_>) = patterns.into_iter().partition(|p| !is_negated_glob(p));
-  GlobMatcher::new(
-    GlobPatterns {
-      shebangs: Vec::new(),
-      arg_includes: None,
-      config_includes: Some(new_config_glob_patterns(includes, config_base_path)),
-      arg_excludes: None,
-      config_excludes: new_config_glob_patterns(excludes, config_base_path)
-        .into_iter()
-        .map(|pattern| pattern.invert())
-        .collect(),
-    },
-    &GlobMatcherOptions {
-      case_sensitive: true,
-      base_dir: config_base_path.clone(),
-    },
-  )
+/// Matches paths against a list of patterns evaluated in order, like `includes`
+/// and `excludes`, where the last matching pattern wins. This is used for plugin
+/// `associations` and the `files` of plugin configuration `overrides`.
+pub struct OrderedPatternsMatcher {
+  matcher: GlobMatcher,
+}
+
+impl OrderedPatternsMatcher {
+  pub fn new(patterns: &[String], config_base_path: &CanonicalizedPathBuf) -> Result<Self> {
+    let matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: Vec::new(),
+        arg_includes: None,
+        config_includes: None,
+        arg_excludes: None,
+        // use an order aware exclude matcher with the patterns inverted, so a
+        // matching pattern opts the path out of being excluded and a matching
+        // negated pattern excludes it
+        config_excludes: process_config_patterns(patterns)
+          .map(|pattern| new_config_glob_pattern(pattern, config_base_path).invert())
+          .collect(),
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: config_base_path.clone(),
+      },
+    )?;
+    Ok(Self { matcher })
+  }
+
+  /// Gets if the last pattern that matches the path isn't negated.
+  pub fn matches(&self, path: impl AsRef<Path>) -> bool {
+    self.matcher.exclude_detail(path) == ExcludeMatchDetail::OptedOutExclude
+  }
+
+  /// Gets if the last pattern that matches the path is negated.
+  pub fn is_excluded(&self, path: impl AsRef<Path>) -> bool {
+    self.matcher.exclude_detail(path) == ExcludeMatchDetail::Excluded
+  }
 }
 
 pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cwd: &CanonicalizedPathBuf, environment: &impl Environment) -> GlobPatterns {
