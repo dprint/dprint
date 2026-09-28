@@ -132,6 +132,30 @@ impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
   }
 }
 
+/// Gets a matcher for a plugin's `associations`, which are evaluated in order like
+/// `excludes` where the last matching pattern wins. Use `GlobMatcher::exclude_detail`
+/// with it: `OptedOutExclude` means a pattern matched the path, `Excluded` means a
+/// negated pattern did, and `NotExcluded` means neither did.
+pub fn get_associations_glob_matcher(patterns: &[String], config_base_path: &CanonicalizedPathBuf) -> Result<GlobMatcher> {
+  GlobMatcher::new(
+    GlobPatterns {
+      shebangs: Vec::new(),
+      arg_includes: None,
+      config_includes: None,
+      arg_excludes: None,
+      // invert so that a pattern opts out of being excluded (matched) and a
+      // negated pattern is excluded, keeping the order so the last match wins
+      config_excludes: process_config_patterns(patterns)
+        .map(|pattern| GlobPattern::new(pattern, config_base_path.clone()).invert())
+        .collect(),
+    },
+    &GlobMatcherOptions {
+      case_sensitive: true,
+      base_dir: config_base_path.clone(),
+    },
+  )
+}
+
 pub fn get_patterns_as_glob_matcher(patterns: &[String], config_base_path: &CanonicalizedPathBuf) -> Result<GlobMatcher> {
   let patterns = process_config_patterns(patterns);
   let (includes, excludes) = patterns.into_iter().partition(|p| !is_negated_glob(p));

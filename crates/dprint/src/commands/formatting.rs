@@ -2243,6 +2243,64 @@ text2"
   }
 
   #[test]
+  fn should_opt_into_specific_files_after_negated_association() {
+    // associations are evaluated in order where the last matching pattern wins
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+              "associations": [
+                "!**/*.txt",
+                "keep.txt"
+              ],
+              "ending": "wasm"
+            }"#,
+        );
+      })
+      .write_file("/file1.txt", "text1")
+      .write_file("/keep.txt", "text2")
+      .write_file("/sub/keep.txt", "text3")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/file1.txt").unwrap(), "text1");
+    assert_eq!(environment.read_file("/keep.txt").unwrap(), "text2_wasm");
+    assert_eq!(environment.read_file("/sub/keep.txt").unwrap(), "text3_wasm");
+  }
+
+  #[test]
+  fn should_exclude_with_negated_association_after_pattern() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+              "associations": [
+                "**/*.other",
+                "!legacy/**"
+              ],
+              "ending": "wasm"
+            }"#,
+        );
+      })
+      .write_file("/file1.other", "text1")
+      .write_file("/legacy/file2.other", "text2")
+      .write_file("/legacy/file3.txt", "text3")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/file1.other").unwrap(), "text1_wasm");
+    // the later negated pattern wins for both the associated and default extensions
+    assert_eq!(environment.read_file("/legacy/file2.other").unwrap(), "text2");
+    assert_eq!(environment.read_file("/legacy/file3.txt").unwrap(), "text3");
+  }
+
+  #[test]
   fn should_allow_using_config_to_get_file_matching_info() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt_ps";

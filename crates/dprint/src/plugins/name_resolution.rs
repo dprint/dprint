@@ -4,10 +4,10 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::environment::CanonicalizedPathBuf;
-use crate::patterns::get_patterns_as_glob_matcher;
+use crate::patterns::get_associations_glob_matcher;
 use crate::resolution::PluginWithConfig;
+use crate::utils::ExcludeMatchDetail;
 use crate::utils::GlobMatcher;
-use crate::utils::GlobMatchesDetail;
 use crate::utils::get_lowercase_file_extension;
 use crate::utils::get_lowercase_file_name;
 use crate::utils::get_shebang_line;
@@ -206,16 +206,22 @@ impl PluginNameResolutionMaps {
   }
 
   fn matches_associations(&self, index: usize, file_path: &Path) -> bool {
-    self.plugins[index].associations.as_ref().is_some_and(|matcher| matcher.matches(file_path))
+    self.associations_match(index, file_path) == ExcludeMatchDetail::OptedOutExclude
   }
 
   fn is_not_associations_excluded(&self, index: usize, file_path: &Path) -> bool {
     // `associations` add to the plugin's default file matching, so a plugin
     // keeps matching by its default extension/file name unless a negated
-    // association pattern explicitly excludes the file
+    // association pattern is the last one to match the file
+    self.associations_match(index, file_path) != ExcludeMatchDetail::Excluded
+  }
+
+  /// Evaluates the plugin's associations in order where the last matching pattern
+  /// wins (see `get_associations_glob_matcher`).
+  fn associations_match(&self, index: usize, file_path: &Path) -> ExcludeMatchDetail {
     match &self.plugins[index].associations {
-      Some(matcher) => matcher.matches_detail(file_path) != GlobMatchesDetail::Excluded,
-      None => true,
+      Some(matcher) => matcher.exclude_detail(file_path),
+      None => ExcludeMatchDetail::NotExcluded,
     }
   }
 }
@@ -245,7 +251,8 @@ struct PluginEntry {
   /// that claims it, rather than claiming the file itself.
   additive: bool,
   /// The plugin's `associations` matcher, which adds to its default file
-  /// matching. A negated pattern excludes a file it would match by default.
+  /// matching. A negated pattern excludes a file it would match by default,
+  /// and a later pattern can match a file an earlier negated one excluded.
   associations: Option<GlobMatcher>,
 }
 
@@ -281,7 +288,7 @@ fn map_contains(map: &HashMap<String, Vec<usize>>, key: &str, index: usize) -> b
 
 fn get_plugin_association_glob_matcher(plugin: &PluginWithConfig, config_base_path: &CanonicalizedPathBuf) -> Result<Option<GlobMatcher>> {
   match plugin.associations.as_deref() {
-    Some(associations) => Ok(Some(get_patterns_as_glob_matcher(associations, config_base_path)?)),
+    Some(associations) => Ok(Some(get_associations_glob_matcher(associations, config_base_path)?)),
     None => Ok(None),
   }
 }
