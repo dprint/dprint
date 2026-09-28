@@ -271,8 +271,6 @@ The `includes` property can be used to limit dprint to only formatting certain f
 }
 ```
 
-The `includes` and `excludes` patterns are relative to the configuration file's directory. A pattern may start with `../` to match files in an ancestor directory (ex. `"../../**/Cargo.toml"`) when it's the configuration file dprint is run with, but not for configuration files discovered in descendant directories, which only apply to files in their own directory (dprint 0.58+).
-
 ## Associations
 
 By default, plugins will pull in files based on their extension. Sometimes a file may have a different extension or no extension at all, but you still want to format it with a certain plugin. The plugin `"associations"` config allows you to do that by associating a certain file pattern to one or multiple plugins.
