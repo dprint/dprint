@@ -2157,6 +2157,38 @@ text2"
   }
 
   #[test]
+  fn should_match_config_override_files_in_order() {
+    // the override's files are evaluated in order where the last matching pattern wins
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": ["!legacy/**", "**/package.txt", "!**/old-package.txt"],
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .write_file("/package.txt", "text1")
+      .write_file("/legacy/package.txt", "text2")
+      .write_file("/legacy/other.txt", "text3")
+      .write_file("/old-package.txt", "text4")
+      .build();
+
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(4)]);
+    assert_eq!(environment.read_file("/package.txt").unwrap(), "text1_package");
+    // the later pattern matches it after the earlier negated pattern
+    assert_eq!(environment.read_file("/legacy/package.txt").unwrap(), "text2_package");
+    assert_eq!(environment.read_file("/legacy/other.txt").unwrap(), "text3_base");
+    assert_eq!(environment.read_file("/old-package.txt").unwrap(), "text4_base");
+  }
+
+  #[test]
   fn should_format_files_all_negated_associations_no_config_excludes() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt";
