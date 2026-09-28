@@ -183,8 +183,6 @@ dprint fmt --config path/to/my/config.json
 dprint fmt --config https://dprint.dev/path/to/some/config.json
 ```
 
-The patterns in a local configuration file (ex. `"includes"` and `"excludes"`) are relative to the configuration file's directory, the same as when dprint discovers it, so only files in that directory and its descendants are formatted (dprint 0.58+). For a URL, they're relative to the current working directory.
-
 This flag is more useful for one-off commands. It is recommended to use the default configuration file location and name as that will lead to a better user experience.
 
 ## Changing Config Discovery
