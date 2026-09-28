@@ -45,6 +45,7 @@ use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::paths::FilesPathsByPlugins;
+use crate::paths::IncludeScope;
 use crate::paths::NoFilesFoundError;
 use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins;
@@ -652,6 +653,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
         &config,
         self.patterns,
         config_discovery,
+        IncludeScope::AllowAncestors,
         scope.plugins.values().map(|p| p.as_ref()),
         self.environment,
       )
@@ -938,6 +940,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       &config,
       &patterns,
       config_discovery,
+      IncludeScope::ConfigDir,
       scope.plugins.values().map(|p| p.as_ref()),
       self.environment,
     )

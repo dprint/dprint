@@ -162,6 +162,7 @@ pub async fn get_and_resolve_file_paths<'a>(
   config: &ResolvedConfig,
   args: &FilePatternArgs,
   config_discovery: ConfigDiscovery,
+  include_scope: IncludeScope,
   plugins: impl Iterator<Item = &'a PluginWithConfig>,
   environment: &impl Environment,
 ) -> Result<GlobOutput> {
@@ -186,7 +187,18 @@ pub async fn get_and_resolve_file_paths<'a>(
     file_patterns.config_includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), config.base_path.clone()));
   }
 
-  get_and_resolve_file_patterns(config, file_patterns, args.no_gitignore, config_discovery, environment).await
+  get_and_resolve_file_patterns(config, file_patterns, args.no_gitignore, config_discovery, include_scope, environment).await
+}
+
+/// Where a config file's includes may match files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IncludeScope {
+  /// Includes may match files in ancestor directories of the config file's
+  /// directory (ex. `../../**/*.ts`). This is only for the main config file.
+  AllowAncestors,
+  /// Only files in the config file's directory are matched (ex. for descendant
+  /// config files, whose directory is otherwise within the main config's scope).
+  ConfigDir,
 }
 
 async fn get_and_resolve_file_patterns(
@@ -194,14 +206,18 @@ async fn get_and_resolve_file_patterns(
   file_patterns: GlobPatterns,
   no_gitignore: bool,
   config_discovery: ConfigDiscovery,
+  include_scope: IncludeScope,
   environment: &impl Environment,
 ) -> Result<GlobOutput> {
   let cwd = environment.cwd();
   let is_cwd_in_base = cwd.starts_with(&config.base_path);
   let is_in_sub_dir = cwd != config.base_path && is_cwd_in_base;
-  let start_dir = if is_in_sub_dir { cwd } else { config.base_path.clone() };
+  let pattern_base = match include_scope {
+    IncludeScope::AllowAncestors => get_includes_base_dir(&config.base_path, &file_patterns),
+    IncludeScope::ConfigDir => config.base_path.clone(),
+  };
+  let start_dir = if is_in_sub_dir { cwd } else { pattern_base.clone() };
   let environment = environment.clone();
-  let pattern_base = config.base_path.clone();
   let current_config_path = config.source.maybe_local_path().map(|p| p.as_ref().to_path_buf());
 
   // This is intensive so do it in a blocking task
@@ -220,6 +236,18 @@ async fn get_and_resolve_file_patterns(
   })
   .await
   .unwrap()
+}
+
+/// Gets the highest directory the config includes are based at, which is an
+/// ancestor of the config file's directory when an include starts with `../`.
+fn get_includes_base_dir(config_base_path: &CanonicalizedPathBuf, file_patterns: &GlobPatterns) -> CanonicalizedPathBuf {
+  let mut base_dir = config_base_path.clone();
+  for pattern in file_patterns.config_includes.iter().flatten() {
+    if !is_negated_glob(&pattern.relative_pattern) && base_dir.starts_with(&pattern.base_dir) {
+      base_dir = pattern.base_dir.clone();
+    }
+  }
+  base_dir
 }
 
 fn get_plugin_patterns<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>) -> Vec<String> {
