@@ -12,7 +12,7 @@ const buildSteps = step(
 
 const deploy = step({
   name: "Deploy",
-  if: "github.event_name == 'workflow_dispatch' && inputs.deploy",
+  if: "github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)",
   uses: "JamesIves/github-pages-deploy-action@releases/v3",
   with: {
     GITHUB_TOKEN: expr("secrets.GITHUB_TOKEN"),
@@ -34,6 +34,8 @@ workflow({
         },
       },
     },
+    // deploy when the drafted release is published
+    release: { types: ["published"] },
     push: { branches: ["main"] },
     pull_request: { branches: ["main"] },
   },

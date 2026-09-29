@@ -8,6 +8,9 @@ on:
         description: Deploy to GitHub Pages
         type: boolean
         default: false
+  release:
+    types:
+      - published
   push:
     branches:
       - main
@@ -36,7 +39,7 @@ jobs:
         run: "(cd website && deno task build:ci)"
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@132898c54c57c7cc6b80eb3a89968de8fc283505 # releases/v3
-        if: github.event_name == 'workflow_dispatch' && inputs.deploy
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
         with:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           BRANCH: gh-pages
