@@ -18,10 +18,10 @@ use crate::configuration::ConfigMapValue;
 use crate::configuration::deserialize_config;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
+use crate::patterns::new_config_glob_pattern;
 use crate::patterns::process_config_pattern;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::parse_plugin_source_reference;
-use crate::utils::GlobPattern;
 use crate::utils::GlobPatternKind;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
@@ -275,7 +275,7 @@ fn inherit_excludes(
       // normalize the same way the ancestor config's own excludes are (ex. backslash
       // path separators, a leading `/` meaning the config's directory) so the rebase
       // sees the pattern the way the ancestor interprets it
-      GlobPattern::new(process_config_pattern(pattern), ancestor_base.clone())
+      new_config_glob_pattern(process_config_pattern(pattern), ancestor_base)
         .into_new_base(new_base.clone(), GlobPatternKind::Exclude)
         .map(|p| p.relative_pattern)
     })
