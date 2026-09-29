@@ -22,6 +22,8 @@ const pluginPlaceholders = new Map([
   ["\"https://plugins.dprint.dev/jolars/badness-vx.x.x.wasm\"", "jolars/badness"],
   ["\"https://plugins.dprint.dev/jolars/arity-vx.x.x.wasm\"", "jolars/arity"],
   ["\"https://plugins.dprint.dev/jolars/fatou-vx.x.x.wasm\"", "jolars/fatou"],
+  ["\"https://plugins.dprint.dev/apcamargo/typstyle-x.x.x.wasm\"", "apcamargo/typstyle"],
+  ["\"https://plugins.dprint.dev/apcamargo/bibtex-tidy-x.x.x.wasm\"", "apcamargo/bibtex-tidy"],
 ]);
 
 export function replacePluginUrls() {
