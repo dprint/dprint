@@ -69,23 +69,35 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
       return Ok(());
     }
   }
-  output_stdin_format(PathBuf::from(&cmd.file_name_or_path), &cmd.file_bytes, plugins_scope, environment).await
+  let ensure_stable_format = EnsureStableFormat(cmd.enable_stable_format && EnsureStableFormat::from_env(environment).0);
+  output_stdin_format(
+    PathBuf::from(&cmd.file_name_or_path),
+    &cmd.file_bytes,
+    plugins_scope,
+    ensure_stable_format,
+    environment,
+  )
+  .await
 }
 
 async fn output_stdin_format<TEnvironment: Environment>(
   file_path: PathBuf,
   file_bytes: &[u8],
   plugins_scope: Rc<PluginsScope<TEnvironment>>,
+  ensure_stable_format: EnsureStableFormat,
   environment: &TEnvironment,
 ) -> Result<()> {
   let result = plugins_scope
-    .format(HostFormatRequest {
-      file_path,
-      file_bytes: file_bytes.to_vec(),
-      range: None,
-      override_config: Default::default(),
-      token: Arc::new(NullCancellationToken),
-    })
+    .format_stable(
+      HostFormatRequest {
+        file_path,
+        file_bytes: file_bytes.to_vec(),
+        range: None,
+        override_config: Default::default(),
+        token: Arc::new(NullCancellationToken),
+      },
+      ensure_stable_format,
+    )
     .await?;
   match result {
     Some(text) => environment.log_machine_readable(&text),
@@ -4760,6 +4772,40 @@ text_formatted"
       environment.take_stderr_messages(),
       vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
     );
+  }
+
+  #[test]
+  fn should_ensure_stable_format_for_stdin_fmt() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .build();
+    let test_std_in = TestStdInReader::from("unstable_fmt_true");
+    let error_message = run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in)
+      .err()
+      .unwrap();
+    assert_eq!(
+      error_message.to_string(),
+      "Formatting not stable. Bailed after 5 tries. This indicates a bug in the plugin where it formats the file differently each time."
+    );
+  }
+
+  #[test]
+  fn should_allow_skipping_stable_format_for_stdin_fmt() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .build();
+    let test_std_in = TestStdInReader::from("unstable_fmt_true");
+    run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt", "--skip-stable-format"], &environment, test_std_in).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["unstable_fmt_false_formatted"]);
+
+    environment.set_env_var("DPRINT_SKIP_STABLE_FORMAT", Some("1"));
+    let test_std_in = TestStdInReader::from("unstable_fmt_true");
+    run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["unstable_fmt_false_formatted"]);
   }
 
   #[test]

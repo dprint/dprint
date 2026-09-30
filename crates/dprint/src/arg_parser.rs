@@ -281,6 +281,7 @@ pub struct StdInFmtSubCommand {
   pub file_name_or_path: String,
   pub file_bytes: Vec<u8>,
   pub patterns: FilePatternArgs,
+  pub enable_stable_format: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -413,6 +414,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
           file_name_or_path,
           file_bytes: std_in_reader.read()?,
           patterns: parse_file_patterns(matches, &std_in_reader)?,
+          enable_stable_format: !matches.get_flag("skip-stable-format"),
         })
       } else {
         let enable_stable_format = !matches.get_flag("skip-stable-format");
