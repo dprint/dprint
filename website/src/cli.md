@@ -119,13 +119,11 @@ This costs an extra formatting pass for each changed file. To skip it, use the `
 dprint fmt --skip-stable-format
 ```
 
-Requires dprint >= 0.59.0: formatting standard input and formatting in an editor (via `dprint lsp` or an editor extension) also ensure a stable format. To skip it there, set the `DPRINT_SKIP_STABLE_FORMAT` environment variable to `1` (or use the `--skip-stable-format` flag with `--stdin`). The language server and editor extensions read it on startup, so restart them after changing it.
+Requires dprint >= 0.59.0: formatting standard input (`--stdin`) and formatting in an editor (via `dprint lsp` or an editor extension) also ensure a stable format. To skip it in an editor, set the `DPRINT_EDITOR_SKIP_STABLE_FORMAT` environment variable to `1`. The language server and editor extensions read it on startup, so restart them after changing it.
 
 ```sh
-DPRINT_SKIP_STABLE_FORMAT=1 dprint lsp
+DPRINT_EDITOR_SKIP_STABLE_FORMAT=1 dprint lsp
 ```
-
-This environment variable doesn't apply to formatting files with `dprint fmt`, which uses the `--skip-stable-format` flag.
 
 ## Checking What Files Aren't Formatted
 

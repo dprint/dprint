@@ -143,7 +143,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       }),
       concurrency_limiter,
       config_semaphore: Rc::new(Semaphore::new(1)),
-      ensure_stable_format: EnsureStableFormat::from_env(environment),
+      ensure_stable_format: EnsureStableFormat::for_editor(environment),
     }
   }
 
@@ -1090,7 +1090,7 @@ mod test {
       .write_file(&file_path5, "")
       .build();
     // the test plugins append to each other's output, so it's never stable
-    environment.set_env_var("DPRINT_SKIP_STABLE_FORMAT", Some("1"));
+    environment.set_env_var("DPRINT_EDITOR_SKIP_STABLE_FORMAT", Some("1"));
 
     let stdin = environment.stdin_writer();
     let stdout = environment.stdout_reader();
@@ -1253,7 +1253,7 @@ mod test {
       })
       .write_file(file_path, "")
       .build();
-    environment.set_env_var("DPRINT_SKIP_STABLE_FORMAT", skip_stable_format_env_var);
+    environment.set_env_var("DPRINT_EDITOR_SKIP_STABLE_FORMAT", skip_stable_format_env_var);
 
     let stdin = environment.stdin_writer();
     let stdout = environment.stdout_reader();

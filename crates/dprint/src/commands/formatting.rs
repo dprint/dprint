@@ -69,12 +69,11 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
       return Ok(());
     }
   }
-  let ensure_stable_format = EnsureStableFormat(cmd.enable_stable_format && EnsureStableFormat::from_env(environment).0);
   output_stdin_format(
     PathBuf::from(&cmd.file_name_or_path),
     &cmd.file_bytes,
     plugins_scope,
-    ensure_stable_format,
+    EnsureStableFormat(cmd.enable_stable_format),
     environment,
   )
   .await
@@ -4801,11 +4800,21 @@ text_formatted"
     let test_std_in = TestStdInReader::from("unstable_fmt_true");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt", "--skip-stable-format"], &environment, test_std_in).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["unstable_fmt_false_formatted"]);
+  }
 
-    environment.set_env_var("DPRINT_SKIP_STABLE_FORMAT", Some("1"));
+  #[test]
+  fn should_not_skip_stable_format_for_stdin_fmt_with_editor_env_var() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .build();
+    environment.set_env_var("DPRINT_EDITOR_SKIP_STABLE_FORMAT", Some("1"));
     let test_std_in = TestStdInReader::from("unstable_fmt_true");
-    run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec!["unstable_fmt_false_formatted"]);
+    let error_message = run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in)
+      .err()
+      .unwrap();
+    assert!(error_message.to_string().starts_with("Formatting not stable."));
   }
 
   #[test]

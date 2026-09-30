@@ -254,7 +254,7 @@ fn start_message_handler<TEnvironment: Environment>(
   // communicate over a channel.
   let max_cores = environment.max_threads();
   let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
-  let ensure_stable_format = EnsureStableFormat::from_env(environment);
+  let ensure_stable_format = EnsureStableFormat::for_editor(environment);
   let environment = environment.clone();
   let scope_container = Rc::new(LspPluginsScopeContainer::new(environment.clone(), plugin_resolver.clone(), config_override));
   let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
@@ -629,7 +629,7 @@ mod test {
       .build();
     environment.write_file(".gitignore", "gitignored_file.txt\ngitignored_dir").unwrap();
     // the test plugins append to each other's output, so it's never stable
-    environment.set_env_var("DPRINT_SKIP_STABLE_FORMAT", Some("1"));
+    environment.set_env_var("DPRINT_EDITOR_SKIP_STABLE_FORMAT", Some("1"));
 
     environment.clone().run_in_runtime(async move {
       let (backend, recv_task, test_client) = setup_backend(environment.clone());
@@ -1298,7 +1298,7 @@ mod test {
       })
       .initialize()
       .build();
-    environment.set_env_var("DPRINT_SKIP_STABLE_FORMAT", skip_stable_format_env_var);
+    environment.set_env_var("DPRINT_EDITOR_SKIP_STABLE_FORMAT", skip_stable_format_env_var);
 
     environment.clone().run_in_runtime(async move {
       let (backend, recv_task, test_client) = setup_backend(environment.clone());
