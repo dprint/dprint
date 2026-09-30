@@ -47,6 +47,7 @@ use url::Url;
 
 use crate::arg_parser::CliArgs;
 use crate::environment::Environment;
+use crate::format::EnsureStableFormat;
 use crate::plugins::PluginResolver;
 
 use self::client::ClientWrapper;
@@ -162,6 +163,7 @@ enum ChannelMessage {
 async fn handle_format_request<TEnvironment: Environment>(
   mut request: EditorFormatRequest,
   scope_container: Rc<LspPluginsScopeContainer<TEnvironment>>,
+  ensure_stable_format: EnsureStableFormat,
   environment: &TEnvironment,
 ) -> Result<Option<Vec<TextEdit>>> {
   let Some(parent_dir) = request.file_path.parent() else {
@@ -190,13 +192,16 @@ async fn handle_format_request<TEnvironment: Environment>(
   }
 
   let Some(result) = scope
-    .format(HostFormatRequest {
-      file_path: request.file_path,
-      file_bytes: request.file_text.as_bytes().to_vec(),
-      range: request.range,
-      override_config: Default::default(),
-      token: request.token,
-    })
+    .format_stable(
+      HostFormatRequest {
+        file_path: request.file_path,
+        file_bytes: request.file_text.as_bytes().to_vec(),
+        range: request.range,
+        override_config: Default::default(),
+        token: request.token,
+      },
+      ensure_stable_format,
+    )
     .await?
   else {
     return Ok(None);
@@ -249,6 +254,7 @@ fn start_message_handler<TEnvironment: Environment>(
   // communicate over a channel.
   let max_cores = environment.max_threads();
   let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
+  let ensure_stable_format = EnsureStableFormat::for_editor(environment);
   let environment = environment.clone();
   let scope_container = Rc::new(LspPluginsScopeContainer::new(environment.clone(), plugin_resolver.clone(), config_override));
   let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
@@ -263,7 +269,7 @@ fn start_message_handler<TEnvironment: Environment>(
           let environment = environment.clone();
           dprint_core::async_runtime::spawn(async move {
             let _permit = concurrency_limiter.acquire().await;
-            let result = handle_format_request(request, scope_container, &environment).await;
+            let result = handle_format_request(request, scope_container, ensure_stable_format, &environment).await;
             let _ = sender.send(result);
             drop(token_guard); // remove the token from the pending tokens
           });
@@ -1245,6 +1251,89 @@ mod test {
         ]
       );
     });
+  }
+
+  #[test]
+  fn should_ensure_stable_format_with_lsp() {
+    // formats once by default
+    let (edits, stderr_messages) = format_unstable_text_with_lsp(None);
+    assert_eq!(
+      edits,
+      Some(vec![
+        TextEdit {
+          range: Range::new(Position::new(0, 13), Position::new(0, 14)),
+          new_text: "false_fo".to_string()
+        },
+        TextEdit {
+          range: Range::new(Position::new(0, 15), Position::new(0, 16)),
+          new_text: "matt".to_string()
+        },
+        TextEdit {
+          range: Range::new(Position::new(0, 17), Position::new(0, 17)),
+          new_text: "d".to_string()
+        },
+      ])
+    );
+    assert_eq!(stderr_messages, Vec::<String>::new());
+
+    // formats again until the output is stable, like `dprint fmt`, when opted in
+    let (edits, stderr_messages) = format_unstable_text_with_lsp(Some("true"));
+    assert_eq!(edits, None);
+    assert_eq!(
+      stderr_messages,
+      vec![concat!(
+        "Failed formatting 'file:///file.txt': Formatting not stable. Bailed after 5 tries. ",
+        "This indicates a bug in the plugin where it formats the file differently each time."
+      )],
+    );
+  }
+
+  fn format_unstable_text_with_lsp(stable_format_env_var: Option<&str>) -> (Option<Vec<TextEdit>>, Vec<String>) {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt");
+      })
+      .initialize()
+      .build();
+    environment.set_env_var("DPRINT_EDITOR_STABLE_FORMAT", stable_format_env_var);
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let environment = environment.clone();
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          let file_uri = Url::parse("file:///file.txt").unwrap();
+          did_open!(backend, file_uri, "unstable_fmt_true");
+          let edits = backend
+            .formatting(DocumentFormattingParams {
+              text_document: TextDocumentIdentifier { uri: file_uri },
+              options: Default::default(),
+              work_done_progress_params: Default::default(),
+            })
+            .await
+            .unwrap();
+          let stderr_messages = environment.take_stderr_messages();
+
+          backend.shutdown().await.unwrap();
+          (edits, stderr_messages)
+        }
+      });
+
+      let (_, result) = try_join!(recv_task, run_test_task).unwrap();
+      test_client.take_messages();
+      result
+    })
   }
 
   fn setup_backend(environment: TestEnvironment) -> (Backend<TestEnvironment>, JoinHandle<()>, Arc<TestClient>) {

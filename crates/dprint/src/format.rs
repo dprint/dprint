@@ -3,6 +3,7 @@ use anyhow::bail;
 use dprint_core::async_runtime::future;
 use dprint_core::plugins::NullCancellationToken;
 use std::borrow::Cow;
+use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -30,6 +31,20 @@ struct TaskWork {
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct EnsureStableFormat(pub bool);
+
+impl EnsureStableFormat {
+  /// Stable formatting in editors (the editor service and lsp) is opt-in via the
+  /// `DPRINT_EDITOR_STABLE_FORMAT` environment variable being set to `1` or `true`
+  /// because it may double the time it takes to format a large file.
+  pub fn for_editor(environment: &impl Environment) -> Self {
+    let enabled = environment.env_var("DPRINT_EDITOR_STABLE_FORMAT").is_some_and(|value| {
+      let value = value.to_string_lossy();
+      let value = value.trim();
+      value == "1" || value.eq_ignore_ascii_case("true")
+    });
+    EnsureStableFormat(enabled)
+  }
+}
 
 #[derive(Debug, Error)]
 pub enum RunForFilePathError {
@@ -264,42 +279,17 @@ where
     scope: Rc<PluginsScope<TEnvironment>>,
     plugins: Rc<Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>>,
     file_path: PathBuf,
-    mut formatted_text: Vec<u8>,
+    formatted_text: Vec<u8>,
   ) -> Result<Vec<u8>> {
-    log_debug!(environment, "Ensuring stable format: {}", file_path.display());
-    let mut count = 0;
-    loop {
-      match run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), &formatted_text).await {
-        Ok((_, next_pass_text)) => {
-          if next_pass_text == formatted_text {
-            return Ok(formatted_text);
-          } else {
-            formatted_text = next_pass_text;
-            log_debug!(environment, "Ensuring stable format failed on try {}: {}", count + 1, file_path.display());
-          }
-        }
-        Err(err) => {
-          bail!(
-            concat!(
-              "Formatting succeeded initially, but failed when ensuring a stable format. ",
-              "This is most likely a bug in the plugin where the text it produces is not syntatically correct. ",
-              "Please report this as a bug to the plugin that formatted this file.\n\n{:#}"
-            ),
-            err,
-          )
-        }
+    stabilize_format_text(&environment, &file_path, formatted_text, |text| {
+      let (environment, scope, plugins, file_path) = (environment.clone(), scope.clone(), plugins.clone(), file_path.clone());
+      async move {
+        run_single_pass_for_file_path(environment, scope, plugins, file_path, &text)
+          .await
+          .map(|(_, text)| text)
       }
-      count += 1;
-      if count == 5 {
-        bail!(
-          concat!(
-            "Formatting not stable. Bailed after {} tries. This indicates a bug in the ",
-            "plugin where it formats the file differently each time."
-          ),
-          count
-        );
-      }
-    }
+    })
+    .await
   }
 
   async fn run_single_pass_for_file_path<TEnvironment: Environment>(
@@ -359,6 +349,52 @@ where
     }
 
     Ok((start_instant, file_text.into_owned()))
+  }
+}
+
+/// Formats the already formatted text again until the output doesn't change.
+///
+/// This should only take one more pass unless a plugin has a bug where it
+/// formats the text differently each time.
+pub async fn stabilize_format_text<TFuture: Future<Output = Result<Vec<u8>>>>(
+  environment: &impl Environment,
+  file_path: &Path,
+  mut formatted_text: Vec<u8>,
+  format_pass: impl Fn(Vec<u8>) -> TFuture,
+) -> Result<Vec<u8>> {
+  log_debug!(environment, "Ensuring stable format: {}", file_path.display());
+  let mut count = 0;
+  loop {
+    match format_pass(formatted_text.clone()).await {
+      Ok(next_pass_text) => {
+        if next_pass_text == formatted_text {
+          return Ok(formatted_text);
+        } else {
+          formatted_text = next_pass_text;
+          log_debug!(environment, "Ensuring stable format failed on try {}: {}", count + 1, file_path.display());
+        }
+      }
+      Err(err) => {
+        bail!(
+          concat!(
+            "Formatting succeeded initially, but failed when ensuring a stable format. ",
+            "This is most likely a bug in the plugin where the text it produces is not syntatically correct. ",
+            "Please report this as a bug to the plugin that formatted this file.\n\n{:#}"
+          ),
+          err,
+        )
+      }
+    }
+    count += 1;
+    if count == 5 {
+      bail!(
+        concat!(
+          "Formatting not stable. Bailed after {} tries. This indicates a bug in the ",
+          "plugin where it formats the file differently each time."
+        ),
+        count
+      );
+    }
   }
 }
 
@@ -567,5 +603,26 @@ mod test {
     assert!(!throttle_cpu(&semaphores));
     drop(permit1);
     assert!(!throttle_cpu(&semaphores));
+  }
+
+  #[test]
+  fn ensure_stable_format_for_editor() {
+    let environment = crate::environment::TestEnvironment::new();
+    assert!(!EnsureStableFormat::for_editor(&environment).0);
+    for (value, expected) in [
+      ("1", true),
+      ("true", true),
+      ("TRUE", true),
+      (
+        " 1
+", true,
+      ),
+      ("0", false),
+      ("false", false),
+      ("", false),
+    ] {
+      environment.set_env_var("DPRINT_EDITOR_STABLE_FORMAT", Some(value));
+      assert_eq!(EnsureStableFormat::for_editor(&environment).0, expected, "{:?}", value);
+    }
   }
 }

@@ -44,6 +44,8 @@ use crate::configuration::resolve_config_from_path_with_bytes;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
+use crate::format::EnsureStableFormat;
+use crate::format::stabilize_format_text;
 use crate::paths::FilesPathsByPlugins;
 use crate::paths::IncludeScope;
 use crate::paths::NoFilesFoundError;
@@ -545,6 +547,50 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       Ok(if had_change { Some(file_text) } else { None })
     }
     .boxed_local()
+  }
+
+  /// Formats the text like `format`, then formats a changed result again until
+  /// it's stable the same way `dprint fmt` does. This shouldn't be used for host
+  /// formatting (ex. code blocks) because the outer text is already made stable.
+  pub async fn format_stable(self: &Rc<Self>, request: HostFormatRequest, ensure_stable_format: EnsureStableFormat) -> FormatResult {
+    // the range wouldn't apply to the formatted text, so only format a range once
+    if !ensure_stable_format.0 || request.range.is_some() {
+      return self.format(request).await;
+    }
+    let file_path = request.file_path.clone();
+    let override_config = request.override_config.clone();
+    let token = request.token.clone();
+    let original_text = request.file_bytes.clone();
+    let Some(formatted_text) = self.format(request).await? else {
+      return Ok(None);
+    };
+    // a plugin may say it changed the text without changing it
+    if formatted_text == original_text {
+      return Ok(Some(formatted_text));
+    }
+    let stable_text = stabilize_format_text(&self.environment, &file_path, formatted_text, |text| {
+      let scope = self.clone();
+      let request = HostFormatRequest {
+        file_path: file_path.clone(),
+        file_bytes: text.clone(),
+        range: None,
+        override_config: override_config.clone(),
+        token: token.clone(),
+      };
+      async move {
+        // the result gets discarded, so stop by saying the text didn't change
+        if request.token.is_cancelled() {
+          return Ok(text);
+        }
+        match scope.format(request).await {
+          Ok(new_text) => Ok(new_text.unwrap_or(text)),
+          Err(err) => Err(anyhow::anyhow!(dprint_core::plugins::error_to_string(&err))),
+        }
+      }
+    })
+    .await
+    .map_err(FormatError::new)?;
+    Ok(Some(stable_text))
   }
 }
 
