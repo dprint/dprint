@@ -194,7 +194,12 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           }
           let token = Arc::new(CancellationToken::new());
           let request = HostFormatRequest {
-            file_path: body.file_path,
+            // canonicalize so that it matches the canonicalized config paths (ex. for overrides)
+            file_path: self
+              .environment
+              .canonicalize_maybe_not_exists(&body.file_path)
+              .map(|p| p.into_path_buf())
+              .unwrap_or(body.file_path),
             range: body.range,
             override_config: if body.override_config.is_empty() {
               Default::default()
@@ -254,7 +259,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     // canonicalize the file path, then check if it's in the list of file paths.
     let file_path = self
       .environment
-      .canonicalize(file_path)
+      .canonicalize_maybe_not_exists(file_path)
       .map(|p| p.into_path_buf())
       .unwrap_or(file_path.to_path_buf());
     log_debug!(self.environment, "Checking can format: {}", file_path.display());

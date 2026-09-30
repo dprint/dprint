@@ -180,7 +180,7 @@ async fn handle_format_request<TEnvironment: Environment>(
   }
   // canonicalize the path
   request.file_path = environment
-    .canonicalize(&request.file_path)
+    .canonicalize_maybe_not_exists(&request.file_path)
     .map(|p| p.into_path_buf())
     .unwrap_or(request.file_path);
 

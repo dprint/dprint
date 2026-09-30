@@ -272,6 +272,11 @@ pub trait Environment:
   /// followed—canonicalize and stat again to see what a symlink points at.
   fn path_kind(&self, path: impl AsRef<Path>) -> Option<PathKind>;
   fn canonicalize(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf>;
+  /// Canonicalizes a path that might not exist (ex. an unsaved file in an editor)
+  /// by canonicalizing its closest existing ancestor and adding back the rest.
+  fn canonicalize_maybe_not_exists(&self, path: impl AsRef<Path>) -> io::Result<CanonicalizedPathBuf> {
+    canonicalize_path_maybe_not_exists(path.as_ref(), |path| self.canonicalize(path))
+  }
   fn is_absolute_path(&self, path: impl AsRef<Path>) -> bool;
   fn file_permissions(&self, path: impl AsRef<Path>) -> io::Result<FilePermissions>;
   fn set_file_permissions(&self, path: impl AsRef<Path>, permissions: FilePermissions) -> io::Result<()>;
@@ -359,9 +364,91 @@ fn resolve_max_threads(env_var: Option<&str>, available_parallelism: Option<NonZ
   }
 }
 
+/// Canonicalizes a path that might not exist by going up its ancestors until one
+/// canonicalizes, then adding back the remaining path components.
+fn canonicalize_path_maybe_not_exists(mut path: &Path, canonicalize: impl Fn(&Path) -> io::Result<CanonicalizedPathBuf>) -> io::Result<CanonicalizedPathBuf> {
+  let mut names = Vec::new();
+  loop {
+    match canonicalize(path) {
+      Ok(canonicalized_path) => {
+        let mut path = canonicalized_path.into_path_buf();
+        for name in names.into_iter().rev() {
+          path.push(name);
+        }
+        return Ok(CanonicalizedPathBuf::new(path));
+      }
+      Err(err) if err.kind() == io::ErrorKind::NotFound => {
+        let Some(name) = path.file_name() else {
+          return Err(err);
+        };
+        names.push(name);
+        path = match path.parent() {
+          // a relative path's last parent is empty, which is the cwd
+          Some(parent) if parent.as_os_str().is_empty() => Path::new("."),
+          Some(parent) => parent,
+          None => return Err(err),
+        };
+      }
+      Err(err) => return Err(err),
+    }
+  }
+}
+
 #[cfg(test)]
 mod test {
   use super::*;
+
+  fn real_canonicalize(path: &Path) -> io::Result<CanonicalizedPathBuf> {
+    dunce::canonicalize(path).map(CanonicalizedPathBuf::new)
+  }
+
+  #[test]
+  #[allow(clippy::disallowed_methods)]
+  fn should_canonicalize_path_maybe_not_exists() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let real_dir = real_canonicalize(temp_dir.path()).unwrap();
+    std::fs::create_dir(real_dir.join("sub")).unwrap();
+    std::fs::write(real_dir.join("sub").join("file.txt"), "").unwrap();
+
+    // existing path
+    let path = temp_dir.path().join("sub").join("file.txt");
+    assert_eq!(
+      canonicalize_path_maybe_not_exists(&path, real_canonicalize).unwrap().into_path_buf(),
+      real_dir.join("sub").join("file.txt")
+    );
+    // file that doesn't exist in an existing directory
+    let path = temp_dir.path().join("sub").join("Untitled.json");
+    assert_eq!(
+      canonicalize_path_maybe_not_exists(&path, real_canonicalize).unwrap().into_path_buf(),
+      real_dir.join("sub").join("Untitled.json")
+    );
+    // multiple components that don't exist
+    let path = temp_dir.path().join("new").join("dir").join("file.txt");
+    assert_eq!(
+      canonicalize_path_maybe_not_exists(&path, real_canonicalize).unwrap().into_path_buf(),
+      real_dir.join("new").join("dir").join("file.txt")
+    );
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_canonicalize_path_maybe_not_exists_with_different_casing() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let real_dir = real_canonicalize(temp_dir.path()).unwrap();
+    // ex. vscode provides paths with a lowercase drive letter
+    let lowercase_dir = PathBuf::from(real_dir.to_string_lossy().to_lowercase());
+    let path = lowercase_dir.join("Untitled.json");
+    assert_eq!(
+      canonicalize_path_maybe_not_exists(&path, real_canonicalize).unwrap().into_path_buf(),
+      real_dir.join("Untitled.json")
+    );
+  }
+
+  #[test]
+  fn should_error_canonicalize_path_maybe_not_exists_on_other_errors() {
+    let result = canonicalize_path_maybe_not_exists(Path::new("/a/b.txt"), |_| Err(io::Error::other("failed")));
+    assert_eq!(result.unwrap_err().to_string(), "failed");
+  }
 
   #[test]
   fn should_resolve_num_threads() {
