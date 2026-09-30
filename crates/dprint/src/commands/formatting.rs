@@ -51,7 +51,7 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
   // if the path is absolute, then apply exclusion rules
   if environment.is_absolute_path(&cmd.file_name_or_path) {
     // canonicalize the file path, then check if it's in the list of file paths.
-    let resolved_file_path = environment.canonicalize(&cmd.file_name_or_path)?;
+    let resolved_file_path = environment.canonicalize_maybe_not_exists(&cmd.file_name_or_path)?;
     let mut file_matcher = FileMatcher::new(
       environment.clone(),
       FileMatcherOptions {
