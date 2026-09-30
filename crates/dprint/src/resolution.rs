@@ -560,9 +560,14 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     let file_path = request.file_path.clone();
     let override_config = request.override_config.clone();
     let token = request.token.clone();
+    let original_text = request.file_bytes.clone();
     let Some(formatted_text) = self.format(request).await? else {
       return Ok(None);
     };
+    // a plugin may say it changed the text without changing it
+    if formatted_text == original_text {
+      return Ok(Some(formatted_text));
+    }
     let stable_text = stabilize_format_text(&self.environment, &file_path, formatted_text, |text| {
       let scope = self.clone();
       let request = HostFormatRequest {

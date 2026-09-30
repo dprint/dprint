@@ -37,9 +37,11 @@ impl EnsureStableFormat {
   /// `DPRINT_EDITOR_STABLE_FORMAT` environment variable being set to `1` or `true`
   /// because it may double the time it takes to format a large file.
   pub fn for_editor(environment: &impl Environment) -> Self {
-    let enabled = environment
-      .env_var("DPRINT_EDITOR_STABLE_FORMAT")
-      .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
+    let enabled = environment.env_var("DPRINT_EDITOR_STABLE_FORMAT").is_some_and(|value| {
+      let value = value.to_string_lossy();
+      let value = value.trim();
+      value == "1" || value.eq_ignore_ascii_case("true")
+    });
     EnsureStableFormat(enabled)
   }
 }
@@ -601,5 +603,26 @@ mod test {
     assert!(!throttle_cpu(&semaphores));
     drop(permit1);
     assert!(!throttle_cpu(&semaphores));
+  }
+
+  #[test]
+  fn ensure_stable_format_for_editor() {
+    let environment = crate::environment::TestEnvironment::new();
+    assert!(!EnsureStableFormat::for_editor(&environment).0);
+    for (value, expected) in [
+      ("1", true),
+      ("true", true),
+      ("TRUE", true),
+      (
+        " 1
+", true,
+      ),
+      ("0", false),
+      ("false", false),
+      ("", false),
+    ] {
+      environment.set_env_var("DPRINT_EDITOR_STABLE_FORMAT", Some(value));
+      assert_eq!(EnsureStableFormat::for_editor(&environment).0, expected, "{:?}", value);
+    }
   }
 }
