@@ -403,6 +403,7 @@ mod test {
   }
 
   #[test]
+  #[allow(clippy::disallowed_methods)]
   fn should_canonicalize_path_maybe_not_exists() {
     let temp_dir = tempfile::tempdir().unwrap();
     let real_dir = real_canonicalize(temp_dir.path()).unwrap();
