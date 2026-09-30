@@ -771,9 +771,9 @@ ENVIRONMENT VARIABLES:
   DPRINT_GLOBAL_GITIGNORE
                        Set to "1" to also respect git's global excludes file
                        (core.excludesFile). Disabled by default.
-  DPRINT_EDITOR_SKIP_STABLE_FORMAT
-                       Set to "1" to skip formatting a file multiple times until
-                       the output is stable when formatting in an editor.
+  DPRINT_EDITOR_STABLE_FORMAT
+                       Set to "1" to format a file multiple times until the output
+                       is stable when formatting in an editor. Disabled by default.
   HTTPS_PROXY          Proxy to use when downloading plugins or configuration
                        files (also supports HTTP_PROXY and NO_PROXY).
   NO_COLOR             Disables coloured output.

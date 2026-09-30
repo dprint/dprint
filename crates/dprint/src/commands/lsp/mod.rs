@@ -628,8 +628,6 @@ mod test {
       .initialize()
       .build();
     environment.write_file(".gitignore", "gitignored_file.txt\ngitignored_dir").unwrap();
-    // the test plugins append to each other's output, so it's never stable
-    environment.set_env_var("DPRINT_EDITOR_SKIP_STABLE_FORMAT", Some("1"));
 
     environment.clone().run_in_runtime(async move {
       let (backend, recv_task, test_client) = setup_backend(environment.clone());
@@ -1257,19 +1255,8 @@ mod test {
 
   #[test]
   fn should_ensure_stable_format_with_lsp() {
-    // formats again until the output is stable, like `dprint fmt`
+    // formats once by default
     let (edits, stderr_messages) = format_unstable_text_with_lsp(None);
-    assert_eq!(edits, None);
-    assert_eq!(
-      stderr_messages,
-      vec![concat!(
-        "Failed formatting 'file:///file.txt': Formatting not stable. Bailed after 5 tries. ",
-        "This indicates a bug in the plugin where it formats the file differently each time."
-      )],
-    );
-
-    // formats once when opted out
-    let (edits, stderr_messages) = format_unstable_text_with_lsp(Some("true"));
     assert_eq!(
       edits,
       Some(vec![
@@ -1288,9 +1275,20 @@ mod test {
       ])
     );
     assert_eq!(stderr_messages, Vec::<String>::new());
+
+    // formats again until the output is stable, like `dprint fmt`, when opted in
+    let (edits, stderr_messages) = format_unstable_text_with_lsp(Some("true"));
+    assert_eq!(edits, None);
+    assert_eq!(
+      stderr_messages,
+      vec![concat!(
+        "Failed formatting 'file:///file.txt': Formatting not stable. Bailed after 5 tries. ",
+        "This indicates a bug in the plugin where it formats the file differently each time."
+      )],
+    );
   }
 
-  fn format_unstable_text_with_lsp(skip_stable_format_env_var: Option<&str>) -> (Option<Vec<TextEdit>>, Vec<String>) {
+  fn format_unstable_text_with_lsp(stable_format_env_var: Option<&str>) -> (Option<Vec<TextEdit>>, Vec<String>) {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
       .with_default_config(|c| {
@@ -1298,7 +1296,7 @@ mod test {
       })
       .initialize()
       .build();
-    environment.set_env_var("DPRINT_EDITOR_SKIP_STABLE_FORMAT", skip_stable_format_env_var);
+    environment.set_env_var("DPRINT_EDITOR_STABLE_FORMAT", stable_format_env_var);
 
     environment.clone().run_in_runtime(async move {
       let (backend, recv_task, test_client) = setup_backend(environment.clone());

@@ -1089,8 +1089,6 @@ mod test {
       .write_file(&file_path4, "")
       .write_file(&file_path5, "")
       .build();
-    // the test plugins append to each other's output, so it's never stable
-    environment.set_env_var("DPRINT_EDITOR_SKIP_STABLE_FORMAT", Some("1"));
 
     let stdin = environment.stdin_writer();
     let stdout = environment.stdout_reader();
@@ -1233,19 +1231,19 @@ mod test {
 
   #[test]
   fn should_ensure_stable_format_for_editor_service() {
-    // formats again until the output is stable, like `dprint fmt`
+    // formats once by default
     assert_eq!(
-      format_unstable_text_with_editor_service(None).err().unwrap().to_string(),
-      "Formatting not stable. Bailed after 5 tries. This indicates a bug in the plugin where it formats the file differently each time."
-    );
-    // formats once when opted out
-    assert_eq!(
-      format_unstable_text_with_editor_service(Some("1")).unwrap().unwrap(),
+      format_unstable_text_with_editor_service(None).unwrap().unwrap(),
       b"unstable_fmt_false_formatted"
+    );
+    // formats again until the output is stable, like `dprint fmt`, when opted in
+    assert_eq!(
+      format_unstable_text_with_editor_service(Some("1")).err().unwrap().to_string(),
+      "Formatting not stable. Bailed after 5 tries. This indicates a bug in the plugin where it formats the file differently each time."
     );
   }
 
-  fn format_unstable_text_with_editor_service(skip_stable_format_env_var: Option<&str>) -> FormatResult {
+  fn format_unstable_text_with_editor_service(stable_format_env_var: Option<&str>) -> FormatResult {
     let file_path = "/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {
@@ -1253,7 +1251,7 @@ mod test {
       })
       .write_file(file_path, "")
       .build();
-    environment.set_env_var("DPRINT_EDITOR_SKIP_STABLE_FORMAT", skip_stable_format_env_var);
+    environment.set_env_var("DPRINT_EDITOR_STABLE_FORMAT", stable_format_env_var);
 
     let stdin = environment.stdin_writer();
     let stdout = environment.stdout_reader();

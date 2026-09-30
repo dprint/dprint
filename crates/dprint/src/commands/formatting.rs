@@ -4803,21 +4803,6 @@ text_formatted"
   }
 
   #[test]
-  fn should_not_skip_stable_format_for_stdin_fmt_with_editor_env_var() {
-    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
-      .with_default_config(|c| {
-        c.add_remote_wasm_plugin();
-      })
-      .build();
-    environment.set_env_var("DPRINT_EDITOR_SKIP_STABLE_FORMAT", Some("1"));
-    let test_std_in = TestStdInReader::from("unstable_fmt_true");
-    let error_message = run_test_cli_with_stdin(vec!["fmt", "--stdin", "file.txt"], &environment, test_std_in)
-      .err()
-      .unwrap();
-    assert!(error_message.to_string().starts_with("Formatting not stable."));
-  }
-
-  #[test]
   fn should_format_for_stdin_with_absolute_paths() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|c| {

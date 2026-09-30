@@ -33,13 +33,14 @@ struct TaskWork {
 pub struct EnsureStableFormat(pub bool);
 
 impl EnsureStableFormat {
-  /// Stable formatting in editors (the editor service and lsp) is enabled unless
-  /// the `DPRINT_EDITOR_SKIP_STABLE_FORMAT` environment variable is set to `1` or `true`.
+  /// Stable formatting in editors (the editor service and lsp) is opt-in via the
+  /// `DPRINT_EDITOR_STABLE_FORMAT` environment variable being set to `1` or `true`
+  /// because it may double the time it takes to format a large file.
   pub fn for_editor(environment: &impl Environment) -> Self {
-    let skip = environment
-      .env_var("DPRINT_EDITOR_SKIP_STABLE_FORMAT")
+    let enabled = environment
+      .env_var("DPRINT_EDITOR_STABLE_FORMAT")
       .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
-    EnsureStableFormat(!skip)
+    EnsureStableFormat(enabled)
   }
 }
 
