@@ -109,22 +109,6 @@ Unlike piping through `xargs`, this handles file paths containing spaces since t
 
 The paths are resolved against the inclusion/exclusion rules of your dprint configuration file, the same way file patterns passed on the command line are. When stdin provides no file paths, nothing is formatted (rather than falling back to the configuration file's includes). This flag is also available for the `check`, `file-paths`, and `format-times` subcommands.
 
-### Ensuring a stable format
-
-When formatting changes a file, dprint formats the result again until it no longer changes. Occasionally a plugin needs more than one pass to reach its final output, and this ensures a single format gets there. If the output never stops changing, which is a bug in the plugin, dprint reports an error.
-
-This costs an extra formatting pass for each changed file. To skip it, use the `--skip-stable-format` flag (this also disables [incremental formatting](#incremental-formatting)):
-
-```sh
-dprint fmt --skip-stable-format
-```
-
-Requires dprint >= 0.59.0: formatting standard input (`--stdin`) and formatting in an editor (via `dprint lsp` or an editor extension) also ensure a stable format. To skip it in an editor, set the `DPRINT_EDITOR_SKIP_STABLE_FORMAT` environment variable to `1`. The language server and editor extensions read it on startup, so restart them after changing it.
-
-```sh
-DPRINT_EDITOR_SKIP_STABLE_FORMAT=1 dprint lsp
-```
-
 ## Checking What Files Aren't Formatted
 
 Instead of formatting files, you can get a report of any files that aren't formatted by running:
