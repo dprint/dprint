@@ -6,7 +6,7 @@
   "type": "object",
   "properties": {
     "$schema": {
-      "description": "The JSON schema reference. Normally you shouldn't bother to provide this as the dprint vscode editor extension will handle constructing the schema for you based on the plugins provided.",
+      "description": "The JSON schema reference. This is optional because the dprint language server (`dprint lsp`) provides completions and hover information in this file based on the plugins provided without it.",
       "type": "string"
     },
     "incremental": {
