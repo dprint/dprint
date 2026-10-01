@@ -270,10 +270,16 @@ impl TestEnvironment {
     self.remote_file_request_counts.lock().get(url).copied().unwrap_or(0)
   }
 
-  /// Makes requests of the URL never get a response, which models a host
+  /// Makes requests of the URL not get a response, which models a host
   /// that accepts a connection and then doesn't answer.
   pub fn add_unresponsive_remote_file(&self, url: &str) {
     self.unresponsive_remote_files.lock().push(url.to_string());
+  }
+
+  /// Makes the requests of the URL get a response again, including the ones
+  /// that are waiting on one.
+  pub fn remove_unresponsive_remote_file(&self, url: &str) {
+    self.unresponsive_remote_files.lock().retain(|u| u != url);
   }
 
   pub fn set_env_var(&self, name: &str, value: Option<&str>) {
@@ -531,9 +537,8 @@ impl UrlDownloader for TestEnvironment {
     self.remote_file_auth.lock().insert(url.to_string(), auth.map(|s| s.to_string()));
     *self.remote_file_request_counts.lock().entry(url.to_string()).or_default() += 1;
 
-    let is_unresponsive = self.unresponsive_remote_files.lock().iter().any(|u| u == url.as_str());
-    if is_unresponsive {
-      std::future::pending::<()>().await;
+    while self.unresponsive_remote_files.lock().iter().any(|u| u == url.as_str()) {
+      tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
 
     // check for a redirect first
