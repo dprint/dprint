@@ -64,6 +64,10 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
     Some((entry.text.clone(), entry.line_index.clone()))
   }
 
+  pub fn get_language_id(&self, uri: &Uri) -> Option<String> {
+    Some(self.docs.get(uri)?.language_id.clone())
+  }
+
   /// Gets the uri of the notebook and the language of the cell when the
   /// document is a notebook cell.
   pub fn get_notebook_cell(&self, uri: &Uri) -> Option<(Uri, String)> {
