@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::bail;
 use deno_tower_lsp::CancellationToken;
 use deno_tower_lsp::LanguageServer;
 use deno_tower_lsp::LspService;
@@ -416,7 +417,12 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     let result = match result {
       Ok(value) => Ok(value),
       Err(err) => {
-        log_error!(self.environment, "Failed formatting '{}': {:#}", uri.as_str(), err);
+        // Not a response error or a shown message because failing to format is
+        // what happens for a file with a syntax error, which would notify the
+        // user on every format on save.
+        let message = format!("Failed formatting '{}': {:#}", uri.as_str(), err);
+        log_error!(self.environment, "{}", message);
+        self.client.log_error(message);
         Ok(None)
       }
     };
@@ -430,44 +436,73 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   }
 
   /// Resolves the file path to format the document as along with the path of
-  /// its notebook when the document is a notebook cell.
-  fn resolve_format_paths(&self, uri: &Uri) -> Option<(PathBuf, Option<PathBuf>)> {
+  /// its notebook when the document is a notebook cell, which fails with the
+  /// message to log when the document can't be formatted.
+  fn resolve_format_paths(&self, uri: &Uri) -> Result<(PathBuf, Option<PathBuf>)> {
     if is_untitled_uri(uri) {
-      return Some((self.resolve_untitled_file_path(uri)?, None));
+      return Ok((self.resolve_untitled_file_path(uri)?, None));
     }
     let Some((notebook_uri, language_id)) = self.state.lock().documents.get_notebook_cell(uri) else {
-      return Some((uri_to_file_path(uri)?, None));
+      let Some(file_path) = uri_to_file_path(uri) else {
+        bail!(
+          "Cannot format document that is not a file, an untitled document or a cell of an open notebook: {}",
+          uri.as_str()
+        );
+      };
+      return Ok((file_path, None));
     };
     // the cli only formats notebooks on the file system
-    let notebook_path = uri_to_file_path(&notebook_uri)?;
-    let Some(file_path) = get_notebook_cell_file_path(&notebook_path, &language_id) else {
-      log_debug!(
-        self.environment,
-        "Could not determine a file path to format the notebook cell with language: {}",
-        language_id
-      );
-      return None;
+    let Some(notebook_path) = uri_to_file_path(&notebook_uri) else {
+      bail!("Cannot format cell of a notebook that is not on the file system: {}", uri.as_str());
     };
-    Some((file_path, Some(notebook_path)))
+    let Some(file_path) = get_notebook_cell_file_path(&notebook_path, &language_id) else {
+      bail!("Could not determine a file path to format the notebook cell with language: {}", language_id);
+    };
+    Ok((file_path, Some(notebook_path)))
   }
 
   /// An untitled document is formatted as a file in the first workspace
   /// folder or otherwise the home directory.
-  fn resolve_untitled_file_path(&self, uri: &Uri) -> Option<PathBuf> {
+  fn resolve_untitled_file_path(&self, uri: &Uri) -> Result<PathBuf> {
     let (language_id, workspace_folder) = {
       let state = self.state.lock();
-      (state.documents.get_language_id(uri)?, state.workspace_folders.first().cloned())
+      let Some(language_id) = state.documents.get_language_id(uri) else {
+        bail!("Missing document: {}", uri.as_str());
+      };
+      (language_id, state.workspace_folders.first().cloned())
     };
-    let dir_path = workspace_folder.or_else(|| self.environment.get_home_dir().map(|dir| dir.into_path_buf()))?;
-    let file_path = get_untitled_file_path(&dir_path, &language_id);
-    if file_path.is_none() {
-      log_debug!(
-        self.environment,
-        "Could not determine a file path to format the untitled document with language: {}",
-        language_id
-      );
+    let Some(dir_path) = workspace_folder.or_else(|| self.environment.get_home_dir().map(|dir| dir.into_path_buf())) else {
+      bail!("Cannot format untitled document without a workspace folder or home directory: {}", uri.as_str());
+    };
+    let Some(file_path) = get_untitled_file_path(&dir_path, &language_id) else {
+      bail!("Could not determine a file path to format the untitled document with language: {}", language_id);
+    };
+    Ok(file_path)
+  }
+
+  /// Gets the value or otherwise logs to stderr and the client why the format
+  /// request does nothing, which the client can't tell from the response.
+  fn ok_or_log_format_warning<T>(&self, result: Result<T>) -> Option<T> {
+    match result {
+      Ok(value) => Some(value),
+      Err(err) => {
+        let message = format!("{:#}", err);
+        log_warn!(self.environment, "{}", message);
+        self.client.log_warn(message);
+        None
+      }
     }
-    file_path
+  }
+
+  /// Gets the text of a config file document for the completion and hover requests.
+  fn get_config_content(&self, uri: &Uri) -> Option<(String, Option<LineIndex>)> {
+    match self.state.lock().documents.get_content(uri) {
+      Ok(content) => Some(content),
+      Err(err) => {
+        log_warn!(self.environment, "{:#}", err);
+        None
+      }
+    }
   }
 
   async fn send_format_request_inner(&self, request: EditorFormatRequest) -> Result<Option<Vec<TextEdit>>> {
@@ -603,10 +638,11 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 
   async fn formatting(&self, params: DocumentFormattingParams, token: CancellationToken) -> LspResult<Option<Vec<TextEdit>>> {
-    let Some((file_path, notebook_path)) = self.resolve_format_paths(&params.text_document.uri) else {
+    let Some((file_path, notebook_path)) = self.ok_or_log_format_warning(self.resolve_format_paths(&params.text_document.uri)) else {
       return Ok(None);
     };
-    let Some((file_text, maybe_line_index)) = self.state.lock().documents.get_content(&params.text_document.uri) else {
+    let content = self.state.lock().documents.get_content(&params.text_document.uri);
+    let Some((file_text, maybe_line_index)) = self.ok_or_log_format_warning(content) else {
       return Ok(None);
     };
     self
@@ -626,10 +662,11 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 
   async fn range_formatting(&self, params: DocumentRangeFormattingParams, token: CancellationToken) -> LspResult<Option<Vec<TextEdit>>> {
-    let Some((file_path, notebook_path)) = self.resolve_format_paths(&params.text_document.uri) else {
+    let Some((file_path, notebook_path)) = self.ok_or_log_format_warning(self.resolve_format_paths(&params.text_document.uri)) else {
       return Ok(None);
     };
-    let Some((file_text, range, line_index)) = self.state.lock().documents.get_content_with_range(&params.text_document.uri, params.range) else {
+    let content = self.state.lock().documents.get_content_with_range(&params.text_document.uri, params.range);
+    let Some((file_text, range, line_index)) = self.ok_or_log_format_warning(content) else {
       return Ok(None);
     };
     self
@@ -656,7 +693,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     let Some(file_path) = uri_to_file_path(&uri) else {
       return Ok(None);
     };
-    let Some((file_text, _)) = self.state.lock().documents.get_content(&uri) else {
+    let Some((file_text, _)) = self.get_config_content(&uri) else {
       return Ok(None);
     };
     let (sender, receiver) = oneshot::channel();
@@ -679,7 +716,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     let Some(file_path) = uri_to_file_path(&uri) else {
       return Ok(None);
     };
-    let Some((file_text, _)) = self.state.lock().documents.get_content(&uri) else {
+    let Some((file_text, _)) = self.get_config_content(&uri) else {
       return Ok(None);
     };
     let (sender, receiver) = oneshot::channel();
@@ -1274,7 +1311,9 @@ mod test {
             MessageType::INFO,
             format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
           ),
-          (MessageType::INFO, "Server ready.".to_string())
+          (MessageType::INFO, "Server ready.".to_string()),
+          // the client is told about the formatting failure
+          (MessageType::ERROR, "Failed formatting 'file:///file.txt': Did error.".to_string()),
         ]
       );
     });
@@ -1757,15 +1796,33 @@ mod test {
 
       try_join!(recv_task, run_test_task).unwrap();
 
+      // the cells that were closed and the cell of the notebook that's not on the file system
+      let closed_cell_warning = |cell_uri: &str| {
+        format!(
+          "Cannot format document that is not a file, an untitled document or a cell of an open notebook: {}",
+          cell_uri
+        )
+      };
+      let warnings = vec![
+        closed_cell_warning("vscode-notebook-cell:/dir/notebook.ipynb#W1sZmlsZQ%3D%3D"),
+        "Cannot format cell of a notebook that is not on the file system: vscode-notebook-cell:Untitled-1.ipynb#W0sdW50aXRsZWQ%3D".to_string(),
+        closed_cell_warning("vscode-notebook-cell:/dir/notebook.ipynb#W0sZmlsZQ%3D%3D"),
+        closed_cell_warning("vscode-notebook-cell:/dir/notebook.ipynb#W3sZmlsZQ%3D%3D"),
+      ];
+      assert_eq!(environment.take_stderr_messages(), warnings);
       assert_eq!(
         test_client.take_messages(),
-        vec![
-          (
-            MessageType::INFO,
-            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
-          ),
-          (MessageType::INFO, "Server ready.".to_string())
+        [
+          vec![
+            (
+              MessageType::INFO,
+              format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+            ),
+            (MessageType::INFO, "Server ready.".to_string())
+          ],
+          warnings.into_iter().map(|message| (MessageType::WARNING, message)).collect(),
         ]
+        .concat()
       );
       // the server has the client send it format requests for notebook cells
       assert_eq!(
@@ -2171,6 +2228,131 @@ mod test {
           "textDocument/rangeFormatting",
         ]
       );
+    });
+  }
+
+  #[test]
+  fn should_log_format_failures_to_client_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt");
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let environment = environment.clone();
+        let test_client = test_client.clone();
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+          test_client.take_messages();
+
+          macro_rules! assert_range_format {
+            ($uri:expr, $range:expr, $expected:expr) => {
+              let result = backend
+                .range_formatting(
+                  DocumentRangeFormattingParams {
+                    text_document: TextDocumentIdentifier { uri: $uri.clone() },
+                    range: $range,
+                    options: Default::default(),
+                    work_done_progress_params: Default::default(),
+                  },
+                  CancellationToken::new(),
+                )
+                .await;
+              assert_eq!(result.unwrap(), $expected);
+            };
+          }
+          macro_rules! assert_logged {
+            ($message_type:expr, $message:expr) => {
+              assert_eq!(environment.take_stderr_messages(), vec![$message.to_string()]);
+              assert_eq!(test_client.take_messages(), vec![($message_type, $message.to_string())]);
+            };
+          }
+
+          // the plugin failing to format the file, which is not a json-rpc
+          // error because that's what happens for a file with a syntax error
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
+          did_open!(backend, file_uri, "should_error");
+          assert_format!(backend, file_uri, None);
+          assert_logged!(MessageType::ERROR, "Failed formatting 'file:///file.txt': Did error.");
+
+          // range with its start after its end
+          assert_range_format!(file_uri, Range::new(Position::new(0, 2), Position::new(0, 1)), None);
+          assert_logged!(
+            MessageType::WARNING,
+            "Invalid range for 'file:///file.txt'. The start of the range was after its end."
+          );
+
+          // document that's not open
+          let not_open_uri = Uri::from_str("file:///not_open.txt").unwrap();
+          assert_format!(backend, not_open_uri, None);
+          assert_logged!(MessageType::WARNING, "Missing document: file:///not_open.txt");
+          let valid_range = Range::new(Position::new(0, 0), Position::new(0, 1));
+          assert_range_format!(not_open_uri, valid_range, None);
+          assert_logged!(MessageType::WARNING, "Missing document: file:///not_open.txt");
+          let not_open_uri = Uri::from_str("untitled:Untitled-1").unwrap();
+          assert_format!(backend, not_open_uri, None);
+          assert_logged!(MessageType::WARNING, "Missing document: untitled:Untitled-1");
+
+          // document that's not on the file system
+          let other_uri = Uri::from_str("other:/file.txt").unwrap();
+          did_open!(backend, other_uri, "text");
+          assert_format!(backend, other_uri, None);
+          assert_logged!(
+            MessageType::WARNING,
+            "Cannot format document that is not a file, an untitled document or a cell of an open notebook: other:/file.txt"
+          );
+          assert_range_format!(other_uri, valid_range, None);
+          assert_logged!(
+            MessageType::WARNING,
+            "Cannot format document that is not a file, an untitled document or a cell of an open notebook: other:/file.txt"
+          );
+
+          // untitled document in a language without a known file extension
+          let untitled_uri = Uri::from_str("untitled:Untitled-2").unwrap();
+          backend
+            .did_open(DidOpenTextDocumentParams {
+              text_document: TextDocumentItem {
+                uri: untitled_uri.clone(),
+                language_id: "some language".to_string(),
+                version: 0,
+                text: "text".to_string(),
+              },
+            })
+            .await;
+          assert_format!(backend, untitled_uri, None);
+          assert_logged!(
+            MessageType::WARNING,
+            "Could not determine a file path to format the untitled document with language: some language"
+          );
+
+          // config file that fails to resolve
+          environment.write_file("/dprint.json", "{").unwrap();
+          did_close!(backend, file_uri);
+          did_open!(backend, file_uri, "text");
+          assert_format!(backend, file_uri, None);
+          assert_logged!(
+            MessageType::ERROR,
+            "Failed formatting 'file:///file.txt': Error deserializing. Unterminated object on line 1 column 2\n    at /dprint.json"
+          );
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
     });
   }
 
