@@ -59,6 +59,7 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
         args: &cmd.patterns,
         root_dir: &environment.cwd(),
         specified_file_path: Some(resolved_file_path.as_ref()),
+        detect_gitignore_changes: false,
       },
     )?;
     // log the file text as-is since it's not in the list of files to format

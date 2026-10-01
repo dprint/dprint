@@ -499,6 +499,9 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
           args: &FilePatternArgs::default(),
           root_dir: &config.base_path,
           specified_file_path: None,
+          // this matcher lives as long as the scope, which in an editor is until
+          // the dprint config changes, and gitignores change more often than that
+          detect_gitignore_changes: true,
         },
       ) {
         Ok(matcher) => matcher,

@@ -1516,6 +1516,102 @@ mod test {
   }
 
   #[test]
+  fn should_pick_up_gitignore_changes_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let environment = environment.clone();
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          macro_rules! assert_formats {
+            ($uri:expr, $formats:expr) => {
+              let expected = if $formats {
+                Some(vec![TextEdit {
+                  range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+                  new_text: "_formatted".to_string(),
+                }])
+              } else {
+                None
+              };
+              assert_format!(backend, $uri, expected);
+            };
+          }
+
+          let dist_uri = Uri::from_str("file:///dist/file.txt").unwrap();
+          did_open!(backend, dist_uri, "text");
+          let src_uri = Uri::from_str("file:///src/file.txt").unwrap();
+          did_open!(backend, src_uri, "text");
+          let nested_uri = Uri::from_str("file:///src/nested/file.txt").unwrap();
+          did_open!(backend, nested_uri, "text");
+
+          // no gitignore yet
+          assert_formats!(dist_uri, true);
+          assert_formats!(src_uri, true);
+          assert_formats!(nested_uri, true);
+
+          // adding a gitignore without touching the dprint config
+          environment.write_file("/.gitignore", "dist/").unwrap();
+          assert_formats!(dist_uri, false);
+          assert_formats!(src_uri, true);
+          assert_formats!(nested_uri, true);
+
+          // changing its entries
+          environment.write_file("/.gitignore", "src/file.txt").unwrap();
+          assert_formats!(dist_uri, true);
+          assert_formats!(src_uri, false);
+          assert_formats!(nested_uri, true);
+
+          // adding a nested gitignore
+          environment.mk_dir_all("/src/nested").unwrap();
+          environment.write_file("/src/nested/.gitignore", "file.txt").unwrap();
+          assert_formats!(dist_uri, true);
+          assert_formats!(src_uri, false);
+          assert_formats!(nested_uri, false);
+
+          // removing the gitignores
+          environment.remove_file("/.gitignore").unwrap();
+          assert_formats!(src_uri, true);
+          assert_formats!(nested_uri, false);
+          environment.remove_file("/src/nested/.gitignore").unwrap();
+          assert_formats!(nested_uri, true);
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
+  #[test]
   fn should_format_shebang_file_with_lsp() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()

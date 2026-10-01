@@ -2,6 +2,10 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::SystemTime;
+
+use sys_traits::FsMetadata;
+use sys_traits::FsMetadataValue;
 
 use crate::environment::DirEntry;
 use crate::environment::Environment;
@@ -109,13 +113,18 @@ pub struct GitIgnoreTreeOptions {
   /// Lines from git's global excludes file, applied at the repository root with
   /// the lowest precedence. Empty unless global gitignore support is opted into.
   pub global_gitignore_lines: Vec<String>,
+  /// Whether to remember the state of the files each directory's gitignore was
+  /// resolved from so `refresh_for_file` can detect when they change. This is
+  /// for a tree that outlives a single run (ex. in the language server) and
+  /// costs a stat per resolved directory, so it's off by default.
+  pub detect_changes: bool,
 }
 
 /// Resolves gitignores in a directory tree taking into account
 /// ancestor gitignores that may be found in a directory.
 pub struct GitIgnoreTree<TEnvironment> {
   environment: TEnvironment,
-  ignores: HashMap<PathBuf, Option<Rc<DirGitIgnores>>>,
+  ignores: HashMap<PathBuf, CachedDir>,
   options: GitIgnoreTreeOptions,
 }
 
@@ -139,23 +148,61 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     self.get_resolved_git_ignore_inner(dir_path, None)
   }
 
+  /// Drops what was resolved for the file's ancestor directories when a
+  /// `.gitignore`, `.git/info/exclude` or `.git` that it was resolved from has
+  /// since been changed, added or removed, so the next resolution reads the
+  /// files again. Does nothing unless the `detect_changes` option is set.
+  ///
+  /// This stats the files of each previously resolved ancestor directory up to
+  /// the repository root and only reads a file again when its modified time or
+  /// size differs, so it's cheap enough to do before every lookup.
+  pub fn refresh_for_file(&mut self, file_path: &Path) {
+    if !self.options.detect_changes {
+      return;
+    }
+    let mut stale_dir = None;
+    for dir_path in file_path.ancestors().skip(1) {
+      // a directory that hasn't been resolved gets resolved from the file
+      // system on lookup, but its ancestors might be resolved and out of date
+      let Some(snapshot) = self.ignores.get(dir_path).and_then(|cached| cached.snapshot.as_ref()) else {
+        continue;
+      };
+      let current_snapshot = self.take_dir_snapshot(dir_path);
+      if *snapshot != current_snapshot {
+        stale_dir = Some(dir_path);
+      }
+      if current_snapshot.has_git {
+        break; // resolution doesn't look above the repository root
+      }
+    }
+    if let Some(stale_dir) = stale_dir {
+      // descendants hold onto what was resolved for their ancestors
+      self.ignores.retain(|dir_path, _| !dir_path.starts_with(stale_dir));
+    }
+  }
+
   fn get_resolved_git_ignore_inner(&mut self, dir_path: &Path, hint: Option<DirEntriesHint>) -> Option<Rc<DirGitIgnores>> {
-    let maybe_resolved = self.ignores.get(dir_path).cloned();
+    let maybe_resolved = self.ignores.get(dir_path).map(|cached| cached.resolved.clone());
     if let Some(resolved) = maybe_resolved {
       resolved
     } else {
-      let resolved = self.resolve_gitignore_in_dir(dir_path, hint);
-      self.ignores.insert(dir_path.to_owned(), resolved.clone());
+      let cached = self.resolve_gitignore_in_dir(dir_path, hint);
+      let resolved = cached.resolved.clone();
+      self.ignores.insert(dir_path.to_owned(), cached);
       resolved
     }
   }
 
-  fn resolve_gitignore_in_dir(&mut self, dir_path: &Path, hint: Option<DirEntriesHint>) -> Option<Rc<DirGitIgnores>> {
+  fn resolve_gitignore_in_dir(&mut self, dir_path: &Path, hint: Option<DirEntriesHint>) -> CachedDir {
+    // take this before reading the files so a change made while resolving
+    // is seen as a change the next time
+    let snapshot = self.options.detect_changes.then(|| self.take_dir_snapshot(dir_path));
     // a directory containing `.git` is the root of a repository, so don't
     // search for gitignores above it
-    let is_repo_root = match hint {
-      Some(hint) => hint.has_git,
-      None => self.environment.path_exists(dir_path.join(".git")),
+    let is_repo_root = match (&snapshot, hint) {
+      (Some(snapshot), _) => snapshot.has_git,
+      (None, Some(hint)) => hint.has_git,
+      (None, None) => self.environment.path_exists(dir_path.join(".git")),
     };
     let parent = if is_repo_root {
       None
@@ -164,11 +211,12 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
       dir_path.parent().and_then(|parent| self.get_resolved_git_ignore_inner(parent, None))
     };
     let current = self.resolve_current_gitignore(dir_path, is_repo_root, hint);
-    if parent.is_none() && current.is_none() {
+    let resolved = if parent.is_none() && current.is_none() {
       None
     } else {
       Some(Rc::new(DirGitIgnores { current, parent }))
-    }
+    };
+    CachedDir { resolved, snapshot }
   }
 
   fn resolve_current_gitignore(&self, dir_path: &Path, is_repo_root: bool, hint: Option<DirEntriesHint>) -> Option<Rc<ignore::gitignore::Gitignore>> {
@@ -224,6 +272,54 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     let gitignore = builder.build().ok()?;
     Some(Rc::new(gitignore))
   }
+
+  fn take_dir_snapshot(&self, dir_path: &Path) -> DirSnapshot {
+    let git_path = dir_path.join(".git");
+    // not `path_exists` because that would debug log on every refresh
+    let has_git = self.environment.fs_metadata(&git_path).is_ok();
+    DirSnapshot {
+      has_git,
+      gitignore: self.take_file_snapshot(&dir_path.join(".gitignore")),
+      // only read at the repository root
+      exclude: if has_git {
+        self.take_file_snapshot(&git_path.join("info").join("exclude"))
+      } else {
+        None
+      },
+    }
+  }
+
+  fn take_file_snapshot(&self, file_path: &Path) -> Option<FileSnapshot> {
+    let metadata = self.environment.fs_metadata(file_path).ok()?;
+    Some(FileSnapshot {
+      modified: metadata.modified().ok(),
+      len: metadata.len(),
+    })
+  }
+}
+
+/// What was resolved for a directory.
+struct CachedDir {
+  resolved: Option<Rc<DirGitIgnores>>,
+  /// Only set when detecting changes.
+  snapshot: Option<DirSnapshot>,
+}
+
+/// State of the files a directory's gitignore gets resolved from, which
+/// is compared to detect when the directory needs to be resolved again.
+#[derive(PartialEq, Eq)]
+struct DirSnapshot {
+  has_git: bool,
+  /// `None` when there's no `.gitignore` in the directory.
+  gitignore: Option<FileSnapshot>,
+  /// `None` when there's no `.git/info/exclude` in the directory.
+  exclude: Option<FileSnapshot>,
+}
+
+#[derive(PartialEq, Eq)]
+struct FileSnapshot {
+  modified: Option<SystemTime>,
+  len: u64,
 }
 
 #[cfg(test)]
@@ -310,6 +406,108 @@ mod test {
   }
 
   #[test]
+  fn refresh_detects_changed_added_and_removed_gitignores() {
+    let env = TestEnvironment::new();
+    env.set_fs_time(1000);
+    env.mk_dir_all("/sub_dir/nested").unwrap();
+    env.mk_dir_all("/other_dir").unwrap();
+    env.write_file("/.gitignore", "a.txt").unwrap();
+    let mut ignore_tree = new_change_detecting_tree(&env);
+    let mut assert_ignored = |path: &str, expected: bool| {
+      let path = PathBuf::from(path);
+      ignore_tree.refresh_for_file(&path);
+      let is_ignored = ignore_tree
+        .get_resolved_git_ignore_for_file(&path)
+        .map(|gitignore| gitignore.is_ignored(&path, /* is_dir */ false))
+        .unwrap_or(false);
+      assert_eq!(is_ignored, expected, "Path: {}", path.display());
+    };
+    assert_ignored("/a.txt", true);
+    assert_ignored("/b.txt", false);
+    assert_ignored("/sub_dir/nested/a.txt", true);
+    assert_ignored("/other_dir/b.txt", false);
+
+    // changed to text of the same length, so only the modified time differs
+    env.set_fs_time(2000);
+    env.write_file("/.gitignore", "b.txt").unwrap();
+    assert_ignored("/a.txt", false);
+    assert_ignored("/b.txt", true);
+    // directories that weren't asked about since the change
+    assert_ignored("/sub_dir/nested/a.txt", false);
+    assert_ignored("/other_dir/b.txt", true);
+
+    // changed without the modified time changing, so only the length differs
+    env.write_file("/.gitignore", "b.txt\nc.txt").unwrap();
+    assert_ignored("/sub_dir/c.txt", true);
+
+    // added in a directory that was resolved as not having one
+    env.write_file("/sub_dir/.gitignore", "!b.txt").unwrap();
+    assert_ignored("/sub_dir/nested/b.txt", false);
+    assert_ignored("/other_dir/b.txt", true);
+
+    // removed
+    env.remove_file("/sub_dir/.gitignore").unwrap();
+    assert_ignored("/sub_dir/nested/b.txt", true);
+    env.remove_file("/.gitignore").unwrap();
+    assert_ignored("/sub_dir/nested/b.txt", false);
+    assert_ignored("/b.txt", false);
+  }
+
+  #[test]
+  fn refresh_detects_git_dir_and_info_exclude_changes() {
+    let env = TestEnvironment::new();
+    env.mk_dir_all("/repo/sub_dir").unwrap();
+    env.write_file("/.gitignore", "a.txt").unwrap();
+    let mut ignore_tree = new_change_detecting_tree(&env);
+    let mut assert_ignored = |path: &str, expected: bool| {
+      let path = PathBuf::from(path);
+      ignore_tree.refresh_for_file(&path);
+      let is_ignored = ignore_tree
+        .get_resolved_git_ignore_for_file(&path)
+        .map(|gitignore| gitignore.is_ignored(&path, /* is_dir */ false))
+        .unwrap_or(false);
+      assert_eq!(is_ignored, expected, "Path: {}", path.display());
+    };
+    assert_ignored("/repo/sub_dir/a.txt", true);
+
+    // the directory becomes a repository root, so gitignores above it no longer apply
+    env.mk_dir_all("/repo/.git/info").unwrap();
+    assert_ignored("/repo/sub_dir/a.txt", false);
+    assert_ignored("/repo/sub_dir/b.txt", false);
+
+    env.write_file("/repo/.git/info/exclude", "b.txt").unwrap();
+    assert_ignored("/repo/sub_dir/b.txt", true);
+    env.write_file("/repo/.git/info/exclude", "other.txt").unwrap();
+    assert_ignored("/repo/sub_dir/b.txt", false);
+
+    // and back to not being a repository root
+    env.remove_dir_all("/repo/.git").unwrap();
+    assert_ignored("/repo/sub_dir/a.txt", true);
+  }
+
+  #[test]
+  fn refresh_keeps_what_was_resolved_when_nothing_changed() {
+    let env = TestEnvironment::new();
+    env.mk_dir_all("/sub_dir").unwrap();
+    env.write_file("/.gitignore", "a.txt").unwrap();
+    let path = PathBuf::from("/sub_dir/a.txt");
+
+    let mut ignore_tree = new_change_detecting_tree(&env);
+    let first = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
+    ignore_tree.refresh_for_file(&path);
+    let second = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
+    assert!(Rc::ptr_eq(&first, &second));
+
+    // not detecting changes is the default, where a refresh does nothing
+    let mut ignore_tree = GitIgnoreTree::new(env.clone(), GitIgnoreTreeOptions::default());
+    let first = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
+    env.write_file("/.gitignore", "other.txt").unwrap();
+    ignore_tree.refresh_for_file(&path);
+    let second = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
+    assert!(Rc::ptr_eq(&first, &second));
+  }
+
+  #[test]
   fn git_info_exclude_without_gitignore() {
     // a repo with only `.git/info/exclude` and no `.gitignore` should still be honoured
     let env = TestEnvironment::new();
@@ -319,5 +517,15 @@ mod test {
     let path = PathBuf::from("/ignored.txt");
     let gitignore = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
     assert!(gitignore.is_ignored(&path, /* is_dir */ false));
+  }
+
+  fn new_change_detecting_tree(env: &TestEnvironment) -> GitIgnoreTree<TestEnvironment> {
+    GitIgnoreTree::new(
+      env.clone(),
+      GitIgnoreTreeOptions {
+        detect_changes: true,
+        ..Default::default()
+      },
+    )
   }
 }
