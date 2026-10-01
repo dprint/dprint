@@ -23,6 +23,8 @@ use deno_tower_lsp::lsp_types::DidOpenNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidOpenTextDocumentParams;
 use deno_tower_lsp::lsp_types::DocumentFormattingParams;
 use deno_tower_lsp::lsp_types::DocumentRangeFormattingParams;
+use deno_tower_lsp::lsp_types::FormattingOptions;
+use deno_tower_lsp::lsp_types::FormattingProperty;
 use deno_tower_lsp::lsp_types::Hover;
 use deno_tower_lsp::lsp_types::HoverParams;
 use deno_tower_lsp::lsp_types::HoverProviderCapability;
@@ -74,6 +76,12 @@ mod config_completion;
 mod documents;
 mod notebook;
 mod text;
+
+/// The formatting option a client provides in a format request to format a
+/// document without a config file in an ancestor directory using the global
+/// config file when the server doesn't use the global config file by default
+/// (ex. for a command that explicitly formats using the global config file).
+const USE_GLOBAL_CONFIG_OPTION: &str = "useGlobalConfig";
 
 // deno_tower_lsp will drop the future on cancellation,
 // so use this to cancel the containing token on drop.
@@ -155,6 +163,8 @@ struct EditorFormatRequest {
   pub file_text: String,
   pub maybe_line_index: Option<LineIndex>,
   pub range: FormatRange,
+  /// Whether the client asked to use the global config file.
+  pub use_global_config: bool,
   pub token: Arc<CancellationToken>,
 }
 
@@ -187,7 +197,7 @@ async fn handle_format_request<TEnvironment: Environment>(
   if request.token.is_cancelled() {
     return Ok(None);
   }
-  let Some(scope) = scope_container.resolve_by_path(parent_dir).await? else {
+  let Some(scope) = scope_container.resolve_by_path(parent_dir, request.use_global_config).await? else {
     log_stderr_info!(environment, "Path did not have a dprint config file: {}", request.file_path.display());
     return Ok(None);
   };
@@ -535,6 +545,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           notebook_path,
           file_text,
           range: None,
+          use_global_config: has_use_global_config_option(&params.options),
           maybe_line_index,
           token: Arc::new(token),
         },
@@ -557,6 +568,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           notebook_path,
           file_text,
           range,
+          use_global_config: has_use_global_config_option(&params.options),
           maybe_line_index: Some(line_index),
           token: Arc::new(token),
         },
@@ -652,6 +664,10 @@ pub fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
       }
     }
   }
+}
+
+fn has_use_global_config_option(options: &FormattingOptions) -> bool {
+  matches!(options.properties.get(USE_GLOBAL_CONFIG_OPTION), Some(FormattingProperty::Bool(true)))
 }
 
 fn canonicalize_path(environment: &impl Environment, path: PathBuf) -> PathBuf {
@@ -1606,6 +1622,39 @@ mod test {
             environment.take_stderr_messages(),
             vec!["Path did not have a dprint config file: /file.txt".to_string()]
           );
+
+          // uses the global config when the client asks to
+          let options = FormattingOptions {
+            properties: HashMap::from([("useGlobalConfig".to_string(), FormattingProperty::Bool(true))]),
+            ..Default::default()
+          };
+          let formatted = Some(vec![TextEdit {
+            range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+            new_text: "_formatted".to_string(),
+          }]);
+          let result = backend
+            .formatting(
+              DocumentFormattingParams {
+                text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                options: options.clone(),
+                work_done_progress_params: Default::default(),
+              },
+              CancellationToken::new(),
+            )
+            .await;
+          assert_eq!(result.unwrap(), formatted);
+          let result = backend
+            .range_formatting(
+              DocumentRangeFormattingParams {
+                text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                range: Range::new(Position::new(0, 0), Position::new(0, 7)),
+                options,
+                work_done_progress_params: Default::default(),
+              },
+              CancellationToken::new(),
+            )
+            .await;
+          assert!(result.unwrap().is_some());
 
           backend.shutdown().await.unwrap();
         }

@@ -44,7 +44,10 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     self.plugin_resolver.clear_and_shutdown_initialized().await;
   }
 
-  pub async fn resolve_by_path(&self, dir_path: &Path) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
+  /// Resolves the plugins to format the files in the provided directory with.
+  /// `use_global_config` is for using the global config file when there's no
+  /// config file in an ancestor directory even when that's not done by default.
+  pub async fn resolve_by_path(&self, dir_path: &Path, use_global_config: bool) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
     let config_file_bytes = if let Some(path) = &self.config_override {
       let path = self.environment.canonicalize(path).context("failed resolving --config path")?;
       let content = self.environment.read_file(&path).context("failed resolving --config path")?;
@@ -58,7 +61,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     } else {
       match get_default_config_file_in_ancestor_directories(&self.environment, dir_path)? {
         Some(config) => Some(config),
-        None if self.use_global_config => resolve_global_config_path_and_text(&self.environment)?,
+        None if self.use_global_config || use_global_config => resolve_global_config_path_and_text(&self.environment)?,
         None => None,
       }
     };
