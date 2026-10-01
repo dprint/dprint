@@ -768,14 +768,6 @@ ENVIRONMENT VARIABLES:
                        to ignore all certificates or a comma separated list of specific
                        hosts to ignore (ex. dprint.dev,localhost,[::],127.0.0.1)
   DPRINT_EDITOR        Editor used for editing config files.
-  DPRINT_EDITOR_USE_GLOBAL_CONFIG
-                       Set to "0" or "false" to have `dprint lsp` not use the global
-                       config file for files without a config file in an ancestor
-                       directory. Enabled by default.
-  DPRINT_EDITOR_STABLE_FORMAT
-                       Set to "1" or "true" to have editor integrations (ex. `dprint lsp`)
-                       format a file until the output is stable like `dprint fmt` does.
-                       Disabled by default.
   DPRINT_GLOBAL_GITIGNORE
                        Set to "1" to also respect git's global excludes file
                        (core.excludesFile). Disabled by default.
@@ -1006,16 +998,6 @@ EXAMPLES:
     .subcommand(
       Command::new("lsp")
       .about("Starts up a language server for formatting files.")
-      .arg(
-        // replaces the global arg in this subcommand's help because the
-        // language server only reads the config from a local file
-        Arg::new("config")
-          .long("config")
-          .short('c')
-          .help("Path to a JSON configuration file to use for the files in its directory instead of looking one up for each file (a url is not supported). Defaults to the dprint.json(c) or .dprint.json(c) in each file's directory or its ancestor directories when not provided.")
-          .value_hint(clap::ValueHint::FilePath)
-          .num_args(1)
-      )
     )
     .arg(
       Arg::new("config")
@@ -1222,17 +1204,6 @@ mod test {
     assert!(matches!(sub_command(vec!["output-resolved-config"]), SubCommand::OutputResolvedConfig(_)));
     assert!(matches!(sub_command(vec!["format-times"]), SubCommand::OutputFormatTimes(_)));
     assert!(matches!(sub_command(vec!["output-format-times"]), SubCommand::OutputFormatTimes(_)));
-  }
-
-  #[test]
-  fn lsp_config_arg() {
-    // the lsp subcommand defines the arg to have its own help text
-    for args in [vec!["lsp", "--config", "dprint.json"], vec!["--config", "dprint.json", "lsp"]] {
-      let args = test_args(args).unwrap();
-      assert_eq!(args.sub_command, SubCommand::Lsp);
-      assert_eq!(args.config, Some("dprint.json".to_string()));
-    }
-    assert_eq!(test_args(vec!["lsp"]).unwrap().config, None);
   }
 
   #[test]

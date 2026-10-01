@@ -52,8 +52,8 @@ Documents with other schemes that aren't files on the file system are not format
 The server doesn't use a single configuration file for a workspace. On each request it resolves the configuration file for the file being formatted:
 
 1. The closest `dprint.json`, `dprint.jsonc`, `.dprint.json`, or `.dprint.jsonc` in the file's directory or its ancestor directories is used.
-2. When that configuration file specifies [`"inherit": true`](/config#directory-specific-configuration), it's merged with the next configuration file found in its ancestor directories, the same as the CLI does. That one may also inherit, and when there's none in an ancestor directory the global configuration file is inherited from (unless that's [turned off](#global-configuration)).
-3. When no configuration file is found in an ancestor directory, the [global configuration file](/global-config) is used. See [Global Configuration](#global-configuration) for how to turn this off.
+2. When that configuration file specifies [`"inherit": true`](/config#directory-specific-configuration), it's merged with the next configuration file found in its ancestor directories, the same as the CLI does. That one may also inherit, and when there's none in an ancestor directory the global configuration file is inherited from.
+3. When no configuration file is found in an ancestor directory, the [global configuration file](/global-config) is used when one exists. This is what makes formatting work in a scratch directory or in a project that doesn't use dprint.
 4. Otherwise the file is not formatted.
 
 This means files in different projects, or in directories of a monorepo with their own configuration file, are each formatted with their own configuration in the same editor session.
@@ -64,63 +64,15 @@ Configuration files are read on each request, so a change to one is used the nex
 
 Note: The language server does not use the config discovery mode. The `--config-discovery` flag and the `DPRINT_CONFIG_DISCOVERY` environment variable described in [changing config discovery](/cli#changing-config-discovery) have no effect on `dprint lsp`. The `--plugins` flag has no effect either. The server only uses the plugins in the configuration file.
 
-### Specifying a configuration file
-
-To use a specific configuration file instead of looking one up for each file, start the server with the `--config` (or `-c`) flag:
-
-```sh
-dprint lsp --config path/to/dprint.json
-```
-
-Only the files within that configuration file's directory are formatted. A file outside of it is not formatted, which is the same as how a configuration file found in an ancestor directory only applies to the files beneath it.
-
-Only a path to a local file is supported here. Unlike `dprint fmt --config <url>`, the language server does not support a URL. A relative path is resolved from the directory the server is started in.
-
-When this flag is provided, no other configuration file is looked for, the global configuration file is not used, and `"inherit": true` in the specified file is not applied.
-
-### Global configuration
-
-By default, a file that has no configuration file in its directory or an ancestor directory is formatted with the [global configuration file](/global-config) when one exists. This is what makes formatting work in a scratch directory or in a project that doesn't use dprint.
-
-To opt out, set the `DPRINT_EDITOR_USE_GLOBAL_CONFIG` environment variable to `0` or `false` in the environment the server is started with. The server then only formats the files that have a configuration file in their directory or an ancestor directory.
-
-When opted out, a client can still ask for the global configuration file to be used for a single request by providing the non-standard `useGlobalConfig` formatting option (see below). This is for editor integrations that want to provide something like a "format with the global config" command while leaving it off by default.
-
 ## Line Endings
 
 The server keeps the line endings of the editor's document. When a plugin formats the text with different line endings than the document has (ex. because of the `newLineKind` configuration), the server converts them back to the kind used by the first line ending in the document before computing the edits. A document that has no line endings (a single line) is the exception because there's nothing to match, so it gets the line endings the plugin produced.
 
 To change a file's line endings, change them in the editor or run `dprint fmt` from the command line.
 
-## Options
+## Formatting Options
 
-### Environment variables
-
-These are read once when the server starts, so they need to be set in the environment the editor starts `dprint lsp` with.
-
-- `DPRINT_EDITOR_USE_GLOBAL_CONFIG` - Set to `0` or `false` to not use the global configuration file for files that have no configuration file in an ancestor directory. It's used by default.
-- `DPRINT_EDITOR_STABLE_FORMAT` - Set to `1` or `true` to format a document again until the output stops changing, the same as `dprint fmt` does. This is off by default because it may double the time it takes to format a large file. It doesn't apply to range formatting.
-
-The other environment variables listed in `dprint help` (ex. `DPRINT_CACHE_DIR`, `DPRINT_CONFIG_DIR`, `DPRINT_MAX_THREADS`) apply as well, except for `DPRINT_CONFIG_DISCOVERY` as mentioned above.
-
-### `useGlobalConfig` formatting option
-
-The `options` of a `textDocument/formatting` or `textDocument/rangeFormatting` request may have a non-standard `useGlobalConfig` property:
-
-```json
-{
-  "textDocument": { "uri": "file:///home/david/scratch/file.ts" },
-  "options": {
-    "tabSize": 2,
-    "insertSpaces": true,
-    "useGlobalConfig": true
-  }
-}
-```
-
-When it's `true`, the global configuration file is used for that request when the file has no configuration file in an ancestor directory, even when `DPRINT_EDITOR_USE_GLOBAL_CONFIG` is `0` or `false`. It doesn't override a configuration file found in an ancestor directory and has no effect when the global configuration file is already used by default.
-
-The standard formatting options (`tabSize`, `insertSpaces`, etc.) are ignored. Indentation and everything else comes from the dprint configuration file.
+The formatting options an editor sends with a format request (`tabSize`, `insertSpaces`, etc.) are ignored. Indentation and everything else comes from the dprint configuration file.
 
 ## Troubleshooting
 
@@ -136,7 +88,7 @@ The following is logged to the client with `window/logMessage`, which most edito
 Some things are only written to the server's stderr, which is where the server's other logging goes:
 
 - `Path did not have a dprint config file: <path>` when no configuration file was resolved for a file.
-- `[DEBUG] Excluded file: <path>` when the file isn't matched by the configuration's `includes`, is matched by its `excludes` or a `.gitignore` file, or is outside the configuration file's directory. A file that no plugin handles isn't logged this way. It shows up as a format request with an empty list of plugins. These and the timing of each format request are only logged with `dprint lsp --log-level=debug`.
+- `[DEBUG] Excluded file: <path>` when the file isn't matched by the configuration's `includes` or is matched by its `excludes` or a `.gitignore` file. A file that no plugin handles isn't logged this way. It shows up as a format request with an empty list of plugins. These and the timing of each format request are only logged with `dprint lsp --log-level=debug`.
 
 When a file isn't being formatted in the editor, check that `dprint fmt` formats it from the command line and see [diagnostic commands and flags](/cli#diagnostic-commands-and-flags).
 
@@ -160,21 +112,16 @@ The snippets below were written from each editor's documentation and have not be
 vim.lsp.enable("dprint")
 ```
 
-That configuration only attaches to a fixed list of file types (JavaScript, TypeScript, JSON, Markdown, Python, TOML, Rust, and a few others at the time of writing). To change the file types or to set environment variables, override those settings. Note that `filetypes` replaces the default list instead of adding to it, so list every file type you want the server to attach to:
+That configuration only attaches to a fixed list of file types (JavaScript, TypeScript, JSON, Markdown, Python, TOML, Rust, and a few others at the time of writing). To change the file types, override that setting. Note that `filetypes` replaces the default list instead of adding to it, so list every file type you want the server to attach to:
 
 ```lua
 vim.lsp.config("dprint", {
   filetypes = { "javascript", "typescript", "json", "jsonc", "markdown", "yaml", "css" },
-  cmd_env = { DPRINT_EDITOR_STABLE_FORMAT = "1" },
 })
 vim.lsp.enable("dprint")
 ```
 
-Then format with `vim.lsp.buf.format()`. Its `formatting_options` are sent as the request's options, so the following provides the `useGlobalConfig` option:
-
-```lua
-vim.lsp.buf.format({ name = "dprint", formatting_options = { useGlobalConfig = true } })
-```
+Then format with `vim.lsp.buf.format()`.
 
 ### Helix
 
@@ -184,7 +131,6 @@ Helix doesn't have a built-in entry for dprint, so define the language server in
 [language-server.dprint]
 command = "dprint"
 args = ["lsp"]
-# environment = { "DPRINT_EDITOR_STABLE_FORMAT" = "1" }
 
 [[language]]
 name = "typescript"
@@ -233,5 +179,3 @@ According to the extension's documentation, it uses the `dprint` executable in `
   }
 }
 ```
-
-At the time of writing, the extension doesn't pass environment variables to the server, so set `DPRINT_EDITOR_USE_GLOBAL_CONFIG` or `DPRINT_EDITOR_STABLE_FORMAT` in the environment Zed is started with.

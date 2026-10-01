@@ -381,14 +381,6 @@ ENVIRONMENT VARIABLES:
                        to ignore all certificates or a comma separated list of specific
                        hosts to ignore (ex. dprint.dev,localhost,[::],127.0.0.1)
   DPRINT_EDITOR        Editor used for editing config files.
-  DPRINT_EDITOR_USE_GLOBAL_CONFIG
-                       Set to "0" or "false" to have `dprint lsp` not use the global
-                       config file for files without a config file in an ancestor
-                       directory. Enabled by default.
-  DPRINT_EDITOR_STABLE_FORMAT
-                       Set to "1" or "true" to have editor integrations (ex. `dprint lsp`)
-                       format a file until the output is stable like `dprint fmt` does.
-                       Disabled by default.
   DPRINT_GLOBAL_GITIGNORE
                        Set to "1" to also respect git's global excludes file
                        (core.excludesFile). Disabled by default.
