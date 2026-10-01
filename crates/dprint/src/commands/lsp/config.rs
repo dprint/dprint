@@ -65,7 +65,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     } else {
       match get_default_config_file_in_ancestor_directories(&self.environment, dir_path)? {
         Some(config) => Some(config),
-        None if self.use_global_config || use_global_config => resolve_global_config_path_and_text(&self.environment)?,
+        None if self.use_global_config || use_global_config => self.resolve_global_config_file(dir_path)?,
         None => None,
       }
     };
@@ -73,8 +73,11 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
       return Ok(None);
     };
     let cell = {
+      // the base path is part of the key because the global config
+      // file has a different one for each root directory (ex. drive)
+      let key = format!("{}\n{}", config_file_bytes.source.display(), config_file_bytes.base_path.display());
       let mut plugins_scope_by_config = self.plugins_scope_by_config.borrow_mut();
-      plugins_scope_by_config.entry(config_file_bytes.source.display()).or_default().clone()
+      plugins_scope_by_config.entry(key).or_default().clone()
     };
     // only allow one task in here per config
     let mut cell = cell.lock().await;
@@ -110,7 +113,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
       };
       let ancestor_config_file = match get_default_config_file_in_ancestor_directories(&self.environment, parent_dir.as_ref())? {
         Some(config_file) => Some(config_file),
-        None if self.use_global_config || use_global_config => resolve_global_config_path_and_text(&self.environment)?,
+        None if self.use_global_config || use_global_config => self.resolve_global_config_file(parent_dir.as_ref())?,
         None => None,
       };
       let Some(ancestor_config_file) = ancestor_config_file else {
@@ -121,6 +124,21 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
       inherit_config(config, &ancestor_config)
     }
     .boxed_local()
+  }
+
+  /// Gets the global config file based at the root directory of the provided
+  /// path, which is how the cli uses it for a path outside the cwd. The global
+  /// config file is otherwise based at the server's cwd, and a config file only
+  /// formats the files within its base directory.
+  fn resolve_global_config_file(&self, dir_path: &Path) -> Result<Option<ResolvedConfigPathWithText>> {
+    let Some(config_file) = resolve_global_config_path_and_text(&self.environment)? else {
+      return Ok(None);
+    };
+    let root_dir = dir_path.ancestors().last().unwrap_or(dir_path);
+    Ok(Some(ResolvedConfigPathWithText {
+      base_path: self.environment.canonicalize(root_dir)?,
+      ..config_file
+    }))
   }
 }
 

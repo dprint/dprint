@@ -34,6 +34,8 @@ impl Utf16Char {
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct LineIndex {
   utf8_offsets: Vec<TextSize>,
+  /// The u8 offset of the end of each line excluding its line ending.
+  utf8_line_ends: Vec<TextSize>,
   utf16_lines: HashMap<u32, Vec<Utf16Char>>,
   utf16_offsets: Vec<TextSize>,
 }
@@ -44,7 +46,9 @@ impl LineIndex {
     let mut utf16_chars = Vec::new();
 
     let mut utf8_offsets = vec![0.into()];
+    let mut utf8_line_ends = Vec::new();
     let mut utf16_offsets = vec![0.into()];
+    let mut was_last_cr = false;
     let mut curr_row = 0.into();
     let mut curr_col = 0.into();
     let mut curr_offset_u16 = 0.into();
@@ -54,6 +58,9 @@ impl LineIndex {
       curr_row += c_len;
       curr_offset_u16 += TextSize::from(c.len_utf16() as u32);
       if c == '\n' {
+        let line_ending_len = if was_last_cr { 2 } else { 1 };
+        utf8_line_ends.push(curr_row - TextSize::from(line_ending_len));
+        was_last_cr = false;
         utf8_offsets.push(curr_row);
         utf16_offsets.push(curr_offset_u16);
 
@@ -66,6 +73,7 @@ impl LineIndex {
         line += 1;
         continue;
       }
+      was_last_cr = c == '\r';
 
       if !c.is_ascii() {
         utf16_chars.push(Utf16Char {
@@ -78,6 +86,7 @@ impl LineIndex {
 
     // utf8_offsets and utf16_offsets length is equal to (# of lines + 1)
     utf8_offsets.push(curr_row);
+    utf8_line_ends.push(curr_row);
     utf16_offsets.push(curr_offset_u16);
 
     if !utf16_chars.is_empty() {
@@ -86,6 +95,7 @@ impl LineIndex {
 
     LineIndex {
       utf8_offsets,
+      utf8_line_ends,
       utf16_lines,
       utf16_offsets,
     }
@@ -93,19 +103,27 @@ impl LineIndex {
 
   /// Convert a u16 based range to a u8 TextRange.
   pub fn get_text_range(&self, range: lsp::Range) -> Result<TextRange> {
-    let start = self.offset(range.start)?;
-    let end = self.offset(range.end)?;
+    let start = self.offset(range.start);
+    let end = self.offset(range.end);
+    if start > end {
+      bail!("The start of the range was after its end.")
+    }
     Ok(TextRange::new(start, end))
   }
 
   /// Return a u8 offset based on a u16 position.
-  pub fn offset(&self, position: lsp::Position) -> Result<TextSize> {
-    let col = self.utf16_to_utf8_col(position.line, position.character);
-    if let Some(line_offset) = self.utf8_offsets.get(position.line as usize) {
-      Ok(line_offset + col)
-    } else {
-      bail!("The position is out of range.")
-    }
+  ///
+  /// A position past the end of a line is the end of that line, which is how
+  /// the language server protocol defines it, and a position past the last
+  /// line is the end of the text.
+  pub fn offset(&self, position: lsp::Position) -> TextSize {
+    let line = position.line as usize;
+    let Some(line_end) = self.utf8_line_ends.get(line).copied() else {
+      return self.utf8_line_ends.last().copied().unwrap_or_default();
+    };
+    let line_start = u32::from(self.utf8_offsets[line]);
+    let col = u32::from(self.utf16_to_utf8_col(position.line, position.character));
+    std::cmp::min(TextSize::from(line_start.saturating_add(col)), line_end)
   }
 
   /// Returns a u16 position based on a u8 offset.
@@ -124,7 +142,13 @@ impl LineIndex {
     if let Some(utf16_chars) = self.utf16_lines.get(&line) {
       for c in utf16_chars {
         if col > u32::from(c.start) {
-          col += u32::from(c.len()) - c.len_utf16() as u32;
+          col = col.saturating_add(u32::from(c.len()) - c.len_utf16() as u32);
+          // a position in the middle of a character (between the two
+          // utf-16 code units of a surrogate pair) is the character's start
+          if col < u32::from(c.end) {
+            col = c.start.into();
+            break;
+          }
         } else {
           break;
         }
@@ -304,6 +328,72 @@ mod tests {
     assert_eq!(index.position_utf16(2.into()), lsp::Position { line: 1, character: 1 });
     assert_eq!(index.position_utf16(6.into()), lsp::Position { line: 1, character: 5 });
     assert_eq!(index.position_utf16(7.into()), lsp::Position { line: 2, character: 0 });
+  }
+
+  #[test]
+  fn test_offset_out_of_range() {
+    fn offset(index: &LineIndex, line: u32, character: u32) -> u32 {
+      index.offset(lsp::Position { line, character }).into()
+    }
+
+    let index = LineIndex::new("ab\ncd");
+    assert_eq!(offset(&index, 0, 2), 2);
+    // past the end of a line is the end of the line
+    assert_eq!(offset(&index, 0, 3), 2);
+    assert_eq!(offset(&index, 0, 100), 2);
+    assert_eq!(offset(&index, 0, u32::MAX), 2);
+    assert_eq!(offset(&index, 1, 100), 5);
+    // past the last line is the end of the text
+    assert_eq!(offset(&index, 2, 0), 5);
+    assert_eq!(offset(&index, 100, 100), 5);
+
+    // excludes the line ending
+    let index = LineIndex::new("ab\r\ncd\n");
+    assert_eq!(offset(&index, 0, 100), 2);
+    assert_eq!(offset(&index, 1, 100), 6);
+    assert_eq!(offset(&index, 2, 0), 7);
+    assert_eq!(offset(&index, 2, 100), 7);
+    assert_eq!(offset(&index, 3, 0), 7);
+
+    // empty text
+    let index = LineIndex::new("");
+    assert_eq!(offset(&index, 0, 0), 0);
+    assert_eq!(offset(&index, 0, 5), 0);
+    assert_eq!(offset(&index, 5, 5), 0);
+
+    // multi-byte characters
+    let index = LineIndex::new("a\u{1F995}b\n\u{e9}");
+    assert_eq!(offset(&index, 0, 1), 1);
+    // in the middle of the surrogate pair is the start of the character
+    assert_eq!(offset(&index, 0, 2), 1);
+    assert_eq!(offset(&index, 0, 3), 5);
+    assert_eq!(offset(&index, 0, 4), 6);
+    assert_eq!(offset(&index, 0, 100), 6);
+    assert_eq!(offset(&index, 1, 1), 9);
+    assert_eq!(offset(&index, 1, 100), 9);
+  }
+
+  #[test]
+  fn test_get_text_range_out_of_range() {
+    fn range(index: &LineIndex, start: (u32, u32), end: (u32, u32)) -> Result<(u32, u32)> {
+      let range = index.get_text_range(lsp::Range {
+        start: lsp::Position {
+          line: start.0,
+          character: start.1,
+        },
+        end: lsp::Position { line: end.0, character: end.1 },
+      })?;
+      Ok((range.start().into(), range.end().into()))
+    }
+
+    let index = LineIndex::new("ab\ncd");
+    // the start is past the end of its line, which was previously after the end
+    assert_eq!(range(&index, (0, 100), (1, 0)).unwrap(), (2, 3));
+    assert_eq!(range(&index, (0, 0), (0, 10)).unwrap(), (0, 2));
+    assert_eq!(range(&index, (0, 0), (100, 0)).unwrap(), (0, 5));
+    // start after the end
+    assert!(range(&index, (0, 2), (0, 1)).is_err());
+    assert!(range(&index, (1, 0), (0, 0)).is_err());
   }
 
   #[test]
