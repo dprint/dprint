@@ -293,17 +293,28 @@ pub async fn run_language_server<TEnvironment: Environment>(
     Server::new(stdin, stdout, socket, pending).serve(service).await;
   });
 
-  try_join!(recv_task, lsp_task)?;
+  let (shutdown_received, _) = try_join!(recv_task, lsp_task)?;
 
-  Ok(())
+  // the plugins are only shut down on a shutdown request, so ensure that's
+  // done before exiting when the client exited or disconnected without one
+  plugin_resolver.clear_and_shutdown_initialized().await;
+
+  // Exit the process instead of returning. The framework reads stdin on a
+  // blocking task that stays parked in a read while the client keeps the pipe
+  // open and dropping the tokio runtime waits for that task, so returning would
+  // keep the process alive until the client closes stdin.
+  std::process::exit(get_exit_code(shutdown_received))
 }
 
+/// Starts the task that handles the messages sent by the `Backend`, which
+/// resolves to whether it stopped because of a shutdown request rather than
+/// because the `Backend` was dropped.
 fn start_message_handler<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   config_override: Option<PathBuf>,
   mut rx: mpsc::UnboundedReceiver<ChannelMessage>,
-) -> JoinHandle<()> {
+) -> JoinHandle<bool> {
   // tower_lsp required Backend to implement Send and Sync, but
   // we use a single threaded runtime. So spawn some tasks and
   // communicate over a channel.
@@ -348,7 +359,7 @@ fn start_message_handler<TEnvironment: Environment>(
           pending_tokens.cancel_all();
           scope_container.shutdown().await;
           let _ = sender.send(());
-          break; // exit
+          return true; // exit
         }
         #[cfg(test)]
         ChannelMessage::HasPending(sender) => {
@@ -357,7 +368,14 @@ fn start_message_handler<TEnvironment: Environment>(
         }
       }
     }
+    false
   })
+}
+
+/// Gets the exit code the language server protocol specifies for the server,
+/// which is 0 when a shutdown request was received and 1 otherwise.
+fn get_exit_code(shutdown_received: bool) -> i32 {
+  if shutdown_received { 0 } else { 1 }
 }
 
 struct State<TEnvironment: Environment> {
@@ -2242,11 +2260,40 @@ mod test {
     })
   }
 
-  fn setup_backend(environment: TestEnvironment) -> (Backend<TestEnvironment>, JoinHandle<()>, Arc<TestClient>) {
+  #[test]
+  fn exit_code_for_shutdown_request() {
+    // the message handler says a shutdown request was received
+    let environment = TestEnvironmentBuilder::new().build();
+    let shutdown_received = environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, _test_client) = setup_backend(environment.clone());
+      backend.shutdown().await.unwrap();
+      // a second one after the message handler stopped should not hang
+      backend.shutdown().await.unwrap();
+      recv_task.await.unwrap()
+    });
+    assert!(shutdown_received);
+    assert_eq!(get_exit_code(shutdown_received), 0);
+
+    // and that one wasn't when the client exits or disconnects without one,
+    // which drops the backend
+    let environment = TestEnvironmentBuilder::new().build();
+    let shutdown_received = environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, _test_client) = setup_backend(environment.clone());
+      drop(backend);
+      recv_task.await.unwrap()
+    });
+    assert!(!shutdown_received);
+    assert_eq!(get_exit_code(shutdown_received), 1);
+  }
+
+  fn setup_backend(environment: TestEnvironment) -> (Backend<TestEnvironment>, JoinHandle<bool>, Arc<TestClient>) {
     setup_backend_with_config(environment, None)
   }
 
-  fn setup_backend_with_config(environment: TestEnvironment, config_override: Option<PathBuf>) -> (Backend<TestEnvironment>, JoinHandle<()>, Arc<TestClient>) {
+  fn setup_backend_with_config(
+    environment: TestEnvironment,
+    config_override: Option<PathBuf>,
+  ) -> (Backend<TestEnvironment>, JoinHandle<bool>, Arc<TestClient>) {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
     let (tx, rx) = mpsc::unbounded_channel();
