@@ -62,14 +62,14 @@ impl<TEnvironment: Environment> ConfigCompletions<TEnvironment> {
 
   pub async fn completions(&self, file_path: &Path, file_text: &str, position: lsp::Position) -> Option<Vec<lsp::CompletionItem>> {
     let line_index = LineIndex::new(file_text);
-    let offset: usize = u32::from(line_index.offset(position).ok()?) as usize;
+    let offset: usize = u32::from(line_index.offset(position)) as usize;
     let schema = self.build_composite_schema(file_path).await;
     Some(completions_for(&schema, file_text, &line_index, offset))
   }
 
   pub async fn hover(&self, file_path: &Path, file_text: &str, position: lsp::Position) -> Option<lsp::Hover> {
     let line_index = LineIndex::new(file_text);
-    let offset: usize = u32::from(line_index.offset(position).ok()?) as usize;
+    let offset: usize = u32::from(line_index.offset(position)) as usize;
     let schema = self.build_composite_schema(file_path).await;
     hover_for(&schema, file_text, &line_index, offset)
   }
