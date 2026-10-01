@@ -82,7 +82,13 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
     };
 
     let line_index = entry.line_index.get_or_insert_with(|| LineIndex::new(&entry.text));
-    let range = line_index.get_text_range(lsp_range).ok()?;
+    let range = match line_index.get_text_range(lsp_range) {
+      Ok(range) => range,
+      Err(err) => {
+        log_warn!(self.environment, "Invalid range for '{}'. {:#}", uri.as_str(), err);
+        return None;
+      }
+    };
     Some((entry.text.clone(), Some(range.start().into()..range.end().into()), line_index.clone()))
   }
 
