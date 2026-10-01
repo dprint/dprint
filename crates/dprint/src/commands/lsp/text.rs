@@ -126,7 +126,7 @@ impl LineIndex {
     std::cmp::min(TextSize::from(line_start.saturating_add(col)), line_end)
   }
 
-  /// Returns a u16 position based on a u8 offset.
+  /// Returns a u16 position based on a u16 offset.
   pub fn position_utf16(&self, offset: TextSize) -> lsp::Position {
     let line = partition_point(&self.utf16_offsets, |&it| it <= offset) - 1;
     let line_start_offset = self.utf16_offsets[line];
@@ -135,6 +135,19 @@ impl LineIndex {
     lsp::Position {
       line: line as u32,
       character: col.into(),
+    }
+  }
+
+  /// Returns a u16 position based on a u8 offset.
+  ///
+  /// An offset in the middle of a character is the character's start.
+  pub fn position_utf16_from_utf8_offset(&self, offset: TextSize) -> lsp::Position {
+    let line = partition_point(&self.utf8_offsets, |&it| it <= offset) - 1;
+    let col = offset - self.utf8_offsets[line];
+
+    lsp::Position {
+      line: line as u32,
+      character: self.utf8_to_utf16_col(line as u32, col),
     }
   }
 
@@ -163,6 +176,23 @@ impl LineIndex {
     }
 
     col.into()
+  }
+
+  fn utf8_to_utf16_col(&self, line: u32, col: TextSize) -> u32 {
+    let mut utf16_col = u32::from(col);
+    if let Some(utf16_chars) = self.utf16_lines.get(&line) {
+      for c in utf16_chars {
+        if col >= c.end {
+          utf16_col -= u32::from(c.len()) - c.len_utf16() as u32;
+        } else {
+          if col > c.start {
+            utf16_col -= u32::from(col - c.start);
+          }
+          break;
+        }
+      }
+    }
+    utf16_col
   }
 }
 
@@ -275,7 +305,7 @@ fn replace_whole_file(old_text: &str, new_text: &str, line_index: &LineIndex) ->
   TextEdit {
     range: lsp::Range {
       start: lsp::Position::new(0, 0),
-      end: line_index.position_utf16(TextSize::from(old_text.len() as u32)),
+      end: line_index.position_utf16_from_utf8_offset(TextSize::of(old_text)),
     },
     new_text: new_text.to_string(),
   }
@@ -335,6 +365,49 @@ mod tests {
     assert_eq!(index.position_utf16(2.into()), lsp::Position { line: 1, character: 1 });
     assert_eq!(index.position_utf16(6.into()), lsp::Position { line: 1, character: 5 });
     assert_eq!(index.position_utf16(7.into()), lsp::Position { line: 2, character: 0 });
+  }
+
+  #[test]
+  fn test_position_utf16_from_utf8_offset() {
+    fn position(index: &LineIndex, offset: u32) -> (u32, u32) {
+      let position = index.position_utf16_from_utf8_offset(offset.into());
+      (position.line, position.character)
+    }
+
+    let index = LineIndex::new("hello\nworld");
+    assert_eq!(position(&index, 0), (0, 0));
+    assert_eq!(position(&index, 5), (0, 5));
+    assert_eq!(position(&index, 6), (1, 0));
+    assert_eq!(position(&index, 11), (1, 5));
+
+    // é is two utf-8 bytes and one utf-16 code unit, 🦕 is four and two
+    let index = LineIndex::new("a\u{e9}b\u{1F995}c\r\n\u{1F995}\u{e9}\n");
+    assert_eq!(position(&index, 0), (0, 0));
+    assert_eq!(position(&index, 1), (0, 1));
+    assert_eq!(position(&index, 3), (0, 2));
+    assert_eq!(position(&index, 4), (0, 3));
+    assert_eq!(position(&index, 8), (0, 5));
+    assert_eq!(position(&index, 9), (0, 6));
+    assert_eq!(position(&index, 10), (0, 7));
+    assert_eq!(position(&index, 11), (1, 0));
+    assert_eq!(position(&index, 15), (1, 2));
+    assert_eq!(position(&index, 17), (1, 3));
+    assert_eq!(position(&index, 18), (2, 0));
+    // in the middle of a character is the start of the character
+    assert_eq!(position(&index, 2), (0, 1));
+    assert_eq!(position(&index, 5), (0, 3));
+    assert_eq!(position(&index, 7), (0, 3));
+    assert_eq!(position(&index, 13), (1, 0));
+
+    // round trips with the conversion in the other direction
+    let text = "a\u{e9}b\u{1F995}c\n\u{1F995}\u{e9}\n\u{30e1} \u{30e1}";
+    let index = LineIndex::new(text);
+    for (offset, _) in text.char_indices().chain([(text.len(), ' ')]) {
+      let offset = TextSize::from(offset as u32);
+      assert_eq!(index.offset(index.position_utf16_from_utf8_offset(offset)), offset);
+    }
+
+    assert_eq!(position(&LineIndex::new(""), 0), (0, 0));
   }
 
   #[test]
@@ -541,6 +614,24 @@ const C: char = \"メ メ\";
         },
       ]
     );
+  }
+
+  #[test]
+  fn test_replace_whole_file_non_ascii() {
+    fn end(old_text: &str) -> lsp::Position {
+      let edit = replace_whole_file(old_text, "new", &LineIndex::new(old_text));
+      assert_eq!(edit.range.start, lsp::Position { line: 0, character: 0 });
+      assert_eq!(edit.new_text, "new");
+      edit.range.end
+    }
+
+    assert_eq!(end("ab\ncd"), lsp::Position { line: 1, character: 2 });
+    assert_eq!(end("ab\ncd\n"), lsp::Position { line: 2, character: 0 });
+    // é is two utf-8 bytes and one utf-16 code unit, 🦕 is four and two
+    assert_eq!(end("\u{e9}\nab"), lsp::Position { line: 1, character: 2 });
+    assert_eq!(end("a\u{e9}\u{1F995}"), lsp::Position { line: 0, character: 4 });
+    assert_eq!(end("\u{e9}\u{e9}\u{e9}\n"), lsp::Position { line: 1, character: 0 });
+    assert_eq!(end("\u{1F995}\r\n\u{e9}b\u{1F995}"), lsp::Position { line: 1, character: 4 });
   }
 
   #[test]
