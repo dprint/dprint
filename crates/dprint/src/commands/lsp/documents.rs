@@ -115,7 +115,10 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
     let mut index_valid = IndexValid::All;
     for change in params.content_changes {
       if let Some(range) = change.range {
-        if !index_valid.covers(range.start.line) {
+        // the index is only valid for the lines above the previous changes,
+        // so check the end line because a range that starts above them may
+        // end at or below them
+        if !index_valid.covers(range.end.line) {
           line_index = LineIndex::new(&content);
         }
         index_valid = IndexValid::UpTo(range.start.line);
@@ -163,5 +166,148 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
         notebook_uri,
       },
     );
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use std::str::FromStr;
+
+  use deno_tower_lsp::lsp_types::Position;
+  use deno_tower_lsp::lsp_types::TextDocumentContentChangeEvent;
+  use deno_tower_lsp::lsp_types::VersionedTextDocumentIdentifier;
+
+  use crate::environment::TestEnvironment;
+
+  use super::*;
+
+  #[test]
+  fn ranged_changes_in_one_notification_moving_down() {
+    // the second change is below the first one, so the offsets of its lines
+    // moved because of the first change
+    assert_eq!(
+      apply_changes("a\nb\nc\n", vec![ranged((0, 0), (0, 1), "aaaa\naa"), ranged((3, 0), (3, 1), "C")]),
+      "aaaa\naa\nb\nC\n"
+    );
+    // on the same line as the first change
+    assert_eq!(
+      apply_changes("a\nb\nc\n", vec![ranged((1, 0), (1, 1), "bbbb"), ranged((1, 3), (1, 4), "X")]),
+      "a\nbbbX\nc\n"
+    );
+  }
+
+  #[test]
+  fn ranged_changes_in_one_notification_moving_up() {
+    // entirely above the first change
+    assert_eq!(
+      apply_changes("a\nb\nc\n", vec![ranged((2, 0), (2, 1), "cccc"), ranged((0, 0), (0, 1), "A")]),
+      "A\nb\ncccc\n"
+    );
+    // starts above the first change and ends on its line
+    assert_eq!(
+      apply_changes("a\nb\nc\n", vec![ranged((1, 0), (1, 1), "bbbb"), ranged((0, 0), (1, 4), "X")]),
+      "X\nc\n"
+    );
+    // starts above the first change and ends below it
+    assert_eq!(
+      apply_changes("a\nb\nc\n", vec![ranged((1, 0), (1, 1), "bbbb"), ranged((0, 0), (2, 1), "X")]),
+      "X\n"
+    );
+    assert_eq!(
+      apply_changes(
+        "a\nb\nc\nd\n",
+        vec![ranged((2, 0), (2, 1), "c\nc\nc"), ranged((1, 0), (1, 1), "bbbb"), ranged((0, 1), (5, 1), "X")]
+      ),
+      "aX\n"
+    );
+  }
+
+  #[test]
+  fn ranged_change_after_surrogate_pair() {
+    // the columns are in utf-16 code units and the emoji is two of them
+    assert_eq!(apply_changes("a😀b\nc\n", vec![ranged((0, 3), (0, 4), "X")]), "a😀X\nc\n");
+    assert_eq!(
+      apply_changes("ab\nc\n", vec![ranged((0, 1), (0, 1), "😀"), ranged((0, 3), (0, 4), "X")]),
+      "a😀X\nc\n"
+    );
+    // a change above one that added a surrogate pair
+    assert_eq!(
+      apply_changes("a\nb\nc\n", vec![ranged((1, 0), (1, 0), "😀"), ranged((0, 0), (1, 3), "X")]),
+      "X\nc\n"
+    );
+  }
+
+  #[test]
+  fn full_text_change_mixed_with_ranged_changes() {
+    assert_eq!(
+      apply_changes(
+        "a\nb\nc\n",
+        vec![
+          ranged((2, 0), (2, 1), "cccc"),
+          full("one\ntwo\nthree\nfour\n"),
+          ranged((3, 0), (3, 4), "4"),
+          ranged((0, 0), (1, 3), "1\n2"),
+        ]
+      ),
+      "1\n2\nthree\n4\n"
+    );
+    assert_eq!(apply_changes("a\nb\nc\n", vec![ranged((0, 0), (0, 1), "A"), full("one\ntwo\n")]), "one\ntwo\n");
+  }
+
+  #[test]
+  fn ranged_changes_with_cached_line_index() {
+    let (mut documents, uri) = open_document("a\nb\nc\n");
+    // this caches the line index in the document
+    let range = lsp_types::Range::new(Position::new(1, 0), Position::new(1, 1));
+    let (_, format_range, _) = documents.get_content_with_range(&uri, range).unwrap();
+    assert_eq!(format_range, Some(2..3));
+    change(&mut documents, &uri, vec![ranged((1, 0), (1, 1), "bbbb"), ranged((0, 0), (2, 1), "X")]);
+    assert_eq!(documents.get_content(&uri).unwrap().0, "X\n");
+    // the line index is for the new text
+    let range = lsp_types::Range::new(Position::new(0, 1), Position::new(1, 0));
+    let (text, format_range, _) = documents.get_content_with_range(&uri, range).unwrap();
+    assert_eq!(text, "X\n");
+    assert_eq!(format_range, Some(1..2));
+  }
+
+  fn apply_changes(text: &str, changes: Vec<TextDocumentContentChangeEvent>) -> String {
+    let (mut documents, uri) = open_document(text);
+    change(&mut documents, &uri, changes);
+    documents.get_content(&uri).unwrap().0
+  }
+
+  fn open_document(text: &str) -> (Documents<TestEnvironment>, Uri) {
+    let uri = Uri::from_str("file:///file.txt").unwrap();
+    let mut documents = Documents::new(TestEnvironment::new());
+    documents.open(TextDocumentItem {
+      uri: uri.clone(),
+      language_id: "txt".to_string(),
+      version: 0,
+      text: text.to_string(),
+    });
+    (documents, uri)
+  }
+
+  fn change(documents: &mut Documents<TestEnvironment>, uri: &Uri, content_changes: Vec<TextDocumentContentChangeEvent>) {
+    documents.changed(DidChangeTextDocumentParams {
+      text_document: VersionedTextDocumentIdentifier { uri: uri.clone(), version: 1 },
+      content_changes,
+    });
+  }
+
+  fn ranged(start: (u32, u32), end: (u32, u32), text: &str) -> TextDocumentContentChangeEvent {
+    TextDocumentContentChangeEvent {
+      range: Some(lsp_types::Range::new(Position::new(start.0, start.1), Position::new(end.0, end.1))),
+      range_length: None,
+      text: text.to_string(),
+    }
+  }
+
+  fn full(text: &str) -> TextDocumentContentChangeEvent {
+    TextDocumentContentChangeEvent {
+      range: None,
+      range_length: None,
+      text: text.to_string(),
+    }
   }
 }
