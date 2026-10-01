@@ -79,7 +79,7 @@ impl<TEnvironment: Environment> ConfigCompletions<TEnvironment> {
     if let Some(parent) = file_path.parent() {
       // a parse error while the user is mid-edit just means we fall back to
       // base-schema-only completions, so ignore any resolution error here
-      if let Ok(Some(scope)) = self.scope_container.resolve_by_path(parent, false).await {
+      if let Ok(Some(scope)) = self.scope_container.resolve_by_path(parent).await {
         for plugin in scope.plugins.values() {
           let info = plugin.info();
           let schema = self.fetch_schema(&info.config_schema_url).await;
