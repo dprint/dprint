@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -17,6 +18,7 @@ use deno_tower_lsp::lsp_types::CompletionParams;
 use deno_tower_lsp::lsp_types::CompletionResponse;
 use deno_tower_lsp::lsp_types::DidChangeNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidChangeTextDocumentParams;
+use deno_tower_lsp::lsp_types::DidChangeWatchedFilesParams;
 use deno_tower_lsp::lsp_types::DidChangeWorkspaceFoldersParams;
 use deno_tower_lsp::lsp_types::DidCloseNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidCloseTextDocumentParams;
@@ -62,10 +64,13 @@ use crate::format::EnsureStableFormat;
 use crate::plugins::PluginResolver;
 
 use self::client::ClientWrapper;
+use self::config::ConfigDir;
 use self::config::LspPluginsScopeContainer;
 use self::config_completion::ConfigCompletions;
 use self::config_completion::is_config_uri;
 use self::documents::Documents;
+use self::format_scope::FormatScope;
+use self::format_scope::get_config_file_watcher_registration;
 use self::notebook::get_notebook_cell_file_path;
 use self::notebook::get_notebook_cell_format_registrations;
 use self::notebook::get_notebook_document_sync_options;
@@ -81,6 +86,7 @@ mod client;
 mod config;
 mod config_completion;
 mod documents;
+mod format_scope;
 mod language;
 mod notebook;
 mod text;
@@ -187,6 +193,8 @@ enum ChannelMessage {
   Format(EditorFormatRequest, oneshot::Sender<Result<Option<Vec<TextEdit>>>>),
   Completion(ConfigEditorRequest, oneshot::Sender<Option<Vec<CompletionItem>>>),
   Hover(ConfigEditorRequest, oneshot::Sender<Option<Hover>>),
+  /// Resolves the directory of the config file used for the files in the provided directory.
+  ConfigDir(PathBuf, oneshot::Sender<Option<ConfigDir>>),
   Shutdown(oneshot::Sender<()>),
   /// This message is used for testing.
   #[cfg(test)]
@@ -344,6 +352,13 @@ fn start_message_handler<TEnvironment: Environment>(
             let _ = sender.send(result);
           });
         }
+        ChannelMessage::ConfigDir(dir_path, sender) => {
+          let config_dir = scope_container.resolve_config_dir(&dir_path).unwrap_or_else(|err| {
+            log_warn!(environment, "Failed resolving config file for '{}': {:#}", dir_path.display(), err);
+            None
+          });
+          let _ = sender.send(config_dir);
+        }
         ChannelMessage::Shutdown(sender) => {
           pending_tokens.cancel_all();
           scope_container.shutdown().await;
@@ -366,6 +381,8 @@ struct State<TEnvironment: Environment> {
   pending_registrations: Vec<Registration>,
   /// The paths of the client's workspace folders on the file system.
   workspace_folders: Vec<PathBuf>,
+  /// The directories formatting is registered for when the client opted into that.
+  format_scope: Option<FormatScope>,
 }
 
 struct Backend<TEnvironment: Environment> {
@@ -373,6 +390,8 @@ struct Backend<TEnvironment: Environment> {
   environment: TEnvironment,
   sender: mpsc::UnboundedSender<ChannelMessage>,
   state: Mutex<State<TEnvironment>>,
+  /// Held while updating the format scope so the updates don't interleave.
+  format_scope_lock: tokio::sync::Mutex<()>,
 }
 
 impl<TEnvironment: Environment> Backend<TEnvironment> {
@@ -385,7 +404,72 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
         documents: Documents::new(environment),
         pending_registrations: Vec::new(),
         workspace_folders: Vec::new(),
+        format_scope: None,
       }),
+      format_scope_lock: Default::default(),
+    }
+  }
+
+  /// Registers formatting for the directory of the config file that's used to
+  /// format the document when the client opted into scoping the formatting.
+  async fn add_document_to_format_scope(&self, uri: &Uri) {
+    if self.state.lock().format_scope.is_none() {
+      return;
+    }
+    let _guard = self.format_scope_lock.lock().await;
+    let Some(dir) = self.resolve_format_scope_dir(uri).await else {
+      return;
+    };
+    let registrations = match self.state.lock().format_scope.as_mut() {
+      Some(format_scope) => format_scope.add_dir(dir),
+      None => return,
+    };
+    if !registrations.is_empty() {
+      self.client.register_capabilities(registrations);
+    }
+  }
+
+  /// Updates the directories formatting is registered for based on the open
+  /// documents, which is necessary when what config file is used for them
+  /// may have changed (ex. a config file was created or deleted).
+  async fn refresh_format_scope(&self) {
+    if self.state.lock().format_scope.is_none() {
+      return;
+    }
+    let _guard = self.format_scope_lock.lock().await;
+    let uris = self.state.lock().documents.uris();
+    let mut dirs = HashSet::new();
+    for uri in uris {
+      if let Some(dir) = self.resolve_format_scope_dir(&uri).await {
+        dirs.insert(dir);
+      }
+    }
+    let (unregistrations, registrations) = match self.state.lock().format_scope.as_mut() {
+      Some(format_scope) => format_scope.set_dirs(dirs),
+      None => return,
+    };
+    if !unregistrations.is_empty() {
+      self.client.unregister_capabilities(unregistrations);
+    }
+    if !registrations.is_empty() {
+      self.client.register_capabilities(registrations);
+    }
+  }
+
+  /// Gets the directory to register formatting for in order to format the document.
+  async fn resolve_format_scope_dir(&self, uri: &Uri) -> Option<PathBuf> {
+    let file_path = uri_to_file_path(uri)?;
+    let dir_path = file_path.parent()?.to_path_buf();
+    let (sender, receiver) = oneshot::channel();
+    self.sender.send(ChannelMessage::ConfigDir(dir_path.clone(), sender)).ok()?;
+    match receiver.await.ok()?? {
+      ConfigDir::Dir(dir) => Some(dir),
+      // the config file is for any file, so use the workspace folder the file is in
+      ConfigDir::Any => {
+        let state = self.state.lock();
+        let workspace_folder = state.workspace_folders.iter().find(|folder| file_path.starts_with(folder));
+        Some(workspace_folder.cloned().unwrap_or(dir_path))
+      }
     }
   }
 
@@ -481,7 +565,13 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       state.pending_registrations = get_notebook_cell_format_registrations(&params.capabilities);
       state.pending_registrations.extend(get_untitled_registrations(&params.capabilities));
       state.workspace_folders = get_workspace_folder_paths(params.workspace_folders.as_deref().unwrap_or_default());
+      state.format_scope = FormatScope::from_initialize_params(&params);
+      if state.format_scope.is_some() {
+        state.pending_registrations.extend(get_config_file_watcher_registration(&params.capabilities));
+      }
     }
+    // the server registers formatting for certain directories when scoping the formatting
+    let is_formatting_provider = self.state.lock().format_scope.is_none();
 
     Ok(InitializeResult {
       server_info: Some(ServerInfo {
@@ -498,8 +588,8 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           will_save_wait_until: None,
         })),
         notebook_document_sync: Some(OneOf::Left(get_notebook_document_sync_options())),
-        document_formatting_provider: Some(OneOf::Left(true)),
-        document_range_formatting_provider: Some(OneOf::Left(true)),
+        document_formatting_provider: is_formatting_provider.then_some(OneOf::Left(true)),
+        document_range_formatting_provider: is_formatting_provider.then_some(OneOf::Left(true)),
         completion_provider: Some(CompletionOptions {
           // `"` opens a property/value string, `:` moves to a value position
           trigger_characters: Some(vec!["\"".to_string(), ":".to_string()]),
@@ -535,13 +625,23 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
     let removed = get_workspace_folder_paths(&params.event.removed);
     let added = get_workspace_folder_paths(&params.event.added);
-    let mut state = self.state.lock();
-    state.workspace_folders.retain(|folder| !removed.contains(folder));
-    state.workspace_folders.extend(added);
+    {
+      let mut state = self.state.lock();
+      state.workspace_folders.retain(|folder| !removed.contains(folder));
+      state.workspace_folders.extend(added);
+    }
+    self.refresh_format_scope().await;
+  }
+
+  async fn did_change_watched_files(&self, _: DidChangeWatchedFilesParams) {
+    // only config files are watched
+    self.refresh_format_scope().await;
   }
 
   async fn did_open(&self, params: DidOpenTextDocumentParams) {
+    let uri = params.text_document.uri.clone();
     self.state.lock().documents.open(params.text_document);
+    self.add_document_to_format_scope(&uri).await;
   }
 
   async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -754,6 +854,7 @@ mod test {
   use deno_tower_lsp::lsp_types::TextDocumentContentChangeEvent;
   use deno_tower_lsp::lsp_types::TextDocumentIdentifier;
   use deno_tower_lsp::lsp_types::TextDocumentItem;
+  use deno_tower_lsp::lsp_types::Unregistration;
   use deno_tower_lsp::lsp_types::VersionedNotebookDocumentIdentifier;
   use deno_tower_lsp::lsp_types::VersionedTextDocumentIdentifier;
   use deno_tower_lsp::lsp_types::WorkspaceFoldersChangeEvent;
@@ -1918,6 +2019,208 @@ mod test {
   }
 
   #[test]
+  fn should_scope_formatting_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .with_local_config("/sub/project/dprint.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let environment = environment.clone();
+        let test_client = test_client.clone();
+        async move {
+          fn get_patterns(registrations: Vec<Registration>) -> Vec<(String, String)> {
+            registrations
+              .into_iter()
+              .map(|r| {
+                let options = r.register_options.unwrap();
+                let pattern = options["documentSelector"][0]["pattern"].as_str().unwrap().to_string();
+                (r.method, pattern)
+              })
+              .collect()
+          }
+
+          let result = backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              initialization_options: Some(serde_json::json!({ "scopedFormatting": true })),
+              capabilities: serde_json::from_value(serde_json::json!({
+                "textDocument": {
+                  "formatting": { "dynamicRegistration": true },
+                  "rangeFormatting": { "dynamicRegistration": true },
+                },
+                "workspace": {
+                  "didChangeWatchedFiles": { "dynamicRegistration": true },
+                },
+              }))
+              .unwrap(),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          // formatting is registered for the directories with a config file instead
+          assert!(result.capabilities.document_formatting_provider.is_none());
+          assert!(result.capabilities.document_range_formatting_provider.is_none());
+          backend.initialized(InitializedParams {}).await;
+          // the client tells the server when a config file changes
+          assert_eq!(test_client.take_registered_methods(), vec!["workspace/didChangeWatchedFiles"]);
+
+          // registers formatting for the directory of the document's config file
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
+          did_open!(backend, file_uri, "testing");
+          assert_eq!(
+            get_patterns(test_client.take_registrations()),
+            vec![
+              ("textDocument/formatting".to_string(), "/**/*".to_string()),
+              ("textDocument/rangeFormatting".to_string(), "/**/*".to_string()),
+            ]
+          );
+          let sub_file_uri = Uri::from_str("file:///sub/project/dir/file.txt").unwrap();
+          did_open!(backend, sub_file_uri, "testing");
+          assert_eq!(
+            get_patterns(test_client.take_registrations()),
+            vec![
+              ("textDocument/formatting".to_string(), "/sub/project/**/*".to_string()),
+              ("textDocument/rangeFormatting".to_string(), "/sub/project/**/*".to_string()),
+            ]
+          );
+
+          // already registered
+          let other_file_uri = Uri::from_str("file:///sub/project/other.txt").unwrap();
+          did_open!(backend, other_file_uri, "testing");
+          assert_eq!(test_client.take_registrations(), Vec::new());
+
+          // unregisters a directory after its config file is deleted
+          environment.remove_file("/sub/project/dprint.json").unwrap();
+          backend.did_change_watched_files(DidChangeWatchedFilesParams { changes: Vec::new() }).await;
+          assert_eq!(
+            test_client.take_unregistration_ids(),
+            vec![
+              "dprint-format-scope-1-textDocument/formatting",
+              "dprint-format-scope-1-textDocument/rangeFormatting",
+            ]
+          );
+          assert_eq!(test_client.take_registrations(), Vec::new());
+
+          // still formats
+          assert_format!(
+            backend,
+            sub_file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+              new_text: "_formatted".to_string()
+            }])
+          );
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
+  #[test]
+  fn should_not_scope_formatting_to_global_config_with_lsp_when_opted_out() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt");
+      })
+      .initialize()
+      .build();
+    environment.set_env_var("DPRINT_EDITOR_USE_GLOBAL_CONFIG", Some("false"));
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let test_client = test_client.clone();
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              initialization_options: Some(serde_json::json!({ "scopedFormatting": true })),
+              capabilities: serde_json::from_value(serde_json::json!({
+                "textDocument": {
+                  "formatting": { "dynamicRegistration": true },
+                  "rangeFormatting": { "dynamicRegistration": true },
+                },
+              }))
+              .unwrap(),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          // doesn't register formatting because the document isn't formatted by default
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
+          did_open!(backend, file_uri, "testing");
+          assert_eq!(test_client.take_registrations(), Vec::new());
+
+          // but still formats using the global config when the client asks to
+          let result = backend
+            .formatting(
+              DocumentFormattingParams {
+                text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                options: FormattingOptions {
+                  properties: HashMap::from([("useGlobalConfig".to_string(), FormattingProperty::Bool(true))]),
+                  ..Default::default()
+                },
+                work_done_progress_params: Default::default(),
+              },
+              CancellationToken::new(),
+            )
+            .await;
+          assert_eq!(
+            result.unwrap(),
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+              new_text: "_formatted".to_string(),
+            }])
+          );
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
+  #[test]
   fn should_ensure_stable_format_with_lsp() {
     // formats once by default
     let (edits, stderr_messages) = format_unstable_text_with_lsp(None);
@@ -2020,6 +2323,7 @@ mod test {
   struct TestClient {
     logged_messages: Mutex<Vec<(MessageType, String)>>,
     registrations: Mutex<Vec<Registration>>,
+    unregistrations: Mutex<Vec<Unregistration>>,
   }
 
   impl Drop for TestClient {
@@ -2041,6 +2345,14 @@ mod test {
       self.logged_messages.lock().drain(..).collect()
     }
 
+    pub fn take_registrations(&self) -> Vec<Registration> {
+      self.registrations.lock().drain(..).collect()
+    }
+
+    pub fn take_unregistration_ids(&self) -> Vec<String> {
+      self.unregistrations.lock().drain(..).map(|r| r.id).collect()
+    }
+
     pub fn take_registered_methods(&self) -> Vec<String> {
       self.registrations.lock().drain(..).map(|r| r.method).collect()
     }
@@ -2053,6 +2365,10 @@ mod test {
 
     fn register_capabilities(&self, registrations: Vec<Registration>) {
       self.registrations.lock().extend(registrations);
+    }
+
+    fn unregister_capabilities(&self, unregistrations: Vec<Unregistration>) {
+      self.unregistrations.lock().extend(unregistrations);
     }
   }
 }

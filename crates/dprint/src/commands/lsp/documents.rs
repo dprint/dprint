@@ -56,6 +56,10 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
     self.open_inner(text_document_item, Some(notebook_uri.clone()));
   }
 
+  pub fn uris(&self) -> Vec<Uri> {
+    self.docs.keys().cloned().collect()
+  }
+
   pub fn get_content(&self, uri: &Uri) -> Option<(String, Option<LineIndex>)> {
     let Some(entry) = self.docs.get(uri) else {
       log_warn!(self.environment, "Missing document: {}", uri.as_str());

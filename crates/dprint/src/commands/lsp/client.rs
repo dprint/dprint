@@ -3,10 +3,12 @@ use std::sync::Arc;
 use deno_tower_lsp::Client;
 use deno_tower_lsp::lsp_types::MessageType;
 use deno_tower_lsp::lsp_types::Registration;
+use deno_tower_lsp::lsp_types::Unregistration;
 
 pub trait ClientTrait: std::fmt::Debug + Send + Sync {
   fn log(&self, message_type: MessageType, message: String);
   fn register_capabilities(&self, registrations: Vec<Registration>);
+  fn unregister_capabilities(&self, unregistrations: Vec<Unregistration>);
 }
 
 impl ClientTrait for Client {
@@ -27,6 +29,17 @@ impl ClientTrait for Client {
       }
     });
   }
+
+  fn unregister_capabilities(&self, unregistrations: Vec<Unregistration>) {
+    let client = self.clone();
+    dprint_core::async_runtime::spawn(async move {
+      if let Err(err) = client.unregister_capability(unregistrations).await {
+        client
+          .log_message(MessageType::WARNING, format!("Failed unregistering capabilities: {:#}", err))
+          .await;
+      }
+    });
+  }
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +56,10 @@ impl ClientWrapper {
 
   pub fn register_capabilities(&self, registrations: Vec<Registration>) {
     self.0.register_capabilities(registrations)
+  }
+
+  pub fn unregister_capabilities(&self, unregistrations: Vec<Unregistration>) {
+    self.0.unregister_capabilities(unregistrations)
   }
 
   fn log(&self, message_type: MessageType, message: String) {
