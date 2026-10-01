@@ -59,7 +59,6 @@ use tokio::try_join;
 use url::Url;
 
 use crate::arg_parser::CliArgs;
-use crate::arg_parser::ConfigDiscovery;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::plugins::PluginResolver;
@@ -285,8 +284,7 @@ pub async fn run_language_server<TEnvironment: Environment>(
   let stdout = tokio::io::stdout();
   let (tx, rx) = mpsc::unbounded_channel();
 
-  let config_path = args.config.as_ref().map(|config| environment.cwd().join(config));
-  let recv_task = start_message_handler(environment, plugin_resolver, config_path, args.config_discovery(environment), rx);
+  let recv_task = start_message_handler(args, environment, plugin_resolver, rx);
 
   let environment = environment.clone();
   let lsp_task = dprint_core::async_runtime::spawn(async move {
@@ -314,10 +312,9 @@ pub async fn run_language_server<TEnvironment: Environment>(
 /// resolves to whether it stopped because of a shutdown request rather than
 /// because the `Backend` was dropped.
 fn start_message_handler<TEnvironment: Environment>(
+  args: &CliArgs,
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
-  config_override: Option<PathBuf>,
-  config_discovery: ConfigDiscovery,
   mut rx: mpsc::UnboundedReceiver<ChannelMessage>,
 ) -> JoinHandle<bool> {
   // tower_lsp required Backend to implement Send and Sync, but
@@ -331,8 +328,8 @@ fn start_message_handler<TEnvironment: Environment>(
   let scope_container = Rc::new(LspPluginsScopeContainer::new(
     environment.clone(),
     plugin_resolver.clone(),
-    config_override,
-    config_discovery,
+    args.config.as_ref().map(|config| environment.cwd().join(config)),
+    args.config_discovery(&environment),
   ));
   let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
   dprint_core::async_runtime::spawn(async move {
@@ -838,15 +835,18 @@ mod test {
   use deno_tower_lsp::lsp_types::TextDocumentContentChangeEvent;
   use deno_tower_lsp::lsp_types::TextDocumentIdentifier;
   use deno_tower_lsp::lsp_types::TextDocumentItem;
+  use deno_tower_lsp::lsp_types::TextDocumentPositionParams;
   use deno_tower_lsp::lsp_types::VersionedNotebookDocumentIdentifier;
   use deno_tower_lsp::lsp_types::VersionedTextDocumentIdentifier;
   use deno_tower_lsp::lsp_types::WorkspaceFoldersChangeEvent;
   use dprint_core::async_runtime::future;
 
+  use crate::arg_parser::parse_args;
   use crate::environment::TestConfigFileBuilder;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
   use crate::plugins::PluginCache;
+  use crate::utils::TestStdInReader;
 
   use super::client::ClientTrait;
   use super::*;
@@ -2088,8 +2088,12 @@ mod test {
         &[
           ("/project/file.txt", false, Some("_local")),
           ("/project/sub/file.txt", false, Some("_nested")),
+          // inherits from the config file in the ancestor directory
+          ("/project/inherits/file.txt", false, Some("_local")),
           // falls back to the global config
           ("/other/file.txt", false, Some("_global")),
+          // inherits from the global config
+          ("/inherits/file.txt", false, Some("_global")),
         ],
       );
     }
@@ -2103,16 +2107,18 @@ mod test {
         ("/project/file.txt", false, Some("_local")),
         ("/other/file.txt", false, None),
         ("/other/file.txt", true, Some("_global")),
+        // only inherits from the global config when it's being used
+        ("/inherits/file.txt", false, Some("_formatted")),
+        ("/inherits/file.txt", true, Some("_global")),
       ],
     );
   }
 
   #[test]
-  fn should_not_use_global_config_with_lsp_when_config_discovery_ignores_descendants() {
-    // the same as what the cli does for a file path provided to it, which is
-    // to use the config file in the closest ancestor directory, but to not
-    // fall back to the global config file
+  fn should_ignore_descendant_configs_with_lsp_when_config_discovery_ignores_descendants() {
     for editor_use_global_config in [None, Some("false")] {
+      // the same as what the cli does when it's run in the cwd, which is to use the
+      // config file found from the cwd for every file in that config file's directory
       run_config_discovery_test(
         ConfigDiscoveryTest {
           config_discovery: "ignore-descendants",
@@ -2121,9 +2127,46 @@ mod test {
         },
         &[
           ("/project/file.txt", false, Some("_local")),
-          ("/project/sub/file.txt", false, Some("_nested")),
+          ("/project/sub/file.txt", false, Some("_local")),
+          ("/project/inherits/file.txt", false, Some("_local")),
+          // a file outside of that directory uses the config file in its closest
+          // ancestor directory, which doesn't inherit from another config file
+          ("/inherits/file.txt", false, Some("_formatted")),
+          ("/inherits/file.txt", true, Some("_formatted")),
+          // and there's no falling back to the global config file
           ("/other/file.txt", false, None),
           // the client can't opt into it either
+          ("/other/file.txt", true, None),
+        ],
+      );
+      // the config file found from the cwd is the one in the sub directory
+      run_config_discovery_test(
+        ConfigDiscoveryTest {
+          config_discovery: "ignore-descendants",
+          editor_use_global_config,
+          cwd: Some("/project/sub"),
+          ..Default::default()
+        },
+        &[
+          ("/project/sub/file.txt", false, Some("_nested")),
+          ("/project/sub/dir/file.txt", false, Some("_nested")),
+          // these are outside the directory of the cwd's config file
+          ("/project/file.txt", false, Some("_local")),
+          ("/project/inherits/file.txt", false, Some("_formatted")),
+        ],
+      );
+      // no config file is found from the cwd
+      run_config_discovery_test(
+        ConfigDiscoveryTest {
+          config_discovery: "ignore-descendants",
+          editor_use_global_config,
+          cwd: Some("/other"),
+          ..Default::default()
+        },
+        &[
+          ("/project/file.txt", false, Some("_local")),
+          ("/project/sub/file.txt", false, Some("_nested")),
+          ("/other/file.txt", false, None),
           ("/other/file.txt", true, None),
         ],
       );
@@ -2140,6 +2183,7 @@ mod test {
       &[
         ("/project/file.txt", false, Some("_global")),
         ("/project/sub/file.txt", false, Some("_global")),
+        ("/project/inherits/file.txt", false, Some("_global")),
         ("/other/file.txt", false, Some("_global")),
       ],
     );
@@ -2173,11 +2217,40 @@ mod test {
             ("/project/file.txt", false, None),
             ("/project/file.txt", true, None),
             ("/project/sub/file.txt", false, None),
+            ("/project/inherits/file.txt", false, None),
             ("/other/file.txt", false, None),
             ("/other/file.txt", true, None),
           ],
         );
       }
+    }
+  }
+
+  #[test]
+  fn should_prefer_config_discovery_flag_over_env_var_with_lsp() {
+    let disabled_cases = [("/project/file.txt", false, None), ("/other/file.txt", true, None)];
+    let global_cases = [("/project/file.txt", false, Some("_global")), ("/other/file.txt", false, Some("_global"))];
+    let default_cases = [("/project/sub/file.txt", false, Some("_nested")), ("/other/file.txt", false, Some("_global"))];
+    let ignore_descendants_cases = [("/project/sub/file.txt", false, Some("_local")), ("/other/file.txt", true, None)];
+    for (config_discovery_flag, config_discovery, cases) in [
+      // only the flag
+      ("false", "", disabled_cases),
+      ("global", "", global_cases),
+      ("ignore-descendants", "", ignore_descendants_cases),
+      // the flag is used instead of the environment variable
+      ("false", "default", disabled_cases),
+      ("global", "false", global_cases),
+      ("ignore-descendants", "false", ignore_descendants_cases),
+      ("default", "false", default_cases),
+    ] {
+      run_config_discovery_test(
+        ConfigDiscoveryTest {
+          config_discovery_flag: Some(config_discovery_flag),
+          config_discovery,
+          ..Default::default()
+        },
+        &cases,
+      );
     }
   }
 
@@ -2195,21 +2268,118 @@ mod test {
     }
   }
 
+  #[test]
+  fn should_complete_plugins_of_edited_config_with_lsp_in_every_config_discovery_mode() {
+    for config_discovery in ["default", "ignore-descendants", "global", "false"] {
+      // only the config file being edited has the wasm plugin
+      let environment = TestEnvironmentBuilder::new()
+        .add_remote_wasm_plugin()
+        .add_remote_process_plugin()
+        .with_local_config("/project/dprint.json", |c| {
+          c.add_remote_process_plugin();
+        })
+        .with_local_config("/project/sub/dprint.json", |c| {
+          c.add_remote_wasm_plugin();
+        })
+        .with_global_config(|c| {
+          c.add_remote_process_plugin();
+        })
+        .initialize()
+        .set_cwd("/project")
+        .build();
+      environment.set_env_var("DPRINT_CONFIG_DISCOVERY", Some(config_discovery));
+
+      environment.clone().run_in_runtime(async move {
+        let (backend, recv_task, test_client) = setup_backend(environment.clone());
+        let backend = Rc::new(backend);
+        let run_test_task = dprint_core::async_runtime::spawn({
+          let environment = environment.clone();
+          async move {
+            backend
+              .initialize(InitializeParams {
+                process_id: Some(std::process::id()),
+                ..Default::default()
+              })
+              .await
+              .unwrap();
+            backend.initialized(InitializedParams {}).await;
+
+            let file_uri = Uri::from_str("file:///project/sub/dprint.json").unwrap();
+            did_open!(backend, file_uri, environment.read_file("/project/sub/dprint.json").unwrap());
+            let result = backend
+              .completion(
+                CompletionParams {
+                  text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                    // after the opening brace of the root object
+                    position: Position::new(0, 1),
+                  },
+                  work_done_progress_params: Default::default(),
+                  partial_result_params: Default::default(),
+                  context: None,
+                },
+                CancellationToken::new(),
+              )
+              .await
+              .unwrap();
+            let Some(CompletionResponse::Array(items)) = result else {
+              panic!("expected completion items (config discovery: {})", config_discovery);
+            };
+            let plugin_labels = items
+              .iter()
+              .filter(|item| item.detail.as_deref() == Some("plugin"))
+              .map(|item| item.label.as_str())
+              .collect::<Vec<_>>();
+            assert_eq!(plugin_labels, vec!["test-plugin"], "config discovery: {}", config_discovery);
+            assert_eq!(
+              environment.take_stderr_messages(),
+              vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"],
+              "config discovery: {}",
+              config_discovery
+            );
+
+            backend.shutdown().await.unwrap();
+          }
+        });
+
+        try_join!(recv_task, run_test_task).unwrap();
+
+        assert_eq!(
+          test_client.take_messages(),
+          vec![
+            (
+              MessageType::INFO,
+              format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+            ),
+            (MessageType::INFO, "Server ready.".to_string())
+          ]
+        );
+      });
+    }
+  }
+
   #[derive(Default)]
   struct ConfigDiscoveryTest {
+    /// Value of the `--config-discovery` flag.
+    config_discovery_flag: Option<&'static str>,
     /// Value of the `DPRINT_CONFIG_DISCOVERY` environment variable.
     config_discovery: &'static str,
     /// Value of the `DPRINT_EDITOR_USE_GLOBAL_CONFIG` environment variable.
     editor_use_global_config: Option<&'static str>,
     /// Path provided to `--config`.
     config_override: Option<&'static str>,
+    /// Directory the server is started in, which is `/project` by default.
+    cwd: Option<&'static str>,
   }
 
   /// Formats files in an environment that has a config file in a project
-  /// directory, one in a sub directory of it, and a global one. Each case is
-  /// the file path, whether the client provides the `useGlobalConfig` option,
-  /// and the text that the config file that's used has the plugin append to
-  /// the file, which is `None` when there should be no config file for it.
+  /// directory, one in a sub directory of it, and a global one. There's also
+  /// a config file with `"inherit": true` in `/project/inherits` and one in
+  /// `/inherits`, which have the plugin append `_formatted` when they don't
+  /// inherit from another config file. Each case is the file path, whether
+  /// the client provides the `useGlobalConfig` option, and the text that the
+  /// config file that's used has the plugin append to the file, which is
+  /// `None` when there should be no config file for it.
   fn run_config_discovery_test(test: ConfigDiscoveryTest, cases: &[(&'static str, bool, Option<&'static str>)]) {
     fn add_config(builder: &mut TestEnvironmentBuilder, path: Option<&str>, ending: &str) {
       let config_section = format!(r#"{{"ending": "{}"}}"#, ending);
@@ -2228,13 +2398,27 @@ mod test {
     add_config(&mut builder, Some("/project/sub/dprint.json"), "nested");
     add_config(&mut builder, Some("/custom/dprint.json"), "custom");
     add_config(&mut builder, None, "global");
-    let environment = builder.initialize().set_cwd("/project").build();
+    for path in ["/project/inherits/dprint.json", "/inherits/dprint.json"] {
+      builder.with_local_config(path, |c| {
+        c.set_inherit(true).add_remote_wasm_plugin();
+      });
+    }
+    let environment = builder.initialize().build();
+    let cwd = test.cwd.unwrap_or("/project");
+    environment.mk_dir_all(cwd).unwrap();
+    environment.set_cwd(cwd);
     environment.set_env_var("DPRINT_CONFIG_DISCOVERY", Some(test.config_discovery));
     environment.set_env_var("DPRINT_EDITOR_USE_GLOBAL_CONFIG", test.editor_use_global_config);
     let cases = cases.to_vec();
 
     environment.clone().run_in_runtime(async move {
-      let (backend, recv_task, test_client) = setup_backend_with_config(environment.clone(), test.config_override.map(PathBuf::from));
+      let config_discovery_flag = test.config_discovery_flag.map(|value| format!("--config-discovery={}", value));
+      let mut args = Vec::new();
+      args.extend(config_discovery_flag.as_deref());
+      if let Some(path) = test.config_override {
+        args.extend(["--config", path]);
+      }
+      let (backend, recv_task, test_client) = setup_backend_with_args(environment.clone(), &args);
       let backend = Rc::new(backend);
       let run_test_task = dprint_core::async_runtime::spawn({
         let environment = environment.clone();
@@ -2250,8 +2434,8 @@ mod test {
 
           for (file_path, use_global_config, expected_ending) in cases {
             let description = format!(
-              "{} (config discovery: {}, editor use global config: {:?}, useGlobalConfig: {})",
-              file_path, test.config_discovery, test.editor_use_global_config, use_global_config
+              "{} (config discovery flag: {:?}, config discovery: {}, editor use global config: {:?}, cwd: {:?}, useGlobalConfig: {})",
+              file_path, test.config_discovery_flag, test.config_discovery, test.editor_use_global_config, test.cwd, use_global_config
             );
             let file_uri = Uri::from_str(&format!("file://{}", file_path)).unwrap();
             did_open!(backend, file_uri, "testing");
@@ -2324,7 +2508,7 @@ mod test {
 
     environment.clone().run_in_runtime(async move {
       // pass the override config path
-      let (backend, recv_task, test_client) = setup_backend_with_config(environment.clone(), Some(PathBuf::from("/custom/dprint.json")));
+      let (backend, recv_task, test_client) = setup_backend_with_args(environment.clone(), &["--config", "/custom/dprint.json"]);
       let backend = Rc::new(backend);
       let run_test_task = dprint_core::async_runtime::spawn({
         async move {
@@ -2834,19 +3018,17 @@ mod test {
   }
 
   fn setup_backend(environment: TestEnvironment) -> (Backend<TestEnvironment>, JoinHandle<bool>, Arc<TestClient>) {
-    setup_backend_with_config(environment, None)
+    setup_backend_with_args(environment, &[])
   }
 
-  fn setup_backend_with_config(
-    environment: TestEnvironment,
-    config_override: Option<PathBuf>,
-  ) -> (Backend<TestEnvironment>, JoinHandle<bool>, Arc<TestClient>) {
+  /// Sets up the backend with the provided arguments of `dprint lsp` (ex. `--config <path>`).
+  fn setup_backend_with_args(environment: TestEnvironment, args: &[&str]) -> (Backend<TestEnvironment>, JoinHandle<bool>, Arc<TestClient>) {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
     let (tx, rx) = mpsc::unbounded_channel();
-    // uses the DPRINT_CONFIG_DISCOVERY environment variable
-    let config_discovery = CliArgs::empty().config_discovery(&environment);
-    let recv_task = start_message_handler(&environment, &plugin_resolver, config_override, config_discovery, rx);
+    let args = ["dprint", "lsp"].iter().chain(args).map(|arg| arg.to_string()).collect();
+    let args = parse_args(args, TestStdInReader::default()).unwrap();
+    let recv_task = start_message_handler(&args, &environment, &plugin_resolver, rx);
     let test_client = Arc::new(TestClient::default());
     (Backend::new(ClientWrapper::new(test_client.clone()), environment, tx), recv_task, test_client)
   }

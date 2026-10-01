@@ -73,22 +73,32 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
   /// which only has an effect when the config discovery mode allows using the
   /// global config file.
   pub async fn resolve_by_path(&self, dir_path: &Path, use_global_config: bool) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
-    let config_file_bytes = if let Some(path) = &self.config_override {
-      let path = self.environment.canonicalize(path).context("failed resolving --config path")?;
-      let content = self.environment.read_file(&path).context("failed resolving --config path")?;
-      Some(ResolvedConfigPathWithText {
-        base_path: path.parent().unwrap_or_else(|| path.clone()),
-        source: PathSource::new_local(path),
-        is_first_download: false,
-        content,
-        is_global_config: false,
-      })
-    } else {
-      self.discover_config_file(dir_path, use_global_config)?
+    let config_file = match self.resolve_config_override()? {
+      Some(config_file) => Some(config_file),
+      None => self.discover_config_file(dir_path, use_global_config)?,
     };
-    let Some(config_file_bytes) = config_file_bytes else {
-      return Ok(None);
+    match config_file {
+      Some(config_file) => Ok(Some(self.resolve_for_config_file(config_file, use_global_config).await?)),
+      None => Ok(None),
+    }
+  }
+
+  /// Resolves the plugins of the config file in the provided directory, which
+  /// is for providing completions and hover info in that config file. The
+  /// config file being edited is known rather than discovered, so this is not
+  /// affected by the config discovery mode.
+  pub async fn resolve_for_config_dir(&self, dir_path: &Path) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
+    let config_file = match self.resolve_config_override()? {
+      Some(config_file) => Some(config_file),
+      None => get_default_config_file_in_ancestor_directories(&self.environment, dir_path)?,
     };
+    match config_file {
+      Some(config_file) => Ok(Some(self.resolve_for_config_file(config_file, false).await?)),
+      None => Ok(None),
+    }
+  }
+
+  async fn resolve_for_config_file(&self, config_file_bytes: ResolvedConfigPathWithText, use_global_config: bool) -> Result<Rc<PluginsScope<TEnvironment>>> {
     let cell = {
       // the base path is part of the key because the global config
       // file has a different one for each root directory (ex. drive)
@@ -103,7 +113,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     if let Some(cached_scope) = cell.as_ref() {
       let is_same_config = cached_scope.scope.config.as_deref() == Some(&config);
       if is_same_config && cached_scope.plugins_generation == self.plugins_generation.get() {
-        return Ok(Some(cached_scope.scope.clone()));
+        return Ok(cached_scope.scope.clone());
       }
       // forget the scope so that failing to resolve the new one
       // doesn't have this be seen as a config change again
@@ -124,18 +134,20 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
       scope: new_scope.clone(),
       plugins_generation,
     });
-    Ok(Some(new_scope))
+    Ok(new_scope)
   }
 
   /// Resolves the config of a config file, merging in the config file of an
   /// ancestor directory when it specifies `"inherit": true`. This is what the
   /// cli does for the config files in the descendant directories of the
-  /// config file it's using.
+  /// config file it's using, so it's only done in the config discovery mode
+  /// where the cli uses those.
   fn resolve_config<'a>(&'a self, config_file: &'a ResolvedConfigPathWithText, use_global_config: bool) -> LocalBoxFuture<'a, Result<ResolvedConfig>> {
     async move {
       let config = resolve_config_from_path_with_bytes(config_file, &self.environment).await?;
       // a specified config file is used on its own
-      if config.inherit != Some(true) || config.is_global || self.config_override.is_some() {
+      let can_inherit = self.config_discovery.traverse_descendants() && !config.is_global && self.config_override.is_none();
+      if config.inherit != Some(true) || !can_inherit {
         return Ok(config);
       }
       let Some(parent_dir) = config.base_path.parent() else {
@@ -151,24 +163,65 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     .boxed_local()
   }
 
-  /// Finds the config file for a directory the way the cli does for a path
-  /// provided to it in each config discovery mode. Config files are only looked
-  /// for in the ancestor directories in the modes that traverse them, and the
-  /// global config file is what's used when there's none in the default mode and
-  /// the only one that's used in the global mode. The other modes don't use the
+  fn resolve_config_override(&self) -> Result<Option<ResolvedConfigPathWithText>> {
+    let Some(path) = &self.config_override else {
+      return Ok(None);
+    };
+    let path = self.environment.canonicalize(path).context("failed resolving --config path")?;
+    let content = self.environment.read_file(&path).context("failed resolving --config path")?;
+    Ok(Some(ResolvedConfigPathWithText {
+      base_path: path.parent().unwrap_or_else(|| path.clone()),
+      source: PathSource::new_local(path),
+      is_first_download: false,
+      content,
+      is_global_config: false,
+    }))
+  }
+
+  /// Finds the config file that the cli formats the files in a directory with
+  /// in each config discovery mode. Config files are only looked for in the
+  /// ancestor directories in the modes that traverse them, and the global
+  /// config file is what's used when there's none in the default mode and the
+  /// only one that's used in the global mode. The other modes don't use the
   /// global config file, even when the client asks to.
   fn discover_config_file(&self, dir_path: &Path, use_global_config: bool) -> Result<Option<ResolvedConfigPathWithText>> {
-    if self.config_discovery.traverse_ancestors()
-      && let Some(config_file) = get_default_config_file_in_ancestor_directories(&self.environment, dir_path)?
-    {
-      return Ok(Some(config_file));
+    match self.config_discovery {
+      ConfigDiscovery::Default => {
+        if let Some(config_file) = get_default_config_file_in_ancestor_directories(&self.environment, dir_path)? {
+          return Ok(Some(config_file));
+        }
+      }
+      ConfigDiscovery::IgnoreDescendants => return self.discover_config_file_ignoring_descendants(dir_path),
+      ConfigDiscovery::Global => {}
+      ConfigDiscovery::Disabled => return Ok(None),
     }
-    let can_use_global_config = matches!(self.config_discovery, ConfigDiscovery::Default | ConfigDiscovery::Global);
-    if can_use_global_config && (self.use_global_config || use_global_config) {
+    if self.use_global_config || use_global_config {
       self.resolve_global_config_file(dir_path)
     } else {
       Ok(None)
     }
+  }
+
+  /// Finds the config file for a directory when the config files in descendant
+  /// directories are ignored. The cli formats every file within the directory
+  /// of the config file it finds from its cwd with that config file, so the
+  /// config file that's found from the server's cwd is used the same way. A
+  /// directory outside of it uses the config file in its closest ancestor
+  /// directory, which is what the cli does for a file path that's outside the
+  /// directory of its config file.
+  fn discover_config_file_ignoring_descendants(&self, dir_path: &Path) -> Result<Option<ResolvedConfigPathWithText>> {
+    let cwd = self.environment.cwd();
+    if let Some(config_file) = get_default_config_file_in_ancestor_directories(&self.environment, cwd.as_ref())? {
+      // the base path is canonicalized, so compare it with a canonicalized path
+      let is_in_base_path = match self.environment.canonicalize_maybe_not_exists(dir_path) {
+        Ok(dir_path) => dir_path.starts_with(&config_file.base_path),
+        Err(_) => dir_path.starts_with(&config_file.base_path),
+      };
+      if is_in_base_path {
+        return Ok(Some(config_file));
+      }
+    }
+    get_default_config_file_in_ancestor_directories(&self.environment, dir_path)
   }
 
   /// Gets the global config file based at the root directory of the provided
