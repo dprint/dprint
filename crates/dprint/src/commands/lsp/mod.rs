@@ -24,6 +24,8 @@ use deno_tower_lsp::lsp_types::DidOpenNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidOpenTextDocumentParams;
 use deno_tower_lsp::lsp_types::DocumentFormattingParams;
 use deno_tower_lsp::lsp_types::DocumentRangeFormattingParams;
+use deno_tower_lsp::lsp_types::FormattingOptions;
+use deno_tower_lsp::lsp_types::FormattingProperty;
 use deno_tower_lsp::lsp_types::Hover;
 use deno_tower_lsp::lsp_types::HoverParams;
 use deno_tower_lsp::lsp_types::HoverProviderCapability;
@@ -83,6 +85,12 @@ mod language;
 mod notebook;
 mod text;
 mod untitled;
+
+/// The formatting option a client provides in a format request to format a
+/// document without a config file in an ancestor directory using the global
+/// config file when the server doesn't use the global config file by default
+/// (ex. for a command that explicitly formats using the global config file).
+const USE_GLOBAL_CONFIG_OPTION: &str = "useGlobalConfig";
 
 // deno_tower_lsp will drop the future on cancellation,
 // so use this to cancel the containing token on drop.
@@ -164,6 +172,8 @@ struct EditorFormatRequest {
   pub file_text: String,
   pub maybe_line_index: Option<LineIndex>,
   pub range: FormatRange,
+  /// Whether the client asked to use the global config file.
+  pub use_global_config: bool,
   pub token: Arc<CancellationToken>,
 }
 
@@ -196,7 +206,7 @@ async fn handle_format_request<TEnvironment: Environment>(
   if request.token.is_cancelled() {
     return Ok(None);
   }
-  let Some(scope) = scope_container.resolve_by_path(parent_dir).await? else {
+  let Some(scope) = scope_container.resolve_by_path(parent_dir, request.use_global_config).await? else {
     log_stderr_info!(environment, "Path did not have a dprint config file: {}", request.file_path.display());
     return Ok(None);
   };
@@ -589,6 +599,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           notebook_path,
           file_text,
           range: None,
+          use_global_config: has_use_global_config_option(&params.options),
           maybe_line_index,
           token: Arc::new(token),
         },
@@ -611,6 +622,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           notebook_path,
           file_text,
           range,
+          use_global_config: has_use_global_config_option(&params.options),
           maybe_line_index: Some(line_index),
           token: Arc::new(token),
         },
@@ -706,6 +718,10 @@ pub fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
       }
     }
   }
+}
+
+fn has_use_global_config_option(options: &FormattingOptions) -> bool {
+  matches!(options.properties.get(USE_GLOBAL_CONFIG_OPTION), Some(FormattingProperty::Bool(true)))
 }
 
 fn get_workspace_folder_paths(folders: &[WorkspaceFolder]) -> Vec<PathBuf> {
@@ -1612,6 +1628,92 @@ mod test {
           let other_uri = Uri::from_str("file:///file.js").unwrap();
           did_open!(backend, other_uri, "testing");
           assert_format!(backend, other_uri, None);
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
+  #[test]
+  fn should_not_use_global_config_with_lsp_when_opted_out() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt");
+      })
+      .initialize()
+      .build();
+    environment.set_env_var("DPRINT_EDITOR_USE_GLOBAL_CONFIG", Some("false"));
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let environment = environment.clone();
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
+          did_open!(backend, file_uri, "testing");
+          assert_format!(backend, file_uri, None);
+          assert_eq!(
+            environment.take_stderr_messages(),
+            vec!["Path did not have a dprint config file: /file.txt".to_string()]
+          );
+
+          // uses the global config when the client asks to
+          let options = FormattingOptions {
+            properties: HashMap::from([("useGlobalConfig".to_string(), FormattingProperty::Bool(true))]),
+            ..Default::default()
+          };
+          let formatted = Some(vec![TextEdit {
+            range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+            new_text: "_formatted".to_string(),
+          }]);
+          let result = backend
+            .formatting(
+              DocumentFormattingParams {
+                text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                options: options.clone(),
+                work_done_progress_params: Default::default(),
+              },
+              CancellationToken::new(),
+            )
+            .await;
+          assert_eq!(result.unwrap(), formatted);
+          let result = backend
+            .range_formatting(
+              DocumentRangeFormattingParams {
+                text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                range: Range::new(Position::new(0, 0), Position::new(0, 7)),
+                options,
+                work_done_progress_params: Default::default(),
+              },
+              CancellationToken::new(),
+            )
+            .await;
+          assert!(result.unwrap().is_some());
 
           backend.shutdown().await.unwrap();
         }
