@@ -61,6 +61,86 @@ pub fn is_config_uri(uri: &Uri) -> bool {
   POSSIBLE_CONFIG_FILE_NAMES.contains(&file_name)
 }
 
+/// The completion and hover capabilities of the server, which are only for
+/// dprint configuration files.
+pub struct ConfigFileCapabilities {
+  /// The completion capability to provide in the initialize result, which is
+  /// `None` when completion is registered for only the configuration files.
+  pub completion_provider: Option<lsp::CompletionOptions>,
+  /// The hover capability to provide in the initialize result, which is
+  /// `None` when hover is registered for only the configuration files.
+  pub hover_provider: Option<lsp::HoverProviderCapability>,
+  /// The registrations to send the client once it's initialized.
+  pub registrations: Vec<lsp::Registration>,
+}
+
+/// Gets how the server provides completion and hover to the client. The server's
+/// capabilities in the initialize result can't specify the documents they're for,
+/// so they have the client request completions and hover information in every
+/// document it uses the server for, which the server only has for configuration
+/// files. Registering them with a document selector instead has the client only
+/// send the requests for configuration files, but that's only possible in a
+/// client that supports dynamically registering them.
+pub fn get_config_file_capabilities(capabilities: &lsp::ClientCapabilities) -> ConfigFileCapabilities {
+  let text_document = capabilities.text_document.as_ref();
+  let can_register_completion = text_document.and_then(|t| t.completion.as_ref()).and_then(|c| c.dynamic_registration) == Some(true);
+  let can_register_hover = text_document.and_then(|t| t.hover.as_ref()).and_then(|c| c.dynamic_registration) == Some(true);
+  let completion_options = lsp::CompletionOptions {
+    // `"` opens a property/value string, `:` moves to a value position
+    trigger_characters: Some(vec!["\"".to_string(), ":".to_string()]),
+    ..Default::default()
+  };
+  let text_document_registration_options = lsp::TextDocumentRegistrationOptions {
+    document_selector: Some(
+      POSSIBLE_CONFIG_FILE_NAMES
+        .iter()
+        .map(|file_name| lsp::DocumentFilter {
+          language: None,
+          scheme: None,
+          pattern: Some(format!("**/{}", file_name)),
+        })
+        .collect(),
+    ),
+  };
+  let mut result = ConfigFileCapabilities {
+    completion_provider: None,
+    hover_provider: None,
+    registrations: Vec::new(),
+  };
+  let mut register = |method: &str, options: Value| {
+    result.registrations.push(lsp::Registration {
+      id: format!("dprint-config-{}", method),
+      method: method.to_string(),
+      register_options: Some(options),
+    });
+  };
+  if can_register_completion {
+    register(
+      "textDocument/completion",
+      serde_json::to_value(lsp::CompletionRegistrationOptions {
+        text_document_registration_options: text_document_registration_options.clone(),
+        completion_options,
+      })
+      .unwrap(),
+    );
+  } else {
+    result.completion_provider = Some(completion_options);
+  }
+  if can_register_hover {
+    register(
+      "textDocument/hover",
+      serde_json::to_value(lsp::HoverRegistrationOptions {
+        text_document_registration_options,
+        hover_options: Default::default(),
+      })
+      .unwrap(),
+    );
+  } else {
+    result.hover_provider = Some(lsp::HoverProviderCapability::Simple(true));
+  }
+  result
+}
+
 impl<TEnvironment: Environment> ConfigCompletions<TEnvironment> {
   pub fn new(environment: TEnvironment, scope_container: Rc<LspPluginsScopeContainer<TEnvironment>>) -> Self {
     let base_schema = serde_json::from_str(DPRINT_CONFIG_SCHEMA).expect("dprint config schema should be valid json");
@@ -1271,6 +1351,69 @@ mod test {
       }))),
     });
     schema
+  }
+
+  #[test]
+  fn registers_completion_and_hover_for_config_files() {
+    fn get(capabilities: Value) -> ConfigFileCapabilities {
+      get_config_file_capabilities(&serde_json::from_value(capabilities).unwrap())
+    }
+
+    let document_selector = serde_json::json!([
+      { "pattern": "**/dprint.json" },
+      { "pattern": "**/dprint.jsonc" },
+      { "pattern": "**/.dprint.json" },
+      { "pattern": "**/.dprint.jsonc" },
+    ]);
+
+    let result = get(serde_json::json!({
+      "textDocument": {
+        "completion": { "dynamicRegistration": true },
+        "hover": { "dynamicRegistration": true },
+      }
+    }));
+    assert_eq!(result.completion_provider, None);
+    assert_eq!(result.hover_provider, None);
+    assert_eq!(
+      serde_json::to_value(&result.registrations).unwrap(),
+      serde_json::json!([
+        {
+          "id": "dprint-config-textDocument/completion",
+          "method": "textDocument/completion",
+          "registerOptions": { "documentSelector": document_selector, "triggerCharacters": ["\"", ":"] },
+        },
+        {
+          "id": "dprint-config-textDocument/hover",
+          "method": "textDocument/hover",
+          "registerOptions": { "documentSelector": document_selector },
+        },
+      ])
+    );
+
+    // only registers what the client supports registering
+    let result = get(serde_json::json!({
+      "textDocument": {
+        "completion": { "dynamicRegistration": true },
+        "hover": { "dynamicRegistration": false },
+      }
+    }));
+    assert_eq!(result.completion_provider, None);
+    assert_eq!(result.hover_provider, Some(lsp::HoverProviderCapability::Simple(true)));
+    assert_eq!(
+      result.registrations.iter().map(|r| r.method.as_str()).collect::<Vec<_>>(),
+      vec!["textDocument/completion"]
+    );
+
+    // provides them for every document when they can't be registered
+    for capabilities in [serde_json::json!({}), serde_json::json!({ "textDocument": { "completion": {}, "hover": {} } })] {
+      let result = get(capabilities);
+      assert_eq!(
+        serde_json::to_value(&result.completion_provider).unwrap(),
+        serde_json::json!({ "triggerCharacters": ["\"", ":"] })
+      );
+      assert_eq!(result.hover_provider, Some(lsp::HoverProviderCapability::Simple(true)));
+      assert!(result.registrations.is_empty());
+    }
   }
 
   #[test]
