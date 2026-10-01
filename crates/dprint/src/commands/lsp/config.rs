@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
@@ -25,6 +26,7 @@ pub struct LspPluginsScopeContainer<TEnvironment: Environment> {
   plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
   plugins_scope_by_config: RefCell<HashMap<String, Rc<ScopeCell<TEnvironment>>>>,
   config_override: Option<PathBuf>,
+  use_global_config: Cell<bool>,
 }
 
 impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
@@ -34,7 +36,14 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
       plugin_resolver,
       plugins_scope_by_config: Default::default(),
       config_override,
+      use_global_config: Cell::new(true),
     }
+  }
+
+  /// Sets whether to use the global config file for paths that don't
+  /// have a config file in an ancestor directory.
+  pub fn set_use_global_config(&self, value: bool) {
+    self.use_global_config.set(value);
   }
 
   pub async fn shutdown(&self) {
@@ -56,7 +65,8 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     } else {
       match get_default_config_file_in_ancestor_directories(&self.environment, dir_path)? {
         Some(config) => Some(config),
-        None => resolve_global_config_path_and_text(&self.environment)?,
+        None if self.use_global_config.get() => resolve_global_config_path_and_text(&self.environment)?,
+        None => None,
       }
     };
     let Some(config_file_bytes) = config_file_bytes else {

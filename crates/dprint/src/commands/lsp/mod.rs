@@ -15,6 +15,7 @@ use deno_tower_lsp::lsp_types::CompletionItem;
 use deno_tower_lsp::lsp_types::CompletionOptions;
 use deno_tower_lsp::lsp_types::CompletionParams;
 use deno_tower_lsp::lsp_types::CompletionResponse;
+use deno_tower_lsp::lsp_types::DidChangeConfigurationParams;
 use deno_tower_lsp::lsp_types::DidChangeNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidChangeTextDocumentParams;
 use deno_tower_lsp::lsp_types::DidCloseNotebookDocumentParams;
@@ -47,6 +48,7 @@ use parking_lot::Mutex;
 use tokio::sync::Semaphore;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio::sync::watch;
 use tokio::try_join;
 use url::Url;
 
@@ -64,6 +66,10 @@ use self::notebook::get_notebook_cell_file_path;
 use self::notebook::get_notebook_cell_format_registrations;
 use self::notebook::get_notebook_document_sync_options;
 use self::notebook::trim_formatted_cell_text;
+use self::settings::LspSettings;
+use self::settings::get_configuration_items;
+use self::settings::get_settings_change_registration;
+use self::settings::supports_configuration;
 use self::text::LineIndex;
 use self::text::get_edits;
 use self::text::normalize_to_source_line_endings;
@@ -73,6 +79,7 @@ mod config;
 mod config_completion;
 mod documents;
 mod notebook;
+mod settings;
 mod text;
 
 // deno_tower_lsp will drop the future on cancellation,
@@ -168,6 +175,7 @@ enum ChannelMessage {
   Format(EditorFormatRequest, oneshot::Sender<Result<Option<Vec<TextEdit>>>>),
   Completion(ConfigEditorRequest, oneshot::Sender<Option<Vec<CompletionItem>>>),
   Hover(ConfigEditorRequest, oneshot::Sender<Option<Hover>>),
+  Settings(LspSettings),
   Shutdown(oneshot::Sender<()>),
   /// This message is used for testing.
   #[cfg(test)]
@@ -291,7 +299,8 @@ fn start_message_handler<TEnvironment: Environment>(
   // todo: deno_tower_lsp doesn't require this, so the channel could be removed
   let max_cores = environment.max_threads();
   let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
-  let ensure_stable_format = EnsureStableFormat::for_editor(environment);
+  let default_ensure_stable_format = EnsureStableFormat::for_editor(environment);
+  let mut ensure_stable_format = default_ensure_stable_format;
   let environment = environment.clone();
   let scope_container = Rc::new(LspPluginsScopeContainer::new(environment.clone(), plugin_resolver.clone(), config_override));
   let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
@@ -325,6 +334,11 @@ fn start_message_handler<TEnvironment: Environment>(
             let _ = sender.send(result);
           });
         }
+        ChannelMessage::Settings(settings) => {
+          log_debug!(environment, "Using settings: {:?}", settings);
+          ensure_stable_format = settings.ensure_stable_format.map(EnsureStableFormat).unwrap_or(default_ensure_stable_format);
+          scope_container.set_use_global_config(settings.use_global_config.unwrap_or(true));
+        }
         ChannelMessage::Shutdown(sender) => {
           pending_tokens.cancel_all();
           scope_container.shutdown().await;
@@ -345,6 +359,8 @@ struct State<TEnvironment: Environment> {
   documents: Documents<TEnvironment>,
   /// Registrations to send to the client once it says it's initialized.
   pending_registrations: Vec<Registration>,
+  /// Whether the client supports the server getting its settings.
+  supports_configuration: bool,
 }
 
 struct Backend<TEnvironment: Environment> {
@@ -352,6 +368,9 @@ struct Backend<TEnvironment: Environment> {
   environment: TEnvironment,
   sender: mpsc::UnboundedSender<ChannelMessage>,
   state: Mutex<State<TEnvironment>>,
+  /// Whether the settings were gotten from the client, which format requests
+  /// wait on so the first ones don't format using the default settings.
+  has_settings: watch::Sender<bool>,
 }
 
 impl<TEnvironment: Environment> Backend<TEnvironment> {
@@ -363,13 +382,29 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       state: Mutex::new(State {
         documents: Documents::new(environment),
         pending_registrations: Vec::new(),
+        supports_configuration: false,
       }),
+      has_settings: watch::channel(false).0,
+    }
+  }
+
+  /// Gets the settings from the client when it supports that.
+  async fn update_settings(&self) {
+    if !self.state.lock().supports_configuration {
+      return;
+    }
+    match self.client.configuration(get_configuration_items()).await {
+      Ok(values) => {
+        let _ = self.sender.send(ChannelMessage::Settings(LspSettings::from_configuration(values)));
+      }
+      Err(err) => self.client.log_warn(format!("Failed getting settings: {:#}", err)),
     }
   }
 
   async fn send_format_request(&self, uri: &Uri, request: EditorFormatRequest) -> LspResult<Option<Vec<TextEdit>>> {
     let start_time = std::time::Instant::now();
     log_debug!(self.environment, "Received format request for {}", uri.as_str());
+    let _ = self.has_settings.subscribe().wait_for(|has_settings| *has_settings).await;
     let mut drop_token = DropToken::new(request.token.clone());
     let result = self.send_format_request_inner(request).await;
     drop_token.completed();
@@ -432,7 +467,12 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     if let Some(parent_id) = params.process_id {
       start_parent_process_checker_task(parent_id);
     }
-    self.state.lock().pending_registrations = get_notebook_cell_format_registrations(&params.capabilities);
+    {
+      let mut state = self.state.lock();
+      state.pending_registrations = get_notebook_cell_format_registrations(&params.capabilities);
+      state.pending_registrations.extend(get_settings_change_registration(&params.capabilities));
+      state.supports_configuration = supports_configuration(&params.capabilities);
+    }
 
     Ok(InitializeResult {
       server_info: Some(ServerInfo {
@@ -474,6 +514,13 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     if !registrations.is_empty() {
       self.client.register_capabilities(registrations);
     }
+    self.update_settings().await;
+    self.has_settings.send_replace(true);
+  }
+
+  async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
+    // the settings in the params aren't used because not every client provides them
+    self.update_settings().await;
   }
 
   async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -664,6 +711,7 @@ mod test {
   use std::time::Duration;
 
   use deno_tower_lsp::lsp_types::ClientCapabilities;
+  use deno_tower_lsp::lsp_types::ConfigurationItem;
   use deno_tower_lsp::lsp_types::DynamicRegistrationClientCapabilities;
   use deno_tower_lsp::lsp_types::MessageType;
   use deno_tower_lsp::lsp_types::NotebookCellArrayChange;
@@ -682,6 +730,8 @@ mod test {
   use deno_tower_lsp::lsp_types::TextDocumentItem;
   use deno_tower_lsp::lsp_types::VersionedNotebookDocumentIdentifier;
   use deno_tower_lsp::lsp_types::VersionedTextDocumentIdentifier;
+  use dprint_core::async_runtime::FutureExt;
+  use dprint_core::async_runtime::LocalBoxFuture;
   use dprint_core::async_runtime::future;
 
   use crate::environment::TestConfigFileBuilder;
@@ -1639,6 +1689,106 @@ mod test {
   }
 
   #[test]
+  fn should_use_settings_from_client_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt");
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let environment = environment.clone();
+        let test_client = test_client.clone();
+        async move {
+          test_client.set_settings(serde_json::json!({ "useGlobalConfig": false }));
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              capabilities: serde_json::from_value(serde_json::json!({
+                "workspace": {
+                  "configuration": true,
+                  "didChangeConfiguration": { "dynamicRegistration": true },
+                }
+              }))
+              .unwrap(),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          // doesn't use the global config
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
+          did_open!(backend, file_uri, "unstable_fmt_true");
+          assert_format!(backend, file_uri, None);
+          assert_eq!(
+            environment.take_stderr_messages(),
+            vec!["Path did not have a dprint config file: /file.txt".to_string()]
+          );
+
+          // gets the settings again when they change
+          test_client.set_settings(serde_json::json!({ "useGlobalConfig": true, "ensureStableFormat": true }));
+          backend
+            .did_change_configuration(DidChangeConfigurationParams {
+              settings: serde_json::Value::Null,
+            })
+            .await;
+          assert_format!(backend, file_uri, None);
+          let stderr_messages = environment.take_stderr_messages();
+          assert_eq!(stderr_messages.len(), 1);
+          assert!(
+            stderr_messages[0].starts_with("Failed formatting 'file:///file.txt': Formatting not stable."),
+            "{}",
+            stderr_messages[0]
+          );
+
+          // uses the defaults when the client doesn't have the settings
+          test_client.set_settings(serde_json::Value::Null);
+          backend
+            .did_change_configuration(DidChangeConfigurationParams {
+              settings: serde_json::Value::Null,
+            })
+            .await;
+          let result = backend
+            .formatting(
+              DocumentFormattingParams {
+                text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                options: Default::default(),
+                work_done_progress_params: Default::default(),
+              },
+              CancellationToken::new(),
+            )
+            .await;
+          assert!(result.unwrap().is_some());
+          assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+      // the server has the client tell it when the settings change
+      assert_eq!(test_client.take_registered_methods(), vec!["workspace/didChangeConfiguration"]);
+    });
+  }
+
+  #[test]
   fn should_ensure_stable_format_with_lsp() {
     // formats once by default
     let (edits, stderr_messages) = format_unstable_text_with_lsp(None);
@@ -1741,6 +1891,7 @@ mod test {
   struct TestClient {
     logged_messages: Mutex<Vec<(MessageType, String)>>,
     registrations: Mutex<Vec<Registration>>,
+    settings: Mutex<serde_json::Value>,
   }
 
   impl Drop for TestClient {
@@ -1762,6 +1913,10 @@ mod test {
       self.logged_messages.lock().drain(..).collect()
     }
 
+    pub fn set_settings(&self, settings: serde_json::Value) {
+      *self.settings.lock() = settings;
+    }
+
     pub fn take_registered_methods(&self) -> Vec<String> {
       self.registrations.lock().drain(..).map(|r| r.method).collect()
     }
@@ -1774,6 +1929,13 @@ mod test {
 
     fn register_capabilities(&self, registrations: Vec<Registration>) {
       self.registrations.lock().extend(registrations);
+    }
+
+    fn configuration(&self, items: Vec<ConfigurationItem>) -> LocalBoxFuture<'static, Result<Vec<serde_json::Value>>> {
+      assert_eq!(items.len(), 1);
+      assert_eq!(items[0].section.as_deref(), Some("dprint"));
+      let settings = self.settings.lock().clone();
+      async move { Ok(vec![settings]) }.boxed_local()
     }
   }
 }
