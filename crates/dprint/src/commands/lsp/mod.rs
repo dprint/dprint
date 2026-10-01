@@ -13,7 +13,6 @@ use deno_tower_lsp::LspService;
 use deno_tower_lsp::Server;
 use deno_tower_lsp::jsonrpc::Result as LspResult;
 use deno_tower_lsp::lsp_types::CompletionList;
-use deno_tower_lsp::lsp_types::CompletionOptions;
 use deno_tower_lsp::lsp_types::CompletionParams;
 use deno_tower_lsp::lsp_types::CompletionResponse;
 use deno_tower_lsp::lsp_types::DidChangeNotebookDocumentParams;
@@ -29,7 +28,6 @@ use deno_tower_lsp::lsp_types::FormattingOptions;
 use deno_tower_lsp::lsp_types::FormattingProperty;
 use deno_tower_lsp::lsp_types::Hover;
 use deno_tower_lsp::lsp_types::HoverParams;
-use deno_tower_lsp::lsp_types::HoverProviderCapability;
 use deno_tower_lsp::lsp_types::InitializeParams;
 use deno_tower_lsp::lsp_types::InitializeResult;
 use deno_tower_lsp::lsp_types::InitializedParams;
@@ -67,6 +65,7 @@ use crate::resolution::PluginConfigDiagnosticsError;
 use self::client::ClientWrapper;
 use self::config::LspPluginsScopeContainer;
 use self::config_completion::ConfigCompletions;
+use self::config_completion::get_config_file_capabilities;
 use self::config_completion::is_config_uri;
 use self::documents::Documents;
 use self::notebook::get_notebook_cell_file_path;
@@ -541,10 +540,12 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     if let Some(parent_id) = params.process_id {
       start_parent_process_checker_task(parent_id);
     }
+    let config_file_capabilities = get_config_file_capabilities(&params.capabilities);
     {
       let mut state = self.state.lock();
       state.pending_registrations = get_notebook_cell_format_registrations(&params.capabilities);
       state.pending_registrations.extend(get_untitled_registrations(&params.capabilities));
+      state.pending_registrations.extend(config_file_capabilities.registrations);
       state.workspace_folders = get_workspace_folder_paths(params.workspace_folders.as_deref().unwrap_or_default());
     }
 
@@ -565,12 +566,8 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         notebook_document_sync: Some(OneOf::Left(get_notebook_document_sync_options())),
         document_formatting_provider: Some(OneOf::Left(true)),
         document_range_formatting_provider: Some(OneOf::Left(true)),
-        completion_provider: Some(CompletionOptions {
-          // `"` opens a property/value string, `:` moves to a value position
-          trigger_characters: Some(vec!["\"".to_string(), ":".to_string()]),
-          ..Default::default()
-        }),
-        hover_provider: Some(HoverProviderCapability::Simple(true)),
+        completion_provider: config_file_capabilities.completion_provider,
+        hover_provider: config_file_capabilities.hover_provider,
         workspace: Some(WorkspaceServerCapabilities {
           workspace_folders: Some(WorkspaceFoldersServerCapabilities {
             supported: Some(true),
@@ -2625,6 +2622,96 @@ mod test {
         ]
       );
     });
+  }
+
+  #[test]
+  fn should_only_provide_completion_and_hover_for_config_files_with_lsp() {
+    // (client capabilities, has static completion, has static hover, registered methods)
+    let cases: Vec<(serde_json::Value, bool, bool, Vec<&str>)> = vec![
+      (
+        serde_json::json!({
+          "textDocument": {
+            "completion": { "dynamicRegistration": true },
+            "hover": { "dynamicRegistration": true },
+          }
+        }),
+        false,
+        false,
+        vec!["textDocument/completion", "textDocument/hover"],
+      ),
+      // a client that can only register one of them
+      (
+        serde_json::json!({
+          "textDocument": {
+            "completion": { "dynamicRegistration": false },
+            "hover": { "dynamicRegistration": true },
+          }
+        }),
+        true,
+        false,
+        vec!["textDocument/hover"],
+      ),
+      (
+        serde_json::json!({
+          "textDocument": {
+            "completion": { "dynamicRegistration": true },
+          }
+        }),
+        false,
+        true,
+        vec!["textDocument/completion"],
+      ),
+      // a client that can't register them has them for every document
+      (serde_json::json!({}), true, true, vec![]),
+    ];
+
+    for (capabilities, has_static_completion, has_static_hover, registered_methods) in cases {
+      let environment = TestEnvironmentBuilder::new().build();
+      environment.clone().run_in_runtime(async move {
+        let (backend, recv_task, test_client) = setup_backend(environment.clone());
+        let result = backend
+          .initialize(InitializeParams {
+            process_id: Some(std::process::id()),
+            capabilities: serde_json::from_value(capabilities.clone()).unwrap(),
+            ..Default::default()
+          })
+          .await
+          .unwrap();
+        assert_eq!(
+          serde_json::to_value(&result.capabilities.completion_provider).unwrap(),
+          if has_static_completion {
+            serde_json::json!({ "triggerCharacters": ["\"", ":"] })
+          } else {
+            serde_json::Value::Null
+          },
+          "completion for {}",
+          capabilities
+        );
+        assert_eq!(
+          serde_json::to_value(&result.capabilities.hover_provider).unwrap(),
+          if has_static_hover { serde_json::json!(true) } else { serde_json::Value::Null },
+          "hover for {}",
+          capabilities
+        );
+        // nothing is registered until the client is initialized
+        assert_eq!(test_client.take_registered_methods(), Vec::<String>::new());
+        backend.initialized(InitializedParams {}).await;
+        backend.shutdown().await.unwrap();
+        recv_task.await.unwrap();
+
+        assert_eq!(
+          test_client.take_messages(),
+          vec![
+            (
+              MessageType::INFO,
+              format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+            ),
+            (MessageType::INFO, "Server ready.".to_string())
+          ]
+        );
+        assert_eq!(test_client.take_registered_methods(), registered_methods, "registrations for {}", capabilities);
+      });
+    }
   }
 
   #[test]
