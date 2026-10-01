@@ -97,7 +97,7 @@ For binaries and source, see the [GitHub releases](https://github.com/dprint/dpr
 
 - [Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=dprint.dprint)
 - [IntelliJ](https://plugins.jetbrains.com/plugin/18192-dprint) - Thanks to the developers at [Canva](https://canva.com)
-- Neovim with [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig/blob/master/doc/server_configurations.md#dprint)
-- The `dprint lsp` subcommand provides code formatting over the language server protocol. This can be used to format in other editors.
+- Neovim with [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig/blob/master/doc/configs.md#dprint)
+- The `dprint lsp` subcommand provides code formatting over the language server protocol. This can be used to format in other editors such as Neovim, Helix, and Zed. See [Language Server](/lsp).
 
 Next step: [Setup](/setup)

@@ -69,3 +69,7 @@ To format files using only the global configuration and ignore local configurati
 ```sh
 dprint fmt --config-discovery=global
 ```
+
+## Editors
+
+Editor integrations that use the [language server](/lsp) (`dprint lsp`) format a file with the global configuration by default when there's no dprint configuration file in the file's directory or its ancestor directories. Unlike `dprint fmt`, there is no prompt. See [Language Server - Configuration File Resolution](/lsp#configuration-file-resolution) for more details.
