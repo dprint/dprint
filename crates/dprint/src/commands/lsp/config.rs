@@ -25,11 +25,13 @@ pub struct LspPluginsScopeContainer<TEnvironment: Environment> {
   plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
   plugins_scope_by_config: RefCell<HashMap<String, Rc<ScopeCell<TEnvironment>>>>,
   config_override: Option<PathBuf>,
+  use_global_config: bool,
 }
 
 impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
   pub fn new(environment: TEnvironment, plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>, config_override: Option<PathBuf>) -> Self {
     Self {
+      use_global_config: use_global_config(&environment),
       environment,
       plugin_resolver,
       plugins_scope_by_config: Default::default(),
@@ -56,7 +58,8 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     } else {
       match get_default_config_file_in_ancestor_directories(&self.environment, dir_path)? {
         Some(config) => Some(config),
-        None => resolve_global_config_path_and_text(&self.environment)?,
+        None if self.use_global_config => resolve_global_config_path_and_text(&self.environment)?,
+        None => None,
       }
     };
     let Some(config_file_bytes) = config_file_bytes else {
@@ -82,5 +85,43 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     let new_scope = Rc::new(resolve_plugins_scope(Rc::new(config), &self.environment, &self.plugin_resolver).await?);
     let _ = cell.insert(new_scope.clone());
     Ok(Some(new_scope))
+  }
+}
+
+/// Whether to format the files that don't have a config file in an ancestor
+/// directory using the global config file, which an editor may opt out of by
+/// setting the `DPRINT_EDITOR_USE_GLOBAL_CONFIG` environment variable to `0`
+/// or `false` (ex. to only use it when the user enables that in the editor).
+fn use_global_config(environment: &impl Environment) -> bool {
+  !environment.env_var("DPRINT_EDITOR_USE_GLOBAL_CONFIG").is_some_and(|value| {
+    let value = value.to_string_lossy();
+    let value = value.trim();
+    value == "0" || value.eq_ignore_ascii_case("false")
+  })
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  #[test]
+  fn use_global_config_env_var() {
+    let environment = crate::environment::TestEnvironment::new();
+    assert!(use_global_config(&environment));
+    for (value, expected) in [
+      ("0", false),
+      ("false", false),
+      ("FALSE", false),
+      (
+        " 0
+", false,
+      ),
+      ("1", true),
+      ("true", true),
+      ("", true),
+    ] {
+      environment.set_env_var("DPRINT_EDITOR_USE_GLOBAL_CONFIG", Some(value));
+      assert_eq!(use_global_config(&environment), expected, "{:?}", value);
+    }
   }
 }

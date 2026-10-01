@@ -1574,6 +1574,59 @@ mod test {
   }
 
   #[test]
+  fn should_not_use_global_config_with_lsp_when_opted_out() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt");
+      })
+      .initialize()
+      .build();
+    environment.set_env_var("DPRINT_EDITOR_USE_GLOBAL_CONFIG", Some("false"));
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let environment = environment.clone();
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
+          did_open!(backend, file_uri, "testing");
+          assert_format!(backend, file_uri, None);
+          assert_eq!(
+            environment.take_stderr_messages(),
+            vec!["Path did not have a dprint config file: /file.txt".to_string()]
+          );
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
+  #[test]
   fn should_format_with_lsp_using_config_override() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
