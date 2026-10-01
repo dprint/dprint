@@ -801,19 +801,26 @@ fn analyze(tokens: &[Tok], offset: usize) -> Option<Analysis> {
     None => return None,
   };
 
-  // keep going to the end of the container the cursor is in, because the
-  // keys after the cursor are also already present
+  // The keys after the cursor are also already present, so keep going to
+  // the end of the container the cursor is in. That end is only known when
+  // every container is closed by the end of the file. When one isn't (ex. the
+  // closing brace of the object being typed doesn't exist yet), the next
+  // closing brace might be the parent's and the keys before it the parent's,
+  // so only the keys before the cursor are used.
   let container_depth = stack.len();
+  let keys_before_cursor = object_keys(&stack[container_depth - 1]);
+  let mut keys_at_close = None;
   let after_idx = if edit_idx.is_some() { boundary + 1 } else { boundary };
   for tok in &tokens[after_idx..] {
-    if stack.len() == container_depth && matches!(tok.kind, TokKind::CloseBrace | TokKind::CloseBracket) {
-      break;
+    let is_close = matches!(tok.kind, TokKind::CloseBrace | TokKind::CloseBracket);
+    if is_close && keys_at_close.is_none() && stack.len() == container_depth {
+      keys_at_close = Some(object_keys(&stack[container_depth - 1]));
     }
     apply_token(&mut stack, tok);
   }
-  let existing_keys = match &stack[container_depth - 1] {
-    Frame::Object { keys, .. } => keys.clone(),
-    Frame::Array { .. } => Vec::new(),
+  let existing_keys = match keys_at_close {
+    Some(keys) if stack.is_empty() => keys,
+    _ => keys_before_cursor,
   };
 
   let (replace_range, in_string) = match edit_idx {
@@ -882,6 +889,14 @@ fn apply_token(stack: &mut Vec<Frame>, tok: &Tok) {
         }
       }
     }
+  }
+}
+
+/// Gets the keys seen so far in the container, which an array has none of.
+fn object_keys(frame: &Frame) -> Vec<String> {
+  match frame {
+    Frame::Object { keys, .. } => keys.clone(),
+    Frame::Array { .. } => Vec::new(),
   }
 }
 
@@ -1350,6 +1365,43 @@ mod test {
     assert!(!labels_contain(&items, "typescript"));
     // keys of the parent object after the cursor
     let items = complete(&with_typescript_plugin(), "{ \"typescript\": { % }, \"lineWidth\": 80 }");
+    assert!(labels_contain(&items, "lineWidth"));
+  }
+
+  #[test]
+  fn keeps_parent_keys_after_the_cursor_in_unclosed_object() {
+    // the closing brace is the root's, so the keys after the cursor aren't
+    // the plugin object's
+    let schema = with_typescript_plugin();
+    for text in [
+      "{\n  \"typescript\": {\n    \"%\n  \"lineWidth\": 120,\n  \"indentWidth\": 2\n}",
+      "{\n  \"typescript\": {\n    %\n  \"lineWidth\": 120,\n  \"indentWidth\": 2\n}",
+    ] {
+      let items = complete(&schema, text);
+      assert!(labels_contain(&items, "lineWidth"), "{}", text);
+      assert!(labels_contain(&items, "semiColons"), "{}", text);
+    }
+    // the keys before the cursor are still excluded
+    let items = complete(
+      &schema,
+      "{\n  \"typescript\": {\n    \"semiColons\": \"always\",\n    %\n  \"lineWidth\": 120\n}",
+    );
+    assert!(labels_contain(&items, "lineWidth"));
+    assert!(!labels_contain(&items, "semiColons"));
+    let items = complete(&base_only(), "{\n  \"useTabs\": true,\n  %\n  \"lineWidth\": 80\n");
+    assert!(labels_contain(&items, "lineWidth"));
+    assert!(!labels_contain(&items, "useTabs"));
+  }
+
+  #[test]
+  fn skips_unknown_character() {
+    let items = complete(&base_only(), "{ * \"useTabs\": true, % }");
+    assert!(!labels_contain(&items, "useTabs"));
+    assert!(labels_contain(&items, "lineWidth"));
+    // also after the cursor, and when it's more than one byte
+    let items = complete(&base_only(), "{ % * \"useTabs\": true, § \"indentWidth\": 2 }");
+    assert!(!labels_contain(&items, "useTabs"));
+    assert!(!labels_contain(&items, "indentWidth"));
     assert!(labels_contain(&items, "lineWidth"));
   }
 
