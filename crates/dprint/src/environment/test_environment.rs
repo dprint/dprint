@@ -145,6 +145,10 @@ pub struct TestEnvironment {
   remote_file_redirects: Arc<Mutex<HashMap<String, String>>>,
   /// Last auth header seen for each URL.
   remote_file_auth: Arc<Mutex<HashMap<String, Option<String>>>>,
+  /// Number of times each URL was requested.
+  remote_file_request_counts: Arc<Mutex<HashMap<String, usize>>>,
+  /// URLs whose requests never get a response.
+  unresponsive_remote_files: Arc<Mutex<Vec<String>>>,
   selection_result: Arc<Mutex<usize>>,
   multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
   /// The items of the last multi-selection prompt, rendered for assertions.
@@ -188,6 +192,8 @@ impl TestEnvironment {
       remote_files: Default::default(),
       remote_file_redirects: Default::default(),
       remote_file_auth: Default::default(),
+      remote_file_request_counts: Default::default(),
+      unresponsive_remote_files: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
       multi_selection_result: Arc::new(Mutex::new(None)),
       multi_selection_items: Default::default(),
@@ -257,6 +263,17 @@ impl TestEnvironment {
 
   pub fn take_remote_file_auth(&self, url: &str) -> Option<String> {
     self.remote_file_auth.lock().remove(url).flatten()
+  }
+
+  /// Gets the number of times the URL was requested.
+  pub fn remote_file_request_count(&self, url: &str) -> usize {
+    self.remote_file_request_counts.lock().get(url).copied().unwrap_or(0)
+  }
+
+  /// Makes requests of the URL never get a response, which models a host
+  /// that accepts a connection and then doesn't answer.
+  pub fn add_unresponsive_remote_file(&self, url: &str) {
+    self.unresponsive_remote_files.lock().push(url.to_string());
   }
 
   pub fn set_env_var(&self, name: &str, value: Option<&str>) {
@@ -512,6 +529,12 @@ impl SystemTimeNow for TestEnvironment {
 impl UrlDownloader for TestEnvironment {
   async fn download_file_no_redirects(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
     self.remote_file_auth.lock().insert(url.to_string(), auth.map(|s| s.to_string()));
+    *self.remote_file_request_counts.lock().entry(url.to_string()).or_default() += 1;
+
+    let is_unresponsive = self.unresponsive_remote_files.lock().iter().any(|u| u == url.as_str());
+    if is_unresponsive {
+      std::future::pending::<()>().await;
+    }
 
     // check for a redirect first
     let redirects = self.remote_file_redirects.lock();

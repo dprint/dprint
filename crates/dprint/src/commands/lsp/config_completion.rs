@@ -1,7 +1,10 @@
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
+use std::time::Duration;
+use std::time::SystemTime;
 
 use deno_tower_lsp::lsp_types as lsp;
 use deno_tower_lsp::lsp_types::Uri;
@@ -9,6 +12,7 @@ use jsonc_parser::Scanner;
 use jsonc_parser::tokens::Token;
 use serde_json::Value;
 use text_size::TextSize;
+use tokio::sync::Notify;
 use url::Url;
 
 use crate::configuration::POSSIBLE_CONFIG_FILE_NAMES;
@@ -25,21 +29,29 @@ use super::text::LineIndex;
 /// https://dprint.dev/schemas/v0.json (see `website/_config.ts`).
 const DPRINT_CONFIG_SCHEMA: &str = include_str!("config_schema.json");
 
+/// How long a completion or hover request waits on the downloads of plugin
+/// config schemas before it's answered with the schemas that are available.
+/// A download is only waited on this long once, the requests after that are
+/// answered without waiting on it.
+const SCHEMA_DOWNLOAD_WAIT: Duration = Duration::from_secs(2);
+
+/// How long after a plugin config schema failed to download or parse until
+/// it's downloaded again.
+const SCHEMA_RETRY_INTERVAL: Duration = Duration::from_secs(60);
+
 /// Provides completions and hover information for dprint configuration files.
 ///
 /// This is intentionally isolated from the rest of the language server: it owns
 /// the base schema, fetches and caches each resolved plugin's configuration
-/// schema, then stitches them together into a [`CompositeSchema`] that drives
-/// schema-aware suggestions. The actual analysis ([`completions_for`] and
-/// [`hover_for`]) is pure and operates only on text + a composite schema, which
-/// keeps it easy to test without a running environment.
+/// schema (see [`PluginSchemas`]), then stitches them together into a
+/// [`CompositeSchema`] that drives schema-aware suggestions. The actual
+/// analysis ([`completions_for`] and [`hover_for`]) is pure and operates only
+/// on text + a composite schema, which keeps it easy to test without a running
+/// environment.
 pub struct ConfigCompletions<TEnvironment: Environment> {
-  environment: TEnvironment,
   scope_container: Rc<LspPluginsScopeContainer<TEnvironment>>,
   base_schema: Rc<Value>,
-  /// Cache of plugin config schemas by url. `None` means the url was empty or
-  /// the schema failed to download/parse, so we don't keep retrying it.
-  schema_cache: RefCell<HashMap<String, Option<Rc<Value>>>>,
+  plugin_schemas: PluginSchemas<TEnvironment>,
 }
 
 /// Gets whether the given uri points at a file dprint recognizes as a
@@ -53,18 +65,22 @@ impl<TEnvironment: Environment> ConfigCompletions<TEnvironment> {
   pub fn new(environment: TEnvironment, scope_container: Rc<LspPluginsScopeContainer<TEnvironment>>) -> Self {
     let base_schema = serde_json::from_str(DPRINT_CONFIG_SCHEMA).expect("dprint config schema should be valid json");
     Self {
-      environment,
       scope_container,
       base_schema: Rc::new(base_schema),
-      schema_cache: Default::default(),
+      plugin_schemas: PluginSchemas::new(environment, SCHEMA_DOWNLOAD_WAIT),
     }
   }
 
-  pub async fn completions(&self, file_path: &Path, file_text: &str, position: lsp::Position) -> Option<Vec<lsp::CompletionItem>> {
+  pub async fn completions(&self, file_path: &Path, file_text: &str, position: lsp::Position) -> Option<lsp::CompletionList> {
     let line_index = LineIndex::new(file_text);
     let offset: usize = u32::from(line_index.offset(position)) as usize;
     let schema = self.build_composite_schema(file_path).await;
-    Some(completions_for(&schema, file_text, &line_index, offset))
+    Some(lsp::CompletionList {
+      // so the client asks again as the user types instead of filtering a
+      // list that might lack what's in a schema that's still downloading
+      is_incomplete: schema.is_missing_downloading_schema,
+      items: completions_for(&schema, file_text, &line_index, offset),
+    })
   }
 
   pub async fn hover(&self, file_path: &Path, file_text: &str, position: lsp::Position) -> Option<lsp::Hover> {
@@ -76,13 +92,16 @@ impl<TEnvironment: Environment> ConfigCompletions<TEnvironment> {
 
   async fn build_composite_schema(&self, file_path: &Path) -> CompositeSchema {
     let mut plugins = Vec::new();
+    let mut is_missing_downloading_schema = false;
     if let Some(parent) = file_path.parent() {
       // a parse error while the user is mid-edit just means we fall back to
       // base-schema-only completions, so ignore any resolution error here
       if let Ok(Some(scope)) = self.scope_container.resolve_by_path(parent, false).await {
-        for plugin in scope.plugins.values() {
-          let info = plugin.info();
-          let schema = self.fetch_schema(&info.config_schema_url).await;
+        let infos = scope.plugins.values().map(|plugin| plugin.info()).collect::<Vec<_>>();
+        let urls = infos.iter().map(|info| info.config_schema_url.as_str()).collect::<Vec<_>>();
+        let schemas = self.plugin_schemas.get_all(&urls).await;
+        is_missing_downloading_schema = self.plugin_schemas.is_any_downloading(&urls);
+        for (info, schema) in infos.into_iter().zip(schemas) {
           plugins.push(PluginSchema {
             config_key: info.config_key.clone(),
             name: info.name.clone(),
@@ -94,36 +113,148 @@ impl<TEnvironment: Environment> ConfigCompletions<TEnvironment> {
     CompositeSchema {
       base: self.base_schema.clone(),
       plugins,
+      is_missing_downloading_schema,
+    }
+  }
+}
+
+/// Downloads the plugins' config schemas and caches them by url.
+///
+/// A url is only downloaded by one task at a time, which the requests that
+/// need the schema wait on for a limited time. A request that gives up on
+/// waiting doesn't stop the download, so a later request gets its result, but
+/// the requests until then don't wait on that download again.
+struct PluginSchemas<TEnvironment: Environment> {
+  environment: TEnvironment,
+  entries: Rc<RefCell<HashMap<String, SchemaEntry>>>,
+  /// How long a request waits on the downloads.
+  wait: Duration,
+}
+
+enum SchemaEntry {
+  Downloading(Rc<SchemaDownload>),
+  Ready(Rc<Value>),
+  /// The schema failed to download or parse at this time.
+  Failed(SystemTime),
+}
+
+#[derive(Default)]
+struct SchemaDownload {
+  /// Notifies its waiters once the entry was replaced with the result.
+  finished: Notify,
+  /// Whether a request waited the whole time on this download without getting
+  /// its result, in which case the next requests don't wait on it.
+  was_given_up_on: Cell<bool>,
+}
+
+impl<TEnvironment: Environment> PluginSchemas<TEnvironment> {
+  fn new(environment: TEnvironment, wait: Duration) -> Self {
+    Self {
+      environment,
+      entries: Default::default(),
+      wait,
     }
   }
 
-  async fn fetch_schema(&self, url: &str) -> Option<Rc<Value>> {
-    let url = url.trim();
+  /// Gets the schemas at the provided urls in the same order. A schema is
+  /// `None` when its url is empty, it failed to download or parse, or it
+  /// didn't download in time.
+  async fn get_all(&self, urls: &[&str]) -> Vec<Option<Rc<Value>>> {
+    // start every download before waiting on any of them, so the wait is
+    // for all of them at once
+    for url in urls {
+      self.ensure_downloaded(url.trim());
+    }
+    let deadline = tokio::time::Instant::now() + self.wait;
+    let mut schemas = Vec::with_capacity(urls.len());
+    for url in urls {
+      schemas.push(self.wait_for(url.trim(), deadline).await);
+    }
+    schemas
+  }
+
+  /// Gets whether the schema at any of the provided urls is being downloaded.
+  fn is_any_downloading(&self, urls: &[&str]) -> bool {
+    let entries = self.entries.borrow();
+    urls.iter().any(|url| matches!(entries.get(url.trim()), Some(SchemaEntry::Downloading(_))))
+  }
+
+  /// Starts downloading the schema when it isn't cached or being downloaded,
+  /// or when its last failure was long enough ago to try again.
+  fn ensure_downloaded(&self, url: &str) {
     if url.is_empty() {
+      return;
+    }
+    let download = Rc::new(SchemaDownload::default());
+    {
+      let mut entries = self.entries.borrow_mut();
+      match entries.get(url) {
+        Some(SchemaEntry::Downloading(_) | SchemaEntry::Ready(_)) => return,
+        Some(SchemaEntry::Failed(time)) if !self.is_retry_due(*time) => return,
+        Some(SchemaEntry::Failed(_)) | None => {}
+      }
+      entries.insert(url.to_string(), SchemaEntry::Downloading(download.clone()));
+    }
+
+    let environment = self.environment.clone();
+    let entries = self.entries.clone();
+    let url = url.to_string();
+    dprint_core::async_runtime::spawn(async move {
+      let entry = match download_schema(&environment, &url).await {
+        Some(schema) => SchemaEntry::Ready(schema),
+        None => SchemaEntry::Failed(environment.sys_time_now()),
+      };
+      entries.borrow_mut().insert(url, entry);
+      download.finished.notify_waiters();
+    });
+  }
+
+  fn is_retry_due(&self, failed_time: SystemTime) -> bool {
+    match self.environment.sys_time_now().duration_since(failed_time) {
+      Ok(elapsed) => elapsed >= SCHEMA_RETRY_INTERVAL,
+      // the clock was set back
+      Err(_) => true,
+    }
+  }
+
+  async fn wait_for(&self, url: &str, deadline: tokio::time::Instant) -> Option<Rc<Value>> {
+    let download = match self.entries.borrow().get(url) {
+      // a host that stays slow only delays the first request this way
+      Some(SchemaEntry::Downloading(download)) if !download.was_given_up_on.get() => Some(download.clone()),
+      _ => None,
+    };
+    if let Some(download) = download
+      && tokio::time::timeout_at(deadline, download.finished.notified()).await.is_err()
+    {
+      download.was_given_up_on.set(true);
+      log_debug!(self.environment, "Timed out waiting on the download of the config schema at {}", url);
+    }
+    match self.entries.borrow().get(url) {
+      Some(SchemaEntry::Ready(schema)) => Some(schema.clone()),
+      _ => None,
+    }
+  }
+}
+
+async fn download_schema<TEnvironment: Environment>(environment: &TEnvironment, url: &str) -> Option<Rc<Value>> {
+  let parsed_url = match Url::parse(url) {
+    Ok(url) => url,
+    Err(err) => {
+      log_debug!(environment, "Failed parsing config schema url {}: {:#}", url, err);
       return None;
     }
-    if let Some(cached) = self.schema_cache.borrow().get(url) {
-      return cached.clone();
-    }
-    let result = self.download_schema(url).await;
-    self.schema_cache.borrow_mut().insert(url.to_string(), result.clone());
-    result
-  }
-
-  async fn download_schema(&self, url: &str) -> Option<Rc<Value>> {
-    let parsed_url = Url::parse(url).ok()?;
-    match self.environment.download_file_err_404(&parsed_url, None).await {
-      Ok((_, file)) => match serde_json::from_slice::<Value>(&file.content) {
-        Ok(value) => Some(Rc::new(value)),
-        Err(err) => {
-          log_debug!(self.environment, "Failed parsing config schema at {}: {:#}", url, err);
-          None
-        }
-      },
+  };
+  match environment.download_file_err_404(&parsed_url, None).await {
+    Ok((_, file)) => match serde_json::from_slice::<Value>(&file.content) {
+      Ok(value) => Some(Rc::new(value)),
       Err(err) => {
-        log_debug!(self.environment, "Failed downloading config schema at {}: {:#}", url, err);
+        log_debug!(environment, "Failed parsing config schema at {}: {:#}", url, err);
         None
       }
+    },
+    Err(err) => {
+      log_debug!(environment, "Failed downloading config schema at {}: {:#}", url, err);
+      None
     }
   }
 }
@@ -132,6 +263,9 @@ impl<TEnvironment: Environment> ConfigCompletions<TEnvironment> {
 struct CompositeSchema {
   base: Rc<Value>,
   plugins: Vec<PluginSchema>,
+  /// Whether the schema of a plugin is missing because it's still being
+  /// downloaded.
+  is_missing_downloading_schema: bool,
 }
 
 struct PluginSchema {
@@ -1031,7 +1165,13 @@ fn markdown(value: String) -> lsp::Documentation {
 
 #[cfg(test)]
 mod test {
+  use dprint_core::async_runtime::future;
+
+  use crate::environment::TestEnvironment;
+
   use super::*;
+
+  const SCHEMA_URL: &str = "https://plugins.dprint.dev/test/schema.json";
 
   /// Splits a `%`-marked string into its text and the cursor's byte offset.
   fn at_cursor(text_with_marker: &str) -> (String, usize) {
@@ -1043,6 +1183,7 @@ mod test {
     CompositeSchema {
       base: Rc::new(serde_json::from_str(DPRINT_CONFIG_SCHEMA).unwrap()),
       plugins: Vec::new(),
+      is_missing_downloading_schema: false,
     }
   }
 
@@ -1130,6 +1271,118 @@ mod test {
       }))),
     });
     schema
+  }
+
+  #[test]
+  fn downloads_plugin_schema_once() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(SCHEMA_URL, br#"{ "title": "first" }"#);
+    environment.clone().run_in_runtime(async move {
+      let schemas = PluginSchemas::new(environment.clone(), SCHEMA_DOWNLOAD_WAIT);
+      // requests at the same time, one with two plugins that have the same
+      // url and one with whitespace around the url
+      let padded_url = format!(" {} ", SCHEMA_URL);
+      let (first, second) = future::join(schemas.get_all(&[SCHEMA_URL, SCHEMA_URL, ""]), schemas.get_all(&[&padded_url])).await;
+      assert_eq!(first.len(), 3);
+      assert_eq!(first[0].as_ref().unwrap()["title"], "first");
+      assert_eq!(first[1].as_ref().unwrap()["title"], "first");
+      assert!(first[2].is_none());
+      assert_eq!(second[0].as_ref().unwrap()["title"], "first");
+      assert_eq!(environment.remote_file_request_count(SCHEMA_URL), 1);
+
+      // and a later request
+      environment.add_remote_file(SCHEMA_URL, br#"{ "title": "second" }"#);
+      let third = schemas.get_all(&[SCHEMA_URL]).await;
+      assert_eq!(third[0].as_ref().unwrap()["title"], "first");
+      assert_eq!(environment.remote_file_request_count(SCHEMA_URL), 1);
+    });
+  }
+
+  #[test]
+  fn retries_plugin_schema_that_failed_after_interval() {
+    let environment = TestEnvironment::new();
+    environment.set_fs_time(1_000);
+    environment.add_remote_file(SCHEMA_URL, b"<html>Bad Gateway</html>");
+    environment.add_remote_file_error("https://plugins.dprint.dev/error.json", "Offline");
+    environment.clone().run_in_runtime(async move {
+      let urls = [
+        SCHEMA_URL,
+        "https://plugins.dprint.dev/error.json",
+        "https://plugins.dprint.dev/missing.json",
+        "not a url",
+      ];
+      let schemas = PluginSchemas::new(environment.clone(), SCHEMA_DOWNLOAD_WAIT);
+      assert!(schemas.get_all(&urls).await.iter().all(|s| s.is_none()));
+      assert_eq!(environment.remote_file_request_count(urls[0]), 1);
+      assert_eq!(environment.remote_file_request_count(urls[1]), 1);
+      assert_eq!(environment.remote_file_request_count(urls[2]), 1);
+
+      // not before the interval is over
+      for url in &urls[..3] {
+        environment.add_remote_file(url, br#"{ "type": "object" }"#);
+      }
+      environment.set_fs_time(1_000 + SCHEMA_RETRY_INTERVAL.as_secs() - 1);
+      assert!(schemas.get_all(&urls).await.iter().all(|s| s.is_none()));
+      assert_eq!(environment.remote_file_request_count(urls[0]), 1);
+
+      environment.set_fs_time(1_000 + SCHEMA_RETRY_INTERVAL.as_secs());
+      let result = schemas.get_all(&urls).await;
+      assert!(result[..3].iter().all(|s| s.is_some()));
+      assert!(result[3].is_none());
+      assert_eq!(environment.remote_file_request_count(urls[0]), 2);
+      assert_eq!(environment.remote_file_request_count(urls[1]), 2);
+      assert_eq!(environment.remote_file_request_count(urls[2]), 2);
+    });
+  }
+
+  #[test]
+  fn does_not_wait_long_on_slow_plugin_schema_download() {
+    const SLOW_URL: &str = "https://example.com/slow.json";
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(SCHEMA_URL, br#"{ "type": "object" }"#);
+    environment.add_unresponsive_remote_file(SLOW_URL);
+    environment.clone().run_in_runtime(async move {
+      let mut schemas = PluginSchemas::new(environment.clone(), Duration::from_millis(50));
+      // the test fails instead of hanging when the wait isn't limited
+      let urls = [SLOW_URL, SCHEMA_URL];
+      let result = tokio::time::timeout(Duration::from_secs(30), schemas.get_all(&urls)).await.unwrap();
+      assert!(result[0].is_none());
+      assert!(result[1].is_some());
+      assert!(schemas.is_any_downloading(&urls));
+      assert!(!schemas.is_any_downloading(&[SCHEMA_URL, ""]));
+
+      // the download that's still going is not waited on a second time, which
+      // would be for longer than the timeout here, and it's not started again
+      schemas.wait = Duration::from_secs(3_600);
+      let result = tokio::time::timeout(Duration::from_secs(30), schemas.get_all(&urls)).await.unwrap();
+      assert!(result[0].is_none());
+      assert!(result[1].is_some());
+      assert_eq!(environment.remote_file_request_count(SLOW_URL), 1);
+    });
+  }
+
+  #[test]
+  fn gets_plugin_schema_of_download_that_was_given_up_on() {
+    let environment = TestEnvironment::new();
+    environment.add_remote_file(SCHEMA_URL, br#"{ "type": "object" }"#);
+    environment.add_unresponsive_remote_file(SCHEMA_URL);
+    environment.clone().run_in_runtime(async move {
+      let schemas = PluginSchemas::new(environment.clone(), Duration::from_millis(50));
+      assert!(schemas.get_all(&[SCHEMA_URL]).await[0].is_none());
+
+      // the download wasn't stopped, so a request after it's done gets the
+      // schema without another download
+      environment.remove_unresponsive_remote_file(SCHEMA_URL);
+      tokio::time::timeout(Duration::from_secs(30), async {
+        while schemas.is_any_downloading(&[SCHEMA_URL]) {
+          tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+      })
+      .await
+      .unwrap();
+      assert!(schemas.get_all(&[SCHEMA_URL]).await[0].is_some());
+      assert_eq!(environment.remote_file_request_count(SCHEMA_URL), 1);
+    });
   }
 
   #[test]

@@ -12,7 +12,7 @@ use deno_tower_lsp::LanguageServer;
 use deno_tower_lsp::LspService;
 use deno_tower_lsp::Server;
 use deno_tower_lsp::jsonrpc::Result as LspResult;
-use deno_tower_lsp::lsp_types::CompletionItem;
+use deno_tower_lsp::lsp_types::CompletionList;
 use deno_tower_lsp::lsp_types::CompletionOptions;
 use deno_tower_lsp::lsp_types::CompletionParams;
 use deno_tower_lsp::lsp_types::CompletionResponse;
@@ -188,7 +188,7 @@ struct ConfigEditorRequest {
 
 enum ChannelMessage {
   Format(EditorFormatRequest, oneshot::Sender<Result<Option<Vec<TextEdit>>>>),
-  Completion(ConfigEditorRequest, oneshot::Sender<Option<Vec<CompletionItem>>>),
+  Completion(ConfigEditorRequest, oneshot::Sender<Option<CompletionList>>),
   Hover(ConfigEditorRequest, oneshot::Sender<Option<Hover>>),
   Shutdown(oneshot::Sender<()>),
   /// This message is used for testing.
@@ -717,7 +717,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     if self.sender.send(ChannelMessage::Completion(request, sender)).is_err() {
       return Ok(None);
     }
-    Ok(receiver.await.ok().flatten().map(CompletionResponse::Array))
+    Ok(receiver.await.ok().flatten().map(CompletionResponse::List))
   }
 
   async fn hover(&self, params: HoverParams, _token: CancellationToken) -> LspResult<Option<Hover>> {
@@ -831,6 +831,7 @@ mod test {
   use deno_tower_lsp::lsp_types::TextDocumentContentChangeEvent;
   use deno_tower_lsp::lsp_types::TextDocumentIdentifier;
   use deno_tower_lsp::lsp_types::TextDocumentItem;
+  use deno_tower_lsp::lsp_types::TextDocumentPositionParams;
   use deno_tower_lsp::lsp_types::VersionedNotebookDocumentIdentifier;
   use deno_tower_lsp::lsp_types::VersionedTextDocumentIdentifier;
   use deno_tower_lsp::lsp_types::WorkspaceFoldersChangeEvent;
@@ -2242,6 +2243,187 @@ mod test {
             )
             .await;
           assert!(result.unwrap().is_some());
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
+  #[test]
+  fn should_retry_failed_plugin_schema_download_with_lsp() {
+    const SCHEMA_URL: &str = "https://plugins.dprint.dev/test/schema.json";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .set_cwd("/project")
+      .build();
+    environment.set_fs_time(1_000);
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let environment = environment.clone();
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          let file_uri = Uri::from_str("file:///project/dprint.json").unwrap();
+          did_open!(backend, file_uri, "{\"test-plugin\":{}}");
+          // gets the labels of the completions in the plugin's section
+          let complete = || async {
+            let result = backend
+              .completion(
+                CompletionParams {
+                  text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                    position: Position::new(0, 16),
+                  },
+                  work_done_progress_params: Default::default(),
+                  partial_result_params: Default::default(),
+                  context: None,
+                },
+                CancellationToken::new(),
+              )
+              .await
+              .unwrap();
+            let Some(CompletionResponse::List(list)) = result else {
+              panic!("expected completion items");
+            };
+            // nothing is being downloaded once a request was answered here
+            assert!(!list.is_incomplete);
+            list.items.into_iter().map(|item| item.label).collect::<Vec<_>>()
+          };
+
+          // the schema can't be downloaded, so only what's in the base schema
+          let labels = complete().await;
+          assert!(labels.contains(&"locked".to_string()), "{:?}", labels);
+          assert!(!labels.contains(&"ending".to_string()), "{:?}", labels);
+          assert_eq!(
+            environment.take_stderr_messages(),
+            vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+          );
+
+          // not attempted again right away
+          environment.add_remote_file_bytes(SCHEMA_URL, br#"{ "properties": { "ending": { "type": "string" } } }"#.to_vec());
+          environment.set_fs_time(1_030);
+          let labels = complete().await;
+          assert!(!labels.contains(&"ending".to_string()), "{:?}", labels);
+
+          // but it is later on
+          environment.set_fs_time(1_090);
+          let labels = complete().await;
+          assert!(labels.contains(&"locked".to_string()), "{:?}", labels);
+          assert!(labels.contains(&"ending".to_string()), "{:?}", labels);
+
+          // and then the downloaded schema is kept
+          environment.add_remote_file_bytes(SCHEMA_URL, br#"{ "properties": { "other": { "type": "string" } } }"#.to_vec());
+          environment.set_fs_time(10_000);
+          let labels = complete().await;
+          assert!(labels.contains(&"ending".to_string()), "{:?}", labels);
+          assert!(!labels.contains(&"other".to_string()), "{:?}", labels);
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
+  #[test]
+  fn should_mark_completions_incomplete_while_plugin_schema_downloads_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .set_cwd("/project")
+      .build();
+    environment.add_unresponsive_remote_file("https://plugins.dprint.dev/test/schema.json");
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let environment = environment.clone();
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          let file_uri = Uri::from_str("file:///project/dprint.json").unwrap();
+          did_open!(backend, file_uri, "{\"test-plugin\":{}}");
+          // the first request gives up on the download and the second one
+          // doesn't wait on it
+          for _ in 0..2 {
+            let result = backend
+              .completion(
+                CompletionParams {
+                  text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                    // in the plugin's section
+                    position: Position::new(0, 16),
+                  },
+                  work_done_progress_params: Default::default(),
+                  partial_result_params: Default::default(),
+                  context: None,
+                },
+                CancellationToken::new(),
+              )
+              .await
+              .unwrap();
+            let Some(CompletionResponse::List(list)) = result else {
+              panic!("expected completion items");
+            };
+            assert!(list.is_incomplete);
+            assert!(list.items.iter().any(|item| item.label == "locked"));
+          }
+          assert_eq!(
+            environment.take_stderr_messages(),
+            vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+          );
+          assert_eq!(environment.remote_file_request_count("https://plugins.dprint.dev/test/schema.json"), 1);
 
           backend.shutdown().await.unwrap();
         }
