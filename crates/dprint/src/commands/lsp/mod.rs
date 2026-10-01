@@ -17,6 +17,7 @@ use deno_tower_lsp::lsp_types::CompletionParams;
 use deno_tower_lsp::lsp_types::CompletionResponse;
 use deno_tower_lsp::lsp_types::DidChangeNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidChangeTextDocumentParams;
+use deno_tower_lsp::lsp_types::DidChangeWorkspaceFoldersParams;
 use deno_tower_lsp::lsp_types::DidCloseNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidCloseTextDocumentParams;
 use deno_tower_lsp::lsp_types::DidOpenNotebookDocumentParams;
@@ -39,6 +40,9 @@ use deno_tower_lsp::lsp_types::TextDocumentSyncKind;
 use deno_tower_lsp::lsp_types::TextDocumentSyncOptions;
 use deno_tower_lsp::lsp_types::TextEdit;
 use deno_tower_lsp::lsp_types::Uri;
+use deno_tower_lsp::lsp_types::WorkspaceFolder;
+use deno_tower_lsp::lsp_types::WorkspaceFoldersServerCapabilities;
+use deno_tower_lsp::lsp_types::WorkspaceServerCapabilities;
 use dprint_core::async_runtime::JoinHandle;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::HostFormatRequest;
@@ -67,13 +71,18 @@ use self::notebook::trim_formatted_cell_text;
 use self::text::LineIndex;
 use self::text::get_edits;
 use self::text::normalize_to_source_line_endings;
+use self::untitled::get_untitled_file_path;
+use self::untitled::get_untitled_registrations;
+use self::untitled::is_untitled_uri;
 
 mod client;
 mod config;
 mod config_completion;
 mod documents;
+mod language;
 mod notebook;
 mod text;
+mod untitled;
 
 // deno_tower_lsp will drop the future on cancellation,
 // so use this to cancel the containing token on drop.
@@ -345,6 +354,8 @@ struct State<TEnvironment: Environment> {
   documents: Documents<TEnvironment>,
   /// Registrations to send to the client once it says it's initialized.
   pending_registrations: Vec<Registration>,
+  /// The paths of the client's workspace folders on the file system.
+  workspace_folders: Vec<PathBuf>,
 }
 
 struct Backend<TEnvironment: Environment> {
@@ -363,6 +374,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       state: Mutex::new(State {
         documents: Documents::new(environment),
         pending_registrations: Vec::new(),
+        workspace_folders: Vec::new(),
       }),
     }
   }
@@ -392,6 +404,9 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   /// Resolves the file path to format the document as along with the path of
   /// its notebook when the document is a notebook cell.
   fn resolve_format_paths(&self, uri: &Uri) -> Option<(PathBuf, Option<PathBuf>)> {
+    if is_untitled_uri(uri) {
+      return Some((self.resolve_untitled_file_path(uri)?, None));
+    }
     let Some((notebook_uri, language_id)) = self.state.lock().documents.get_notebook_cell(uri) else {
       return Some((uri_to_file_path(uri)?, None));
     };
@@ -406,6 +421,25 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       return None;
     };
     Some((file_path, Some(notebook_path)))
+  }
+
+  /// An untitled document is formatted as a file in the first workspace
+  /// folder or otherwise the home directory.
+  fn resolve_untitled_file_path(&self, uri: &Uri) -> Option<PathBuf> {
+    let (language_id, workspace_folder) = {
+      let state = self.state.lock();
+      (state.documents.get_language_id(uri)?, state.workspace_folders.first().cloned())
+    };
+    let dir_path = workspace_folder.or_else(|| self.environment.get_home_dir().map(|dir| dir.into_path_buf()))?;
+    let file_path = get_untitled_file_path(&dir_path, &language_id);
+    if file_path.is_none() {
+      log_debug!(
+        self.environment,
+        "Could not determine a file path to format the untitled document with language: {}",
+        language_id
+      );
+    }
+    file_path
   }
 
   async fn send_format_request_inner(&self, request: EditorFormatRequest) -> Result<Option<Vec<TextEdit>>> {
@@ -432,7 +466,12 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     if let Some(parent_id) = params.process_id {
       start_parent_process_checker_task(parent_id);
     }
-    self.state.lock().pending_registrations = get_notebook_cell_format_registrations(&params.capabilities);
+    {
+      let mut state = self.state.lock();
+      state.pending_registrations = get_notebook_cell_format_registrations(&params.capabilities);
+      state.pending_registrations.extend(get_untitled_registrations(&params.capabilities));
+      state.workspace_folders = get_workspace_folder_paths(params.workspace_folders.as_deref().unwrap_or_default());
+    }
 
     Ok(InitializeResult {
       server_info: Some(ServerInfo {
@@ -457,6 +496,13 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           ..Default::default()
         }),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
+        workspace: Some(WorkspaceServerCapabilities {
+          workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+            supported: Some(true),
+            change_notifications: Some(OneOf::Left(true)),
+          }),
+          file_operations: None,
+        }),
         ..ServerCapabilities::default()
       },
     })
@@ -474,6 +520,14 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     if !registrations.is_empty() {
       self.client.register_capabilities(registrations);
     }
+  }
+
+  async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
+    let removed = get_workspace_folder_paths(&params.event.removed);
+    let added = get_workspace_folder_paths(&params.event.added);
+    let mut state = self.state.lock();
+    state.workspace_folders.retain(|folder| !removed.contains(folder));
+    state.workspace_folders.extend(added);
   }
 
   async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -654,6 +708,10 @@ pub fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
   }
 }
 
+fn get_workspace_folder_paths(folders: &[WorkspaceFolder]) -> Vec<PathBuf> {
+  folders.iter().filter_map(|folder| uri_to_file_path(&folder.uri)).collect()
+}
+
 fn canonicalize_path(environment: &impl Environment, path: PathBuf) -> PathBuf {
   environment.canonicalize_maybe_not_exists(&path).map(|p| p.into_path_buf()).unwrap_or(path)
 }
@@ -682,6 +740,7 @@ mod test {
   use deno_tower_lsp::lsp_types::TextDocumentItem;
   use deno_tower_lsp::lsp_types::VersionedNotebookDocumentIdentifier;
   use deno_tower_lsp::lsp_types::VersionedTextDocumentIdentifier;
+  use deno_tower_lsp::lsp_types::WorkspaceFoldersChangeEvent;
   use dprint_core::async_runtime::future;
 
   use crate::environment::TestConfigFileBuilder;
@@ -1633,6 +1692,124 @@ mod test {
             format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
           ),
           (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
+  #[test]
+  fn should_format_untitled_documents_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_excludes("ignored-dir");
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        async move {
+          fn workspace_folder(uri: &str) -> WorkspaceFolder {
+            WorkspaceFolder {
+              uri: Uri::from_str(uri).unwrap(),
+              name: "folder".to_string(),
+            }
+          }
+
+          let result = backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              capabilities: serde_json::from_value(serde_json::json!({
+                "textDocument": {
+                  "synchronization": { "dynamicRegistration": true },
+                  "formatting": { "dynamicRegistration": true },
+                  "rangeFormatting": { "dynamicRegistration": true },
+                }
+              }))
+              .unwrap(),
+              workspace_folders: Some(vec![workspace_folder("file:///workspace")]),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          // the client tells the server when the workspace folders change
+          assert_eq!(
+            serde_json::to_value(result.capabilities.workspace).unwrap(),
+            serde_json::json!({ "workspaceFolders": { "supported": true, "changeNotifications": true } })
+          );
+          backend.initialized(InitializedParams {}).await;
+
+          macro_rules! did_open_untitled {
+            ($uri:expr, $language_id:expr) => {
+              backend
+                .did_open(DidOpenTextDocumentParams {
+                  text_document: TextDocumentItem {
+                    uri: $uri.clone(),
+                    language_id: $language_id.to_string(),
+                    version: 0,
+                    text: "text".to_string(),
+                  },
+                })
+                .await;
+            };
+          }
+
+          // formats as a file of the language in the workspace folder
+          let file_uri = Uri::from_str("untitled:Untitled-1").unwrap();
+          did_open_untitled!(file_uri, "txt");
+          assert_format!(
+            backend,
+            file_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+              new_text: "_formatted".to_string()
+            }])
+          );
+
+          // language without a plugin
+          let other_file_uri = Uri::from_str("untitled:Untitled-2").unwrap();
+          did_open_untitled!(other_file_uri, "python");
+          assert_format!(backend, other_file_uri, None);
+
+          // uses the first workspace folder after they change, which is excluded
+          backend
+            .did_change_workspace_folders(DidChangeWorkspaceFoldersParams {
+              event: WorkspaceFoldersChangeEvent {
+                added: vec![workspace_folder("file:///ignored-dir")],
+                removed: vec![workspace_folder("file:///workspace")],
+              },
+            })
+            .await;
+          assert_format!(backend, file_uri, None);
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+      // the server has the client send it untitled documents
+      assert_eq!(
+        test_client.take_registered_methods(),
+        vec![
+          "textDocument/didOpen",
+          "textDocument/didChange",
+          "textDocument/didClose",
+          "textDocument/formatting",
+          "textDocument/rangeFormatting",
         ]
       );
     });

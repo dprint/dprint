@@ -10,6 +10,8 @@ use deno_tower_lsp::lsp_types::NotebookSelector;
 use deno_tower_lsp::lsp_types::Registration;
 use dprint_core::plugins::FormatRange;
 
+use super::language::get_language_file_name;
+
 /// Gets the capability that has the client sync the cells of notebooks on the
 /// file system, which are the only notebooks the cli formats.
 pub fn get_notebook_document_sync_options() -> NotebookDocumentSyncOptions {
@@ -59,14 +61,7 @@ pub fn get_notebook_cell_format_registrations(capabilities: &ClientCapabilities)
 /// named based on the cell's language, which is how the jupyter plugin formats
 /// a notebook's code cells.
 pub fn get_notebook_cell_file_path(notebook_path: &Path, language_id: &str) -> Option<PathBuf> {
-  let language = language_id.to_ascii_lowercase();
-  let ext = match known_language_extension(&language) {
-    Some(ext) => ext,
-    // fall back to the language id itself as the extension (ex. sql, toml, go)
-    None if is_fallback_extension(&language) => &language,
-    None => return None,
-  };
-  Some(notebook_path.parent()?.join(format!("code_block.{}", ext)))
+  Some(notebook_path.parent()?.join(get_language_file_name("code_block", language_id)?))
 }
 
 /// Trims the trailing whitespace of a notebook cell's formatted text like the jupyter
@@ -89,51 +84,6 @@ fn file_system_notebook() -> Notebook {
     scheme: "file".to_string(),
     pattern: None,
   })
-}
-
-/// Gets the file extension for languages whose conventional extension differs
-/// from the language id. This is kept in sync with the jupyter plugin so a cell
-/// formats the same way in the editor as when the cli formats the notebook.
-fn known_language_extension(language: &str) -> Option<&'static str> {
-  Some(match language {
-    "bash" | "sh" | "shell" | "shellscript" => "sh",
-    "c#" | "csharp" => "cs",
-    "c++" | "cpp" => "cpp",
-    "clojure" => "clj",
-    "coffeescript" => "coffee",
-    "elixir" => "ex",
-    "erlang" => "erl",
-    "f#" | "fsharp" => "fs",
-    "handlebars" => "hbs",
-    "haskell" => "hs",
-    "javascript" => "js",
-    "javascriptreact" => "jsx",
-    "julia" => "jl",
-    "kotlin" => "kt",
-    "latex" => "tex",
-    "markdown" => "md",
-    "nushell" => "nu",
-    "ocaml" => "ml",
-    "perl" => "pl",
-    "powershell" => "ps1",
-    "proto3" | "protobuf" => "proto",
-    "python" | "python3" => "py",
-    "restructuredtext" => "rst",
-    "ruby" => "rb",
-    "rust" => "rs",
-    "terraform" => "tf",
-    "typescript" => "ts",
-    "typescriptreact" => "tsx",
-    "yaml" => "yml",
-    _ => return None,
-  })
-}
-
-fn is_fallback_extension(language: &str) -> bool {
-  !language.is_empty()
-    && language.chars().all(|c| c.is_ascii_alphanumeric())
-    // never format a cell as a notebook, which would recurse into the jupyter plugin
-    && language != "ipynb"
 }
 
 #[cfg(test)]
