@@ -109,6 +109,7 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
       GitIgnoreTreeOptions {
         include_paths: opts.file_patterns.include_paths(),
         global_gitignore_lines: resolve_global_gitignore_lines(environment),
+        detect_changes: false,
       },
     ))
   };

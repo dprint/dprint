@@ -30,6 +30,10 @@ pub struct FileMatcherOptions<'a> {
   /// An explicitly specified file path (ex. the `--stdin` path) that should
   /// override what's in the gitignore the same way an explicit fmt arg does.
   pub specified_file_path: Option<&'a Path>,
+  /// Whether to check if a gitignore file was changed, added or removed since
+  /// it was read each time a file is matched. This is for a matcher that's
+  /// kept around (ex. in the language server) rather than used for a single run.
+  pub detect_gitignore_changes: bool,
 }
 
 pub struct FileMatcher<TEnvironment: Environment> {
@@ -44,6 +48,7 @@ impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
       args,
       root_dir,
       specified_file_path,
+      detect_gitignore_changes,
     } = opts;
     let mut patterns = get_all_file_patterns(config, args, root_dir, &environment);
     // resolve args with an existing literal name the same way `glob()` does
@@ -63,6 +68,7 @@ impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
         GitIgnoreTreeOptions {
           include_paths,
           global_gitignore_lines,
+          detect_changes: detect_gitignore_changes,
         },
       ))
     };
@@ -82,15 +88,17 @@ impl<TEnvironment: Environment> FileMatcher<TEnvironment> {
   /// the same way they do during a directory traversal.
   pub fn matches_and_dir_not_ignored(&mut self, file_path: &Path) -> bool {
     let match_result = self.glob_matcher.matches_detail(file_path);
-    match match_result {
-      GlobMatchesDetail::Matched => {
-        if self.is_gitignored(file_path, /* is dir */ false) {
-          return false;
-        }
-      }
-      GlobMatchesDetail::MatchedOptedOutExclude => {}
-      GlobMatchesDetail::Excluded | GlobMatchesDetail::NotMatched => return false,
-    };
+    if matches!(match_result, GlobMatchesDetail::Excluded | GlobMatchesDetail::NotMatched) {
+      return false;
+    }
+    // done once up front because the checks below resolve the gitignores
+    // of the same ancestor directories for the file and each ancestor
+    if let Some(gitignores) = self.gitignores.as_mut() {
+      gitignores.refresh_for_file(file_path);
+    }
+    if matches!(match_result, GlobMatchesDetail::Matched) && self.is_gitignored(file_path, /* is dir */ false) {
+      return false;
+    }
     // ensure the parents aren't ignored (skipping the file itself, which was
     // checked above with file semantics instead of dir semantics, and stopping
     // at the base directory, which a traversal starts within rather than

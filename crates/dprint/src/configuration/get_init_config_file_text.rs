@@ -587,6 +587,7 @@ fn scan_project_files(environment: &impl Environment) -> ProjectFiles {
     GitIgnoreTreeOptions {
       include_paths: Vec::new(),
       global_gitignore_lines: resolve_global_gitignore_lines(environment),
+      detect_changes: false,
     },
   );
 
