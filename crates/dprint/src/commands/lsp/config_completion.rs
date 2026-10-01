@@ -3,11 +3,12 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
 
+use deno_tower_lsp::lsp_types as lsp;
+use deno_tower_lsp::lsp_types::Uri;
 use jsonc_parser::Scanner;
 use jsonc_parser::tokens::Token;
 use serde_json::Value;
 use text_size::TextSize;
-use tower_lsp::lsp_types as lsp;
 use url::Url;
 
 use crate::configuration::POSSIBLE_CONFIG_FILE_NAMES;
@@ -43,10 +44,8 @@ pub struct ConfigCompletions<TEnvironment: Environment> {
 
 /// Gets whether the given uri points at a file dprint recognizes as a
 /// configuration file (ex. `dprint.json`).
-pub fn is_config_uri(uri: &Url) -> bool {
-  let Some(file_name) = uri.path_segments().and_then(|mut s| s.next_back()) else {
-    return false;
-  };
+pub fn is_config_uri(uri: &Uri) -> bool {
+  let file_name = uri.path().as_str().rsplit('/').next().unwrap_or_default();
   POSSIBLE_CONFIG_FILE_NAMES.contains(&file_name)
 }
 

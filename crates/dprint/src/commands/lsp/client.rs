@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
-use tower_lsp::Client;
-use tower_lsp::lsp_types::MessageType;
+use deno_tower_lsp::Client;
+use deno_tower_lsp::lsp_types::MessageType;
+use deno_tower_lsp::lsp_types::Registration;
 
 pub trait ClientTrait: std::fmt::Debug + Send + Sync {
   fn log(&self, message_type: MessageType, message: String);
+  fn register_capabilities(&self, registrations: Vec<Registration>);
 }
 
 impl ClientTrait for Client {
@@ -12,6 +14,17 @@ impl ClientTrait for Client {
     let client = self.clone();
     dprint_core::async_runtime::spawn(async move {
       client.log_message(message_type, &message).await;
+    });
+  }
+
+  fn register_capabilities(&self, registrations: Vec<Registration>) {
+    let client = self.clone();
+    dprint_core::async_runtime::spawn(async move {
+      if let Err(err) = client.register_capability(registrations).await {
+        client
+          .log_message(MessageType::WARNING, format!("Failed registering capabilities: {:#}", err))
+          .await;
+      }
     });
   }
 }
@@ -26,6 +39,10 @@ impl ClientWrapper {
 
   pub fn log_info(&self, message: String) {
     self.log(MessageType::INFO, message);
+  }
+
+  pub fn register_capabilities(&self, registrations: Vec<Registration>) {
+    self.0.register_capabilities(registrations)
   }
 
   fn log(&self, message_type: MessageType, message: String) {

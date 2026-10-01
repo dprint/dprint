@@ -5,6 +5,8 @@
 
 use anyhow::Result;
 use anyhow::bail;
+use deno_tower_lsp::lsp_types as lsp;
+use deno_tower_lsp::lsp_types::TextEdit;
 use similar::ChangeTag;
 use similar::TextDiff;
 use std::collections::HashMap;
@@ -12,8 +14,6 @@ use std::time::Duration;
 use std::time::Instant;
 use text_size::TextRange;
 use text_size::TextSize;
-use tower_lsp::lsp_types as lsp;
-use tower_lsp::lsp_types::TextEdit;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Utf16Char {

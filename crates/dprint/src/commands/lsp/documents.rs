@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+use deno_tower_lsp::lsp_types;
+use deno_tower_lsp::lsp_types::DidChangeTextDocumentParams;
+use deno_tower_lsp::lsp_types::TextDocumentItem;
+use deno_tower_lsp::lsp_types::Uri;
 use dprint_core::plugins::FormatRange;
-use tower_lsp::lsp_types;
-use tower_lsp::lsp_types::DidChangeTextDocumentParams;
-use tower_lsp::lsp_types::DidCloseTextDocumentParams;
-use tower_lsp::lsp_types::TextDocumentItem;
-use url::Url;
 
 use crate::environment::Environment;
 
@@ -30,14 +29,15 @@ impl IndexValid {
 pub struct Document {
   line_index: Option<LineIndex>,
   version: i32,
-  #[allow(dead_code)]
   pub language_id: String,
   pub text: String,
+  /// The uri of the notebook when the document is a notebook cell.
+  notebook_uri: Option<Uri>,
 }
 
 pub struct Documents<TEnvironment: Environment> {
   environment: TEnvironment,
-  docs: HashMap<Url, Document>,
+  docs: HashMap<Uri, Document>,
 }
 
 impl<TEnvironment: Environment> Documents<TEnvironment> {
@@ -49,28 +49,31 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
   }
 
   pub fn open(&mut self, text_document_item: TextDocumentItem) {
-    self.docs.insert(
-      text_document_item.uri.clone(),
-      Document {
-        line_index: None,
-        language_id: text_document_item.language_id,
-        version: text_document_item.version,
-        text: text_document_item.text,
-      },
-    );
+    self.open_inner(text_document_item, None);
   }
 
-  pub fn get_content(&self, uri: &Url) -> Option<(String, Option<LineIndex>)> {
+  pub fn open_notebook_cell(&mut self, notebook_uri: &Uri, text_document_item: TextDocumentItem) {
+    self.open_inner(text_document_item, Some(notebook_uri.clone()));
+  }
+
+  pub fn get_content(&self, uri: &Uri) -> Option<(String, Option<LineIndex>)> {
     let Some(entry) = self.docs.get(uri) else {
-      log_warn!(self.environment, "Missing document: {}", uri);
+      log_warn!(self.environment, "Missing document: {}", uri.as_str());
       return None;
     };
     Some((entry.text.clone(), entry.line_index.clone()))
   }
 
-  pub fn get_content_with_range(&mut self, uri: &Url, lsp_range: lsp_types::Range) -> Option<(String, FormatRange, LineIndex)> {
+  /// Gets the uri of the notebook and the language of the cell when the
+  /// document is a notebook cell.
+  pub fn get_notebook_cell(&self, uri: &Uri) -> Option<(Uri, String)> {
+    let entry = self.docs.get(uri)?;
+    Some((entry.notebook_uri.clone()?, entry.language_id.clone()))
+  }
+
+  pub fn get_content_with_range(&mut self, uri: &Uri, lsp_range: lsp_types::Range) -> Option<(String, FormatRange, LineIndex)> {
     let Some(entry) = self.docs.get_mut(uri) else {
-      log_warn!(self.environment, "Missing document: {}", uri);
+      log_warn!(self.environment, "Missing document: {}", uri.as_str());
       return None;
     };
 
@@ -81,7 +84,7 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
 
   pub fn changed(&mut self, params: DidChangeTextDocumentParams) {
     let Some(entry) = self.docs.get_mut(&params.text_document.uri) else {
-      log_warn!(self.environment, "Missing document: {}", params.text_document.uri);
+      log_warn!(self.environment, "Missing document: {}", params.text_document.uri.as_str());
       return;
     };
     if entry.version > params.text_document.version {
@@ -91,7 +94,7 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
         "Changed version ({}) was less than existing version ({}) for '{}'. Forgetting document.",
         params.text_document.version,
         entry.version,
-        params.text_document.uri,
+        params.text_document.uri.as_str(),
       );
       self.docs.remove(&params.text_document.uri);
       return;
@@ -108,7 +111,12 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
         let range = match line_index.get_text_range(range) {
           Ok(range) => range,
           Err(err) => {
-            log_warn!(self.environment, "Had error for '{}'. Forgetting document. {:#}", params.text_document.uri, err);
+            log_warn!(
+              self.environment,
+              "Had error for '{}'. Forgetting document. {:#}",
+              params.text_document.uri.as_str(),
+              err
+            );
             self.docs.remove(&params.text_document.uri);
             return;
           }
@@ -125,7 +133,24 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
     entry.text = content;
   }
 
-  pub fn closed(&mut self, params: DidCloseTextDocumentParams) {
-    self.docs.remove(&params.text_document.uri);
+  pub fn closed(&mut self, uri: &Uri) {
+    self.docs.remove(uri);
+  }
+
+  pub fn closed_notebook(&mut self, notebook_uri: &Uri) {
+    self.docs.retain(|_, doc| doc.notebook_uri.as_ref() != Some(notebook_uri));
+  }
+
+  fn open_inner(&mut self, text_document_item: TextDocumentItem, notebook_uri: Option<Uri>) {
+    self.docs.insert(
+      text_document_item.uri.clone(),
+      Document {
+        line_index: None,
+        language_id: text_document_item.language_id,
+        version: text_document_item.version,
+        text: text_document_item.text,
+        notebook_uri,
+      },
+    );
   }
 }

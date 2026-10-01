@@ -6,6 +6,39 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use anyhow::Result;
+use deno_tower_lsp::CancellationToken;
+use deno_tower_lsp::LanguageServer;
+use deno_tower_lsp::LspService;
+use deno_tower_lsp::Server;
+use deno_tower_lsp::jsonrpc::Result as LspResult;
+use deno_tower_lsp::lsp_types::CompletionItem;
+use deno_tower_lsp::lsp_types::CompletionOptions;
+use deno_tower_lsp::lsp_types::CompletionParams;
+use deno_tower_lsp::lsp_types::CompletionResponse;
+use deno_tower_lsp::lsp_types::DidChangeNotebookDocumentParams;
+use deno_tower_lsp::lsp_types::DidChangeTextDocumentParams;
+use deno_tower_lsp::lsp_types::DidCloseNotebookDocumentParams;
+use deno_tower_lsp::lsp_types::DidCloseTextDocumentParams;
+use deno_tower_lsp::lsp_types::DidOpenNotebookDocumentParams;
+use deno_tower_lsp::lsp_types::DidOpenTextDocumentParams;
+use deno_tower_lsp::lsp_types::DocumentFormattingParams;
+use deno_tower_lsp::lsp_types::DocumentRangeFormattingParams;
+use deno_tower_lsp::lsp_types::Hover;
+use deno_tower_lsp::lsp_types::HoverParams;
+use deno_tower_lsp::lsp_types::HoverProviderCapability;
+use deno_tower_lsp::lsp_types::InitializeParams;
+use deno_tower_lsp::lsp_types::InitializeResult;
+use deno_tower_lsp::lsp_types::InitializedParams;
+use deno_tower_lsp::lsp_types::OneOf;
+use deno_tower_lsp::lsp_types::Position;
+use deno_tower_lsp::lsp_types::Registration;
+use deno_tower_lsp::lsp_types::ServerCapabilities;
+use deno_tower_lsp::lsp_types::ServerInfo;
+use deno_tower_lsp::lsp_types::TextDocumentSyncCapability;
+use deno_tower_lsp::lsp_types::TextDocumentSyncKind;
+use deno_tower_lsp::lsp_types::TextDocumentSyncOptions;
+use deno_tower_lsp::lsp_types::TextEdit;
+use deno_tower_lsp::lsp_types::Uri;
 use dprint_core::async_runtime::JoinHandle;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::HostFormatRequest;
@@ -15,34 +48,6 @@ use tokio::sync::Semaphore;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::try_join;
-use tokio_util::sync::CancellationToken;
-use tower_lsp::LanguageServer;
-use tower_lsp::LspService;
-use tower_lsp::Server;
-use tower_lsp::jsonrpc::Result as LspResult;
-use tower_lsp::lsp_types::CompletionItem;
-use tower_lsp::lsp_types::CompletionOptions;
-use tower_lsp::lsp_types::CompletionParams;
-use tower_lsp::lsp_types::CompletionResponse;
-use tower_lsp::lsp_types::DidChangeTextDocumentParams;
-use tower_lsp::lsp_types::DidCloseTextDocumentParams;
-use tower_lsp::lsp_types::DidOpenTextDocumentParams;
-use tower_lsp::lsp_types::DocumentFormattingParams;
-use tower_lsp::lsp_types::DocumentRangeFormattingParams;
-use tower_lsp::lsp_types::Hover;
-use tower_lsp::lsp_types::HoverParams;
-use tower_lsp::lsp_types::HoverProviderCapability;
-use tower_lsp::lsp_types::InitializeParams;
-use tower_lsp::lsp_types::InitializeResult;
-use tower_lsp::lsp_types::InitializedParams;
-use tower_lsp::lsp_types::OneOf;
-use tower_lsp::lsp_types::Position;
-use tower_lsp::lsp_types::ServerCapabilities;
-use tower_lsp::lsp_types::ServerInfo;
-use tower_lsp::lsp_types::TextDocumentSyncCapability;
-use tower_lsp::lsp_types::TextDocumentSyncKind;
-use tower_lsp::lsp_types::TextDocumentSyncOptions;
-use tower_lsp::lsp_types::TextEdit;
 use url::Url;
 
 use crate::arg_parser::CliArgs;
@@ -55,6 +60,10 @@ use self::config::LspPluginsScopeContainer;
 use self::config_completion::ConfigCompletions;
 use self::config_completion::is_config_uri;
 use self::documents::Documents;
+use self::notebook::get_notebook_cell_file_path;
+use self::notebook::get_notebook_cell_format_registrations;
+use self::notebook::get_notebook_document_sync_options;
+use self::notebook::trim_formatted_cell_text;
 use self::text::LineIndex;
 use self::text::get_edits;
 use self::text::normalize_to_source_line_endings;
@@ -63,9 +72,10 @@ mod client;
 mod config;
 mod config_completion;
 mod documents;
+mod notebook;
 mod text;
 
-// tower-lsp will drop the future on cancellation,
+// deno_tower_lsp will drop the future on cancellation,
 // so use this to cancel the containing token on drop.
 struct DropToken {
   completed: bool,
@@ -137,7 +147,11 @@ impl PendingTokens {
 }
 
 struct EditorFormatRequest {
+  /// The file path to format the document's text as, which differs from the
+  /// document's for documents that aren't on the file system (ex. notebook cells).
   pub file_path: PathBuf,
+  /// The notebook file's path when the document is a notebook cell.
+  pub notebook_path: Option<PathBuf>,
   pub file_text: String,
   pub maybe_line_index: Option<LineIndex>,
   pub range: FormatRange,
@@ -180,17 +194,29 @@ async fn handle_format_request<TEnvironment: Environment>(
   if request.token.is_cancelled() {
     return Ok(None);
   }
-  // canonicalize the path
-  request.file_path = environment
-    .canonicalize_maybe_not_exists(&request.file_path)
-    .map(|p| p.into_path_buf())
-    .unwrap_or(request.file_path);
+  // canonicalize the paths
+  request.file_path = canonicalize_path(environment, request.file_path);
+  request.notebook_path = request.notebook_path.map(|path| canonicalize_path(environment, path));
 
-  if !scope.can_format_for_editor(&request.file_path, Some(request.file_text.as_bytes())) {
-    log_debug!(environment, "Excluded file: {}", request.file_path.display());
+  let can_format = match &request.notebook_path {
+    // the cli formats a notebook's cells when a plugin (the jupyter plugin) formats
+    // the notebook, so only format a cell when the notebook would be formatted
+    Some(notebook_path) => {
+      !scope.plugin_name_maps.get_plugin_names_from_file_path(notebook_path).into_names().is_empty() && scope.can_format_for_editor(notebook_path, None)
+    }
+    None => scope.can_format_for_editor(&request.file_path, Some(request.file_text.as_bytes())),
+  };
+  if !can_format {
+    log_debug!(
+      environment,
+      "Excluded file: {}",
+      request.notebook_path.as_ref().unwrap_or(&request.file_path).display()
+    );
     return Ok(None);
   }
 
+  // the range is given to the plugin, but is needed after for a notebook cell
+  let maybe_cell_range = request.notebook_path.as_ref().map(|_| request.range.clone());
   let Some(result) = scope
     .format_stable(
       HostFormatRequest {
@@ -211,6 +237,16 @@ async fn handle_format_request<TEnvironment: Environment>(
     // the editor owns the document's line endings, so match them rather than
     // imposing the plugin's configured newline kind (see #965)
     let new_text = normalize_to_source_line_endings(&request.file_text, new_text);
+    let new_text = match maybe_cell_range {
+      Some(range) => {
+        let new_text = trim_formatted_cell_text(&request.file_text, new_text, &range);
+        if new_text == request.file_text {
+          return Ok(None);
+        }
+        new_text
+      }
+      None => new_text,
+    };
     let line_index = request.maybe_line_index.unwrap_or_else(|| LineIndex::new(&request.file_text));
     Ok(Some(get_edits(&request.file_text, &new_text, &line_index)))
   })
@@ -231,11 +267,11 @@ pub async fn run_language_server<TEnvironment: Environment>(
 
   let environment = environment.clone();
   let lsp_task = dprint_core::async_runtime::spawn(async move {
-    let (service, socket) = LspService::new(|client| {
+    let (service, socket, pending) = LspService::new(|client| {
       let client = ClientWrapper::new(Arc::new(client));
       Backend::new(client.clone(), environment.clone(), tx)
     });
-    Server::new(stdin, stdout, socket).serve(service).await;
+    Server::new(stdin, stdout, socket, pending).serve(service).await;
   });
 
   try_join!(recv_task, lsp_task)?;
@@ -249,9 +285,10 @@ fn start_message_handler<TEnvironment: Environment>(
   config_override: Option<PathBuf>,
   mut rx: mpsc::UnboundedReceiver<ChannelMessage>,
 ) -> JoinHandle<()> {
-  // tower_lsp requires Backend to implement Send and Sync, but
+  // tower_lsp required Backend to implement Send and Sync, but
   // we use a single threaded runtime. So spawn some tasks and
   // communicate over a channel.
+  // todo: deno_tower_lsp doesn't require this, so the channel could be removed
   let max_cores = environment.max_threads();
   let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
   let ensure_stable_format = EnsureStableFormat::for_editor(environment);
@@ -306,6 +343,8 @@ fn start_message_handler<TEnvironment: Environment>(
 
 struct State<TEnvironment: Environment> {
   documents: Documents<TEnvironment>,
+  /// Registrations to send to the client once it says it's initialized.
+  pending_registrations: Vec<Registration>,
 }
 
 struct Backend<TEnvironment: Environment> {
@@ -323,30 +362,50 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       sender,
       state: Mutex::new(State {
         documents: Documents::new(environment),
+        pending_registrations: Vec::new(),
       }),
     }
   }
 
-  async fn send_format_request(&self, uri: &Url, request: EditorFormatRequest) -> LspResult<Option<Vec<TextEdit>>> {
+  async fn send_format_request(&self, uri: &Uri, request: EditorFormatRequest) -> LspResult<Option<Vec<TextEdit>>> {
     let start_time = std::time::Instant::now();
-    log_debug!(self.environment, "Received format request for {}", uri);
+    log_debug!(self.environment, "Received format request for {}", uri.as_str());
     let mut drop_token = DropToken::new(request.token.clone());
     let result = self.send_format_request_inner(request).await;
     drop_token.completed();
     let result = match result {
       Ok(value) => Ok(value),
       Err(err) => {
-        log_error!(self.environment, "Failed formatting '{}': {:#}", uri, err);
+        log_error!(self.environment, "Failed formatting '{}': {:#}", uri.as_str(), err);
         Ok(None)
       }
     };
     log_debug!(
       self.environment,
       "Finished format request for {} in {}ms",
-      uri,
+      uri.as_str(),
       start_time.elapsed().as_millis()
     );
     result
+  }
+
+  /// Resolves the file path to format the document as along with the path of
+  /// its notebook when the document is a notebook cell.
+  fn resolve_format_paths(&self, uri: &Uri) -> Option<(PathBuf, Option<PathBuf>)> {
+    let Some((notebook_uri, language_id)) = self.state.lock().documents.get_notebook_cell(uri) else {
+      return Some((uri_to_file_path(uri)?, None));
+    };
+    // the cli only formats notebooks on the file system
+    let notebook_path = uri_to_file_path(&notebook_uri)?;
+    let Some(file_path) = get_notebook_cell_file_path(&notebook_path, &language_id) else {
+      log_debug!(
+        self.environment,
+        "Could not determine a file path to format the notebook cell with language: {}",
+        language_id
+      );
+      return None;
+    };
+    Some((file_path, Some(notebook_path)))
   }
 
   async fn send_format_request_inner(&self, request: EditorFormatRequest) -> Result<Option<Vec<TextEdit>>> {
@@ -367,12 +426,13 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   }
 }
 
-#[tower_lsp::async_trait]
+#[deno_tower_lsp::async_trait(?Send)]
 impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
     if let Some(parent_id) = params.process_id {
       start_parent_process_checker_task(parent_id);
     }
+    self.state.lock().pending_registrations = get_notebook_cell_format_registrations(&params.capabilities);
 
     Ok(InitializeResult {
       server_info: Some(ServerInfo {
@@ -388,6 +448,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           will_save: None,
           will_save_wait_until: None,
         })),
+        notebook_document_sync: Some(OneOf::Left(get_notebook_document_sync_options())),
         document_formatting_provider: Some(OneOf::Left(true)),
         document_range_formatting_provider: Some(OneOf::Left(true)),
         completion_provider: Some(CompletionOptions {
@@ -409,6 +470,10 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       self.environment.cpu_arch()
     ));
     self.client.log_info("Server ready.".to_string());
+    let registrations = std::mem::take(&mut self.state.lock().pending_registrations);
+    if !registrations.is_empty() {
+      self.client.register_capabilities(registrations);
+    }
   }
 
   async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -420,11 +485,43 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 
   async fn did_close(&self, params: DidCloseTextDocumentParams) {
-    self.state.lock().documents.closed(params);
+    self.state.lock().documents.closed(&params.text_document.uri);
   }
 
-  async fn formatting(&self, params: DocumentFormattingParams) -> LspResult<Option<Vec<TextEdit>>> {
-    let Some(file_path) = url_to_file_path(&params.text_document.uri) else {
+  async fn notebook_did_open(&self, params: DidOpenNotebookDocumentParams) {
+    let mut state = self.state.lock();
+    for cell_document in params.cell_text_documents {
+      state.documents.open_notebook_cell(&params.notebook_document.uri, cell_document);
+    }
+  }
+
+  async fn notebook_did_change(&self, params: DidChangeNotebookDocumentParams) {
+    let Some(cells) = params.change.cells else {
+      return;
+    };
+    let mut state = self.state.lock();
+    if let Some(structure) = cells.structure {
+      for cell_document in structure.did_close.unwrap_or_default() {
+        state.documents.closed(&cell_document.uri);
+      }
+      for cell_document in structure.did_open.unwrap_or_default() {
+        state.documents.open_notebook_cell(&params.notebook_document.uri, cell_document);
+      }
+    }
+    for change in cells.text_content.unwrap_or_default() {
+      state.documents.changed(DidChangeTextDocumentParams {
+        text_document: change.document,
+        content_changes: change.changes,
+      });
+    }
+  }
+
+  async fn notebook_did_close(&self, params: DidCloseNotebookDocumentParams) {
+    self.state.lock().documents.closed_notebook(&params.notebook_document.uri);
+  }
+
+  async fn formatting(&self, params: DocumentFormattingParams, token: CancellationToken) -> LspResult<Option<Vec<TextEdit>>> {
+    let Some((file_path, notebook_path)) = self.resolve_format_paths(&params.text_document.uri) else {
       return Ok(None);
     };
     let Some((file_text, maybe_line_index)) = self.state.lock().documents.get_content(&params.text_document.uri) else {
@@ -435,17 +532,18 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         &params.text_document.uri,
         EditorFormatRequest {
           file_path,
+          notebook_path,
           file_text,
           range: None,
           maybe_line_index,
-          token: Arc::new(CancellationToken::new()),
+          token: Arc::new(token),
         },
       )
       .await
   }
 
-  async fn range_formatting(&self, params: DocumentRangeFormattingParams) -> LspResult<Option<Vec<TextEdit>>> {
-    let Some(file_path) = url_to_file_path(&params.text_document.uri) else {
+  async fn range_formatting(&self, params: DocumentRangeFormattingParams, token: CancellationToken) -> LspResult<Option<Vec<TextEdit>>> {
+    let Some((file_path, notebook_path)) = self.resolve_format_paths(&params.text_document.uri) else {
       return Ok(None);
     };
     let Some((file_text, range, line_index)) = self.state.lock().documents.get_content_with_range(&params.text_document.uri, params.range) else {
@@ -456,21 +554,22 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         &params.text_document.uri,
         EditorFormatRequest {
           file_path,
+          notebook_path,
           file_text,
           range,
           maybe_line_index: Some(line_index),
-          token: Arc::new(CancellationToken::new()),
+          token: Arc::new(token),
         },
       )
       .await
   }
 
-  async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
+  async fn completion(&self, params: CompletionParams, _token: CancellationToken) -> LspResult<Option<CompletionResponse>> {
     let uri = params.text_document_position.text_document.uri;
     if !is_config_uri(&uri) {
       return Ok(None);
     }
-    let Some(file_path) = url_to_file_path(&uri) else {
+    let Some(file_path) = uri_to_file_path(&uri) else {
       return Ok(None);
     };
     let Some((file_text, _)) = self.state.lock().documents.get_content(&uri) else {
@@ -488,12 +587,12 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     Ok(receiver.await.ok().flatten().map(CompletionResponse::Array))
   }
 
-  async fn hover(&self, params: HoverParams) -> LspResult<Option<Hover>> {
+  async fn hover(&self, params: HoverParams, _token: CancellationToken) -> LspResult<Option<Hover>> {
     let uri = params.text_document_position_params.text_document.uri;
     if !is_config_uri(&uri) {
       return Ok(None);
     }
-    let Some(file_path) = url_to_file_path(&uri) else {
+    let Some(file_path) = uri_to_file_path(&uri) else {
       return Ok(None);
     };
     let Some((file_text, _)) = self.state.lock().documents.get_content(&uri) else {
@@ -520,14 +619,15 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 }
 
-/// Attempts to convert a specifier to a file path. By default, uses the Url
+/// Attempts to convert a uri to a file path. By default, uses the Url
 /// crate's `to_file_path()` method, but falls back to try and resolve unix-style
 /// paths on Windows.
 ///
 // Copyright 2018-2023 the Deno authors. All rights reserved. MIT license.
 // Lifted from code I wrote here:
 // https://github.com/denoland/deno/blob/8702894feb480181040152a06e7c3eaf38619629/cli/util/path.rs#L85
-pub fn url_to_file_path(specifier: &Url) -> Option<PathBuf> {
+pub fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
+  let specifier = Url::parse(uri.as_str()).ok()?;
   if specifier.scheme() != "file" {
     return None;
   }
@@ -554,18 +654,35 @@ pub fn url_to_file_path(specifier: &Url) -> Option<PathBuf> {
   }
 }
 
+fn canonicalize_path(environment: &impl Environment, path: PathBuf) -> PathBuf {
+  environment.canonicalize_maybe_not_exists(&path).map(|p| p.into_path_buf()).unwrap_or(path)
+}
+
 #[cfg(test)]
 mod test {
+  use std::str::FromStr;
   use std::time::Duration;
 
+  use deno_tower_lsp::lsp_types::ClientCapabilities;
+  use deno_tower_lsp::lsp_types::DynamicRegistrationClientCapabilities;
+  use deno_tower_lsp::lsp_types::MessageType;
+  use deno_tower_lsp::lsp_types::NotebookCellArrayChange;
+  use deno_tower_lsp::lsp_types::NotebookDocument;
+  use deno_tower_lsp::lsp_types::NotebookDocumentCellChange;
+  use deno_tower_lsp::lsp_types::NotebookDocumentCellChangeStructure;
+  use deno_tower_lsp::lsp_types::NotebookDocumentChangeEvent;
+  use deno_tower_lsp::lsp_types::NotebookDocumentChangeTextContent;
+  use deno_tower_lsp::lsp_types::NotebookDocumentIdentifier;
+  use deno_tower_lsp::lsp_types::Position;
+  use deno_tower_lsp::lsp_types::Range;
+  use deno_tower_lsp::lsp_types::Registration;
+  use deno_tower_lsp::lsp_types::TextDocumentClientCapabilities;
+  use deno_tower_lsp::lsp_types::TextDocumentContentChangeEvent;
+  use deno_tower_lsp::lsp_types::TextDocumentIdentifier;
+  use deno_tower_lsp::lsp_types::TextDocumentItem;
+  use deno_tower_lsp::lsp_types::VersionedNotebookDocumentIdentifier;
+  use deno_tower_lsp::lsp_types::VersionedTextDocumentIdentifier;
   use dprint_core::async_runtime::future;
-  use tower_lsp::lsp_types::MessageType;
-  use tower_lsp::lsp_types::Position;
-  use tower_lsp::lsp_types::Range;
-  use tower_lsp::lsp_types::TextDocumentContentChangeEvent;
-  use tower_lsp::lsp_types::TextDocumentIdentifier;
-  use tower_lsp::lsp_types::TextDocumentItem;
-  use tower_lsp::lsp_types::VersionedTextDocumentIdentifier;
 
   use crate::environment::TestConfigFileBuilder;
   use crate::environment::TestEnvironment;
@@ -603,11 +720,14 @@ mod test {
   macro_rules! assert_format {
     ($backend:expr, $uri:expr, $expected:expr) => {
       let result = $backend
-        .formatting(DocumentFormattingParams {
-          text_document: TextDocumentIdentifier { uri: $uri.clone() },
-          options: Default::default(),
-          work_done_progress_params: Default::default(),
-        })
+        .formatting(
+          DocumentFormattingParams {
+            text_document: TextDocumentIdentifier { uri: $uri.clone() },
+            options: Default::default(),
+            work_done_progress_params: Default::default(),
+          },
+          CancellationToken::new(),
+        )
         .await;
       assert_eq!(result.unwrap(), $expected);
     };
@@ -644,7 +764,7 @@ mod test {
             .unwrap();
           backend.initialized(InitializedParams {}).await;
 
-          let file_uri = Url::parse("file:///file.txt").unwrap();
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
           did_open!(backend, file_uri, "testing");
           assert_format!(
             backend,
@@ -695,7 +815,7 @@ mod test {
 
           let mut handles = Vec::new();
           for i in 0..50 {
-            let file_uri = Url::parse(&format!("file:///file_{}.txt", i)).unwrap();
+            let file_uri = Uri::from_str(&format!("file:///file_{}.txt", i)).unwrap();
             let backend = backend.clone();
             handles.push(dprint_core::async_runtime::spawn(async move {
               let file_text = format!("testing_{}", i);
@@ -710,11 +830,14 @@ mod test {
                 })
                 .await;
               let result = backend
-                .formatting(DocumentFormattingParams {
-                  text_document: TextDocumentIdentifier { uri: file_uri.clone() },
-                  options: Default::default(),
-                  work_done_progress_params: Default::default(),
-                })
+                .formatting(
+                  DocumentFormattingParams {
+                    text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                    options: Default::default(),
+                    work_done_progress_params: Default::default(),
+                  },
+                  CancellationToken::new(),
+                )
                 .await;
               assert_eq!(
                 result.unwrap().unwrap(),
@@ -740,27 +863,27 @@ mod test {
           }
 
           // ignores excluded files
-          let file_uri = Url::parse("file:///ignored_file.txt").unwrap();
+          let file_uri = Uri::from_str("file:///ignored_file.txt").unwrap();
           did_open!(backend, file_uri, "testing");
           assert_format!(backend, file_uri, None);
 
           // ignores gitignored files
-          let file_uri = Url::parse("file:///gitignored_file.txt").unwrap();
+          let file_uri = Uri::from_str("file:///gitignored_file.txt").unwrap();
           did_open!(backend, file_uri, "testing");
           assert_format!(backend, file_uri, None);
 
           // ignores file in gitignored dir
-          let file_uri = Url::parse("file:///gitignored_dir/file.txt").unwrap();
+          let file_uri = Uri::from_str("file:///gitignored_dir/file.txt").unwrap();
           did_open!(backend, file_uri, "testing");
           assert_format!(backend, file_uri, None);
 
           // ignores excluded directory files
-          let file_uri = Url::parse("file:///ignored-dir/file.txt").unwrap();
+          let file_uri = Uri::from_str("file:///ignored-dir/file.txt").unwrap();
           did_open!(backend, file_uri, "testing");
           assert_format!(backend, file_uri, None);
 
           // ignores non-included files
-          let file_uri = Url::parse("file:///file.txt_ps").unwrap();
+          let file_uri = Uri::from_str("file:///file.txt_ps").unwrap();
           did_open!(backend, file_uri, "testing");
           assert_format!(backend, file_uri, None);
 
@@ -774,15 +897,18 @@ mod test {
 
           // range formatting
           let result = backend
-            .range_formatting(DocumentRangeFormattingParams {
-              text_document: TextDocumentIdentifier { uri: file_uri.clone() },
-              range: Range {
-                start: Position { line: 0, character: 1 },
-                end: Position { line: 0, character: 2 },
+            .range_formatting(
+              DocumentRangeFormattingParams {
+                text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                range: Range {
+                  start: Position { line: 0, character: 1 },
+                  end: Position { line: 0, character: 2 },
+                },
+                options: Default::default(),
+                work_done_progress_params: Default::default(),
               },
-              options: Default::default(),
-              work_done_progress_params: Default::default(),
-            })
+              CancellationToken::new(),
+            )
             .await;
           assert_eq!(
             result.unwrap().unwrap(),
@@ -803,7 +929,7 @@ mod test {
           );
 
           // cancellation via a drop
-          let file_uri = Url::parse("file:///file_cancellation.txt_ps").unwrap();
+          let file_uri = Uri::from_str("file:///file_cancellation.txt_ps").unwrap();
           did_open!(backend, file_uri, "wait_cancellation");
 
           let token = Arc::new(CancellationToken::new());
@@ -811,11 +937,14 @@ mod test {
             let backend = backend.clone();
             let token = token.clone();
             async move {
-              let future = backend.formatting(DocumentFormattingParams {
-                text_document: TextDocumentIdentifier { uri: file_uri.clone() },
-                options: Default::default(),
-                work_done_progress_params: Default::default(),
-              });
+              let future = backend.formatting(
+                DocumentFormattingParams {
+                  text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                  options: Default::default(),
+                  work_done_progress_params: Default::default(),
+                },
+                CancellationToken::new(),
+              );
               // this token's cancellation will drop the future which
               // will cancel the formatting request internally
               tokio::select! {
@@ -864,7 +993,7 @@ mod test {
           }
 
           // format using it
-          let file_uri = Url::parse("file:///associations1.txt").unwrap();
+          let file_uri = Uri::from_str("file:///associations1.txt").unwrap();
           did_open!(backend, file_uri, "text");
           assert_format!(
             backend,
@@ -898,7 +1027,7 @@ mod test {
 
           // try .txt_ps file, which should act the same as above because
           // of the associations
-          let file_uri = Url::parse("file:///associations1.txt_ps").unwrap();
+          let file_uri = Uri::from_str("file:///associations1.txt_ps").unwrap();
           did_open!(backend, file_uri, "text");
           assert_format!(
             backend,
@@ -910,7 +1039,7 @@ mod test {
           );
 
           // try the .other extension
-          let file_uri = Url::parse("file:///dir/file.other").unwrap();
+          let file_uri = Uri::from_str("file:///dir/file.other").unwrap();
           did_open!(backend, file_uri, "text");
           assert_format!(
             backend,
@@ -922,7 +1051,7 @@ mod test {
           );
 
           // try the exact file with no extension
-          let file_uri = Url::parse("file:///dir/some_file_name").unwrap();
+          let file_uri = Uri::from_str("file:///dir/some_file_name").unwrap();
           did_open!(backend, file_uri, "text");
           assert_format!(
             backend,
@@ -934,7 +1063,7 @@ mod test {
           );
 
           // now try this special file name
-          let file_uri = Url::parse("file:///dir/test-process-plugin-exact-file").unwrap();
+          let file_uri = Uri::from_str("file:///dir/test-process-plugin-exact-file").unwrap();
           did_open!(backend, file_uri, "text");
           assert_format!(
             backend,
@@ -961,7 +1090,7 @@ mod test {
             environment.write_file("/dprint.json", &config_file.to_string()).unwrap();
           }
 
-          let file_uri = Url::parse("file:///package.txt").unwrap();
+          let file_uri = Uri::from_str("file:///package.txt").unwrap();
           did_open!(backend, file_uri, "text");
           assert_format!(
             backend,
@@ -989,7 +1118,7 @@ mod test {
           }
 
           for _ in 0..2 {
-            let file_uri = Url::parse("file:///other_config/file.txt").unwrap();
+            let file_uri = Uri::from_str("file:///other_config/file.txt").unwrap();
             did_open!(backend, file_uri, "text");
             assert_format!(
               backend,
@@ -1001,7 +1130,7 @@ mod test {
             );
             did_close!(backend, file_uri);
             // switching to a different config should still work fine
-            let file_uri = Url::parse("file:///other_config/sub/file.txt").unwrap();
+            let file_uri = Uri::from_str("file:///other_config/sub/file.txt").unwrap();
             did_open!(backend, file_uri, "text");
             assert_format!(
               backend,
@@ -1014,7 +1143,7 @@ mod test {
             did_close!(backend, file_uri);
 
             // now try with a process plugin
-            let file_uri = Url::parse("file:///other_config/file.txt_ps").unwrap();
+            let file_uri = Uri::from_str("file:///other_config/file.txt_ps").unwrap();
             did_open!(backend, file_uri, "text");
             assert_format!(
               backend,
@@ -1026,7 +1155,7 @@ mod test {
             );
             did_close!(backend, file_uri);
             // switching to a different config should work fine as well
-            let file_uri = Url::parse("file:///other_config/sub/file.txt_ps").unwrap();
+            let file_uri = Uri::from_str("file:///other_config/sub/file.txt_ps").unwrap();
             did_open!(backend, file_uri, "text");
             assert_format!(
               backend,
@@ -1088,7 +1217,7 @@ mod test {
           backend.initialized(InitializedParams {}).await;
 
           // extensionless file with a matching shebang
-          let file_uri = Url::parse("file:///scripts/build").unwrap();
+          let file_uri = Uri::from_str("file:///scripts/build").unwrap();
           did_open!(backend, file_uri, "#!/bin/sh\ntext");
           assert_format!(
             backend,
@@ -1100,7 +1229,7 @@ mod test {
           );
 
           // extensionless file without a shebang
-          let file_uri = Url::parse("file:///scripts/notes").unwrap();
+          let file_uri = Uri::from_str("file:///scripts/notes").unwrap();
           did_open!(backend, file_uri, "text");
           assert_format!(backend, file_uri, None);
 
@@ -1119,6 +1248,262 @@ mod test {
           ),
           (MessageType::INFO, "Server ready.".to_string())
         ]
+      );
+    });
+  }
+
+  #[test]
+  fn should_format_notebook_cells_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
+      .with_default_config(|c| {
+        // the process plugin stands in for the jupyter plugin
+        c.add_remote_wasm_plugin()
+          .add_remote_process_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "formatted\n" }"#)
+          .add_config_section("testProcessPlugin", r#"{ "associations": ["**/*.ipynb"] }"#)
+          .add_excludes("ignored-dir");
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        async move {
+          let result = backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              capabilities: ClientCapabilities {
+                notebook_document: Some(Default::default()),
+                text_document: Some(TextDocumentClientCapabilities {
+                  formatting: Some(DynamicRegistrationClientCapabilities {
+                    dynamic_registration: Some(true),
+                  }),
+                  range_formatting: Some(DynamicRegistrationClientCapabilities {
+                    dynamic_registration: Some(true),
+                  }),
+                  ..Default::default()
+                }),
+                ..Default::default()
+              },
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          assert!(result.capabilities.notebook_document_sync.is_some());
+          backend.initialized(InitializedParams {}).await;
+
+          fn cell_document(uri: &Uri, language_id: &str, text: &str) -> TextDocumentItem {
+            TextDocumentItem {
+              uri: uri.clone(),
+              language_id: language_id.to_string(),
+              version: 0,
+              text: text.to_string(),
+            }
+          }
+
+          macro_rules! open_notebook {
+            ($uri:expr, $cell_documents:expr) => {
+              backend
+                .notebook_did_open(DidOpenNotebookDocumentParams {
+                  notebook_document: NotebookDocument {
+                    uri: $uri.clone(),
+                    notebook_type: "jupyter-notebook".to_string(),
+                    version: 0,
+                    metadata: None,
+                    // the server only uses the documents of the cells
+                    cells: Vec::new(),
+                  },
+                  cell_text_documents: $cell_documents,
+                })
+                .await;
+            };
+          }
+
+          macro_rules! change_notebook {
+            ($uri:expr, $cells:expr) => {
+              backend
+                .notebook_did_change(DidChangeNotebookDocumentParams {
+                  notebook_document: VersionedNotebookDocumentIdentifier {
+                    version: 1,
+                    uri: $uri.clone(),
+                  },
+                  change: NotebookDocumentChangeEvent {
+                    metadata: None,
+                    cells: Some($cells),
+                  },
+                })
+                .await;
+            };
+          }
+
+          let notebook_uri = Uri::from_str("file:///dir/notebook.ipynb").unwrap();
+          let cell_uri = Uri::from_str("vscode-notebook-cell:/dir/notebook.ipynb#W0sZmlsZQ%3D%3D").unwrap();
+          let range_cell_uri = Uri::from_str("vscode-notebook-cell:/dir/notebook.ipynb#W1sZmlsZQ%3D%3D").unwrap();
+          let python_cell_uri = Uri::from_str("vscode-notebook-cell:/dir/notebook.ipynb#W2sZmlsZQ%3D%3D").unwrap();
+          open_notebook!(
+            notebook_uri,
+            vec![
+              cell_document(&cell_uri, "txt", "text"),
+              cell_document(&range_cell_uri, "txt", "text  "),
+              cell_document(&python_cell_uri, "python", "text"),
+            ]
+          );
+
+          // formats as the cell's language and trims the final newline
+          assert_format!(
+            backend,
+            cell_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+              new_text: "_formatted".to_string()
+            }])
+          );
+
+          // range formatting before the end of the cell keeps the trailing whitespace
+          let result = backend
+            .range_formatting(
+              DocumentRangeFormattingParams {
+                text_document: TextDocumentIdentifier { uri: range_cell_uri.clone() },
+                range: Range::new(Position::new(0, 1), Position::new(0, 2)),
+                options: Default::default(),
+                work_done_progress_params: Default::default(),
+              },
+              CancellationToken::new(),
+            )
+            .await;
+          assert_eq!(
+            result.unwrap(),
+            Some(vec![
+              TextEdit {
+                range: Range::new(Position::new(0, 1), Position::new(0, 1)),
+                new_text: "_formatt".to_string()
+              },
+              TextEdit {
+                range: Range::new(Position::new(0, 2), Position::new(0, 2)),
+                new_text: "d\n_".to_string()
+              },
+              TextEdit {
+                range: Range::new(Position::new(0, 6), Position::new(0, 6)),
+                new_text: "_formatted  ".to_string()
+              },
+            ])
+          );
+
+          // language without a plugin
+          assert_format!(backend, python_cell_uri, None);
+
+          // changing a cell's text
+          change_notebook!(
+            notebook_uri,
+            NotebookDocumentCellChange {
+              structure: None,
+              data: None,
+              text_content: Some(vec![NotebookDocumentChangeTextContent {
+                document: VersionedTextDocumentIdentifier {
+                  uri: cell_uri.clone(),
+                  version: 1,
+                },
+                changes: vec![TextDocumentContentChangeEvent {
+                  range: Some(Range::new(Position::new(0, 0), Position::new(0, 4))),
+                  range_length: None,
+                  text: "changed".to_string(),
+                }],
+              }]),
+            }
+          );
+          assert_format!(
+            backend,
+            cell_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+              new_text: "_formatted".to_string()
+            }])
+          );
+
+          // adding and removing cells
+          let added_cell_uri = Uri::from_str("vscode-notebook-cell:/dir/notebook.ipynb#W3sZmlsZQ%3D%3D").unwrap();
+          change_notebook!(
+            notebook_uri,
+            NotebookDocumentCellChange {
+              structure: Some(NotebookDocumentCellChangeStructure {
+                array: NotebookCellArrayChange {
+                  start: 1,
+                  delete_count: 1,
+                  cells: None,
+                },
+                did_open: Some(vec![cell_document(&added_cell_uri, "txt", "added")]),
+                did_close: Some(vec![TextDocumentIdentifier { uri: range_cell_uri.clone() }]),
+              }),
+              data: None,
+              text_content: None,
+            }
+          );
+          assert_format!(
+            backend,
+            added_cell_uri,
+            Some(vec![TextEdit {
+              range: Range::new(Position::new(0, 5), Position::new(0, 5)),
+              new_text: "_formatted".to_string()
+            }])
+          );
+          assert_format!(backend, range_cell_uri, None);
+
+          // excluded notebook
+          let other_notebook_uri = Uri::from_str("file:///ignored-dir/notebook.ipynb").unwrap();
+          let other_cell_uri = Uri::from_str("vscode-notebook-cell:/ignored-dir/notebook.ipynb#W0sZmlsZQ%3D%3D").unwrap();
+          open_notebook!(other_notebook_uri, vec![cell_document(&other_cell_uri, "txt", "text")]);
+          assert_format!(backend, other_cell_uri, None);
+
+          // notebook without a plugin
+          let other_notebook_uri = Uri::from_str("file:///dir/notebook.other").unwrap();
+          let other_cell_uri = Uri::from_str("vscode-notebook-cell:/dir/notebook.other#W0sZmlsZQ%3D%3D").unwrap();
+          open_notebook!(other_notebook_uri, vec![cell_document(&other_cell_uri, "txt", "text")]);
+          assert_format!(backend, other_cell_uri, None);
+
+          // notebook that's not on the file system
+          let other_notebook_uri = Uri::from_str("untitled:Untitled-1.ipynb").unwrap();
+          let other_cell_uri = Uri::from_str("vscode-notebook-cell:Untitled-1.ipynb#W0sdW50aXRsZWQ%3D").unwrap();
+          open_notebook!(other_notebook_uri, vec![cell_document(&other_cell_uri, "txt", "text")]);
+          assert_format!(backend, other_cell_uri, None);
+
+          // closing the notebook closes its cells
+          backend
+            .notebook_did_close(DidCloseNotebookDocumentParams {
+              notebook_document: NotebookDocumentIdentifier { uri: notebook_uri.clone() },
+              cell_text_documents: vec![
+                TextDocumentIdentifier { uri: cell_uri.clone() },
+                TextDocumentIdentifier { uri: python_cell_uri.clone() },
+                TextDocumentIdentifier { uri: added_cell_uri.clone() },
+              ],
+            })
+            .await;
+          assert_format!(backend, cell_uri, None);
+          assert_format!(backend, added_cell_uri, None);
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+      // the server has the client send it format requests for notebook cells
+      assert_eq!(
+        test_client.take_registered_methods(),
+        vec!["textDocument/formatting", "textDocument/rangeFormatting"]
       );
     });
   }
@@ -1148,7 +1533,7 @@ mod test {
           backend.initialized(InitializedParams {}).await;
 
           // Test that global config is being used
-          let file_uri = Url::parse("file:///file.txt").unwrap();
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
           did_open!(backend, file_uri, "testing");
           assert_format!(
             backend,
@@ -1160,12 +1545,12 @@ mod test {
           );
 
           // Test that excluded file is not formatted
-          let ignored_uri = Url::parse("file:///ignored_file.txt").unwrap();
+          let ignored_uri = Uri::from_str("file:///ignored_file.txt").unwrap();
           did_open!(backend, ignored_uri, "testing");
           assert_format!(backend, ignored_uri, None);
 
           // Test that non-matching file is not formatted
-          let other_uri = Url::parse("file:///file.js").unwrap();
+          let other_uri = Uri::from_str("file:///file.js").unwrap();
           did_open!(backend, other_uri, "testing");
           assert_format!(backend, other_uri, None);
 
@@ -1223,7 +1608,7 @@ mod test {
           backend.initialized(InitializedParams {}).await;
 
           // should format using the overridden config (ending "custom"), not the default (ending "default")
-          let file_uri = Url::parse("file:///custom/file.txt").unwrap();
+          let file_uri = Uri::from_str("file:///custom/file.txt").unwrap();
           did_open!(backend, file_uri, "testing");
           assert_format!(
             backend,
@@ -1313,14 +1698,17 @@ mod test {
             .unwrap();
           backend.initialized(InitializedParams {}).await;
 
-          let file_uri = Url::parse("file:///file.txt").unwrap();
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
           did_open!(backend, file_uri, "unstable_fmt_true");
           let edits = backend
-            .formatting(DocumentFormattingParams {
-              text_document: TextDocumentIdentifier { uri: file_uri },
-              options: Default::default(),
-              work_done_progress_params: Default::default(),
-            })
+            .formatting(
+              DocumentFormattingParams {
+                text_document: TextDocumentIdentifier { uri: file_uri },
+                options: Default::default(),
+                work_done_progress_params: Default::default(),
+              },
+              CancellationToken::new(),
+            )
             .await
             .unwrap();
           let stderr_messages = environment.take_stderr_messages();
@@ -1352,6 +1740,7 @@ mod test {
   #[derive(Debug, Default)]
   struct TestClient {
     logged_messages: Mutex<Vec<(MessageType, String)>>,
+    registrations: Mutex<Vec<Registration>>,
   }
 
   impl Drop for TestClient {
@@ -1372,11 +1761,19 @@ mod test {
     pub fn take_messages(&self) -> Vec<(MessageType, String)> {
       self.logged_messages.lock().drain(..).collect()
     }
+
+    pub fn take_registered_methods(&self) -> Vec<String> {
+      self.registrations.lock().drain(..).map(|r| r.method).collect()
+    }
   }
 
   impl ClientTrait for TestClient {
     fn log(&self, message_type: MessageType, message: String) {
       self.logged_messages.lock().push((message_type, message));
+    }
+
+    fn register_capabilities(&self, registrations: Vec<Registration>) {
+      self.registrations.lock().extend(registrations);
     }
   }
 }
