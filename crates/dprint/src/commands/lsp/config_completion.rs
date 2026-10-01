@@ -599,7 +599,11 @@ enum TokKind {
   Word(String),
   /// A scalar that can't be a key in valid usage (boolean/number/null).
   Scalar(String),
-  Comment,
+  Comment {
+    /// Whether text typed at the end of the comment is part of it, which is
+    /// the case for a line comment and a block comment that isn't closed.
+    open_ended: bool,
+  },
 }
 
 impl Tok {
@@ -611,6 +615,14 @@ impl Tok {
     matches!(self.kind, TokKind::Str(_))
   }
 
+  /// Gets whether this is a comment that text typed at `offset` would be in.
+  fn is_comment_containing(&self, offset: usize) -> bool {
+    match self.kind {
+      TokKind::Comment { open_ended } => self.start < offset && (offset < self.end || open_ended && offset == self.end),
+      _ => false,
+    }
+  }
+
   fn scalar_text(&self) -> Option<&str> {
     match &self.kind {
       TokKind::Str(s) | TokKind::Word(s) | TokKind::Scalar(s) => Some(s),
@@ -619,33 +631,113 @@ impl Tok {
   }
 }
 
-fn scan_tokens(text: &str) -> Vec<Tok> {
-  let mut scanner = Scanner::new(text, &Default::default());
+/// Scans the whole text into tokens. A config file being edited is rarely
+/// valid, so what the scanner rejects is recovered from instead of being the
+/// end of the tokens. `cursor` is the offset being completed or hovered.
+fn scan_tokens(text: &str, cursor: usize) -> Vec<Tok> {
   let mut tokens = Vec::new();
-  // stop at the end of input or the first scan error; whatever tokens preceded
-  // it are enough to determine context up to the cursor
-  while let Ok(Some(token)) = scanner.scan() {
-    let kind = match token {
-      Token::OpenBrace => TokKind::OpenBrace,
-      Token::CloseBrace => TokKind::CloseBrace,
-      Token::OpenBracket => TokKind::OpenBracket,
-      Token::CloseBracket => TokKind::CloseBracket,
-      Token::Comma => TokKind::Comma,
-      Token::Colon => TokKind::Colon,
-      Token::String(value) => TokKind::Str(value.into_owned()),
-      Token::Word(value) => TokKind::Word(value.to_string()),
-      Token::Boolean(value) => TokKind::Scalar(value.to_string()),
-      Token::Number(value) => TokKind::Scalar(value.to_string()),
-      Token::Null => TokKind::Scalar("null".to_string()),
-      Token::CommentLine(_) | Token::CommentBlock(_) => TokKind::Comment,
-    };
-    tokens.push(Tok {
-      kind,
-      start: scanner.token_start(),
-      end: scanner.token_end(),
-    });
+  // the scanner can't continue after an error, so a new one is started on
+  // the text after each recovered token
+  let mut base = 0;
+  while base < text.len() {
+    let mut scanner = Scanner::new(&text[base..], &Default::default());
+    loop {
+      let result = scanner.scan();
+      let start = base + scanner.token_start();
+      let end = base + scanner.token_end();
+      let kind = match result {
+        Ok(Some(token)) => match token {
+          Token::OpenBrace => Some(TokKind::OpenBrace),
+          Token::CloseBrace => Some(TokKind::CloseBrace),
+          Token::OpenBracket => Some(TokKind::OpenBracket),
+          Token::CloseBracket => Some(TokKind::CloseBracket),
+          Token::Comma => Some(TokKind::Comma),
+          Token::Colon => Some(TokKind::Colon),
+          // the scanner's strings run across lines to the next quote, which
+          // for a string that isn't closed yet is the start of another string
+          Token::String(_) if text[start..end].contains('\n') => None,
+          Token::String(value) => Some(TokKind::Str(value.into_owned())),
+          Token::Word(value) => Some(TokKind::Word(value.to_string())),
+          Token::Boolean(value) => Some(TokKind::Scalar(value.to_string())),
+          Token::Number(value) => Some(TokKind::Scalar(value.to_string())),
+          Token::Null => Some(TokKind::Scalar("null".to_string())),
+          Token::CommentLine(_) => Some(TokKind::Comment { open_ended: true }),
+          Token::CommentBlock(_) => Some(TokKind::Comment { open_ended: false }),
+        },
+        Ok(None) => return tokens,
+        Err(_) => None,
+      };
+      match kind {
+        Some(kind) => tokens.push(Tok { kind, start, end }),
+        None => {
+          let (kind, end) = recover_token(text, start, cursor);
+          tokens.extend(kind.map(|kind| Tok { kind, start, end }));
+          base = end;
+          break;
+        }
+      }
+    }
   }
   tokens
+}
+
+/// Gets the token (if any) and its end for the text at `start` that the
+/// scanner didn't accept. The end is always after the start.
+fn recover_token(text: &str, start: usize, cursor: usize) -> (Option<TokKind>, usize) {
+  let rest = &text[start..];
+  if rest.starts_with(['"', '\'']) {
+    let (value, end) = recover_string(text, start, cursor);
+    (Some(TokKind::Str(value)), end)
+  } else if rest.starts_with("/*") {
+    // a block comment that isn't closed
+    (Some(TokKind::Comment { open_ended: true }), text.len())
+  } else {
+    // a word followed by punctuation (ex. `tr}`) or an incomplete number
+    let len = word_len(rest);
+    if len > 0 {
+      (Some(TokKind::Word(rest[..len].to_string())), start + len)
+    } else {
+      // skip the character the scanner doesn't know
+      (None, start + rest.chars().next().map(char::len_utf8).unwrap_or(1))
+    }
+  }
+}
+
+/// Gets the contents and end of the string starting with the quote at `start`
+/// that either isn't closed on its line or has an invalid escape.
+fn recover_string(text: &str, start: usize, cursor: usize) -> (String, usize) {
+  let bytes = text.as_bytes();
+  let quote = bytes[start];
+  let content_start = start + 1;
+  let mut index = content_start;
+  // the bytes being looked for are never part of a multi-byte character
+  let line_end = loop {
+    match bytes.get(index) {
+      None | Some(b'\n') => break index,
+      Some(b'\r') if bytes.get(index + 1) == Some(&b'\n') => break index,
+      Some(&b) if b == quote => return (text[content_start..index].to_string(), index + 1),
+      // skip the escaped character, which might be a quote
+      Some(b'\\') if !matches!(bytes.get(index + 1), None | Some(b'\r' | b'\n')) => index += 2,
+      Some(_) => index += 1,
+    }
+  };
+
+  // The string isn't closed. Anything could follow where it's being typed
+  // (ex. `{ "lin| }`), so there it ends at the cursor or at the end of the
+  // word the cursor is in the middle of.
+  let end = if start < cursor && cursor <= line_end && text.is_char_boundary(cursor) {
+    cursor + word_len(&text[cursor..line_end])
+  } else {
+    line_end
+  };
+  (text[content_start..end].to_string(), end)
+}
+
+/// Gets the length in bytes of the bare word at the start of the text.
+fn word_len(text: &str) -> usize {
+  text
+    .find(|c: char| !c.is_alphanumeric() && !matches!(c, '-' | '_' | '.' | '+'))
+    .unwrap_or(text.len())
 }
 
 #[derive(Debug)]
@@ -674,7 +766,8 @@ struct Analysis {
   /// Path to the innermost container the cursor is in.
   container_path: Vec<PathSeg>,
   position: Position,
-  /// Keys already present in the innermost object (before the cursor).
+  /// Keys already present in the innermost object, other than the one the
+  /// cursor is in.
   existing_keys: Vec<String>,
   /// The byte range that an accepted completion should replace.
   replace_range: (usize, usize),
@@ -683,79 +776,51 @@ struct Analysis {
 }
 
 fn analyze(tokens: &[Tok], offset: usize) -> Option<Analysis> {
+  // nothing in a comment is a property name or value
+  if tokens.iter().any(|t| t.is_comment_containing(offset)) {
+    return None;
+  }
+
   // the token the cursor is editing (cursor within an editable token)
   let edit_idx = tokens.iter().position(|t| t.is_editable() && t.start <= offset && offset <= t.end);
   let boundary = edit_idx.unwrap_or_else(|| tokens.iter().position(|t| t.end > offset).unwrap_or(tokens.len()));
 
   let mut stack: Vec<Frame> = Vec::new();
   for tok in &tokens[..boundary] {
-    match &tok.kind {
-      TokKind::OpenBrace => {
-        let key_in_parent = key_in_parent(&stack);
-        stack.push(Frame::Object {
-          key_in_parent,
-          last_key: None,
-          after_colon: false,
-          keys: Vec::new(),
-        });
-      }
-      TokKind::OpenBracket => {
-        let key_in_parent = key_in_parent(&stack);
-        stack.push(Frame::Array { key_in_parent });
-      }
-      TokKind::CloseBrace | TokKind::CloseBracket => {
-        stack.pop();
-        // the closed container was a completed value of its parent property
-        if let Some(Frame::Object { last_key, after_colon, .. }) = stack.last_mut() {
-          *last_key = None;
-          *after_colon = false;
-        }
-      }
-      TokKind::Colon => {
-        if let Some(Frame::Object { after_colon, .. }) = stack.last_mut() {
-          *after_colon = true;
-        }
-      }
-      TokKind::Comma => {
-        if let Some(Frame::Object { last_key, after_colon, .. }) = stack.last_mut() {
-          *last_key = None;
-          *after_colon = false;
-        }
-      }
-      TokKind::Comment => {}
-      TokKind::Str(_) | TokKind::Word(_) | TokKind::Scalar(_) => {
-        if let Some(Frame::Object {
-          last_key, after_colon, keys, ..
-        }) = stack.last_mut()
-        {
-          if *after_colon {
-            // a scalar value completes the property
-            *last_key = None;
-            *after_colon = false;
-          } else {
-            let text = tok.scalar_text().unwrap_or("").to_string();
-            keys.push(text.clone());
-            *last_key = Some(text);
-          }
-        }
-      }
-    }
+    apply_token(&mut stack, tok);
   }
 
   let container_path = container_path(&stack);
-  let (position, existing_keys) = match stack.last() {
-    Some(Frame::Object {
-      last_key, after_colon, keys, ..
-    }) => {
-      let position = match (after_colon, last_key) {
-        (true, Some(key)) => Position::ObjectValue { key: key.clone() },
-        _ => Position::ObjectKey,
-      };
-      (position, keys.clone())
-    }
-    Some(Frame::Array { .. }) => (Position::ArrayValue, Vec::new()),
+  let position = match stack.last() {
+    Some(Frame::Object { last_key, after_colon, .. }) => match (after_colon, last_key) {
+      (true, Some(key)) => Position::ObjectValue { key: key.clone() },
+      _ => Position::ObjectKey,
+    },
+    Some(Frame::Array { .. }) => Position::ArrayValue,
     // not inside any container (ex. empty document)
     None => return None,
+  };
+
+  // The keys after the cursor are also already present, so keep going to
+  // the end of the container the cursor is in. That end is only known when
+  // every container is closed by the end of the file. When one isn't (ex. the
+  // closing brace of the object being typed doesn't exist yet), the next
+  // closing brace might be the parent's and the keys before it the parent's,
+  // so only the keys before the cursor are used.
+  let container_depth = stack.len();
+  let keys_before_cursor = object_keys(&stack[container_depth - 1]);
+  let mut keys_at_close = None;
+  let after_idx = if edit_idx.is_some() { boundary + 1 } else { boundary };
+  for tok in &tokens[after_idx..] {
+    let is_close = matches!(tok.kind, TokKind::CloseBrace | TokKind::CloseBracket);
+    if is_close && keys_at_close.is_none() && stack.len() == container_depth {
+      keys_at_close = Some(object_keys(&stack[container_depth - 1]));
+    }
+    apply_token(&mut stack, tok);
+  }
+  let existing_keys = match keys_at_close {
+    Some(keys) if stack.is_empty() => keys,
+    _ => keys_before_cursor,
   };
 
   let (replace_range, in_string) = match edit_idx {
@@ -770,6 +835,69 @@ fn analyze(tokens: &[Tok], offset: usize) -> Option<Analysis> {
     replace_range,
     in_string,
   })
+}
+
+/// Updates the stack of containers that are open for the next token.
+fn apply_token(stack: &mut Vec<Frame>, tok: &Tok) {
+  match &tok.kind {
+    TokKind::OpenBrace => {
+      let key_in_parent = key_in_parent(stack);
+      stack.push(Frame::Object {
+        key_in_parent,
+        last_key: None,
+        after_colon: false,
+        keys: Vec::new(),
+      });
+    }
+    TokKind::OpenBracket => {
+      let key_in_parent = key_in_parent(stack);
+      stack.push(Frame::Array { key_in_parent });
+    }
+    TokKind::CloseBrace | TokKind::CloseBracket => {
+      stack.pop();
+      // the closed container was a completed value of its parent property
+      if let Some(Frame::Object { last_key, after_colon, .. }) = stack.last_mut() {
+        *last_key = None;
+        *after_colon = false;
+      }
+    }
+    TokKind::Colon => {
+      if let Some(Frame::Object { after_colon, .. }) = stack.last_mut() {
+        *after_colon = true;
+      }
+    }
+    TokKind::Comma => {
+      if let Some(Frame::Object { last_key, after_colon, .. }) = stack.last_mut() {
+        *last_key = None;
+        *after_colon = false;
+      }
+    }
+    TokKind::Comment { .. } => {}
+    TokKind::Str(_) | TokKind::Word(_) | TokKind::Scalar(_) => {
+      if let Some(Frame::Object {
+        last_key, after_colon, keys, ..
+      }) = stack.last_mut()
+      {
+        if *after_colon {
+          // a scalar value completes the property
+          *last_key = None;
+          *after_colon = false;
+        } else {
+          let text = tok.scalar_text().unwrap_or("").to_string();
+          keys.push(text.clone());
+          *last_key = Some(text);
+        }
+      }
+    }
+  }
+}
+
+/// Gets the keys seen so far in the container, which an array has none of.
+fn object_keys(frame: &Frame) -> Vec<String> {
+  match frame {
+    Frame::Object { keys, .. } => keys.clone(),
+    Frame::Array { .. } => Vec::new(),
+  }
 }
 
 fn key_in_parent(stack: &[Frame]) -> Option<PathSeg> {
@@ -791,7 +919,7 @@ fn container_path(stack: &[Frame]) -> Vec<PathSeg> {
 }
 
 fn completions_for(schema: &CompositeSchema, text: &str, line_index: &LineIndex, offset: usize) -> Vec<lsp::CompletionItem> {
-  let tokens = scan_tokens(text);
+  let tokens = scan_tokens(text, offset);
   let Some(analysis) = analyze(&tokens, offset) else {
     return Vec::new();
   };
@@ -848,7 +976,7 @@ fn value_items(schema: &CompositeSchema, analysis: &Analysis, range: lsp::Range,
 }
 
 fn hover_for(schema: &CompositeSchema, text: &str, line_index: &LineIndex, offset: usize) -> Option<lsp::Hover> {
-  let tokens = scan_tokens(text);
+  let tokens = scan_tokens(text, offset);
   // find the token under the cursor (inclusive of its end so hovering the last
   // character still resolves)
   let idx = tokens.iter().position(|t| t.is_editable() && t.start <= offset && offset <= t.end)?;
@@ -889,8 +1017,8 @@ fn hover_for(schema: &CompositeSchema, text: &str, line_index: &LineIndex, offse
 
 fn lsp_range(line_index: &LineIndex, start: usize, end: usize) -> lsp::Range {
   lsp::Range {
-    start: line_index.position_utf16(TextSize::from(start as u32)),
-    end: line_index.position_utf16(TextSize::from(end as u32)),
+    start: line_index.position_utf16_from_utf8_offset(TextSize::from(start as u32)),
+    end: line_index.position_utf16_from_utf8_offset(TextSize::from(end as u32)),
   }
 }
 
@@ -950,6 +1078,10 @@ mod test {
     items.iter().map(|item| item.label.clone()).collect()
   }
 
+  fn labels_contain(items: &[lsp::CompletionItem], label: &str) -> bool {
+    items.iter().any(|item| item.label == label)
+  }
+
   fn new_text(item: &lsp::CompletionItem) -> &str {
     match item.text_edit.as_ref().unwrap() {
       lsp::CompletionTextEdit::Edit(edit) => &edit.new_text,
@@ -962,6 +1094,42 @@ mod test {
       .iter()
       .find(|i| i.label == label)
       .unwrap_or_else(|| panic!("missing completion: {}", label))
+  }
+
+  fn edit(item: &lsp::CompletionItem) -> &lsp::TextEdit {
+    match item.text_edit.as_ref().unwrap() {
+      lsp::CompletionTextEdit::Edit(edit) => edit,
+      _ => unreachable!(),
+    }
+  }
+
+  /// Gets the text that results from accepting the completion with the
+  /// provided label at the `%` cursor.
+  fn accept(schema: &CompositeSchema, text_with_marker: &str, label: &str) -> String {
+    let (text, offset) = at_cursor(text_with_marker);
+    let line_index = LineIndex::new(&text);
+    let items = completions_for(schema, &text, &line_index, offset);
+    let edit = edit(item(&items, label));
+    assert_eq!(edit.range.start.line, edit.range.end.line, "edit should be on a single line");
+    let range = line_index.get_text_range(edit.range).unwrap();
+    let mut text = text;
+    text.replace_range(usize::from(range.start())..usize::from(range.end()), &edit.new_text);
+    text
+  }
+
+  fn with_boolean_array_plugin() -> CompositeSchema {
+    let mut schema = base_only();
+    schema.plugins.push(PluginSchema {
+      config_key: "test".to_string(),
+      name: "Test".to_string(),
+      schema: Some(Rc::new(serde_json::json!({
+        "type": "object",
+        "properties": {
+          "flags": { "type": "array", "items": { "type": "boolean" } }
+        }
+      }))),
+    });
+    schema
   }
 
   #[test]
@@ -1088,6 +1256,180 @@ mod test {
   #[test]
   fn no_completions_outside_object() {
     assert!(complete(&base_only(), "%").is_empty());
+  }
+
+  #[test]
+  fn completes_unterminated_string_before_another_property() {
+    // the state right after typing a quote in an editor without auto-pairing,
+    // where the next quote in the file opens the following property's name
+    assert_eq!(
+      accept(&base_only(), "{\n  \"new%\n  \"useTabs\": true\n}", "newLineKind"),
+      "{\n  \"newLineKind\"\n  \"useTabs\": true\n}"
+    );
+    assert_eq!(
+      accept(&base_only(), "{\r\n  \"new%\r\n  \"useTabs\": true\r\n}", "newLineKind"),
+      "{\r\n  \"newLineKind\"\r\n  \"useTabs\": true\r\n}"
+    );
+    assert_eq!(
+      accept(&base_only(), "{\n  \"newLineKind\": \"sys%\n  \"useTabs\": true\n}", "system"),
+      "{\n  \"newLineKind\": \"system\"\n  \"useTabs\": true\n}"
+    );
+  }
+
+  #[test]
+  fn completes_unterminated_string_without_later_quote() {
+    assert_eq!(accept(&base_only(), "{\n  \"lin%\n}", "lineWidth"), "{\n  \"lineWidth\"\n}");
+    assert_eq!(accept(&base_only(), "{\n  \"%\n}", "lineWidth"), "{\n  \"lineWidth\"\n}");
+    assert_eq!(accept(&base_only(), "{\n  \"lin%", "lineWidth"), "{\n  \"lineWidth\"");
+    // only up to the cursor, which keeps what follows on the line
+    assert_eq!(accept(&base_only(), "{ \"lin% }", "lineWidth"), "{ \"lineWidth\" }");
+    assert_eq!(accept(&base_only(), "{ \"newLineKind\": \"sys% }", "system"), "{ \"newLineKind\": \"system\" }");
+    // though the rest of a word the cursor is in the middle of is replaced
+    assert_eq!(accept(&base_only(), "{\n  \"lin%eWid\n}", "lineWidth"), "{\n  \"lineWidth\"\n}");
+    let items = complete(&base_only(), "{\n  \"lin%\n}");
+    assert_eq!(item(&items, "lineWidth").filter_text.as_deref(), Some("\"lineWidth\""));
+  }
+
+  #[test]
+  fn completes_after_non_ascii_text() {
+    // é is two utf-8 bytes and one utf-16 code unit, 🦕 is four and two
+    assert_eq!(
+      accept(&base_only(), "{\n  // é🦕\n  \"line%\"\n}", "lineWidth"),
+      "{\n  // é🦕\n  \"lineWidth\"\n}"
+    );
+    let items = complete(&base_only(), "{ /* é🦕 */ \"line%\" }");
+    assert_eq!(
+      edit(item(&items, "lineWidth")).range,
+      lsp::Range {
+        start: lsp::Position { line: 0, character: 12 },
+        end: lsp::Position { line: 0, character: 18 },
+      }
+    );
+  }
+
+  #[test]
+  fn completes_partial_bare_word_before_punctuation() {
+    assert_eq!(accept(&base_only(), "{\"useTabs\": tr%}", "true"), "{\"useTabs\": true}");
+    assert_eq!(
+      accept(&base_only(), "{\n  \"useTabs\": fa%,\n  \"lineWidth\": 80\n}", "false"),
+      "{\n  \"useTabs\": false,\n  \"lineWidth\": 80\n}"
+    );
+    assert_eq!(
+      accept(&with_boolean_array_plugin(), "{ \"test\": { \"flags\": [true, fa%] } }", "false"),
+      "{ \"test\": { \"flags\": [true, false] } }"
+    );
+    // a bare property name
+    assert_eq!(accept(&base_only(), "{line%}", "lineWidth"), "{\"lineWidth\"}");
+    let items = complete(&base_only(), "{\"useTabs\": tr%}");
+    assert_eq!(item(&items, "true").filter_text.as_deref(), Some("true"));
+    // what follows an incomplete word is still understood
+    let items = complete(&base_only(), "{ \"useTabs\": tr, % }");
+    assert!(labels_contain(&items, "lineWidth"));
+    assert!(!labels_contain(&items, "useTabs"));
+  }
+
+  #[test]
+  fn completes_after_string_with_invalid_escape() {
+    // the scanner rejects `\q`, and the strings end with an escaped backslash
+    // and have an escaped quote
+    assert_eq!(accept(&base_only(), r#"{ "a\q\\": 1, % }"#, "lineWidth"), r#"{ "a\q\\": 1, "lineWidth" }"#);
+    assert_eq!(
+      accept(&base_only(), r#"{ "a\q\"": 1, "useTabs": % }"#, "true"),
+      r#"{ "a\q\"": 1, "useTabs": true }"#
+    );
+  }
+
+  #[test]
+  fn excludes_keys_after_the_cursor() {
+    let items = complete(&base_only(), "{\n  %\n  \"lineWidth\": 80\n}");
+    assert!(!labels_contain(&items, "lineWidth"));
+    assert!(labels_contain(&items, "indentWidth"));
+
+    // including when the property being typed is incomplete
+    let items = complete(&base_only(), "{\n  \"useTabs\": true,\n  \"%\n  \"lineWidth\": 80,\n  \"indentWidth\": 2\n}");
+    assert!(!labels_contain(&items, "useTabs"));
+    assert!(!labels_contain(&items, "lineWidth"));
+    assert!(!labels_contain(&items, "indentWidth"));
+    assert!(labels_contain(&items, "newLineKind"));
+
+    // the property the cursor is in is still offered
+    let items = complete(&base_only(), "{ \"line%Width\": 80 }");
+    assert!(labels_contain(&items, "lineWidth"));
+  }
+
+  #[test]
+  fn only_excludes_keys_of_the_object_the_cursor_is_in() {
+    // keys of a nested object after the cursor
+    let items = complete(&with_typescript_plugin(), "{\n  %\n  \"typescript\": { \"lineWidth\": 80 }\n}");
+    assert!(labels_contain(&items, "lineWidth"));
+    assert!(!labels_contain(&items, "typescript"));
+    // keys of the parent object after the cursor
+    let items = complete(&with_typescript_plugin(), "{ \"typescript\": { % }, \"lineWidth\": 80 }");
+    assert!(labels_contain(&items, "lineWidth"));
+  }
+
+  #[test]
+  fn keeps_parent_keys_after_the_cursor_in_unclosed_object() {
+    // the closing brace is the root's, so the keys after the cursor aren't
+    // the plugin object's
+    let schema = with_typescript_plugin();
+    for text in [
+      "{\n  \"typescript\": {\n    \"%\n  \"lineWidth\": 120,\n  \"indentWidth\": 2\n}",
+      "{\n  \"typescript\": {\n    %\n  \"lineWidth\": 120,\n  \"indentWidth\": 2\n}",
+    ] {
+      let items = complete(&schema, text);
+      assert!(labels_contain(&items, "lineWidth"), "{}", text);
+      assert!(labels_contain(&items, "semiColons"), "{}", text);
+    }
+    // the keys before the cursor are still excluded
+    let items = complete(
+      &schema,
+      "{\n  \"typescript\": {\n    \"semiColons\": \"always\",\n    %\n  \"lineWidth\": 120\n}",
+    );
+    assert!(labels_contain(&items, "lineWidth"));
+    assert!(!labels_contain(&items, "semiColons"));
+    let items = complete(&base_only(), "{\n  \"useTabs\": true,\n  %\n  \"lineWidth\": 80\n");
+    assert!(labels_contain(&items, "lineWidth"));
+    assert!(!labels_contain(&items, "useTabs"));
+  }
+
+  #[test]
+  fn skips_unknown_character() {
+    let items = complete(&base_only(), "{ * \"useTabs\": true, % }");
+    assert!(!labels_contain(&items, "useTabs"));
+    assert!(labels_contain(&items, "lineWidth"));
+    // also after the cursor, and when it's more than one byte
+    let items = complete(&base_only(), "{ % * \"useTabs\": true, § \"indentWidth\": 2 }");
+    assert!(!labels_contain(&items, "useTabs"));
+    assert!(!labels_contain(&items, "indentWidth"));
+    assert!(labels_contain(&items, "lineWidth"));
+  }
+
+  #[test]
+  fn no_completions_inside_comment() {
+    assert!(complete(&base_only(), "{\n  // see: %\n}").is_empty());
+    assert!(complete(&base_only(), "{\n  // see%: more\n}").is_empty());
+    assert!(complete(&base_only(), "{\n  \"useTabs\": // see: %\n}").is_empty());
+    assert!(complete(&base_only(), "{ /* see: % */ }").is_empty());
+    assert!(complete(&base_only(), "{\n  /* see: %\n}").is_empty());
+    // not in the comment
+    assert!(!complete(&base_only(), "{ /* see: */% }").is_empty());
+    assert!(!complete(&base_only(), "{ %/* see: */ }").is_empty());
+    assert!(!complete(&base_only(), "{\n  // see\n  %\n}").is_empty());
+    assert!(!complete(&base_only(), "{\n  %// see\n}").is_empty());
+  }
+
+  #[test]
+  fn hover_range_after_non_ascii_text() {
+    let (text, offset) = at_cursor("{\n  // é🦕\n  /* é */ \"newLine%Kind\": \"auto\"\n}");
+    let hover = hover_for(&base_only(), &text, &LineIndex::new(&text), offset).unwrap();
+    assert_eq!(
+      hover.range,
+      Some(lsp::Range {
+        start: lsp::Position { line: 2, character: 10 },
+        end: lsp::Position { line: 2, character: 23 },
+      })
+    );
   }
 
   #[test]
