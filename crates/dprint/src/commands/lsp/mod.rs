@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::Context;
 use anyhow::Result;
@@ -21,6 +23,7 @@ use deno_tower_lsp::lsp_types::DidCloseNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidCloseTextDocumentParams;
 use deno_tower_lsp::lsp_types::DidOpenNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidOpenTextDocumentParams;
+use deno_tower_lsp::lsp_types::DidSaveTextDocumentParams;
 use deno_tower_lsp::lsp_types::DocumentFormattingParams;
 use deno_tower_lsp::lsp_types::DocumentRangeFormattingParams;
 use deno_tower_lsp::lsp_types::Hover;
@@ -37,8 +40,10 @@ use deno_tower_lsp::lsp_types::ServerInfo;
 use deno_tower_lsp::lsp_types::TextDocumentSyncCapability;
 use deno_tower_lsp::lsp_types::TextDocumentSyncKind;
 use deno_tower_lsp::lsp_types::TextDocumentSyncOptions;
+use deno_tower_lsp::lsp_types::TextDocumentSyncSaveOptions;
 use deno_tower_lsp::lsp_types::TextEdit;
 use deno_tower_lsp::lsp_types::Uri;
+use deno_tower_lsp::lsp_types::WillSaveTextDocumentParams;
 use dprint_core::async_runtime::JoinHandle;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::HostFormatRequest;
@@ -56,6 +61,7 @@ use crate::format::EnsureStableFormat;
 use crate::plugins::PluginResolver;
 
 use self::client::ClientWrapper;
+use self::config::GlobalConfigMode;
 use self::config::LspPluginsScopeContainer;
 use self::config_completion::ConfigCompletions;
 use self::config_completion::is_config_uri;
@@ -74,6 +80,10 @@ mod config_completion;
 mod documents;
 mod notebook;
 mod text;
+
+/// How long a document is considered to be saving for after the client said
+/// it will save it, which is in case the client never says that it was saved.
+const SAVE_TIMEOUT: Duration = Duration::from_secs(5);
 
 // deno_tower_lsp will drop the future on cancellation,
 // so use this to cancel the containing token on drop.
@@ -155,6 +165,8 @@ struct EditorFormatRequest {
   pub file_text: String,
   pub maybe_line_index: Option<LineIndex>,
   pub range: FormatRange,
+  /// Whether the document is being formatted because it's being saved.
+  pub is_save: bool,
   pub token: Arc<CancellationToken>,
 }
 
@@ -187,7 +199,7 @@ async fn handle_format_request<TEnvironment: Environment>(
   if request.token.is_cancelled() {
     return Ok(None);
   }
-  let Some(scope) = scope_container.resolve_by_path(parent_dir).await? else {
+  let Some(scope) = scope_container.resolve_by_path(parent_dir, request.is_save).await? else {
     log_stderr_info!(environment, "Path did not have a dprint config file: {}", request.file_path.display());
     return Ok(None);
   };
@@ -345,6 +357,16 @@ struct State<TEnvironment: Environment> {
   documents: Documents<TEnvironment>,
   /// Registrations to send to the client once it says it's initialized.
   pending_registrations: Vec<Registration>,
+  /// The documents the client said it will save and when it said that.
+  saving_documents: HashMap<Uri, Instant>,
+}
+
+impl<TEnvironment: Environment> State<TEnvironment> {
+  /// The client formats a document on save between saying that
+  /// it will save the document and that it saved it.
+  fn is_saving(&self, uri: &Uri) -> bool {
+    self.saving_documents.get(uri).is_some_and(|time| time.elapsed() < SAVE_TIMEOUT)
+  }
 }
 
 struct Backend<TEnvironment: Environment> {
@@ -352,17 +374,21 @@ struct Backend<TEnvironment: Environment> {
   environment: TEnvironment,
   sender: mpsc::UnboundedSender<ChannelMessage>,
   state: Mutex<State<TEnvironment>>,
+  /// Whether the server needs to know when documents are being saved.
+  tracks_saves: bool,
 }
 
 impl<TEnvironment: Environment> Backend<TEnvironment> {
   pub fn new(client: ClientWrapper, environment: TEnvironment, sender: mpsc::UnboundedSender<ChannelMessage>) -> Self {
     Backend {
       client,
+      tracks_saves: GlobalConfigMode::from_env(&environment) == GlobalConfigMode::Explicit,
       environment: environment.clone(),
       sender,
       state: Mutex::new(State {
         documents: Documents::new(environment),
         pending_registrations: Vec::new(),
+        saving_documents: HashMap::new(),
       }),
     }
   }
@@ -444,8 +470,8 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           // todo: incremental should work now, but let's try out full to start
           change: Some(TextDocumentSyncKind::FULL),
           open_close: Some(true),
-          save: None,
-          will_save: None,
+          save: self.tracks_saves.then_some(TextDocumentSyncSaveOptions::Supported(true)),
+          will_save: self.tracks_saves.then_some(true),
           will_save_wait_until: None,
         })),
         notebook_document_sync: Some(OneOf::Left(get_notebook_document_sync_options())),
@@ -484,8 +510,18 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     self.state.lock().documents.changed(params);
   }
 
+  async fn will_save(&self, params: WillSaveTextDocumentParams) {
+    self.state.lock().saving_documents.insert(params.text_document.uri, Instant::now());
+  }
+
+  async fn did_save(&self, params: DidSaveTextDocumentParams) {
+    self.state.lock().saving_documents.remove(&params.text_document.uri);
+  }
+
   async fn did_close(&self, params: DidCloseTextDocumentParams) {
-    self.state.lock().documents.closed(&params.text_document.uri);
+    let mut state = self.state.lock();
+    state.saving_documents.remove(&params.text_document.uri);
+    state.documents.closed(&params.text_document.uri);
   }
 
   async fn notebook_did_open(&self, params: DidOpenNotebookDocumentParams) {
@@ -527,6 +563,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     let Some((file_text, maybe_line_index)) = self.state.lock().documents.get_content(&params.text_document.uri) else {
       return Ok(None);
     };
+    let is_save = self.state.lock().is_saving(&params.text_document.uri);
     self
       .send_format_request(
         &params.text_document.uri,
@@ -535,6 +572,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           notebook_path,
           file_text,
           range: None,
+          is_save,
           maybe_line_index,
           token: Arc::new(token),
         },
@@ -549,6 +587,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     let Some((file_text, range, line_index)) = self.state.lock().documents.get_content_with_range(&params.text_document.uri, params.range) else {
       return Ok(None);
     };
+    let is_save = self.state.lock().is_saving(&params.text_document.uri);
     self
       .send_format_request(
         &params.text_document.uri,
@@ -557,6 +596,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
           notebook_path,
           file_text,
           range,
+          is_save,
           maybe_line_index: Some(line_index),
           token: Arc::new(token),
         },
@@ -680,6 +720,7 @@ mod test {
   use deno_tower_lsp::lsp_types::TextDocumentContentChangeEvent;
   use deno_tower_lsp::lsp_types::TextDocumentIdentifier;
   use deno_tower_lsp::lsp_types::TextDocumentItem;
+  use deno_tower_lsp::lsp_types::TextDocumentSaveReason;
   use deno_tower_lsp::lsp_types::VersionedNotebookDocumentIdentifier;
   use deno_tower_lsp::lsp_types::VersionedTextDocumentIdentifier;
   use dprint_core::async_runtime::future;
@@ -1590,13 +1631,18 @@ mod test {
       let run_test_task = dprint_core::async_runtime::spawn({
         let environment = environment.clone();
         async move {
-          backend
+          let result = backend
             .initialize(InitializeParams {
               process_id: Some(std::process::id()),
               ..Default::default()
             })
             .await
             .unwrap();
+          // doesn't need to know when documents are saved
+          assert_eq!(
+            serde_json::to_value(result.capabilities.text_document_sync).unwrap(),
+            serde_json::json!({ "openClose": true, "change": 1 })
+          );
           backend.initialized(InitializedParams {}).await;
 
           let file_uri = Uri::from_str("file:///file.txt").unwrap();
@@ -1606,6 +1652,108 @@ mod test {
             environment.take_stderr_messages(),
             vec!["Path did not have a dprint config file: /file.txt".to_string()]
           );
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
+  #[test]
+  fn should_not_use_global_config_on_save_with_lsp_when_explicit() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt");
+      })
+      .with_local_config("/project/dprint.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .initialize()
+      .build();
+    environment.set_env_var("DPRINT_EDITOR_USE_GLOBAL_CONFIG", Some("explicit"));
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let environment = environment.clone();
+        async move {
+          let result = backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          // the client tells the server when documents are saved
+          assert_eq!(
+            serde_json::to_value(result.capabilities.text_document_sync).unwrap(),
+            serde_json::json!({ "openClose": true, "change": 1, "willSave": true, "save": true })
+          );
+          backend.initialized(InitializedParams {}).await;
+
+          let formatted = Some(vec![TextEdit {
+            range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+            new_text: "_formatted".to_string(),
+          }]);
+
+          macro_rules! will_save {
+            ($uri:expr) => {
+              backend
+                .will_save(WillSaveTextDocumentParams {
+                  text_document: TextDocumentIdentifier { uri: $uri.clone() },
+                  reason: TextDocumentSaveReason::MANUAL,
+                })
+                .await;
+            };
+          }
+
+          macro_rules! did_save {
+            ($uri:expr) => {
+              backend
+                .did_save(DidSaveTextDocumentParams {
+                  text_document: TextDocumentIdentifier { uri: $uri.clone() },
+                  text: None,
+                })
+                .await;
+            };
+          }
+
+          // uses the global config when explicitly formatting
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
+          did_open!(backend, file_uri, "testing");
+          assert_format!(backend, file_uri, formatted.clone());
+
+          // but not when formatting on save
+          will_save!(file_uri);
+          assert_format!(backend, file_uri, None);
+          assert_eq!(
+            environment.take_stderr_messages(),
+            vec!["Path did not have a dprint config file: /file.txt".to_string()]
+          );
+          did_save!(file_uri);
+          assert_format!(backend, file_uri, formatted.clone());
+
+          // formats on save when there's a config file in an ancestor directory
+          let project_file_uri = Uri::from_str("file:///project/file.txt").unwrap();
+          did_open!(backend, project_file_uri, "testing");
+          will_save!(project_file_uri);
+          assert_format!(backend, project_file_uri, formatted);
+          did_save!(project_file_uri);
 
           backend.shutdown().await.unwrap();
         }
