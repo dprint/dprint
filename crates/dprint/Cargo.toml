@@ -23,6 +23,7 @@ crossterm = "=0.27.0" # manually retest everything when bumping this crate
 deno_npmrc = "=0.9.0"
 deno_semver = "=0.10.1"
 deno_terminal = "=0.2.3"
+deno_tower_lsp = "=0.5.0"
 dirs = "=6.0.0"
 dprint-core = { path = "../core", version = "=0.70.0", features = ["process", "wasm"] }
 dunce = "=1.0.4"
@@ -49,7 +50,6 @@ text-size = "=1.1.1"
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-std"] }
 tokio-util = { version = "=0.7.11" }
-tower-lsp = "=0.20.0"
 twox-hash = "=2.1.0"
 url = "=2.5.4"
 which = "=8.0.0"
