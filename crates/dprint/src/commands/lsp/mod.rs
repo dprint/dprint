@@ -1339,6 +1339,104 @@ mod test {
   }
 
   #[test]
+  fn should_format_with_other_configs_after_a_config_changes_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
+      .with_local_config("/a/dprint.json", |c| {
+        c.add_remote_process_plugin();
+      })
+      .with_local_config("/b/dprint.json", |c| {
+        c.add_remote_process_plugin();
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let environment = environment.clone();
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          macro_rules! assert_ending {
+            ($uri:expr, $ending:expr) => {
+              let result = tokio::time::timeout(
+                Duration::from_secs(10),
+                backend.formatting(
+                  DocumentFormattingParams {
+                    text_document: TextDocumentIdentifier { uri: $uri.clone() },
+                    options: Default::default(),
+                    work_done_progress_params: Default::default(),
+                  },
+                  CancellationToken::new(),
+                ),
+              )
+              .await
+              .expect("timed out formatting");
+              assert_eq!(
+                result.unwrap(),
+                Some(vec![TextEdit {
+                  range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+                  new_text: $ending.to_string(),
+                }])
+              );
+            };
+          }
+
+          let a_uri = Uri::from_str("file:///a/file.txt_ps").unwrap();
+          did_open!(backend, a_uri, "text");
+          let b_uri = Uri::from_str("file:///b/file.txt_ps").unwrap();
+          did_open!(backend, b_uri, "text");
+          assert_ending!(a_uri, "_formatted_process");
+          assert_ending!(b_uri, "_formatted_process");
+          assert_eq!(environment.take_stderr_messages(), vec!["Extracting zip for test-process-plugin".to_string()]);
+
+          // change one of the configs
+          {
+            let mut config_file = TestConfigFileBuilder::new(environment.clone());
+            config_file
+              .add_remote_process_plugin()
+              .add_config_section("testProcessPlugin", r#"{ "ending": "changed" }"#);
+            environment.write_file("/a/dprint.json", &config_file.to_string()).unwrap();
+          }
+          assert_ending!(a_uri, "_changed");
+
+          // the other config's plugins were shut down along with the changed one's,
+          // so ensure formatting with it still works and keeps working
+          assert_ending!(b_uri, "_formatted_process");
+          assert_ending!(b_uri, "_formatted_process");
+          assert_ending!(a_uri, "_changed");
+          assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
+  #[test]
   fn should_format_shebang_file_with_lsp() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
