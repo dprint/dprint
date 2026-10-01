@@ -121,7 +121,9 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
         if !index_valid.covers(range.end.line) {
           line_index = LineIndex::new(&content);
         }
-        index_valid = IndexValid::UpTo(range.start.line);
+        // a start past the last line is the end of the text, which is
+        // on the last line, so the index is not valid for that line
+        index_valid = IndexValid::UpTo(range.start.line.min(line_index.last_line()));
         let range = match line_index.get_text_range(range) {
           Ok(range) => range,
           Err(err) => {
@@ -220,6 +222,31 @@ mod test {
       ),
       "aX\n"
     );
+  }
+
+  #[test]
+  fn ranged_change_after_change_starting_past_last_line() {
+    // the first change is at the end of the text, which is on the last line,
+    // so the second change can't use the line index for that line
+    assert_eq!(apply_changes("a\nb", vec![ranged((5, 0), (5, 0), "xyz"), ranged((1, 0), (1, 4), "")]), "a\n");
+    assert_eq!(apply_changes("a\nb", vec![ranged((2, 0), (2, 0), "xyz"), ranged((1, 0), (1, 4), "")]), "a\n");
+    // the last line is the empty one after the final newline
+    assert_eq!(
+      apply_changes("a\nb\n", vec![ranged((3, 0), (3, 0), "xyz"), ranged((2, 0), (2, 3), "Q")]),
+      "a\nb\nQ"
+    );
+    // starts above the last line and ends on it
+    assert_eq!(apply_changes("a\nb\nc", vec![ranged((9, 0), (9, 0), "xyz"), ranged((1, 0), (2, 4), "")]), "a\n");
+    // the lines above the last one are still found after such a change
+    assert_eq!(
+      apply_changes(
+        "a\nb\nc",
+        vec![ranged((9, 0), (9, 0), "\nd"), ranged((1, 0), (1, 1), "B"), ranged((0, 0), (0, 1), "A")]
+      ),
+      "A\nB\nc\nd"
+    );
+    // empty text
+    assert_eq!(apply_changes("", vec![ranged((4, 0), (4, 0), "xyz"), ranged((0, 0), (0, 3), "Q")]), "Q");
   }
 
   #[test]
