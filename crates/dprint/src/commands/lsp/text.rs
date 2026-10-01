@@ -138,6 +138,13 @@ impl LineIndex {
     }
   }
 
+  /// Returns the zero based number of the last line, which is the line
+  /// that the end of the text is on.
+  pub fn last_line(&self) -> u32 {
+    // only a default index has no lines
+    self.utf8_line_ends.len().saturating_sub(1) as u32
+  }
+
   fn utf16_to_utf8_col(&self, line: u32, mut col: u32) -> TextSize {
     if let Some(utf16_chars) = self.utf16_lines.get(&line) {
       for c in utf16_chars {
@@ -371,6 +378,15 @@ mod tests {
     assert_eq!(offset(&index, 0, 100), 6);
     assert_eq!(offset(&index, 1, 1), 9);
     assert_eq!(offset(&index, 1, 100), 9);
+  }
+
+  #[test]
+  fn test_last_line() {
+    assert_eq!(LineIndex::new("").last_line(), 0);
+    assert_eq!(LineIndex::new("ab").last_line(), 0);
+    assert_eq!(LineIndex::new("ab\ncd").last_line(), 1);
+    assert_eq!(LineIndex::new("ab\r\ncd\n").last_line(), 2);
+    assert_eq!(LineIndex::default().last_line(), 0);
   }
 
   #[test]
