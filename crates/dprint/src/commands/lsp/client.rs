@@ -41,6 +41,14 @@ impl ClientWrapper {
     self.log(MessageType::INFO, message);
   }
 
+  pub fn log_warn(&self, message: String) {
+    self.log(MessageType::WARNING, message);
+  }
+
+  pub fn log_error(&self, message: String) {
+    self.log(MessageType::ERROR, message);
+  }
+
   pub fn register_capabilities(&self, registrations: Vec<Registration>) {
     self.0.register_capabilities(registrations)
   }

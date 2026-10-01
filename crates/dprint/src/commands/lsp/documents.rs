@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+use anyhow::Result;
+use anyhow::bail;
 use deno_tower_lsp::lsp_types;
 use deno_tower_lsp::lsp_types::DidChangeTextDocumentParams;
 use deno_tower_lsp::lsp_types::TextDocumentItem;
@@ -56,12 +58,13 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
     self.open_inner(text_document_item, Some(notebook_uri.clone()));
   }
 
-  pub fn get_content(&self, uri: &Uri) -> Option<(String, Option<LineIndex>)> {
+  /// Gets the text of the document, which fails with the message to log when
+  /// the document isn't open.
+  pub fn get_content(&self, uri: &Uri) -> Result<(String, Option<LineIndex>)> {
     let Some(entry) = self.docs.get(uri) else {
-      log_warn!(self.environment, "Missing document: {}", uri.as_str());
-      return None;
+      bail!("Missing document: {}", uri.as_str());
     };
-    Some((entry.text.clone(), entry.line_index.clone()))
+    Ok((entry.text.clone(), entry.line_index.clone()))
   }
 
   pub fn get_language_id(&self, uri: &Uri) -> Option<String> {
@@ -75,21 +78,19 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
     Some((entry.notebook_uri.clone()?, entry.language_id.clone()))
   }
 
-  pub fn get_content_with_range(&mut self, uri: &Uri, lsp_range: lsp_types::Range) -> Option<(String, FormatRange, LineIndex)> {
+  /// Gets the text of the document and the range within it, which fails with
+  /// the message to log when the document isn't open or the range is invalid.
+  pub fn get_content_with_range(&mut self, uri: &Uri, lsp_range: lsp_types::Range) -> Result<(String, FormatRange, LineIndex)> {
     let Some(entry) = self.docs.get_mut(uri) else {
-      log_warn!(self.environment, "Missing document: {}", uri.as_str());
-      return None;
+      bail!("Missing document: {}", uri.as_str());
     };
 
     let line_index = entry.line_index.get_or_insert_with(|| LineIndex::new(&entry.text));
     let range = match line_index.get_text_range(lsp_range) {
       Ok(range) => range,
-      Err(err) => {
-        log_warn!(self.environment, "Invalid range for '{}'. {:#}", uri.as_str(), err);
-        return None;
-      }
+      Err(err) => bail!("Invalid range for '{}'. {:#}", uri.as_str(), err),
     };
-    Some((entry.text.clone(), Some(range.start().into()..range.end().into()), line_index.clone()))
+    Ok((entry.text.clone(), Some(range.start().into()..range.end().into()), line_index.clone()))
   }
 
   pub fn changed(&mut self, params: DidChangeTextDocumentParams) {

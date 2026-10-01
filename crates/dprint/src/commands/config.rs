@@ -1595,7 +1595,7 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
 
     // output its diagnostics
     let plugin = match plugin.get_or_create_checking_config_diagnostics(environment).await? {
-      GetPluginResult::HadDiagnostics(count) => bail!("Plugin had {} diagnostic(s)", count),
+      GetPluginResult::HadDiagnostics(diagnostics) => bail!("Plugin had {} diagnostic(s)", diagnostics.len()),
       GetPluginResult::Success(plugin) => plugin,
     };
 

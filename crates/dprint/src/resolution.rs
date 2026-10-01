@@ -71,8 +71,20 @@ use crate::utils::escape_glob_text_for_cli;
 use crate::utils::is_negated_glob;
 
 pub enum GetPluginResult {
-  HadDiagnostics(usize),
+  /// The text of each of the plugin's configuration diagnostics in the form
+  /// it was logged.
+  HadDiagnostics(Vec<String>),
   Success(InitializedPluginWithConfig),
+}
+
+/// The error for formatting with a plugin that has configuration diagnostics.
+///
+/// The diagnostics are only logged the first time the plugin is used, so this
+/// has their text for a consumer that reports each failure (ex. the lsp).
+#[derive(Debug, Error)]
+#[error("Had {} configuration errors.", .diagnostics.len())]
+pub struct PluginConfigDiagnosticsError {
+  pub diagnostics: Vec<String>,
 }
 
 pub struct PluginConfigOverride {
@@ -92,7 +104,8 @@ pub struct PluginWithConfig {
   /// the incremental hash so that values the plugin derives at resolution time
   /// (ex. the exec plugin's `cacheKeyFiles` hash) invalidate the cache.
   serialized_resolved_config: String,
-  config_diagnostic_count: tokio::sync::Mutex<Option<usize>>,
+  /// The configuration diagnostics once checked, which is empty for none.
+  config_diagnostics: tokio::sync::Mutex<Option<Vec<String>>>,
 }
 
 pub struct PluginWithConfigOptions {
@@ -111,7 +124,7 @@ impl PluginWithConfig {
       associations: options.associations,
       overrides: options.overrides,
       format_config: options.format_config,
-      config_diagnostic_count: Default::default(),
+      config_diagnostics: Default::default(),
       file_matching: options.file_matching,
       serialized_resolved_config: options.serialized_resolved_config,
     }
@@ -198,11 +211,11 @@ impl PluginWithConfig {
   pub async fn get_or_create_checking_config_diagnostics<TEnvironment: Environment>(self: &Rc<Self>, environment: &TEnvironment) -> Result<GetPluginResult> {
     // only allow one thread to initialize and output the diagnostics (we don't want the messages being spammed)
     let instance = self.initialize().await?;
-    let mut config_diagnostic_count = self.config_diagnostic_count.lock().await;
-    match *config_diagnostic_count {
-      Some(count) => {
-        if count > 0 {
-          return Ok(GetPluginResult::HadDiagnostics(count));
+    let mut config_diagnostics = self.config_diagnostics.lock().await;
+    match &*config_diagnostics {
+      Some(diagnostics) => {
+        if !diagnostics.is_empty() {
+          return Ok(GetPluginResult::HadDiagnostics(diagnostics.clone()));
         }
         Ok(GetPluginResult::Success(instance))
       }
@@ -210,16 +223,16 @@ impl PluginWithConfig {
         let result = instance.output_config_diagnostics(environment).await?;
         if let Err(err) = result {
           log_error!(environment, &err.to_string());
-          *config_diagnostic_count = Some(err.diagnostic_count);
-          Ok(GetPluginResult::HadDiagnostics(err.diagnostic_count))
+          *config_diagnostics = Some(err.diagnostics.clone());
+          Ok(GetPluginResult::HadDiagnostics(err.diagnostics))
         } else {
           let result = instance.output_override_config_diagnostics(environment).await?;
           if let Err(err) = result {
             log_error!(environment, &err.to_string());
-            *config_diagnostic_count = Some(err.diagnostic_count);
-            Ok(GetPluginResult::HadDiagnostics(err.diagnostic_count))
+            *config_diagnostics = Some(err.diagnostics.clone());
+            Ok(GetPluginResult::HadDiagnostics(err.diagnostics))
           } else {
-            *config_diagnostic_count = Some(0);
+            *config_diagnostics = Some(Vec::new());
             Ok(GetPluginResult::Success(instance))
           }
         }
@@ -271,7 +284,7 @@ impl InitializedPluginWithConfig {
     &self,
     environment: &TEnvironment,
   ) -> Result<Result<(), OutputPluginConfigDiagnosticsError>> {
-    let mut diagnostic_count = 0;
+    let mut diagnostics = Vec::new();
     for override_config in &self.plugin.overrides {
       let mut plugin_config = self.plugin.format_config.plugin.clone();
       for (key, value) in override_config.properties.iter() {
@@ -283,15 +296,17 @@ impl InitializedPluginWithConfig {
         global: self.plugin.format_config.global.clone(),
       });
       for diagnostic in self.instance.config_diagnostics(format_config).await? {
-        log_warn!(environment, "[{}]: {}", self.info().name, diagnostic);
-        diagnostic_count += 1;
+        let message = format!("[{}]: {}", self.info().name, diagnostic);
+        log_warn!(environment, "{}", message);
+        diagnostics.push(message);
       }
     }
 
-    if diagnostic_count > 0 {
+    if !diagnostics.is_empty() {
       Ok(Err(OutputPluginConfigDiagnosticsError {
         plugin_name: self.info().name.to_string(),
-        diagnostic_count,
+        diagnostic_count: diagnostics.len(),
+        diagnostics,
       }))
     } else {
       Ok(Ok(()))
@@ -539,7 +554,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
               had_change = true;
             }
           }
-          Ok(GetPluginResult::HadDiagnostics(count)) => return Err(FormatError::new(format!("Had {} configuration errors.", count))),
+          Ok(GetPluginResult::HadDiagnostics(diagnostics)) => return Err(FormatError::new(PluginConfigDiagnosticsError { diagnostics })),
           Err(err) => return Err(CriticalFormatError(FormatError::new(err)).into()),
         }
       }
