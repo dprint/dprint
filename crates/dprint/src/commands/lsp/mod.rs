@@ -47,6 +47,7 @@ use deno_tower_lsp::lsp_types::WorkspaceFolder;
 use deno_tower_lsp::lsp_types::WorkspaceFoldersServerCapabilities;
 use deno_tower_lsp::lsp_types::WorkspaceServerCapabilities;
 use dprint_core::async_runtime::JoinHandle;
+use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::HostFormatRequest;
 use dprint_core::plugins::process::start_parent_process_checker_task;
@@ -61,6 +62,7 @@ use crate::arg_parser::CliArgs;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::plugins::PluginResolver;
+use crate::resolution::PluginConfigDiagnosticsError;
 
 use self::client::ClientWrapper;
 use self::config::LspPluginsScopeContainer;
@@ -201,8 +203,8 @@ async fn handle_format_request<TEnvironment: Environment>(
   environment: &TEnvironment,
 ) -> Result<Option<Vec<TextEdit>>> {
   let Some(parent_dir) = request.file_path.parent() else {
-    log_warn!(environment, "Cannot format non-file path: {}", request.file_path.display());
-    return Ok(None);
+    // the backend doesn't send this, so it's an error that also goes to the client
+    bail!("Cannot format non-file path: {}", request.file_path.display());
   };
   if request.token.is_cancelled() {
     return Ok(None);
@@ -420,8 +422,14 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
         // Not a response error or a shown message because failing to format is
         // what happens for a file with a syntax error, which would notify the
         // user on every format on save.
-        let message = format!("Failed formatting '{}': {:#}", uri.as_str(), err);
+        let mut message = format!("Failed formatting '{}': {:#}", uri.as_str(), err);
         log_error!(self.environment, "{}", message);
+        // the text of a plugin's config diagnostics is only logged to stderr
+        // the first time the plugin is used, so tell the client each time
+        for diagnostic in get_plugin_config_diagnostics(&err) {
+          message.push('\n');
+          message.push_str(diagnostic);
+        }
         self.client.log_error(message);
         Ok(None)
       }
@@ -449,6 +457,10 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
           uri.as_str()
         );
       };
+      // the document is formatted with the config file for its directory
+      if file_path.parent().is_none() {
+        bail!("Cannot format non-file path: {}", file_path.display());
+      }
       return Ok((file_path, None));
     };
     // the cli only formats notebooks on the file system
@@ -773,6 +785,16 @@ pub fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
       }
     }
   }
+}
+
+/// Gets the text of the plugin's configuration diagnostics when the format
+/// request failed because of them.
+fn get_plugin_config_diagnostics(err: &anyhow::Error) -> &[String] {
+  err
+    .downcast_ref::<FormatError>()
+    .and_then(|err| err.downcast_ref::<PluginConfigDiagnosticsError>())
+    .map(|err| err.diagnostics.as_slice())
+    .unwrap_or_default()
 }
 
 fn has_use_global_config_option(options: &FormattingOptions) -> bool {
@@ -2320,6 +2342,14 @@ mod test {
             "Cannot format document that is not a file, an untitled document or a cell of an open notebook: other:/file.txt"
           );
 
+          // path without a parent directory
+          let root_uri = Uri::from_str("file:///").unwrap();
+          did_open!(backend, root_uri, "text");
+          assert_format!(backend, root_uri, None);
+          assert_logged!(MessageType::WARNING, "Cannot format non-file path: /");
+          assert_range_format!(root_uri, valid_range, None);
+          assert_logged!(MessageType::WARNING, "Cannot format non-file path: /");
+
           // untitled document in a language without a known file extension
           let untitled_uri = Uri::from_str("untitled:Untitled-2").unwrap();
           backend
@@ -2346,6 +2376,108 @@ mod test {
           assert_logged!(
             MessageType::ERROR,
             "Failed formatting 'file:///file.txt': Error deserializing. Unterminated object on line 1 column 2\n    at /dprint.json"
+          );
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+    });
+  }
+
+  #[test]
+  fn should_log_plugin_config_diagnostics_to_client_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "non-existent": 1 }"#)
+          .add_includes("**/*.txt");
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let environment = environment.clone();
+        let test_client = test_client.clone();
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+          test_client.take_messages();
+
+          // stderr only has the text of the diagnostics the first time the
+          // plugin is used, but the client is told for every failure
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
+          did_open!(backend, file_uri, "text");
+          let client_message = (
+            MessageType::ERROR,
+            concat!(
+              "Failed formatting 'file:///file.txt': Had 1 configuration errors.\n",
+              "[test-plugin]: Unknown property in configuration (non-existent)"
+            )
+            .to_string(),
+          );
+          assert_format!(backend, file_uri, None);
+          assert_eq!(
+            environment.take_stderr_messages(),
+            vec![
+              "[test-plugin]: Unknown property in configuration (non-existent)",
+              "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s).",
+              "Failed formatting 'file:///file.txt': Had 1 configuration errors.",
+            ]
+          );
+          assert_eq!(test_client.take_messages(), vec![client_message.clone()]);
+          assert_format!(backend, file_uri, None);
+          assert_eq!(
+            environment.take_stderr_messages(),
+            vec!["Failed formatting 'file:///file.txt': Had 1 configuration errors."]
+          );
+          assert_eq!(test_client.take_messages(), vec![client_message]);
+
+          // diagnostics in a plugin's overrides
+          let mut config_file = TestConfigFileBuilder::new(environment.clone());
+          config_file.add_remote_wasm_plugin().add_config_section(
+            "test-plugin",
+            r#"{
+              "overrides": {
+                "files": "**/other.txt",
+                "unknownProperty": true
+              }
+            }"#,
+          );
+          environment.mk_dir_all("/overrides").unwrap();
+          environment.write_file("/overrides/dprint.json", &config_file.to_string()).unwrap();
+          let file_uri = Uri::from_str("file:///overrides/file.txt").unwrap();
+          did_open!(backend, file_uri, "text");
+          assert_format!(backend, file_uri, None);
+          assert_eq!(
+            environment.take_stderr_messages(),
+            vec![
+              "[test-plugin]: Unknown property in configuration (unknownProperty)",
+              "[test-plugin]: Error initializing from configuration file. Had 1 diagnostic(s).",
+              "Failed formatting 'file:///overrides/file.txt': Had 1 configuration errors.",
+            ]
+          );
+          assert_eq!(
+            test_client.take_messages(),
+            vec![(
+              MessageType::ERROR,
+              concat!(
+                "Failed formatting 'file:///overrides/file.txt': Had 1 configuration errors.\n",
+                "[test-plugin]: Unknown property in configuration (unknownProperty)"
+              )
+              .to_string()
+            )]
           );
 
           backend.shutdown().await.unwrap();

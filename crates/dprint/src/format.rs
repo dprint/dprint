@@ -147,8 +147,8 @@ where
             }
           };
           plugins.push(match result {
-            GetPluginResult::HadDiagnostics(count) => {
-              error_logger.add_error_count(count);
+            GetPluginResult::HadDiagnostics(diagnostics) => {
+              error_logger.add_error_count(diagnostics.len());
               return;
             }
             GetPluginResult::Success(initialized_plugin) => (plugin, initialized_plugin),
