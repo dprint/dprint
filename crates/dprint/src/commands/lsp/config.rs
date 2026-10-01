@@ -10,6 +10,7 @@ use anyhow::Result;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
 
+use crate::arg_parser::ConfigDiscovery;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
@@ -36,6 +37,7 @@ pub struct LspPluginsScopeContainer<TEnvironment: Environment> {
   plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
   plugins_scope_by_config: RefCell<HashMap<String, Rc<ScopeCell<TEnvironment>>>>,
   config_override: Option<PathBuf>,
+  config_discovery: ConfigDiscovery,
   use_global_config: bool,
   /// Incremented each time the plugins are shut down, which is when the
   /// scopes that were resolved before then can't be used anymore.
@@ -43,13 +45,19 @@ pub struct LspPluginsScopeContainer<TEnvironment: Environment> {
 }
 
 impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
-  pub fn new(environment: TEnvironment, plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>, config_override: Option<PathBuf>) -> Self {
+  pub fn new(
+    environment: TEnvironment,
+    plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
+    config_override: Option<PathBuf>,
+    config_discovery: ConfigDiscovery,
+  ) -> Self {
     Self {
       use_global_config: use_global_config(&environment),
       environment,
       plugin_resolver,
       plugins_scope_by_config: Default::default(),
       config_override,
+      config_discovery,
       plugins_generation: Default::default(),
     }
   }
@@ -61,7 +69,9 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
 
   /// Resolves the plugins to format the files in the provided directory with.
   /// `use_global_config` is for using the global config file when there's no
-  /// config file in an ancestor directory even when that's not done by default.
+  /// config file in an ancestor directory even when that's not done by default,
+  /// which only has an effect when the config discovery mode allows using the
+  /// global config file.
   pub async fn resolve_by_path(&self, dir_path: &Path, use_global_config: bool) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
     let config_file_bytes = if let Some(path) = &self.config_override {
       let path = self.environment.canonicalize(path).context("failed resolving --config path")?;
@@ -74,11 +84,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
         is_global_config: false,
       })
     } else {
-      match get_default_config_file_in_ancestor_directories(&self.environment, dir_path)? {
-        Some(config) => Some(config),
-        None if self.use_global_config || use_global_config => self.resolve_global_config_file(dir_path)?,
-        None => None,
-      }
+      self.discover_config_file(dir_path, use_global_config)?
     };
     let Some(config_file_bytes) = config_file_bytes else {
       return Ok(None);
@@ -135,12 +141,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
       let Some(parent_dir) = config.base_path.parent() else {
         return Ok(config);
       };
-      let ancestor_config_file = match get_default_config_file_in_ancestor_directories(&self.environment, parent_dir.as_ref())? {
-        Some(config_file) => Some(config_file),
-        None if self.use_global_config || use_global_config => self.resolve_global_config_file(parent_dir.as_ref())?,
-        None => None,
-      };
-      let Some(ancestor_config_file) = ancestor_config_file else {
+      let Some(ancestor_config_file) = self.discover_config_file(parent_dir.as_ref(), use_global_config)? else {
         return Ok(config);
       };
       // the ancestor config file may also inherit
@@ -148,6 +149,26 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
       inherit_config(config, &ancestor_config)
     }
     .boxed_local()
+  }
+
+  /// Finds the config file for a directory the way the cli does for a path
+  /// provided to it in each config discovery mode. Config files are only looked
+  /// for in the ancestor directories in the modes that traverse them, and the
+  /// global config file is what's used when there's none in the default mode and
+  /// the only one that's used in the global mode. The other modes don't use the
+  /// global config file, even when the client asks to.
+  fn discover_config_file(&self, dir_path: &Path, use_global_config: bool) -> Result<Option<ResolvedConfigPathWithText>> {
+    if self.config_discovery.traverse_ancestors()
+      && let Some(config_file) = get_default_config_file_in_ancestor_directories(&self.environment, dir_path)?
+    {
+      return Ok(Some(config_file));
+    }
+    let can_use_global_config = matches!(self.config_discovery, ConfigDiscovery::Default | ConfigDiscovery::Global);
+    if can_use_global_config && (self.use_global_config || use_global_config) {
+      self.resolve_global_config_file(dir_path)
+    } else {
+      Ok(None)
+    }
   }
 
   /// Gets the global config file based at the root directory of the provided
@@ -170,6 +191,8 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
 /// directory using the global config file, which an editor may opt out of by
 /// setting the `DPRINT_EDITOR_USE_GLOBAL_CONFIG` environment variable to `0`
 /// or `false` (ex. to only use it when the user enables that in the editor).
+/// This also applies to every file when the config discovery mode is to only
+/// use the global config file.
 fn use_global_config(environment: &impl Environment) -> bool {
   !environment.env_var("DPRINT_EDITOR_USE_GLOBAL_CONFIG").is_some_and(|value| {
     let value = value.to_string_lossy();
