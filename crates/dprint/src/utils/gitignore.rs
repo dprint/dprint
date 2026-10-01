@@ -116,7 +116,10 @@ pub struct GitIgnoreTreeOptions {
   /// Whether to remember the state of the files each directory's gitignore was
   /// resolved from so `refresh_for_file` can detect when they change. This is
   /// for a tree that outlives a single run (ex. in the language server) and
-  /// costs a stat per resolved directory, so it's off by default.
+  /// it's off by default because of what it costs: a stat of `.git` and of
+  /// `.gitignore` for a directory, plus one of `.git/info/exclude` at a
+  /// repository root, when the directory is resolved and again for each
+  /// resolved ancestor directory on every `refresh_for_file` call.
   pub detect_changes: bool,
 }
 
