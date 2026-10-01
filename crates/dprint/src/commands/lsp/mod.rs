@@ -1649,6 +1649,71 @@ mod test {
   }
 
   #[test]
+  fn should_format_files_outside_cwd_with_lsp_using_global_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt").add_excludes("**/ignored_file.txt");
+      })
+      .initialize()
+      .write_file("/project/file.txt", "")
+      .set_cwd("/project")
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          let formatted = Some(vec![TextEdit {
+            range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+            new_text: "_formatted".to_string(),
+          }]);
+
+          // file in the cwd
+          let file_uri = Uri::from_str("file:///project/file.txt").unwrap();
+          did_open!(backend, file_uri, "testing");
+          assert_format!(backend, file_uri, formatted.clone());
+
+          // file outside the cwd
+          let file_uri = Uri::from_str("file:///other/dir/file.txt").unwrap();
+          did_open!(backend, file_uri, "testing");
+          assert_format!(backend, file_uri, formatted);
+
+          // the excludes still apply outside the cwd
+          let file_uri = Uri::from_str("file:///other/dir/ignored_file.txt").unwrap();
+          did_open!(backend, file_uri, "testing");
+          assert_format!(backend, file_uri, None);
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
+  #[test]
   fn should_not_use_global_config_with_lsp_when_opted_out() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
