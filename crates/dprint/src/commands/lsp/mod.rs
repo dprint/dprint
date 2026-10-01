@@ -1263,6 +1263,82 @@ mod test {
   }
 
   #[test]
+  fn should_inherit_ancestor_config_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "root" }"#);
+      })
+      .with_local_config("/inherits/dprint.json", |c| {
+        c.set_inherit(true);
+      })
+      .with_local_config("/inherits/overrides/dprint.json", |c| {
+        c.set_inherit(true).add_config_section("test-plugin", r#"{ "ending": "nested" }"#);
+      })
+      .with_local_config("/no_inherit/dprint.json", |_| {})
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+
+          macro_rules! assert_ending {
+            ($uri:expr, $ending:expr) => {
+              let file_uri = Uri::from_str($uri).unwrap();
+              did_open!(backend, file_uri, "text");
+              assert_format!(
+                backend,
+                file_uri,
+                Some(vec![TextEdit {
+                  range: Range::new(Position::new(0, 4), Position::new(0, 4)),
+                  new_text: $ending.to_string(),
+                }])
+              );
+            };
+          }
+
+          assert_ending!("file:///file.txt", "_root");
+          // inherits the plugins and their configuration from the ancestor config
+          assert_ending!("file:///inherits/file.txt", "_root");
+          // inherits through a config that also inherits and overrides the configuration
+          assert_ending!("file:///inherits/overrides/file.txt", "_nested");
+
+          // a config that doesn't inherit has no plugins
+          let file_uri = Uri::from_str("file:///no_inherit/file.txt").unwrap();
+          did_open!(backend, file_uri, "text");
+          assert_format!(backend, file_uri, None);
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+
+      assert_eq!(
+        test_client.take_messages(),
+        vec![
+          (
+            MessageType::INFO,
+            format!("dprint {} ({}-{})", environment.cli_version(), environment.os(), environment.cpu_arch())
+          ),
+          (MessageType::INFO, "Server ready.".to_string())
+        ]
+      );
+    });
+  }
+
+  #[test]
   fn should_format_shebang_file_with_lsp() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
