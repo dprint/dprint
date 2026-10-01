@@ -1012,7 +1012,7 @@ EXAMPLES:
         Arg::new("config")
           .long("config")
           .short('c')
-          .help("Path to a JSON configuration file to format every file with (a url is not supported). Defaults to the dprint.json(c) or .dprint.json(c) in each file's directory or its ancestor directories when not provided.")
+          .help("Path to a JSON configuration file to use for the files in its directory instead of looking one up for each file (a url is not supported). Defaults to the dprint.json(c) or .dprint.json(c) in each file's directory or its ancestor directories when not provided.")
           .value_hint(clap::ValueHint::FilePath)
           .num_args(1)
       )

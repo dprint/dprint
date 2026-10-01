@@ -20,7 +20,7 @@ The server communicates over stdin and stdout, so this command is run by the edi
 
 - **Formatting** of a whole document (`textDocument/formatting`).
 - **Range formatting** (`textDocument/rangeFormatting`). The range is passed on to the plugin, so what's formatted is up to the plugin.
-- **Completions and hover information in dprint configuration files** (files named `dprint.json`, `dprint.jsonc`, `.dprint.json`, or `.dprint.jsonc`). This covers dprint's own properties and the configuration of the plugins listed in the file.
+- **Completions and hover information in dprint configuration files** (files named `dprint.json`, `dprint.jsonc`, `.dprint.json`, or `.dprint.jsonc`). This covers dprint's own properties and the configuration of the plugins listed in the saved file.
 - **Notebook cells** and **untitled documents**, in clients that support them (see below).
 
 The server only formats. It doesn't provide diagnostics or code actions.
@@ -29,7 +29,7 @@ The server only formats. It doesn't provide diagnostics or code actions.
 
 Completions and hover information for dprint's own properties (ex. `plugins`, `excludes`, `lineWidth`) come from a schema that's built into the dprint executable, so they work offline.
 
-For a plugin's configuration (ex. the properties within `"typescript": { ... }`), the server downloads the JSON schema each plugin in the configuration file provides. A request waits at most a couple of seconds on these downloads, so the first completions in a file may be missing a plugin's properties until its schema has downloaded. A schema that fails to download is tried again later.
+For a plugin's configuration (ex. the properties within `"typescript": { ... }`), the server downloads the JSON schema each plugin in the configuration file provides. The plugins are read from the configuration file on disk and not from the editor's unsaved text, so save the file after adding a plugin to get completions for it. A request waits at most a couple of seconds on these downloads, so the first completions in a file may be missing a plugin's properties until its schema has downloaded. A schema that fails to download is tried again later.
 
 In a client that supports dynamic registration of completion and hover, the server only registers these for dprint configuration files. In other clients, the server has to advertise them for every document the client uses the server for, but it answers with nothing outside of a dprint configuration file.
 
@@ -62,15 +62,17 @@ A file is then only formatted when the configuration file would have `dprint fmt
 
 Configuration files are read on each request, so a change to one is used the next time a file is formatted without needing to restart the server.
 
-Note: The language server does not use the config discovery mode. The `--config-discovery` flag and the `DPRINT_CONFIG_DISCOVERY` environment variable described in [changing config discovery](/cli#changing-config-discovery) have no effect on `dprint lsp`.
+Note: The language server does not use the config discovery mode. The `--config-discovery` flag and the `DPRINT_CONFIG_DISCOVERY` environment variable described in [changing config discovery](/cli#changing-config-discovery) have no effect on `dprint lsp`. The `--plugins` flag has no effect either. The server only uses the plugins in the configuration file.
 
 ### Specifying a configuration file
 
-To use one configuration file for every file instead, start the server with the `--config` (or `-c`) flag:
+To use a specific configuration file instead of looking one up for each file, start the server with the `--config` (or `-c`) flag:
 
 ```sh
 dprint lsp --config path/to/dprint.json
 ```
+
+Only the files within that configuration file's directory are formatted. A file outside of it is not formatted, which is the same as how a configuration file found in an ancestor directory only applies to the files beneath it.
 
 Only a path to a local file is supported here. Unlike `dprint fmt --config <url>`, the language server does not support a URL. A relative path is resolved from the directory the server is started in.
 
@@ -86,7 +88,7 @@ When opted out, a client can still ask for the global configuration file to be u
 
 ## Line Endings
 
-The server keeps the line endings of the editor's document. When a plugin formats the text with different line endings than the document has (ex. because of the `newLineKind` configuration), the server converts them back to the kind used by the first line ending in the document before computing the edits.
+The server keeps the line endings of the editor's document. When a plugin formats the text with different line endings than the document has (ex. because of the `newLineKind` configuration), the server converts them back to the kind used by the first line ending in the document before computing the edits. A document that has no line endings (a single line) is the exception because there's nothing to match, so it gets the line endings the plugin produced.
 
 To change a file's line endings, change them in the editor or run `dprint fmt` from the command line.
 
@@ -134,7 +136,7 @@ The following is logged to the client with `window/logMessage`, which most edito
 Some things are only written to the server's stderr, which is where the server's other logging goes:
 
 - `Path did not have a dprint config file: <path>` when no configuration file was resolved for a file.
-- `[DEBUG] Excluded file: <path>` when the file isn't matched by the configuration. This and the timing of each format request are only logged with `dprint lsp --log-level=debug`.
+- `[DEBUG] Excluded file: <path>` when the file isn't matched by the configuration's `includes`, is matched by its `excludes` or a `.gitignore` file, or is outside the configuration file's directory. A file that no plugin handles isn't logged this way. It shows up as a format request with an empty list of plugins. These and the timing of each format request are only logged with `dprint lsp --log-level=debug`.
 
 When a file isn't being formatted in the editor, check that `dprint fmt` formats it from the command line and see [diagnostic commands and flags](/cli#diagnostic-commands-and-flags).
 
@@ -158,7 +160,7 @@ The snippets below were written from each editor's documentation and have not be
 vim.lsp.enable("dprint")
 ```
 
-That configuration only attaches to a fixed list of file types (JavaScript, TypeScript, JSON, Markdown, Python, TOML, Rust, and a few others at the time of writing). To format other file types or to set environment variables, extend it:
+That configuration only attaches to a fixed list of file types (JavaScript, TypeScript, JSON, Markdown, Python, TOML, Rust, and a few others at the time of writing). To change the file types or to set environment variables, override those settings. Note that `filetypes` replaces the default list instead of adding to it, so list every file type you want the server to attach to:
 
 ```lua
 vim.lsp.config("dprint", {
