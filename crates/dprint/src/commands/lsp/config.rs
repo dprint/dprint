@@ -6,9 +6,13 @@ use std::rc::Rc;
 
 use anyhow::Context;
 use anyhow::Result;
+use dprint_core::async_runtime::FutureExt;
+use dprint_core::async_runtime::LocalBoxFuture;
 
+use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
+use crate::configuration::inherit_config;
 use crate::configuration::resolve_config_from_path_with_bytes;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::Environment;
@@ -74,7 +78,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     };
     // only allow one task in here per config
     let mut cell = cell.lock().await;
-    let config = resolve_config_from_path_with_bytes(&config_file_bytes, &self.environment).await?;
+    let config = self.resolve_config(&config_file_bytes, use_global_config).await?;
 
     if let Some(existing_scope) = cell.as_ref() {
       if existing_scope.config.as_deref() == Some(&config) {
@@ -88,6 +92,35 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     let new_scope = Rc::new(resolve_plugins_scope(Rc::new(config), &self.environment, &self.plugin_resolver).await?);
     let _ = cell.insert(new_scope.clone());
     Ok(Some(new_scope))
+  }
+
+  /// Resolves the config of a config file, merging in the config file of an
+  /// ancestor directory when it specifies `"inherit": true`. This is what the
+  /// cli does for the config files in the descendant directories of the
+  /// config file it's using.
+  fn resolve_config<'a>(&'a self, config_file: &'a ResolvedConfigPathWithText, use_global_config: bool) -> LocalBoxFuture<'a, Result<ResolvedConfig>> {
+    async move {
+      let config = resolve_config_from_path_with_bytes(config_file, &self.environment).await?;
+      // a specified config file is used on its own
+      if config.inherit != Some(true) || config.is_global || self.config_override.is_some() {
+        return Ok(config);
+      }
+      let Some(parent_dir) = config.base_path.parent() else {
+        return Ok(config);
+      };
+      let ancestor_config_file = match get_default_config_file_in_ancestor_directories(&self.environment, parent_dir.as_ref())? {
+        Some(config_file) => Some(config_file),
+        None if self.use_global_config || use_global_config => resolve_global_config_path_and_text(&self.environment)?,
+        None => None,
+      };
+      let Some(ancestor_config_file) = ancestor_config_file else {
+        return Ok(config);
+      };
+      // the ancestor config file may also inherit
+      let ancestor_config = self.resolve_config(&ancestor_config_file, use_global_config).await?;
+      inherit_config(config, &ancestor_config)
+    }
+    .boxed_local()
   }
 }
 
