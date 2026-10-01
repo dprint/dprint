@@ -98,6 +98,10 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
       log_warn!(self.environment, "Missing document: {}", params.text_document.uri.as_str());
       return;
     };
+    // The version increases after each change, so a lower version is a change
+    // to older text than what's stored. An equal version is still applied
+    // because it only comes from a client that doesn't increase the version,
+    // and forgetting the document would stop formatting it for that client.
     if entry.version > params.text_document.version {
       // the state has gone out of sync so it's no longer safe to format this document
       log_warn!(
@@ -147,6 +151,9 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
       entry.line_index = Some(line_index);
     }
     entry.text = content;
+    // so that the next change is compared against this one and not
+    // against the version the document was opened at
+    entry.version = params.text_document.version;
   }
 
   pub fn closed(&mut self, uri: &Uri) {
@@ -297,6 +304,92 @@ mod test {
     assert_eq!(format_range, Some(1..2));
   }
 
+  #[test]
+  fn changes_with_increasing_versions() {
+    let (mut documents, uri) = open_document("a\n");
+    change_with_version(&mut documents, &uri, 1, vec![ranged((0, 0), (0, 1), "b")]);
+    change_with_version(&mut documents, &uri, 2, vec![ranged((0, 0), (0, 1), "c")]);
+    // the version doesn't need to increase by one
+    change_with_version(&mut documents, &uri, 5, vec![ranged((0, 0), (0, 1), "d")]);
+    change_with_version(&mut documents, &uri, 6, vec![full("e\n")]);
+    assert_eq!(documents.get_content(&uri).unwrap().0, "e\n");
+  }
+
+  #[test]
+  fn change_with_version_before_previous_change_forgets_document() {
+    let (mut documents, uri) = open_document("a\n");
+    change_with_version(&mut documents, &uri, 5, vec![ranged((0, 0), (0, 1), "b")]);
+    // a late change that was made to text older than what's stored, but
+    // which is still newer than the version the document was opened at
+    change_with_version(&mut documents, &uri, 3, vec![ranged((0, 0), (0, 1), "c")]);
+    assert_eq!(
+      documents.environment.take_stderr_messages(),
+      vec!["Changed version (3) was less than existing version (5) for 'file:///file.txt'. Forgetting document.".to_string()]
+    );
+    assert_eq!(documents.get_content(&uri).unwrap_err().to_string(), "Missing document: file:///file.txt");
+  }
+
+  #[test]
+  fn change_with_version_before_opened_version_forgets_document() {
+    let (mut documents, uri) = open_document_with_version("a\n", 4);
+    change_with_version(&mut documents, &uri, 3, vec![ranged((0, 0), (0, 1), "b")]);
+    assert_eq!(
+      documents.environment.take_stderr_messages(),
+      vec!["Changed version (3) was less than existing version (4) for 'file:///file.txt'. Forgetting document.".to_string()]
+    );
+    assert!(documents.get_content(&uri).is_err());
+  }
+
+  #[test]
+  fn change_with_same_version_is_applied() {
+    // the same version as when opened
+    let (mut documents, uri) = open_document_with_version("a\n", 2);
+    change_with_version(&mut documents, &uri, 2, vec![ranged((0, 0), (0, 1), "b")]);
+    assert_eq!(documents.get_content(&uri).unwrap().0, "b\n");
+    // the same version as the previous change
+    change_with_version(&mut documents, &uri, 3, vec![ranged((0, 0), (0, 1), "c")]);
+    change_with_version(&mut documents, &uri, 3, vec![ranged((0, 0), (0, 1), "d")]);
+    assert_eq!(documents.get_content(&uri).unwrap().0, "d\n");
+    // the version is still checked after that
+    change_with_version(&mut documents, &uri, 2, vec![ranged((0, 0), (0, 1), "e")]);
+    assert_eq!(
+      documents.environment.take_stderr_messages(),
+      vec!["Changed version (2) was less than existing version (3) for 'file:///file.txt'. Forgetting document.".to_string()]
+    );
+    assert!(documents.get_content(&uri).is_err());
+  }
+
+  #[test]
+  fn notebook_cell_change_with_version_before_previous_change_forgets_cell() {
+    let notebook_uri = Uri::from_str("file:///notebook.ipynb").unwrap();
+    let uri = Uri::from_str("vscode-notebook-cell:/notebook.ipynb#W0sZmlsZQ%3D%3D").unwrap();
+    let other_uri = Uri::from_str("vscode-notebook-cell:/notebook.ipynb#W1sZmlsZQ%3D%3D").unwrap();
+    let mut documents = Documents::new(TestEnvironment::new());
+    for uri in [&uri, &other_uri] {
+      documents.open_notebook_cell(
+        &notebook_uri,
+        TextDocumentItem {
+          uri: uri.clone(),
+          language_id: "txt".to_string(),
+          version: 0,
+          text: "a\n".to_string(),
+        },
+      );
+    }
+    change_with_version(&mut documents, &uri, 2, vec![ranged((0, 0), (0, 1), "b")]);
+    change_with_version(&mut documents, &uri, 1, vec![ranged((0, 0), (0, 1), "c")]);
+    assert_eq!(
+      documents.environment.take_stderr_messages(),
+      vec![
+        "Changed version (1) was less than existing version (2) for 'vscode-notebook-cell:/notebook.ipynb#W0sZmlsZQ%3D%3D'. Forgetting document.".to_string()
+      ]
+    );
+    assert!(documents.get_content(&uri).is_err());
+    // the versions are per cell
+    change_with_version(&mut documents, &other_uri, 1, vec![ranged((0, 0), (0, 1), "c")]);
+    assert_eq!(documents.get_content(&other_uri).unwrap().0, "c\n");
+  }
+
   fn apply_changes(text: &str, changes: Vec<TextDocumentContentChangeEvent>) -> String {
     let (mut documents, uri) = open_document(text);
     change(&mut documents, &uri, changes);
@@ -304,20 +397,28 @@ mod test {
   }
 
   fn open_document(text: &str) -> (Documents<TestEnvironment>, Uri) {
+    open_document_with_version(text, 0)
+  }
+
+  fn open_document_with_version(text: &str, version: i32) -> (Documents<TestEnvironment>, Uri) {
     let uri = Uri::from_str("file:///file.txt").unwrap();
     let mut documents = Documents::new(TestEnvironment::new());
     documents.open(TextDocumentItem {
       uri: uri.clone(),
       language_id: "txt".to_string(),
-      version: 0,
+      version,
       text: text.to_string(),
     });
     (documents, uri)
   }
 
   fn change(documents: &mut Documents<TestEnvironment>, uri: &Uri, content_changes: Vec<TextDocumentContentChangeEvent>) {
+    change_with_version(documents, uri, 1, content_changes);
+  }
+
+  fn change_with_version(documents: &mut Documents<TestEnvironment>, uri: &Uri, version: i32, content_changes: Vec<TextDocumentContentChangeEvent>) {
     documents.changed(DidChangeTextDocumentParams {
-      text_document: VersionedTextDocumentIdentifier { uri: uri.clone(), version: 1 },
+      text_document: VersionedTextDocumentIdentifier { uri: uri.clone(), version },
       content_changes,
     });
   }
