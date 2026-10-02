@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+    <script async="" src="/scripts.712541eacc.js"></script>
+    <meta charset="utf-8">
+    <title>Language Server - dprint - Code Formatter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#1e1e1e">
+    <meta name="description" content="Documentation on dprint's language server (dprint lsp) for formatting in editors.">
+    <meta name="author" content="Dprint Code Formatting">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:site" content="@dprintfmt">
+    <meta name="twitter:title" content="Language Server">
+    <meta name="twitter:description" content="Documentation on dprint's language server (dprint lsp) for formatting in editors.">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.3a891da41e.css">
+  </head>
+  <body>
+    <nav class="site-nav" aria-label="Main">
+      <div class="nav-inner">
+        <a class="brand" href="/">dprint</a>
+        <div class="nav-links">
+          <a href="/overview" class="active">Guide</a>
+          <a href="/plugins">Plugins</a>
+          <a href="/playground">Playground</a>
+          <a href="/sponsor">Sponsor</a>
+          <a class="gh-button" href="https://github.com/dprint/dprint" rel="noopener noreferrer">GitHub <span>↗</span></a>
+        </div>
+      </div>
+    </nav>
+
+    <main class="site-main">
+      <div class="docs">
+  <aside class="doc-sidebar">
+    <details class="doc-nav" open="">
+      <summary class="doc-nav-summary">Documentation menu</summary>
+      
+
+
+<div class="doc-menu-label">Guide</div>
+<ul class="doc-menu">
+  
+    <li><a href="/overview">Overview</a></li>
+  
+    <li><a href="/install">Install</a></li>
+  
+    <li><a href="/setup">Setup</a></li>
+  
+    <li><a href="/config">Configuration</a></li>
+  
+    <li><a href="/global-config">Global Configuration</a></li>
+  
+    <li><a href="/cli">CLI</a></li>
+  
+    <li><a href="/lsp" class="active">Language Server</a></li>
+  
+    <li><a href="/ci">Continuous Integration</a></li>
+  
+</ul>
+
+<div class="doc-menu-label">Plugins</div>
+<ul class="doc-menu">
+  
+    <li><a href="/plugins">General</a></li>
+  
+    <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
+  
+    <li><a href="/plugins/json">JSON</a></li>
+  
+    <li><a href="/plugins/markdown">Markdown</a></li>
+  
+    <li><a href="/plugins/toml">TOML</a></li>
+  
+    <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
+  
+    <li><a href="/plugins/dockerfile">Dockerfile</a></li>
+  
+    <li><a href="/plugins/rustfmt">Rustfmt</a></li>
+  
+    <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
+  
+    <li><a href="/plugins/malva">Malva (CSS/SCSS/Sass/Less)</a></li>
+  
+    <li><a href="/plugins/markup_fmt">Markup_fmt (HTML/Vue/Svelte/Astro)</a></li>
+  
+    <li><a href="/plugins/prettier">Prettier</a></li>
+  
+    <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
+  
+    <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
+  
+    <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
+  
+    <li><a href="/plugins/mago">Mago (PHP)</a></li>
+  
+    <li><a href="/plugins/ruff">Ruff (Python)</a></li>
+  
+    <li><a href="/plugins/jupyter">Jupyter</a></li>
+  
+    <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
+  
+    <li><a href="/plugins/panache">Panache (Quarto/Pandoc/Markdown)</a></li>
+  
+    <li><a href="/plugins/badness">Badness (LaTeX/BibTeX)</a></li>
+  
+    <li><a href="/plugins/arity">Arity (R)</a></li>
+  
+    <li><a href="/plugins/fatou">Fatou (Julia)</a></li>
+  
+    <li><a href="/plugins/typstyle">Typstyle (Typst)</a></li>
+  
+    <li><a href="/plugins/bibtex-tidy">bibtex-tidy (BibTeX)</a></li>
+  
+    <li><a href="/plugins/swift">Swift (SwiftFormat)</a></li>
+  
+    <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
+  
+    <li><a href="/plugin-dev">Creating a Plugin</a></li>
+  
+</ul>
+
+    </details>
+  </aside>
+  <main class="doc-main doc-content">
+    
+    
+    <div class="eyebrow">// guide</div>
+    <h1>Language Server</h1>
+<p>The <code>dprint lsp</code> subcommand starts a server that formats code over the <a href="https://microsoft.github.io/language-server-protocol/">language server protocol</a> (LSP). It's how to use dprint in an editor that doesn't have a dedicated dprint extension, such as Neovim, Helix, or Zed.</p>
+<pre><code class="language-sh hljs language-bash">dprint lsp
+</code></pre>
+<p>The server communicates over stdin and stdout, so this command is run by the editor rather than by you. See <a href="#editor-setup">Editor Setup</a> for how to tell an editor to run it.</p>
+<p><code>dprint lsp</code> was added in dprint 0.45. As with the rest of the documentation, this page describes the latest version, so upgrade (ex. <code>dprint upgrade</code>) if something here doesn't work for you.</p>
+<h2 id="features" tabindex="-1"><a class="header-anchor" href="#features">Features</a></h2>
+<ul>
+<li><strong>Formatting</strong> of a whole document (<code>textDocument/formatting</code>).</li>
+<li><strong>Range formatting</strong> (<code>textDocument/rangeFormatting</code>). The range is passed on to the plugin, so what's formatted is up to the plugin.</li>
+<li><strong>Completions and hover information in dprint configuration files</strong> (files named <code>dprint.json</code>, <code>dprint.jsonc</code>, <code>.dprint.json</code>, or <code>.dprint.jsonc</code>). This covers dprint's own properties and the configuration of the plugins listed in the saved file.</li>
+<li><strong>Notebook cells</strong> and <strong>untitled documents</strong>, in clients that support them (see below).</li>
+</ul>
+<p>The server only formats. It doesn't provide diagnostics or code actions.</p>
+<h3 id="configuration-file-completions-and-hover" tabindex="-1"><a class="header-anchor" href="#configuration-file-completions-and-hover">Configuration file completions and hover</a></h3>
+<p>Completions and hover information for dprint's own properties (ex. <code>plugins</code>, <code>excludes</code>, <code>lineWidth</code>) come from a schema that's built into the dprint executable, so they work offline.</p>
+<p>For a plugin's configuration (ex. the properties within <code>"typescript": { ... }</code>), the server downloads the JSON schema each plugin in the configuration file provides. The plugins are read from the configuration file on disk and not from the editor's unsaved text, so save the file after adding a plugin to get completions for it. A request waits at most a couple of seconds on these downloads, so the first completions in a file may be missing a plugin's properties until its schema has downloaded. A schema that fails to download is tried again later.</p>
+<p>In a client that supports dynamic registration of completion and hover, the server only registers these for dprint configuration files. In other clients, the server has to advertise them for every document the client uses the server for, but it answers with nothing outside of a dprint configuration file.</p>
+<h3 id="notebook-cells" tabindex="-1"><a class="header-anchor" href="#notebook-cells">Notebook cells</a></h3>
+<p>The server formats the cells of a notebook that's on the file system when the client supports notebook document synchronization (<code>notebookDocument/*</code>) and the dynamic registration of formatting. This is mostly clients built on VS Code's language client.</p>
+<p>A cell is only formatted when the notebook itself would be formatted by <code>dprint fmt</code>—a plugin in the configuration formats the notebook file (ex. the <a href="/plugins/jupyter">Jupyter plugin</a>) and the notebook isn't excluded. The cell is then formatted by the plugin that handles its language. For example, a Python cell in <code>notebooks/analysis.ipynb</code> is formatted as if it was the file <code>notebooks/code_block.py</code>.</p>
+<h3 id="untitled-documents" tabindex="-1"><a class="header-anchor" href="#untitled-documents">Untitled documents</a></h3>
+<p>A new document that hasn't been saved yet has a URI with the <code>untitled</code> scheme in VS Code-style clients. The server asks clients that support dynamic registration of text document synchronization and formatting to send it these documents.</p>
+<p>Since an untitled document doesn't have a file path, it's formatted as a file named <code>Untitled.&lt;ext&gt;</code> in the first workspace folder, or in the home directory when there is no workspace folder. The extension is based on the document's language (ex. <code>Untitled.ts</code> for <code>typescript</code>), and the configuration file is <a href="#configuration-file-resolution">resolved</a> for that path.</p>
+<p>Documents with other schemes that aren't files on the file system are not formatted.</p>
+<h2 id="configuration-file-resolution" tabindex="-1"><a class="header-anchor" href="#configuration-file-resolution">Configuration File Resolution</a></h2>
+<p>The server doesn't use a single configuration file for a workspace. On each request it resolves the configuration file for the file being formatted:</p>
+<ol>
+<li>The closest <code>dprint.json</code>, <code>dprint.jsonc</code>, <code>.dprint.json</code>, or <code>.dprint.jsonc</code> in the file's directory or its ancestor directories is used.</li>
+<li>When that configuration file specifies <a href="/config#directory-specific-configuration"><code>"inherit": true</code></a>, it's merged with the next configuration file found in its ancestor directories, the same as the CLI does. That one may also inherit, and when there's none in an ancestor directory the global configuration file is inherited from.</li>
+<li>When no configuration file is found in an ancestor directory, the <a href="/global-config">global configuration file</a> is used when one exists. This is what makes formatting work in a scratch directory or in a project that doesn't use dprint.</li>
+<li>Otherwise the file is not formatted.</li>
+</ol>
+<p>This means files in different projects, or in directories of a monorepo with their own configuration file, are each formatted with their own configuration in the same editor session.</p>
+<p>A file is then only formatted when the configuration file would have <code>dprint fmt</code> format it—the file needs to match the configuration's <code>includes</code> and a plugin, and not be matched by its <code>excludes</code> or a <code>.gitignore</code> file. Otherwise the server responds to the editor with no edits.</p>
+<p>Configuration files are read on each request, so a change to one is used the next time a file is formatted without needing to restart the server.</p>
+<p>Note: The language server does not use the config discovery mode. The <code>--config-discovery</code> flag and the <code>DPRINT_CONFIG_DISCOVERY</code> environment variable described in <a href="/cli#changing-config-discovery">changing config discovery</a> have no effect on <code>dprint lsp</code>. The <code>--plugins</code> flag has no effect either. The server only uses the plugins in the configuration file.</p>
+<h2 id="line-endings" tabindex="-1"><a class="header-anchor" href="#line-endings">Line Endings</a></h2>
+<p>The server keeps the line endings of the editor's document. When a plugin formats the text with different line endings than the document has (ex. because of the <code>newLineKind</code> configuration), the server converts them back to the kind used by the first line ending in the document before computing the edits. A document that has no line endings (a single line) is the exception because there's nothing to match, so it gets the line endings the plugin produced.</p>
+<p>To change a file's line endings, change them in the editor or run <code>dprint fmt</code> from the command line.</p>
+<h2 id="formatting-options" tabindex="-1"><a class="header-anchor" href="#formatting-options">Formatting Options</a></h2>
+<p>The formatting options an editor sends with a format request (<code>tabSize</code>, <code>insertSpaces</code>, etc.) are ignored. Indentation and everything else comes from the dprint configuration file.</p>
+<h2 id="troubleshooting" tabindex="-1"><a class="header-anchor" href="#troubleshooting">Troubleshooting</a></h2>
+<p>The server doesn't show popups (<code>window/showMessage</code>) and doesn't respond to a format request with an error, because a file that can't be formatted (ex. one with a syntax error) would then interrupt you each time you format on save. A request that fails or does nothing gets a response without edits, and the reason is logged instead.</p>
+<p>The following is logged to the client with <code>window/logMessage</code>, which most editors show in a language server log or output panel:</p>
+<ul>
+<li>The dprint version and <code>Server ready.</code> once the server is initialized (info).</li>
+<li><code>Failed formatting '&lt;uri&gt;': &lt;error&gt;</code> when formatting fails (error). This includes a plugin failing to parse the file, a configuration file that fails to resolve, and a plugin's configuration diagnostics.</li>
+<li>Why a document can't be formatted (warning). For example when it's not a file, untitled document, or cell of an open notebook; when a file path can't be determined for the language of an untitled document or notebook cell; when the client didn't open the document; or when the range to format is invalid.</li>
+<li>A failure to register capabilities with the client (warning).</li>
+</ul>
+<p>Some things are only written to the server's stderr, which is where the server's other logging goes:</p>
+<ul>
+<li><code>Path did not have a dprint config file: &lt;path&gt;</code> when no configuration file was resolved for a file.</li>
+<li><code>[DEBUG] Excluded file: &lt;path&gt;</code> when the file isn't matched by the configuration's <code>includes</code> or is matched by its <code>excludes</code> or a <code>.gitignore</code> file. A file that no plugin handles isn't logged this way. It shows up as a format request with an empty list of plugins. These and the timing of each format request are only logged with <code>dprint lsp --log-level=debug</code>.</li>
+</ul>
+<p>When a file isn't being formatted in the editor, check that <code>dprint fmt</code> formats it from the command line and see <a href="/cli#diagnostic-commands-and-flags">diagnostic commands and flags</a>.</p>
+<h2 id="editor-setup" tabindex="-1"><a class="header-anchor" href="#editor-setup">Editor Setup</a></h2>
+<p>The Visual Studio Code and IntelliJ extensions listed on the <a href="/install#editor-extensions">install page</a> are set up on their own and don't require the steps below.</p>
+<p>For other editors, the general steps are:</p>
+<ol>
+<li><a href="/install">Install dprint</a> so that <code>dprint</code> is on the path.</li>
+<li>Configure the editor to run <code>dprint lsp</code> for the languages your dprint plugins format, and for JSON/JSONC if you want completions in dprint configuration files.</li>
+<li>If the language has another language server that also formats, tell the editor which one to format with.</li>
+</ol>
+<p>The snippets below were written from each editor's documentation and have not been tested by the dprint maintainers in those editors. Please <a href="https://github.com/dprint/dprint/issues">open an issue</a> or a pull request if one needs correcting.</p>
+<h3 id="neovim" tabindex="-1"><a class="header-anchor" href="#neovim">Neovim</a></h3>
+<p><a href="https://github.com/neovim/nvim-lspconfig">nvim-lspconfig</a> has a <a href="https://github.com/neovim/nvim-lspconfig/blob/master/doc/configs.md#dprint"><code>dprint</code> configuration</a> that runs <code>dprint lsp</code>. With nvim-lspconfig installed on Neovim 0.11 or later, enable it with:</p>
+<pre><code class="language-lua hljs">vim.lsp.enable(<span class="hljs-string">"dprint"</span>)
+</code></pre>
+<p>That configuration only attaches to a fixed list of file types (JavaScript, TypeScript, JSON, Markdown, Python, TOML, Rust, and a few others at the time of writing). To change the file types, override that setting. Note that <code>filetypes</code> replaces the default list instead of adding to it, so list every file type you want the server to attach to:</p>
+<pre><code class="language-lua hljs">vim.lsp.<span class="hljs-built_in">config</span>(<span class="hljs-string">"dprint"</span>, {
+  filetypes = { <span class="hljs-string">"javascript"</span>, <span class="hljs-string">"typescript"</span>, <span class="hljs-string">"json"</span>, <span class="hljs-string">"jsonc"</span>, <span class="hljs-string">"markdown"</span>, <span class="hljs-string">"yaml"</span>, <span class="hljs-string">"css"</span> },
+})
+vim.lsp.enable(<span class="hljs-string">"dprint"</span>)
+</code></pre>
+<p>Then format with <code>vim.lsp.buf.format()</code>.</p>
+<h3 id="helix" tabindex="-1"><a class="header-anchor" href="#helix">Helix</a></h3>
+<p>Helix doesn't have a built-in entry for dprint, so define the language server in <code>languages.toml</code> and add it to each language to format with it (see Helix's <a href="https://docs.helix-editor.com/languages.html">language configuration documentation</a>):</p>
+<pre><code class="language-toml hljs language-ini"><span class="hljs-section">[language-server.dprint]</span>
+<span class="hljs-attr">command</span> = <span class="hljs-string">"dprint"</span>
+<span class="hljs-attr">args</span> = [<span class="hljs-string">"lsp"</span>]
+
+<span class="hljs-section">[[language]]</span>
+<span class="hljs-attr">name</span> = <span class="hljs-string">"typescript"</span>
+<span class="hljs-attr">language-servers</span> = [
+  { name = <span class="hljs-string">"typescript-language-server"</span>, except-features = [<span class="hljs-string">"format"</span>] },
+  <span class="hljs-string">"dprint"</span>,
+]
+<span class="hljs-attr">auto-format</span> = <span class="hljs-literal">true</span>
+
+<span class="hljs-section">[[language]]</span>
+<span class="hljs-attr">name</span> = <span class="hljs-string">"markdown"</span>
+<span class="hljs-attr">language-servers</span> = [<span class="hljs-string">"dprint"</span>]
+<span class="hljs-attr">auto-format</span> = <span class="hljs-literal">true</span>
+</code></pre>
+<p>Setting <code>language-servers</code> replaces the language's default language servers, so list the ones you want to keep and use <code>except-features = ["format"]</code> on any that would otherwise format instead of dprint.</p>
+<h3 id="zed" tabindex="-1"><a class="header-anchor" href="#zed">Zed</a></h3>
+<p>Zed needs an extension to start a language server it doesn't ship with. There is a community maintained <a href="https://zed.dev/extensions/dprint">Dprint extension</a> (<a href="https://github.com/panikkastudio/dprint-zed">source</a>) that runs <code>dprint lsp</code> with the language server name <code>dprint</code>. It's not maintained by the dprint project.</p>
+<p>After installing the extension, select dprint as the formatter of a language in <code>settings.json</code>:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"languages"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">"TypeScript"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">"formatter"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-punctuation">{</span> <span class="hljs-attr">"language_server"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">"name"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"dprint"</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">"format_on_save"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"on"</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>According to the extension's documentation, it uses the <code>dprint</code> executable in <code>node_modules/.bin</code> or on the path (downloading one otherwise) and the executable and its arguments can be changed with the <code>lsp.dprint.binary</code> setting:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"lsp"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">"dprint"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+      <span class="hljs-attr">"binary"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+        <span class="hljs-attr">"path"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"/path/to/dprint"</span><span class="hljs-punctuation">,</span>
+        <span class="hljs-attr">"arguments"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">"lsp"</span><span class="hljs-punctuation">]</span>
+      <span class="hljs-punctuation">}</span>
+    <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+
+  </main>
+</div>
+
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand">dprint</div>
+        <div class="footer-links">
+          <a href="/">Home</a>
+          <a href="/contact">Contact</a>
+          <a href="https://twitter.com/dprintfmt">Twitter</a>
+          <a href="https://github.com/dprint">GitHub</a>
+        </div>
+        <div class="footer-tag">A code formatting platform · Rust + Wasm</div>
+      </div>
+    </footer>
+  
+
+</body></html>

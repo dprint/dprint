@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en"><head>
-    <script async="" src="/scripts.d9ec9dfe2b.js"></script>
+    <script async="" src="/scripts.712541eacc.js"></script>
     <meta charset="utf-8">
     <title>Global Configuration - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -54,6 +54,8 @@
   
     <li><a href="/cli">CLI</a></li>
   
+    <li><a href="/lsp">Language Server</a></li>
+  
     <li><a href="/ci">Continuous Integration</a></li>
   
 </ul>
@@ -106,6 +108,10 @@
     <li><a href="/plugins/arity">Arity (R)</a></li>
   
     <li><a href="/plugins/fatou">Fatou (Julia)</a></li>
+  
+    <li><a href="/plugins/typstyle">Typstyle (Typst)</a></li>
+  
+    <li><a href="/plugins/bibtex-tidy">bibtex-tidy (BibTeX)</a></li>
   
     <li><a href="/plugins/swift">Swift (SwiftFormat)</a></li>
   
@@ -162,6 +168,8 @@ Formatted 1 file.
 <p>To format files using only the global configuration and ignore local configuration files use:</p>
 <pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --config-discovery=global
 </code></pre>
+<h2 id="editors" tabindex="-1"><a class="header-anchor" href="#editors">Editors</a></h2>
+<p>Editor integrations that use the <a href="/lsp">language server</a> (<code>dprint lsp</code>) format a file with the global configuration by default when there's no dprint configuration file in the file's directory or its ancestor directories. Unlike <code>dprint fmt</code>, there is no prompt. See <a href="/lsp#configuration-file-resolution">Language Server - Configuration File Resolution</a> for more details.</p>
 
   </main>
 </div>

@@ -2,15 +2,15 @@
 <html lang="en"><head>
     <script async="" src="/scripts.712541eacc.js"></script>
     <meta charset="utf-8">
-    <title>Configuration - Arity - dprint - Code Formatter</title>
+    <title>Configuration - bibtex-tidy - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#1e1e1e">
-    <meta name="description" content="Documentation on the configuration file for the Arity code formatting plugin for dprint.">
+    <meta name="description" content="Documentation on the configuration file for the bibtex-tidy code formatting plugin for dprint.">
     <meta name="author" content="Dprint Code Formatting">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:site" content="@dprintfmt">
-    <meta name="twitter:title" content="Configuration - Arity">
-    <meta name="twitter:description" content="Documentation on the configuration file for the Arity code formatting plugin for dprint.">
+    <meta name="twitter:title" content="Configuration - bibtex-tidy">
+    <meta name="twitter:description" content="Documentation on the configuration file for the bibtex-tidy code formatting plugin for dprint.">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
@@ -105,13 +105,13 @@
   
     <li><a href="/plugins/badness">Badness (LaTeX/BibTeX)</a></li>
   
-    <li><a href="/plugins/arity" class="active">Arity (R)</a></li>
+    <li><a href="/plugins/arity">Arity (R)</a></li>
   
     <li><a href="/plugins/fatou">Fatou (Julia)</a></li>
   
     <li><a href="/plugins/typstyle">Typstyle (Typst)</a></li>
   
-    <li><a href="/plugins/bibtex-tidy">bibtex-tidy (BibTeX)</a></li>
+    <li><a href="/plugins/bibtex-tidy" class="active">bibtex-tidy (BibTeX)</a></li>
   
     <li><a href="/plugins/swift">Swift (SwiftFormat)</a></li>
   
@@ -130,12 +130,12 @@
     <nav class="breadcrumb" aria-label="breadcrumbs">
   <ul>
     <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/arity">Arity</a></li>
-    <li><a href="/plugins/arity/config">Configuration</a></li>
+    <li><a href="/plugins/bibtex-tidy">bibtex-tidy</a></li>
+    <li><a href="/plugins/bibtex-tidy/config">Configuration</a></li>
   </ul>
 </nav>
-<h1>Arity - Configuration</h1>
-<p>Specify configuration under the <code>"arity"</code> key in your dprint configuration file.</p>
+<h1>bibtex-tidy - Configuration</h1>
+<p>Specify configuration under the <code>"bibtex-tidy"</code> key in your dprint configuration file.</p>
 <table>
 <thead>
 <tr>
@@ -156,30 +156,151 @@
 <td>Global <code>indentWidth</code>, or <code>2</code></td>
 </tr>
 <tr>
-<td><code>lineEnding</code></td>
-<td><code>"auto"</code>, <code>"lf"</code>, <code>"crlf"</code>, <code>"native"</code></td>
-<td>Global <code>newLineKind</code>, or <code>"auto"</code></td>
+<td><code>newLineKind</code></td>
+<td><code>"auto"</code>, <code>"lf"</code>, <code>"crlf"</code>, <code>"system"</code></td>
+<td>Global <code>newLineKind</code>, or <code>"lf"</code></td>
 </tr>
 <tr>
-<td><code>roxygenMarkdown</code></td>
+<td><code>useTabs</code></td>
+<td>Boolean</td>
+<td>Global <code>useTabs</code>, or <code>false</code></td>
+</tr>
+<tr>
+<td><code>align</code></td>
+<td>Integer, Boolean</td>
+<td><code>14</code></td>
+</tr>
+<tr>
+<td><code>blankLines</code></td>
 <td>Boolean</td>
 <td><code>false</code></td>
 </tr>
+<tr>
+<td><code>curly</code></td>
+<td>Boolean</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>numeric</code></td>
+<td>Boolean</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>months</code></td>
+<td>Boolean</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>sort</code></td>
+<td>Boolean, Array of strings</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>duplicates</code></td>
+<td>Boolean, Array of <code>"doi"</code> | <code>"key"</code> | <code>"abstract"</code> | <code>"citation"</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>merge</code></td>
+<td>Boolean, <code>"first"</code>, <code>"last"</code>, <code>"combine"</code>, <code>"overwrite"</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>stripEnclosingBraces</code></td>
+<td>Boolean</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>dropAllCaps</code></td>
+<td>Boolean</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>escape</code></td>
+<td>Boolean, <code>"new"</code></td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>unescape</code></td>
+<td>Boolean</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>sortFields</code></td>
+<td>Boolean, Array of strings</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>stripComments</code></td>
+<td>Boolean</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>tidyComments</code></td>
+<td>Boolean</td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>trailingCommas</code></td>
+<td>Boolean</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>encodeUrls</code></td>
+<td>Boolean</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>removeEmptyFields</code></td>
+<td>Boolean</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>removeDuplicateFields</code></td>
+<td>Boolean</td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>generateKeys</code></td>
+<td>Boolean, String</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>maxAuthors</code></td>
+<td>Integer</td>
+<td>Unset</td>
+</tr>
+<tr>
+<td><code>lowercase</code></td>
+<td>Boolean</td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>enclosingBraces</code></td>
+<td>Boolean, Array of strings</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>removeBraces</code></td>
+<td>Boolean, Array of strings</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>wrap</code></td>
+<td>Boolean</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>omit</code></td>
+<td>Array of strings</td>
+<td><code>[]</code></td>
+</tr>
 </tbody>
 </table>
-<p>Arity always indents with spaces, so the global <code>useTabs</code> setting has no effect.</p>
-<h2 id="roxygen-markdown" tabindex="-1"><a class="header-anchor" href="#roxygen-markdown">Roxygen Markdown</a></h2>
-<p>Set <code>roxygenMarkdown</code> to <code>true</code> when your package enables Markdown throughout its roxygen comments with <code>Roxygen: list(markdown = TRUE)</code> in DESCRIPTION.
-The Wasm plugin cannot read DESCRIPTION or man/roxygen/meta.R to discover this setting, so it must be configured explicitly:</p>
-<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
-  <span class="hljs-attr">"arity"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
-    <span class="hljs-attr">"roxygenMarkdown"</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span>
-  <span class="hljs-punctuation">}</span>
-<span class="hljs-punctuation">}</span>
-</code></pre>
-<p>Per-block <code>@md</code> and <code>@noMd</code> tags override this default.</p>
-<p>See the <a href="https://github.com/jolars/dprint-plugin-arity#configuration">plugin documentation</a> and
-<a href="https://plugins.dprint.dev/jolars/arity/latest/schema.json">JSON schema</a> for details.</p>
+<p><code>lineWidth</code> is only used when <code>wrap</code> is set to <code>true</code>. When <code>useTabs</code> is <code>true</code>, <code>indentWidth</code> is ignored.</p>
+<p>Setting <code>enclosingBraces</code> or <code>removeBraces</code> to <code>true</code> applies them to the <code>title</code> field. <code>generateKeys</code> is experimental in bibtex-tidy.</p>
+<p>See the <a href="https://github.com/apcamargo/dprint-plugin-bibtex-tidy#configuration">plugin documentation</a> and
+<a href="https://plugins.dprint.dev/apcamargo/bibtex-tidy/latest/schema.json">JSON schema</a> for details.</p>
 
   </main>
 </div>

@@ -2,15 +2,15 @@
 <html lang="en"><head>
     <script async="" src="/scripts.712541eacc.js"></script>
     <meta charset="utf-8">
-    <title>Install - dprint - Code Formatter</title>
+    <title>bibtex-tidy Plugin - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#1e1e1e">
-    <meta name="description" content="Documentation on installing dprint.">
+    <meta name="description" content="Documentation on the bibtex-tidy code formatting plugin for dprint.">
     <meta name="author" content="Dprint Code Formatting">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:site" content="@dprintfmt">
-    <meta name="twitter:title" content="Install">
-    <meta name="twitter:description" content="Documentation on installing dprint.">
+    <meta name="twitter:title" content="bibtex-tidy Plugin">
+    <meta name="twitter:description" content="Documentation on the bibtex-tidy code formatting plugin for dprint.">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
@@ -22,8 +22,8 @@
       <div class="nav-inner">
         <a class="brand" href="/">dprint</a>
         <div class="nav-links">
-          <a href="/overview" class="active">Guide</a>
-          <a href="/plugins">Plugins</a>
+          <a href="/overview">Guide</a>
+          <a href="/plugins" class="active">Plugins</a>
           <a href="/playground">Playground</a>
           <a href="/sponsor">Sponsor</a>
           <a class="gh-button" href="https://github.com/dprint/dprint" rel="noopener noreferrer">GitHub <span>↗</span></a>
@@ -44,7 +44,7 @@
   
     <li><a href="/overview">Overview</a></li>
   
-    <li><a href="/install" class="active">Install</a></li>
+    <li><a href="/install">Install</a></li>
   
     <li><a href="/setup">Setup</a></li>
   
@@ -111,7 +111,7 @@
   
     <li><a href="/plugins/typstyle">Typstyle (Typst)</a></li>
   
-    <li><a href="/plugins/bibtex-tidy">bibtex-tidy (BibTeX)</a></li>
+    <li><a href="/plugins/bibtex-tidy" class="active">bibtex-tidy (BibTeX)</a></li>
   
     <li><a href="/plugins/swift">Swift (SwiftFormat)</a></li>
   
@@ -126,87 +126,32 @@
   <main class="doc-main doc-content">
     
     
-    <div class="eyebrow">// guide</div>
-    <h1>Install dprint</h1>
-<p>Install using one of the methods below.</p>
-<ul>
-<li>
-<p>Shell (Mac, Linux, WSL):</p>
-<pre><code class="language-sh hljs language-bash">curl -fsSL https://dprint.dev/install.sh | sh
+    <div class="eyebrow">// plugins</div>
+    <nav class="breadcrumb" aria-label="breadcrumbs">
+  <ul>
+    <li><a href="/plugins">Plugins</a></li>
+    <li><a href="/plugins/bibtex-tidy">bibtex-tidy</a></li>
+  </ul>
+</nav>
+<h1>bibtex-tidy Plugin</h1>
+<p>Adapter plugin that formats BibTeX files via <a href="https://github.com/FlamingTempura/bibtex-tidy">bibtex-tidy</a>.</p>
+<p>Formats .bib and .bibtex files. <code>dprint add</code> currently seeds includes for <code>.bib</code> only; add <code>**/*.bibtex</code> yourself if you use that extension.</p>
+<h2 id="install-and-setup" tabindex="-1"><a class="header-anchor" href="#install-and-setup">Install and Setup</a></h2>
+<p>In your project's directory with a dprint.json file, run:</p>
+<pre><code class="language-shellsession hljs language-shell">dprint add apcamargo/bibtex-tidy
 </code></pre>
-</li>
-<li>
-<p>Powershell (Windows):</p>
-<pre><code class="language-sh hljs language-bash">iwr https://dprint.dev/install.ps1 -useb | iex
+<p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"bibtex-tidy"</code> property to add configuration:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"bibtex-tidy"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-comment">// bibtex-tidy config goes here</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/apcamargo/bibtex-tidy-x.x.x.wasm"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
 </code></pre>
-</li>
-<li>
-<p><a href="https://scoop.sh/">Scoop</a> (Windows):</p>
-<pre><code class="language-sh hljs language-bash">scoop install dprint
-</code></pre>
-</li>
-<li>
-<p><a href="https://brew.sh/">Homebrew</a> (Mac):</p>
-<pre><code class="language-sh hljs language-bash">brew install dprint
-</code></pre>
-</li>
-<li>
-<p><a href="https://crates.io/">Cargo</a> (builds and installs the <a href="https://crates.io/crates/dprint">cargo package</a> from source):</p>
-<pre><code class="language-sh hljs language-bash"><span class="hljs-comment"># this will be slower since it builds from the source</span>
-cargo install --locked dprint
-</code></pre>
-</li>
-<li>
-<p><a href="https://www.npmjs.com/">npm</a>:</p>
-<pre><code class="language-sh hljs language-bash"><span class="hljs-comment"># for your project</span>
-npm install dprint
-npx dprint <span class="hljs-built_in">help</span>
-
-<span class="hljs-comment"># or install globally</span>
-npm install -g dprint
-dprint <span class="hljs-built_in">help</span>
-</code></pre>
-</li>
-<li>
-<p>python/<a href="https://docs.astral.sh/uv/">uv</a> via <a href="https://github.com/trim21/dprint-py">https://github.com/trim21/dprint-py</a>:</p>
-<pre><code class="language-sh hljs language-bash">uv add dprint-py
-uv run dprint <span class="hljs-built_in">help</span>
-</code></pre>
-<p><a href="https://mise.jdx.dev">mise</a>:</p>
-<pre><code class="language-sh hljs language-bash"><span class="hljs-comment"># for your project</span>
-mise use dprint
-mise x dprint -- dprint <span class="hljs-built_in">help</span>
-
-<span class="hljs-comment"># or install globally</span>
-mise use dprint --global
-dprint <span class="hljs-built_in">help</span>
-</code></pre>
-</li>
-<li>
-<p><a href="https://asdf-vm.com/">asdf-vm</a> (<a href="https://github.com/asdf-community/asdf-dprint">asdf-dprint</a>):</p>
-<pre><code class="language-sh hljs language-bash">asdf plugin-add dprint https://github.com/asdf-community/asdf-dprint
-asdf install dprint latest
-</code></pre>
-</li>
-<li>
-<p><a href="https://aur.archlinux.org/packages/dprint">Arch Linux</a>:</p>
-<p>Install with any AUR helper, for example:</p>
-<pre><code class="language-sh hljs language-bash">paru -S dprint
-</code></pre>
-<p>or binaries</p>
-<pre><code class="language-sh hljs language-bash">paru -S dprint-bin
-</code></pre>
-</li>
-</ul>
-<p>For binaries and source, see the <a href="https://github.com/dprint/dprint/releases">GitHub releases</a>.</p>
-<h2 id="editor-extensions" tabindex="-1"><a class="header-anchor" href="#editor-extensions">Editor Extensions</a></h2>
-<ul>
-<li><a href="https://marketplace.visualstudio.com/items?itemName=dprint.dprint">Visual Studio Code</a></li>
-<li><a href="https://plugins.jetbrains.com/plugin/18192-dprint">IntelliJ</a> - Thanks to the developers at <a href="https://canva.com">Canva</a></li>
-<li>Neovim with <a href="https://github.com/neovim/nvim-lspconfig/blob/master/doc/configs.md#dprint">nvim-lspconfig</a></li>
-<li>The <code>dprint lsp</code> subcommand provides code formatting over the language server protocol. This can be used to format in other editors such as Neovim, Helix, and Zed. See <a href="/lsp">Language Server</a>.</li>
-</ul>
-<p>Next step: <a href="/setup">Setup</a></p>
+<h2 id="configuration" tabindex="-1"><a class="header-anchor" href="#configuration">Configuration</a></h2>
+<p>See <a href="/plugins/bibtex-tidy/config">Configuration</a>.</p>
 
   </main>
 </div>

@@ -307,7 +307,9 @@
     ['"https://plugins.dprint.dev/jolars/panache-x.x.x.wasm"', "jolars/panache"],
     ['"https://plugins.dprint.dev/jolars/badness-vx.x.x.wasm"', "jolars/badness"],
     ['"https://plugins.dprint.dev/jolars/arity-vx.x.x.wasm"', "jolars/arity"],
-    ['"https://plugins.dprint.dev/jolars/fatou-vx.x.x.wasm"', "jolars/fatou"]
+    ['"https://plugins.dprint.dev/jolars/fatou-vx.x.x.wasm"', "jolars/fatou"],
+    ['"https://plugins.dprint.dev/apcamargo/typstyle-x.x.x.wasm"', "apcamargo/typstyle"],
+    ['"https://plugins.dprint.dev/apcamargo/bibtex-tidy-x.x.x.wasm"', "apcamargo/bibtex-tidy"]
   ]);
   function replacePluginUrls() {
     const elements = getPluginUrlElements();
