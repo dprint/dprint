@@ -1,6 +1,7 @@
 use anyhow::Result;
 use anyhow::bail;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
+use dprint_core::plugins::process::ProcessPluginLaunchInfo;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
@@ -8,6 +9,11 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::str;
 
+use super::deno::DenoPermissions;
+use super::deno::build_deno_pre_args;
+use super::deno::default_deno_permissions;
+use super::deno::get_allow_scripts;
+use super::deno::resolve_deno_executable;
 use crate::environment::Environment;
 use crate::plugins::implementations::SetupPluginResult;
 use crate::plugins::npm_resolution::extract_tarball_replacing;
@@ -17,6 +23,9 @@ use crate::utils::fetch_file_or_url_bytes;
 use crate::utils::fs::get_atomic_path;
 use crate::utils::resolve_url_or_file_path_to_path_source;
 use crate::utils::verify_sha256_checksum;
+
+/// The entrypoint every deno plugin's archive must contain.
+const DENO_PLUGIN_ENTRYPOINT: &str = "main.ts";
 
 fn get_plugin_executable_file_name(plugin_name: &str) -> String {
   if cfg!(target_os = "windows") {
@@ -83,6 +92,93 @@ pub async fn setup_process_plugin<TEnvironment: Environment>(
   }
 }
 
+/// Sets up a deno plugin from its manifest json bytes. Like a native process
+/// plugin it extracts a zip into `dest_dir_path`, but the artifact is a
+/// `main.ts` entrypoint run through the `deno` executable rather than a binary.
+pub async fn setup_deno_plugin<TEnvironment: Environment>(
+  url_or_file_path: &PathSource,
+  plugin_file_bytes: &[u8],
+  dest_dir_path: &Path,
+  environment: &TEnvironment,
+) -> Result<SetupPluginResult> {
+  let deno_file = deserialize_deno_file(plugin_file_bytes)?;
+  let result = setup_deno_inner(url_or_file_path, dest_dir_path, &deno_file, environment).await;
+
+  match result {
+    Ok(result) => Ok(result),
+    Err(err) => {
+      log_debug!(environment, "Failed setting up deno plugin. {:#}", err);
+      environment.try_remove_dir_all(dest_dir_path);
+      Err(err)
+    }
+  }
+}
+
+async fn setup_deno_inner<TEnvironment: Environment>(
+  url_or_file_path: &PathSource,
+  dest_dir_path: &Path,
+  deno_file: &DenoPluginFile,
+  environment: &TEnvironment,
+) -> Result<SetupPluginResult> {
+  // download and verify the archive
+  let archive_path = resolve_url_or_file_path_to_path_source(&deno_file.archive.reference, &url_or_file_path.parent(), environment)?;
+  let archive_bytes = fetch_file_or_url_bytes(&archive_path, environment).await?;
+  if let Err(err) = verify_sha256_checksum(&archive_bytes, &deno_file.archive.checksum) {
+    bail!(
+      concat!(
+        "Invalid checksum found within deno plugin's manifest file for '{}'. This is likely a ",
+        "bug in the deno plugin. Please report it.\n\n{:#}",
+      ),
+      deno_file.archive.reference,
+      err,
+    );
+  }
+
+  extract_zip_into_dest(dest_dir_path, &deno_file.name, &archive_bytes, DENO_PLUGIN_ENTRYPOINT, environment)?;
+  let main_ts_path = dest_dir_path.join(DENO_PLUGIN_ENTRYPOINT);
+  let deno_exe = resolve_deno_executable(environment)?;
+
+  // run `deno install` when the manifest opts into npm lifecycle scripts
+  if let Some(permissions) = &deno_file.permissions
+    && let Some(scripts) = get_allow_scripts(permissions)
+  {
+    let allow_scripts_arg = format!("--allow-scripts={}", scripts.join(","));
+    log_stderr_info!(environment, "Installing dependencies for {}", deno_file.name);
+    let status = environment.run_command_get_status(vec![deno_exe.as_os_str().to_owned(), "install".into(), allow_scripts_arg.into()])?;
+    if status != Some(0) {
+      bail!("Failed to run 'deno install' for plugin {}. Exit code: {:?}", deno_file.name, status);
+    }
+  }
+
+  // run with --init to get the plugin info. Use the manifest's permissions
+  // since some plugins need them at import time (e.g. prettier needs --allow-sys)
+  let permissions = deno_file.permissions.clone().unwrap_or_else(default_deno_permissions);
+  let launch_info = ProcessPluginLaunchInfo {
+    executable: deno_exe,
+    pre_args: build_deno_pre_args(&permissions, dest_dir_path, &main_ts_path),
+  };
+  let plugin_name = deno_file.name.clone();
+  let communicator = ProcessPluginCommunicator::new_with_init_launch_info(&launch_info, {
+    let environment = environment.clone();
+    move |error_message| {
+      // consider messages from process plugins as warnings
+      if environment.log_level().is_warn() {
+        environment.log_stderr_with_context(&error_message, &plugin_name);
+      }
+    }
+  })
+  .await?;
+  let plugin_info = communicator.plugin_info().await?;
+  communicator.shutdown().await;
+
+  Ok(SetupPluginResult {
+    plugin_info,
+    file_path: main_ts_path,
+    executable_sub_path: Some(DENO_PLUGIN_ENTRYPOINT.to_string()),
+    deno_permissions: Some(permissions),
+  })
+}
+
 async fn setup_from_zip<TEnvironment: Environment>(
   plugin_cache_dir_path: &Path,
   plugin_name: String,
@@ -90,21 +186,35 @@ async fn setup_from_zip<TEnvironment: Environment>(
   zip_bytes: &[u8],
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
-  // stage the extract in a sibling temp dir so a crash mid-extract can't
-  // leave the destination half-populated for a future run to mistake as
-  // "already set up". Caller's fs_lock prevents a competing setup against
-  // the same source.
+  let executable_sub_path = get_plugin_executable_file_name(&plugin_name);
+  extract_zip_into_dest(plugin_cache_dir_path, &plugin_name, zip_bytes, &executable_sub_path, environment)?;
+
+  let plugin_executable_file_path = plugin_cache_dir_path.join(&executable_sub_path);
+  start_communicator_and_collect_info(plugin_executable_file_path, executable_sub_path, plugin_version, plugin_name, environment).await
+}
+
+/// Extracts a plugin's zip into `plugin_cache_dir_path`, staging it in a
+/// sibling temp dir and renaming into place so a crash mid-extract can't leave
+/// the destination half-populated for a future run to mistake as "already set
+/// up". Verifies `required_sub_path` is present before committing. The caller's
+/// fs_lock prevents a competing setup against the same source.
+fn extract_zip_into_dest<TEnvironment: Environment>(
+  plugin_cache_dir_path: &Path,
+  plugin_name: &str,
+  zip_bytes: &[u8],
+  required_sub_path: &str,
+  environment: &TEnvironment,
+) -> Result<()> {
   let temp_dir = get_atomic_path(environment, plugin_cache_dir_path);
   environment.mk_dir_all(&temp_dir)?;
   if let Err(err) = extract_zip(&format!("Extracting zip for {}", plugin_name), zip_bytes, &temp_dir, environment) {
     environment.try_remove_dir_all(&temp_dir);
     return Err(err);
   }
-  let executable_sub_path = get_plugin_executable_file_name(&plugin_name);
-  let temp_executable = temp_dir.join(&executable_sub_path);
-  if !environment.path_exists(&temp_executable) {
+  let temp_required_path = temp_dir.join(required_sub_path);
+  if !environment.path_exists(&temp_required_path) {
     environment.try_remove_dir_all(&temp_dir);
-    bail!("Plugin zip file did not contain required executable at: {}", temp_executable.display(),);
+    bail!("Plugin zip file did not contain required file at: {}", temp_required_path.display());
   }
   // remove any existing directory before moving the staged extract into place.
   // surface a removal failure directly — otherwise the rename below fails with
@@ -117,9 +227,7 @@ async fn setup_from_zip<TEnvironment: Environment>(
     environment.try_remove_dir_all(&temp_dir);
     return Err(err.into());
   }
-
-  let plugin_executable_file_path = plugin_cache_dir_path.join(&executable_sub_path);
-  start_communicator_and_collect_info(plugin_executable_file_path, executable_sub_path, plugin_version, plugin_name, environment).await
+  Ok(())
 }
 
 /// Extracts a per-platform npm tarball into the plugin cache directory. The
@@ -177,6 +285,7 @@ async fn start_communicator_and_collect_info<TEnvironment: Environment>(
     plugin_info,
     file_path: plugin_executable_file_path,
     executable_sub_path: Some(executable_sub_path),
+    deno_permissions: None,
   })
 }
 
@@ -225,6 +334,42 @@ pub struct ProcessPluginFile {
 pub struct ProcessPluginPath {
   pub reference: String,
   pub checksum: String,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct DenoPluginFile {
+  #[allow(dead_code)]
+  schema_version: u32,
+  #[allow(dead_code)]
+  kind: String,
+  name: String,
+  #[allow(dead_code)]
+  version: String,
+  archive: ProcessPluginPath,
+  permissions: Option<DenoPermissions>,
+}
+
+fn deserialize_deno_file(bytes: &[u8]) -> Result<DenoPluginFile> {
+  let plugin_file: Value = match serde_json::from_slice(bytes) {
+    Ok(plugin_file) => plugin_file,
+    Err(err) => bail!(
+      "Error deserializing deno plugin file: {}\n\nThis might mean you're using an old version of dprint.",
+      err
+    ),
+  };
+
+  verify_plugin_file(&plugin_file)?;
+
+  Ok(serde_json::value::from_value(plugin_file)?)
+}
+
+/// Peeks at the `kind` field of a plugin manifest's json bytes. Deno and native
+/// process plugins share the same `.json` file extension, so this is the only
+/// way to tell them apart before parsing into the kind-specific manifest type.
+pub fn peek_plugin_kind(bytes: &[u8]) -> Option<String> {
+  let value: Value = serde_json::from_slice(bytes).ok()?;
+  value.as_object()?.get("kind")?.as_str().map(|s| s.to_string())
 }
 
 struct ProcessPluginZipBytes {
@@ -276,9 +421,9 @@ pub fn parse_process_plugin_file(bytes: &[u8]) -> Result<ProcessPluginFile> {
 
 fn verify_plugin_file(plugin_file: &Value) -> Result<()> {
   let schema_version = plugin_file.as_object().and_then(|o| o.get("schemaVersion")).and_then(|v| v.as_u64());
-  if schema_version != Some(2) {
+  if schema_version != Some(2) && schema_version != Some(3) {
     bail!(
-      "Expected schema version 2, but found {}. This may indicate you need to upgrade your CLI version or plugin.",
+      "Expected schema version 2 or 3, but found {}. This may indicate you need to upgrade your CLI version or plugin.",
       schema_version.map(|v| v.to_string()).unwrap_or_else(|| "no property".to_string())
     );
   }
@@ -287,8 +432,9 @@ fn verify_plugin_file(plugin_file: &Value) -> Result<()> {
 
   if let Some(kind) = kind
     && kind != "process"
+    && kind != "deno"
   {
-    bail!("Unsupported plugin kind: {kind}\nOnly process plugins are supported by this version of dprint. Please upgrade your CLI.");
+    bail!("Unsupported plugin kind: {kind}\nOnly process and deno plugins are supported by this version of dprint. Please upgrade your CLI.");
   }
 
   Ok(())
@@ -347,15 +493,34 @@ mod test {
   use super::*;
 
   #[test]
-  fn ensure_only_process_kind_allowed() {
-    assert!(verify_plugin_file(&serde_json::from_slice(r#"{ "schemaVersion": 2, "kind": "process" }"#.as_bytes()).unwrap()).is_ok(),);
-    assert!(verify_plugin_file(&serde_json::from_slice(r#"{ "schemaVersion": 2 }"#.as_bytes()).unwrap()).is_ok(),);
+  fn ensure_valid_kinds_allowed() {
+    assert!(verify_plugin_file(&serde_json::from_slice(r#"{ "schemaVersion": 2, "kind": "process" }"#.as_bytes()).unwrap()).is_ok());
+    assert!(verify_plugin_file(&serde_json::from_slice(r#"{ "schemaVersion": 2 }"#.as_bytes()).unwrap()).is_ok());
+    assert!(verify_plugin_file(&serde_json::from_slice(r#"{ "schemaVersion": 3, "kind": "deno" }"#.as_bytes()).unwrap()).is_ok());
+    assert!(verify_plugin_file(&serde_json::from_slice(r#"{ "schemaVersion": 3, "kind": "process" }"#.as_bytes()).unwrap()).is_ok());
     assert_eq!(
       verify_plugin_file(&serde_json::from_slice(r#"{ "schemaVersion": 2, "kind": "other" }"#.as_bytes()).unwrap())
         .err()
         .unwrap()
         .to_string(),
-      "Unsupported plugin kind: other\nOnly process plugins are supported by this version of dprint. Please upgrade your CLI.",
+      "Unsupported plugin kind: other\nOnly process and deno plugins are supported by this version of dprint. Please upgrade your CLI.",
     );
+    assert!(
+      verify_plugin_file(&serde_json::from_slice(r#"{ "schemaVersion": 4 }"#.as_bytes()).unwrap())
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("Expected schema version 2 or 3")
+    );
+  }
+
+  #[test]
+  fn ensure_peek_plugin_kind() {
+    assert_eq!(
+      peek_plugin_kind(r#"{ "schemaVersion": 3, "kind": "deno" }"#.as_bytes()).as_deref(),
+      Some("deno")
+    );
+    assert_eq!(peek_plugin_kind(r#"{ "schemaVersion": 2 }"#.as_bytes()), None);
+    assert_eq!(peek_plugin_kind(b"not json"), None);
   }
 }
