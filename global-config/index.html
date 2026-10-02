@@ -169,7 +169,25 @@ Formatted 1 file.
 <pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --config-discovery=global
 </code></pre>
 <h2 id="editors" tabindex="-1"><a class="header-anchor" href="#editors">Editors</a></h2>
+<h3 id="language-server" tabindex="-1"><a class="header-anchor" href="#language-server">Language Server</a></h3>
 <p>Editor integrations that use the <a href="/lsp">language server</a> (<code>dprint lsp</code>) format a file with the global configuration by default when there's no dprint configuration file in the file's directory or its ancestor directories. Unlike <code>dprint fmt</code>, there is no prompt. See <a href="/lsp#configuration-file-resolution">Language Server - Configuration File Resolution</a> for more details.</p>
+<h3 id="visual-studio-code" tabindex="-1"><a class="header-anchor" href="#visual-studio-code">Visual Studio Code</a></h3>
+<p>The <a href="https://marketplace.visualstudio.com/items?itemName=dprint.dprint">Visual Studio Code extension</a> doesn't format with the global configuration by default. This prevents accidentally formatting files in a project that doesn't use dprint (ex. when format on save is enabled).</p>
+<p>Starting in version 0.18 of the extension, a file is formatted with the closest dprint configuration file in its directory or its ancestor directories. This includes files that aren't in a workspace folder, such as a single file opened on its own. When there's no such configuration file, the file is not formatted and the global configuration is used in one of two ways:</p>
+<ol>
+<li>
+<p>Set <code>dprint.useGlobalConfig</code> to <code>true</code> to format these files with the global configuration:</p>
+<pre><code class="language-jsonc hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"dprint.useGlobalConfig"</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>As with the rest of the extension's formatting, this only applies to the languages where dprint is the default formatter (<code>editor.defaultFormatter</code>).</p>
+</li>
+<li>
+<p>Run the <code>Dprint: Format Document (global config)</code> or <code>Dprint: Format Selection (global config)</code> command from the command palette to format the current file once. These commands work regardless of the <code>dprint.useGlobalConfig</code> setting and are only shown for a file that doesn't have a configuration file in an ancestor directory. When the file isn't formatted, the command says why (ex. there's no global configuration file or none of its plugins handle the file).</p>
+</li>
+</ol>
+<p>The global configuration file is the same one the CLI uses, including when <code>DPRINT_CONFIG_DIR</code> is set. As with <code>dprint fmt</code>, a file is only formatted when the global configuration would format it—a plugin needs to handle the file and it can't be matched by the <code>excludes</code>.</p>
 
   </main>
 </div>
