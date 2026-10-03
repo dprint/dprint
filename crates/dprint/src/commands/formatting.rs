@@ -2953,6 +2953,7 @@ text2"
         config.add_remote_wasm_plugin();
       })
       // the escaped entry targets the literal file name in git semantics
+      .write_file("/.git/HEAD", "")
       .write_file("/.gitignore", "\\[id\\].txt")
       .write_file("/routes/[id].txt", "text1")
       .write_file("/a.txt", "text2")
@@ -3118,6 +3119,7 @@ text2"
       .with_default_config(|config| {
         config.add_remote_wasm_plugin();
       })
+      .write_file("/.git/HEAD", "")
       .write_file("/.gitignore", "file.txt")
       .write_file("/file.txt", "text")
       .build();
@@ -3134,6 +3136,7 @@ text2"
       .with_default_config(|config| {
         config.add_remote_wasm_plugin();
       })
+      .write_file("/.git/HEAD", "")
       .write_file("/.gitignore", "sub")
       .write_file("/sub/file.txt", "text")
       .write_file("/a.txt", "other")

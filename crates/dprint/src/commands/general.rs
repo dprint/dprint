@@ -583,6 +583,7 @@ mod test {
       .write_file("/file1.txt", "")
       .write_file("/file2.txt", "")
       .write_file("/file3.txt", "")
+      .write_file("/.git/HEAD", "")
       .write_file(".gitignore", "file2.txt")
       .build();
     run_test_cli(vec!["output-file-paths"], &environment).unwrap();
@@ -600,6 +601,7 @@ mod test {
       .write_file("/file1.txt", "")
       .write_file("/file2.txt", "")
       .write_file("/file3.txt", "")
+      .write_file("/.git/HEAD", "")
       .write_file("/sub/.gitignore", "file1.txt")
       .write_file("/sub/file1.txt", "")
       .write_file("/sub/file2.txt", "")
@@ -618,6 +620,7 @@ mod test {
       })
       .write_file("/file1.txt", "")
       .write_file("/file2.txt", "")
+      .write_file("/.git/HEAD", "")
       .write_file("/.gitignore", "file1.txt")
       .build();
     run_test_cli(vec!["output-file-paths"], &environment).unwrap();
@@ -636,6 +639,7 @@ mod test {
       .write_file("/sub_dir/file.txt", "")
       .write_file("/sub_dir/sub/file.txt", "")
       .write_file("/sub_dir2/file.txt", "")
+      .write_file("/.git/HEAD", "")
       .write_file("/.gitignore", "sub_dir\nsub_dir2")
       .build();
     run_test_cli(vec!["output-file-paths"], &environment).unwrap();
@@ -651,6 +655,7 @@ mod test {
         c.add_excludes("!file1.txt");
       })
       .write_file("/file1.txt", "")
+      .write_file("/.git/HEAD", "")
       .write_file("/.gitignore", "file1.txt")
       .build();
     run_test_cli(vec!["output-file-paths"], &environment).unwrap();
@@ -668,6 +673,7 @@ mod test {
       .write_file("/file1.txt", "")
       .write_file("/sub_dir/sub.txt", "")
       .write_file("/file2.txt", "")
+      .write_file("/.git/HEAD", "")
       .write_file("/.gitignore", "file1.txt\nsub_dir")
       .build();
     run_test_cli(vec!["output-file-paths"], &environment).unwrap();
@@ -682,6 +688,7 @@ mod test {
       .with_default_config(|c| {
         c.add_includes("**/*.txt").add_includes("!sub/sub_dir/*.txt");
       })
+      .write_file("/.git/HEAD", "")
       .write_file("/sub/sub_dir/.gitignore", "!not_ignored.txt\n")
       .write_file("/sub/sub_dir/not_ignored.txt", "")
       .write_file("/sub/sub_dir/sub.txt", "")
@@ -699,6 +706,7 @@ mod test {
       .with_default_config(|c| {
         c.add_includes("**/*.txt");
       })
+      .write_file("/.git/HEAD", "")
       .write_file("/sub/sub_dir/.gitignore", "ignored.txt\n")
       .write_file("/sub/sub_dir/ignored.txt", "")
       .write_file("/sub/sub_dir/sub.txt", "")
@@ -719,6 +727,7 @@ mod test {
       .write_file("/file1.txt", "")
       .write_file("/file2.txt", "")
       .write_file("/file3.txt", "")
+      .write_file("/.git/HEAD", "")
       .write_file(".gitignore", "file2.txt")
       .build();
     run_test_cli(vec!["output-file-paths", "--no-gitignore"], &environment).unwrap();
@@ -734,6 +743,7 @@ mod test {
         c.add_includes("**/*.txt");
       })
       .write_file("/file1.txt", "")
+      .write_file("/.git/HEAD", "")
       .write_file("/sub/.gitignore", "file1.txt")
       .write_file("/sub/file1.txt", "")
       .write_file("/sub/file2.txt", "")
@@ -753,6 +763,7 @@ mod test {
       .write_file("/file.txt", "")
       .write_file("/ignored_dir/file.txt", "")
       .write_file("/ignored_dir/sub/file.txt", "")
+      .write_file("/.git/HEAD", "")
       .write_file("/.gitignore", "ignored_dir")
       .build();
     // without the flag, the dir is ignored

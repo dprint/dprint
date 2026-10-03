@@ -576,6 +576,7 @@ mod test {
     // must not depend on relative paths
     let base_dir = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     environment.mk_dir_all(base_dir.as_ref()).unwrap();
+    environment.mk_dir_all("/testing/dir/.git").unwrap();
     environment.write_file("/testing/dir/.gitignore", "ignored-dir/\nsub.ts/\n").unwrap();
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
@@ -610,6 +611,7 @@ mod test {
     let base_dir = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     environment.mk_dir_all(base_dir.as_ref()).unwrap();
     // the base dir is gitignored by its parent
+    environment.mk_dir_all("/testing/.git").unwrap();
     environment.write_file("/testing/.gitignore", "dir/\n").unwrap();
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {

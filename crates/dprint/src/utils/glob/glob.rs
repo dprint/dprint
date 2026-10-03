@@ -1236,6 +1236,7 @@ mod test {
     // gets dropped on the reader thread, which is only safe because dropping it
     // also means nothing below it is ever traversed.
     let environment = TestEnvironmentBuilder::new()
+      .write_file("/.git/HEAD", "")
       .write_file("/a.txt", "")
       .write_file("/sub/.gitignore", "whatever\n")
       .write_file("/sub/only.bin", "")
@@ -1271,6 +1272,7 @@ mod test {
     // before the matching thread sees the directory listing. its presence still
     // has to be reported so the gitignore gets read.
     let environment = TestEnvironmentBuilder::new()
+      .write_file("/.git/HEAD", "")
       .write_file("/sub/.gitignore", "ignored\n")
       .write_file("/sub/ignored/a.txt", "")
       .write_file("/sub/keep/b.txt", "")

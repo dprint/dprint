@@ -1885,6 +1885,7 @@ mod test {
           info.add_plugin(plugin);
         }
       })
+      .write_file("/.git/HEAD", "")
       .write_file("/.gitignore", "generated/\nCargo.toml\n")
       // matching files only exist where the gitignore excludes them
       .write_file("/generated/app.ts", "")

@@ -71,7 +71,7 @@ Note: This requires that [git](https://git-scm.com/) is installed and that you u
 
 ### Ignoring .gitignore
 
-By default, dprint respects `.gitignore` files (as well as a repository's `.git/info/exclude` file) and excludes any gitignored files from formatting. To disable this behaviour, use the `--no-gitignore` flag:
+By default, dprint respects `.gitignore` files (as well as a repository's `.git/info/exclude` file) and excludes any gitignored files from formatting. Like git, this only applies within a repository (a directory with a `.git` or `.jj` entry and its descendants), so a `.gitignore` file that's not in a repository is not used. To disable this behaviour, use the `--no-gitignore` flag:
 
 ```sh
 dprint fmt --no-gitignore
