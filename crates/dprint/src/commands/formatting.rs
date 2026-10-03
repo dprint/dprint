@@ -1108,6 +1108,48 @@ mod test {
   }
 
   #[test]
+  fn should_format_files_in_unexcluded_node_modules() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin().add_excludes("!**/fixtures/node_modules");
+      })
+      .write_file("/node_modules/file.txt", "text")
+      .write_file("/sub/node_modules/file.txt", "text")
+      .write_file("/sub/fixtures/node_modules/file.txt", "text")
+      .write_file("/sub/fixtures/node_modules/pkg/file.txt", "text")
+      // a nested node_modules directory wasn't un-excluded
+      .write_file("/sub/fixtures/node_modules/pkg/node_modules/file.txt", "text")
+      .build();
+
+    // from the config's directory and from a descendant directory
+    for cwd in ["/", "/sub"] {
+      environment.set_cwd(cwd);
+      for path in ["/sub/fixtures/node_modules/file.txt", "/sub/fixtures/node_modules/pkg/file.txt"] {
+        environment.write_file(path, "text").unwrap();
+      }
+      run_test_cli(vec!["fmt"], &environment).unwrap();
+      assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+      assert_eq!(environment.read_file("/sub/fixtures/node_modules/file.txt").unwrap(), "text_formatted");
+      assert_eq!(environment.read_file("/sub/fixtures/node_modules/pkg/file.txt").unwrap(), "text_formatted");
+      assert_eq!(environment.read_file("/node_modules/file.txt").unwrap(), "text");
+      assert_eq!(environment.read_file("/sub/node_modules/file.txt").unwrap(), "text");
+      assert_eq!(environment.read_file("/sub/fixtures/node_modules/pkg/node_modules/file.txt").unwrap(), "text");
+    }
+  }
+
+  #[test]
+  fn should_format_files_in_node_modules_unexcluded_by_excludes_override() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file("/node_modules/file.txt", "text")
+      .write_file("/fixtures/node_modules/file.txt", "text")
+      .build();
+    run_test_cli(vec!["fmt", "--excludes-override", "!**/fixtures/node_modules"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/fixtures/node_modules/file.txt").unwrap(), "text_formatted");
+    assert_eq!(environment.read_file("/node_modules/file.txt").unwrap(), "text");
+  }
+
+  #[test]
   fn should_format_files_with_config() {
     let file_path1 = "/file1.txt";
     let file_path2 = "/file2.txt_ps";

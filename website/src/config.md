@@ -256,6 +256,23 @@ Files that are gitignored will be excluded by default, but you can "un-exclude" 
 
 Alternatively, you can disable all `.gitignore` handling with the `--no-gitignore` CLI flag (see [CLI docs](/cli#ignoring-gitignore)).
 
+### Un-excluding `node_modules`
+
+Directories named `node_modules` are excluded by default, but you can "un-exclude" specific ones by specifying a negated glob:
+
+```json
+{
+  "excludes": [
+    // will format the files in this directory even though it's named node_modules
+    "!**/fixtures/node_modules"
+  ]
+}
+```
+
+Note that this needs to match the `node_modules` directory itself and not only the files within it (ex. `!**/fixtures/node_modules/**` won't work) because dprint doesn't look inside an excluded directory.
+
+Alternatively, you can stop excluding all `node_modules` directories with the `--allow-node-modules` CLI flag.
+
 ### Escaping glob characters
 
 To match a path that contains glob characters (ex. `[` or `{`) in `includes`/`excludes`, wrap each one in a character class:
