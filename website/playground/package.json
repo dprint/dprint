@@ -3,8 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "homepage": "https://dprint.dev/playground",
-  "eslintConfig": {
-    "extends": "react-app"
+  "scripts": {
+    "dev": "vite",
+    "test": "deno test",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "browserslist": {
     "production": [
@@ -18,11 +21,8 @@
       "last 1 safari version"
     ]
   },
-  "scripts": {
-    "dev": "vite",
-    "test": "deno test",
-    "build": "vite build",
-    "preview": "vite preview"
+  "eslintConfig": {
+    "extends": "react-app"
   },
   "dependencies": {
     "@dprint/formatter": "^0.4.1",
@@ -39,8 +39,8 @@
     "@types/node": "^25.0.3",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
-    "typescript": "^5.9.3",
     "@vitejs/plugin-react": "^5.1.2",
+    "typescript": "^5.9.3",
     "vite": "^7.3.0"
   }
 }
