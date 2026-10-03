@@ -312,7 +312,8 @@ fn process_cli_override_patterns(
 }
 
 /// Processes CLI-provided patterns, expanding any brace groups that span
-/// path components into separate patterns.
+/// path components into separate patterns. A pattern naming an existing path
+/// isn't expanded because it's matched literally (ex. a `{a,b}` directory).
 fn process_cli_patterns<'a>(
   file_patterns: &'a [String],
   cwd: &'a CanonicalizedPathBuf,
@@ -320,7 +321,12 @@ fn process_cli_patterns<'a>(
 ) -> impl Iterator<Item = GlobPattern> + 'a {
   file_patterns
     .iter()
-    .flat_map(|pattern| expand_braces(&process_file_pattern_slashes(pattern)))
+    .flat_map(move |pattern| {
+      let pattern = process_file_pattern_slashes(pattern);
+      let is_existing_path = pattern.contains('{') && environment.path_exists(cwd.join(non_negated_glob(&pattern)));
+      let (literal, pattern) = if is_existing_path { (Some(pattern), None) } else { (None, Some(pattern)) };
+      literal.into_iter().chain(pattern.into_iter().flat_map(expand_braces))
+    })
     .map(move |pattern| process_cli_pattern(&pattern, cwd, environment))
 }
 
@@ -417,22 +423,18 @@ pub fn process_config_patterns(file_patterns: &[String]) -> impl Iterator<Item =
 
 /// Processes a config file pattern, which may be multiple patterns when it
 /// has a brace group that spans path components (ex. `{.,src/**}/*.js`).
-pub fn process_config_pattern(file_pattern: &str) -> Vec<String> {
-  expand_braces(&process_file_pattern_slashes(file_pattern))
-    .into_iter()
-    .map(process_expanded_config_pattern)
-    .collect()
+pub fn process_config_pattern(file_pattern: &str) -> impl Iterator<Item = String> + use<> {
+  expand_braces(process_file_pattern_slashes(file_pattern)).map(process_expanded_config_pattern)
 }
 
-fn process_expanded_config_pattern(file_pattern: String) -> String {
+fn process_expanded_config_pattern(mut file_pattern: String) -> String {
   // make config patterns that start with `/` be relative
   if file_pattern.starts_with('/') {
-    format!(".{}", file_pattern)
+    file_pattern.insert(0, '.');
   } else if file_pattern.starts_with("!/") {
-    format!("!.{}", &file_pattern[1..])
-  } else {
-    file_pattern
+    file_pattern.insert(1, '.');
   }
+  file_pattern
 }
 
 #[cfg(test)]
@@ -491,6 +493,30 @@ mod test {
     assert_cli_pattern("!C:/test/other", "C:\\test\\", "!./other", "C:\\test\\");
   }
 
+  #[test]
+  fn should_expand_brace_groups_in_cli_patterns() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/sub/dir{a").unwrap();
+    environment.write_file("/sub/dir{a/b,c}.txt", "").unwrap();
+    let cwd = CanonicalizedPathBuf::new_for_testing("/sub");
+    let process = |pattern: &str| {
+      process_cli_patterns(&[pattern.to_string()], &cwd, &environment)
+        .map(|p| (p.relative_pattern, p.base_dir.to_string_lossy().replace('\\', "/")))
+        .collect::<Vec<_>>()
+    };
+    let sub = |pattern: &str| (pattern.to_string(), "/sub".to_string());
+    let root = |pattern: &str| (pattern.to_string(), "/".to_string());
+    assert_eq!(process("{.,src/**}/*.js"), [sub("./*.js"), sub("./src/**/*.js")]);
+    assert_eq!(process("!{.,src/**}/*.js"), [sub("!./*.js"), sub("!./src/**/*.js")]);
+    assert_eq!(process("{../a,b}/*.js"), [root("./a/*.js"), sub("./b/*.js")]);
+    // stays relative to the cwd
+    assert_eq!(process("{,src/dir}/*.js"), [sub("./*.js"), sub("./src/dir/*.js")]);
+    // an existing path is not expanded
+    assert_eq!(process("dir{a/b,c}.txt"), [sub("./dir{a/b,c}.txt")]);
+    assert_eq!(process("!dir{a/b,c}.txt"), [sub("!./dir{a/b,c}.txt")]);
+    assert_eq!(process("other{a/b,c}.txt"), [sub("./othera/b.txt"), sub("./otherc.txt")]);
+  }
+
   #[track_caller]
   fn assert_cli_pattern(file_pattern: &str, cwd: &str, expected_pattern: &str, expected_base_dir: &str) {
     let environment = TestEnvironment::new();
@@ -518,19 +544,20 @@ mod test {
 
   #[test]
   fn should_process_config_pattern() {
-    assert_eq!(process_config_pattern("/test"), ["./test"]);
-    assert_eq!(process_config_pattern("./test"), ["./test"]);
-    assert_eq!(process_config_pattern("test"), ["test"]);
-    assert_eq!(process_config_pattern("**/test"), ["**/test"]);
+    let process = |pattern: &str| process_config_pattern(pattern).collect::<Vec<_>>();
+    assert_eq!(process("/test"), ["./test"]);
+    assert_eq!(process("./test"), ["./test"]);
+    assert_eq!(process("test"), ["test"]);
+    assert_eq!(process("**/test"), ["**/test"]);
 
-    assert_eq!(process_config_pattern("!/test"), ["!./test"]);
-    assert_eq!(process_config_pattern("!./test"), ["!./test"]);
-    assert_eq!(process_config_pattern("!test"), ["!test"]);
-    assert_eq!(process_config_pattern("!**/test"), ["!**/test"]);
+    assert_eq!(process("!/test"), ["!./test"]);
+    assert_eq!(process("!./test"), ["!./test"]);
+    assert_eq!(process("!test"), ["!test"]);
+    assert_eq!(process("!**/test"), ["!**/test"]);
 
     // brace groups spanning path components
-    assert_eq!(process_config_pattern("{/test,sub/**}/*.js"), ["./test/*.js", "sub/**/*.js"]);
-    assert_eq!(process_config_pattern("!{/test,sub/**}/*.js"), ["!./test/*.js", "!sub/**/*.js"]);
+    assert_eq!(process("{/test,sub/**}/*.js"), ["./test/*.js", "sub/**/*.js"]);
+    assert_eq!(process("!{/test,sub/**}/*.js"), ["!./test/*.js", "!sub/**/*.js"]);
   }
 
   #[test]

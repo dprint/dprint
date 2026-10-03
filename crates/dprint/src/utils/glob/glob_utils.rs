@@ -38,35 +38,14 @@ pub fn is_pattern(pattern: &str) -> bool {
 /// and `worker/*.js`).
 ///
 /// The glob engine only understands a brace group within a single path
-/// component (ex. `*.{ts,js}`), so those are left for it to handle.
-pub fn expand_braces(pattern: &str) -> Vec<String> {
-  if !pattern.contains('{') {
-    return vec![pattern.to_string()];
-  }
-  let (negation, text) = if is_negated_glob(pattern) { ("!", &pattern[1..]) } else { ("", pattern) };
-  let mut expansions = Vec::new();
-  expand_braces_from(text, 0, &mut expansions);
-  if expansions.len() == 1 && expansions[0] == text {
-    return vec![pattern.to_string()];
-  }
-
-  // a pattern with a slash only matches relative to its base directory, so
-  // keep it that way when an expansion ends up without one (ex. `{a/b,c}`)
-  let is_anchored = text.trim_end_matches('/').contains('/');
-  expansions
-    .into_iter()
-    .map(|mut expansion| {
-      // a `.` alternative names the directory it's in (ex. `src/{.,sub}/*.js`)
-      while let Some(index) = expansion.find("/./") {
-        expansion.replace_range(index..index + 2, "");
-      }
-      if is_anchored && !expansion.trim_end_matches('/').contains('/') {
-        format!("{}./{}", negation, expansion)
-      } else {
-        format!("{}{}", negation, expansion)
-      }
-    })
-    .collect()
+/// component (ex. `*.{ts,js}`), so those are left for it to handle and the
+/// provided pattern is returned as-is without allocating.
+pub fn expand_braces(pattern: String) -> impl Iterator<Item = String> {
+  let (pattern, expansions) = match try_expand_braces(&pattern) {
+    Some(expansions) => (None, expansions),
+    None => (Some(pattern), Vec::new()),
+  };
+  pattern.into_iter().chain(expansions)
 }
 
 /// Whether a single path component pattern (ex. `dist`, `su*`, `[sd]ist`)
@@ -174,90 +153,176 @@ fn is_windows_absolute_pattern(pattern: &str) -> bool {
   matches!(next_char, Some('/'))
 }
 
-fn expand_braces_from(text: &str, start: usize, expansions: &mut Vec<String>) {
-  let mut start = start;
-  while let Some(group) = find_brace_group(text, start) {
-    if group.spans_path_components(text) {
-      for alternative in &group.alternatives {
-        let expanded = format!("{}{}{}", &text[..group.open], alternative, &text[group.close + 1..]);
-        // start at the alternative because it might contain a nested group
-        expand_braces_from(&expanded, group.open, expansions);
-      }
-      return;
+fn try_expand_braces(pattern: &str) -> Option<Vec<String>> {
+  let is_negated = is_negated_glob(pattern);
+  let text = non_negated_glob(pattern);
+  find_brace_group_spanning_path_components(text, 0)?;
+
+  let mut expansions = Vec::new();
+  expand_braces_from(text.to_string(), 0, &mut expansions);
+
+  // a pattern with a slash only matches relative to its base directory, so
+  // keep it that way when an expansion ends up without one (ex. `{a/b,c}`)
+  let is_anchored = text.trim_end_matches('/').contains('/');
+  for expansion in &mut expansions {
+    // a `.` alternative names the directory it's in (ex. `src/{.,sub}/*.js`)
+    while let Some(index) = expansion.find("/./") {
+      expansion.replace_range(index..index + 2, "");
     }
-    start = group.close + 1;
+    if expansion.len() > "./.".len() && expansion.ends_with("/.") {
+      expansion.truncate(expansion.len() - "/.".len());
+    }
+    // an empty alternative at the start doesn't make the pattern absolute
+    // (ex. `{,sub}/*.js`)
+    if expansion.starts_with('/') && !text.starts_with('/') {
+      expansion.insert(0, '.');
+    }
+    if is_anchored && !expansion.trim_end_matches('/').contains('/') {
+      expansion.insert_str(0, "./");
+    }
+    if is_negated {
+      expansion.insert(0, '!');
+    }
   }
-  expansions.push(text.to_string());
+  Some(expansions)
 }
 
-struct BraceGroup<'a> {
+fn expand_braces_from(text: String, start: usize, expansions: &mut Vec<String>) {
+  let Some(group) = find_brace_group_spanning_path_components(&text, start) else {
+    expansions.push(text);
+    return;
+  };
+  let (before, after) = (&text[..group.open], &text[group.close + 1..]);
+  let body = &text[group.open + 1..group.close];
+  let mut alternative_start = 0;
+  for comma_index in top_level_comma_indexes(body).chain(std::iter::once(body.len())) {
+    let alternative = &body[alternative_start..comma_index];
+    let mut expanded = String::with_capacity(before.len() + alternative.len() + after.len());
+    expanded.push_str(before);
+    expanded.push_str(alternative);
+    expanded.push_str(after);
+    // start at the alternative because it might contain a nested group
+    expand_braces_from(expanded, group.open, expansions);
+    alternative_start = comma_index + 1;
+  }
+}
+
+struct BraceGroup {
   /// Index of the opening brace.
   open: usize,
   /// Index of the closing brace.
   close: usize,
-  alternatives: Vec<&'a str>,
+  has_alternatives: bool,
 }
 
-impl BraceGroup<'_> {
+impl BraceGroup {
   fn spans_path_components(&self, text: &str) -> bool {
     let body = &text[self.open + 1..self.close];
-    self.alternatives.len() > 1 && (body.contains('/') || body.split(['{', '}', ',']).any(|part| part == "."))
+    self.has_alternatives && (body.contains('/') || body.split(['{', '}', ',']).any(|part| matches!(part, "." | "..")))
+  }
+}
+
+fn find_brace_group_spanning_path_components(text: &str, start: usize) -> Option<BraceGroup> {
+  let mut start = start;
+  loop {
+    let group = find_brace_group(text, start)?;
+    if group.spans_path_components(text) {
+      return Some(group);
+    }
+    // look within the group because it might only be wrapping a nested
+    // group that does (ex. `{{a/b,c}}`)
+    start = group.open + 1;
   }
 }
 
 /// Finds the first brace group at or after the start index, skipping over
 /// escaped characters and character classes (ex. `[{]`).
-fn find_brace_group(text: &str, start: usize) -> Option<BraceGroup<'_>> {
+fn find_brace_group(text: &str, start: usize) -> Option<BraceGroup> {
   let bytes = text.as_bytes();
   let mut index = start;
   while index < bytes.len() {
     match bytes[index] {
       b'\\' => index += 2,
       b'[' => index = skip_char_class(bytes, index),
-      b'{' => return parse_brace_group(text, index),
+      b'{' => {
+        // when unbalanced, leave it for the glob engine to error on
+        let mut tokens = BraceTokens::new(&text[index + 1..]);
+        let has_alternatives = tokens.by_ref().count() > 0;
+        return tokens.close.map(|close| BraceGroup {
+          open: index,
+          close: index + 1 + close,
+          has_alternatives,
+        });
+      }
       _ => index += 1,
     }
   }
   None
 }
 
-fn parse_brace_group(text: &str, open: usize) -> Option<BraceGroup<'_>> {
-  let bytes = text.as_bytes();
-  let mut alternatives = Vec::new();
-  let mut alternative_start = open + 1;
-  let mut depth = 1;
-  let mut index = open + 1;
-  while index < bytes.len() {
-    match bytes[index] {
-      b'\\' => {
-        index += 2;
-        continue;
-      }
-      b'[' => {
-        index = skip_char_class(bytes, index);
-        continue;
-      }
-      b'{' => depth += 1,
-      b'}' => {
-        depth -= 1;
-        if depth == 0 {
-          alternatives.push(&text[alternative_start..index]);
-          return Some(BraceGroup {
-            open,
-            close: index,
-            alternatives,
-          });
-        }
-      }
-      b',' if depth == 1 => {
-        alternatives.push(&text[alternative_start..index]);
-        alternative_start = index + 1;
-      }
-      _ => {}
+/// Gets the indexes of the commas separating the alternatives of a brace
+/// group's body (so not the ones in a nested group).
+fn top_level_comma_indexes(body: &str) -> impl Iterator<Item = usize> + '_ {
+  BraceTokens::new(body)
+}
+
+/// Iterates over the indexes of the commas separating the alternatives in the
+/// text following an opening brace, stopping at the group's closing brace.
+struct BraceTokens<'a> {
+  bytes: &'a [u8],
+  index: usize,
+  depth: usize,
+  /// Index of the closing brace once found.
+  close: Option<usize>,
+}
+
+impl<'a> BraceTokens<'a> {
+  fn new(text: &'a str) -> Self {
+    Self {
+      bytes: text.as_bytes(),
+      index: 0,
+      depth: 1,
+      close: None,
     }
-    index += 1;
   }
-  None // unbalanced, so leave it for the glob engine to error on
+}
+
+impl Iterator for BraceTokens<'_> {
+  type Item = usize;
+
+  fn next(&mut self) -> Option<usize> {
+    if self.close.is_some() {
+      return None;
+    }
+    while self.index < self.bytes.len() {
+      let index = self.index;
+      match self.bytes[index] {
+        b'\\' => {
+          self.index += 2;
+          continue;
+        }
+        b'[' => {
+          self.index = skip_char_class(self.bytes, index);
+          continue;
+        }
+        b'{' => self.depth += 1,
+        b'}' => {
+          self.depth -= 1;
+          if self.depth == 0 {
+            self.close = Some(index);
+            return None;
+          }
+        }
+        b',' if self.depth == 1 => {
+          self.index += 1;
+          return Some(index);
+        }
+        _ => {}
+      }
+      self.index += 1;
+    }
+    None
+  }
 }
 
 /// Gets the index after the character class opening at the provided index,
@@ -318,7 +383,7 @@ mod tests {
   fn should_expand_braces_spanning_path_components() {
     #[track_caller]
     fn run(pattern: &str, expected: &[&str]) {
-      assert_eq!(expand_braces(pattern), expected);
+      assert_eq!(expand_braces(pattern.to_string()).collect::<Vec<_>>(), expected);
     }
 
     run("{.,src/**,worker}/*.js", &["./*.js", "src/**/*.js", "worker/*.js"]);
@@ -336,6 +401,16 @@ mod tests {
     run("{a/b,c}", &["a/b", "./c"]);
     run("{,src/}*.js", &["./*.js", "src/*.js"]);
     run("./{a/b,c}", &["./a/b", "./c"]);
+    run("{,sub/dir}/*.js", &["./*.js", "sub/dir/*.js"]);
+    run("/{a/b,c}", &["/a/b", "/c"]);
+    // `.` and `..` alternatives
+    run("src/{.,sub}", &["./src", "src/sub"]);
+    run("{..,src}/*.js", &["../*.js", "src/*.js"]);
+    run("a/{b/c,}/d", &["a/b/c/d", "a//d"]);
+    // group only wrapping a nested group
+    run("{{a/b,c}}/x", &["{a/b}/x", "{c}/x"]);
+    // multi-byte characters
+    run("é{ü/ñ,日本}/x", &["éü/ñ/x", "é日本/x"]);
 
     // left for the glob engine
     run("**/*.ts", &["**/*.ts"]);
