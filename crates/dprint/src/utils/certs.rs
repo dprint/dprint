@@ -1,7 +1,6 @@
 use std::io::Cursor;
 
 use indexmap::IndexSet;
-use rustls::RootCertStore;
 use rustls::pki_types::CertificateDer;
 use thiserror::Error;
 
@@ -20,13 +19,14 @@ pub enum RootCertStoreLoadError {
   CaFileOpenError(String),
 }
 
-pub fn get_root_cert_store(
+/// Gets the certificates to trust as roots.
+pub fn get_root_certs(
   logger: &Logger,
   read_env_var: &impl Fn(&str) -> Option<String>,
   read_file_bytes: &impl Fn(&str) -> Result<Vec<u8>, std::io::Error>,
-) -> Result<RootCertStore, RootCertStoreLoadError> {
+) -> Result<Vec<CertificateDer<'static>>, RootCertStoreLoadError> {
   let cert_info = load_cert_info(read_env_var, read_file_bytes)?;
-  Ok(create_root_cert_store(logger, cert_info))
+  Ok(create_root_certs(logger, cert_info))
 }
 
 struct CertInfo {
@@ -50,18 +50,18 @@ fn load_cert_info(
   })
 }
 
-fn create_root_cert_store(logger: &Logger, info: CertInfo) -> RootCertStore {
-  let mut root_cert_store = RootCertStore::empty();
+fn create_root_certs(logger: &Logger, info: CertInfo) -> Vec<CertificateDer<'static>> {
+  let mut root_certs = Vec::new();
 
   for store in info.ca_stores {
-    load_store(logger, store, &mut root_cert_store);
+    load_store(logger, store, &mut root_certs);
   }
 
   if let Some(ca_file) = info.ca_file {
-    root_cert_store.add_parsable_certificates(ca_file);
+    root_certs.extend(ca_file);
   }
 
-  root_cert_store
+  root_certs
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -70,18 +70,16 @@ enum CaStore {
   Mozilla,
 }
 
-fn load_store(logger: &Logger, store: CaStore, root_cert_store: &mut RootCertStore) {
+fn load_store(logger: &Logger, store: CaStore, root_certs: &mut Vec<CertificateDer<'static>>) {
   match store {
     CaStore::Mozilla => {
-      root_cert_store.roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+      root_certs.extend(webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter().cloned());
     }
     CaStore::System => match rustls_native_certs::load_native_certs() {
       Ok(roots) => {
-        for root in roots {
-          if let Err(err) = root_cert_store.add(root) {
-            log_debug!(logger, "Failed to add native cert to root cert store. {:#}", err);
-          }
-        }
+        // a certificate that can't be parsed is skipped over when the
+        // certificates are provided for making a connection
+        root_certs.extend(roots);
       }
       Err(err) => {
         log_warn!(logger, "Failed loading native certs. {:#}", err);
