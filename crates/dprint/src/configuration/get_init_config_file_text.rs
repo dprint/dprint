@@ -22,6 +22,7 @@ use crate::utils::DirEntriesHint;
 use crate::utils::GitIgnoreTree;
 use crate::utils::GitIgnoreTreeOptions;
 use crate::utils::MinimumDependencyAgeArg;
+use crate::utils::MultiSelectDetailPart;
 use crate::utils::MultiSelectItem;
 use crate::utils::resolve_global_gitignore_lines;
 
@@ -91,7 +92,7 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
         .iter()
         .map(|&i| {
           let plugin = &latest_plugins[i];
-          MultiSelectItem::new(plugin.display_name().to_string(), defaults[i]).with_detail(plugin_display_detail(plugin))
+          MultiSelectItem::new(plugin.display_name().to_string(), defaults[i]).with_detail(plugin_display_detail(plugin, &project_files))
         })
         .collect::<Vec<_>>();
       let chosen = environment.get_multi_selection(prompt_message, 0, items)?;
@@ -168,15 +169,13 @@ pub async fn get_init_plugins_to_add(environment: &impl Environment, options: Ge
     .iter()
     .map(|&i| {
       let plugin = &latest_plugins[i];
-      let detail = plugin_display_detail(plugin);
+      let mut detail = plugin_display_detail(plugin, &project_files);
       if already_configured[i] {
         // shown with its extensions like the selectable items so filtering by a
         // file type still surfaces the plugin that already handles it
-        let detail = match detail {
-          Some(detail) => format!("{} — already in config", detail),
-          None => "— already in config".to_string(),
-        };
-        MultiSelectItem::non_selectable(plugin.display_name().to_string()).with_detail(Some(detail))
+        let separator = if detail.is_empty() { "" } else { " " };
+        detail.push(MultiSelectDetailPart::new(format!("{}— already in config", separator)));
+        MultiSelectItem::non_selectable(plugin.display_name().to_string()).with_detail(detail)
       } else {
         MultiSelectItem::new(plugin.display_name().to_string(), defaults[i]).with_detail(detail)
       }
@@ -494,30 +493,52 @@ fn matches_project_files(file_extensions: &[String], file_names: &[String], proj
 }
 
 /// The text shown dimmed after a plugin's name in the selection list. The files
-/// it formats are listed so unfamiliar plugins are easier to tell apart, and an
-/// additive plugin is marked because it runs alongside another plugin rather
-/// than replacing it.
-fn plugin_display_detail(plugin: &InfoFilePluginInfo) -> Option<String> {
-  let mut details = display_file_matches(plugin);
+/// it formats are listed so unfamiliar plugins are easier to tell apart, with
+/// the ones found in the current directory highlighted whether or not the
+/// plugin is pre-selected. An additive plugin is marked because it runs
+/// alongside another plugin rather than replacing it.
+fn plugin_display_detail(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> Vec<MultiSelectDetailPart> {
+  let mut details = display_file_matches(plugin, project_files);
   if plugin.additive {
-    details.push("runs in addition to other plugins".to_string());
+    details.push(MultiSelectDetailPart::new("runs in addition to other plugins"));
   }
   if details.is_empty() {
-    None
-  } else {
-    Some(format!("({})", details.join(", ")))
+    return Vec::new();
   }
+  let mut parts = Vec::with_capacity(details.len() * 2 + 1);
+  parts.push(MultiSelectDetailPart::new("("));
+  for (i, detail) in details.into_iter().enumerate() {
+    if i > 0 {
+      parts.push(MultiSelectDetailPart::new(", "));
+    }
+    parts.push(detail);
+  }
+  parts.push(MultiSelectDetailPart::new(")"));
+  parts
 }
 
 /// The files to show beside a plugin's name: its extensions, falling back to the
 /// extensions of its config items, then to the file names it matches (ex. a
-/// plugin that only formats `package.json` declares no extensions at all).
-fn display_file_matches(plugin: &InfoFilePluginInfo) -> Vec<String> {
+/// plugin that only formats `package.json` declares no extensions at all). The
+/// ones found in the current directory are highlighted.
+fn display_file_matches(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> Vec<MultiSelectDetailPart> {
   let extensions = display_extensions(plugin);
   if !extensions.is_empty() {
-    return extensions.iter().map(|ext| format!(".{}", ext)).collect();
+    return extensions
+      .iter()
+      .map(|ext| MultiSelectDetailPart {
+        text: format!(".{}", ext),
+        is_highlighted: project_files.extensions.contains(&ext.to_lowercase()),
+      })
+      .collect();
   }
   get_unique_items(match_file_names(plugin).into_iter().map(ToOwned::to_owned).collect())
+    .into_iter()
+    .map(|name| MultiSelectDetailPart {
+      is_highlighted: project_files.file_names.contains(&name),
+      text: name,
+    })
+    .collect()
 }
 
 /// The extensions to show beside a plugin's name, falling back to the extensions
@@ -736,13 +757,46 @@ mod test {
   fn plugin_display_detail_falls_back_to_config_item_extensions() {
     // a plugin's own extensions take precedence
     let plugin = info_plugin_with_extensions(vec!["ts", "tsx"], vec![vec!["rs"]]);
-    assert_eq!(plugin_display_detail(&plugin).as_deref(), Some("(.ts, .tsx)"));
+    assert_eq!(display_detail_text(&plugin, &project_files(&[], &[])), "(.ts, .tsx)");
     // otherwise the extensions are derived from the config items, deduplicated in order
     let plugin = info_plugin_with_extensions(vec![], vec![vec!["rs"], vec!["go", "rs"]]);
-    assert_eq!(plugin_display_detail(&plugin).as_deref(), Some("(.rs, .go)"));
+    assert_eq!(display_detail_text(&plugin, &project_files(&[], &[])), "(.rs, .go)");
     // nothing to show
     let plugin = info_plugin_with_extensions(vec![], vec![]);
-    assert_eq!(plugin_display_detail(&plugin), None);
+    assert_eq!(display_detail_text(&plugin, &project_files(&[], &[])), "");
+  }
+
+  #[test]
+  fn plugin_display_detail_highlights_files_found_in_the_current_directory() {
+    // extensions are matched case-insensitively
+    let plugin = info_plugin_with_extensions(vec!["ts", "TSX", "mts"], vec![]);
+    assert_eq!(
+      display_detail_text(&plugin, &project_files(&["ts", "tsx", "json"], &[])),
+      "(*.ts*, *.TSX*, .mts)"
+    );
+    // file names are matched exactly
+    let mut plugin = info_plugin_with_extensions(vec![], vec![]);
+    plugin.file_names = vec!["Dockerfile".to_string(), "Containerfile".to_string()];
+    assert_eq!(
+      display_detail_text(&plugin, &project_files(&["dockerfile"], &["Dockerfile"])),
+      "(*Dockerfile*, Containerfile)"
+    );
+  }
+
+  /// The detail shown after a plugin's name, with the highlighted parts
+  /// surrounded by asterisks.
+  fn display_detail_text(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> String {
+    plugin_display_detail(plugin, project_files)
+      .into_iter()
+      .map(|part| if part.is_highlighted { format!("*{}*", part.text) } else { part.text })
+      .collect()
+  }
+
+  fn project_files(extensions: &[&str], file_names: &[&str]) -> ProjectFiles {
+    ProjectFiles {
+      extensions: extensions.iter().map(|ext| ext.to_string()).collect(),
+      file_names: file_names.iter().map(|name| name.to_string()).collect(),
+    }
   }
 
   #[test]
@@ -994,11 +1048,14 @@ mod test {
     // a plugin with no extensions of its own shows the file names it matches
     plugin.file_names = vec!["package.json".to_string()];
     assert_eq!(
-      plugin_display_detail(&plugin).as_deref(),
-      Some("(package.json, runs in addition to other plugins)")
+      display_detail_text(&plugin, &project_files(&[], &[])),
+      "(package.json, runs in addition to other plugins)"
     );
     plugin.file_extensions = vec!["json".to_string()];
-    assert_eq!(plugin_display_detail(&plugin).as_deref(), Some("(.json, runs in addition to other plugins)"));
+    assert_eq!(
+      display_detail_text(&plugin, &project_files(&[], &[])),
+      "(.json, runs in addition to other plugins)"
+    );
   }
 
   #[test]
