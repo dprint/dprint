@@ -282,7 +282,7 @@ pub async fn add_plugin_config_file<TEnvironment: Environment>(
     let index = environment.get_selection(
       "Select a plugin to add:",
       0,
-      &possible_plugins.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
+      &possible_plugins.iter().map(|p| p.display_name().to_string()).collect::<Vec<_>>(),
     )?;
     let selected = possible_plugins.remove(index);
     let npm_options = ResolveNpmLatestOptions {
@@ -439,7 +439,11 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
             } else {
               format!(
                 "\n\nPlugins:\n{}",
-                possible_plugins.iter().map(|p| format!(" * {}", p.name)).collect::<Vec<_>>().join("\n")
+                possible_plugins
+                  .iter()
+                  .map(|p| format!(" * {}", p.display_name()))
+                  .collect::<Vec<_>>()
+                  .join("\n")
               )
             }
           } else {

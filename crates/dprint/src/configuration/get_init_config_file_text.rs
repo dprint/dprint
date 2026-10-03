@@ -89,7 +89,10 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
       let prompt_message = "Select plugins (space to toggle, type to filter, enter to finish):";
       let items = order
         .iter()
-        .map(|&i| MultiSelectItem::new(plugin_display_text(&latest_plugins[i]), defaults[i]))
+        .map(|&i| {
+          let plugin = &latest_plugins[i];
+          MultiSelectItem::new(plugin.display_name().to_string(), defaults[i]).with_detail(plugin_display_detail(plugin))
+        })
         .collect::<Vec<_>>();
       let chosen = environment.get_multi_selection(prompt_message, 0, items)?;
       chosen.into_iter().map(|display_index| order[display_index]).collect::<Vec<_>>()
@@ -164,12 +167,18 @@ pub async fn get_init_plugins_to_add(environment: &impl Environment, options: Ge
   let items = order
     .iter()
     .map(|&i| {
+      let plugin = &latest_plugins[i];
+      let detail = plugin_display_detail(plugin);
       if already_configured[i] {
         // shown with its extensions like the selectable items so filtering by a
         // file type still surfaces the plugin that already handles it
-        MultiSelectItem::non_selectable(format!("{} — already in config", plugin_display_text(&latest_plugins[i])))
+        let detail = match detail {
+          Some(detail) => format!("{} — already in config", detail),
+          None => "— already in config".to_string(),
+        };
+        MultiSelectItem::non_selectable(plugin.display_name().to_string()).with_detail(Some(detail))
       } else {
-        MultiSelectItem::new(plugin_display_text(&latest_plugins[i]), defaults[i])
+        MultiSelectItem::new(plugin.display_name().to_string(), defaults[i]).with_detail(detail)
       }
     })
     .collect::<Vec<_>>();
@@ -484,19 +493,19 @@ fn matches_project_files(file_extensions: &[String], file_names: &[String], proj
     || file_names.iter().any(|name| project_files.file_names.contains(name))
 }
 
-/// The text shown for a plugin in the selection list. The files it formats are
-/// appended so unfamiliar plugins are easier to tell apart, and an additive
-/// plugin is marked because it runs alongside another plugin rather than
-/// replacing it.
-fn plugin_display_text(plugin: &InfoFilePluginInfo) -> String {
+/// The text shown dimmed after a plugin's name in the selection list. The files
+/// it formats are listed so unfamiliar plugins are easier to tell apart, and an
+/// additive plugin is marked because it runs alongside another plugin rather
+/// than replacing it.
+fn plugin_display_detail(plugin: &InfoFilePluginInfo) -> Option<String> {
   let mut details = display_file_matches(plugin);
   if plugin.additive {
     details.push("runs in addition to other plugins".to_string());
   }
   if details.is_empty() {
-    plugin.name.clone()
+    None
   } else {
-    format!("{} ({})", plugin.name, details.join(", "))
+    Some(format!("({})", details.join(", ")))
   }
 }
 
@@ -700,6 +709,7 @@ mod test {
   fn info_plugin_with_extensions(file_extensions: Vec<&str>, config_item_extensions: Vec<Vec<&str>>) -> InfoFilePluginInfo {
     InfoFilePluginInfo {
       name: "dprint-plugin-exec".to_string(),
+      display_name: None,
       version: "0.5.0".to_string(),
       url: "https://plugins.dprint.dev/exec-0.5.0.json".to_string(),
       config_key: Some("exec".to_string()),
@@ -723,16 +733,16 @@ mod test {
   }
 
   #[test]
-  fn plugin_display_text_falls_back_to_config_item_extensions() {
+  fn plugin_display_detail_falls_back_to_config_item_extensions() {
     // a plugin's own extensions take precedence
     let plugin = info_plugin_with_extensions(vec!["ts", "tsx"], vec![vec!["rs"]]);
-    assert_eq!(plugin_display_text(&plugin), "dprint-plugin-exec (.ts, .tsx)");
+    assert_eq!(plugin_display_detail(&plugin).as_deref(), Some("(.ts, .tsx)"));
     // otherwise the extensions are derived from the config items, deduplicated in order
     let plugin = info_plugin_with_extensions(vec![], vec![vec!["rs"], vec!["go", "rs"]]);
-    assert_eq!(plugin_display_text(&plugin), "dprint-plugin-exec (.rs, .go)");
-    // nothing to show -> just the name
+    assert_eq!(plugin_display_detail(&plugin).as_deref(), Some("(.rs, .go)"));
+    // nothing to show
     let plugin = info_plugin_with_extensions(vec![], vec![]);
-    assert_eq!(plugin_display_text(&plugin), "dprint-plugin-exec");
+    assert_eq!(plugin_display_detail(&plugin), None);
   }
 
   #[test]
@@ -977,21 +987,18 @@ mod test {
   }
 
   #[test]
-  fn plugin_display_text_marks_additive_plugins() {
+  fn plugin_display_detail_marks_additive_plugins() {
     let mut plugin = info_plugin_with_extensions(vec![], vec![]);
     plugin.name = "dprint-plugin-additive".to_string();
     plugin.additive = true;
     // a plugin with no extensions of its own shows the file names it matches
     plugin.file_names = vec!["package.json".to_string()];
     assert_eq!(
-      plugin_display_text(&plugin),
-      "dprint-plugin-additive (package.json, runs in addition to other plugins)"
+      plugin_display_detail(&plugin).as_deref(),
+      Some("(package.json, runs in addition to other plugins)")
     );
     plugin.file_extensions = vec!["json".to_string()];
-    assert_eq!(
-      plugin_display_text(&plugin),
-      "dprint-plugin-additive (.json, runs in addition to other plugins)"
-    );
+    assert_eq!(plugin_display_detail(&plugin).as_deref(), Some("(.json, runs in addition to other plugins)"));
   }
 
   #[test]
@@ -1228,6 +1235,28 @@ mod test {
       config_excludes: vec![],
       ..Default::default()
     }
+  }
+
+  #[test]
+  fn should_show_plugin_display_names() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        let mut plugin = wasm_plugin("dprint_plugin_a", "a", &["ts"]);
+        plugin.display_name = Some("someone/a".to_string());
+        info.add_plugin(plugin).add_plugin(wasm_plugin("b", "b", &["md"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+        // the display name is only for showing the plugin
+        assert_eq!(environment.take_multi_selection_items(), vec!["[x] someone/a (.ts)", "[ ] b (.md)"]);
+        assert!(text.contains("dprint_plugin_a-1.0.0.wasm"), "{text}");
+        environment.take_stderr_messages();
+      }
+    });
   }
 
   #[test]

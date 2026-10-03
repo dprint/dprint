@@ -166,6 +166,8 @@ pub struct TestInfoFileBuilder {
 #[serde(rename_all = "camelCase")]
 pub struct TestInfoFilePlugin {
   pub name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub display_name: Option<String>,
   pub version: String,
   pub url: String,
   #[serde(skip_serializing_if = "Option::is_none")]

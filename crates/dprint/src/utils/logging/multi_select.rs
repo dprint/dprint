@@ -15,6 +15,9 @@ use super::LoggerTextItem;
 /// An item in a multi-select prompt.
 pub struct MultiSelectItem {
   pub text: String,
+  /// Secondary text shown dimmed after the item's text (ex. the file
+  /// extensions a plugin formats).
+  pub detail: Option<String>,
   /// Whether the item starts out selected.
   pub is_selected: bool,
   /// Whether the user can toggle the item. A non-selectable item is shown for
@@ -27,6 +30,7 @@ impl MultiSelectItem {
   pub fn new(text: String, is_selected: bool) -> Self {
     MultiSelectItem {
       text,
+      detail: None,
       is_selected,
       is_selectable: true,
     }
@@ -36,8 +40,30 @@ impl MultiSelectItem {
   pub fn non_selectable(text: String) -> Self {
     MultiSelectItem {
       text,
+      detail: None,
       is_selected: true,
       is_selectable: false,
+    }
+  }
+
+  pub fn with_detail(mut self, detail: Option<String>) -> Self {
+    self.detail = detail;
+    self
+  }
+
+  /// The item's text followed by its detail.
+  pub fn full_text(&self) -> String {
+    match &self.detail {
+      Some(detail) => format!("{} {}", self.text, detail),
+      None => self.text.clone(),
+    }
+  }
+
+  /// The item as it's shown in the terminal, which is with its detail dimmed.
+  fn render(&self) -> String {
+    match &self.detail {
+      Some(detail) => format!("{} {}", self.text, colors::gray(detail)),
+      None => self.text.clone(),
     }
   }
 }
@@ -155,7 +181,7 @@ fn visible_indexes(data: &MultiSelectData) -> Vec<usize> {
     .items
     .iter()
     .enumerate()
-    .filter(|(_, item)| item.text.to_lowercase().contains(&filter))
+    .filter(|(_, item)| item.full_text().to_lowercase().contains(&filter))
     .map(|(i, _)| i)
     .collect()
 }
@@ -213,9 +239,9 @@ fn render_multi_select(data: &MultiSelectData, visible: &[usize], max_visible_ro
     text.push_str("] ");
     // dim the items that can't be toggled so it's clear they're only context
     if item.is_selectable {
-      text.push_str(&item.text);
+      text.push_str(&item.render());
     } else {
-      text.push_str(&colors::gray(&item.text).to_string());
+      text.push_str(&colors::gray(&item.full_text()).to_string());
     }
 
     result.push(LoggerTextItem::HangingText {
@@ -240,7 +266,7 @@ fn render_complete(data: &MultiSelectData) -> Vec<LoggerTextItem> {
     result.push(LoggerTextItem::Text(data.prompt.to_string()));
     for item in data.items.iter().filter(|item| is_chosen(item)) {
       result.push(LoggerTextItem::HangingText {
-        text: format!(" * {}", item.text),
+        text: format!(" * {}", item.render()),
         indent: 3 + data.item_hanging_indent,
       });
     }
@@ -352,6 +378,35 @@ mod test {
       rendered_lines(&render_multi_select(&data, &visible, 10)),
       vec!["Select:".to_string(), "> [ ] alpha".to_string(), format!("  [x] {}", colors::gray("beta")),]
     );
+  }
+
+  #[test]
+  fn render_dims_item_details() {
+    let data = build_data_with_items(vec![
+      MultiSelectItem::new("alpha".to_string(), false).with_detail(Some("(.a)".to_string())),
+      MultiSelectItem::non_selectable("beta".to_string()).with_detail(Some("(.b)".to_string())),
+    ]);
+    let visible = visible_indexes(&data);
+    assert_eq!(
+      rendered_lines(&render_multi_select(&data, &visible, 10)),
+      vec![
+        "Select:".to_string(),
+        format!("> [ ] alpha {}", colors::gray("(.a)")),
+        format!("  [x] {}", colors::gray("beta (.b)")),
+      ]
+    );
+  }
+
+  #[test]
+  fn visible_indexes_filters_on_item_details() {
+    let mut data = build_data_with_items(vec![
+      MultiSelectItem::new("alpha".to_string(), false).with_detail(Some("(.ts)".to_string())),
+      MultiSelectItem::new("beta".to_string(), false).with_detail(Some("(.json)".to_string())),
+    ]);
+    data.filter = ".json".to_string();
+    assert_eq!(visible_indexes(&data), vec![1]);
+    data.filter = "alpha (".to_string();
+    assert_eq!(visible_indexes(&data), vec![0]);
   }
 
   #[test]
