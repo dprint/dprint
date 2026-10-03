@@ -18,6 +18,7 @@ use crate::patterns::process_cli_path_args;
 use crate::patterns::process_config_patterns;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::resolution::PluginWithConfig;
+use crate::utils::GitIgnoredPath;
 use crate::utils::GlobOptions;
 use crate::utils::GlobOutput;
 use crate::utils::GlobPattern;
@@ -80,22 +81,33 @@ impl PluginNamesKey<'_> {
 }
 
 #[derive(Debug, Error)]
-#[error("No files found to format with the specified plugins at {}. You may want to try using `dprint output-file-paths` to see which files it's finding or run with `--allow-no-files`.", .base_path.display())]
 pub struct NoFilesFoundError {
   pub base_path: CanonicalizedPathBuf,
+  /// An example of a path that was skipped for being gitignored.
+  pub gitignored_path: Option<GitIgnoredPath>,
+}
+
+impl std::fmt::Display for NoFilesFoundError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(
+      f,
+      "No files found to format with the specified plugins at {}. You may want to try using `dprint output-file-paths` to see which files it's finding or run with `--allow-no-files`.",
+      self.base_path.display()
+    )?;
+    if let Some(gitignored_path) = &self.gitignored_path {
+      write!(f, " Note that gitignored paths are skipped (ex. {}", gitignored_path.path.display())?;
+      if let Some(ignoring_file) = &gitignored_path.ignoring_file {
+        write!(f, " is ignored by {}", ignoring_file.display())?;
+      }
+      write!(f, "), which can be disabled with `--no-gitignore`.")?;
+    }
+    Ok(())
+  }
 }
 
 pub struct FilesPathsByPlugins(HashMap<PluginNames, Vec<PathBuf>>);
 
 impl FilesPathsByPlugins {
-  pub fn ensure_not_empty(&self, base_path: &CanonicalizedPathBuf) -> Result<(), NoFilesFoundError> {
-    if self.is_empty() {
-      Err(NoFilesFoundError { base_path: base_path.clone() })
-    } else {
-      Ok(())
-    }
-  }
-
   pub fn is_empty(&self) -> bool {
     self.0.is_empty()
   }

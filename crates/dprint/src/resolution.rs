@@ -64,6 +64,7 @@ use crate::plugins::PluginResolver;
 use crate::plugins::PluginWrapper;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::utils::FastInsecureHasher;
+use crate::utils::GitIgnoredPath;
 use crate::utils::GlobOutput;
 use crate::utils::OutsideBasePath;
 use crate::utils::PathSource;
@@ -637,6 +638,7 @@ impl<TEnvironment: Environment> PluginsScopeAndPathsCollection<TEnvironment> {
             return Err(
               NoFilesFoundError {
                 base_path: self.environment.cwd(),
+                gitignored_path: self.iter().find_map(|s| s.gitignored_path.clone()),
               }
               .into(),
             );
@@ -645,8 +647,16 @@ impl<TEnvironment: Environment> PluginsScopeAndPathsCollection<TEnvironment> {
         // if no args specified then ensure all scopes have files
         None => {
           for scope in &self.inner {
-            if let Some(config) = scope.scope.config.as_ref() {
-              scope.file_paths_by_plugins.ensure_not_empty(&config.base_path)?;
+            if let Some(config) = scope.scope.config.as_ref()
+              && scope.file_paths_by_plugins.is_empty()
+            {
+              return Err(
+                NoFilesFoundError {
+                  base_path: config.base_path.clone(),
+                  gitignored_path: scope.gitignored_path.clone(),
+                }
+                .into(),
+              );
             }
           }
         }
@@ -672,6 +682,8 @@ impl<TEnvironment: Environment> PluginsScopeAndPathsCollection<TEnvironment> {
 pub struct PluginsScopeAndPaths<TEnvironment: Environment> {
   pub scope: PluginsScope<TEnvironment>,
   pub file_paths_by_plugins: FilesPathsByPlugins,
+  /// An example of a path in the scope that was skipped for being gitignored.
+  pub gitignored_path: Option<GitIgnoredPath>,
 }
 
 pub struct ResolvePluginsScopeAndPathsOptions {
@@ -733,7 +745,11 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
 
     let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths, glob_output.shebang_lines, self.environment)?;
 
-    let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
+    let mut result = vec![PluginsScopeAndPaths {
+      scope,
+      file_paths_by_plugins,
+      gitignored_path: glob_output.gitignored_path,
+    }];
     // todo: parallelize?
     let patterns = Rc::new(self.patterns.clone());
     for config_file_path in glob_output.config_files {
@@ -1013,7 +1029,11 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     glob_output.outside_base_paths.clear();
     let file_paths_by_plugins = get_file_paths_by_plugins(&scope.plugin_name_maps, glob_output.file_paths, glob_output.shebang_lines, self.environment)?;
 
-    let mut result = vec![PluginsScopeAndPaths { scope, file_paths_by_plugins }];
+    let mut result = vec![PluginsScopeAndPaths {
+      scope,
+      file_paths_by_plugins,
+      gitignored_path: glob_output.gitignored_path,
+    }];
     // todo: parallelize?
     for config_file_path in glob_output.config_files {
       result.extend(

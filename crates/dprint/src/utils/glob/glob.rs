@@ -17,6 +17,7 @@ use crate::environment::DirEntry;
 use crate::environment::Environment;
 use crate::environment::PathKind;
 use crate::utils::gitignore::DirEntriesHint;
+use crate::utils::gitignore::DirGitIgnores;
 use crate::utils::gitignore::GitIgnoreTree;
 use crate::utils::gitignore::GitIgnoreTreeOptions;
 use crate::utils::gitignore::resolve_global_gitignore_lines;
@@ -43,6 +44,18 @@ pub struct GlobOutput {
   /// CLI paths and patterns that are outside the pattern base directory.
   /// The caller resolves the config file to use for these separately.
   pub outside_base_paths: Vec<OutsideBasePath>,
+  /// An example of a path that was skipped for being gitignored, which is
+  /// for telling the user why no files were found.
+  pub gitignored_path: Option<GitIgnoredPath>,
+}
+
+/// A path that was skipped for being gitignored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitIgnoredPath {
+  pub path: PathBuf,
+  /// The file with the pattern that ignores the path, which is `None`
+  /// when the path is ignored by git's global excludes file.
+  pub ignoring_file: Option<PathBuf>,
 }
 
 /// A CLI path or glob pattern that is outside the pattern base directory.
@@ -130,6 +143,7 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
 
   let discover_configs = opts.config_discovery.traverse_descendants();
   let mut config_file_finder = DirConfigFileFinder::new(environment, opts.current_config_path.clone());
+  let mut gitignored_tracker = GitIgnoredTracker::default();
 
   // check the directories between the pattern base and the start directory the
   // same way a traversal descending from the pattern base would so matching
@@ -146,6 +160,7 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
     match check_dir_chain(
       &glob_matcher,
       &mut git_ignore_tree,
+      &mut gitignored_tracker,
       discover_configs.then_some(&mut config_file_finder),
       opts.pattern_base.as_ref(),
       &opts.start_dir,
@@ -181,6 +196,7 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
       match check_dir_chain(
         &glob_matcher,
         &mut git_ignore_tree,
+        &mut gitignored_tracker,
         discover_configs.then_some(&mut config_file_finder),
         opts.pattern_base.as_ref(),
         parent,
@@ -227,16 +243,19 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
     }
 
     // run the glob matching on the current thread (it communicates with the reader threads)
-    let mut glob_matching_processor = GlobMatchingProcessor::new(shared_state, git_ignore_tree);
+    let mut glob_matching_processor = GlobMatchingProcessor::new(shared_state, git_ignore_tree, gitignored_tracker);
     let results = glob_matching_processor.run()?;
     output.file_paths.extend(results.file_paths);
     output.shebang_lines.extend(results.shebang_lines);
+    output.gitignored_path = results.gitignored_path;
     for config_file in results.config_files {
       // the traversal skips the directories the checks above already handled,
       // so this shouldn't overlap with them, but dedup anyway because a
       // duplicate would resolve the same scope (and format its files) twice
       push_dedup_config_file(&mut output.config_files, config_file);
     }
+  } else {
+    output.gitignored_path = gitignored_tracker.into_path();
   }
 
   log_debug!(environment, "File(s) matched: {:?}", output);
@@ -532,6 +551,7 @@ enum DirChainResult {
 fn check_dir_chain<TEnvironment: Environment>(
   glob_matcher: &GlobMatcher,
   git_ignore_tree: &mut Option<GitIgnoreTree<TEnvironment>>,
+  gitignored_tracker: &mut GitIgnoredTracker,
   mut config_file_finder: Option<&mut DirConfigFileFinder<'_, TEnvironment>>,
   base_dir: &Path,
   dir: &Path,
@@ -548,6 +568,7 @@ fn check_dir_chain<TEnvironment: Environment>(
           && let Some(gitignore) = tree.get_resolved_git_ignore_for_file(dir)
           && gitignore.is_ignored(dir, /* is dir */ true)
         {
+          gitignored_tracker.track(&gitignore, dir, /* is dir */ true);
           return DirChainResult::Excluded;
         }
       }
@@ -559,6 +580,32 @@ fn check_dir_chain<TEnvironment: Environment>(
     }
   }
   DirChainResult::Matched
+}
+
+/// Keeps an example of a path that was skipped for being gitignored.
+#[derive(Default)]
+struct GitIgnoredTracker {
+  path: Option<GitIgnoredPath>,
+  is_path_dir: bool,
+}
+
+impl GitIgnoredTracker {
+  pub fn track(&mut self, gitignore: &DirGitIgnores, path: &Path, is_dir: bool) {
+    // prefer a file because only the files that match the patterns get
+    // checked, whereas a directory might not have had any files to format
+    if self.path.is_some() && (is_dir || !self.is_path_dir) {
+      return;
+    }
+    self.path = Some(GitIgnoredPath {
+      path: path.to_path_buf(),
+      ignoring_file: gitignore.ignoring_file(path, is_dir).map(|p| p.to_path_buf()),
+    });
+    self.is_path_dir = is_dir;
+  }
+
+  pub fn into_path(self) -> Option<GitIgnoredPath> {
+    self.path
+  }
 }
 
 /// Gets the directories between the base directory (exclusive) and the
@@ -925,11 +972,16 @@ fn is_system_volume_error(dir_path: &Path, err: &std::io::Error) -> bool {
 struct GlobMatchingProcessor<TEnvironment: Environment> {
   shared_state: Arc<SharedState>,
   git_ignore_tree: Option<GitIgnoreTree<TEnvironment>>,
+  gitignored_tracker: GitIgnoredTracker,
 }
 
 impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
-  pub fn new(shared_state: Arc<SharedState>, git_ignore_tree: Option<GitIgnoreTree<TEnvironment>>) -> Self {
-    Self { shared_state, git_ignore_tree }
+  pub fn new(shared_state: Arc<SharedState>, git_ignore_tree: Option<GitIgnoreTree<TEnvironment>>, gitignored_tracker: GitIgnoredTracker) -> Self {
+    Self {
+      shared_state,
+      git_ignore_tree,
+      gitignored_tracker,
+    }
   }
 
   pub fn run(&mut self) -> Result<GlobOutput> {
@@ -939,7 +991,10 @@ impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
       let mut pending_dirs = Vec::new();
 
       match self.get_next_entries() {
-        Ok(None) => return Ok(output),
+        Ok(None) => {
+          output.gitignored_path = std::mem::take(&mut self.gitignored_tracker).into_path();
+          return Ok(output);
+        }
         Err(err) => return Err(err), // error
         Ok(Some(entries)) => {
           for dir in entries.into_iter().flatten() {
@@ -948,8 +1003,12 @@ impl<TEnvironment: Environment> GlobMatchingProcessor<TEnvironment> {
               .git_ignore_tree
               .as_mut()
               .and_then(|t| t.get_resolved_git_ignore_for_dir_children(&dir.path, dir.hint));
-            let is_gitignored = |path: &Path, check_gitignore: bool, is_dir: bool| match &gitignore {
-              Some(gitignore) if check_gitignore => gitignore.is_ignored(path, is_dir),
+            let gitignored_tracker = &mut self.gitignored_tracker;
+            let mut is_gitignored = |path: &Path, check_gitignore: bool, is_dir: bool| match &gitignore {
+              Some(gitignore) if check_gitignore && gitignore.is_ignored(path, is_dir) => {
+                gitignored_tracker.track(gitignore, path, is_dir);
+                true
+              }
               _ => false,
             };
             for entry in dir.entries {

@@ -2721,6 +2721,85 @@ text2"
     error.assert_exit_code(14);
   }
 
+  #[test]
+  fn should_say_when_gitignored_and_no_files_found() {
+    // ex. a home directory gitignore that ignores everything
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/home/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/home/.gitignore", "*")
+      .write_file("/home/project/file.txt", "text")
+      .write_file("/home/project/sub/file.txt", "text")
+      .set_cwd("/home/project")
+      .build();
+
+    let expected = concat!(
+      "No files found to format with the specified plugins at /home/project. ",
+      "You may want to try using `dprint output-file-paths` to see which files it's finding or run with `--allow-no-files`. ",
+      "Note that gitignored paths are skipped (ex. /home/project/file.txt is ignored by /home/.gitignore), ",
+      "which can be disabled with `--no-gitignore`."
+    );
+    // the path separators differ on Windows
+    let error = run_test_cli(vec!["fmt"], &environment).err().unwrap();
+    assert_eq!(error.to_string().replace('\\', "/"), expected);
+    error.assert_exit_code(14);
+    let error = run_test_cli(vec!["fmt", "**/*.txt"], &environment).err().unwrap();
+    assert_eq!(error.to_string().replace('\\', "/"), expected);
+    error.assert_exit_code(14);
+
+    run_test_cli(vec!["fmt", "--no-gitignore"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/home/project/file.txt").unwrap(), "text_formatted");
+  }
+
+  #[test]
+  fn should_say_when_git_info_exclude_ignored_and_no_files_found() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/.git/info/exclude", "*.txt")
+      .write_file("/file.txt", "text")
+      .build();
+
+    let error = run_test_cli(vec!["fmt"], &environment).err().unwrap();
+    assert_no_files_found_with_gitignored(&error, "/file.txt is ignored by /.git/info/exclude");
+  }
+
+  #[test]
+  fn should_not_mention_gitignore_when_found_files() {
+    // only an error about no files being found mentions the gitignored paths
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .write_file("/.gitignore", "ignored.txt")
+      .write_file("/ignored.txt", "text")
+      .write_file("/file.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+  }
+
+  #[track_caller]
+  fn assert_no_files_found_with_gitignored(error: &TestAppError, gitignored_text: &str) {
+    assert_eq!(
+      error.to_string().replace('\\', "/"), // the path separators differ on Windows
+      format!(
+        concat!(
+          "No files found to format with the specified plugins at /. ",
+          "You may want to try using `dprint output-file-paths` to see which files it's finding or run with `--allow-no-files`. ",
+          "Note that gitignored paths are skipped (ex. {}), which can be disabled with `--no-gitignore`."
+        ),
+        gitignored_text
+      )
+    );
+    error.assert_exit_code(14);
+  }
+
   #[cfg(target_os = "windows")]
   #[test]
   fn should_format_absolute_paths_on_windows() {
@@ -3144,7 +3223,7 @@ text2"
     // by specifying the file), and the result is the same whether or not a
     // glob arg triggers a traversal
     let error = run_test_cli(vec!["fmt", "sub/file.txt"], &environment).err().unwrap();
-    assert_no_files_found(&error, &environment);
+    assert_no_files_found_with_gitignored(&error, "/sub is ignored by /.gitignore");
     assert_eq!(environment.read_file("/sub/file.txt").unwrap(), "text");
 
     run_test_cli(vec!["fmt", "sub/file.txt", "a*.txt"], &environment).unwrap();

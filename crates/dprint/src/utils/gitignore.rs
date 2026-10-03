@@ -38,6 +38,21 @@ impl DirGitIgnores {
     }
     is_ignored
   }
+
+  /// Gets the file with the pattern that causes the path to be ignored, which
+  /// is `None` when the path isn't ignored or it's ignored by git's global
+  /// excludes file. This is for telling the user why a path was ignored, so
+  /// use `is_ignored` for checking if it is.
+  pub fn ignoring_file(&self, path: &Path, is_dir: bool) -> Option<&Path> {
+    if let Some(current) = &self.current {
+      match current.matched(path, is_dir) {
+        ignore::Match::None => {}
+        ignore::Match::Ignore(glob) => return glob.from(),
+        ignore::Match::Whitelist(_) => return None,
+      }
+    }
+    self.parent.as_ref()?.ignoring_file(path, is_dir)
+  }
 }
 
 /// Resolves the lines of git's global excludes file when global gitignore
@@ -225,19 +240,17 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
   fn resolve_current_gitignore(&self, dir_path: &Path, is_repo_root: bool, hint: Option<DirEntriesHint>) -> Option<Rc<ignore::gitignore::Gitignore>> {
     // skip the read when the caller's listing already shows there's no `.gitignore`
     let maybe_has_gitignore = hint.map(|h| h.has_gitignore).unwrap_or(true);
+    let gitignore_path = dir_path.join(".gitignore");
     let gitignore_text = if maybe_has_gitignore {
-      self.environment.read_file(dir_path.join(".gitignore")).ok()
+      self.environment.read_file(&gitignore_path).ok()
     } else {
       None
     };
     // git also reads `.git/info/exclude` at the repository root, treating it
     // like an uncommitted `.gitignore` there (https://git-scm.com/docs/gitignore).
     // Only the repo root can have this file, so avoid the read everywhere else.
-    let exclude_text = if is_repo_root {
-      self.environment.read_file(dir_path.join(".git").join("info").join("exclude")).ok()
-    } else {
-      None
-    };
+    let exclude_path = dir_path.join(".git").join("info").join("exclude");
+    let exclude_text = if is_repo_root { self.environment.read_file(&exclude_path).ok() } else { None };
     // git's global excludes file applies repository-wide, so resolve it at the
     // repo root where it becomes the parent of every descendant directory
     let global_lines: &[String] = if is_repo_root { self.options.global_gitignore_lines.as_slice() } else { &[] };
@@ -251,14 +264,16 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     for line in global_lines {
       builder.add_line(None, line).ok()?;
     }
+    // the lines of the files say which file they're from so the user
+    // can be told which file caused a path to be ignored
     if let Some(text) = &exclude_text {
       for line in text.lines() {
-        builder.add_line(None, line).ok()?;
+        builder.add_line(Some(exclude_path.clone()), line).ok()?;
       }
     }
     if let Some(text) = &gitignore_text {
       for line in text.lines() {
-        builder.add_line(None, line).ok()?;
+        builder.add_line(Some(gitignore_path.clone()), line).ok()?;
       }
     }
     // override the gitignore contents to include these paths (escaping so a
@@ -376,6 +391,40 @@ mod test {
     // patterns in `.git/info/exclude` apply to descendant directories too
     run_test("/sub_dir/from_exclude.txt", true);
     run_test("/other.txt", false);
+  }
+
+  #[test]
+  fn gets_ignoring_file() {
+    let env = TestEnvironment::new();
+    env.mk_dir_all("/.git/info").unwrap();
+    env.write_file("/.git/info/exclude", "from_exclude.txt").unwrap();
+    env.write_file("/.gitignore", "from_root.txt\nunignored.txt\ndir/").unwrap();
+    env.mk_dir_all("/sub_dir").unwrap();
+    env.write_file("/sub_dir/.gitignore", "from_sub.txt\n!unignored.txt").unwrap();
+    let mut ignore_tree = GitIgnoreTree::new(
+      env,
+      GitIgnoreTreeOptions {
+        global_gitignore_lines: vec!["from_global.txt".to_string()],
+        ..Default::default()
+      },
+    );
+    let mut run_test = |path: &str, is_dir: bool, expected: Option<&str>| {
+      let path = PathBuf::from(path);
+      let gitignore = ignore_tree.get_resolved_git_ignore_for_file(&path).unwrap();
+      assert_eq!(gitignore.ignoring_file(&path, is_dir), expected.map(Path::new), "Path: {}", path.display());
+      // only an ignored path has an ignoring file, though the global one isn't known
+      assert!(expected.is_none() || gitignore.is_ignored(&path, is_dir));
+    };
+    run_test("/from_exclude.txt", false, Some("/.git/info/exclude"));
+    run_test("/from_root.txt", false, Some("/.gitignore"));
+    run_test("/sub_dir/from_root.txt", false, Some("/.gitignore"));
+    run_test("/sub_dir/from_sub.txt", false, Some("/sub_dir/.gitignore"));
+    run_test("/sub_dir/dir", true, Some("/.gitignore"));
+    run_test("/sub_dir/dir", false, None);
+    run_test("/unignored.txt", false, Some("/.gitignore"));
+    run_test("/sub_dir/unignored.txt", false, None);
+    run_test("/other.txt", false, None);
+    run_test("/from_global.txt", false, None);
   }
 
   #[test]
