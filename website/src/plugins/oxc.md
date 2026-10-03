@@ -13,10 +13,11 @@ Adapter plugin that formats files via [Oxc](https://oxc.rs). It formats the lang
 - CSS, SCSS, and Less
 - GraphQL
 - YAML
-- Markdown
 - TOML
 
 Code embedded in these files is also formatted (ex. CSS or GraphQL in a JavaScript template literal).
+
+Markdown is also supported, but is opt-in because Oxc's own formatter does not use its Markdown formatter yet. To enable it, set `"experimentalMarkdown": true` in the plugin's configuration.
 
 ## Install and Setup
 
@@ -54,8 +55,8 @@ This plugin formats many kinds of files, so it may match the same files as anoth
 ```json
 {
   "plugins": [
-    // formats .md files instead of the Oxc plugin
-    "https://plugins.dprint.dev/markdown-x.x.x.wasm",
+    // formats .json files instead of the Oxc plugin
+    "https://plugins.dprint.dev/json-x.x.x.wasm",
     "https://plugins.dprint.dev/oxc-x.x.x.wasm"
   ]
 }
