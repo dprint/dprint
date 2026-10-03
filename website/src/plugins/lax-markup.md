@@ -44,4 +44,4 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ## Configuration
 
-See [Configuration](/plugins/lax-markup/config).
+See the [plugin documentation](https://github.com/bartlomieju/lax/tree/main/crates/lax-markup#configuration).

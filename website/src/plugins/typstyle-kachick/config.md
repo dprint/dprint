@@ -14,15 +14,8 @@ layout: layouts/documentation.njk
 
 # Typstyle (kachick) - Configuration
 
-Specify configuration under the `"typst"` key in your dprint configuration file.
+See the [plugin documentation](https://github.com/kachick/dprint-plugin-typstyle#configuration-example) for more details.
 
-| Property               | Values                           | Default                      |
-| ---------------------- | -------------------------------- | ---------------------------- |
-| `lineWidth`            | Integer                          | Global `lineWidth`, or `80`  |
-| `indentWidth`          | Integer                          | Global `indentWidth`, or `2` |
-| `blankLinesUpperBound` | Integer                          | `1`                          |
-| `reorderImportItems`   | Boolean                          | `true`                       |
-| `wrapMode`             | `"none"`, `"fill"`, `"sentence"` | `"none"`                     |
-
-See the [plugin documentation](https://github.com/kachick/dprint-plugin-typstyle#configuration-example) and
-[JSON schema](https://plugins.dprint.dev/kachick/typstyle/latest/schema.json) for details.
+<div class="plugin-config-table" data-url="https://plugins.dprint.dev/kachick/typstyle/latest/schema.json">
+  Loading...
+</div>

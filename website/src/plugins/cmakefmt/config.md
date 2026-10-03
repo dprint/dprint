@@ -14,35 +14,8 @@ layout: layouts/documentation.njk
 
 # cmakefmt - Configuration
 
-Specify configuration under the `"cmakefmt"` key in your dprint configuration file. Options without a listed default use cmakefmt's default.
+See the [plugin documentation](https://github.com/sargunv/dprint-cmakefmt#configure) for more details.
 
-| Property                       | Values                                 | Default              |
-| ------------------------------ | -------------------------------------- | -------------------- |
-| `lineWidth`                    | Integer                                | Global `lineWidth`   |
-| `indentWidth`                  | Integer                                | Global `indentWidth` |
-| `useTabs`                      | Boolean                                | Global `useTabs`     |
-| `newLineKind`                  | `"auto"`, `"lf"`, `"crlf"`             | Global `newLineKind` |
-| `commandCase`                  | `"lower"`, `"upper"`, `"unchanged"`    |                      |
-| `keywordCase`                  | `"lower"`, `"upper"`, `"unchanged"`    |                      |
-| `maxEmptyLines`                | Integer                                |                      |
-| `maxLinesHwrap`                | Integer                                |                      |
-| `maxHangingWrapPositionalArgs` | Integer                                |                      |
-| `maxHangingWrapGroups`         | Integer                                |                      |
-| `maxRowsCmdline`               | Integer                                |                      |
-| `requireValidLayout`           | Boolean                                |                      |
-| `wrapAfterFirstArg`            | Boolean                                |                      |
-| `continuationAlign`            | `"same-indent"`, `"under-first-value"` |                      |
-| `enableSort`                   | Boolean                                |                      |
-| `autosort`                     | Boolean                                |                      |
-| `dangleParens`                 | Boolean                                |                      |
-| `dangleAlign`                  | `"prefix"`, `"open"`, `"close"`        |                      |
-| `enableMarkup`                 | Boolean                                |                      |
-| `firstCommentIsLiteral`        | Boolean                                |                      |
-
-## Limitations
-
-- The plugin does not read cmakefmt config files (`.cmakefmt.yaml`, `.cmakefmt.yml`, or `.cmakefmt.toml`). Put formatter options in your dprint configuration instead.
-- Range formatting is not supported.
-
-See the [plugin documentation](https://github.com/sargunv/dprint-cmakefmt#configure) and
-[JSON schema](https://plugins.dprint.dev/sargunv/dprint-cmakefmt/latest/schema.json) for details.
+<div class="plugin-config-table" data-url="https://plugins.dprint.dev/sargunv/dprint-cmakefmt/latest/schema.json" data-config-key="cmakefmt">
+  Loading...
+</div>

@@ -40,4 +40,4 @@ This will update your config file to have an entry for the plugin. Then optional
 
 ## Configuration
 
-See [Configuration](/plugins/clang-format/config).
+Configuration uses clang-format's own option names represented as JSON. See the [plugin documentation](https://github.com/sargunv/dprint-clang-format#configure) and the [clang-format style options](https://clang.llvm.org/docs/ClangFormatStyleOptions.html).

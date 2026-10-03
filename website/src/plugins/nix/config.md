@@ -14,12 +14,8 @@ layout: layouts/documentation.njk
 
 # Nix - Configuration
 
-Specify configuration under the `"nix"` key in your dprint configuration file.
+See the [plugin documentation](https://github.com/kachick/dprint-plugin-nix#configuration) for more details.
 
-| Property      | Values  | Default                      |
-| ------------- | ------- | ---------------------------- |
-| `lineWidth`   | Integer | Global `lineWidth`, or `100` |
-| `indentWidth` | Integer | Global `indentWidth`, or `2` |
-
-See the [plugin documentation](https://github.com/kachick/dprint-plugin-nix#configuration) and
-[JSON schema](https://plugins.dprint.dev/kachick/nix/latest/schema.json) for details.
+<div class="plugin-config-table" data-url="https://plugins.dprint.dev/kachick/nix/latest/schema.json">
+  Loading...
+</div>
