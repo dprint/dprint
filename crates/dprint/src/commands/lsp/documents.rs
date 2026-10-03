@@ -67,6 +67,10 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
     Ok((entry.text.clone(), entry.line_index.clone()))
   }
 
+  pub fn get_version(&self, uri: &Uri) -> Option<i32> {
+    self.docs.get(uri).map(|entry| entry.version)
+  }
+
   pub fn get_language_id(&self, uri: &Uri) -> Option<String> {
     Some(self.docs.get(uri)?.language_id.clone())
   }

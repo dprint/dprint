@@ -74,7 +74,7 @@ dprint fmt --config-discovery=global
 
 ### Language Server
 
-Editor integrations that use the [language server](/lsp) (`dprint lsp`) format a file with the global configuration by default when there's no dprint configuration file in the file's directory or its ancestor directories. Unlike `dprint fmt`, there is no prompt. See [Language Server - Configuration File Resolution](/lsp#configuration-file-resolution) for more details.
+Editor integrations that use the [language server](/lsp) (`dprint lsp`) format a file with the closest dprint configuration file in its directory or its ancestor directories. Starting in dprint 0.60, a file without one is not formatted by default. To format these files with the global configuration, either enable the server's `useGlobalConfig` setting or run its `dprint.formatWithGlobalConfig` or `dprint.formatSelectionWithGlobalConfig` command to format the current file once. See [Language Server - Global Configuration](/lsp#global-configuration) for more details.
 
 ### Visual Studio Code
 

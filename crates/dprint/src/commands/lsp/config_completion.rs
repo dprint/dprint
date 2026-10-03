@@ -152,10 +152,10 @@ impl<TEnvironment: Environment> ConfigCompletions<TEnvironment> {
     }
   }
 
-  pub async fn completions(&self, file_path: &Path, file_text: &str, position: lsp::Position) -> Option<lsp::CompletionList> {
+  pub async fn completions(&self, file_path: &Path, file_text: &str, position: lsp::Position, use_global_config: bool) -> Option<lsp::CompletionList> {
     let line_index = LineIndex::new(file_text);
     let offset: usize = u32::from(line_index.offset(position)) as usize;
-    let schema = self.build_composite_schema(file_path).await;
+    let schema = self.build_composite_schema(file_path, use_global_config).await;
     Some(lsp::CompletionList {
       // so the client asks again as the user types instead of filtering a
       // list that might lack what's in a schema that's still downloading
@@ -164,20 +164,20 @@ impl<TEnvironment: Environment> ConfigCompletions<TEnvironment> {
     })
   }
 
-  pub async fn hover(&self, file_path: &Path, file_text: &str, position: lsp::Position) -> Option<lsp::Hover> {
+  pub async fn hover(&self, file_path: &Path, file_text: &str, position: lsp::Position, use_global_config: bool) -> Option<lsp::Hover> {
     let line_index = LineIndex::new(file_text);
     let offset: usize = u32::from(line_index.offset(position)) as usize;
-    let schema = self.build_composite_schema(file_path).await;
+    let schema = self.build_composite_schema(file_path, use_global_config).await;
     hover_for(&schema, file_text, &line_index, offset)
   }
 
-  async fn build_composite_schema(&self, file_path: &Path) -> CompositeSchema {
+  async fn build_composite_schema(&self, file_path: &Path, use_global_config: bool) -> CompositeSchema {
     let mut plugins = Vec::new();
     let mut is_missing_downloading_schema = false;
     if let Some(parent) = file_path.parent() {
       // a parse error while the user is mid-edit just means we fall back to
       // base-schema-only completions, so ignore any resolution error here
-      if let Ok(Some(scope)) = self.scope_container.resolve_by_path(parent, false).await {
+      if let Ok(Some(scope)) = self.scope_container.resolve_by_path(parent, use_global_config).await {
         let infos = scope.plugins.values().map(|plugin| plugin.info()).collect::<Vec<_>>();
         let urls = infos.iter().map(|info| info.config_schema_url.as_str()).collect::<Vec<_>>();
         let schemas = self.plugin_schemas.get_all(&urls).await;

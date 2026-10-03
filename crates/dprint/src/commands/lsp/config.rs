@@ -36,7 +36,6 @@ pub struct LspPluginsScopeContainer<TEnvironment: Environment> {
   plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
   plugins_scope_by_config: RefCell<HashMap<String, Rc<ScopeCell<TEnvironment>>>>,
   config_override: Option<PathBuf>,
-  use_global_config: bool,
   /// Incremented each time the plugins are shut down, which is when the
   /// scopes that were resolved before then can't be used anymore.
   plugins_generation: Cell<usize>,
@@ -45,7 +44,6 @@ pub struct LspPluginsScopeContainer<TEnvironment: Environment> {
 impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
   pub fn new(environment: TEnvironment, plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>, config_override: Option<PathBuf>) -> Self {
     Self {
-      use_global_config: use_global_config(&environment),
       environment,
       plugin_resolver,
       plugins_scope_by_config: Default::default(),
@@ -61,7 +59,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
 
   /// Resolves the plugins to format the files in the provided directory with.
   /// `use_global_config` is for using the global config file when there's no
-  /// config file in an ancestor directory even when that's not done by default.
+  /// config file in an ancestor directory.
   pub async fn resolve_by_path(&self, dir_path: &Path, use_global_config: bool) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
     let config_file_bytes = if let Some(path) = &self.config_override {
       let path = self.environment.canonicalize(path).context("failed resolving --config path")?;
@@ -76,7 +74,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     } else {
       match get_default_config_file_in_ancestor_directories(&self.environment, dir_path)? {
         Some(config) => Some(config),
-        None if self.use_global_config || use_global_config => self.resolve_global_config_file(dir_path)?,
+        None if use_global_config => self.resolve_global_config_file(dir_path)?,
         None => None,
       }
     };
@@ -137,7 +135,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
       };
       let ancestor_config_file = match get_default_config_file_in_ancestor_directories(&self.environment, parent_dir.as_ref())? {
         Some(config_file) => Some(config_file),
-        None if self.use_global_config || use_global_config => self.resolve_global_config_file(parent_dir.as_ref())?,
+        None if use_global_config => self.resolve_global_config_file(parent_dir.as_ref())?,
         None => None,
       };
       let Some(ancestor_config_file) = ancestor_config_file else {
@@ -163,43 +161,5 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
       base_path: self.environment.canonicalize(root_dir)?,
       ..config_file
     }))
-  }
-}
-
-/// Whether to format the files that don't have a config file in an ancestor
-/// directory using the global config file, which an editor may opt out of by
-/// setting the `DPRINT_EDITOR_USE_GLOBAL_CONFIG` environment variable to `0`
-/// or `false` (ex. to only use it when the user enables that in the editor).
-fn use_global_config(environment: &impl Environment) -> bool {
-  !environment.env_var("DPRINT_EDITOR_USE_GLOBAL_CONFIG").is_some_and(|value| {
-    let value = value.to_string_lossy();
-    let value = value.trim();
-    value == "0" || value.eq_ignore_ascii_case("false")
-  })
-}
-
-#[cfg(test)]
-mod test {
-  use super::*;
-
-  #[test]
-  fn use_global_config_env_var() {
-    let environment = crate::environment::TestEnvironment::new();
-    assert!(use_global_config(&environment));
-    for (value, expected) in [
-      ("0", false),
-      ("false", false),
-      ("FALSE", false),
-      (
-        " 0
-", false,
-      ),
-      ("1", true),
-      ("true", true),
-      ("", true),
-    ] {
-      environment.set_env_var("DPRINT_EDITOR_USE_GLOBAL_CONFIG", Some(value));
-      assert_eq!(use_global_config(&environment), expected, "{:?}", value);
-    }
   }
 }
