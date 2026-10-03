@@ -91,11 +91,12 @@ impl RealUrlDownloader {
   }
 
   async fn inner_download(&self, url: &Url, auth: Option<&str>, retry_count: u8, client: &ClientWithProxy) -> Result<Option<DownloadedFile>> {
-    let mut request = client.client.get(url.clone());
+    let mut request = client.client.get(url.clone()).build()?;
     if let Some(auth) = auth {
-      request = request.header(reqwest::header::AUTHORIZATION, auth);
+      // replaces the header reqwest creates for credentials in the url
+      request.headers_mut().insert(reqwest::header::AUTHORIZATION, auth.parse()?);
     }
-    let mut resp = match request.send().await {
+    let mut resp = match client.client.execute(request).await {
       Ok(resp) => resp,
       Err(err) => {
         bail!("Error downloading {} - {}", url, get_request_error_message(url, &err, client.proxy.as_deref()))
@@ -109,7 +110,7 @@ impl RealUrlDownloader {
     let headers: HashMap<String, String> = resp
       .headers()
       .iter()
-      .filter_map(|(name, value)| Some((name.as_str().to_string(), value.to_str().ok()?.to_string())))
+      .filter_map(|(name, value)| Some((name.as_str().to_string(), std::str::from_utf8(value.as_bytes()).ok()?.to_string())))
       .collect();
 
     if status.is_redirection() {
@@ -238,6 +239,7 @@ impl<TProxyUrlProvider: ProxyProvider> ClientStore<TProxyUrlProvider> {
 
   fn build_client(&self, proxy: Option<&str>) -> Result<reqwest::Client> {
     let builder = reqwest::Client::builder()
+      .user_agent(concat!("dprint/", env!("CARGO_PKG_VERSION")))
       // redirects are handled by the downloader
       .redirect(reqwest::redirect::Policy::none())
       .connect_timeout(CONNECT_TIMEOUT)
@@ -286,10 +288,9 @@ impl<TProxyUrlProvider: ProxyProvider> ClientStore<TProxyUrlProvider> {
 /// form `<protocol>://<user>:<password>@<host>:<port>` where everything
 /// but the host is optional.
 fn parse_proxy(text: &str) -> Result<reqwest::Proxy> {
-  let trimmed_text = text.trim_end_matches('/');
-  let (scheme, rest) = match trimmed_text.split_once("://") {
-    Some((scheme, rest)) => (scheme.to_ascii_lowercase(), rest),
-    None => ("http".to_string(), trimmed_text),
+  let (scheme, rest) = match split_proxy_scheme(text) {
+    (Some(scheme), rest) => (scheme.to_ascii_lowercase(), rest),
+    (None, rest) => ("http".to_string(), rest),
   };
   let scheme = match scheme.as_str() {
     // have the proxy resolve the host instead of resolving it locally, which
@@ -304,13 +305,18 @@ fn parse_proxy(text: &str) -> Result<reqwest::Proxy> {
     Some((credentials, address)) => (Some(credentials), address),
     None => (None, rest),
   };
+  if address.is_empty() {
+    bail!("Invalid proxy {}.", display_proxy(text));
+  }
   let Ok(proxy) = reqwest::Proxy::all(format!("{}://{}", scheme, address)) else {
     bail!("Invalid proxy {}.", display_proxy(text));
   };
   Ok(match credentials {
     Some(credentials) => {
       let (username, password) = credentials.split_once(':').unwrap_or((credentials, ""));
-      proxy.basic_auth(username, password)
+      // these get percent decoded before they're sent, so
+      // escape the percent signs to have them sent as written
+      proxy.basic_auth(&username.replace('%', "%25"), &password.replace('%', "%25"))
     }
     None => proxy,
   })
@@ -352,14 +358,21 @@ fn get_root_cause_text(err: &reqwest::Error) -> String {
 
 /// The proxy without its credentials, for showing in messages.
 fn display_proxy(proxy: &str) -> String {
-  let (scheme, rest) = match proxy.split_once("://") {
-    Some((scheme, rest)) => (Some(scheme), rest),
-    None => (None, proxy),
-  };
-  let address = rest.rsplit_once('@').map(|(_, address)| address).unwrap_or(rest).trim_end_matches('/');
+  let (scheme, rest) = split_proxy_scheme(proxy);
+  let address = rest.rsplit_once('@').map(|(_, address)| address).unwrap_or(rest);
   match scheme {
     Some(scheme) => format!("{}://{}", scheme, address),
     None => address.to_string(),
+  }
+}
+
+/// Splits the text of a proxy setting into its scheme, when it
+/// has one, and what follows it without any trailing slashes.
+fn split_proxy_scheme(proxy: &str) -> (Option<&str>, &str) {
+  match proxy.split_once("://") {
+    // otherwise the `://` is in the credentials of a proxy without a scheme
+    Some((scheme, rest)) if scheme.chars().all(|c| c.is_ascii_alphanumeric()) => (Some(scheme), rest.trim_end_matches('/')),
+    _ => (None, proxy.trim_end_matches('/')),
   }
 }
 
@@ -578,8 +591,12 @@ mod test {
       "Invalid proxy http://proxy corp."
     );
 
+    assert_eq!(parse_proxy("http://").err().unwrap().to_string(), "Invalid proxy http://.");
+
     assert_eq!(super::display_proxy("user:p@ssw0rd@localhost:9999"), "localhost:9999");
-    assert_eq!(super::display_proxy("socks5://localhost:9999"), "socks5://localhost:9999");
+    assert_eq!(super::display_proxy("socks5://localhost:9999/"), "socks5://localhost:9999");
+    // the credentials of a proxy without a scheme may look like they have one
+    assert_eq!(super::display_proxy("user:pa://ss@localhost:9999"), "localhost:9999");
   }
 
   #[test]
@@ -605,9 +622,20 @@ mod test {
       match path {
         "/ok" => "200 OK\r\nContent-Length: 2\r\nX-Test: value\r\n\r\nHi".to_string(),
         "/auth" => {
-          let authorization = header("authorization").unwrap_or_default();
+          // every value when the header is sent more than once
+          let authorization = headers
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("authorization"))
+            .map(|(_, value)| value.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
           format!("200 OK\r\nContent-Length: {}\r\n\r\n{}", authorization.len(), authorization)
         }
+        "/user-agent" => {
+          let user_agent = header("user-agent").unwrap_or_default();
+          format!("200 OK\r\nContent-Length: {}\r\n\r\n{}", user_agent.len(), user_agent)
+        }
+        "/redirect-utf8" => "302 Found\r\nLocation: /f\u{fc}\r\nContent-Length: 0\r\n\r\n".to_string(),
         "/redirect" => "302 Found\r\nLocation: /ok\r\nContent-Length: 0\r\n\r\n".to_string(),
         "/redirect-nowhere" => "302 Found\r\nContent-Length: 0\r\n\r\n".to_string(),
         "/forbidden" => "403 Forbidden\r\nContent-Length: 4\r\n\r\nNope".to_string(),
@@ -626,11 +654,30 @@ mod test {
     assert_eq!(file.headers.get("x-test").map(|v| v.as_str()), Some("value"));
     assert_eq!(download("/auth", Some("Bearer T")).await.unwrap().unwrap().content, b"Bearer T");
     assert_eq!(download("/auth", None).await.unwrap().unwrap().content, b"");
+    assert_eq!(
+      String::from_utf8(download("/user-agent", None).await.unwrap().unwrap().content).unwrap(),
+      format!("dprint/{}", env!("CARGO_PKG_VERSION"))
+    );
+
+    // the provided auth is used over the credentials in a url
+    {
+      let url = format!("{}/auth", origin.replace("http://", "http://user:pass@")).parse().unwrap();
+      let options = DownloadOptions {
+        auth: Some("Bearer T"),
+        ..Default::default()
+      };
+      assert_eq!(downloader.download(&url, options).await.unwrap().unwrap().content, b"Bearer T");
+      // base64 of `user:pass`
+      let file = downloader.download(&url, Default::default()).await.unwrap().unwrap();
+      assert_eq!(file.content, b"Basic dXNlcjpwYXNz");
+    }
 
     // redirects are left for the caller to follow
     let file = download("/redirect", None).await.unwrap().unwrap();
     assert_eq!(file.headers.get("location").map(|v| v.as_str()), Some("/ok"));
     assert_eq!(file.content, b"");
+    let file = download("/redirect-utf8", None).await.unwrap().unwrap();
+    assert_eq!(file.headers.get("location").map(|v| v.as_str()), Some("/f\u{fc}"));
     assert_eq!(
       download("/redirect-nowhere", None).await.err().unwrap().to_string(),
       format!("Error downloading {}/redirect-nowhere - 302 without a location to redirect to", origin)
@@ -656,7 +703,7 @@ mod test {
       let body = format!("{} {}", path, authorization);
       format!("200 OK\r\nContent-Length: {}\r\n\r\n{}", body.len(), body)
     });
-    let proxy = format!("http://DOMAIN\\user:p@ss w0rd@{}", proxy_origin.strip_prefix("http://").unwrap());
+    let proxy = format!("http://DOMAIN\\user:p@ss w%41rd@{}", proxy_origin.strip_prefix("http://").unwrap());
 
     let downloader = create_downloader(NoProxy::from_string(""));
     let url = "http://example.invalid/file.wasm".parse().unwrap();
@@ -665,10 +712,10 @@ mod test {
       ..Default::default()
     };
     let file = downloader.download(&url, options).await.unwrap().unwrap();
-    // base64 of `DOMAIN\user:p@ss w0rd`
+    // base64 of `DOMAIN\user:p@ss w%41rd`
     assert_eq!(
       String::from_utf8(file.content).unwrap(),
-      "http://example.invalid/file.wasm Basic RE9NQUlOXHVzZXI6cEBzcyB3MHJk"
+      "http://example.invalid/file.wasm Basic RE9NQUlOXHVzZXI6cEBzcyB3JTQxcmQ="
     );
   }
 
