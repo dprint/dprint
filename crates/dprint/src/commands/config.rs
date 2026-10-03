@@ -24,6 +24,7 @@ use crate::configuration::*;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::paths::get_plugin_names_for_file_on_disk;
+use crate::plugins::ConfiguredPlugins;
 use crate::plugins::FetchNpmLatestInfo;
 use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::MinimumDependencyAgeError;
@@ -143,11 +144,11 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
     environment,
   )
   .await?;
-  let existing_plugin_names = get_config_file_plugin_names(environment, plugin_resolver, config.plugins).await;
+  let existing_plugins = get_configured_plugins(environment, plugin_resolver, config.plugins).await;
   let plugins_to_add = get_init_plugins_to_add(
     environment,
     GetInitPluginsToAddOptions {
-      existing_plugin_names,
+      existing_plugins,
       minimum_dependency_age: options.minimum_dependency_age.clone(),
       config_dir: config_dir.map(|dir| dir.into_path_buf()),
     },
@@ -854,14 +855,8 @@ async fn get_possible_plugins_to_add<TEnvironment: Environment>(
   let info_file = read_info_file(environment)
     .await
     .map_err(|err| anyhow!("Failed downloading info file. {:#}", err))?;
-  let current_plugin_names = get_config_file_plugin_names(environment, plugin_resolver, current_plugins).await;
-  Ok(
-    info_file
-      .latest_plugins
-      .into_iter()
-      .filter(|p| !current_plugin_names.contains(&p.name))
-      .collect(),
-  )
+  let current_plugins = get_configured_plugins(environment, plugin_resolver, current_plugins).await;
+  Ok(info_file.latest_plugins.into_iter().filter(|p| !current_plugins.has(p)).collect())
 }
 
 pub struct UpdatePluginsOptions {
@@ -1617,24 +1612,32 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
   Ok(())
 }
 
-/// The names of the plugins a config file resolves to, skipping (with a
-/// warning) the ones that fail to resolve.
-async fn get_config_file_plugin_names<TEnvironment: Environment>(
+/// The plugins a config file has. One that fails to resolve is warned about
+/// and is only known by where it comes from.
+async fn get_configured_plugins<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   current_plugins: Vec<PluginSourceReference>,
-) -> HashSet<String> {
-  get_config_file_plugins(plugin_resolver, current_plugins)
-    .await
-    .into_iter()
-    .filter_map(|(plugin_reference, plugin_result)| match plugin_result {
+) -> ConfiguredPlugins {
+  let mut configured_plugins = ConfiguredPlugins::default();
+  for (plugin_reference, plugin_result) in get_config_file_plugins(plugin_resolver, current_plugins).await {
+    let name = match plugin_result {
       Ok(plugin) => Some(plugin.info().name.to_string()),
       Err(err) => {
-        log_warn!(environment, "Failed resolving plugin: {}\n\n{:#}", plugin_reference.path_source.display(), err);
+        log_warn!(
+          environment,
+          "Failed resolving plugin: {}
+
+{:#}",
+          plugin_reference.path_source.display(),
+          err
+        );
         None
       }
-    })
-    .collect()
+    };
+    configured_plugins.add(plugin_reference.path_source, name);
+  }
+  configured_plugins
 }
 
 async fn get_config_file_plugins<TEnvironment: Environment>(
@@ -2016,6 +2019,38 @@ mod test {
       remote_has_wasm_checksum: false,
       remote_has_process_checksum: false,
     });
+    run_test_cli(vec!["init"], &environment).unwrap();
+    assert!(environment.take_multi_selection_items().is_empty());
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![format!(
+        "{} already has every plugin dprint knows about.",
+        Path::new("/").join("dprint.json").display()
+      )]
+    );
+  }
+
+  #[test]
+  fn should_not_prompt_on_initialize_for_config_file_plugin_named_differently_in_info_file() {
+    let mut builder = TestEnvironmentBuilder::new();
+    builder.add_remote_wasm_0_1_0_plugin();
+    let environment = builder
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          // the plugin calls itself `test-plugin`
+          name: "someone/test".to_string(),
+          version: "0.2.0".to_string(),
+          url: "https://plugins.dprint.dev/test-plugin-0.2.0.wasm".to_string(),
+          config_key: Some("test-plugin".to_string()),
+          ..Default::default()
+        });
+      })
+      .with_default_config(|config| {
+        config.ensure_plugins_section();
+        config.add_remote_wasm_plugin_0_1_0();
+      })
+      .initialize()
+      .build();
     run_test_cli(vec!["init"], &environment).unwrap();
     assert!(environment.take_multi_selection_items().is_empty());
     assert_eq!(

@@ -11,6 +11,7 @@ use jsonc_parser::cst::CstRootNode;
 
 use crate::environment::DirEntry;
 use crate::environment::Environment;
+use crate::plugins::ConfiguredPlugins;
 use crate::plugins::InfoFile;
 use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::MinimumDependencyAgeError;
@@ -48,9 +49,9 @@ pub struct GetInitConfigFileTextOptions {
 
 /// Options for [`get_init_plugins_to_add`].
 pub struct GetInitPluginsToAddOptions {
-  /// Names, as they appear in the info file, of the plugins the config file
-  /// already has. They're shown in the prompt, but can't be selected.
-  pub existing_plugin_names: HashSet<String>,
+  /// The plugins the config file already has. They're shown in the prompt,
+  /// but can't be selected.
+  pub existing_plugins: ConfiguredPlugins,
   /// Don't add an npm plugin version published more recently than this.
   pub minimum_dependency_age: Option<MinimumDependencyAgeArg>,
   /// Directory of the config file being added to. An .npmrc setting
@@ -143,10 +144,7 @@ pub async fn get_init_plugins_to_add(environment: &impl Environment, options: Ge
     bail!("Could not get the latest plugin info, so there's nothing to select from.");
   };
   let latest_plugins = info.latest_plugins;
-  let already_configured = latest_plugins
-    .iter()
-    .map(|plugin| options.existing_plugin_names.contains(&plugin.name))
-    .collect::<Vec<_>>();
+  let already_configured = latest_plugins.iter().map(|plugin| options.existing_plugins.has(plugin)).collect::<Vec<_>>();
   if already_configured.iter().all(|configured| *configured) {
     return Ok(InitPluginsToAdd::AllPluginsConfigured);
   }
@@ -1059,7 +1057,7 @@ mod test {
         let plugins = get_init_plugins_to_add(
           &environment,
           GetInitPluginsToAddOptions {
-            existing_plugin_names: HashSet::from(["a".to_string()]),
+            existing_plugins: ConfiguredPlugins::from_names(["a"]),
             minimum_dependency_age: None,
             config_dir: None,
           },
@@ -1248,7 +1246,7 @@ mod test {
         let plugins = get_init_plugins_to_add(
           &environment,
           GetInitPluginsToAddOptions {
-            existing_plugin_names: HashSet::from(["a".to_string()]),
+            existing_plugins: ConfiguredPlugins::from_names(["a"]),
             minimum_dependency_age: None,
             config_dir: None,
           },
@@ -1287,7 +1285,7 @@ mod test {
         let plugins = get_init_plugins_to_add(
           &environment,
           GetInitPluginsToAddOptions {
-            existing_plugin_names: HashSet::from(["a".to_string()]),
+            existing_plugins: ConfiguredPlugins::from_names(["a"]),
             minimum_dependency_age: None,
             config_dir: None,
           },
@@ -1322,7 +1320,7 @@ mod test {
         let plugins = get_init_plugins_to_add(
           &environment,
           GetInitPluginsToAddOptions {
-            existing_plugin_names: HashSet::from(["a".to_string()]),
+            existing_plugins: ConfiguredPlugins::from_names(["a"]),
             minimum_dependency_age: None,
             config_dir: None,
           },
