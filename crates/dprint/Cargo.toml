@@ -56,10 +56,10 @@ which = "=8.0.0"
 zip = "=2.4.1"
 
 # keep these in sync
+reqwest = { version = "=0.13.5", features = ["gzip", "rustls-no-provider", "socks"], default-features = false }
 rustls = { version = "=0.23.45", default-features = false, features = ["ring", "logging", "std", "tls12"] }
 rustls-native-certs = "=0.7.0"
 rustls-pemfile = "=2.1.2"
-reqwest = { version = "=0.13.5", features = ["gzip", "rustls-no-provider", "socks"], default-features = false }
 webpki-roots = "=0.26.7"
 
 # pin this to prevent it changing with `cargo install` because patch version
