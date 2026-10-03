@@ -28,6 +28,8 @@
     "npm:dprint-plugin-malva@0.16.0",
     "npm:dprint-plugin-markup@0.27.5",
     "npm:dprint-plugin-yaml@0.6.0",
-    "npm:@dprint/dockerfile@0.6.0"
+    "npm:@dprint/dockerfile@0.6.0",
+    "npm:@dprint/oxc@0.43.0",
+    "npm:dprint-plugin-markup@0.27.5"
   ]
 }
