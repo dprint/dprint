@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use crate::configuration::resolve_global_config_dir;
 use crate::environment::Environment;
+use crate::utils::LaxSingleProcessFsFlag;
 
 pub const DISMISS_ACTION_TITLE: &str = "Don't show again";
 pub const DISMISS_WORKSPACE_ACTION_TITLE: &str = "Don't show in this workspace";
@@ -52,7 +53,21 @@ pub fn is_no_config_notification_dismissed(environment: &impl Environment, works
 
 /// Stores that the user dismissed the notification. A server can't update the
 /// editor's settings, so this is stored in the global config directory instead.
-pub fn dismiss_no_config_notification(environment: &impl Environment, dismissal: NoConfigNotificationDismissal) -> Result<()> {
+pub async fn dismiss_no_config_notification<TEnvironment: Environment>(environment: &TEnvironment, dismissal: NoConfigNotificationDismissal) -> Result<()> {
+  // prevent another language server process from storing a dismissal between
+  // the read and write of the state file, which would lose one of the two
+  let lock_dir = environment.get_cache_dir().join("locks");
+  let _ignore = environment.mk_dir_all(&lock_dir);
+  let _flag = LaxSingleProcessFsFlag::lock(
+    environment,
+    lock_dir.join(".lsp-state.lock"),
+    "Waiting for file lock for the language server state...",
+  )
+  .await;
+  store_dismissal(environment, dismissal)
+}
+
+fn store_dismissal(environment: &impl Environment, dismissal: NoConfigNotificationDismissal) -> Result<()> {
   let mut state = read_state(environment);
   match dismissal {
     NoConfigNotificationDismissal::Everywhere => state.no_config_notification.dismissed = true,
@@ -141,14 +156,14 @@ mod test {
     let other_folder = PathBuf::from("/other");
     assert!(!is_no_config_notification_dismissed(&environment, &[folder.clone()]));
 
-    dismiss_no_config_notification(&environment, NoConfigNotificationDismissal::WorkspaceFolders(vec![folder.clone()])).unwrap();
+    store_dismissal(&environment, NoConfigNotificationDismissal::WorkspaceFolders(vec![folder.clone()])).unwrap();
     assert!(is_no_config_notification_dismissed(&environment, &[folder.clone()]));
     assert!(is_no_config_notification_dismissed(&environment, &[other_folder.clone(), folder.clone()]));
     assert!(!is_no_config_notification_dismissed(&environment, &[other_folder.clone()]));
     assert!(!is_no_config_notification_dismissed(&environment, &[]));
 
     // keeps the existing folders
-    dismiss_no_config_notification(&environment, NoConfigNotificationDismissal::WorkspaceFolders(vec![other_folder.clone()])).unwrap();
+    store_dismissal(&environment, NoConfigNotificationDismissal::WorkspaceFolders(vec![other_folder.clone()])).unwrap();
     assert!(is_no_config_notification_dismissed(&environment, &[folder]));
     assert!(is_no_config_notification_dismissed(&environment, &[other_folder]));
   }
@@ -156,7 +171,7 @@ mod test {
   #[test]
   fn dismisses_everywhere() {
     let environment = new_environment();
-    dismiss_no_config_notification(&environment, NoConfigNotificationDismissal::Everywhere).unwrap();
+    store_dismissal(&environment, NoConfigNotificationDismissal::Everywhere).unwrap();
     assert!(is_no_config_notification_dismissed(&environment, &[]));
     assert!(is_no_config_notification_dismissed(&environment, &[PathBuf::from("/project")]));
   }
@@ -167,7 +182,7 @@ mod test {
     environment.mk_dir_all("/global-config").unwrap();
     environment.write_file(get_state_file_path(&environment).unwrap(), "not json").unwrap();
     assert!(!is_no_config_notification_dismissed(&environment, &[]));
-    dismiss_no_config_notification(&environment, NoConfigNotificationDismissal::Everywhere).unwrap();
+    store_dismissal(&environment, NoConfigNotificationDismissal::Everywhere).unwrap();
     assert!(is_no_config_notification_dismissed(&environment, &[]));
   }
 

@@ -25,6 +25,7 @@ use deno_tower_lsp::lsp_types::DidCloseNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidCloseTextDocumentParams;
 use deno_tower_lsp::lsp_types::DidOpenNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidOpenTextDocumentParams;
+use deno_tower_lsp::lsp_types::DocumentChanges;
 use deno_tower_lsp::lsp_types::DocumentFormattingParams;
 use deno_tower_lsp::lsp_types::DocumentRangeFormattingParams;
 use deno_tower_lsp::lsp_types::ExecuteCommandOptions;
@@ -39,11 +40,13 @@ use deno_tower_lsp::lsp_types::InitializedParams;
 use deno_tower_lsp::lsp_types::MessageActionItem;
 use deno_tower_lsp::lsp_types::MessageType;
 use deno_tower_lsp::lsp_types::OneOf;
+use deno_tower_lsp::lsp_types::OptionalVersionedTextDocumentIdentifier;
 use deno_tower_lsp::lsp_types::Position;
 use deno_tower_lsp::lsp_types::Range;
 use deno_tower_lsp::lsp_types::Registration;
 use deno_tower_lsp::lsp_types::ServerCapabilities;
 use deno_tower_lsp::lsp_types::ServerInfo;
+use deno_tower_lsp::lsp_types::TextDocumentEdit;
 use deno_tower_lsp::lsp_types::TextDocumentSyncCapability;
 use deno_tower_lsp::lsp_types::TextDocumentSyncKind;
 use deno_tower_lsp::lsp_types::TextDocumentSyncOptions;
@@ -495,6 +498,8 @@ struct State<TEnvironment: Environment> {
   settings: LspSettings,
   /// Whether the client shows the actions of a `window/showMessageRequest`.
   supports_message_actions: bool,
+  /// Whether the client supports the versioned document edits of a `WorkspaceEdit`.
+  supports_document_changes: bool,
   /// Whether the user was notified this session about a file without a config file.
   has_notified_no_config: bool,
 }
@@ -517,6 +522,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
         pending_registrations: Vec::new(),
         workspace_folders: Vec::new(),
         supports_message_actions: false,
+        supports_document_changes: false,
         has_notified_no_config: false,
       }),
       environment,
@@ -551,11 +557,8 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
         if edits.is_empty() || self.state.lock().documents.get_version(uri) != version {
           return;
         }
-        let edit = WorkspaceEdit {
-          changes: Some(HashMap::from([(uri.clone(), edits)])),
-          ..Default::default()
-        };
-        match self.client.apply_edit(edit).await {
+        let supports_document_changes = self.state.lock().supports_document_changes;
+        match self.client.apply_edit(new_workspace_edit(uri, version, edits, supports_document_changes)).await {
           Ok(()) => return,
           Err(err) => {
             let message = format!("Failed applying the edits for '{}': {:#}", uri.as_str(), err);
@@ -642,7 +645,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
       } else {
         NoConfigNotificationDismissal::Everywhere
       };
-      if let Err(err) = dismiss_no_config_notification(&environment, dismissal) {
+      if let Err(err) = dismiss_no_config_notification(&environment, dismissal).await {
         let message = format!("Failed storing to not show the no configuration file notification: {:#}", err);
         log_warn!(environment, "{}", message);
         client.log_warn(message);
@@ -788,6 +791,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         state.settings.update(options);
       }
       state.supports_message_actions = supports_message_actions(&params.capabilities);
+      state.supports_document_changes = supports_document_changes(&params.capabilities);
       state.pending_registrations = get_notebook_cell_format_registrations(&params.capabilities);
       state.pending_registrations.extend(get_untitled_registrations(&params.capabilities));
       state.pending_registrations.extend(config_file_capabilities.registrations);
@@ -1042,12 +1046,39 @@ fn has_use_global_config_option(options: &FormattingOptions) -> bool {
   matches!(options.properties.get(USE_GLOBAL_CONFIG_OPTION), Some(FormattingProperty::Bool(true)))
 }
 
+/// Creates the edit for the provided version of the document.
+fn new_workspace_edit(uri: &Uri, version: Option<i32>, edits: Vec<TextEdit>, supports_document_changes: bool) -> WorkspaceEdit {
+  if supports_document_changes {
+    // provide the version so the client rejects the edits when the document
+    // changed in the client and the server hasn't been told about it yet
+    WorkspaceEdit {
+      document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
+        text_document: OptionalVersionedTextDocumentIdentifier { uri: uri.clone(), version },
+        edits: edits.into_iter().map(OneOf::Left).collect(),
+      }])),
+      ..Default::default()
+    }
+  } else {
+    WorkspaceEdit {
+      changes: Some(HashMap::from([(uri.clone(), edits)])),
+      ..Default::default()
+    }
+  }
+}
+
 fn supports_message_actions(capabilities: &ClientCapabilities) -> bool {
+  // the `messageActionItem` property within this is only about the
+  // additional properties of an action, which aren't used
+  capabilities.window.as_ref().is_some_and(|window| window.show_message.is_some())
+}
+
+fn supports_document_changes(capabilities: &ClientCapabilities) -> bool {
   capabilities
-    .window
+    .workspace
     .as_ref()
-    .and_then(|window| window.show_message.as_ref())
-    .is_some_and(|show_message| show_message.message_action_item.is_some())
+    .and_then(|workspace| workspace.workspace_edit.as_ref())
+    .and_then(|workspace_edit| workspace_edit.document_changes)
+    .unwrap_or(false)
 }
 
 fn new_message_action(title: &str) -> MessageActionItem {
@@ -1092,6 +1123,8 @@ mod test {
   use deno_tower_lsp::lsp_types::VersionedNotebookDocumentIdentifier;
   use deno_tower_lsp::lsp_types::VersionedTextDocumentIdentifier;
   use deno_tower_lsp::lsp_types::WindowClientCapabilities;
+  use deno_tower_lsp::lsp_types::WorkspaceClientCapabilities;
+  use deno_tower_lsp::lsp_types::WorkspaceEditClientCapabilities;
   use deno_tower_lsp::lsp_types::WorkspaceFoldersChangeEvent;
   use dprint_core::async_runtime::FutureExt;
   use dprint_core::async_runtime::LocalBoxFuture;
@@ -2742,6 +2775,23 @@ mod test {
   }
 
   #[test]
+  fn should_create_unversioned_workspace_edit_when_client_lacks_document_changes() {
+    let uri = Uri::from_str("file:///file.txt").unwrap();
+    let edits = vec![TextEdit {
+      range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+      new_text: "_formatted".to_string(),
+    }];
+    assert!(!supports_document_changes(&ClientCapabilities::default()));
+    assert_eq!(
+      new_workspace_edit(&uri, Some(1), edits.clone(), false),
+      WorkspaceEdit {
+        changes: Some(HashMap::from([(uri, edits)])),
+        ..Default::default()
+      }
+    );
+  }
+
+  #[test]
   fn should_format_with_global_config_commands_with_lsp() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
@@ -2756,7 +2806,23 @@ mod test {
       let run_test_task = dprint_core::async_runtime::spawn({
         let test_client = test_client.clone();
         async move {
-          let result = initialize_backend(&backend, Default::default()).await;
+          let result = initialize_backend(
+            &backend,
+            InitializeParams {
+              capabilities: ClientCapabilities {
+                workspace: Some(WorkspaceClientCapabilities {
+                  workspace_edit: Some(WorkspaceEditClientCapabilities {
+                    document_changes: Some(true),
+                    ..Default::default()
+                  }),
+                  ..Default::default()
+                }),
+                ..Default::default()
+              },
+              ..Default::default()
+            },
+          )
+          .await;
           assert_eq!(
             result.capabilities.execute_command_provider.unwrap().commands,
             vec!["dprint.formatWithGlobalConfig", "dprint.formatSelectionWithGlobalConfig"]
@@ -2772,10 +2838,17 @@ mod test {
             range: Range::new(Position::new(0, 7), Position::new(0, 7)),
             new_text: "_formatted".to_string(),
           }];
+          // has the version so the client rejects the edits when the document changed
           assert_eq!(
             test_client.take_applied_edits(),
             vec![WorkspaceEdit {
-              changes: Some(HashMap::from([(file_uri.clone(), edits.clone())])),
+              document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
+                text_document: OptionalVersionedTextDocumentIdentifier {
+                  uri: file_uri.clone(),
+                  version: Some(0),
+                },
+                edits: edits.into_iter().map(OneOf::Left).collect(),
+              }])),
               ..Default::default()
             }]
           );
@@ -3718,9 +3791,8 @@ mod test {
   fn message_actions_capabilities() -> ClientCapabilities {
     ClientCapabilities {
       window: Some(WindowClientCapabilities {
-        show_message: Some(ShowMessageRequestClientCapabilities {
-          message_action_item: Some(Default::default()),
-        }),
+        // the actions don't have additional properties, so this isn't necessary
+        show_message: Some(ShowMessageRequestClientCapabilities { message_action_item: None }),
         ..Default::default()
       }),
       ..Default::default()

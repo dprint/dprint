@@ -70,7 +70,7 @@ Note: The language server does not use the config discovery mode. The `--config-
 A file without a configuration file in its directory or ancestor directories is not formatted by default. Before dprint 0.60, the server formatted these files with the [global configuration file](/global-config) without being asked to. There are two ways to format them with the global configuration file:
 
 1. Enable the `useGlobalConfig` [setting](#settings) to always format these files with the global configuration. This is what makes formatting work in a scratch directory or in a project that doesn't use dprint.
-2. Run one of the following commands (`workspace/executeCommand`) to format the current file once. They work regardless of the `useGlobalConfig` setting, and the server applies the edits with `workspace/applyEdit`:
+2. Run one of the following commands (`workspace/executeCommand`) to format the current file once. They work regardless of the `useGlobalConfig` setting, and the server applies the edits with `workspace/applyEdit`. The edits are for the version of the document that was formatted, so a client that supports versioned document edits (`workspace.workspaceEdit.documentChanges`) rejects them when the document changed in the meantime:
 
    - `dprint.formatWithGlobalConfig` formats a document. Its only argument is the document's URI.
    - `dprint.formatSelectionWithGlobalConfig` formats a range of a document. Its arguments are the document's URI and the range to format (an LSP `Range`).
@@ -83,7 +83,7 @@ A client may also format a single request with the global configuration by setti
 
 ### No configuration file notification
 
-The first time in a session that a file isn't formatted because no configuration file was found for it, the server shows a message saying so. In clients that support message actions (`window/showMessageRequest`), the message has two actions:
+The first time in a session that a file isn't formatted because no configuration file was found for it, the server shows a message saying so. In clients that have the `window.showMessage` capability, the message is shown with `window/showMessageRequest` and has two actions:
 
 - `Don't show in this workspace` stops showing it for the current workspace folders. This is only offered when there's a workspace folder.
 - `Don't show again` stops showing it everywhere.
