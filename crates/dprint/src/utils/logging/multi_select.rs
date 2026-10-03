@@ -41,13 +41,6 @@ impl MultiSelectDetailPart {
       is_highlighted: false,
     }
   }
-
-  pub fn highlighted(text: impl Into<String>) -> Self {
-    MultiSelectDetailPart {
-      text: text.into(),
-      is_highlighted: true,
-    }
-  }
 }
 
 impl MultiSelectItem {
@@ -422,7 +415,10 @@ mod test {
     let data = build_data_with_items(vec![
       MultiSelectItem::new("alpha".to_string(), false).with_detail(vec![
         MultiSelectDetailPart::new("("),
-        MultiSelectDetailPart::highlighted(".a"),
+        MultiSelectDetailPart {
+          text: ".a".to_string(),
+          is_highlighted: true,
+        },
         MultiSelectDetailPart::new(", .b)"),
       ]),
       MultiSelectItem::non_selectable("beta".to_string()).with_detail(vec![MultiSelectDetailPart::new("(.c)")]),
