@@ -290,11 +290,12 @@ fn inherit_excludes(
   };
   let mut result = ancestor
     .iter()
+    // normalize the same way the ancestor config's own excludes are (ex. backslash
+    // path separators, a leading `/` meaning the config's directory) so the rebase
+    // sees the pattern the way the ancestor interprets it
+    .flat_map(|pattern| process_config_pattern(pattern))
     .filter_map(|pattern| {
-      // normalize the same way the ancestor config's own excludes are (ex. backslash
-      // path separators, a leading `/` meaning the config's directory) so the rebase
-      // sees the pattern the way the ancestor interprets it
-      new_config_glob_pattern(process_config_pattern(pattern), ancestor_base)
+      new_config_glob_pattern(pattern, ancestor_base)
         .into_new_base(new_base.clone(), GlobPatternKind::Exclude)
         .map(|p| p.relative_pattern)
     })
