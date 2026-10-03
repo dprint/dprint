@@ -3,7 +3,7 @@ export function replaceConfigTable() {
   const items = getPluginConfigTableItems();
   if (items.length > 0) {
     items.forEach(function(item) {
-      getDprintPluginConfig(item.url).then((properties) => {
+      getDprintPluginConfig(item.url, item.configKey).then((properties) => {
         const isOfficial = new URL(item.url).pathname.startsWith("/dprint/");
         const element = item.element;
         element.innerHTML = "<p>This information was auto generated from <a href=\"" + item.url + "\">" + item.url + "</a>.</p>";
@@ -59,6 +59,9 @@ export function replaceConfigTable() {
         });
 
         function addDescription(propertyContainer, property) {
+          if (property.description == null) {
+            return;
+          }
           const propertyDesc = document.createElement("p");
           propertyDesc.textContent = property.description;
           propertyContainer.appendChild(propertyDesc);
@@ -80,6 +83,17 @@ export function replaceConfigTable() {
               }
               if (oneOf.const === property.default) {
                 oneOfContainer.append(" (Default)");
+              }
+            });
+          } else if (property.enum) {
+            property.enum.forEach(function(value) {
+              const enumContainer = document.createElement("li");
+              infoContainer.appendChild(enumContainer);
+              const prefix = document.createElement("strong");
+              prefix.textContent = valueToText(value);
+              enumContainer.appendChild(prefix);
+              if (value === property.default) {
+                enumContainer.append(" (Default)");
               }
             });
           } else {
@@ -123,15 +137,19 @@ function getPluginConfigTableItems() {
     result.push({
       element,
       url: element.dataset.url,
+      // set when the schema nests the plugin config under its config key
+      configKey: element.dataset.configKey,
     });
   }
   return result;
 }
 
-function getDprintPluginConfig(configSchemaUrl) {
+function getDprintPluginConfig(configSchemaUrl, configKey) {
   return fetch(configSchemaUrl).then((response) => {
     return response.json();
-  }).then((json) => {
+  }).then((rootJson) => {
+    const json = configKey == null ? rootJson : rootJson.properties[configKey];
+    const definitions = rootJson.definitions || rootJson["$defs"] || {};
     const properties = {};
     let order = 0;
 
@@ -142,7 +160,7 @@ function getDprintPluginConfig(configSchemaUrl) {
       const property = json.properties[propertyName];
 
       if (property["$ref"]) {
-        const derivedPropName = property["$ref"].replace("#/definitions/", "");
+        const derivedPropName = property["$ref"].replace(/^#\/(definitions|\$defs)\//, "");
 
         const lastSegment = propertyName.split(".").pop();
         let parentProperty;
@@ -152,7 +170,7 @@ function getDprintPluginConfig(configSchemaUrl) {
           parentProperty = lastSegment;
         }
 
-        const definition = json.definitions[derivedPropName];
+        const definition = definitions[derivedPropName];
         if (parentProperty) {
           ensurePropertyName(parentProperty);
           const isSameDefinition = property["$ref"] === json.properties[parentProperty]["$ref"];
@@ -161,7 +179,8 @@ function getDprintPluginConfig(configSchemaUrl) {
             definition: isSameDefinition ? null : definition,
           });
         } else {
-          setDefinitionForPropertyName(propertyName, definition);
+          // a property may specify its own default alongside the reference
+          setDefinitionForPropertyName(propertyName, Object.assign({}, definition, property));
         }
       } else {
         ensurePropertyName(propertyName);

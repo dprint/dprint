@@ -39,6 +39,15 @@ For the latest version and copy-paste URL of every plugin, see [plugins.dprint.d
 - [Arity](/plugins/arity) (R)
 - [Fatou](/plugins/fatou) (Julia)
 - [Typstyle](/plugins/typstyle) (Typst)
+- [Typstyle (kachick)](/plugins/typstyle-kachick) (Typst)
+- [Nix](/plugins/nix)
+- [KDL](/plugins/kdl)
+- [Shell](/plugins/sh) (sh/Bash/Zsh)
+- [Lax CSS](/plugins/lax-css) (CSS/SCSS/Less)
+- [Lax Markup](/plugins/lax-markup) (HTML/XML/SVG/Vue/Svelte/Astro)
+- [Lax SQL](/plugins/lax-sql) (SQL)
+- [clang-format](/plugins/clang-format) (C/C++/Objective-C)
+- [cmakefmt](/plugins/cmakefmt) (CMake)
 - [bibtex-tidy](/plugins/bibtex-tidy) (BibTeX)
 
 ## Process Plugins
