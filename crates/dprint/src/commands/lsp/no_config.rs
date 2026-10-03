@@ -154,12 +154,12 @@ mod test {
     let environment = new_environment();
     let folder = PathBuf::from("/project");
     let other_folder = PathBuf::from("/other");
-    assert!(!is_no_config_notification_dismissed(&environment, &[folder.clone()]));
+    assert!(!is_no_config_notification_dismissed(&environment, std::slice::from_ref(&folder)));
 
     store_dismissal(&environment, NoConfigNotificationDismissal::WorkspaceFolders(vec![folder.clone()])).unwrap();
-    assert!(is_no_config_notification_dismissed(&environment, &[folder.clone()]));
+    assert!(is_no_config_notification_dismissed(&environment, std::slice::from_ref(&folder)));
     assert!(is_no_config_notification_dismissed(&environment, &[other_folder.clone(), folder.clone()]));
-    assert!(!is_no_config_notification_dismissed(&environment, &[other_folder.clone()]));
+    assert!(!is_no_config_notification_dismissed(&environment, std::slice::from_ref(&other_folder)));
     assert!(!is_no_config_notification_dismissed(&environment, &[]));
 
     // keeps the existing folders
