@@ -15,6 +15,9 @@ use super::LoggerTextItem;
 /// An item in a multi-select prompt.
 pub struct MultiSelectItem {
   pub text: String,
+  /// Secondary text shown dimmed after the item's text (ex. the file
+  /// extensions a plugin formats). Empty when there's nothing to show.
+  pub detail: Vec<MultiSelectDetailPart>,
   /// Whether the item starts out selected.
   pub is_selected: bool,
   /// Whether the user can toggle the item. A non-selectable item is shown for
@@ -23,10 +26,28 @@ pub struct MultiSelectItem {
   pub is_selectable: bool,
 }
 
+/// A piece of the detail shown after a multi-select item's text.
+pub struct MultiSelectDetailPart {
+  pub text: String,
+  /// Whether the part stands out from the rest of the detail (ex. a file
+  /// extension that was found in the current directory).
+  pub is_highlighted: bool,
+}
+
+impl MultiSelectDetailPart {
+  pub fn new(text: impl Into<String>) -> Self {
+    MultiSelectDetailPart {
+      text: text.into(),
+      is_highlighted: false,
+    }
+  }
+}
+
 impl MultiSelectItem {
   pub fn new(text: String, is_selected: bool) -> Self {
     MultiSelectItem {
       text,
+      detail: Vec::new(),
       is_selected,
       is_selectable: true,
     }
@@ -36,9 +57,49 @@ impl MultiSelectItem {
   pub fn non_selectable(text: String) -> Self {
     MultiSelectItem {
       text,
+      detail: Vec::new(),
       is_selected: true,
       is_selectable: false,
     }
+  }
+
+  pub fn with_detail(mut self, detail: Vec<MultiSelectDetailPart>) -> Self {
+    self.detail = detail;
+    self
+  }
+
+  /// The item's text followed by its detail.
+  pub fn full_text(&self) -> String {
+    let mut text = self.text.clone();
+    if !self.detail.is_empty() {
+      text.push(' ');
+      for part in &self.detail {
+        text.push_str(&part.text);
+      }
+    }
+    text
+  }
+
+  /// The item as it's shown in the terminal: its detail is dimmed apart from
+  /// the highlighted parts, and so is the text of an item that can't be
+  /// toggled so it's clear it's only there for context.
+  fn render(&self) -> String {
+    let mut text = if self.is_selectable {
+      self.text.clone()
+    } else {
+      colors::gray(&self.text).to_string()
+    };
+    if !self.detail.is_empty() {
+      text.push(' ');
+      for part in &self.detail {
+        if part.is_highlighted {
+          text.push_str(&colors::cyan(&part.text).to_string());
+        } else {
+          text.push_str(&colors::gray(&part.text).to_string());
+        }
+      }
+    }
+    text
   }
 }
 
@@ -155,7 +216,7 @@ fn visible_indexes(data: &MultiSelectData) -> Vec<usize> {
     .items
     .iter()
     .enumerate()
-    .filter(|(_, item)| item.text.to_lowercase().contains(&filter))
+    .filter(|(_, item)| item.full_text().to_lowercase().contains(&filter))
     .map(|(i, _)| i)
     .collect()
 }
@@ -211,12 +272,7 @@ fn render_multi_select(data: &MultiSelectData, visible: &[usize], max_visible_ro
     text.push_str(" [");
     text.push_str(if item.is_selected { "x" } else { " " });
     text.push_str("] ");
-    // dim the items that can't be toggled so it's clear they're only context
-    if item.is_selectable {
-      text.push_str(&item.text);
-    } else {
-      text.push_str(&colors::gray(&item.text).to_string());
-    }
+    text.push_str(&item.render());
 
     result.push(LoggerTextItem::HangingText {
       text,
@@ -240,7 +296,7 @@ fn render_complete(data: &MultiSelectData) -> Vec<LoggerTextItem> {
     result.push(LoggerTextItem::Text(data.prompt.to_string()));
     for item in data.items.iter().filter(|item| is_chosen(item)) {
       result.push(LoggerTextItem::HangingText {
-        text: format!(" * {}", item.text),
+        text: format!(" * {}", item.render()),
         indent: 3 + data.item_hanging_indent,
       });
     }
@@ -352,6 +408,43 @@ mod test {
       rendered_lines(&render_multi_select(&data, &visible, 10)),
       vec!["Select:".to_string(), "> [ ] alpha".to_string(), format!("  [x] {}", colors::gray("beta")),]
     );
+  }
+
+  #[test]
+  fn render_dims_item_details_apart_from_highlighted_parts() {
+    let data = build_data_with_items(vec![
+      MultiSelectItem::new("alpha".to_string(), false).with_detail(vec![
+        MultiSelectDetailPart::new("("),
+        MultiSelectDetailPart {
+          text: ".a".to_string(),
+          is_highlighted: true,
+        },
+        MultiSelectDetailPart::new(", .b)"),
+      ]),
+      MultiSelectItem::non_selectable("beta".to_string()).with_detail(vec![MultiSelectDetailPart::new("(.c)")]),
+    ]);
+    assert_eq!(data.items[0].full_text(), "alpha (.a, .b)");
+    let visible = visible_indexes(&data);
+    assert_eq!(
+      rendered_lines(&render_multi_select(&data, &visible, 10)),
+      vec![
+        "Select:".to_string(),
+        format!("> [ ] alpha {}{}{}", colors::gray("("), colors::cyan(".a"), colors::gray(", .b)")),
+        format!("  [x] {} {}", colors::gray("beta"), colors::gray("(.c)")),
+      ]
+    );
+  }
+
+  #[test]
+  fn visible_indexes_filters_on_item_details() {
+    let mut data = build_data_with_items(vec![
+      MultiSelectItem::new("alpha".to_string(), false).with_detail(vec![MultiSelectDetailPart::new("(.ts)")]),
+      MultiSelectItem::new("beta".to_string(), false).with_detail(vec![MultiSelectDetailPart::new("(.json)")]),
+    ]);
+    data.filter = ".json".to_string();
+    assert_eq!(visible_indexes(&data), vec![1]);
+    data.filter = "alpha (".to_string();
+    assert_eq!(visible_indexes(&data), vec![0]);
   }
 
   #[test]

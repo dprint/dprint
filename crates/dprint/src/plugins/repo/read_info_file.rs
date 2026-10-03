@@ -23,7 +23,12 @@ pub struct InfoFile {
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct InfoFilePluginInfo {
+  /// The name the plugin reports about itself, which is what identifies the
+  /// plugin (ex. for telling whether a config file already has it).
   pub name: String,
+  /// The name to show the user in place of `name`, which isn't always something
+  /// they'd recognize the plugin by (ex. `g-plane/malva` for `dprint_plugin_malva`).
+  pub display_name: Option<String>,
   pub version: String,
   pub url: String,
   pub config_key: Option<String>,
@@ -59,6 +64,11 @@ pub struct InfoFileConfigItem {
 }
 
 impl InfoFilePluginInfo {
+  /// The name to show the user for this plugin.
+  pub fn display_name(&self) -> &str {
+    self.display_name.as_deref().unwrap_or(&self.name)
+  }
+
   /// Resolves this plugin's npm package from the registry, when the info file
   /// says it's distributed on npm. `None` means it isn't, so its url is what
   /// belongs in a config file.
@@ -143,6 +153,7 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo> {
     _ => bail!("Expected an object in the latest array."),
   };
   let name = get_string(&mut obj, "name")?;
+  let display_name = obj.take_string("displayName").map(|name| name.into_owned());
   let version = get_string(&mut obj, "version")?;
   let url = get_string(&mut obj, "url")?;
   let config_key = obj.take_string("configKey").map(|k| k.into_owned());
@@ -165,6 +176,7 @@ fn get_latest_plugin(value: JsonValue) -> Result<InfoFilePluginInfo> {
 
   Ok(InfoFilePluginInfo {
     name,
+    display_name,
     version,
     url,
     config_key,
@@ -297,6 +309,7 @@ mod test {
           })
           .add_plugin(TestInfoFilePlugin {
             name: "dprint-plugin-jsonc".to_string(),
+            display_name: Some("someone/jsonc".to_string()),
             version: "0.2.3".to_string(),
             url: "https://plugins.dprint.dev/json-0.2.3.wasm".to_string(),
             config_key: None,
@@ -319,6 +332,7 @@ mod test {
           latest_plugins: vec![
             InfoFilePluginInfo {
               name: "dprint-plugin-typescript".to_string(),
+              display_name: None,
               version: "0.17.2".to_string(),
               url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
               config_key: Some("typescript".to_string()),
@@ -334,6 +348,7 @@ mod test {
             },
             InfoFilePluginInfo {
               name: "dprint-plugin-jsonc".to_string(),
+              display_name: Some("someone/jsonc".to_string()),
               version: "0.2.3".to_string(),
               url: "https://plugins.dprint.dev/json-0.2.3.wasm".to_string(),
               config_key: None,

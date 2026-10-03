@@ -829,7 +829,7 @@ impl Environment for TestEnvironment {
         format!(
           "[{}] {}{}",
           if item.is_selected { "x" } else { " " },
-          item.text,
+          item.full_text(),
           if item.is_selectable { "" } else { " (locked)" }
         )
       })
