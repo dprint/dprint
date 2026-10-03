@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en"><head>
-    <script async="" src="/scripts.712541eacc.js"></script>
+    <script async="" src="/scripts.9c8fa12f3a.js"></script>
     <meta charset="utf-8">
     <title>Oxc Plugin - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -89,7 +89,7 @@
   
     <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
   
-    <li><a href="/plugins/oxc" class="active">Oxc (JS/TS)</a></li>
+    <li><a href="/plugins/oxc" class="active">Oxc (JS/TS/JSON/CSS/GraphQL/YAML/TOML)</a></li>
   
     <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
   
@@ -111,6 +111,24 @@
   
     <li><a href="/plugins/typstyle">Typstyle (Typst)</a></li>
   
+    <li><a href="/plugins/typstyle-kachick">Typstyle - kachick (Typst)</a></li>
+  
+    <li><a href="/plugins/nix">Nix</a></li>
+  
+    <li><a href="/plugins/kdl">KDL</a></li>
+  
+    <li><a href="/plugins/sh">Shell (sh/Bash/Zsh)</a></li>
+  
+    <li><a href="/plugins/lax-css">Lax CSS (CSS/SCSS/Less)</a></li>
+  
+    <li><a href="/plugins/lax-markup">Lax Markup (HTML/XML/Vue/Svelte/Astro)</a></li>
+  
+    <li><a href="/plugins/lax-sql">Lax SQL</a></li>
+  
+    <li><a href="/plugins/clang-format">clang-format (C/C++/Obj-C)</a></li>
+  
+    <li><a href="/plugins/cmakefmt">cmakefmt (CMake)</a></li>
+  
     <li><a href="/plugins/bibtex-tidy">bibtex-tidy (BibTeX)</a></li>
   
     <li><a href="/plugins/swift">Swift (SwiftFormat)</a></li>
@@ -128,7 +146,17 @@
     
     <div class="eyebrow">// plugins</div>
     <h1>Oxc Plugin</h1>
-<p>Adapter plugin that formats JavaScript and TypeScript files via <a href="https://oxc.rs">Oxc</a>.</p>
+<p>Adapter plugin that formats files via <a href="https://oxc.rs">Oxc</a>. It formats the languages that Oxc's formatter formats natively in Rust:</p>
+<ul>
+<li>JavaScript and TypeScript (including JSX)</li>
+<li>JSON, JSONC, and JSON5</li>
+<li>CSS, SCSS, and Less</li>
+<li>GraphQL</li>
+<li>YAML</li>
+<li>TOML</li>
+</ul>
+<p>Code embedded in these files is also formatted (ex. CSS or GraphQL in a JavaScript template literal).</p>
+<p>Markdown is also supported, but is opt-in because Oxc's own formatter does not use its Markdown formatter yet. To enable it, set <code>"experimentalMarkdown": true</code> in the plugin's configuration.</p>
 <h2 id="install-and-setup" tabindex="-1"><a class="header-anchor" href="#install-and-setup">Install and Setup</a></h2>
 <p>In your project's directory with a dprint.json file, run:</p>
 <pre><code class="language-shellsession hljs language-shell">dprint add oxc
@@ -147,6 +175,18 @@ dprint add npm:@dprint/oxc
 </code></pre>
 <h2 id="configuration" tabindex="-1"><a class="header-anchor" href="#configuration">Configuration</a></h2>
 <p>See <a href="/plugins/oxc/config">Configuration</a></p>
+<p>The configuration is shared between the languages. For example, <code>quoteStyle</code> applies to JavaScript, CSS, YAML, and so on.</p>
+<h2 id="using-with-other-plugins" tabindex="-1"><a class="header-anchor" href="#using-with-other-plugins">Using with other plugins</a></h2>
+<p>This plugin formats many kinds of files, so it may match the same files as another plugin in your config file. The order of the <code>"plugins"</code> array defines the precedence, so list a plugin before this one to have it format the files they both match:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-comment">// formats .json files instead of the Oxc plugin</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/json-x.x.x.wasm"</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/oxc-x.x.x.wasm"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>For more fine grained control, see <a href="/config/#associations">associations</a>.</p>
 <h2 id="playground" tabindex="-1"><a class="header-anchor" href="#playground">Playground</a></h2>
 <p>See <a href="https://dprint.dev/playground#plugin/oxc">Playground</a></p>
 <h2 id="source" tabindex="-1"><a class="header-anchor" href="#source">Source</a></h2>

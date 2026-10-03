@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en"><head>
-    <script async="" src="/scripts.712541eacc.js"></script>
+    <script async="" src="/scripts.9c8fa12f3a.js"></script>
     <meta charset="utf-8">
     <title>Setup - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -89,7 +89,7 @@
   
     <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
   
-    <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
+    <li><a href="/plugins/oxc">Oxc (JS/TS/JSON/CSS/GraphQL/YAML/TOML)</a></li>
   
     <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
   
@@ -110,6 +110,24 @@
     <li><a href="/plugins/fatou">Fatou (Julia)</a></li>
   
     <li><a href="/plugins/typstyle">Typstyle (Typst)</a></li>
+  
+    <li><a href="/plugins/typstyle-kachick">Typstyle - kachick (Typst)</a></li>
+  
+    <li><a href="/plugins/nix">Nix</a></li>
+  
+    <li><a href="/plugins/kdl">KDL</a></li>
+  
+    <li><a href="/plugins/sh">Shell (sh/Bash/Zsh)</a></li>
+  
+    <li><a href="/plugins/lax-css">Lax CSS (CSS/SCSS/Less)</a></li>
+  
+    <li><a href="/plugins/lax-markup">Lax Markup (HTML/XML/Vue/Svelte/Astro)</a></li>
+  
+    <li><a href="/plugins/lax-sql">Lax SQL</a></li>
+  
+    <li><a href="/plugins/clang-format">clang-format (C/C++/Obj-C)</a></li>
+  
+    <li><a href="/plugins/cmakefmt">cmakefmt (CMake)</a></li>
   
     <li><a href="/plugins/bibtex-tidy">bibtex-tidy (BibTeX)</a></li>
   
@@ -162,8 +180,9 @@ dprint init --config path/to/dprint.json
 <h2 id="custom-cache-directory" tabindex="-1"><a class="header-anchor" href="#custom-cache-directory">Custom Cache Directory</a></h2>
 <p>By default, dprint stores information in the current system user's cache directory (<code>~/.cache/dprint</code> on Linux, <code>~/Library/Caches/dprint</code> on Mac, and <code>%LOCALAPPDATA%/dprint</code> on Windows) such as cached plugins and incremental formatting information. If you would like to store the cache in a custom location, then specify a <code>DPRINT_CACHE_DIR</code> environment variable. Note that this directory may be periodically deleted by the CLI, so if you set it please make sure it's set correctly and you're ok with the custom directory being deleted.</p>
 <h2 id="proxy" tabindex="-1"><a class="header-anchor" href="#proxy">Proxy</a></h2>
-<p>You may specify a proxy for dprint to use when downloading plugins or configuration files by setting the <code>HTTPS_PROXY</code>/<code>https_proxy</code> and <code>HTTP_PROXY</code>/<code>http_proxy</code> environment variables.</p>
+<p>You may specify a proxy for dprint to use when downloading plugins or configuration files by setting the <code>HTTPS_PROXY</code>/<code>https_proxy</code> and <code>HTTP_PROXY</code>/<code>http_proxy</code> environment variables. <code>http://</code>, <code>https://</code>, and <code>socks</code> proxies are supported.</p>
 <p>Additionally, the <code>NO_PROXY</code>/<code>no_proxy</code> environment variable can be set, which is a comma-separated list of hosts which should not use the proxy.</p>
+<p>Requests to an npm registry for <a href="/config#using-plugins-from-npm">npm plugins</a> use the proxy npm is configured with instead when there is one. See <a href="/config#private-npm-registries">Private npm registries</a>.</p>
 <h2 id="tls-certificates" tabindex="-1"><a class="header-anchor" href="#tls-certificates">TLS Certificates</a></h2>
 <p>dprint downloads plugins via HTTPS. In some cases you may wish to configure this. This is possible via the following environment variables:</p>
 <ul>

@@ -108,7 +108,7 @@
     const items = getPluginConfigTableItems();
     if (items.length > 0) {
       items.forEach(function(item) {
-        getDprintPluginConfig(item.url).then((properties) => {
+        getDprintPluginConfig(item.url, item.configKey).then((properties) => {
           const isOfficial = new URL(item.url).pathname.startsWith("/dprint/");
           const element = item.element;
           element.innerHTML = '<p>This information was auto generated from <a href="' + item.url + '">' + item.url + "</a>.</p>";
@@ -155,6 +155,9 @@
             }
           });
           function addDescription(propertyContainer, property) {
+            if (property.description == null) {
+              return;
+            }
             const propertyDesc = document.createElement("p");
             propertyDesc.textContent = property.description;
             propertyContainer.appendChild(propertyDesc);
@@ -175,6 +178,17 @@
                 }
                 if (oneOf.const === property.default) {
                   oneOfContainer.append(" (Default)");
+                }
+              });
+            } else if (property.enum) {
+              property.enum.forEach(function(value) {
+                const enumContainer = document.createElement("li");
+                infoContainer.appendChild(enumContainer);
+                const prefix = document.createElement("strong");
+                prefix.textContent = valueToText(value);
+                enumContainer.appendChild(prefix);
+                if (value === property.default) {
+                  enumContainer.append(" (Default)");
                 }
               });
             } else {
@@ -215,16 +229,20 @@
       const element = elements.item(i);
       result.push({
         element,
-        url: element.dataset.url
+        url: element.dataset.url,
+        // set when the schema nests the plugin config under its config key
+        configKey: element.dataset.configKey
       });
     }
     return result;
   }
   __name(getPluginConfigTableItems, "getPluginConfigTableItems");
-  function getDprintPluginConfig(configSchemaUrl) {
+  function getDprintPluginConfig(configSchemaUrl, configKey) {
     return fetch(configSchemaUrl).then((response) => {
       return response.json();
-    }).then((json) => {
+    }).then((rootJson) => {
+      const json = configKey == null ? rootJson : rootJson.properties[configKey];
+      const definitions = rootJson.definitions || rootJson["$defs"] || {};
       const properties = {};
       let order = 0;
       for (const propertyName of Object.keys(json.properties)) {
@@ -233,7 +251,7 @@
         }
         const property = json.properties[propertyName];
         if (property["$ref"]) {
-          const derivedPropName = property["$ref"].replace("#/definitions/", "");
+          const derivedPropName = property["$ref"].replace(/^#\/(definitions|\$defs)\//, "");
           const lastSegment = propertyName.split(".").pop();
           let parentProperty;
           if (derivedPropName !== propertyName && derivedPropName in json.properties) {
@@ -241,7 +259,7 @@
           } else if (lastSegment !== propertyName && lastSegment in json.properties) {
             parentProperty = lastSegment;
           }
-          const definition = json.definitions[derivedPropName];
+          const definition = definitions[derivedPropName];
           if (parentProperty) {
             ensurePropertyName(parentProperty);
             const isSameDefinition = property["$ref"] === json.properties[parentProperty]["$ref"];
@@ -250,7 +268,7 @@
               definition: isSameDefinition ? null : definition
             });
           } else {
-            setDefinitionForPropertyName(propertyName, definition);
+            setDefinitionForPropertyName(propertyName, Object.assign({}, definition, property));
           }
         } else {
           ensurePropertyName(propertyName);
@@ -309,7 +327,16 @@
     ['"https://plugins.dprint.dev/jolars/arity-vx.x.x.wasm"', "jolars/arity"],
     ['"https://plugins.dprint.dev/jolars/fatou-vx.x.x.wasm"', "jolars/fatou"],
     ['"https://plugins.dprint.dev/apcamargo/typstyle-x.x.x.wasm"', "apcamargo/typstyle"],
-    ['"https://plugins.dprint.dev/apcamargo/bibtex-tidy-x.x.x.wasm"', "apcamargo/bibtex-tidy"]
+    ['"https://plugins.dprint.dev/apcamargo/bibtex-tidy-x.x.x.wasm"', "apcamargo/bibtex-tidy"],
+    ['"https://plugins.dprint.dev/kachick/typstyle-x.x.x.wasm"', "kachick/typstyle"],
+    ['"https://plugins.dprint.dev/kachick/nix-x.x.x.wasm"', "kachick/nix"],
+    ['"https://plugins.dprint.dev/kachick/kdl-x.x.x.wasm"', "kachick/kdl"],
+    ['"https://plugins.dprint.dev/kachick/sh-x.x.x.wasm"', "kachick/sh"],
+    ['"https://plugins.dprint.dev/bartlomieju/lax-css-x.x.x.wasm"', "bartlomieju/lax-css"],
+    ['"https://plugins.dprint.dev/bartlomieju/lax-markup-x.x.x.wasm"', "bartlomieju/lax-markup"],
+    ['"https://plugins.dprint.dev/bartlomieju/lax-sql-x.x.x.wasm"', "bartlomieju/lax-sql"],
+    ['"https://plugins.dprint.dev/sargunv/dprint-clang-format-x.x.x.wasm"', "sargunv/dprint-clang-format"],
+    ['"https://plugins.dprint.dev/sargunv/dprint-cmakefmt-x.x.x.wasm"', "sargunv/dprint-cmakefmt"]
   ]);
   function replacePluginUrls() {
     const elements = getPluginUrlElements();

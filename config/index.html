@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en"><head>
-    <script async="" src="/scripts.712541eacc.js"></script>
+    <script async="" src="/scripts.9c8fa12f3a.js"></script>
     <meta charset="utf-8">
     <title>Configuration - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -89,7 +89,7 @@
   
     <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
   
-    <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
+    <li><a href="/plugins/oxc">Oxc (JS/TS/JSON/CSS/GraphQL/YAML/TOML)</a></li>
   
     <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
   
@@ -110,6 +110,24 @@
     <li><a href="/plugins/fatou">Fatou (Julia)</a></li>
   
     <li><a href="/plugins/typstyle">Typstyle (Typst)</a></li>
+  
+    <li><a href="/plugins/typstyle-kachick">Typstyle - kachick (Typst)</a></li>
+  
+    <li><a href="/plugins/nix">Nix</a></li>
+  
+    <li><a href="/plugins/kdl">KDL</a></li>
+  
+    <li><a href="/plugins/sh">Shell (sh/Bash/Zsh)</a></li>
+  
+    <li><a href="/plugins/lax-css">Lax CSS (CSS/SCSS/Less)</a></li>
+  
+    <li><a href="/plugins/lax-markup">Lax Markup (HTML/XML/Vue/Svelte/Astro)</a></li>
+  
+    <li><a href="/plugins/lax-sql">Lax SQL</a></li>
+  
+    <li><a href="/plugins/clang-format">clang-format (C/C++/Obj-C)</a></li>
+  
+    <li><a href="/plugins/cmakefmt">cmakefmt (CMake)</a></li>
   
     <li><a href="/plugins/bibtex-tidy">bibtex-tidy (BibTeX)</a></li>
   
@@ -253,6 +271,17 @@
 <li><code>${VAR}</code> substitution works the same as for npm itself.</li>
 </ul>
 <p>Credentials are dropped on cross-origin redirects (e.g. a registry that redirects tarball downloads to a CDN on a different host), so they never leak outside the configured registry.</p>
+<p>npm's proxy settings are also read from <code>.npmrc</code> and used for requests to the registry:</p>
+<pre><code>https-proxy=http://proxy.mycorp.com:8080
+noproxy=npm.mycorp.com,localhost
+</code></pre>
+<ul>
+<li><code>https-proxy</code> is preferred over <code>proxy</code>, and the nearest <code>.npmrc</code> that sets either is used.</li>
+<li>Hosts listed in <code>noproxy</code> are connected to directly.</li>
+<li>The <code>NPM_CONFIG_HTTPS_PROXY</code>, <code>NPM_CONFIG_PROXY</code>, and <code>NPM_CONFIG_NOPROXY</code> environment variables take precedence over <code>.npmrc</code> files.</li>
+<li><code>http://</code>, <code>https://</code>, and <code>socks</code> proxies are supported.</li>
+<li>When npm has no proxy configured, the <code>HTTPS_PROXY</code>/<code>HTTP_PROXY</code> environment variables are used the same as for any other download (see <a href="/setup#proxy">Proxy</a>).</li>
+</ul>
 <h4 id="process-plugins-distributed-via-npm" tabindex="-1"><a class="header-anchor" href="#process-plugins-distributed-via-npm">Process plugins distributed via npm</a></h4>
 <p>A process plugin's <code>plugin.json</code> lists per-platform binaries; for npm-installed process plugins the <code>reference</code> field must be one of:</p>
 <ul>
@@ -286,6 +315,17 @@
 <span class="hljs-punctuation">}</span>
 </code></pre>
 <p>Alternatively, you can disable all <code>.gitignore</code> handling with the <code>--no-gitignore</code> CLI flag (see <a href="/cli#ignoring-gitignore">CLI docs</a>).</p>
+<h3 id="un-excluding-node_modules" tabindex="-1"><a class="header-anchor" href="#un-excluding-node_modules">Un-excluding <code>node_modules</code></a></h3>
+<p>Directories named <code>node_modules</code> are excluded by default, but you can "un-exclude" specific ones by specifying a negated glob:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"excludes"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-comment">// will format the files in this directory even though it's named node_modules</span>
+    <span class="hljs-string">"!**/fixtures/node_modules"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>Note that this needs to match the <code>node_modules</code> directory itself and not only the files within it (ex. <code>!**/fixtures/node_modules/**</code> won't work) because dprint doesn't look inside an excluded directory.</p>
+<p>Alternatively, you can stop excluding all <code>node_modules</code> directories with the <code>--allow-node-modules</code> CLI flag.</p>
 <h3 id="escaping-glob-characters" tabindex="-1"><a class="header-anchor" href="#escaping-glob-characters">Escaping glob characters</a></h3>
 <p>To match a path that contains glob characters (ex. <code>[</code> or <code>{</code>) in <code>includes</code>/<code>excludes</code>, wrap each one in a character class:</p>
 <pre><code class="language-jsonc hljs language-json"><span class="hljs-punctuation">{</span>

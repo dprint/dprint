@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en"><head>
-    <script async="" src="/scripts.712541eacc.js"></script>
+    <script async="" src="/scripts.9c8fa12f3a.js"></script>
     <meta charset="utf-8">
     <title>Language Server - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -89,7 +89,7 @@
   
     <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
   
-    <li><a href="/plugins/oxc">Oxc (JS/TS)</a></li>
+    <li><a href="/plugins/oxc">Oxc (JS/TS/JSON/CSS/GraphQL/YAML/TOML)</a></li>
   
     <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
   
@@ -110,6 +110,24 @@
     <li><a href="/plugins/fatou">Fatou (Julia)</a></li>
   
     <li><a href="/plugins/typstyle">Typstyle (Typst)</a></li>
+  
+    <li><a href="/plugins/typstyle-kachick">Typstyle - kachick (Typst)</a></li>
+  
+    <li><a href="/plugins/nix">Nix</a></li>
+  
+    <li><a href="/plugins/kdl">KDL</a></li>
+  
+    <li><a href="/plugins/sh">Shell (sh/Bash/Zsh)</a></li>
+  
+    <li><a href="/plugins/lax-css">Lax CSS (CSS/SCSS/Less)</a></li>
+  
+    <li><a href="/plugins/lax-markup">Lax Markup (HTML/XML/Vue/Svelte/Astro)</a></li>
+  
+    <li><a href="/plugins/lax-sql">Lax SQL</a></li>
+  
+    <li><a href="/plugins/clang-format">clang-format (C/C++/Obj-C)</a></li>
+  
+    <li><a href="/plugins/cmakefmt">cmakefmt (CMake)</a></li>
   
     <li><a href="/plugins/bibtex-tidy">bibtex-tidy (BibTeX)</a></li>
   
@@ -139,6 +157,7 @@
 <li><strong>Range formatting</strong> (<code>textDocument/rangeFormatting</code>). The range is passed on to the plugin, so what's formatted is up to the plugin.</li>
 <li><strong>Completions and hover information in dprint configuration files</strong> (files named <code>dprint.json</code>, <code>dprint.jsonc</code>, <code>.dprint.json</code>, or <code>.dprint.jsonc</code>). This covers dprint's own properties and the configuration of the plugins listed in the saved file.</li>
 <li><strong>Notebook cells</strong> and <strong>untitled documents</strong>, in clients that support them (see below).</li>
+<li><strong>Commands for formatting with the global configuration file</strong> (see <a href="#global-configuration">Global Configuration</a>).</li>
 </ul>
 <p>The server only formats. It doesn't provide diagnostics or code actions.</p>
 <h3 id="configuration-file-completions-and-hover" tabindex="-1"><a class="header-anchor" href="#configuration-file-completions-and-hover">Configuration file completions and hover</a></h3>
@@ -156,21 +175,63 @@
 <p>The server doesn't use a single configuration file for a workspace. On each request it resolves the configuration file for the file being formatted:</p>
 <ol>
 <li>The closest <code>dprint.json</code>, <code>dprint.jsonc</code>, <code>.dprint.json</code>, or <code>.dprint.jsonc</code> in the file's directory or its ancestor directories is used.</li>
-<li>When that configuration file specifies <a href="/config#directory-specific-configuration"><code>"inherit": true</code></a>, it's merged with the next configuration file found in its ancestor directories, the same as the CLI does. That one may also inherit, and when there's none in an ancestor directory the global configuration file is inherited from.</li>
-<li>When no configuration file is found in an ancestor directory, the <a href="/global-config">global configuration file</a> is used when one exists. This is what makes formatting work in a scratch directory or in a project that doesn't use dprint.</li>
-<li>Otherwise the file is not formatted.</li>
+<li>When that configuration file specifies <a href="/config#directory-specific-configuration"><code>"inherit": true</code></a>, it's merged with the next configuration file found in its ancestor directories, the same as the CLI does. That one may also inherit, and when there's none in an ancestor directory the global configuration file is inherited from when <a href="#global-configuration">using the global configuration</a>.</li>
+<li>When no configuration file is found in an ancestor directory, the <a href="/global-config">global configuration file</a> is used when one exists and the server is set to <a href="#global-configuration">use it</a>.</li>
+<li>Otherwise the file is not formatted and you're <a href="#no-configuration-file-notification">notified</a> the first time that happens in a session.</li>
 </ol>
 <p>This means files in different projects, or in directories of a monorepo with their own configuration file, are each formatted with their own configuration in the same editor session.</p>
 <p>A file is then only formatted when the configuration file would have <code>dprint fmt</code> format it—the file needs to match the configuration's <code>includes</code> and a plugin, and not be matched by its <code>excludes</code> or a <code>.gitignore</code> file. Otherwise the server responds to the editor with no edits.</p>
 <p>Configuration files are read on each request, so a change to one is used the next time a file is formatted without needing to restart the server.</p>
 <p>Note: The language server does not use the config discovery mode. The <code>--config-discovery</code> flag and the <code>DPRINT_CONFIG_DISCOVERY</code> environment variable described in <a href="/cli#changing-config-discovery">changing config discovery</a> have no effect on <code>dprint lsp</code>. The <code>--plugins</code> flag has no effect either. The server only uses the plugins in the configuration file.</p>
+<h2 id="global-configuration" tabindex="-1"><a class="header-anchor" href="#global-configuration">Global Configuration</a></h2>
+<p>A file without a configuration file in its directory or ancestor directories is not formatted by default. Before dprint 0.60, the server formatted these files with the <a href="/global-config">global configuration file</a> without being asked to. There are two ways to format them with the global configuration file:</p>
+<ol>
+<li>
+<p>Enable the <code>useGlobalConfig</code> <a href="#settings">setting</a> to always format these files with the global configuration. This is what makes formatting work in a scratch directory or in a project that doesn't use dprint.</p>
+</li>
+<li>
+<p>Run one of the following commands (<code>workspace/executeCommand</code>) to format the current file once. They work regardless of the <code>useGlobalConfig</code> setting, and the server applies the edits with <code>workspace/applyEdit</code>. The edits are for the version of the document that was formatted, so a client that supports versioned document edits (<code>workspace.workspaceEdit.documentChanges</code>) rejects them when the document changed in the meantime:</p>
+<ul>
+<li><code>dprint.formatWithGlobalConfig</code> formats a document. Its only argument is the document's URI.</li>
+<li><code>dprint.formatSelectionWithGlobalConfig</code> formats a range of a document. Its arguments are the document's URI and the range to format (an LSP <code>Range</code>).</li>
+</ul>
+<p>A file with a configuration file in an ancestor directory is still formatted with that configuration file. When the file isn't formatted, the server shows a message saying why (ex. there's no global configuration file or none of its plugins handle the file), unless the file is already formatted.</p>
+</li>
+</ol>
+<p>How to run a command of a language server depends on the editor. Not every editor has a way to.</p>
+<p>A client may also format a single request with the global configuration by setting <code>useGlobalConfig</code> to <code>true</code> in the formatting options of a <code>textDocument/formatting</code> or <code>textDocument/rangeFormatting</code> request.</p>
+<h3 id="no-configuration-file-notification" tabindex="-1"><a class="header-anchor" href="#no-configuration-file-notification">No configuration file notification</a></h3>
+<p>The first time in a session that a file isn't formatted because no configuration file was found for it, the server shows a message saying so. In clients that have the <code>window.showMessage</code> capability, the message is shown with <code>window/showMessageRequest</code> and has two actions:</p>
+<ul>
+<li><code>Don't show in this workspace</code> stops showing it for the current workspace folders. This is only offered when there's a workspace folder.</li>
+<li><code>Don't show again</code> stops showing it everywhere.</li>
+</ul>
+<p>A server can't change an editor's settings, so the choice is stored in an <code>lsp-state.json</code> file in dprint's cache directory. Running <code>dprint clear-cache</code> or deleting that file shows the notification again. To turn off the notification from the editor instead, set the <code>showNoConfigNotification</code> <a href="#settings">setting</a> to <code>false</code>.</p>
+<h2 id="settings" tabindex="-1"><a class="header-anchor" href="#settings">Settings</a></h2>
+<p>The server reads the following settings from the <code>initializationOptions</code> of the <code>initialize</code> request and from <code>workspace/didChangeConfiguration</code> notifications, where they may be at the top level of the object or within a <code>dprint</code> property:</p>
+<ul>
+<li><code>useGlobalConfig</code> (default: <code>false</code>) - Format the files that don't have a configuration file in an ancestor directory with the <a href="#global-configuration">global configuration file</a>.</li>
+<li><code>showNoConfigNotification</code> (default: <code>true</code>) - Show the <a href="#no-configuration-file-notification">no configuration file notification</a>.</li>
+</ul>
+<p>For example, in Neovim (as with the snippets in <a href="#editor-setup">Editor Setup</a>, these were written from each editor's documentation and have not been tested in those editors):</p>
+<pre><code class="language-lua hljs">vim.lsp.<span class="hljs-built_in">config</span>(<span class="hljs-string">"dprint"</span>, {
+  init_options = { useGlobalConfig = <span class="hljs-literal">true</span> },
+})
+</code></pre>
+<p>Or in Helix's <code>languages.toml</code>:</p>
+<pre><code class="language-toml hljs language-ini"><span class="hljs-section">[language-server.dprint]</span>
+<span class="hljs-attr">command</span> = <span class="hljs-string">"dprint"</span>
+<span class="hljs-attr">args</span> = [<span class="hljs-string">"lsp"</span>]
+<span class="hljs-attr">config</span> = { useGlobalConfig = <span class="hljs-literal">true</span> }
+</code></pre>
+<p>For an editor that can't provide settings to the server, setting the <code>DPRINT_EDITOR_USE_GLOBAL_CONFIG</code> environment variable to <code>1</code> or <code>true</code> changes the default of <code>useGlobalConfig</code> to <code>true</code>.</p>
 <h2 id="line-endings" tabindex="-1"><a class="header-anchor" href="#line-endings">Line Endings</a></h2>
 <p>The server keeps the line endings of the editor's document. When a plugin formats the text with different line endings than the document has (ex. because of the <code>newLineKind</code> configuration), the server converts them back to the kind used by the first line ending in the document before computing the edits. A document that has no line endings (a single line) is the exception because there's nothing to match, so it gets the line endings the plugin produced.</p>
 <p>To change a file's line endings, change them in the editor or run <code>dprint fmt</code> from the command line.</p>
 <h2 id="formatting-options" tabindex="-1"><a class="header-anchor" href="#formatting-options">Formatting Options</a></h2>
-<p>The formatting options an editor sends with a format request (<code>tabSize</code>, <code>insertSpaces</code>, etc.) are ignored. Indentation and everything else comes from the dprint configuration file.</p>
+<p>The formatting options an editor sends with a format request (<code>tabSize</code>, <code>insertSpaces</code>, etc.) are ignored. Indentation and everything else comes from the dprint configuration file. The exception is the <code>useGlobalConfig</code> option described in <a href="#global-configuration">Global Configuration</a>.</p>
 <h2 id="troubleshooting" tabindex="-1"><a class="header-anchor" href="#troubleshooting">Troubleshooting</a></h2>
-<p>The server doesn't show popups (<code>window/showMessage</code>) and doesn't respond to a format request with an error, because a file that can't be formatted (ex. one with a syntax error) would then interrupt you each time you format on save. A request that fails or does nothing gets a response without edits, and the reason is logged instead.</p>
+<p>The server doesn't respond to a format request with an error or show a popup about it, because a file that can't be formatted (ex. one with a syntax error) would then interrupt you each time you format on save. A request that fails or does nothing gets a response without edits, and the reason is logged instead. The only popups (<code>window/showMessage</code> and <code>window/showMessageRequest</code>) are the once per session <a href="#no-configuration-file-notification">no configuration file notification</a> and the result of a <a href="#global-configuration">command</a> you explicitly ran.</p>
 <p>The following is logged to the client with <code>window/logMessage</code>, which most editors show in a language server log or output panel:</p>
 <ul>
 <li>The dprint version and <code>Server ready.</code> once the server is initialized (info).</li>
