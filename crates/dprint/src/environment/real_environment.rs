@@ -36,6 +36,8 @@ use dprint_core::async_runtime::async_trait;
 
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
+use super::DownloadOptions;
+use super::DownloadProxy;
 use super::DownloadedFile;
 use super::Environment;
 use super::FilePermissions;
@@ -252,13 +254,31 @@ impl SystemTimeNow for RealEnvironment {
 
 #[async_trait(?Send)]
 impl UrlDownloader for RealEnvironment {
-  async fn download_file_no_redirects(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
+  async fn download_file_no_redirects(&self, url: &Url, options: DownloadOptions<'_>) -> Result<Option<DownloadedFile>> {
     log_debug!(self, "Downloading url: {}", url);
 
     let downloader = self.url_downloader.clone();
     let url = url.clone();
-    let auth = auth.map(|s| s.to_string());
-    dprint_core::async_runtime::spawn_blocking(move || downloader.download_with_auth(&url, auth.as_deref())).await?
+    let auth = options.auth.map(|s| s.to_string());
+    let proxy_url = match options.proxy {
+      DownloadProxy::Url(url) => Some(url.to_string()),
+      DownloadProxy::Environment | DownloadProxy::Direct => None,
+    };
+    let is_direct = options.proxy == DownloadProxy::Direct;
+    dprint_core::async_runtime::spawn_blocking(move || {
+      downloader.download(
+        &url,
+        DownloadOptions {
+          auth: auth.as_deref(),
+          proxy: match &proxy_url {
+            Some(url) => DownloadProxy::Url(url),
+            None if is_direct => DownloadProxy::Direct,
+            None => DownloadProxy::Environment,
+          },
+        },
+      )
+    })
+    .await?
   }
 }
 

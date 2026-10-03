@@ -71,6 +71,8 @@ You may specify a proxy for dprint to use when downloading plugins or configurat
 
 Additionally, the `NO_PROXY`/`no_proxy` environment variable can be set, which is a comma-separated list of hosts which should not use the proxy.
 
+Requests to an npm registry for [npm plugins](/config#using-plugins-from-npm) use the proxy npm is configured with instead when there is one. See [Private npm registries](/config#private-npm-registries).
+
 ## TLS Certificates
 
 dprint downloads plugins via HTTPS. In some cases you may wish to configure this. This is possible via the following environment variables:

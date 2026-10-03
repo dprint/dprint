@@ -51,6 +51,7 @@ use dprint_core::async_runtime::async_trait;
 
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
+use super::DownloadOptions;
 use super::DownloadedFile;
 use super::Environment;
 use super::FilePermissions;
@@ -145,6 +146,7 @@ pub struct TestEnvironment {
   remote_file_redirects: Arc<Mutex<HashMap<String, String>>>,
   /// Last auth header seen for each URL.
   remote_file_auth: Arc<Mutex<HashMap<String, Option<String>>>>,
+  remote_file_proxies: Arc<Mutex<HashMap<String, String>>>,
   /// Number of times each URL was requested.
   remote_file_request_counts: Arc<Mutex<HashMap<String, usize>>>,
   /// URLs whose requests never get a response.
@@ -192,6 +194,7 @@ impl TestEnvironment {
       remote_files: Default::default(),
       remote_file_redirects: Default::default(),
       remote_file_auth: Default::default(),
+      remote_file_proxies: Default::default(),
       remote_file_request_counts: Default::default(),
       unresponsive_remote_files: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
@@ -263,6 +266,11 @@ impl TestEnvironment {
 
   pub fn take_remote_file_auth(&self, url: &str) -> Option<String> {
     self.remote_file_auth.lock().remove(url).flatten()
+  }
+
+  /// Takes the debug text of the `DownloadProxy` the url was last requested with.
+  pub fn take_remote_file_proxy(&self, url: &str) -> Option<String> {
+    self.remote_file_proxies.lock().remove(url)
   }
 
   /// Gets the number of times the URL was requested.
@@ -533,8 +541,9 @@ impl SystemTimeNow for TestEnvironment {
 
 #[async_trait(?Send)]
 impl UrlDownloader for TestEnvironment {
-  async fn download_file_no_redirects(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
-    self.remote_file_auth.lock().insert(url.to_string(), auth.map(|s| s.to_string()));
+  async fn download_file_no_redirects(&self, url: &Url, options: DownloadOptions<'_>) -> Result<Option<DownloadedFile>> {
+    self.remote_file_auth.lock().insert(url.to_string(), options.auth.map(|s| s.to_string()));
+    self.remote_file_proxies.lock().insert(url.to_string(), format!("{:?}", options.proxy));
     *self.remote_file_request_counts.lock().entry(url.to_string()).or_default() += 1;
 
     while self.unresponsive_remote_files.lock().iter().any(|u| u == url.as_str()) {

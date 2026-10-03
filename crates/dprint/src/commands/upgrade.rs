@@ -7,6 +7,7 @@ use anyhow::Result;
 use anyhow::bail;
 use url::Url;
 
+use crate::environment::DownloadOptions;
 use crate::environment::Environment;
 use crate::environment::FilePermissions;
 use crate::utils::extract_zip;
@@ -64,7 +65,7 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
     latest_version, zip_filename
   ))?;
 
-  let (_, zip_file) = environment.download_file_err_404(&zip_url, None).await?;
+  let (_, zip_file) = environment.download_file_err_404(&zip_url, DownloadOptions::default()).await?;
   let old_executable = exe_path.with_extension("old.exe");
 
   if !environment.is_real() {

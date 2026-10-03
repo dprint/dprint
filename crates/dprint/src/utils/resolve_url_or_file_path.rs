@@ -4,6 +4,7 @@ use anyhow::bail;
 use url::Url;
 
 use super::PathSource;
+use crate::environment::DownloadOptions;
 use crate::environment::Environment;
 use crate::utils::RemotePathSource;
 
@@ -97,7 +98,7 @@ async fn resolve_url_to_file_with_cache<TEnvironment: Environment>(url: &Url, en
 
     // download
     let result = environment
-      .download_file_no_redirects(&current_url, None)
+      .download_file_no_redirects(&current_url, DownloadOptions::default())
       .await?
       .ok_or_else(|| anyhow::anyhow!("Error downloading {} - 404 Not Found", url))?;
 
@@ -122,7 +123,7 @@ async fn resolve_url_to_file_with_cache<TEnvironment: Environment>(url: &Url, en
 
 pub async fn fetch_file_or_url_bytes(url_or_file_path: &PathSource, environment: &impl Environment) -> Result<Vec<u8>> {
   match url_or_file_path {
-    PathSource::Remote(path_source) => Ok(environment.download_file_err_404(&path_source.url, None).await?.1.content),
+    PathSource::Remote(path_source) => Ok(environment.download_file_err_404(&path_source.url, DownloadOptions::default()).await?.1.content),
     PathSource::Local(path_source) => Ok(environment.read_file_bytes(&path_source.path)?),
     PathSource::Npm(_) => bail!("Cannot fetch bytes directly for an npm specifier"),
   }

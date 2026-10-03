@@ -12,10 +12,13 @@ use tar::Archive;
 use deno_npmrc::RegistryConfig;
 use deno_semver::Version;
 
+use crate::environment::DownloadOptions;
+use crate::environment::DownloadProxy;
 use crate::environment::Environment;
 use crate::utils::DependencyAgeCutoff;
 use crate::utils::MinimumDependencyAge;
 use crate::utils::MinimumDependencyAgeArg;
+use crate::utils::NoProxy;
 use crate::utils::NpmSpecifier;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
@@ -24,11 +27,51 @@ use crate::utils::parse_rfc3339;
 use crate::utils::verify_sha256_checksum;
 
 /// Resolved npm registry for a package, including the auth header to send
-/// with requests (if the configured `.npmrc` provides one).
+/// with requests (if the configured `.npmrc` provides one) and the proxy to
+/// send them through (if npm is configured with one).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NpmRegistryResolution {
   pub url: String,
   pub auth_header: Option<String>,
+  pub proxy: Option<NpmProxy>,
+}
+
+impl NpmRegistryResolution {
+  fn packument_download_options(&self, packument_url: &url::Url) -> DownloadOptions<'_> {
+    DownloadOptions {
+      auth: self.auth_header.as_deref(),
+      proxy: self.proxy_for(packument_url),
+    }
+  }
+
+  /// Only sends the registry auth if the tarball is on the same origin as the
+  /// registry (don't leak credentials to a CDN).
+  fn tarball_download_options(&self, packument_url: &url::Url, tarball_url: &url::Url) -> DownloadOptions<'_> {
+    DownloadOptions {
+      auth: same_origin_auth(packument_url, tarball_url, self.auth_header.as_deref()),
+      proxy: self.proxy_for(tarball_url),
+    }
+  }
+
+  fn proxy_for(&self, url: &url::Url) -> DownloadProxy<'_> {
+    let Some(proxy) = &self.proxy else {
+      return DownloadProxy::Environment;
+    };
+    let is_excluded = match (&proxy.no_proxy, url.host_str()) {
+      (Some(no_proxy), Some(host)) => NoProxy::from_string(no_proxy).contains(host),
+      _ => false,
+    };
+    // npm connects directly to a host it's told not to proxy
+    if is_excluded { DownloadProxy::Direct } else { DownloadProxy::Url(&proxy.url) }
+  }
+}
+
+/// The proxy npm is configured to send its requests through.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NpmProxy {
+  pub url: String,
+  /// Hosts to not use the proxy for (npm's `noproxy` setting).
+  pub no_proxy: Option<String>,
 }
 
 /// The result of resolving an npm plugin specifier.
@@ -110,9 +153,9 @@ pub async fn fetch_npm_latest_info(args: FetchNpmLatestInfo<'_>, environment: &i
   let tarball_sha256 = if need_tarball_sha {
     let tarball_url_str = get_tarball_url_from_packument(&packument, &latest_version, &specifier.name)?;
     let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
-    let tarball_auth = same_origin_auth(&packument_url, &tarball_url, registry.auth_header.as_deref());
+    let tarball_options = registry.tarball_download_options(&packument_url, &tarball_url);
     let (_, tarball_file) = environment
-      .download_file_err_404(&tarball_url, tarball_auth)
+      .download_file_err_404(&tarball_url, tarball_options)
       .await
       .with_context(|| format!("Failed to download npm tarball for {}@{}", specifier.name, latest_version))?;
     Some(get_sha256_checksum(&tarball_file.content))
@@ -223,7 +266,7 @@ async fn fetch_packument(name: &str, registry: &NpmRegistryResolution, environme
   let packument_url_str = get_packument_url(&registry.url, name);
   let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
   let (_, packument_file) = environment
-    .download_file_err_404(&packument_url, registry.auth_header.as_deref())
+    .download_file_err_404(&packument_url, registry.packument_download_options(&packument_url))
     .await
     .with_context(|| format!("Failed to fetch npm packument for {}", name))?;
   let packument = serde_json::from_slice(&packument_file.content).with_context(|| format!("Failed to parse npm packument for {}", name))?;
@@ -452,7 +495,7 @@ pub async fn resolve_npm_from_registry(options: ResolveNpmRegistryOptions<'_>, e
   let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
   log_debug!(environment, "Fetching npm packument: {}", packument_url);
   let (_, packument_file) = environment
-    .download_file_err_404(&packument_url, registry.auth_header.as_deref())
+    .download_file_err_404(&packument_url, registry.packument_download_options(&packument_url))
     .await
     .with_context(|| format!("Failed to fetch npm packument for {}", specifier.name))?;
   let packument: serde_json::Value =
@@ -462,11 +505,9 @@ pub async fn resolve_npm_from_registry(options: ResolveNpmRegistryOptions<'_>, e
   let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
   log_debug!(environment, "Downloading npm tarball: {}", tarball_url);
 
-  // download the tarball — only send the registry auth if the tarball is on
-  // the same origin as the registry (don't leak credentials to a CDN)
-  let tarball_auth = same_origin_auth(&packument_url, &tarball_url, registry.auth_header.as_deref());
+  let tarball_options = registry.tarball_download_options(&packument_url, &tarball_url);
   let (_, tarball_file) = environment
-    .download_file_err_404(&tarball_url, tarball_auth)
+    .download_file_err_404(&tarball_url, tarball_options)
     .await
     .with_context(|| format!("Failed to download npm tarball for {}@{}", specifier.name, version))?;
   let tarball_bytes = tarball_file.content;
@@ -735,16 +776,16 @@ async fn fetch_and_verify_npm_tarball(
   let packument_url_str = get_packument_url(&registry.url, name);
   let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
   let (_, packument_file) = environment
-    .download_file_err_404(&packument_url, registry.auth_header.as_deref())
+    .download_file_err_404(&packument_url, registry.packument_download_options(&packument_url))
     .await
     .with_context(|| format!("Failed to fetch npm packument for {}", name))?;
   let packument: serde_json::Value = serde_json::from_slice(&packument_file.content).with_context(|| format!("Failed to parse npm packument for {}", name))?;
 
   let tarball_url_str = get_tarball_url_from_packument(&packument, version, name)?;
   let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
-  let tarball_auth = same_origin_auth(&packument_url, &tarball_url, registry.auth_header.as_deref());
+  let tarball_options = registry.tarball_download_options(&packument_url, &tarball_url);
   let (_, tarball_file) = environment
-    .download_file_err_404(&tarball_url, tarball_auth)
+    .download_file_err_404(&tarball_url, tarball_options)
     .await
     .with_context(|| format!("Failed to download npm tarball for {}@{}", name, version))?;
   let tarball_bytes = tarball_file.content;
@@ -1108,7 +1149,17 @@ fn normalize_path(path: &Path) -> PathBuf {
 ///    that don't apply to this package's scope
 /// 3. ~/.npmrc
 /// 4. https://registry.npmjs.org (no credentials)
+///
+/// The proxy is resolved separately from these (see [`resolve_npm_proxy`]),
+/// since it's often configured in a different place than the registry.
 pub fn resolve_registry_for_package(package_name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> NpmRegistryResolution {
+  NpmRegistryResolution {
+    proxy: resolve_npm_proxy(start_dir, environment),
+    ..resolve_registry_without_proxy(package_name, start_dir, environment)
+  }
+}
+
+fn resolve_registry_without_proxy(package_name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> NpmRegistryResolution {
   // env vars take precedence over .npmrc — but they only set the URL,
   // never auth, so we can return immediately.
   if let Some(registry) = environment.env_var("NPM_CONFIG_REGISTRY") {
@@ -1116,6 +1167,7 @@ pub fn resolve_registry_for_package(package_name: &str, start_dir: Option<&Path>
     return NpmRegistryResolution {
       url: registry.trim_end_matches('/').to_string(),
       auth_header: None,
+      proxy: None,
     };
   }
 
@@ -1138,6 +1190,7 @@ pub fn resolve_registry_for_package(package_name: &str, start_dir: Option<&Path>
   NpmRegistryResolution {
     url: deno_npmrc::NPM_DEFAULT_REGISTRY.to_string(),
     auth_header: None,
+    proxy: None,
   }
 }
 
@@ -1166,7 +1219,96 @@ fn resolve_registry_from_npmrc(package_name: &str, npmrc_path: &Path, environmen
   let url = resolved.get_registry_url(package_name).as_str().trim_end_matches('/').to_string();
   let auth_header = compute_auth_header(resolved.get_registry_config(package_name).as_ref(), environment);
 
-  Some(NpmRegistryResolution { url, auth_header })
+  Some(NpmRegistryResolution { url, auth_header, proxy: None })
+}
+
+/// Resolves the proxy npm is configured to use, checking (in order):
+/// 1. NPM_CONFIG_HTTPS_PROXY and NPM_CONFIG_PROXY env vars
+/// 2. .npmrc files walking up from `start_dir`
+/// 3. ~/.npmrc
+///
+/// `https-proxy` is preferred over `proxy` like npm does for registry
+/// requests. Returns `None` when npm has no proxy configured, in which case
+/// requests fall back to the proxy environment variables (ex. `HTTPS_PROXY`)
+/// like any other request dprint makes. The same goes for a proxy that can't
+/// be used (ex. an `https://` one), since failing every request because of an
+/// npm setting would be worse than not following it.
+fn resolve_npm_proxy(start_dir: Option<&Path>, environment: &impl Environment) -> Option<NpmProxy> {
+  fn read(npmrc_path: &Path, environment: &impl Environment) -> Option<NpmProxy> {
+    let text = environment.read_file(npmrc_path).ok()?;
+    let read_value = |key: &str| expand_npmrc_env_vars(&read_npmrc_value(&text, key)?, environment);
+    let url = read_value("https-proxy").or_else(|| read_value("proxy"))?;
+    to_usable_proxy(url, read_value("noproxy"), environment)
+  }
+
+  // npm matches these regardless of their casing
+  let env_var = |name: &str| {
+    let value = environment.env_var(name).or_else(|| environment.env_var(&name.to_lowercase()))?;
+    let value = value.to_string_lossy().trim().to_string();
+    if value.is_empty() { None } else { Some(value) }
+  };
+  if let Some(url) = env_var("NPM_CONFIG_HTTPS_PROXY").or_else(|| env_var("NPM_CONFIG_PROXY"))
+    && let Some(proxy) = to_usable_proxy(url, env_var("NPM_CONFIG_NOPROXY"), environment)
+  {
+    return Some(proxy);
+  }
+
+  if let Some(start) = start_dir {
+    for dir in start.ancestors() {
+      if let Some(proxy) = read(&dir.join(".npmrc"), environment) {
+        return Some(proxy);
+      }
+    }
+  }
+  let home_dir = environment.get_home_dir()?;
+  read(&home_dir.join(".npmrc"), environment)
+}
+
+fn to_usable_proxy(url: String, no_proxy: Option<String>, environment: &impl Environment) -> Option<NpmProxy> {
+  let is_supported = match url.split_once("://") {
+    Some((scheme, _)) => matches!(scheme, "http" | "socks" | "socks4" | "socks4a" | "socks5"),
+    None => true,
+  };
+  if !is_supported {
+    log_debug!(environment, "Ignoring npm's proxy setting because its scheme is not supported.");
+    return None;
+  }
+  Some(NpmProxy { url, no_proxy })
+}
+
+/// Replaces `${VAR}` in an .npmrc value with the environment variable's value
+/// like npm does. Returns `None` when one isn't set, since what's left over
+/// wouldn't be a usable value.
+fn expand_npmrc_env_vars(value: &str, environment: &impl Environment) -> Option<String> {
+  let mut result = String::new();
+  let mut remaining = value;
+  while let Some((before, after)) = remaining.split_once("${") {
+    let (name, after) = after.split_once('}')?;
+    result.push_str(before);
+    result.push_str(&environment.env_var(name)?.to_string_lossy());
+    remaining = after;
+  }
+  result.push_str(remaining);
+  Some(result)
+}
+
+/// Reads a top-level setting from the text of an .npmrc file, where the last
+/// occurrence wins. A setting without a value (or set to `null`/`false`, which
+/// is how npm represents one that's turned off) is treated as not being set.
+fn read_npmrc_value(text: &str, key: &str) -> Option<String> {
+  let value = text
+    .lines()
+    .map(|line| line.trim())
+    .filter(|line| !line.starts_with(';') && !line.starts_with('#'))
+    .filter_map(|line| line.split_once('='))
+    .filter(|(line_key, _)| line_key.trim() == key)
+    .map(|(_, value)| value.trim().trim_matches(|c| c == '"' || c == '\'').trim())
+    .next_back()?;
+  if value.is_empty() || value == "null" || value == "false" {
+    None
+  } else {
+    Some(value.to_string())
+  }
 }
 
 /// Returns the scope (without the `@`) for a scoped package, or `None` for
@@ -1318,7 +1460,10 @@ async fn node_modules_missing_message(specifier: &NpmSpecifier, start_dir: Optio
 async fn fetch_npm_latest_version(package_name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Option<String> {
   let registry = resolve_registry_for_package(package_name, start_dir, environment);
   let packument_url = url::Url::parse(&get_packument_url(&registry.url, package_name)).ok()?;
-  let (_, packument_file) = environment.download_file_err_404(&packument_url, registry.auth_header.as_deref()).await.ok()?;
+  let (_, packument_file) = environment
+    .download_file_err_404(&packument_url, registry.packument_download_options(&packument_url))
+    .await
+    .ok()?;
   let packument: serde_json::Value = serde_json::from_slice(&packument_file.content).ok()?;
   packument
     .get("dist-tags")
@@ -1474,6 +1619,156 @@ mod tests {
     let info = resolve_registry_for_package("@dprint/typescript", Some(std::path::Path::new("/repo")), &environment);
     assert_eq!(info.url, "https://dprint.example.com");
     assert_eq!(info.auth_header.as_deref(), Some("Bearer MYTOKEN"));
+  }
+
+  #[test]
+  fn resolve_registry_reads_proxy_from_npmrc() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    let resolve = |dir: &str| resolve_registry_for_package("@dprint/typescript", Some(std::path::Path::new(dir)), &environment).proxy;
+    environment.mk_dir_all("/repo/sub").unwrap();
+    assert_eq!(resolve("/repo/sub"), None);
+
+    // `https-proxy` is preferred over `proxy` and the last occurrence wins
+    environment
+      .write_file(
+        "/repo/.npmrc",
+        concat!(
+          "; https-proxy=http://commented:1\n",
+          "proxy=http://plain:8080\n",
+          "https-proxy=http://first:8080\n",
+          "https-proxy = \"http://user:pass@secure:8080/\"\n",
+          "noproxy=internal.example.com,localhost\n",
+        ),
+      )
+      .unwrap();
+    assert_eq!(
+      resolve("/repo/sub"),
+      Some(NpmProxy {
+        url: "http://user:pass@secure:8080/".to_string(),
+        no_proxy: Some("internal.example.com,localhost".to_string()),
+      })
+    );
+
+    // a nearer .npmrc without a proxy doesn't hide the one further up, but
+    // one with a proxy takes its place
+    environment.write_file("/repo/sub/.npmrc", "registry=https://example.com\nproxy=null").unwrap();
+    assert_eq!(resolve("/repo/sub").unwrap().url, "http://user:pass@secure:8080/");
+    environment.write_file("/repo/sub/.npmrc", "proxy=http://nearer:8080").unwrap();
+    assert_eq!(
+      resolve("/repo/sub"),
+      Some(NpmProxy {
+        url: "http://nearer:8080".to_string(),
+        no_proxy: None,
+      })
+    );
+
+    // the env vars win over any .npmrc, including alongside a registry env var
+    environment.set_env_var("NPM_CONFIG_PROXY", Some("http://env-plain:8080"));
+    environment.set_env_var("NPM_CONFIG_REGISTRY", Some("https://env.example.com/"));
+    let registry = resolve_registry_for_package("@dprint/typescript", Some(std::path::Path::new("/repo/sub")), &environment);
+    assert_eq!(registry.url, "https://env.example.com");
+    assert_eq!(registry.proxy.unwrap().url, "http://env-plain:8080");
+    environment.set_env_var("npm_config_https_proxy", Some("http://env-secure:8080"));
+    environment.set_env_var("NPM_CONFIG_NOPROXY", Some("env.example.com"));
+    assert_eq!(
+      resolve("/repo/sub"),
+      Some(NpmProxy {
+        url: "http://env-secure:8080".to_string(),
+        no_proxy: Some("env.example.com".to_string()),
+      })
+    );
+  }
+
+  #[test]
+  fn resolve_registry_expands_env_vars_and_skips_unusable_proxies() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    let resolve = || resolve_registry_for_package("foo", Some(std::path::Path::new("/repo/sub")), &environment).proxy;
+    environment.mk_dir_all("/repo/sub").unwrap();
+    environment.write_file("/repo/.npmrc", "proxy=http://outer:8080").unwrap();
+
+    // a value with an env var that isn't set is skipped over
+    environment
+      .write_file("/repo/sub/.npmrc", "https-proxy=http://${PROXY_USER}:${PROXY_PASS}@inner:8080")
+      .unwrap();
+    assert_eq!(resolve().unwrap().url, "http://outer:8080");
+    environment.set_env_var("PROXY_USER", Some("user"));
+    environment.set_env_var("PROXY_PASS", Some("pass"));
+    assert_eq!(resolve().unwrap().url, "http://user:pass@inner:8080");
+
+    // so is a proxy that can't be used
+    environment.write_file("/repo/sub/.npmrc", "https-proxy=https://inner:8443").unwrap();
+    assert_eq!(resolve().unwrap().url, "http://outer:8080");
+    environment.set_env_var("NPM_CONFIG_HTTPS_PROXY", Some("https://env:8443"));
+    assert_eq!(resolve().unwrap().url, "http://outer:8080");
+    environment.write_file("/repo/sub/.npmrc", "https-proxy=socks5://inner:1080").unwrap();
+    environment.set_env_var("NPM_CONFIG_HTTPS_PROXY", None);
+    assert_eq!(resolve().unwrap().url, "socks5://inner:1080");
+  }
+
+  #[tokio::test]
+  async fn resolve_npm_from_registry_sends_requests_through_npmrc_proxy() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/repo").unwrap();
+    environment
+      .write_file("/repo/.npmrc", "https-proxy=http://proxy.corp:8080\nnoproxy=cdn.example.com")
+      .unwrap();
+    let packument_url = "https://registry.npmjs.org/foo";
+    let tarball_url = "https://registry.npmjs.org/foo/-/foo-1.0.0.tgz";
+    let add_package = |tarball_url: &str| {
+      let packument = serde_json::json!({
+        "dist-tags": { "latest": "1.0.0" },
+        "versions": { "1.0.0": { "dist": { "tarball": tarball_url } } }
+      });
+      environment.add_remote_file_bytes(packument_url, packument.to_string().into_bytes());
+      environment.add_remote_file_bytes(
+        tarball_url,
+        crate::test_helpers::create_test_npm_tarball(&[("package/plugin.wasm", b"wasm".as_slice())]),
+      );
+    };
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: Some("1.0.0".to_string()),
+      path: "plugin.wasm".to_string(),
+    };
+    let registry = resolve_registry_for_package("foo", Some(Path::new("/repo")), &environment);
+    let resolve = || {
+      resolve_npm_from_registry(
+        ResolveNpmRegistryOptions {
+          specifier: &specifier,
+          checksum: None,
+          detect_path: false,
+          establish_checksum: false,
+          registry: &registry,
+          config_dir: None,
+        },
+        &environment,
+      )
+    };
+
+    add_package(tarball_url);
+    resolve().await.unwrap();
+    let npm_proxy = r#"Url("http://proxy.corp:8080")"#;
+    assert_eq!(environment.take_remote_file_proxy(packument_url).as_deref(), Some(npm_proxy));
+    assert_eq!(environment.take_remote_file_proxy(tarball_url).as_deref(), Some(npm_proxy));
+
+    // a tarball on a host that's excluded from the proxy is requested
+    // directly instead of through the environment's proxy
+    let cdn_tarball_url = "https://cdn.example.com/foo-1.0.0.tgz";
+    add_package(cdn_tarball_url);
+    resolve().await.unwrap();
+    assert_eq!(environment.take_remote_file_proxy(packument_url).as_deref(), Some(npm_proxy));
+    assert_eq!(environment.take_remote_file_proxy(cdn_tarball_url).as_deref(), Some("Direct"));
+
+    // without a proxy configured for npm, it's left to the environment
+    environment.remove_file("/repo/.npmrc").unwrap();
+    let registry = resolve_registry_for_package("foo", Some(Path::new("/repo")), &environment);
+    assert_eq!(
+      registry.packument_download_options(&url::Url::parse(packument_url).unwrap()).proxy,
+      DownloadProxy::Environment
+    );
   }
 
   #[tokio::test]
@@ -1954,6 +2249,7 @@ mod tests {
     let registry = NpmRegistryResolution {
       url: "https://registry.npmjs.org".to_string(),
       auth_header: None,
+      proxy: None,
     };
     // a defaulted path + add mode: detect the file, compute the checksum (no
     // checksum required to verify), and record the sidecar.
@@ -2278,7 +2574,11 @@ mod tests {
     environment.add_remote_file_bytes(redirected, b"ok".to_vec());
 
     let url = url::Url::parse(start).unwrap();
-    let _ = environment.download_file_err_404(&url, Some("Bearer T")).await.unwrap();
+    let options = DownloadOptions {
+      auth: Some("Bearer T"),
+      ..Default::default()
+    };
+    let _ = environment.download_file_err_404(&url, options).await.unwrap();
 
     assert_eq!(environment.take_remote_file_auth(start).as_deref(), Some("Bearer T"));
     assert_eq!(environment.take_remote_file_auth(redirected).as_deref(), Some("Bearer T"));
@@ -2295,7 +2595,11 @@ mod tests {
     environment.add_remote_file_bytes(cdn, b"tarball".to_vec());
 
     let url = url::Url::parse(start).unwrap();
-    let _ = environment.download_file_err_404(&url, Some("Bearer T")).await.unwrap();
+    let options = DownloadOptions {
+      auth: Some("Bearer T"),
+      ..Default::default()
+    };
+    let _ = environment.download_file_err_404(&url, options).await.unwrap();
 
     // initial registry request gets the token; CDN does not
     assert_eq!(environment.take_remote_file_auth(start).as_deref(), Some("Bearer T"));
@@ -2319,6 +2623,7 @@ mod tests {
     let registry = NpmRegistryResolution {
       url: "https://private.example.com".to_string(),
       auth_header: Some("Bearer SECRET".to_string()),
+      proxy: None,
     };
     let specifier = NpmSpecifier {
       name: "foo".to_string(),
@@ -2368,6 +2673,7 @@ mod tests {
     let registry = NpmRegistryResolution {
       url: "https://private.example.com".to_string(),
       auth_header: Some("Bearer SECRET".to_string()),
+      proxy: None,
     };
     let specifier = NpmSpecifier {
       name: "foo".to_string(),
@@ -2607,6 +2913,7 @@ mod tests {
     let registry = NpmRegistryResolution {
       url: "https://registry.npmjs.org".to_string(),
       auth_header: None,
+      proxy: None,
     };
     let specifier = NpmSpecifier {
       name: "@dprint/exec".to_string(),
