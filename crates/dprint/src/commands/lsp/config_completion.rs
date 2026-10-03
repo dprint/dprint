@@ -16,6 +16,7 @@ use tokio::sync::Notify;
 use url::Url;
 
 use crate::configuration::POSSIBLE_CONFIG_FILE_NAMES;
+use crate::environment::DownloadOptions;
 use crate::environment::Environment;
 
 use super::config::LspPluginsScopeContainer;
@@ -324,7 +325,7 @@ async fn download_schema<TEnvironment: Environment>(environment: &TEnvironment, 
       return None;
     }
   };
-  match environment.download_file_err_404(&parsed_url, None).await {
+  match environment.download_file_err_404(&parsed_url, DownloadOptions::default()).await {
     Ok((_, file)) => match serde_json::from_slice::<Value>(&file.content) {
       Ok(value) => Some(Rc::new(value)),
       Err(err) => {

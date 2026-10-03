@@ -5,6 +5,7 @@ use jsonc_parser::JsonValue;
 use jsonc_parser::parse_to_value;
 use url::Url;
 
+use crate::environment::DownloadOptions;
 use crate::environment::Environment;
 use crate::environment::UrlDownloader;
 use crate::plugins::PluginNpmInfo;
@@ -64,7 +65,7 @@ impl PluginUpdateUrlInfo {
 }
 
 pub async fn read_update_url(downloader: &impl UrlDownloader, url: &Url) -> Result<Option<PluginUpdateUrlInfo>> {
-  let info_bytes = match downloader.download_file(url, None).await?.1 {
+  let info_bytes = match downloader.download_file(url, DownloadOptions::default()).await?.1 {
     Some(result) => result.content,
     None => return Ok(None),
   };

@@ -192,6 +192,19 @@ dprint reads `.npmrc` files (walking up from the config, then `~/.npmrc`) to pic
 
 Credentials are dropped on cross-origin redirects (e.g. a registry that redirects tarball downloads to a CDN on a different host), so they never leak outside the configured registry.
 
+npm's proxy settings are also read from `.npmrc` and used for requests to the registry:
+
+```
+https-proxy=http://proxy.mycorp.com:8080
+noproxy=npm.mycorp.com,localhost
+```
+
+- `https-proxy` is preferred over `proxy`, and the nearest `.npmrc` that sets either is used.
+- Hosts listed in `noproxy` are connected to directly.
+- The `NPM_CONFIG_HTTPS_PROXY`, `NPM_CONFIG_PROXY`, and `NPM_CONFIG_NOPROXY` environment variables take precedence over `.npmrc` files.
+- `http://` and `socks` proxies are supported. An `https://` proxy is ignored.
+- When npm has no proxy configured, the `HTTPS_PROXY`/`HTTP_PROXY` environment variables are used the same as for any other download (see [Proxy](/setup#proxy)).
+
 #### Process plugins distributed via npm
 
 A process plugin's `plugin.json` lists per-platform binaries; for npm-installed process plugins the `reference` field must be one of:

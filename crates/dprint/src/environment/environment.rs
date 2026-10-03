@@ -73,20 +73,40 @@ pub struct DownloadedFile {
   pub content: Vec<u8>,
 }
 
+/// How a file should be requested.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct DownloadOptions<'a> {
+  /// Value of the `Authorization` header to send.
+  pub auth: Option<&'a str>,
+  pub proxy: DownloadProxy<'a>,
+}
+
+/// What a request is sent through.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum DownloadProxy<'a> {
+  /// The proxy found in the environment (ex. `HTTPS_PROXY`), if any.
+  #[default]
+  Environment,
+  /// This proxy instead of the one found in the environment.
+  Url(&'a str),
+  /// No proxy, even when the environment has one.
+  Direct,
+}
+
 #[async_trait(?Send)]
 pub trait UrlDownloader {
   /// Downloads a file without following redirects. Returns the raw response
   /// headers and content. A redirect response will have a `location` header
   /// and empty content.
-  async fn download_file_no_redirects(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>>;
+  async fn download_file_no_redirects(&self, url: &Url, options: DownloadOptions<'_>) -> Result<Option<DownloadedFile>>;
 
   /// Downloads a file, following redirects, and returns `None` on 404.
-  async fn download_file<'a>(&self, url: &'a Url, auth: Option<&str>) -> Result<(Cow<'a, Url>, Option<DownloadedFile>)> {
+  async fn download_file<'a>(&self, url: &'a Url, options: DownloadOptions<'_>) -> Result<(Cow<'a, Url>, Option<DownloadedFile>)> {
     let original_origin = (url.scheme().to_string(), url.host_str().map(|h| h.to_string()), url.port_or_known_default());
     let mut current_url = Cow::Borrowed(url);
-    let mut current_auth = auth;
+    let mut current_options = options;
     for _ in 0..=10 {
-      let result = match self.download_file_no_redirects(&current_url, current_auth).await? {
+      let result = match self.download_file_no_redirects(&current_url, current_options).await? {
         Some(r) => r,
         None => return Ok((current_url, None)),
       };
@@ -99,7 +119,7 @@ pub trait UrlDownloader {
           current_url.port_or_known_default(),
         );
         if new_origin != original_origin {
-          current_auth = None;
+          current_options.auth = None;
         }
         continue;
       }
@@ -109,8 +129,8 @@ pub trait UrlDownloader {
   }
 
   /// Downloads a file, following redirects, and errors when not found.
-  async fn download_file_err_404<'a>(&self, url: &'a Url, auth: Option<&str>) -> Result<(Cow<'a, Url>, DownloadedFile)> {
-    match self.download_file(url, auth).await {
+  async fn download_file_err_404<'a>(&self, url: &'a Url, options: DownloadOptions<'_>) -> Result<(Cow<'a, Url>, DownloadedFile)> {
+    match self.download_file(url, options).await {
       Ok((url, Some(value))) => Ok((url, value)),
       Ok((url, None)) => bail!("Error downloading {} - 404 Not Found", url),
       Err(err) => Err(err),

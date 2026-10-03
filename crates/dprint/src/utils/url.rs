@@ -3,6 +3,7 @@ use std::io::Read;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 use deno_terminal::colors;
@@ -16,6 +17,8 @@ use super::certs::get_root_cert_store;
 use super::logging::ProgressBarStyle;
 use super::logging::ProgressBars;
 use super::no_proxy::NoProxy;
+use crate::environment::DownloadOptions;
+use crate::environment::DownloadProxy;
 use crate::environment::DownloadedFile;
 
 const MAX_RETRIES: u8 = 2;
@@ -54,8 +57,14 @@ impl ProxyProvider for RealProxyUrlProvider {
   }
 }
 
+struct AgentWithProxy {
+  agent: ureq::Agent,
+  /// The proxy the agent sends its requests through.
+  proxy: Option<String>,
+}
+
 struct AgentStore<TProxyUrlProvider: ProxyProvider> {
-  agents: Mutex<HashMap<(AgentKind, Option<&'static str>), ureq::Agent>>,
+  agents: Mutex<HashMap<(AgentKind, Option<String>), ureq::Agent>>,
   logger: Arc<Logger>,
   no_proxy: NoProxy,
   proxy_url_provider: TProxyUrlProvider,
@@ -63,25 +72,30 @@ struct AgentStore<TProxyUrlProvider: ProxyProvider> {
 }
 
 impl<TProxyUrlProvider: ProxyProvider> AgentStore<TProxyUrlProvider> {
-  pub fn get(&self, kind: AgentKind, url: &Url) -> Result<ureq::Agent> {
-    let proxy = self.proxy_url_provider.get_proxy(kind);
+  /// Gets the agent for requesting the url.
+  pub fn get(&self, kind: AgentKind, url: &Url, proxy: DownloadProxy<'_>) -> Result<AgentWithProxy> {
+    let proxy = match proxy {
+      DownloadProxy::Environment => self.proxy_url_provider.get_proxy(kind),
+      DownloadProxy::Url(proxy) => Some(proxy),
+      DownloadProxy::Direct => None,
+    };
     let proxy = proxy.filter(|_| match url.host_str() {
       Some(host) => !self.no_proxy.contains(host),
       None => true,
     });
-    let key = (kind, proxy);
+    let key = (kind, proxy.map(|proxy| proxy.to_string()));
     let mut agents = self.agents.lock();
-    let entry = agents.entry(key);
-    Ok(match entry {
-      std::collections::hash_map::Entry::Occupied(occupied_entry) => occupied_entry.get().clone(),
-      std::collections::hash_map::Entry::Vacant(vacant_entry) => {
+    let agent = match agents.get(&key) {
+      Some(agent) => agent.clone(),
+      None => {
         // blocking the lock isn't too bad here because generally
         // there will only ever be one of these created ever
         let agent = self.build_agent(kind, proxy)?;
-        vacant_entry.insert(agent.clone());
+        agents.insert(key.clone(), agent.clone());
         agent
       }
-    })
+    };
+    Ok(AgentWithProxy { agent, proxy: key.1 })
   }
 
   fn build_agent(&self, kind: AgentKind, proxy: Option<&str>) -> Result<ureq::Agent> {
@@ -115,7 +129,7 @@ impl<TProxyUrlProvider: ProxyProvider> AgentStore<TProxyUrlProvider> {
     }
     agent = agent.redirects(0);
     if let Some(proxy) = proxy {
-      agent = agent.proxy(ureq::Proxy::new(proxy)?);
+      agent = agent.proxy(ureq::Proxy::new(proxy).with_context(|| format!("Invalid proxy {}", display_proxy(proxy)))?);
     }
     Ok(agent.build())
   }
@@ -264,12 +278,12 @@ impl RealUrlDownloader {
     })
   }
 
-  pub fn download_with_auth(&self, url: &Url, auth: Option<&str>) -> Result<Option<DownloadedFile>> {
-    let agent = self.get_agent(url)?;
-    self.download_with_retries(url, auth, &agent)
+  pub fn download(&self, url: &Url, options: DownloadOptions<'_>) -> Result<Option<DownloadedFile>> {
+    let agent = self.get_agent(url, options.proxy)?;
+    self.download_with_retries(url, options.auth, &agent)
   }
 
-  fn download_with_retries(&self, url: &Url, auth: Option<&str>, agent: &ureq::Agent) -> Result<Option<DownloadedFile>> {
+  fn download_with_retries(&self, url: &Url, auth: Option<&str>, agent: &AgentWithProxy) -> Result<Option<DownloadedFile>> {
     let mut last_error = None;
     for retry_count in 0..(MAX_RETRIES + 1) {
       match self.inner_download(url, auth, retry_count, agent) {
@@ -288,22 +302,22 @@ impl RealUrlDownloader {
   #[cfg(test)]
   pub fn download_no_retries_for_testing(&self, url: &str) -> Result<Option<Vec<u8>>> {
     let url = Url::parse(url)?;
-    let agent = self.get_agent(&url)?;
+    let agent = self.get_agent(&url, DownloadProxy::Environment)?;
     Ok(self.inner_download(&url, None, 0, &agent)?.map(|r| r.content))
   }
 
-  fn get_agent(&self, url: &Url) -> Result<ureq::Agent> {
+  fn get_agent(&self, url: &Url, proxy: DownloadProxy<'_>) -> Result<AgentWithProxy> {
     let kind = match url.scheme() {
       "https" => AgentKind::Https,
       "http" => AgentKind::Http,
       _ => bail!("Not implemented url scheme: {}", url),
     };
     // this is expensive, but we're already in a blocking task here
-    self.agent_store.get(kind, url)
+    self.agent_store.get(kind, url, proxy)
   }
 
-  fn inner_download(&self, url: &Url, auth: Option<&str>, retry_count: u8, agent: &ureq::Agent) -> Result<Option<DownloadedFile>> {
-    let mut request = agent.request_url("GET", url);
+  fn inner_download(&self, url: &Url, auth: Option<&str>, retry_count: u8, agent: &AgentWithProxy) -> Result<Option<DownloadedFile>> {
+    let mut request = agent.agent.request_url("GET", url);
     if let Some(auth) = auth {
       request = request.set("Authorization", auth);
     }
@@ -313,7 +327,7 @@ impl RealUrlDownloader {
         return Ok(None);
       }
       Err(err) => {
-        bail!("Error downloading {} - Error: {:#}", url, err)
+        bail!("Error downloading {} - {}", url, get_request_error_message(url, &err, agent.proxy.as_deref()))
       }
     };
 
@@ -362,6 +376,65 @@ fn read_response(url: &Url, retry_count: u8, reader: &mut impl Read, total_size:
   Ok(final_bytes)
 }
 
+/// Describes why a request failed.
+///
+/// ureq's own message repeats the url and reports running out of time to
+/// connect as "timed out reading response", which reads like the host was
+/// reached when it may never have been.
+fn get_request_error_message(url: &Url, err: &ureq::Error, proxy: Option<&str>) -> String {
+  let transport = match err {
+    ureq::Error::Status(code, response) => return format!("{} {}", code, response.status_text()),
+    ureq::Error::Transport(transport) => transport,
+  };
+  let host = url.host_str().unwrap_or(url.as_str());
+  let proxy = proxy.map(display_proxy);
+  let source = std::error::Error::source(transport);
+  let is_timeout = source
+    .and_then(|source| source.downcast_ref::<std::io::Error>())
+    .is_some_and(|err| matches!(err.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock));
+  let with_source = |text: String| match source {
+    Some(source) => format!("{}: {}.", text, source),
+    None => format!("{}.", text),
+  };
+  // a connection is made to the proxy when there is one, so that's what
+  // couldn't be resolved or connected to
+  let connect_target = match &proxy {
+    Some(proxy) => format!("the proxy {}", proxy),
+    None => host.to_string(),
+  };
+  match transport.kind() {
+    _ if is_timeout => match &proxy {
+      Some(proxy) => format!("Timed out waiting for a response from {} through the proxy {}.", host, proxy),
+      None => format!("Timed out waiting for a response from {}.", host),
+    },
+    ureq::ErrorKind::Dns => with_source(format!("Could not resolve {}", connect_target)),
+    ureq::ErrorKind::ConnectionFailed => with_source(format!("Could not connect to {}", connect_target)),
+    kind => {
+      let mut text = kind.to_string();
+      if let Some(message) = transport.message() {
+        text.push_str(&format!(": {}", message));
+      }
+      if let Some(source) = source {
+        text.push_str(&format!(": {}", source));
+      }
+      text
+    }
+  }
+}
+
+/// The proxy without its credentials, for showing in messages.
+fn display_proxy(proxy: &str) -> String {
+  let (scheme, rest) = match proxy.split_once("://") {
+    Some((scheme, rest)) => (Some(scheme), rest),
+    None => (None, proxy),
+  };
+  let address = rest.rsplit_once('@').map(|(_, address)| address).unwrap_or(rest).trim_end_matches('/');
+  match scheme {
+    Some(scheme) => format!("{}://{}", scheme, address),
+    None => address.to_string(),
+  }
+}
+
 #[cfg(test)]
 mod test {
   use std::io::ErrorKind;
@@ -371,6 +444,7 @@ mod test {
   use std::sync::Arc;
   use std::time::Duration;
 
+  use crate::environment::DownloadProxy;
   use crate::utils::LogLevel;
   use crate::utils::Logger;
   use crate::utils::LoggerOptions;
@@ -402,14 +476,97 @@ mod test {
       unsafely_ignore_certificates: None,
     };
 
-    let agent = agent_store.get(super::AgentKind::Http, &"http://example.com".parse().unwrap()).unwrap();
-    let agent2 = agent_store.get(super::AgentKind::Http, &"http://other.com".parse().unwrap()).unwrap();
+    let agent = agent_store
+      .get(super::AgentKind::Http, &"http://example.com".parse().unwrap(), DownloadProxy::Environment)
+      .unwrap()
+      .agent;
+    let agent2 = agent_store
+      .get(super::AgentKind::Http, &"http://other.com".parse().unwrap(), DownloadProxy::Environment)
+      .unwrap()
+      .agent;
     assert_eq!(format!("{:?}", agent), format!("{:?}", agent2));
     assert!(format!("{:?}", agent).contains("p@ssw0rd"));
 
-    let agent3 = agent_store.get(super::AgentKind::Http, &"http://dprint.dev".parse().unwrap()).unwrap();
-    assert_ne!(format!("{:?}", agent), format!("{:?}", agent3));
-    assert!(!format!("{:?}", agent3).contains("p@ssw0rd"));
+    let agent3 = agent_store
+      .get(super::AgentKind::Http, &"http://dprint.dev".parse().unwrap(), DownloadProxy::Environment)
+      .unwrap();
+    assert_eq!(agent3.proxy, None);
+    assert_ne!(format!("{:?}", agent), format!("{:?}", agent3.agent));
+    assert!(!format!("{:?}", agent3.agent).contains("p@ssw0rd"));
+
+    // a proxy for the request takes the place of the environment's, but
+    // not for a host that's excluded from being proxied
+    let example_url = "http://example.com".parse().unwrap();
+    let other_proxy = DownloadProxy::Url("http://other-proxy:8080");
+    let agent4 = agent_store.get(super::AgentKind::Http, &example_url, other_proxy).unwrap();
+    assert_eq!(agent4.proxy.as_deref(), Some("http://other-proxy:8080"));
+    assert!(format!("{:?}", agent4.agent).contains("other-proxy"));
+    assert!(!format!("{:?}", agent4.agent).contains("p@ssw0rd"));
+    let dprint_url = "http://dprint.dev".parse().unwrap();
+    let agent5 = agent_store.get(super::AgentKind::Http, &dprint_url, other_proxy).unwrap();
+    assert_eq!(agent5.proxy, None);
+
+    // a direct request doesn't go through the environment's proxy
+    let agent6 = agent_store.get(super::AgentKind::Http, &example_url, DownloadProxy::Direct).unwrap();
+    assert_eq!(agent6.proxy, None);
+    assert!(!format!("{:?}", agent6.agent).contains("p@ssw0rd"));
+
+    // the credentials aren't shown when the proxy can't be used
+    let err = agent_store
+      .get(
+        super::AgentKind::Http,
+        &example_url,
+        DownloadProxy::Url("https://user:p@ssw0rd@other-proxy:8080"),
+      )
+      .err()
+      .unwrap();
+    assert_eq!(format!("{:#}", err), "Invalid proxy https://other-proxy:8080: Malformed proxy");
+  }
+
+  #[test]
+  fn request_error_messages() {
+    use super::get_request_error_message;
+
+    let url = "https://registry.npmjs.org/@dprint/exec".parse().unwrap();
+    let timeout = || ureq::Error::from(std::io::Error::new(ErrorKind::TimedOut, "timed out reading response"));
+    assert_eq!(
+      get_request_error_message(&url, &timeout(), None),
+      "Timed out waiting for a response from registry.npmjs.org."
+    );
+    assert_eq!(
+      get_request_error_message(&url, &timeout(), Some("http://user:p@ssw0rd@proxy.corp:8080/")),
+      "Timed out waiting for a response from registry.npmjs.org through the proxy http://proxy.corp:8080."
+    );
+
+    let reset = ureq::Error::from(std::io::Error::new(ErrorKind::ConnectionReset, "connection reset"));
+    assert_eq!(get_request_error_message(&url, &reset, None), "Network Error: connection reset");
+
+    let forbidden = ureq::Error::Status(403, ureq::Response::new(403, "Forbidden", "").unwrap());
+    assert_eq!(get_request_error_message(&url, &forbidden, None), "403 Forbidden");
+
+    assert_eq!(super::display_proxy("user:p@ssw0rd@localhost:9999"), "localhost:9999");
+    assert_eq!(super::display_proxy("socks5://localhost:9999"), "socks5://localhost:9999");
+  }
+
+  #[test]
+  fn request_error_message_when_cannot_connect() {
+    let downloader = RealUrlDownloader::new(
+      None,
+      Arc::new(Logger::new(&LoggerOptions {
+        initial_context_name: "dprint".to_string(),
+        is_stdout_machine_readable: true,
+        log_level: LogLevel::Silent,
+      })),
+      NoProxy::from_string("*"),
+      None,
+    )
+    .unwrap();
+    // bind then drop a listener to get a port nothing is listening on
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let url = format!("http://127.0.0.1:{}/file", port);
+    let message = downloader.download_no_retries_for_testing(&url).unwrap_err().to_string();
+    let expected_start = format!("Error downloading {} - Could not connect to 127.0.0.1: ", url);
+    assert!(message.starts_with(&expected_start), "{}", message);
   }
 
   #[test]
