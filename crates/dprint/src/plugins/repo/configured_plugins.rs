@@ -43,35 +43,9 @@ fn is_plugin_source(plugin: &InfoFilePluginInfo, source: &PathSource) -> bool {
       .npm
       .as_ref()
       .is_some_and(|npm| npm.name == source.specifier.name && npm.path.as_ref().is_none_or(|path| *path == source.specifier.path)),
-    PathSource::Remote(source) => is_url_ignoring_version(source.url.as_str(), &plugin.url, &plugin.version),
+    PathSource::Remote(source) => source.url.as_str() == plugin.url,
     PathSource::Local(_) => false,
   }
-}
-
-/// Whether a url is the info file plugin's url at any version (ex. a config
-/// file's `json-0.19.0.wasm` for the info file's `json-0.25.1.wasm`).
-fn is_url_ignoring_version(url: &str, plugin_url: &str, plugin_version: &str) -> bool {
-  if plugin_version.is_empty() {
-    return url == plugin_url;
-  }
-  // the text around each occurrence of the version needs to appear in order
-  let mut parts = plugin_url.split(plugin_version);
-  let Some(remaining) = parts.next().and_then(|start| url.strip_prefix(start)) else {
-    return false;
-  };
-  let mut remaining = remaining;
-  let mut parts = parts.peekable();
-  while let Some(part) = parts.next() {
-    if parts.peek().is_none() {
-      return remaining.ends_with(part);
-    }
-    match remaining.find(part) {
-      Some(index) => remaining = &remaining[index + part.len()..],
-      None => return false,
-    }
-  }
-  // the plugin's url doesn't have its version in it
-  remaining.is_empty()
 }
 
 #[cfg(test)]
@@ -131,55 +105,15 @@ mod test {
   }
 
   #[test]
-  fn should_match_on_url_at_any_version_when_the_names_differ() {
+  fn should_match_on_url_when_the_names_differ() {
     let mut plugins = ConfiguredPlugins::default();
     plugins.add(
-      PathSource::new_remote(Url::parse("https://plugins.dprint.dev/g-plane/malva-v0.11.0.wasm").unwrap()),
+      PathSource::new_remote(Url::parse("https://example.com/malva-v0.16.0.wasm").unwrap()),
       Some("dprint_plugin_malva".to_string()),
     );
-    assert!(plugins.has(&info_plugin("g-plane/malva", "https://plugins.dprint.dev/g-plane/malva-v0.16.0.wasm", "0.16.0")));
-    assert!(!plugins.has(&info_plugin(
-      "g-plane/markup_fmt",
-      "https://plugins.dprint.dev/g-plane/markup_fmt-v0.27.5.wasm",
-      "0.27.5"
-    )));
-  }
-
-  #[test]
-  fn should_match_urls_ignoring_version() {
-    // version more than once
-    let plugin_url = "https://example.com/releases/1.2.0/plugin-1.2.0.wasm";
-    assert!(is_url_ignoring_version(
-      "https://example.com/releases/1.0.0/plugin-1.0.0.wasm",
-      plugin_url,
-      "1.2.0"
-    ));
-    assert!(!is_url_ignoring_version(
-      "https://example.com/releases/1.0.0/other-1.0.0.wasm",
-      plugin_url,
-      "1.2.0"
-    ));
-    assert!(!is_url_ignoring_version(
-      "https://example.com/releases/1.0.0/plugin-1.0.0.json",
-      plugin_url,
-      "1.2.0"
-    ));
-    // no version
-    assert!(is_url_ignoring_version(
-      "https://example.com/plugin.wasm",
-      "https://example.com/plugin.wasm",
-      "1.2.0"
-    ));
-    assert!(!is_url_ignoring_version(
-      "https://example.com/other.wasm",
-      "https://example.com/plugin.wasm",
-      "1.2.0"
-    ));
-    assert!(is_url_ignoring_version(
-      "https://example.com/plugin.wasm",
-      "https://example.com/plugin.wasm",
-      ""
-    ));
+    assert!(plugins.has(&info_plugin("g-plane/malva", "https://example.com/malva-v0.16.0.wasm", "0.16.0")));
+    // only the same url is known to be the same plugin
+    assert!(!plugins.has(&info_plugin("g-plane/malva", "https://example.com/malva-v0.17.0.wasm", "0.17.0")));
   }
 
   fn info_plugin(name: &str, url: &str, version: &str) -> InfoFilePluginInfo {

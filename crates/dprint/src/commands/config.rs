@@ -2039,8 +2039,8 @@ mod test {
         info.add_plugin(TestInfoFilePlugin {
           // the plugin calls itself `test-plugin`
           name: "someone/test".to_string(),
-          version: "0.2.0".to_string(),
-          url: "https://plugins.dprint.dev/test-plugin-0.2.0.wasm".to_string(),
+          version: "0.1.0".to_string(),
+          url: "https://plugins.dprint.dev/test-plugin-0.1.0.wasm".to_string(),
           config_key: Some("test-plugin".to_string()),
           ..Default::default()
         });
