@@ -1391,6 +1391,77 @@ mod test {
   }
 
   #[test]
+  fn should_not_error_for_plugin_config_in_extended_config_without_plugin() {
+    // https://github.com/dprint/dprint/issues/891
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_config_section("test-plugin", r#"{ "ending": "shared-ending" }"#)
+          .add_config_section("other-plugin", r#"{ "prop": 1 }"#);
+      })
+      .with_default_config(|c| {
+        c.add_config_section("extends", r#""https://dprint.dev/shared.json""#).add_remote_wasm_plugin();
+      })
+      .write_file("/file.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_shared-ending");
+  }
+
+  #[test]
+  fn should_not_error_for_plugin_config_in_inherited_extended_config_without_plugin() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_config_section("test-plugin", r#"{ "ending": "shared-ending" }"#)
+          .add_config_section("other-plugin", r#"{ "prop": 1 }"#);
+      })
+      .with_default_config(|c| {
+        c.add_config_section("extends", r#""https://dprint.dev/shared.json""#).add_remote_wasm_plugin();
+      })
+      .with_local_config("/sub/dprint.json", |c| {
+        c.set_inherit(true);
+      })
+      .write_file("/file.txt", "text")
+      .write_file("/sub/file.txt", "text")
+      .build();
+
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_shared-ending");
+    assert_eq!(environment.read_file("/sub/file.txt").unwrap(), "text_shared-ending");
+  }
+
+  #[test]
+  fn should_error_for_plugin_config_without_plugin_when_also_in_local_config() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_config_section("other-plugin", r#"{ "prop": 1 }"#);
+      })
+      .with_default_config(|c| {
+        c.add_config_section("extends", r#""https://dprint.dev/shared.json""#)
+          .add_config_section("other-plugin", r#"{ "prop": 2 }"#)
+          .add_remote_wasm_plugin();
+      })
+      .write_file("/file.txt", "text")
+      .build();
+
+    let err = run_test_cli(vec!["fmt", "/file.txt"], &environment).err().unwrap();
+    err.assert_exit_code(11);
+    assert_eq!(
+      err.to_string(),
+      "* Unexpected non-string, boolean, or int property (other-plugin)\n\nHad 1 config diagnostic(s) in /dprint.json"
+    );
+    environment.take_stderr_messages();
+  }
+
+  #[test]
   fn should_ignore_config_file_in_start_dir_when_config_file_url_specified() {
     // a remote config file has no local path, so nothing identifies the local
     // config file in the directory the traversal starts in as the one in use
