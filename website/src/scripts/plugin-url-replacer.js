@@ -24,6 +24,15 @@ const pluginPlaceholders = new Map([
   ["\"https://plugins.dprint.dev/jolars/fatou-vx.x.x.wasm\"", "jolars/fatou"],
   ["\"https://plugins.dprint.dev/apcamargo/typstyle-x.x.x.wasm\"", "apcamargo/typstyle"],
   ["\"https://plugins.dprint.dev/apcamargo/bibtex-tidy-x.x.x.wasm\"", "apcamargo/bibtex-tidy"],
+  ["\"https://plugins.dprint.dev/kachick/typstyle-x.x.x.wasm\"", "kachick/typstyle"],
+  ["\"https://plugins.dprint.dev/kachick/nix-x.x.x.wasm\"", "kachick/nix"],
+  ["\"https://plugins.dprint.dev/kachick/kdl-x.x.x.wasm\"", "kachick/kdl"],
+  ["\"https://plugins.dprint.dev/kachick/sh-x.x.x.wasm\"", "kachick/sh"],
+  ["\"https://plugins.dprint.dev/bartlomieju/lax-css-x.x.x.wasm\"", "bartlomieju/lax-css"],
+  ["\"https://plugins.dprint.dev/bartlomieju/lax-markup-x.x.x.wasm\"", "bartlomieju/lax-markup"],
+  ["\"https://plugins.dprint.dev/bartlomieju/lax-sql-x.x.x.wasm\"", "bartlomieju/lax-sql"],
+  ["\"https://plugins.dprint.dev/sargunv/dprint-clang-format-x.x.x.wasm\"", "sargunv/dprint-clang-format"],
+  ["\"https://plugins.dprint.dev/sargunv/dprint-cmakefmt-x.x.x.wasm\"", "sargunv/dprint-cmakefmt"],
 ]);
 
 export function replacePluginUrls() {

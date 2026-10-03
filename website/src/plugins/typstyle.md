@@ -17,6 +17,8 @@ Adapter plugin that formats Typst files via [Typstyle](https://github.com/typsty
 
 Formats .typ files.
 
+There is also a separate [kachick/typstyle](/plugins/typstyle-kachick) plugin, which is configured under the `"typst"` key and published to npm.
+
 ## Install and Setup
 
 In your project's directory with a dprint.json file, run:
