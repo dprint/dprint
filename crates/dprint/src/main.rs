@@ -35,6 +35,7 @@ fn main() {
   // wasm plugins run on blocking threads and execute wasm on the native stack,
   // so give blocking threads a stack large enough (see WASM_PLUGIN_THREAD_STACK_SIZE).
   let rt = tokio::runtime::Builder::new_current_thread()
+    .enable_io()
     .enable_time()
     .thread_stack_size(crate::plugins::WASM_PLUGIN_THREAD_STACK_SIZE)
     .build()

@@ -48,7 +48,7 @@ sysinfo = { version = "=0.35.1", features = ["system"], default-features = false
 tar = "=0.4.45"
 text-size = "=1.1.1"
 thiserror.workspace = true
-tokio = { workspace = true, features = ["io-std"] }
+tokio = { workspace = true, features = ["io-std", "net"] }
 tokio-util = { version = "=0.7.11" }
 twox-hash = "=2.1.0"
 url = "=2.5.4"
@@ -56,10 +56,10 @@ which = "=8.0.0"
 zip = "=2.4.1"
 
 # keep these in sync
-rustls = { version = "=0.23.19", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+rustls = { version = "=0.23.45", default-features = false, features = ["ring", "logging", "std", "tls12"] }
 rustls-native-certs = "=0.7.0"
 rustls-pemfile = "=2.1.2"
-ureq = { version = "=2.12.1", features = ["gzip", "socks-proxy", "tls"], default-features = false }
+reqwest = { version = "=0.13.5", features = ["gzip", "rustls-no-provider", "socks"], default-features = false }
 webpki-roots = "=0.26.7"
 
 # pin this to prevent it changing with `cargo install` because patch version
