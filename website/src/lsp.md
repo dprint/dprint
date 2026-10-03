@@ -88,7 +88,7 @@ The first time in a session that a file isn't formatted because no configuration
 - `Don't show in this workspace` stops showing it for the current workspace folders. This is only offered when there's a workspace folder.
 - `Don't show again` stops showing it everywhere.
 
-A server can't change an editor's settings, so the choice is stored in an `lsp-state.json` file in the [global configuration directory](/global-config). Delete that file to see the notification again. To turn off the notification from the editor instead, set the `showNoConfigNotification` [setting](#settings) to `false`.
+A server can't change an editor's settings, so the choice is stored in an `lsp-state.json` file in dprint's cache directory. Running `dprint clear-cache` or deleting that file shows the notification again. To turn off the notification from the editor instead, set the `showNoConfigNotification` [setting](#settings) to `false`.
 
 ## Settings
 

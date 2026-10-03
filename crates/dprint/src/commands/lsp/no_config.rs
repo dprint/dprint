@@ -6,7 +6,6 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::configuration::resolve_global_config_dir;
 use crate::environment::Environment;
 use crate::utils::LaxSingleProcessFsFlag;
 
@@ -52,7 +51,7 @@ pub fn is_no_config_notification_dismissed(environment: &impl Environment, works
 }
 
 /// Stores that the user dismissed the notification. A server can't update the
-/// editor's settings, so this is stored in the global config directory instead.
+/// editor's settings, so this is stored in the cache directory instead.
 pub async fn dismiss_no_config_notification<TEnvironment: Environment>(environment: &TEnvironment, dismissal: NoConfigNotificationDismissal) -> Result<()> {
   // prevent another language server process from storing a dismissal between
   // the read and write of the state file, which would lose one of the two
@@ -78,8 +77,7 @@ fn store_dismissal(environment: &impl Environment, dismissal: NoConfigNotificati
         .extend(folders.iter().map(|folder| folder_key(folder)));
     }
   }
-  let file_path = get_state_file_path(environment)?;
-  // the directory doesn't exist until a global config file is created
+  let file_path = get_state_file_path(environment);
   if let Some(dir_path) = file_path.parent() {
     environment.mk_dir_all(dir_path)?;
   }
@@ -97,26 +95,31 @@ struct LspState {
 #[serde(rename_all = "camelCase", default)]
 struct NoConfigNotificationState {
   dismissed: bool,
+  /// The lowercased paths of the folders, which are in a sorted set so that
+  /// finding one doesn't go over every folder.
   dismissed_workspace_folders: BTreeSet<String>,
 }
 
 fn read_state(environment: &impl Environment) -> LspState {
   // start over when the file can't be read or was written by a version with another format
-  get_state_file_path(environment)
+  environment
+    .maybe_read_file(get_state_file_path(environment))
     .ok()
-    .and_then(|file_path| environment.maybe_read_file(file_path).ok().flatten())
+    .flatten()
     .and_then(|text| serde_json::from_str(&text).ok())
     .unwrap_or_default()
 }
 
-/// The file is beside the global config file rather than in the cache
-/// directory so that clearing the cache doesn't bring the notification back.
-fn get_state_file_path(environment: &impl Environment) -> Result<PathBuf> {
-  Ok(resolve_global_config_dir(environment)?.join("lsp-state.json"))
+/// The file is in the cache directory so that the list of workspace folders
+/// that builds up in it is discarded when the cache is cleared.
+fn get_state_file_path(environment: &impl Environment) -> PathBuf {
+  environment.get_cache_dir().join("lsp-state.json")
 }
 
+/// Folders are compared case insensitively because clients differ in the
+/// casing of the paths they provide (ex. of the drive letter on Windows).
 fn folder_key(folder: &Path) -> String {
-  folder.to_string_lossy().into_owned()
+  folder.to_string_lossy().to_lowercase()
 }
 
 #[cfg(test)]
@@ -151,7 +154,7 @@ mod test {
 
   #[test]
   fn dismisses_for_workspace_folders() {
-    let environment = new_environment();
+    let environment = TestEnvironment::new();
     let folder = PathBuf::from("/project");
     let other_folder = PathBuf::from("/other");
     assert!(!is_no_config_notification_dismissed(&environment, std::slice::from_ref(&folder)));
@@ -161,6 +164,8 @@ mod test {
     assert!(is_no_config_notification_dismissed(&environment, &[other_folder.clone(), folder.clone()]));
     assert!(!is_no_config_notification_dismissed(&environment, std::slice::from_ref(&other_folder)));
     assert!(!is_no_config_notification_dismissed(&environment, &[]));
+    // case insensitive
+    assert!(is_no_config_notification_dismissed(&environment, &[PathBuf::from("/PROJECT")]));
 
     // keeps the existing folders
     store_dismissal(&environment, NoConfigNotificationDismissal::WorkspaceFolders(vec![other_folder.clone()])).unwrap();
@@ -170,7 +175,7 @@ mod test {
 
   #[test]
   fn dismisses_everywhere() {
-    let environment = new_environment();
+    let environment = TestEnvironment::new();
     store_dismissal(&environment, NoConfigNotificationDismissal::Everywhere).unwrap();
     assert!(is_no_config_notification_dismissed(&environment, &[]));
     assert!(is_no_config_notification_dismissed(&environment, &[PathBuf::from("/project")]));
@@ -178,17 +183,11 @@ mod test {
 
   #[test]
   fn ignores_invalid_state_file() {
-    let environment = new_environment();
-    environment.mk_dir_all("/global-config").unwrap();
-    environment.write_file(get_state_file_path(&environment).unwrap(), "not json").unwrap();
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.get_cache_dir()).unwrap();
+    environment.write_file(get_state_file_path(&environment), "not json").unwrap();
     assert!(!is_no_config_notification_dismissed(&environment, &[]));
     store_dismissal(&environment, NoConfigNotificationDismissal::Everywhere).unwrap();
     assert!(is_no_config_notification_dismissed(&environment, &[]));
-  }
-
-  fn new_environment() -> TestEnvironment {
-    let environment = TestEnvironment::new();
-    environment.set_env_var("DPRINT_CONFIG_DIR", Some("/global-config"));
-    environment
   }
 }

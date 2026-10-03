@@ -2624,7 +2624,6 @@ mod test {
   #[test]
   fn should_notify_once_when_no_config_file_with_lsp() {
     let environment = TestEnvironmentBuilder::new().build();
-    environment.set_env_var("DPRINT_CONFIG_DIR", Some("/global-config"));
 
     environment.clone().run_in_runtime(async move {
       let (backend, recv_task, test_client) = setup_backend(environment.clone());
@@ -2724,7 +2723,6 @@ mod test {
   #[test]
   fn should_not_notify_when_no_config_file_with_lsp_after_dismissed() {
     let environment = TestEnvironmentBuilder::new().build();
-    environment.set_env_var("DPRINT_CONFIG_DIR", Some("/global-config"));
 
     environment.clone().run_in_runtime(async move {
       // each backend is a session and returns the messages it showed
