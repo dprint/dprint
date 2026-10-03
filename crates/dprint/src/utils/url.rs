@@ -326,6 +326,7 @@ fn parse_proxy(text: &str) -> Result<reqwest::Proxy> {
 /// own message does.
 fn get_request_error_message(url: &Url, err: &reqwest::Error, proxy: Option<&str>) -> String {
   let host = url.host_str().unwrap_or(url.as_str());
+  let is_proxy_unreachable = proxy.is_some_and(|proxy| is_proxy_unreachable_error(err, proxy));
   let proxy = proxy.map(display_proxy);
   let target = match &proxy {
     Some(proxy) => format!("{} through the proxy {}", host, proxy),
@@ -337,6 +338,8 @@ fn get_request_error_message(url: &Url, err: &reqwest::Error, proxy: Option<&str
     } else {
       format!("Timed out waiting for a response from {}.", target)
     }
+  } else if let Some(proxy) = proxy.as_ref().filter(|_| is_proxy_unreachable) {
+    format!("Could not connect to the proxy {}: {}.", proxy, get_root_cause_text(err))
   } else if err.is_connect() {
     format!("Could not connect to {}: {}.", target, get_root_cause_text(err))
   } else {
@@ -345,6 +348,31 @@ fn get_request_error_message(url: &Url, err: &reqwest::Error, proxy: Option<&str
       None => get_root_cause_text(err),
     }
   }
+}
+
+/// Whether the request failed because the proxy couldn't be connected to,
+/// as opposed to the proxy not being able to connect to the host.
+///
+/// The errors that say this aren't exposed, so this goes by their text. When
+/// that doesn't match, the message falls back to not saying which it was.
+fn is_proxy_unreachable_error(err: &reqwest::Error, proxy: &str) -> bool {
+  // a host is only resolved and connected to by the proxy, so failing to do
+  // either here is about the proxy. The exception is a socks4 proxy, where
+  // the host is resolved before asking the proxy to connect to it
+  let resolves_host_locally = split_proxy_scheme(proxy).0.is_some_and(|scheme| scheme.eq_ignore_ascii_case("socks4"));
+  let mut cause: Option<&dyn std::error::Error> = Some(err);
+  while let Some(current) = cause {
+    let text = current.to_string();
+    if text == "tcp connect error" || text == "dns error" && !resolves_host_locally {
+      return true;
+    }
+    // what's said when the connection a tunnel or socks proxy needs fails
+    if text.ends_with("failed to create underlying connection") {
+      return true;
+    }
+    cause = current.source();
+  }
+  false
 }
 
 /// reqwest's errors wrap the one that says what went wrong.
@@ -716,6 +744,50 @@ mod test {
     assert_eq!(
       String::from_utf8(file.content).unwrap(),
       "http://example.invalid/file.wasm Basic RE9NQUlOXHVzZXI6cEBzcyB3JTQxcmQ="
+    );
+  }
+
+  #[tokio::test]
+  async fn request_error_message_says_when_proxy_is_unreachable() {
+    let downloader = create_downloader(NoProxy::from_string(""));
+    // without retries because failing to connect is slow on some systems
+    let download = async |url: &str, proxy: &str| {
+      let url = url.parse().unwrap();
+      let client = downloader.get_client(&url, DownloadProxy::Url(proxy)).await.unwrap();
+      downloader.inner_download(&url, None, 0, &client).await.err().unwrap().to_string()
+    };
+
+    // nothing listening at the proxy's address, both for a request
+    // that's forwarded (http) and one that's tunnelled (https)
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let proxy = format!("http://user:pass@127.0.0.1:{}", port);
+    for url in ["http://example.invalid/file", "https://example.invalid/file"] {
+      let message = download(url, &proxy).await;
+      let expected_start = format!("Error downloading {} - Could not connect to the proxy http://127.0.0.1:{}: ", url, port);
+      assert!(message.starts_with(&expected_start), "{}", message);
+    }
+
+    // the proxy's host can't be resolved
+    let message = download("https://example.invalid/file", "http://proxy.invalid:8080").await;
+    let expected_start = "Error downloading https://example.invalid/file - Could not connect to the proxy http://proxy.invalid:8080: ";
+    assert!(message.starts_with(expected_start), "{}", message);
+
+    // same for a socks proxy
+    let message = download("https://example.invalid/file", &format!("socks5://127.0.0.1:{}", port)).await;
+    let expected_start = format!(
+      "Error downloading https://example.invalid/file - Could not connect to the proxy socks5://127.0.0.1:{}: ",
+      port
+    );
+    assert!(message.starts_with(&expected_start), "{}", message);
+
+    // the proxy is reachable, but won't connect to the host
+    let proxy = start_test_server(|_, _| "502 Bad Gateway\r\nContent-Length: 0\r\n\r\n".to_string());
+    assert_eq!(
+      download("https://example.invalid/file", &proxy).await,
+      format!(
+        "Error downloading https://example.invalid/file - Could not connect to example.invalid through the proxy {}: tunnel error: unsuccessful.",
+        proxy
+      )
     );
   }
 
