@@ -25,7 +25,7 @@ Repos:
 - [dprint-plugin-jupyter](https://github.com/dprint/dprint-plugin-jupyter) - Jupyter notebook code block formatter.
 - [dprint-plugin-dockerfile](https://github.com/dprint/dprint-plugin-dockerfile) - Dockerfile code formatter.
 - [dprint-plugin-biome](https://github.com/dprint/dprint-plugin-biome) - Biome (JS/TS/JSON) wrapper plugin.
-- [dprint-plugin-oxc](https://github.com/dprint/dprint-plugin-oxc) - Oxc (JS/TS) wrapper plugin.
+- [dprint-plugin-oxc](https://github.com/dprint/dprint-plugin-oxc) - Oxc (JS/TS/JSON/CSS/SCSS/Less/GraphQL/YAML/TOML) wrapper plugin.
 - [dprint-plugin-prettier](https://github.com/dprint/dprint-plugin-prettier) - Prettier wrapper plugin.
 - [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - Roslyn (C#/VB) wrapper plugin.
 - [dprint-plugin-mago](https://github.com/dprint/dprint-plugin-mago) - Mago (PHP) wrapper plugin.
