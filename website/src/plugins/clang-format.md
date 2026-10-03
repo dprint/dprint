@@ -27,7 +27,7 @@ dprint add sargunv/dprint-clang-format
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"clangFormat"` property to add configuration:
 
-```json
+```jsonc
 {
   "clangFormat": {
     // clangFormat config goes here

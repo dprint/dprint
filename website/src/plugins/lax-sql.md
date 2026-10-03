@@ -29,7 +29,7 @@ dprint add npm:lax-sql
 
 This will update your config file to have an entry for the plugin. Then optionally specify an `"sql"` property to add configuration:
 
-```json
+```jsonc
 {
   "sql": {
     // sql config goes here

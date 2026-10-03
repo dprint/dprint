@@ -27,7 +27,7 @@ dprint add sargunv/dprint-cmakefmt
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"cmakefmt"` property to add configuration:
 
-```json
+```jsonc
 {
   "cmakefmt": {
     // cmakefmt config goes here

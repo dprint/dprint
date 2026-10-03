@@ -29,7 +29,7 @@ dprint add npm:@kachick/dprint-plugin-sh
 
 This will update your config file to have an entry for the plugin. Then optionally specify an `"sh"` property to add configuration:
 
-```json
+```jsonc
 {
   "sh": {
     // sh config goes here

@@ -35,7 +35,7 @@ dprint add npm:@kachick/dprint-plugin-nix
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"nix"` property to add configuration:
 
-```json
+```jsonc
 {
   "nix": {
     // nix config goes here

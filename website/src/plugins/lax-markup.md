@@ -31,7 +31,7 @@ dprint add npm:lax-markup
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"markup"` property to add configuration:
 
-```json
+```jsonc
 {
   "markup": {
     // markup config goes here

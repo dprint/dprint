@@ -29,7 +29,7 @@ dprint add npm:@kachick/dprint-plugin-kdl
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"kdl"` property to add configuration:
 
-```json
+```jsonc
 {
   "kdl": {
     // kdl config goes here

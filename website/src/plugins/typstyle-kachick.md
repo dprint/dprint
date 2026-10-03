@@ -31,7 +31,7 @@ dprint add npm:@kachick/dprint-plugin-typstyle
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"typst"` property to add configuration:
 
-```json
+```jsonc
 {
   "typst": {
     // typst config goes here

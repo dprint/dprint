@@ -29,7 +29,7 @@ dprint add npm:lax-css
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"css"` property to add configuration:
 
-```json
+```jsonc
 {
   "css": {
     // css config goes here
