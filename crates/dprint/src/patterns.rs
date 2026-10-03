@@ -16,6 +16,7 @@ use crate::utils::GlobMatcherOptions;
 use crate::utils::GlobMatchesDetail;
 use crate::utils::GlobPattern;
 use crate::utils::GlobPatterns;
+use crate::utils::expand_braces;
 use crate::utils::is_absolute_pattern;
 use crate::utils::is_negated_glob;
 use crate::utils::non_negated_glob;
@@ -188,13 +189,13 @@ pub fn get_all_file_patterns(config: &ResolvedConfig, args: &FilePatternArgs, cw
     arg_includes: args
       .include_patterns
       .as_ref()
-      .map(|patterns| patterns.iter().map(|p| process_cli_pattern(p, cwd, environment)).collect()),
+      .map(|patterns| process_cli_patterns(patterns, cwd, environment).collect()),
     config_excludes: get_config_exclude_file_patterns(config, args, cwd, environment),
     arg_excludes: if args.exclude_patterns.is_empty() {
       None
     } else {
       // resolve CLI patterns based on the current working directory
-      Some(args.exclude_patterns.iter().map(|p| process_cli_pattern(p, cwd, environment)).collect())
+      Some(process_cli_patterns(&args.exclude_patterns, cwd, environment).collect())
     },
     // Shebang scripts are extensionless, so they can't be matched by the
     // includes up front. Discover them when shebang mappings are configured and
@@ -218,10 +219,7 @@ fn get_config_includes_file_patterns(
   file_patterns.extend(match &args.include_pattern_overrides {
     Some(includes_overrides) => {
       // resolve CLI patterns based on the current working directory
-      includes_overrides
-        .iter()
-        .map(|p| process_cli_override_pattern(p, cwd, config, environment))
-        .collect()
+      process_cli_override_patterns(includes_overrides, cwd, config, environment)
     }
     None => new_config_glob_patterns(process_config_patterns(config.includes.as_ref()?), &config.base_path),
   });
@@ -260,10 +258,7 @@ fn get_config_exclude_file_patterns(
   file_patterns.extend(match &args.exclude_pattern_overrides {
     Some(exclude_overrides) => {
       // resolve CLI patterns based on the current working directory
-      exclude_overrides
-        .iter()
-        .map(|p| process_cli_override_pattern(p, cwd, config, environment))
-        .collect::<Vec<_>>()
+      process_cli_override_patterns(exclude_overrides, cwd, config, environment)
     }
     None => config
       .excludes
@@ -299,13 +294,40 @@ fn process_file_pattern_slashes(file_pattern: &str) -> String {
   file_pattern.replace('\\', "/")
 }
 
-/// Processes an `--includes-override`/`--excludes-override` pattern, resolving
+/// Processes the `--includes-override`/`--excludes-override` patterns, resolving
 /// an existing literal name the same way normal CLI args are resolved (ex.
 /// `--includes-override "routes/[id].svelte"` when that file exists).
-fn process_cli_override_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf, config: &ResolvedConfig, environment: &impl Environment) -> GlobPattern {
-  let mut pattern = process_cli_pattern(file_pattern, cwd, environment);
-  rewrite_literal_arg_pattern(environment, &mut pattern, &config.base_path);
-  pattern
+fn process_cli_override_patterns(
+  file_patterns: &[String],
+  cwd: &CanonicalizedPathBuf,
+  config: &ResolvedConfig,
+  environment: &impl Environment,
+) -> Vec<GlobPattern> {
+  process_cli_patterns(file_patterns, cwd, environment)
+    .map(|mut pattern| {
+      rewrite_literal_arg_pattern(environment, &mut pattern, &config.base_path);
+      pattern
+    })
+    .collect()
+}
+
+/// Processes CLI-provided patterns, expanding any brace groups that span
+/// path components into separate patterns. A pattern naming an existing path
+/// isn't expanded because it's matched literally (ex. a `{a,b}` directory).
+fn process_cli_patterns<'a>(
+  file_patterns: &'a [String],
+  cwd: &'a CanonicalizedPathBuf,
+  environment: &'a impl Environment,
+) -> impl Iterator<Item = GlobPattern> + 'a {
+  file_patterns
+    .iter()
+    .flat_map(move |pattern| {
+      let pattern = process_file_pattern_slashes(pattern);
+      let is_existing_path = pattern.contains('{') && environment.path_exists(cwd.join(non_negated_glob(&pattern)));
+      let (literal, pattern) = if is_existing_path { (Some(pattern), None) } else { (None, Some(pattern)) };
+      literal.into_iter().chain(pattern.into_iter().flat_map(expand_braces))
+    })
+    .map(move |pattern| process_cli_pattern(&pattern, cwd, environment))
 }
 
 fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf, environment: &impl Environment) -> GlobPattern {
@@ -396,19 +418,23 @@ pub fn new_config_glob_pattern(pattern: String, config_base_path: &Canonicalized
 }
 
 pub fn process_config_patterns(file_patterns: &[String]) -> impl Iterator<Item = String> + '_ {
-  file_patterns.iter().map(|p| process_config_pattern(p))
+  file_patterns.iter().flat_map(|p| process_config_pattern(p))
 }
 
-pub fn process_config_pattern(file_pattern: &str) -> String {
-  let file_pattern = process_file_pattern_slashes(file_pattern);
+/// Processes a config file pattern, which may be multiple patterns when it
+/// has a brace group that spans path components (ex. `{.,src/**}/*.js`).
+pub fn process_config_pattern(file_pattern: &str) -> impl Iterator<Item = String> + use<> {
+  expand_braces(process_file_pattern_slashes(file_pattern)).map(process_expanded_config_pattern)
+}
+
+fn process_expanded_config_pattern(mut file_pattern: String) -> String {
   // make config patterns that start with `/` be relative
   if file_pattern.starts_with('/') {
-    format!(".{}", file_pattern)
+    file_pattern.insert(0, '.');
   } else if file_pattern.starts_with("!/") {
-    format!("!.{}", &file_pattern[1..])
-  } else {
-    file_pattern
+    file_pattern.insert(1, '.');
   }
+  file_pattern
 }
 
 #[cfg(test)]
@@ -467,6 +493,30 @@ mod test {
     assert_cli_pattern("!C:/test/other", "C:\\test\\", "!./other", "C:\\test\\");
   }
 
+  #[test]
+  fn should_expand_brace_groups_in_cli_patterns() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/sub/dir{a").unwrap();
+    environment.write_file("/sub/dir{a/b,c}.txt", "").unwrap();
+    let cwd = CanonicalizedPathBuf::new_for_testing("/sub");
+    let process = |pattern: &str| {
+      process_cli_patterns(&[pattern.to_string()], &cwd, &environment)
+        .map(|p| (p.relative_pattern, p.base_dir.to_string_lossy().replace('\\', "/")))
+        .collect::<Vec<_>>()
+    };
+    let sub = |pattern: &str| (pattern.to_string(), "/sub".to_string());
+    let root = |pattern: &str| (pattern.to_string(), "/".to_string());
+    assert_eq!(process("{.,src/**}/*.js"), [sub("./*.js"), sub("./src/**/*.js")]);
+    assert_eq!(process("!{.,src/**}/*.js"), [sub("!./*.js"), sub("!./src/**/*.js")]);
+    assert_eq!(process("{../a,b}/*.js"), [root("./a/*.js"), sub("./b/*.js")]);
+    // stays relative to the cwd
+    assert_eq!(process("{,src/dir}/*.js"), [sub("./*.js"), sub("./src/dir/*.js")]);
+    // an existing path is not expanded
+    assert_eq!(process("dir{a/b,c}.txt"), [sub("./dir{a/b,c}.txt")]);
+    assert_eq!(process("!dir{a/b,c}.txt"), [sub("!./dir{a/b,c}.txt")]);
+    assert_eq!(process("other{a/b,c}.txt"), [sub("./othera/b.txt"), sub("./otherc.txt")]);
+  }
+
   #[track_caller]
   fn assert_cli_pattern(file_pattern: &str, cwd: &str, expected_pattern: &str, expected_base_dir: &str) {
     let environment = TestEnvironment::new();
@@ -494,15 +544,59 @@ mod test {
 
   #[test]
   fn should_process_config_pattern() {
-    assert_eq!(process_config_pattern("/test"), "./test");
-    assert_eq!(process_config_pattern("./test"), "./test");
-    assert_eq!(process_config_pattern("test"), "test");
-    assert_eq!(process_config_pattern("**/test"), "**/test");
+    let process = |pattern: &str| process_config_pattern(pattern).collect::<Vec<_>>();
+    assert_eq!(process("/test"), ["./test"]);
+    assert_eq!(process("./test"), ["./test"]);
+    assert_eq!(process("test"), ["test"]);
+    assert_eq!(process("**/test"), ["**/test"]);
 
-    assert_eq!(process_config_pattern("!/test"), "!./test");
-    assert_eq!(process_config_pattern("!./test"), "!./test");
-    assert_eq!(process_config_pattern("!test"), "!test");
-    assert_eq!(process_config_pattern("!**/test"), "!**/test");
+    assert_eq!(process("!/test"), ["!./test"]);
+    assert_eq!(process("!./test"), ["!./test"]);
+    assert_eq!(process("!test"), ["!test"]);
+    assert_eq!(process("!**/test"), ["!**/test"]);
+
+    // brace groups spanning path components
+    assert_eq!(process("{/test,sub/**}/*.js"), ["./test/*.js", "sub/**/*.js"]);
+    assert_eq!(process("!{/test,sub/**}/*.js"), ["!./test/*.js", "!sub/**/*.js"]);
+  }
+
+  #[test]
+  fn should_match_brace_groups_spanning_path_components() {
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let new_matcher = |includes: &[&str], excludes: &[&str]| {
+      let to_patterns = |patterns: &[&str]| {
+        let patterns = patterns.iter().map(|p| p.to_string()).collect::<Vec<_>>();
+        new_config_glob_patterns(process_config_patterns(&patterns), &cwd)
+      };
+      GlobMatcher::new(
+        GlobPatterns {
+          shebangs: Vec::new(),
+          arg_includes: None,
+          config_includes: Some(to_patterns(includes)),
+          arg_excludes: None,
+          config_excludes: to_patterns(excludes),
+        },
+        &GlobMatcherOptions {
+          case_sensitive: true,
+          base_dir: cwd.clone(),
+        },
+      )
+      .unwrap()
+    };
+
+    let matcher = new_matcher(&["{.,src/**,worker}/*.js"], &[]);
+    assert_eq!(matcher.matches_detail("/testing/dir/src/foo/match.js"), GlobMatchesDetail::Matched);
+    assert_eq!(matcher.matches_detail("/testing/dir/src/match.js"), GlobMatchesDetail::Matched);
+    assert_eq!(matcher.matches_detail("/testing/dir/match.js"), GlobMatchesDetail::Matched);
+    assert_eq!(matcher.matches_detail("/testing/dir/worker/match.js"), GlobMatchesDetail::Matched);
+    assert_eq!(matcher.matches_detail("/testing/dir/foo/not_match.js"), GlobMatchesDetail::NotMatched);
+    assert_eq!(matcher.matches_detail("/testing/dir/worker/foo/not_match.js"), GlobMatchesDetail::NotMatched);
+
+    let matcher = new_matcher(&["**/*.js"], &["{.,src/**}/*.js"]);
+    assert_eq!(matcher.matches_detail("/testing/dir/match.js"), GlobMatchesDetail::Excluded);
+    assert_eq!(matcher.matches_detail("/testing/dir/src/match.js"), GlobMatchesDetail::Excluded);
+    assert_eq!(matcher.matches_detail("/testing/dir/src/foo/match.js"), GlobMatchesDetail::Excluded);
+    assert_eq!(matcher.matches_detail("/testing/dir/worker/match.js"), GlobMatchesDetail::Matched);
   }
 
   #[test]
