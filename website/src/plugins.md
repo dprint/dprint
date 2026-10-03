@@ -25,7 +25,7 @@ For the latest version and copy-paste URL of every plugin, see [plugins.dprint.d
 - [TOML](/plugins/toml)
 - [Dockerfile](/plugins/dockerfile)
 - [Biome](/plugins/biome) (JS/TS/JSON)
-- [Oxc](/plugins/oxc) (JS/TS)
+- [Oxc](/plugins/oxc) (JS/TS/JSON/CSS/SCSS/Less/GraphQL/YAML/Markdown/TOML)
 - [Malva](/plugins/malva) (CSS/SCSS/Sass/Less)
 - [Markup_fmt](/plugins/markup_fmt) (HTML/Vue/Svelte/Astro/Angular/Jinja/Twig/Nunjucks/Vento)
 - [Pretty GraphQL](/plugins/pretty_graphql) (GraphQL)
