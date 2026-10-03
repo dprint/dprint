@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::Result;
@@ -51,6 +52,11 @@ pub struct ResolvedConfig {
   /// the plugins and configuration of its ancestor configuration file.
   pub inherit: Option<bool>,
   pub config_map: ConfigMap,
+  /// Keys of the plugin configurations in `config_map` that were only specified
+  /// in an extended configuration file. It's not an error for these to not have
+  /// a matching plugin because a shared config may configure more plugins than
+  /// the ones being used.
+  pub extended_only_plugin_config_keys: HashSet<String>,
 }
 
 #[derive(Debug, Error)]
@@ -126,6 +132,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
         // allow no config file when plugins are specified
         ResolvedConfig {
           config_map: ConfigMap::new(),
+          extended_only_plugin_config_keys: HashSet::new(),
           base_path: environment.cwd().clone(),
           source: PathSource::new_local(environment.cwd().join_panic_relative("dprint.json")),
           is_global: false,
@@ -209,6 +216,7 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
     base_path: config_path_and_text.base_path.clone(),
     is_global: config_path_and_text.is_global_config,
     config_map,
+    extended_only_plugin_config_keys: HashSet::new(),
     includes,
     excludes,
     plugins,
@@ -246,6 +254,17 @@ pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Re
   // inherit the shebang mappings when not specified in the nested config
   if config.shebangs.is_none() {
     config.shebangs = parent.shebangs.clone();
+  }
+
+  // plugin config is only considered as coming from an extended config when
+  // neither the nested config nor its ancestor specified it themselves
+  config
+    .extended_only_plugin_config_keys
+    .retain(|key| !parent.config_map.contains_key(key) || parent.extended_only_plugin_config_keys.contains(key));
+  for key in &parent.extended_only_plugin_config_keys {
+    if !config.config_map.contains_key(key) {
+      config.extended_only_plugin_config_keys.insert(key.clone());
+    }
   }
 
   merge_config_map_into(&mut config.config_map, parent.config_map.clone())?;
@@ -367,6 +386,12 @@ async fn handle_config_file<TEnvironment: Environment>(
   // the extended configuration to be ignored (see issue #1043).
   resolved_config.plugins.extend(plugins);
   resolved_config.plugins = filter_duplicate_plugin_sources(std::mem::take(&mut resolved_config.plugins));
+
+  for (key, value) in &new_config_map {
+    if matches!(value, ConfigMapValue::PluginConfig(_)) && !resolved_config.config_map.contains_key(key) {
+      resolved_config.extended_only_plugin_config_keys.insert(key.clone());
+    }
+  }
 
   merge_config_map_into(&mut resolved_config.config_map, new_config_map)?;
 
@@ -1451,6 +1476,107 @@ mod tests {
   }
 
   #[test]
+  fn should_track_plugin_config_only_specified_in_extended_configs() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file(
+        &PathBuf::from("/test.json"),
+        r#"{
+            "extends": ["dir/a.json", "https://dprint.dev/b.json"],
+            "local": {},
+            "both": {}
+        }"#,
+      )
+      .write_file(
+        &PathBuf::from("/dir/a.json"),
+        r#"{
+            "extends": "c.json",
+            "lineWidth": 1,
+            "both": {},
+            "a": {},
+            "aAndB": {}
+        }"#,
+      )
+      .write_file(
+        &PathBuf::from("/dir/c.json"),
+        r#"{
+            "a": {},
+            "c": {}
+        }"#,
+      )
+      .build();
+    environment.add_remote_file(
+      "https://dprint.dev/b.json",
+      r#"{
+            "local": {},
+            "aAndB": {},
+            "b": {}
+        }"#
+        .as_bytes(),
+    );
+
+    environment.clone().run_in_runtime(async move {
+      let result = get_result("/test.json", &environment).await.unwrap();
+      assert_eq!(environment.take_stdout_messages().len(), 0);
+      assert_eq!(
+        result.extended_only_plugin_config_keys,
+        HashSet::from(["a".to_string(), "aAndB".to_string(), "b".to_string(), "c".to_string()])
+      );
+    });
+  }
+
+  #[test]
+  fn inherit_config_should_track_plugin_config_only_specified_in_extended_configs() {
+    fn config(path: &str, plugin_config_keys: &[&str], extended_only_plugin_config_keys: &[&str]) -> ResolvedConfig {
+      let source = CanonicalizedPathBuf::new_for_testing(path);
+      ResolvedConfig {
+        base_path: source.parent().unwrap(),
+        source: PathSource::new_local(source),
+        is_global: false,
+        includes: None,
+        excludes: None,
+        plugins: Vec::new(),
+        incremental: None,
+        shebangs: None,
+        inherit: Some(true),
+        config_map: plugin_config_keys
+          .iter()
+          .map(|key| (key.to_string(), ConfigMapValue::PluginConfig(Default::default())))
+          .collect(),
+        extended_only_plugin_config_keys: extended_only_plugin_config_keys.iter().map(|key| key.to_string()).collect(),
+      }
+    }
+
+    let parent = config(
+      "/dprint.json",
+      &[
+        "parentLocal",
+        "parentExtended",
+        "parentExtendedChildLocal",
+        "parentLocalChildExtended",
+        "bothExtended",
+      ],
+      &["parentExtended", "parentExtendedChildLocal", "bothExtended"],
+    );
+    let child = config(
+      "/sub/dprint.json",
+      &[
+        "childLocal",
+        "childExtended",
+        "parentExtendedChildLocal",
+        "parentLocalChildExtended",
+        "bothExtended",
+      ],
+      &["childExtended", "parentLocalChildExtended", "bothExtended"],
+    );
+
+    let result = inherit_config(child, &parent).unwrap();
+    assert_eq!(
+      result.extended_only_plugin_config_keys,
+      HashSet::from(["parentExtended".to_string(), "childExtended".to_string(), "bothExtended".to_string()])
+    );
+  }
+
+  #[test]
   fn should_say_config_file_with_error() {
     let environment = TestEnvironment::new();
     environment.add_remote_file(
@@ -2271,6 +2397,7 @@ mod tests {
           }),
         ),
       ]),
+      extended_only_plugin_config_keys: Default::default(),
     };
     let child = ResolvedConfig {
       source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/sub/dprint.json")),
@@ -2292,6 +2419,7 @@ mod tests {
           properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(2))]),
         }),
       )]),
+      extended_only_plugin_config_keys: Default::default(),
     };
 
     let result = inherit_config(child, &parent).unwrap();
@@ -2407,6 +2535,7 @@ mod tests {
           properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(4))]),
         }),
       )]),
+      extended_only_plugin_config_keys: Default::default(),
     };
     let child = ResolvedConfig {
       source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/sub/dprint.json")),
@@ -2427,6 +2556,7 @@ mod tests {
           properties: ConfigKeyMap::from([("indentWidth".to_string(), ConfigKeyValue::from_i32(2))]),
         }),
       )]),
+      extended_only_plugin_config_keys: Default::default(),
     };
 
     let err = inherit_config(child, &parent).err().unwrap();

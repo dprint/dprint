@@ -1102,6 +1102,10 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
     plugins_with_config.push((get_plugin_config_map(&plugin, &mut config_map)?, plugin));
   }
 
+  // a shared config may configure more plugins than the ones being used, so remove the leftover
+  // plugin config that only an extended config specified so it's not reported as an unknown property
+  config_map.retain(|key, _| !config.extended_only_plugin_config_keys.contains(key));
+
   // now get global config
   let global_config_result = get_global_config(config_map);
   let global_config = global_config_result.config;
@@ -1242,6 +1246,7 @@ mod test {
       let base_path = CanonicalizedPathBuf::new_for_testing("/");
       let config = Rc::new(ResolvedConfig {
         config_map: Default::default(),
+        extended_only_plugin_config_keys: Default::default(),
         base_path: base_path.clone(),
         source: PathSource::new_local(base_path.join_panic_relative("dprint.json")),
         is_global: false,
