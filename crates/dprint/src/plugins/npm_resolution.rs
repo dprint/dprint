@@ -1231,8 +1231,8 @@ fn resolve_registry_from_npmrc(package_name: &str, npmrc_path: &Path, environmen
 /// requests. Returns `None` when npm has no proxy configured, in which case
 /// requests fall back to the proxy environment variables (ex. `HTTPS_PROXY`)
 /// like any other request dprint makes. The same goes for a proxy that can't
-/// be used (ex. an `https://` one), since failing every request because of an
-/// npm setting would be worse than not following it.
+/// be used (ex. one with an unknown scheme), since failing every request
+/// because of an npm setting would be worse than not following it.
 fn resolve_npm_proxy(start_dir: Option<&Path>, environment: &impl Environment) -> Option<NpmProxy> {
   fn read(npmrc_path: &Path, environment: &impl Environment) -> Option<NpmProxy> {
     let text = environment.read_file(npmrc_path).ok()?;
@@ -1266,7 +1266,10 @@ fn resolve_npm_proxy(start_dir: Option<&Path>, environment: &impl Environment) -
 
 fn to_usable_proxy(url: String, no_proxy: Option<String>, environment: &impl Environment) -> Option<NpmProxy> {
   let is_supported = match url.split_once("://") {
-    Some((scheme, _)) => matches!(scheme, "http" | "socks" | "socks4" | "socks4a" | "socks5"),
+    Some((scheme, _)) => matches!(
+      scheme.to_ascii_lowercase().as_str(),
+      "http" | "https" | "socks" | "socks4" | "socks4a" | "socks5" | "socks5h"
+    ),
     None => true,
   };
   if !is_supported {
@@ -1698,13 +1701,15 @@ mod tests {
     assert_eq!(resolve().unwrap().url, "http://user:pass@inner:8080");
 
     // so is a proxy that can't be used
-    environment.write_file("/repo/sub/.npmrc", "https-proxy=https://inner:8443").unwrap();
+    environment.write_file("/repo/sub/.npmrc", "https-proxy=ftp://inner:8443").unwrap();
     assert_eq!(resolve().unwrap().url, "http://outer:8080");
-    environment.set_env_var("NPM_CONFIG_HTTPS_PROXY", Some("https://env:8443"));
+    environment.set_env_var("NPM_CONFIG_HTTPS_PROXY", Some("ftp://env:8443"));
     assert_eq!(resolve().unwrap().url, "http://outer:8080");
-    environment.write_file("/repo/sub/.npmrc", "https-proxy=socks5://inner:1080").unwrap();
     environment.set_env_var("NPM_CONFIG_HTTPS_PROXY", None);
-    assert_eq!(resolve().unwrap().url, "socks5://inner:1080");
+    for proxy in ["https://inner:8443", "socks5://inner:1080", "SOCKS5H://inner:1080", "inner:8080"] {
+      environment.write_file("/repo/sub/.npmrc", &format!("https-proxy={}", proxy)).unwrap();
+      assert_eq!(resolve().unwrap().url, proxy);
+    }
   }
 
   #[tokio::test]

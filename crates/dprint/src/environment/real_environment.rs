@@ -37,7 +37,6 @@ use dprint_core::async_runtime::async_trait;
 use super::CanonicalizedPathBuf;
 use super::DirEntry;
 use super::DownloadOptions;
-use super::DownloadProxy;
 use super::DownloadedFile;
 use super::Environment;
 use super::FilePermissions;
@@ -156,6 +155,7 @@ impl RealEnvironment {
   #[cfg(test)]
   pub fn run_test_with_real_env(run_with_env: impl Fn(RealEnvironment) -> dprint_core::async_runtime::LocalBoxFuture<'static, ()>) {
     let rt = tokio::runtime::Builder::new_current_thread()
+      .enable_io()
       .enable_time()
       .thread_stack_size(crate::plugins::WASM_PLUGIN_THREAD_STACK_SIZE)
       .build()
@@ -257,28 +257,7 @@ impl UrlDownloader for RealEnvironment {
   async fn download_file_no_redirects(&self, url: &Url, options: DownloadOptions<'_>) -> Result<Option<DownloadedFile>> {
     log_debug!(self, "Downloading url: {}", url);
 
-    let downloader = self.url_downloader.clone();
-    let url = url.clone();
-    let auth = options.auth.map(|s| s.to_string());
-    let proxy_url = match options.proxy {
-      DownloadProxy::Url(url) => Some(url.to_string()),
-      DownloadProxy::Environment | DownloadProxy::Direct => None,
-    };
-    let is_direct = options.proxy == DownloadProxy::Direct;
-    dprint_core::async_runtime::spawn_blocking(move || {
-      downloader.download(
-        &url,
-        DownloadOptions {
-          auth: auth.as_deref(),
-          proxy: match &proxy_url {
-            Some(url) => DownloadProxy::Url(url),
-            None if is_direct => DownloadProxy::Direct,
-            None => DownloadProxy::Environment,
-          },
-        },
-      )
-    })
-    .await?
+    self.url_downloader.download(url, options).await
   }
 }
 
