@@ -11,10 +11,13 @@ use deno_tower_lsp::CancellationToken;
 use deno_tower_lsp::LanguageServer;
 use deno_tower_lsp::LspService;
 use deno_tower_lsp::Server;
+use deno_tower_lsp::jsonrpc::Error as LspError;
 use deno_tower_lsp::jsonrpc::Result as LspResult;
+use deno_tower_lsp::lsp_types::ClientCapabilities;
 use deno_tower_lsp::lsp_types::CompletionList;
 use deno_tower_lsp::lsp_types::CompletionParams;
 use deno_tower_lsp::lsp_types::CompletionResponse;
+use deno_tower_lsp::lsp_types::DidChangeConfigurationParams;
 use deno_tower_lsp::lsp_types::DidChangeNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidChangeTextDocumentParams;
 use deno_tower_lsp::lsp_types::DidChangeWorkspaceFoldersParams;
@@ -24,6 +27,8 @@ use deno_tower_lsp::lsp_types::DidOpenNotebookDocumentParams;
 use deno_tower_lsp::lsp_types::DidOpenTextDocumentParams;
 use deno_tower_lsp::lsp_types::DocumentFormattingParams;
 use deno_tower_lsp::lsp_types::DocumentRangeFormattingParams;
+use deno_tower_lsp::lsp_types::ExecuteCommandOptions;
+use deno_tower_lsp::lsp_types::ExecuteCommandParams;
 use deno_tower_lsp::lsp_types::FormattingOptions;
 use deno_tower_lsp::lsp_types::FormattingProperty;
 use deno_tower_lsp::lsp_types::Hover;
@@ -31,8 +36,11 @@ use deno_tower_lsp::lsp_types::HoverParams;
 use deno_tower_lsp::lsp_types::InitializeParams;
 use deno_tower_lsp::lsp_types::InitializeResult;
 use deno_tower_lsp::lsp_types::InitializedParams;
+use deno_tower_lsp::lsp_types::MessageActionItem;
+use deno_tower_lsp::lsp_types::MessageType;
 use deno_tower_lsp::lsp_types::OneOf;
 use deno_tower_lsp::lsp_types::Position;
+use deno_tower_lsp::lsp_types::Range;
 use deno_tower_lsp::lsp_types::Registration;
 use deno_tower_lsp::lsp_types::ServerCapabilities;
 use deno_tower_lsp::lsp_types::ServerInfo;
@@ -41,6 +49,7 @@ use deno_tower_lsp::lsp_types::TextDocumentSyncKind;
 use deno_tower_lsp::lsp_types::TextDocumentSyncOptions;
 use deno_tower_lsp::lsp_types::TextEdit;
 use deno_tower_lsp::lsp_types::Uri;
+use deno_tower_lsp::lsp_types::WorkspaceEdit;
 use deno_tower_lsp::lsp_types::WorkspaceFolder;
 use deno_tower_lsp::lsp_types::WorkspaceFoldersServerCapabilities;
 use deno_tower_lsp::lsp_types::WorkspaceServerCapabilities;
@@ -57,6 +66,7 @@ use tokio::try_join;
 use url::Url;
 
 use crate::arg_parser::CliArgs;
+use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
 use crate::plugins::PluginResolver;
@@ -68,10 +78,18 @@ use self::config_completion::ConfigCompletions;
 use self::config_completion::get_config_file_capabilities;
 use self::config_completion::is_config_uri;
 use self::documents::Documents;
+use self::no_config::DISMISS_ACTION_TITLE;
+use self::no_config::DISMISS_WORKSPACE_ACTION_TITLE;
+use self::no_config::NoConfigMessageOptions;
+use self::no_config::NoConfigNotificationDismissal;
+use self::no_config::dismiss_no_config_notification;
+use self::no_config::get_no_config_message;
+use self::no_config::is_no_config_notification_dismissed;
 use self::notebook::get_notebook_cell_file_path;
 use self::notebook::get_notebook_cell_format_registrations;
 use self::notebook::get_notebook_document_sync_options;
 use self::notebook::trim_formatted_cell_text;
+use self::settings::LspSettings;
 use self::text::LineIndex;
 use self::text::get_edits;
 use self::text::normalize_to_source_line_endings;
@@ -84,15 +102,22 @@ mod config;
 mod config_completion;
 mod documents;
 mod language;
+mod no_config;
 mod notebook;
+mod settings;
 mod text;
 mod untitled;
 
 /// The formatting option a client provides in a format request to format a
 /// document without a config file in an ancestor directory using the global
-/// config file when the server doesn't use the global config file by default
-/// (ex. for a command that explicitly formats using the global config file).
+/// config file when the server isn't set to use the global config file.
 const USE_GLOBAL_CONFIG_OPTION: &str = "useGlobalConfig";
+
+/// The commands for formatting a document or a range of it using the global
+/// config file when there's no config file in an ancestor directory, which
+/// work regardless of whether the server is set to use the global config file.
+const FORMAT_WITH_GLOBAL_CONFIG_COMMAND: &str = "dprint.formatWithGlobalConfig";
+const FORMAT_SELECTION_WITH_GLOBAL_CONFIG_COMMAND: &str = "dprint.formatSelectionWithGlobalConfig";
 
 // deno_tower_lsp will drop the future on cancellation,
 // so use this to cancel the containing token on drop.
@@ -174,19 +199,85 @@ struct EditorFormatRequest {
   pub file_text: String,
   pub maybe_line_index: Option<LineIndex>,
   pub range: FormatRange,
-  /// Whether the client asked to use the global config file.
+  /// Whether to use the global config file when there's no config file in
+  /// an ancestor directory.
   pub use_global_config: bool,
   pub token: Arc<CancellationToken>,
+}
+
+enum FormatOutcome {
+  Edits(Vec<TextEdit>),
+  NotFormatted(NotFormattedReason),
+}
+
+impl FormatOutcome {
+  /// Gets the response for a format request.
+  fn into_edits(self) -> Option<Vec<TextEdit>> {
+    match self {
+      FormatOutcome::Edits(edits) => Some(edits),
+      FormatOutcome::NotFormatted(_) => None,
+    }
+  }
+}
+
+/// Why a document wasn't formatted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NotFormattedReason {
+  Cancelled,
+  /// There's no config file in an ancestor directory and the global config
+  /// file isn't used or doesn't exist.
+  NoConfigFile,
+  /// The config file doesn't format the file (ex. its includes and excludes
+  /// don't match it).
+  NotMatched,
+  /// No plugin in the config file handles the file.
+  NoPlugin,
+  /// The document is already formatted.
+  Unchanged,
+  /// Formatting failed, which is logged.
+  Failed,
+}
+
+impl NotFormattedReason {
+  /// Gets the message to show when an explicitly run format command didn't
+  /// format the document.
+  fn message(&self) -> Option<(MessageType, String)> {
+    match self {
+      NotFormattedReason::Cancelled | NotFormattedReason::Unchanged => None,
+      NotFormattedReason::NoConfigFile => Some((
+        MessageType::INFO,
+        get_no_config_message(NoConfigMessageOptions {
+          use_global_config: true,
+          has_global_config: false,
+        }),
+      )),
+      NotFormattedReason::NotMatched => Some((
+        MessageType::INFO,
+        "dprint did not format this document because the configuration file in use doesn't format it (ex. its \"includes\" and \"excludes\" don't match it)."
+          .to_string(),
+      )),
+      NotFormattedReason::NoPlugin => Some((
+        MessageType::INFO,
+        "dprint did not format this document because no plugin in the configuration file in use handles it.".to_string(),
+      )),
+      NotFormattedReason::Failed => Some((
+        MessageType::WARNING,
+        "dprint failed to format this document. See the language server's log for details.".to_string(),
+      )),
+    }
+  }
 }
 
 struct ConfigEditorRequest {
   pub file_path: PathBuf,
   pub file_text: String,
   pub position: Position,
+  /// Whether a config file that inherits may inherit from the global config file.
+  pub use_global_config: bool,
 }
 
 enum ChannelMessage {
-  Format(EditorFormatRequest, oneshot::Sender<Result<Option<Vec<TextEdit>>>>),
+  Format(EditorFormatRequest, oneshot::Sender<Result<FormatOutcome>>),
   Completion(ConfigEditorRequest, oneshot::Sender<Option<CompletionList>>),
   Hover(ConfigEditorRequest, oneshot::Sender<Option<Hover>>),
   Shutdown(oneshot::Sender<()>),
@@ -200,20 +291,20 @@ async fn handle_format_request<TEnvironment: Environment>(
   scope_container: Rc<LspPluginsScopeContainer<TEnvironment>>,
   ensure_stable_format: EnsureStableFormat,
   environment: &TEnvironment,
-) -> Result<Option<Vec<TextEdit>>> {
+) -> Result<FormatOutcome> {
   let Some(parent_dir) = request.file_path.parent() else {
     // the backend doesn't send this, so it's an error that also goes to the client
     bail!("Cannot format non-file path: {}", request.file_path.display());
   };
   if request.token.is_cancelled() {
-    return Ok(None);
+    return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Cancelled));
   }
   let Some(scope) = scope_container.resolve_by_path(parent_dir, request.use_global_config).await? else {
     log_stderr_info!(environment, "Path did not have a dprint config file: {}", request.file_path.display());
-    return Ok(None);
+    return Ok(FormatOutcome::NotFormatted(NotFormattedReason::NoConfigFile));
   };
   if request.token.is_cancelled() {
-    return Ok(None);
+    return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Cancelled));
   }
   // canonicalize the paths
   request.file_path = canonicalize_path(environment, request.file_path);
@@ -233,9 +324,14 @@ async fn handle_format_request<TEnvironment: Environment>(
       "Excluded file: {}",
       request.notebook_path.as_ref().unwrap_or(&request.file_path).display()
     );
-    return Ok(None);
+    return Ok(FormatOutcome::NotFormatted(NotFormattedReason::NotMatched));
   }
 
+  let has_plugin = !scope
+    .plugin_name_maps
+    .get_plugin_names_from_file_path_and_bytes(&request.file_path, request.file_text.as_bytes())
+    .is_empty();
+  let token = request.token.clone();
   // the range is given to the plugin, but is needed after for a notebook cell
   let maybe_cell_range = request.notebook_path.as_ref().map(|_| request.range.clone());
   let Some(result) = scope
@@ -251,7 +347,13 @@ async fn handle_format_request<TEnvironment: Environment>(
     )
     .await?
   else {
-    return Ok(None);
+    return Ok(FormatOutcome::NotFormatted(if token.is_cancelled() {
+      NotFormattedReason::Cancelled
+    } else if has_plugin {
+      NotFormattedReason::Unchanged
+    } else {
+      NotFormattedReason::NoPlugin
+    }));
   };
   dprint_core::async_runtime::spawn_blocking(move || {
     let new_text = String::from_utf8(result).context("Failed converting formatted text to utf-8.")?;
@@ -262,14 +364,14 @@ async fn handle_format_request<TEnvironment: Environment>(
       Some(range) => {
         let new_text = trim_formatted_cell_text(&request.file_text, new_text, &range);
         if new_text == request.file_text {
-          return Ok(None);
+          return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Unchanged));
         }
         new_text
       }
       None => new_text,
     };
     let line_index = request.maybe_line_index.unwrap_or_else(|| LineIndex::new(&request.file_text));
-    Ok(Some(get_edits(&request.file_text, &new_text, &line_index)))
+    Ok(FormatOutcome::Edits(get_edits(&request.file_text, &new_text, &line_index)))
   })
   .await?
 }
@@ -346,14 +448,18 @@ fn start_message_handler<TEnvironment: Environment>(
         ChannelMessage::Completion(request, sender) => {
           let config_completions = config_completions.clone();
           dprint_core::async_runtime::spawn(async move {
-            let result = config_completions.completions(&request.file_path, &request.file_text, request.position).await;
+            let result = config_completions
+              .completions(&request.file_path, &request.file_text, request.position, request.use_global_config)
+              .await;
             let _ = sender.send(result);
           });
         }
         ChannelMessage::Hover(request, sender) => {
           let config_completions = config_completions.clone();
           dprint_core::async_runtime::spawn(async move {
-            let result = config_completions.hover(&request.file_path, &request.file_text, request.position).await;
+            let result = config_completions
+              .hover(&request.file_path, &request.file_text, request.position, request.use_global_config)
+              .await;
             let _ = sender.send(result);
           });
         }
@@ -386,6 +492,11 @@ struct State<TEnvironment: Environment> {
   pending_registrations: Vec<Registration>,
   /// The paths of the client's workspace folders on the file system.
   workspace_folders: Vec<PathBuf>,
+  settings: LspSettings,
+  /// Whether the client shows the actions of a `window/showMessageRequest`.
+  supports_message_actions: bool,
+  /// Whether the user was notified this session about a file without a config file.
+  has_notified_no_config: bool,
 }
 
 struct Backend<TEnvironment: Environment> {
@@ -399,24 +510,154 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   pub fn new(client: ClientWrapper, environment: TEnvironment, sender: mpsc::UnboundedSender<ChannelMessage>) -> Self {
     Backend {
       client,
-      environment: environment.clone(),
       sender,
       state: Mutex::new(State {
-        documents: Documents::new(environment),
+        settings: LspSettings::from_environment(&environment),
+        documents: Documents::new(environment.clone()),
         pending_registrations: Vec::new(),
         workspace_folders: Vec::new(),
+        supports_message_actions: false,
+        has_notified_no_config: false,
       }),
+      environment,
     }
   }
 
-  async fn send_format_request(&self, uri: &Uri, request: EditorFormatRequest) -> LspResult<Option<Vec<TextEdit>>> {
+  /// Formats the document for a format request, notifying the user when it
+  /// isn't formatted because there's no config file.
+  async fn format_document(&self, uri: &Uri, range: Option<Range>, options: &FormattingOptions, token: CancellationToken) -> Option<Vec<TextEdit>> {
+    let use_global_config = self.state.lock().settings.use_global_config || has_use_global_config_option(options);
+    let outcome = self.format(uri, range, use_global_config, token).await?;
+    if matches!(outcome, FormatOutcome::NotFormatted(NotFormattedReason::NoConfigFile)) {
+      self.notify_no_config();
+    }
+    outcome.into_edits()
+  }
+
+  /// Formats the document or a range of it using the global config file when
+  /// there's no config file in an ancestor directory and applies the edits.
+  /// The user explicitly ran the command, so this always says why when the
+  /// document wasn't formatted except for when it's already formatted.
+  async fn format_with_global_config(&self, uri: &Uri, range: Option<Range>, token: CancellationToken) {
+    let version = self.state.lock().documents.get_version(uri);
+    let outcome = match self.format(uri, range, true, token).await {
+      Some(outcome) => outcome,
+      // why was logged
+      None => FormatOutcome::NotFormatted(NotFormattedReason::Failed),
+    };
+    let reason = match outcome {
+      FormatOutcome::Edits(edits) => {
+        // the edits don't apply to the document anymore when it changed while formatting
+        if edits.is_empty() || self.state.lock().documents.get_version(uri) != version {
+          return;
+        }
+        let edit = WorkspaceEdit {
+          changes: Some(HashMap::from([(uri.clone(), edits)])),
+          ..Default::default()
+        };
+        match self.client.apply_edit(edit).await {
+          Ok(()) => return,
+          Err(err) => {
+            let message = format!("Failed applying the edits for '{}': {:#}", uri.as_str(), err);
+            log_error!(self.environment, "{}", message);
+            self.client.log_error(message);
+            NotFormattedReason::Failed
+          }
+        }
+      }
+      FormatOutcome::NotFormatted(reason) => reason,
+    };
+    if let Some((message_type, message)) = reason.message() {
+      self.client.show_message(message_type, message);
+    }
+  }
+
+  /// Formats the document or a range of it, which is `None` when the document
+  /// can't be formatted and why was logged.
+  async fn format(&self, uri: &Uri, range: Option<Range>, use_global_config: bool, token: CancellationToken) -> Option<FormatOutcome> {
+    let (file_path, notebook_path) = self.ok_or_log_format_warning(self.resolve_format_paths(uri))?;
+    let (file_text, range, maybe_line_index) = match range {
+      Some(range) => {
+        let content = self.state.lock().documents.get_content_with_range(uri, range);
+        let (file_text, range, line_index) = self.ok_or_log_format_warning(content)?;
+        (file_text, range, Some(line_index))
+      }
+      None => {
+        let content = self.state.lock().documents.get_content(uri);
+        let (file_text, maybe_line_index) = self.ok_or_log_format_warning(content)?;
+        (file_text, None, maybe_line_index)
+      }
+    };
+    let request = EditorFormatRequest {
+      file_path,
+      notebook_path,
+      file_text,
+      range,
+      use_global_config,
+      maybe_line_index,
+      token: Arc::new(token),
+    };
+    Some(self.send_format_request(uri, request).await)
+  }
+
+  /// Notifies the user that a file wasn't formatted because no config file
+  /// was found for it. This is only done once per session to not annoy people.
+  fn notify_no_config(&self) {
+    let (settings, workspace_folders, supports_message_actions) = {
+      let mut state = self.state.lock();
+      if !state.settings.show_no_config_notification || state.has_notified_no_config {
+        return;
+      }
+      state.has_notified_no_config = true;
+      (state.settings, state.workspace_folders.clone(), state.supports_message_actions)
+    };
+    if is_no_config_notification_dismissed(&self.environment, &workspace_folders) {
+      return;
+    }
+    let has_global_config = !settings.use_global_config && matches!(resolve_global_config_path_and_text(&self.environment), Ok(Some(_)));
+    let message = get_no_config_message(NoConfigMessageOptions {
+      use_global_config: settings.use_global_config,
+      has_global_config,
+    });
+    // the notification can only be dismissed for good in a client that shows the actions
+    if !supports_message_actions {
+      self.client.show_message(MessageType::INFO, message);
+      return;
+    }
+    let mut actions = Vec::new();
+    if !workspace_folders.is_empty() {
+      actions.push(new_message_action(DISMISS_WORKSPACE_ACTION_TITLE));
+    }
+    actions.push(new_message_action(DISMISS_ACTION_TITLE));
+    let selection = self.client.show_message_request(MessageType::INFO, message, actions);
+    let client = self.client.clone();
+    let environment = self.environment.clone();
+    // don't wait on this because it only resolves once the user responds
+    dprint_core::async_runtime::spawn(async move {
+      let Some(selection) = selection.await else {
+        return;
+      };
+      let dismissal = if selection.title == DISMISS_WORKSPACE_ACTION_TITLE {
+        NoConfigNotificationDismissal::WorkspaceFolders(workspace_folders)
+      } else {
+        NoConfigNotificationDismissal::Everywhere
+      };
+      if let Err(err) = dismiss_no_config_notification(&environment, dismissal) {
+        let message = format!("Failed storing to not show the no configuration file notification: {:#}", err);
+        log_warn!(environment, "{}", message);
+        client.log_warn(message);
+      }
+    });
+  }
+
+  async fn send_format_request(&self, uri: &Uri, request: EditorFormatRequest) -> FormatOutcome {
     let start_time = std::time::Instant::now();
     log_debug!(self.environment, "Received format request for {}", uri.as_str());
     let mut drop_token = DropToken::new(request.token.clone());
     let result = self.send_format_request_inner(request).await;
     drop_token.completed();
     let result = match result {
-      Ok(value) => Ok(value),
+      Ok(value) => value,
       Err(err) => {
         // Not a response error or a shown message because failing to format is
         // what happens for a file with a syntax error, which would notify the
@@ -430,7 +671,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
           message.push_str(diagnostic);
         }
         self.client.log_error(message);
-        Ok(None)
+        FormatOutcome::NotFormatted(NotFormattedReason::Failed)
       }
     };
     log_debug!(
@@ -516,7 +757,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
     }
   }
 
-  async fn send_format_request_inner(&self, request: EditorFormatRequest) -> Result<Option<Vec<TextEdit>>> {
+  async fn send_format_request_inner(&self, request: EditorFormatRequest) -> Result<FormatOutcome> {
     let (sender, receiver) = oneshot::channel();
     self.sender.send(ChannelMessage::Format(request, sender))?;
     receiver.await?
@@ -543,6 +784,10 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     let config_file_capabilities = get_config_file_capabilities(&params.capabilities);
     {
       let mut state = self.state.lock();
+      if let Some(options) = &params.initialization_options {
+        state.settings.update(options);
+      }
+      state.supports_message_actions = supports_message_actions(&params.capabilities);
       state.pending_registrations = get_notebook_cell_format_registrations(&params.capabilities);
       state.pending_registrations.extend(get_untitled_registrations(&params.capabilities));
       state.pending_registrations.extend(config_file_capabilities.registrations);
@@ -568,6 +813,13 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
         document_range_formatting_provider: Some(OneOf::Left(true)),
         completion_provider: config_file_capabilities.completion_provider,
         hover_provider: config_file_capabilities.hover_provider,
+        execute_command_provider: Some(ExecuteCommandOptions {
+          commands: vec![
+            FORMAT_WITH_GLOBAL_CONFIG_COMMAND.to_string(),
+            FORMAT_SELECTION_WITH_GLOBAL_CONFIG_COMMAND.to_string(),
+          ],
+          work_done_progress_options: Default::default(),
+        }),
         workspace: Some(WorkspaceServerCapabilities {
           workspace_folders: Some(WorkspaceFoldersServerCapabilities {
             supported: Some(true),
@@ -592,6 +844,10 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
     if !registrations.is_empty() {
       self.client.register_capabilities(registrations);
     }
+  }
+
+  async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
+    self.state.lock().settings.update(&params.settings);
   }
 
   async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
@@ -647,51 +903,37 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
   }
 
   async fn formatting(&self, params: DocumentFormattingParams, token: CancellationToken) -> LspResult<Option<Vec<TextEdit>>> {
-    let Some((file_path, notebook_path)) = self.ok_or_log_format_warning(self.resolve_format_paths(&params.text_document.uri)) else {
-      return Ok(None);
-    };
-    let content = self.state.lock().documents.get_content(&params.text_document.uri);
-    let Some((file_text, maybe_line_index)) = self.ok_or_log_format_warning(content) else {
-      return Ok(None);
-    };
-    self
-      .send_format_request(
-        &params.text_document.uri,
-        EditorFormatRequest {
-          file_path,
-          notebook_path,
-          file_text,
-          range: None,
-          use_global_config: has_use_global_config_option(&params.options),
-          maybe_line_index,
-          token: Arc::new(token),
-        },
-      )
-      .await
+    Ok(self.format_document(&params.text_document.uri, None, &params.options, token).await)
   }
 
   async fn range_formatting(&self, params: DocumentRangeFormattingParams, token: CancellationToken) -> LspResult<Option<Vec<TextEdit>>> {
-    let Some((file_path, notebook_path)) = self.ok_or_log_format_warning(self.resolve_format_paths(&params.text_document.uri)) else {
-      return Ok(None);
+    Ok(
+      self
+        .format_document(&params.text_document.uri, Some(params.range), &params.options, token)
+        .await,
+    )
+  }
+
+  async fn execute_command(&self, params: ExecuteCommandParams, token: CancellationToken) -> LspResult<Option<serde_json::Value>> {
+    let has_range = match params.command.as_str() {
+      FORMAT_WITH_GLOBAL_CONFIG_COMMAND => false,
+      FORMAT_SELECTION_WITH_GLOBAL_CONFIG_COMMAND => true,
+      command => return Err(LspError::invalid_params(format!("Unknown command: {}", command))),
     };
-    let content = self.state.lock().documents.get_content_with_range(&params.text_document.uri, params.range);
-    let Some((file_text, range, line_index)) = self.ok_or_log_format_warning(content) else {
-      return Ok(None);
+    let mut arguments = params.arguments.into_iter();
+    let Some(uri) = arguments.next().and_then(|value| serde_json::from_value::<Uri>(value).ok()) else {
+      return Err(LspError::invalid_params("Expected the first argument to be the uri of the document to format."));
     };
-    self
-      .send_format_request(
-        &params.text_document.uri,
-        EditorFormatRequest {
-          file_path,
-          notebook_path,
-          file_text,
-          range,
-          use_global_config: has_use_global_config_option(&params.options),
-          maybe_line_index: Some(line_index),
-          token: Arc::new(token),
-        },
-      )
-      .await
+    let range = if has_range {
+      let Some(range) = arguments.next().and_then(|value| serde_json::from_value::<Range>(value).ok()) else {
+        return Err(LspError::invalid_params("Expected the second argument to be the range to format."));
+      };
+      Some(range)
+    } else {
+      None
+    };
+    self.format_with_global_config(&uri, range, token).await;
+    Ok(None)
   }
 
   async fn completion(&self, params: CompletionParams, _token: CancellationToken) -> LspResult<Option<CompletionResponse>> {
@@ -710,6 +952,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       file_path,
       file_text,
       position: params.text_document_position.position,
+      use_global_config: self.state.lock().settings.use_global_config,
     };
     if self.sender.send(ChannelMessage::Completion(request, sender)).is_err() {
       return Ok(None);
@@ -733,6 +976,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       file_path,
       file_text,
       position: params.text_document_position_params.position,
+      use_global_config: self.state.lock().settings.use_global_config,
     };
     if self.sender.send(ChannelMessage::Hover(request, sender)).is_err() {
       return Ok(None);
@@ -798,6 +1042,21 @@ fn has_use_global_config_option(options: &FormattingOptions) -> bool {
   matches!(options.properties.get(USE_GLOBAL_CONFIG_OPTION), Some(FormattingProperty::Bool(true)))
 }
 
+fn supports_message_actions(capabilities: &ClientCapabilities) -> bool {
+  capabilities
+    .window
+    .as_ref()
+    .and_then(|window| window.show_message.as_ref())
+    .is_some_and(|show_message| show_message.message_action_item.is_some())
+}
+
+fn new_message_action(title: &str) -> MessageActionItem {
+  MessageActionItem {
+    title: title.to_string(),
+    properties: Default::default(),
+  }
+}
+
 fn get_workspace_folder_paths(folders: &[WorkspaceFolder]) -> Vec<PathBuf> {
   folders.iter().filter_map(|folder| uri_to_file_path(&folder.uri)).collect()
 }
@@ -824,6 +1083,7 @@ mod test {
   use deno_tower_lsp::lsp_types::Position;
   use deno_tower_lsp::lsp_types::Range;
   use deno_tower_lsp::lsp_types::Registration;
+  use deno_tower_lsp::lsp_types::ShowMessageRequestClientCapabilities;
   use deno_tower_lsp::lsp_types::TextDocumentClientCapabilities;
   use deno_tower_lsp::lsp_types::TextDocumentContentChangeEvent;
   use deno_tower_lsp::lsp_types::TextDocumentIdentifier;
@@ -831,7 +1091,10 @@ mod test {
   use deno_tower_lsp::lsp_types::TextDocumentPositionParams;
   use deno_tower_lsp::lsp_types::VersionedNotebookDocumentIdentifier;
   use deno_tower_lsp::lsp_types::VersionedTextDocumentIdentifier;
+  use deno_tower_lsp::lsp_types::WindowClientCapabilities;
   use deno_tower_lsp::lsp_types::WorkspaceFoldersChangeEvent;
+  use dprint_core::async_runtime::FutureExt;
+  use dprint_core::async_runtime::LocalBoxFuture;
   use dprint_core::async_runtime::future;
 
   use crate::environment::TestConfigFileBuilder;
@@ -2062,6 +2325,7 @@ mod test {
           backend
             .initialize(InitializeParams {
               process_id: Some(std::process::id()),
+              initialization_options: Some(serde_json::json!({ "useGlobalConfig": true })),
               ..Default::default()
             })
             .await
@@ -2129,6 +2393,7 @@ mod test {
           backend
             .initialize(InitializeParams {
               process_id: Some(std::process::id()),
+              initialization_options: Some(serde_json::json!({ "useGlobalConfig": true })),
               ..Default::default()
             })
             .await
@@ -2175,7 +2440,7 @@ mod test {
   }
 
   #[test]
-  fn should_not_use_global_config_with_lsp_when_opted_out() {
+  fn should_not_use_global_config_with_lsp_by_default() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
       .with_global_config(|c| {
@@ -2183,7 +2448,6 @@ mod test {
       })
       .initialize()
       .build();
-    environment.set_env_var("DPRINT_EDITOR_USE_GLOBAL_CONFIG", Some("false"));
 
     environment.clone().run_in_runtime(async move {
       let (backend, recv_task, test_client) = setup_backend(environment.clone());
@@ -2241,6 +2505,14 @@ mod test {
             .await;
           assert!(result.unwrap().is_some());
 
+          // uses the global config once the client changes the setting
+          backend
+            .did_change_configuration(DidChangeConfigurationParams {
+              settings: serde_json::json!({ "dprint": { "useGlobalConfig": true } }),
+            })
+            .await;
+          assert_format!(backend, file_uri, formatted);
+
           backend.shutdown().await.unwrap();
         }
       });
@@ -2257,6 +2529,362 @@ mod test {
           (MessageType::INFO, "Server ready.".to_string())
         ]
       );
+      // says how to use the global config file
+      assert_eq!(
+        test_client.take_shown_messages(),
+        vec![(
+          MessageType::INFO,
+          "No dprint configuration file found. Run \"dprint init\" in your project to create one or enable the \"useGlobalConfig\" setting of the dprint language server to use your global one.".to_string(),
+          Vec::new()
+        )]
+      );
+    });
+  }
+
+  #[test]
+  fn should_use_global_config_with_lsp_when_env_var_set() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt");
+      })
+      .initialize()
+      .build();
+    environment.set_env_var("DPRINT_EDITOR_USE_GLOBAL_CONFIG", Some("true"));
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let run_test_task = dprint_core::async_runtime::spawn(async move {
+        initialize_backend(&backend, Default::default()).await;
+
+        let file_uri = Uri::from_str("file:///file.txt").unwrap();
+        did_open!(backend, file_uri, "testing");
+        assert_format!(
+          backend,
+          file_uri,
+          Some(vec![TextEdit {
+            range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+            new_text: "_formatted".to_string()
+          }])
+        );
+
+        // the client's setting takes priority
+        backend
+          .did_change_configuration(DidChangeConfigurationParams {
+            settings: serde_json::json!({ "useGlobalConfig": false }),
+          })
+          .await;
+        assert_format!(backend, file_uri, None);
+
+        backend.shutdown().await.unwrap();
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+      test_client.take_messages();
+      assert_eq!(
+        environment.take_stderr_messages(),
+        vec!["Path did not have a dprint config file: /file.txt".to_string()]
+      );
+    });
+  }
+
+  #[test]
+  fn should_notify_once_when_no_config_file_with_lsp() {
+    let environment = TestEnvironmentBuilder::new().build();
+    environment.set_env_var("DPRINT_CONFIG_DIR", Some("/global-config"));
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let test_client = test_client.clone();
+        async move {
+          initialize_backend(
+            &backend,
+            InitializeParams {
+              capabilities: message_actions_capabilities(),
+              ..Default::default()
+            },
+          )
+          .await;
+
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
+          did_open!(backend, file_uri, "testing");
+          assert_format!(backend, file_uri, None);
+          // there's no workspace folder to not show it in
+          assert_eq!(
+            test_client.take_shown_messages(),
+            vec![(
+              MessageType::INFO,
+              "No dprint configuration file found. Run \"dprint init\" in your project to create one.".to_string(),
+              vec!["Don't show again".to_string()]
+            )]
+          );
+
+          // only notifies once per session
+          assert_format!(backend, file_uri, None);
+          let result = backend
+            .range_formatting(
+              DocumentRangeFormattingParams {
+                text_document: TextDocumentIdentifier { uri: file_uri.clone() },
+                range: Range::new(Position::new(0, 0), Position::new(0, 7)),
+                options: Default::default(),
+                work_done_progress_params: Default::default(),
+              },
+              CancellationToken::new(),
+            )
+            .await;
+          assert_eq!(result.unwrap(), None);
+          assert_eq!(test_client.take_shown_messages(), Vec::new());
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+      test_client.take_messages();
+      environment.take_stderr_messages();
+    });
+  }
+
+  #[test]
+  fn should_not_notify_when_no_config_file_with_lsp_when_setting_disabled() {
+    let environment = TestEnvironmentBuilder::new().build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let test_client = test_client.clone();
+        async move {
+          initialize_backend(
+            &backend,
+            InitializeParams {
+              initialization_options: Some(serde_json::json!({ "showNoConfigNotification": false })),
+              ..Default::default()
+            },
+          )
+          .await;
+
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
+          did_open!(backend, file_uri, "testing");
+          assert_format!(backend, file_uri, None);
+          assert_eq!(test_client.take_shown_messages(), Vec::new());
+
+          // notifies once the client enables the setting
+          backend
+            .did_change_configuration(DidChangeConfigurationParams {
+              settings: serde_json::json!({ "dprint": { "showNoConfigNotification": true } }),
+            })
+            .await;
+          assert_format!(backend, file_uri, None);
+          assert_eq!(test_client.take_shown_messages().len(), 1);
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+      test_client.take_messages();
+      environment.take_stderr_messages();
+    });
+  }
+
+  #[test]
+  fn should_not_notify_when_no_config_file_with_lsp_after_dismissed() {
+    let environment = TestEnvironmentBuilder::new().build();
+    environment.set_env_var("DPRINT_CONFIG_DIR", Some("/global-config"));
+
+    environment.clone().run_in_runtime(async move {
+      // each backend is a session and returns the messages it showed
+      async fn run_session(environment: &TestEnvironment, workspace_folder: &str, selection: Option<&str>) -> Vec<(MessageType, String, Vec<String>)> {
+        let (backend, recv_task, test_client) = setup_backend(environment.clone());
+        if let Some(selection) = selection {
+          test_client.set_message_action_selection(selection);
+        }
+        let workspace_folder = workspace_folder.to_string();
+        let run_test_task = dprint_core::async_runtime::spawn(async move {
+          initialize_backend(
+            &backend,
+            InitializeParams {
+              capabilities: message_actions_capabilities(),
+              workspace_folders: Some(vec![WorkspaceFolder {
+                uri: Uri::from_str(&format!("file://{}", workspace_folder)).unwrap(),
+                name: "folder".to_string(),
+              }]),
+              ..Default::default()
+            },
+          )
+          .await;
+          let file_uri = Uri::from_str(&format!("file://{}/file.txt", workspace_folder)).unwrap();
+          did_open!(backend, file_uri, "testing");
+          assert_format!(backend, file_uri, None);
+          // let the task that stores the user's selection run
+          tokio::task::yield_now().await;
+          backend.shutdown().await.unwrap();
+        });
+        try_join!(recv_task, run_test_task).unwrap();
+        test_client.take_messages();
+        environment.take_stderr_messages();
+        test_client.take_shown_messages()
+      }
+
+      let actions = vec!["Don't show in this workspace".to_string(), "Don't show again".to_string()];
+      let message = "No dprint configuration file found. Run \"dprint init\" in your project to create one.".to_string();
+      let shown = vec![(MessageType::INFO, message, actions)];
+
+      // shows again in the next session when the user doesn't select an action
+      assert_eq!(run_session(&environment, "/project", None).await, shown);
+      assert_eq!(run_session(&environment, "/project", Some("Don't show in this workspace")).await, shown);
+      assert_eq!(run_session(&environment, "/project", None).await, Vec::new());
+      // still shows in other workspaces
+      assert_eq!(run_session(&environment, "/other", Some("Don't show again")).await, shown);
+      assert_eq!(run_session(&environment, "/another", None).await, Vec::new());
+    });
+  }
+
+  #[test]
+  fn should_format_with_global_config_commands_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.{txt,other}").add_excludes("ignored_file.txt");
+      })
+      .initialize()
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let test_client = test_client.clone();
+        async move {
+          let result = initialize_backend(&backend, Default::default()).await;
+          assert_eq!(
+            result.capabilities.execute_command_provider.unwrap().commands,
+            vec!["dprint.formatWithGlobalConfig", "dprint.formatSelectionWithGlobalConfig"]
+          );
+
+          // formats the document
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
+          did_open!(backend, file_uri, "testing");
+          execute_command(&backend, "dprint.formatWithGlobalConfig", vec![serde_json::json!(file_uri.as_str())])
+            .await
+            .unwrap();
+          let edits = vec![TextEdit {
+            range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+            new_text: "_formatted".to_string(),
+          }];
+          assert_eq!(
+            test_client.take_applied_edits(),
+            vec![WorkspaceEdit {
+              changes: Some(HashMap::from([(file_uri.clone(), edits.clone())])),
+              ..Default::default()
+            }]
+          );
+
+          // formats a range
+          let range = Range::new(Position::new(0, 0), Position::new(0, 7));
+          execute_command(
+            &backend,
+            "dprint.formatSelectionWithGlobalConfig",
+            vec![serde_json::json!(file_uri.as_str()), serde_json::to_value(range).unwrap()],
+          )
+          .await
+          .unwrap();
+          assert_eq!(test_client.take_applied_edits().len(), 1);
+          assert_eq!(test_client.take_shown_messages(), Vec::new());
+
+          // says nothing when already formatted
+          let formatted_uri = Uri::from_str("file:///formatted.txt").unwrap();
+          did_open!(backend, formatted_uri, "testing_formatted");
+          execute_command(&backend, "dprint.formatWithGlobalConfig", vec![serde_json::json!(formatted_uri.as_str())])
+            .await
+            .unwrap();
+          assert_eq!(test_client.take_shown_messages(), Vec::new());
+
+          // says why the document wasn't formatted
+          macro_rules! assert_not_formatted {
+            ($uri:expr, $message_type:expr, $message:expr) => {
+              let uri = Uri::from_str($uri).unwrap();
+              did_open!(backend, uri, "testing");
+              execute_command(&backend, "dprint.formatWithGlobalConfig", vec![serde_json::json!(uri.as_str())])
+                .await
+                .unwrap();
+              assert_eq!(test_client.take_shown_messages(), vec![($message_type, $message.to_string(), Vec::new())]);
+            };
+          }
+          assert_not_formatted!(
+            "file:///ignored_file.txt",
+            MessageType::INFO,
+            "dprint did not format this document because the configuration file in use doesn't format it (ex. its \"includes\" and \"excludes\" don't match it)."
+          );
+          assert_not_formatted!(
+            "file:///file.other",
+            MessageType::INFO,
+            "dprint did not format this document because no plugin in the configuration file in use handles it."
+          );
+          assert_not_formatted!(
+            "other:///file.txt",
+            MessageType::WARNING,
+            "dprint failed to format this document. See the language server's log for details."
+          );
+          assert_eq!(test_client.take_applied_edits(), Vec::new());
+
+          // invalid requests
+          for (command, arguments) in [
+            ("dprint.unknown", vec![serde_json::json!(file_uri.as_str())]),
+            ("dprint.formatWithGlobalConfig", vec![]),
+            ("dprint.formatWithGlobalConfig", vec![serde_json::json!(1)]),
+            ("dprint.formatSelectionWithGlobalConfig", vec![serde_json::json!(file_uri.as_str())]),
+          ] {
+            assert!(execute_command(&backend, command, arguments).await.is_err(), "{}", command);
+          }
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+      assert_eq!(
+        test_client.take_messages().into_iter().skip(2).collect::<Vec<_>>(),
+        vec![(
+          MessageType::WARNING,
+          "Cannot format document that is not a file, an untitled document or a cell of an open notebook: other:///file.txt".to_string()
+        )]
+      );
+      environment.take_stderr_messages();
+    });
+  }
+
+  #[test]
+  fn should_say_when_no_global_config_for_command_with_lsp() {
+    let environment = TestEnvironmentBuilder::new().build();
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let test_client = test_client.clone();
+        async move {
+          initialize_backend(&backend, Default::default()).await;
+          let file_uri = Uri::from_str("file:///file.txt").unwrap();
+          did_open!(backend, file_uri, "testing");
+          execute_command(&backend, "dprint.formatWithGlobalConfig", vec![serde_json::json!(file_uri.as_str())])
+            .await
+            .unwrap();
+          assert_eq!(
+            test_client.take_shown_messages(),
+            vec![(
+              MessageType::INFO,
+              "No dprint configuration file found. Run \"dprint init\" in your project to create one or \"dprint init --global\" to create a global one."
+                .to_string(),
+              Vec::new()
+            )]
+          );
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
+      test_client.take_messages();
+      environment.take_stderr_messages();
     });
   }
 
@@ -3061,6 +3689,44 @@ mod test {
     assert_eq!(get_exit_code(shutdown_received), 1);
   }
 
+  async fn initialize_backend(backend: &Backend<TestEnvironment>, params: InitializeParams) -> InitializeResult {
+    let result = backend
+      .initialize(InitializeParams {
+        process_id: Some(std::process::id()),
+        ..params
+      })
+      .await
+      .unwrap();
+    backend.initialized(InitializedParams {}).await;
+    result
+  }
+
+  async fn execute_command(backend: &Backend<TestEnvironment>, command: &str, arguments: Vec<serde_json::Value>) -> LspResult<Option<serde_json::Value>> {
+    backend
+      .execute_command(
+        ExecuteCommandParams {
+          command: command.to_string(),
+          arguments,
+          work_done_progress_params: Default::default(),
+        },
+        CancellationToken::new(),
+      )
+      .await
+  }
+
+  /// The capabilities of a client that shows the actions of a message.
+  fn message_actions_capabilities() -> ClientCapabilities {
+    ClientCapabilities {
+      window: Some(WindowClientCapabilities {
+        show_message: Some(ShowMessageRequestClientCapabilities {
+          message_action_item: Some(Default::default()),
+        }),
+        ..Default::default()
+      }),
+      ..Default::default()
+    }
+  }
+
   fn setup_backend(environment: TestEnvironment) -> (Backend<TestEnvironment>, JoinHandle<bool>, Arc<TestClient>) {
     setup_backend_with_config(environment, None)
   }
@@ -3081,6 +3747,11 @@ mod test {
   struct TestClient {
     logged_messages: Mutex<Vec<(MessageType, String)>>,
     registrations: Mutex<Vec<Registration>>,
+    /// The messages shown to the user along with the titles of their actions.
+    shown_messages: Mutex<Vec<(MessageType, String, Vec<String>)>>,
+    /// The title of the action to select when a message with actions is shown.
+    message_action_selection: Mutex<Option<String>>,
+    applied_edits: Mutex<Vec<WorkspaceEdit>>,
   }
 
   impl Drop for TestClient {
@@ -3105,6 +3776,18 @@ mod test {
     pub fn take_registered_methods(&self) -> Vec<String> {
       self.registrations.lock().drain(..).map(|r| r.method).collect()
     }
+
+    pub fn take_shown_messages(&self) -> Vec<(MessageType, String, Vec<String>)> {
+      self.shown_messages.lock().drain(..).collect()
+    }
+
+    pub fn set_message_action_selection(&self, title: &str) {
+      *self.message_action_selection.lock() = Some(title.to_string());
+    }
+
+    pub fn take_applied_edits(&self) -> Vec<WorkspaceEdit> {
+      self.applied_edits.lock().drain(..).collect()
+    }
   }
 
   impl ClientTrait for TestClient {
@@ -3114,6 +3797,28 @@ mod test {
 
     fn register_capabilities(&self, registrations: Vec<Registration>) {
       self.registrations.lock().extend(registrations);
+    }
+
+    fn show_message(&self, message_type: MessageType, message: String) {
+      self.shown_messages.lock().push((message_type, message, Vec::new()));
+    }
+
+    fn show_message_request(
+      &self,
+      message_type: MessageType,
+      message: String,
+      actions: Vec<MessageActionItem>,
+    ) -> LocalBoxFuture<'static, Option<MessageActionItem>> {
+      let selection = self.message_action_selection.lock().clone();
+      let selection = actions.iter().find(|action| Some(&action.title) == selection.as_ref()).cloned();
+      let titles = actions.into_iter().map(|action| action.title).collect();
+      self.shown_messages.lock().push((message_type, message, titles));
+      async move { selection }.boxed_local()
+    }
+
+    fn apply_edit(&self, edit: WorkspaceEdit) -> LocalBoxFuture<'static, Result<()>> {
+      self.applied_edits.lock().push(edit);
+      async move { Ok(()) }.boxed_local()
     }
   }
 }
