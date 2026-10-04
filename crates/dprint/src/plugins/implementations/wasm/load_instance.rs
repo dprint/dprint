@@ -11,6 +11,7 @@ use super::instance::Linker;
 use super::instance::Store;
 use super::instance::WasmHostState;
 use super::instance::get_current_plugin_schema_version;
+use super::instance::wasi::add_unsupported_wasi_imports;
 
 pub struct WasmInstance {
   inner: wasmtime::Instance,
@@ -39,14 +40,25 @@ impl WasmInstance {
 }
 
 /// Instantiates a compiled wasm module with the given linker, recording the
-/// instance's memory in the store data so host functions can reach it.
-pub fn load_instance(store: &mut Store, module: &WasmModule, linker: &Linker) -> Result<WasmInstance> {
+/// instance's memory in the store data so host functions can reach it, then
+/// runs the module's initializer when it has one.
+pub fn load_instance(store: &mut Store, module: &WasmModule, mut linker: Linker) -> Result<WasmInstance> {
+  if let Err(err) = add_unsupported_wasi_imports(&mut linker, store, &module.inner) {
+    bail!("Error instantiating module: {:#}", err);
+  }
   let instance = match linker.instantiate(&mut *store, &module.inner) {
     Ok(instance) => instance,
     Err(err) => bail!("Error instantiating module: {:#}", err),
   };
   if let Some(memory) = instance.get_memory(&mut *store, "memory") {
     store.data_mut().set_memory(memory);
+  }
+  // plugins linked against a WASI libc are "reactors", which need to be
+  // initialized before any of their other exports are called
+  if let Some(initialize) = instance.get_func(&mut *store, "_initialize")
+    && let Err(err) = initialize.call(&mut *store, &[], &mut [])
+  {
+    bail!("Error initializing module: {:#}", err);
   }
   Ok(WasmInstance {
     inner: instance,
@@ -176,4 +188,60 @@ fn new_engine() -> wasmtime::Engine {
   }
   config.max_wasm_stack(MAX_WASM_STACK_SIZE);
   Engine::new(&config).expect("failed to create wasmtime engine")
+}
+
+#[cfg(test)]
+mod tests {
+  use wasmtime::Val;
+
+  use super::super::instance::create_identity_import_object;
+  use super::*;
+
+  #[test]
+  fn initializes_wasi_reactor() {
+    let (mut store, instance) = load(
+      r#"(import "wasi_snapshot_preview1" "sock_shutdown" (func (param i32 i32) (result i32)))
+         (global $count (mut i32) (i32.const 0))
+         (func (export "_initialize") (global.set $count (i32.add (global.get $count) (i32.const 1))))
+         (func (export "get_count") (result i32) (global.get $count))"#,
+    )
+    .unwrap();
+    let mut results = [Val::I32(0)];
+    let get_count = instance.get_function(&mut store, "get_count").unwrap();
+    get_count.call(&mut store, &[], &mut results).unwrap();
+    assert_eq!(results[0].unwrap_i32(), 1);
+  }
+
+  #[test]
+  fn errors_when_initializing_fails() {
+    let err = load(
+      r#"(import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
+         (func (export "_initialize") (call $proc_exit (i32.const 1)))"#,
+    )
+    .err()
+    .unwrap();
+    let text = format!("{:#}", err);
+    assert!(text.starts_with("Error initializing module: "), "{}", text);
+    assert!(text.contains("The plugin attempted to exit with code 1."), "{}", text);
+  }
+
+  #[test]
+  fn errors_for_unknown_import() {
+    let err = load(r#"(import "dprint" "host_unknown" (func))"#).err().unwrap();
+    let text = format!("{:#}", err);
+    assert!(text.starts_with("Error instantiating module: "), "{}", text);
+    assert!(text.contains("host_unknown"), "{}", text);
+  }
+
+  fn load(body: &str) -> Result<(Store, WasmInstance)> {
+    let wasm = wat::parse_str(format!(
+      r#"(module {} (func (export "dprint_plugin_version_4") (result i32) (i32.const 4)))"#,
+      body
+    ))?;
+    let module = WasmModuleCreator::default().create_from_wasm_bytes(&wasm)?;
+    let linker = create_identity_import_object(module.version(), module.engine())?;
+    let mut store = module.new_store(WasmHostState::Empty);
+    let instance = load_instance(&mut store, &module, linker)?;
+    Ok((store, instance))
+  }
 }

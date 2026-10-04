@@ -40,6 +40,7 @@ use super::InitializedWasmPluginInstance;
 use super::Linker;
 use super::Store;
 use super::WasmHostState;
+use super::wasi;
 
 enum WasmFormatResult {
   NoChange,
@@ -63,8 +64,15 @@ pub struct ImportObjectEnvironmentV4 {
   host_format_sender: WasmHostFormatSender,
 }
 
+impl ImportObjectEnvironmentV4 {
+  pub fn log_output(&self, text: &str) {
+    (self.log)(text);
+  }
+}
+
 pub fn add_identity_imports(linker: &mut Linker) -> Result<()> {
-  linker.func_wrap("env", "fd_write", |_: u32, _: u32, _: u32, _: u32| -> u32 { 0 })?; // ignore
+  wasi::add_wasi_imports(linker)?;
+  linker.func_wrap("env", "fd_write", wasi::fd_write)?;
   linker.func_wrap("dprint", "host_write_buffer", |_: u32| {})?;
   linker.func_wrap(
     "dprint",
@@ -94,7 +102,8 @@ pub fn create_pools_import_object<TEnvironment: Environment>(
     host_format_sender,
   };
   let mut linker = Linker::new(engine);
-  linker.func_wrap("env", "fd_write", fd_write)?;
+  wasi::add_wasi_imports(&mut linker)?;
+  linker.func_wrap("env", "fd_write", wasi::fd_write)?;
   linker.func_wrap("dprint", "host_write_buffer", host_write_buffer)?;
   linker.func_wrap("dprint", "host_format", host_format)?;
   linker.func_wrap("dprint", "host_get_formatted_text", host_get_formatted_text)?;
@@ -115,41 +124,6 @@ fn env_mut<'a>(caller: &'a mut Caller<'_, WasmHostState>) -> &'a mut ImportObjec
     WasmHostState::V4(state) => state,
     _ => unreachable!("expected v4 host state"),
   }
-}
-
-fn fd_write(mut caller: Caller<'_, WasmHostState>, fd: u32, iovs_ptr: u32, iovs_len: u32, nwritten_ptr: u32) -> u32 {
-  let memory = env(&caller).memory.unwrap();
-  let log = env(&caller).log.clone();
-
-  let mut total_written: u32 = 0;
-  for i in 0..iovs_len {
-    let iovec_offset = (iovs_ptr + i * 8) as usize;
-    let mut iovec = [0u8; 8];
-    if memory.read(&caller, iovec_offset, &mut iovec).is_err() {
-      return 1;
-    }
-    let buf_addr = u32::from_le_bytes(iovec[0..4].try_into().unwrap());
-    let buf_len = u32::from_le_bytes(iovec[4..8].try_into().unwrap());
-
-    let mut bytes = vec![0u8; buf_len as usize];
-    if memory.read(&caller, buf_addr as usize, &mut bytes).is_err() {
-      return 1;
-    }
-
-    if matches!(fd, 1 | 2) {
-      log(&String::from_utf8_lossy(&bytes));
-    } else {
-      return 1; // unsupported fd
-    }
-
-    total_written += buf_len;
-  }
-
-  if memory.write(&mut caller, nwritten_ptr as usize, &total_written.to_le_bytes()).is_err() {
-    return 1;
-  }
-
-  0
 }
 
 fn host_write_buffer(mut caller: Caller<'_, WasmHostState>, buffer_pointer: u32) {
