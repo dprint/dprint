@@ -15,7 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/style.3a891da41e.css">
+    <link rel="stylesheet" href="/style.6e51b4603c.css">
   </head>
   <body>
     <nav class="site-nav" aria-label="Main">
@@ -145,56 +145,403 @@
     
     
     <div class="eyebrow">// plugins</div>
-    <h1>Plugins</h1>
+    
+
+<h1>Plugins</h1>
+
 <p>Dprint is made up of Wasm and process plugins.</p>
+
 <ul>
-<li>Wasm plugins are compiled to a <code>.wasm</code> file and run sandboxed.</li>
-<li>Process plugins are compiled to an executable file and do NOT run sandboxed.</li>
+  <li>Wasm plugins are compiled to a <code>.wasm</code> file and run sandboxed.</li>
+  <li>Process plugins are compiled to an executable file and do NOT run sandboxed.</li>
 </ul>
-<p>It would be ideal for all plugins to be Wasm plugins, but unfortunately many languages don't support compiling to a single <code>.wasm</code> file. Until then, process plugins exist.</p>
-<p>The setup for both is the same except process plugins require a checksum to be specified to ensure the downloaded file is the same as what was built on the CI pipeline.</p>
+
+<p>
+  It would be ideal for all plugins to be Wasm plugins, but unfortunately many languages don't support compiling to a single <code>.wasm</code> file. Until
+  then, process plugins exist.
+</p>
+
+<p>
+  The setup for both is the same except process plugins require a checksum to be specified to ensure the downloaded file is the same as what was built on the CI
+  pipeline.
+</p>
+
 <p>For the latest version and copy-paste URL of every plugin, see <a href="https://plugins.dprint.dev">plugins.dprint.dev</a>.</p>
-<h2 id="wasm-plugins" tabindex="-1"><a class="header-anchor" href="#wasm-plugins">Wasm Plugins</a></h2>
-<ul>
-<li><a href="/plugins/typescript">Typescript / JavaScript</a></li>
-<li><a href="/plugins/json">JSON</a></li>
-<li><a href="/plugins/markdown">Markdown</a></li>
-<li><a href="/plugins/toml">TOML</a></li>
-<li><a href="/plugins/dockerfile">Dockerfile</a></li>
-<li><a href="/plugins/biome">Biome</a> (JS/TS/JSON)</li>
-<li><a href="/plugins/oxc">Oxc</a> (JS/TS/JSON/CSS/SCSS/Less/GraphQL/YAML/TOML)</li>
-<li><a href="/plugins/malva">Malva</a> (CSS/SCSS/Sass/Less)</li>
-<li><a href="/plugins/markup_fmt">Markup_fmt</a> (HTML/Vue/Svelte/Astro/Angular/Jinja/Twig/Nunjucks/Vento)</li>
-<li><a href="/plugins/pretty_graphql">Pretty GraphQL</a> (GraphQL)</li>
-<li><a href="/plugins/pretty_yaml">Pretty YAML</a> (YAML)</li>
-<li><a href="/plugins/mago">Mago</a> (PHP)</li>
-<li><a href="/plugins/ruff">Ruff</a> (Python)</li>
-<li><a href="/plugins/jupyter">Jupyter</a></li>
-<li><a href="/plugins/gofumpt">Gofumpt</a> (Go)</li>
-<li><a href="/plugins/panache">Panache</a> (Quarto/Pandoc/R Markdown/Markdown)</li>
-<li><a href="/plugins/badness">Badness</a> (LaTeX/BibTeX)</li>
-<li><a href="/plugins/arity">Arity</a> (R)</li>
-<li><a href="/plugins/fatou">Fatou</a> (Julia)</li>
-<li><a href="/plugins/typstyle">Typstyle</a> (Typst)</li>
-<li><a href="/plugins/typstyle-kachick">Typstyle (kachick)</a> (Typst)</li>
-<li><a href="/plugins/nix">Nix</a></li>
-<li><a href="/plugins/kdl">KDL</a></li>
-<li><a href="/plugins/sh">Shell</a> (sh/Bash/Zsh)</li>
-<li><a href="/plugins/lax-css">Lax CSS</a> (CSS/SCSS/Less)</li>
-<li><a href="/plugins/lax-markup">Lax Markup</a> (HTML/XML/SVG/Vue/Svelte/Astro)</li>
-<li><a href="/plugins/lax-sql">Lax SQL</a> (SQL)</li>
-<li><a href="/plugins/clang-format">clang-format</a> (C/C++/Objective-C)</li>
-<li><a href="/plugins/cmakefmt">cmakefmt</a> (CMake)</li>
-<li><a href="/plugins/bibtex-tidy">bibtex-tidy</a> (BibTeX)</li>
-</ul>
-<h2 id="process-plugins" tabindex="-1"><a class="header-anchor" href="#process-plugins">Process Plugins</a></h2>
-<ul>
-<li><a href="/plugins/prettier">Prettier</a></li>
-<li><a href="/plugins/roslyn">Roslyn</a> (C#/VB)</li>
-<li><a href="/plugins/swift">Swift</a> (SwiftFormat)</li>
-<li><a href="/plugins/exec">Exec</a> - Works with any formatting CLI installed on the system.</li>
-</ul>
-<h2 id="using-wasm-plugins-in-the-browser%2C-deno%2C-or-node.js" tabindex="-1"><a class="header-anchor" href="#using-wasm-plugins-in-the-browser%2C-deno%2C-or-node.js">Using Wasm Plugins in the Browser, Deno, or Node.js</a></h2>
+
+
+  <h2 id="official-plugins" tabindex="-1"><a class="header-anchor" href="#official-plugins">Official Plugins</a></h2>
+  
+  <div class="plugin-grid">
+    
+      
+        <a class="plugin-card" href="/plugins/typescript">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">TypeScript / JavaScript</span><span class="ext">.ts · .tsx · .js</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card" href="/plugins/json">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">JSON</span><span class="ext">.json</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card" href="/plugins/markdown">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Markdown</span><span class="ext">.md</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card" href="/plugins/toml">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">TOML</span><span class="ext">.toml</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card" href="/plugins/dockerfile">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Dockerfile</span><span class="ext">Dockerfile</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card" href="/plugins/jupyter">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Jupyter</span><span class="ext">.ipynb</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+  </div>
+
+
+  <h2 id="community-plugins" tabindex="-1"><a class="header-anchor" href="#community-plugins">Community Plugins</a></h2>
+  
+  <div class="plugin-grid">
+    
+      
+        <a class="plugin-card community" href="/plugins/malva">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Malva</span><span class="ext">CSS · SCSS · Sass · Less</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/markup_fmt">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">markup_fmt</span><span class="ext">HTML · Vue · Svelte · Astro</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/pretty_graphql">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Pretty GraphQL</span><span class="ext">.graphql</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/pretty_yaml">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Pretty YAML</span><span class="ext">.yaml</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/gofumpt">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Gofumpt</span><span class="ext">Go</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/swift">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Swift</span><span class="ext">.swift</span></span>
+          
+            <span class="plugin-tag process">Process</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/panache">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Panache</span><span class="ext">Quarto · Pandoc · R Markdown · Markdown</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/badness">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Badness</span><span class="ext">LaTeX · BibTeX</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/arity">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Arity</span><span class="ext">R</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/fatou">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Fatou</span><span class="ext">Julia</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/typstyle">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Typstyle</span><span class="ext">Typst</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/typstyle-kachick">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Typstyle (kachick)</span><span class="ext">Typst</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/bibtex-tidy">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">bibtex-tidy</span><span class="ext">BibTeX</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/nix">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Nix</span><span class="ext">.nix</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/kdl">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">KDL</span><span class="ext">.kdl</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/sh">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Shell</span><span class="ext">sh · Bash · Zsh</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/lax-css">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Lax CSS</span><span class="ext">CSS · SCSS · Less</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/lax-markup">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Lax Markup</span><span class="ext">HTML · XML · SVG · Vue · Svelte · Astro</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/lax-sql">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Lax SQL</span><span class="ext">SQL</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/clang-format">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">clang-format</span><span class="ext">C · C++ · Objective-C</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card community" href="/plugins/cmakefmt">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">cmakefmt</span><span class="ext">CMake</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+  </div>
+
+
+  <h2 id="wrapper-plugins" tabindex="-1"><a class="header-anchor" href="#wrapper-plugins">Wrapper Plugins</a></h2>
+  
+  <div class="plugin-grid">
+    
+      
+        <a class="plugin-card wrapper" href="/plugins/prettier">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Prettier</span><span class="ext">multi-language</span></span>
+          
+            <span class="plugin-tag process">Process</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card wrapper" href="/plugins/biome">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Biome</span><span class="ext">JS · TS · JSON</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card wrapper" href="/plugins/oxc">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Oxc</span><span class="ext">JS · TS · JSON · CSS · GraphQL · YAML · TOML</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card wrapper" href="/plugins/ruff">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Ruff</span><span class="ext">Python</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card wrapper" href="/plugins/mago">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Mago</span><span class="ext">PHP</span></span>
+          
+            <span class="plugin-tag wasm">Wasm</span>
+          
+        </a>
+      
+    
+      
+        <a class="plugin-card wrapper" href="/plugins/roslyn">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Roslyn</span><span class="ext">C# · VB</span></span>
+          
+            <span class="plugin-tag process">Process</span>
+          
+        </a>
+      
+    
+  </div>
+
+
+  <h2 id="everything-else" tabindex="-1"><a class="header-anchor" href="#everything-else">Everything Else</a></h2>
+  
+  <div class="plugin-grid">
+    
+      
+        <a class="plugin-card" href="/plugins/exec">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">Exec</span><span class="ext">Wrap any other CLI formatter — rustfmt, yapf, java …</span></span>
+          
+            <span class="plugin-tag process">Process</span>
+          
+        </a>
+      
+    
+  </div>
+
+
+
+<h2 id="using-wasm-plugins-in-the-browser%2C-deno%2C-or-node.js" tabindex="-1">
+  <a class="header-anchor" href="#using-wasm-plugins-in-the-browser%2C-deno%2C-or-node.js">Using Wasm Plugins in the Browser, Deno, or Node.js</a>
+</h2>
+
 <p>See <a href="https://github.com/dprint/js-formatter">https://github.com/dprint/js-formatter</a></p>
 
   </main>
