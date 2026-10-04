@@ -116,73 +116,77 @@ layout: layouts/base.njk
 <section class="home-section plugins">
   <div class="eyebrow">// plugins</div>
   <h2>Format the whole stack.</h2>
-  <p>Load any plugin from a URL. Mix official formatters with battle-tested wrappers.</p>
+  <p>Load any plugin from a URL. Mix official formatters with community plugins and battle-tested wrappers.</p>
 
   <div class="plugins-label">Official plugins</div>
   <div class="plugin-grid">
     <a class="plugin-card" href="/plugins/typescript"><span class="swatch"></span><span class="meta"><span class="name">TypeScript / JavaScript</span><span
           class="ext"
-        >.ts · .tsx · .js</span></span></a>
+        >.ts · .tsx · .js</span></span><span class="plugin-tag wasm">Wasm</span></a>
     <a class="plugin-card" href="/plugins/json"><span class="swatch"></span><span class="meta"><span class="name">JSON</span><span class="ext"
-        >.json</span></span></a>
+        >.json</span></span><span class="plugin-tag wasm">Wasm</span></a>
     <a class="plugin-card" href="/plugins/markdown"><span class="swatch"></span><span class="meta"><span class="name">Markdown</span><span class="ext"
-        >.md</span></span></a>
+        >.md</span></span><span class="plugin-tag wasm">Wasm</span></a>
     <a class="plugin-card" href="/plugins/toml"><span class="swatch"></span><span class="meta"><span class="name">TOML</span><span class="ext"
-        >.toml</span></span></a>
-    <a class="plugin-card" href="/plugins/malva"><span class="swatch"></span><span class="meta"><span class="name">Malva</span><span class="ext"
-        >CSS · SCSS · Sass · Less</span></span></a>
+        >.toml</span></span><span class="plugin-tag wasm">Wasm</span></a>
     <a class="plugin-card" href="/plugins/dockerfile"><span class="swatch"></span><span class="meta"><span class="name">Dockerfile</span><span class="ext"
-        >Dockerfile</span></span></a>
-    <a class="plugin-card" href="/plugins/roslyn"><span class="swatch"></span><span class="meta"><span class="name">Roslyn</span><span class="ext"
-        >C# · VB</span></span></a>
-    <a class="plugin-card" href="/plugins/ruff"><span class="swatch"></span><span class="meta"><span class="name">Ruff</span><span class="ext"
-        >Python</span></span></a>
+        >Dockerfile</span></span><span class="plugin-tag wasm">Wasm</span></a>
     <a class="plugin-card" href="/plugins/jupyter"><span class="swatch"></span><span class="meta"><span class="name">Jupyter</span><span class="ext"
-        >.ipynb</span></span></a>
+        >.ipynb</span></span><span class="plugin-tag wasm">Wasm</span></a>
+  </div>
+
+  <div class="plugins-label">Community plugins</div>
+  <div class="plugin-grid">
+    <a class="plugin-card community" href="/plugins/malva"><span class="swatch"></span><span class="meta"><span class="name">Malva</span><span class="ext"
+        >CSS · SCSS · Sass · Less</span></span><span class="plugin-tag wasm">Wasm</span></a>
+    <a class="plugin-card community" href="/plugins/markup_fmt"><span class="swatch"></span><span class="meta"><span class="name">markup_fmt</span><span
+          class="ext"
+        >HTML · Vue · Svelte · Astro</span></span><span class="plugin-tag wasm">Wasm</span></a>
+    <a class="plugin-card community" href="/plugins/pretty_graphql"><span class="swatch"></span><span class="meta"><span class="name">Pretty GraphQL</span><span
+          class="ext"
+        >.graphql</span></span><span class="plugin-tag wasm">Wasm</span></a>
+    <a class="plugin-card community" href="/plugins/pretty_yaml"><span class="swatch"></span><span class="meta"><span class="name">Pretty YAML</span><span
+          class="ext"
+        >.yaml</span></span><span class="plugin-tag wasm">Wasm</span></a>
+    <a class="plugin-card community" href="/plugins/gofumpt"><span class="swatch"></span><span class="meta"><span class="name">Gofumpt</span><span class="ext"
+        >Go</span></span><span class="plugin-tag wasm">Wasm</span></a>
+    <a class="plugin-card community" href="/plugins/swift"><span class="swatch"></span><span class="meta"><span class="name">Swift</span><span class="ext"
+        >.swift</span></span><span class="plugin-tag process">Process</span></a>
+    <a class="plugin-card community" href="/plugins/panache"><span class="swatch"></span><span class="meta"><span class="name">Panache</span><span class="ext"
+        >Quarto · Pandoc · R Markdown · Markdown</span></span><span class="plugin-tag wasm">Wasm</span></a>
+    <a class="plugin-card community" href="/plugins/badness"><span class="swatch"></span><span class="meta"><span class="name">Badness</span><span class="ext"
+        >LaTeX · BibTeX</span></span><span class="plugin-tag wasm">Wasm</span></a>
+    <a class="plugin-card community" href="/plugins/arity"><span class="swatch"></span><span class="meta"><span class="name">Arity</span><span class="ext"
+        >R</span></span><span class="plugin-tag wasm">Wasm</span></a>
+    <a class="plugin-card community" href="/plugins/fatou"><span class="swatch"></span><span class="meta"><span class="name">Fatou</span><span class="ext"
+        >Julia</span></span><span class="plugin-tag wasm">Wasm</span></a>
+    <a class="plugin-card community" href="/plugins/typstyle"><span class="swatch"></span><span class="meta"><span class="name">Typstyle</span><span class="ext"
+        >Typst</span></span><span class="plugin-tag wasm">Wasm</span></a>
+    <a class="plugin-card community" href="/plugins/bibtex-tidy"><span class="swatch"></span><span class="meta"><span class="name">bibtex-tidy</span><span
+          class="ext"
+        >BibTeX</span></span><span class="plugin-tag wasm">Wasm</span></a>
   </div>
 
   <div class="plugins-label">Wrapper plugins</div>
   <div class="plugin-grid">
     <a class="plugin-card wrapper" href="/plugins/prettier"><span class="swatch"></span><span class="meta"><span class="name">Prettier</span><span class="ext"
-        >multi-language</span></span></a>
+        >multi-language</span></span><span class="plugin-tag process">Process</span></a>
     <a class="plugin-card wrapper" href="/plugins/biome"><span class="swatch"></span><span class="meta"><span class="name">Biome</span><span class="ext"
-        >JS · TS · JSON</span></span></a>
+        >JS · TS · JSON</span></span><span class="plugin-tag wasm">Wasm</span></a>
     <a class="plugin-card wrapper" href="/plugins/oxc"><span class="swatch"></span><span class="meta"><span class="name">Oxc</span><span class="ext"
-        >JS · TS</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/gofumpt"><span class="swatch"></span><span class="meta"><span class="name">Gofumpt</span><span class="ext"
-        >Go</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/swift"><span class="swatch"></span><span class="meta"><span class="name">Swift</span><span class="ext"
-        >.swift</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/markup_fmt"><span class="swatch"></span><span class="meta"><span class="name">markup_fmt</span><span
-          class="ext"
-        >HTML · Vue · Svelte · Astro</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/pretty_graphql"><span class="swatch"></span><span class="meta"><span class="name">Pretty GraphQL</span><span
-          class="ext"
-        >.graphql</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/pretty_yaml"><span class="swatch"></span><span class="meta"><span class="name">Pretty YAML</span><span
-          class="ext"
-        >.yaml</span></span></a>
+        >JS · TS · JSON · CSS · GraphQL · YAML · TOML</span></span><span class="plugin-tag wasm">Wasm</span></a>
+    <a class="plugin-card wrapper" href="/plugins/ruff"><span class="swatch"></span><span class="meta"><span class="name">Ruff</span><span class="ext"
+        >Python</span></span><span class="plugin-tag wasm">Wasm</span></a>
     <a class="plugin-card wrapper" href="/plugins/mago"><span class="swatch"></span><span class="meta"><span class="name">Mago</span><span class="ext"
-        >PHP</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/panache"><span class="swatch"></span><span class="meta"><span class="name">Panache</span><span class="ext"
-        >Quarto · Pandoc · R Markdown · Markdown</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/badness"><span class="swatch"></span><span class="meta"><span class="name">Badness</span><span class="ext"
-        >LaTeX · BibTeX</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/arity"><span class="swatch"></span><span class="meta"><span class="name">Arity</span><span class="ext"
-        >R</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/fatou"><span class="swatch"></span><span class="meta"><span class="name">Fatou</span><span class="ext"
-        >Julia</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/typstyle"><span class="swatch"></span><span class="meta"><span class="name">Typstyle</span><span class="ext"
-        >Typst</span></span></a>
-    <a class="plugin-card wrapper" href="/plugins/bibtex-tidy"><span class="swatch"></span><span class="meta"><span class="name">bibtex-tidy</span><span
-          class="ext"
-        >BibTeX</span></span></a>
+        >PHP</span></span><span class="plugin-tag wasm">Wasm</span></a>
+    <a class="plugin-card wrapper" href="/plugins/roslyn"><span class="swatch"></span><span class="meta"><span class="name">Roslyn</span><span class="ext"
+        >C# · VB</span></span><span class="plugin-tag process">Process</span></a>
   </div>
 
   <div class="plugins-label">Everything else</div>
   <div class="plugin-grid">
     <a class="plugin-card" href="/plugins/exec"><span class="swatch"></span><span class="meta"><span class="name">Exec</span><span class="ext"
-        >Wrap any other CLI formatter — rustfmt, yapf, java …</span></span></a>
+        >Wrap any other CLI formatter — rustfmt, yapf, java …</span></span><span class="plugin-tag process">Process</span></a>
   </div>
 </section>
 
