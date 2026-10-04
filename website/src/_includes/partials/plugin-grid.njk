@@ -1,0 +1,17 @@
+{% macro pluginGrid(group, homeOnly) %}
+  <div class="plugin-grid">
+    {% for plugin in group.plugins %}
+      {% if not homeOnly or plugin.home != false %}
+        <a class="plugin-card{% if group.kind %} {{ group.kind }}{% endif %}" href="/plugins/{{ plugin.slug }}">
+          <span class="swatch"></span>
+          <span class="meta"><span class="name">{{ plugin.name }}</span><span class="ext">{{ plugin.ext }}</span></span>
+          {% if plugin.process %}
+            <span class="plugin-tag process">Process</span>
+          {% else %}
+            <span class="plugin-tag wasm">Wasm</span>
+          {% endif %}
+        </a>
+      {% endif %}
+    {% endfor %}
+  </div>
+{% endmacro %}

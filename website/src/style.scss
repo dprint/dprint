@@ -871,6 +871,14 @@ a {
   color: #fff;
   border-bottom-color: #fff;
 }
+.doc-content a.plugin-card {
+  color: inherit;
+  border-bottom: 1px solid #2f333b;
+}
+.doc-content a.plugin-card:hover {
+  color: inherit;
+  border-color: #4d5564;
+}
 /* heading self-links (markdown-it-anchor) should look like the heading, not a body link */
 .doc-content h1 a,
 .doc-content h2 a,

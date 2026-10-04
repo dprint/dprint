@@ -1,0 +1,39 @@
+---
+title: Plugins
+description: Links to dprint formatting plugins.
+layout: layouts/documentation.njk
+---
+
+{% from "partials/plugin-grid.njk" import pluginGrid %}
+
+<h1>Plugins</h1>
+
+<p>Dprint is made up of Wasm and process plugins.</p>
+
+<ul>
+  <li>Wasm plugins are compiled to a <code>.wasm</code> file and run sandboxed.</li>
+  <li>Process plugins are compiled to an executable file and do NOT run sandboxed.</li>
+</ul>
+
+<p>
+  It would be ideal for all plugins to be Wasm plugins, but unfortunately many languages don't support compiling to a single <code>.wasm</code> file. Until
+  then, process plugins exist.
+</p>
+
+<p>
+  The setup for both is the same except process plugins require a checksum to be specified to ensure the downloaded file is the same as what was built on the CI
+  pipeline.
+</p>
+
+<p>For the latest version and copy-paste URL of every plugin, see <a href="https://plugins.dprint.dev">plugins.dprint.dev</a>.</p>
+
+{% for group in pluginGroups %}
+  <h2 id="{{ group.id }}" tabindex="-1"><a class="header-anchor" href="#{{ group.id }}">{{ group.heading }}</a></h2>
+  {{ pluginGrid(group, false) }}
+{% endfor %}
+
+<h2 id="using-wasm-plugins-in-the-browser%2C-deno%2C-or-node.js" tabindex="-1">
+  <a class="header-anchor" href="#using-wasm-plugins-in-the-browser%2C-deno%2C-or-node.js">Using Wasm Plugins in the Browser, Deno, or Node.js</a>
+</h2>
+
+<p>See <a href="https://github.com/dprint/js-formatter">https://github.com/dprint/js-formatter</a></p>
