@@ -1,0 +1,68 @@
+[
+  {
+    "label": "Official plugins",
+    "heading": "Official Plugins",
+    "id": "official-plugins",
+    "kind": "",
+    "plugins": [
+      { "slug": "typescript", "name": "TypeScript / JavaScript", "ext": ".ts · .tsx · .js" },
+      { "slug": "json", "name": "JSON", "ext": ".json" },
+      { "slug": "markdown", "name": "Markdown", "ext": ".md" },
+      { "slug": "toml", "name": "TOML", "ext": ".toml" },
+      { "slug": "dockerfile", "name": "Dockerfile", "ext": "Dockerfile" },
+      { "slug": "jupyter", "name": "Jupyter", "ext": ".ipynb" }
+    ]
+  },
+  {
+    "label": "Community plugins",
+    "heading": "Community Plugins",
+    "id": "community-plugins",
+    "kind": "community",
+    "plugins": [
+      { "slug": "malva", "name": "Malva", "ext": "CSS · SCSS · Sass · Less" },
+      { "slug": "markup_fmt", "name": "markup_fmt", "ext": "HTML · Vue · Svelte · Astro" },
+      { "slug": "pretty_graphql", "name": "Pretty GraphQL", "ext": ".graphql" },
+      { "slug": "pretty_yaml", "name": "Pretty YAML", "ext": ".yaml" },
+      { "slug": "gofumpt", "name": "Gofumpt", "ext": "Go" },
+      { "slug": "swift", "name": "Swift", "ext": ".swift", "process": true },
+      { "slug": "panache", "name": "Panache", "ext": "Quarto · Pandoc · R Markdown · Markdown" },
+      { "slug": "badness", "name": "Badness", "ext": "LaTeX · BibTeX" },
+      { "slug": "arity", "name": "Arity", "ext": "R" },
+      { "slug": "fatou", "name": "Fatou", "ext": "Julia" },
+      { "slug": "typstyle", "name": "Typstyle", "ext": "Typst" },
+      { "slug": "typstyle-kachick", "name": "Typstyle (kachick)", "ext": "Typst", "home": false },
+      { "slug": "bibtex-tidy", "name": "bibtex-tidy", "ext": "BibTeX" },
+      { "slug": "nix", "name": "Nix", "ext": ".nix", "home": false },
+      { "slug": "kdl", "name": "KDL", "ext": ".kdl", "home": false },
+      { "slug": "sh", "name": "Shell", "ext": "sh · Bash · Zsh", "home": false },
+      { "slug": "lax-css", "name": "Lax CSS", "ext": "CSS · SCSS · Less", "home": false },
+      { "slug": "lax-markup", "name": "Lax Markup", "ext": "HTML · XML · SVG · Vue · Svelte · Astro", "home": false },
+      { "slug": "lax-sql", "name": "Lax SQL", "ext": "SQL", "home": false },
+      { "slug": "clang-format", "name": "clang-format", "ext": "C · C++ · Objective-C", "home": false },
+      { "slug": "cmakefmt", "name": "cmakefmt", "ext": "CMake", "home": false }
+    ]
+  },
+  {
+    "label": "Wrapper plugins",
+    "heading": "Wrapper Plugins",
+    "id": "wrapper-plugins",
+    "kind": "wrapper",
+    "plugins": [
+      { "slug": "prettier", "name": "Prettier", "ext": "multi-language", "process": true },
+      { "slug": "biome", "name": "Biome", "ext": "JS · TS · JSON" },
+      { "slug": "oxc", "name": "Oxc", "ext": "JS · TS · JSON · CSS · GraphQL · YAML · TOML" },
+      { "slug": "ruff", "name": "Ruff", "ext": "Python" },
+      { "slug": "mago", "name": "Mago", "ext": "PHP" },
+      { "slug": "roslyn", "name": "Roslyn", "ext": "C# · VB", "process": true }
+    ]
+  },
+  {
+    "label": "Everything else",
+    "heading": "Everything Else",
+    "id": "everything-else",
+    "kind": "",
+    "plugins": [
+      { "slug": "exec", "name": "Exec", "ext": "Wrap any other CLI formatter — rustfmt, yapf, java …", "process": true }
+    ]
+  }
+]
