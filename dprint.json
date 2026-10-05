@@ -21,13 +21,13 @@
   ],
   "plugins": [
     "npm:@dprint/typescript@0.96.1",
-    "npm:@dprint/json@0.25.1",
+    "npm:@dprint/json@0.25.2",
     "npm:@dprint/markdown@0.26.0",
-    "npm:@dprint/toml@0.8.0",
+    "npm:@dprint/toml@0.9.0",
     "npm:@dprint/exec@0.7.3/plugin.json@704701df449dd7e942a71144773778ac529d68c2e4657bfc236d393b898b9a67",
     "npm:dprint-plugin-malva@0.16.0",
     "npm:dprint-plugin-markup@0.27.5",
     "npm:dprint-plugin-yaml@0.6.0",
-    "npm:@dprint/dockerfile@0.6.0"
+    "npm:@dprint/dockerfile@0.7.0"
   ]
 }
