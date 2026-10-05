@@ -1,4 +1,5 @@
 use std::sync::OnceLock;
+use std::time::Duration;
 use std::time::Instant;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -23,7 +24,6 @@ const ERRNO_BADF: i32 = 8;
 const ERRNO_FAULT: i32 = 21;
 const ERRNO_INVAL: i32 = 28;
 const ERRNO_NOSYS: i32 = 52;
-const ERRNO_NOTSUP: i32 = 58;
 const ERRNO_SPIPE: i32 = 70;
 
 const CLOCK_REALTIME: i32 = 0;
@@ -31,6 +31,15 @@ const CLOCK_MONOTONIC: i32 = 1;
 /// The clocks are only precise to a millisecond in order to not hand plugins
 /// a high resolution timer.
 const CLOCK_RESOLUTION_NANOS: u64 = 1_000_000;
+
+const EVENTTYPE_CLOCK: u8 = 0;
+const EVENTTYPE_FD_READ: u8 = 1;
+const EVENTTYPE_FD_WRITE: u8 = 2;
+const SUBCLOCKFLAGS_ABSTIME: u16 = 1;
+const SUBSCRIPTION_SIZE: u32 = 48;
+const EVENT_SIZE: usize = 32;
+/// Maximum number of subscriptions a plugin may provide in a single poll.
+const MAX_SUBSCRIPTIONS: u32 = 1024;
 
 const FILETYPE_CHARACTER_DEVICE: u8 = 2;
 const RIGHTS_FD_READ: u64 = 1 << 1;
@@ -47,13 +56,14 @@ const MAX_WRITE_BYTES: usize = 64 * 1024;
 /// instantiated.
 ///
 /// Nothing here gives a plugin a way to change anything on the host. The only
-/// things provided are the clocks, random bytes, and writing text to
-/// stdout/stderr (which gets logged). There are no environment variables,
+/// things provided are the clocks, sleeping, random bytes, and writing text
+/// to stdout/stderr (which gets logged). There are no environment variables,
 /// arguments, or preopened directories, so every file system function fails.
 pub fn add_wasi_imports(linker: &mut Linker) -> Result<()> {
   // capabilities
   linker.func_wrap(MODULE, "clock_res_get", clock_res_get)?;
   linker.func_wrap(MODULE, "clock_time_get", clock_time_get)?;
+  linker.func_wrap(MODULE, "poll_oneoff", poll_oneoff)?;
   linker.func_wrap(MODULE, "random_get", random_get)?;
   linker.func_wrap(MODULE, "fd_write", fd_write)?;
   linker.func_wrap(MODULE, "sched_yield", || -> i32 { ERRNO_SUCCESS })?;
@@ -92,8 +102,6 @@ pub fn add_wasi_imports(linker: &mut Linker) -> Result<()> {
   linker.func_wrap(MODULE, "path_readlink", |_: i32, _: i32, _: i32, _: i32, _: i32, _: i32| -> i32 { ERRNO_BADF })?;
   linker.func_wrap(MODULE, "path_unlink_file", |_: i32, _: i32, _: i32| -> i32 { ERRNO_BADF })?;
 
-  // no blocking
-  linker.func_wrap(MODULE, "poll_oneoff", |_: i32, _: i32, _: i32, _: i32| -> i32 { ERRNO_NOTSUP })?;
   Ok(())
 }
 
@@ -157,16 +165,37 @@ fn clock_res_get(mut caller: Caller<'_, WasmHostState>, clock_id: i32, resolutio
 }
 
 fn clock_time_get(mut caller: Caller<'_, WasmHostState>, clock_id: i32, _precision: i64, time_ptr: i32) -> i32 {
-  static MONOTONIC_START: OnceLock<Instant> = OnceLock::new();
-
-  let nanos = match clock_id {
-    CLOCK_REALTIME => SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0),
-    CLOCK_MONOTONIC => MONOTONIC_START.get_or_init(Instant::now).elapsed().as_nanos(),
-    _ => return ERRNO_INVAL,
+  let Some(nanos) = clock_now_nanos(clock_id) else {
+    return ERRNO_INVAL;
   };
-  let nanos = nanos as u64;
   let nanos = nanos - nanos % CLOCK_RESOLUTION_NANOS;
   write_memory(&mut caller, time_ptr, &nanos.to_le_bytes())
+}
+
+/// Waits for one of the subscriptions to occur, which is how plugins sleep.
+fn poll_oneoff(mut caller: Caller<'_, WasmHostState>, subscriptions_ptr: i32, events_ptr: i32, subscriptions_len: i32, events_len_ptr: i32) -> i32 {
+  let Some(memory) = get_memory(&mut caller) else {
+    return ERRNO_FAULT;
+  };
+  let data = memory.data(&caller);
+  let (events, sleep_duration) = match read_subscriptions(data, subscriptions_ptr as u32, subscriptions_len as u32) {
+    Ok(result) => result,
+    Err(errno) => return errno,
+  };
+  let events = events.concat();
+  // ensure the events can be written before sleeping
+  if get_bytes(data, events_ptr as u32, events.len() as u32).is_none() || get_bytes(data, events_len_ptr as u32, 4).is_none() {
+    return ERRNO_FAULT;
+  }
+  if let Some(duration) = sleep_duration {
+    std::thread::sleep(duration);
+  }
+
+  let result = write_memory(&mut caller, events_ptr, &events);
+  if result != ERRNO_SUCCESS {
+    return result;
+  }
+  write_memory(&mut caller, events_len_ptr, &((events.len() / EVENT_SIZE) as u32).to_le_bytes())
 }
 
 fn random_get(mut caller: Caller<'_, WasmHostState>, buf_ptr: i32, buf_len: i32) -> i32 {
@@ -230,6 +259,78 @@ fn write_two_zeros(mut caller: Caller<'_, WasmHostState>, first_ptr: i32, second
 
 fn is_std_stream(fd: i32) -> bool {
   matches!(fd, 0..=2)
+}
+
+fn clock_now_nanos(clock_id: i32) -> Option<u64> {
+  static MONOTONIC_START: OnceLock<Instant> = OnceLock::new();
+
+  let nanos = match clock_id {
+    CLOCK_REALTIME => SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0),
+    CLOCK_MONOTONIC => MONOTONIC_START.get_or_init(Instant::now).elapsed().as_nanos(),
+    _ => return None,
+  };
+  Some(nanos as u64)
+}
+
+/// Reads the subscriptions of a poll returning the events that occur along
+/// with how long to wait until they do.
+///
+/// Subscriptions for reading stdin or writing to stdout/stderr are always
+/// ready, so only a poll with nothing but clock subscriptions waits.
+#[allow(clippy::type_complexity)]
+fn read_subscriptions(data: &[u8], subscriptions_ptr: u32, subscriptions_len: u32) -> Result<(Vec<[u8; EVENT_SIZE]>, Option<Duration>), i32> {
+  if subscriptions_len == 0 || subscriptions_len > MAX_SUBSCRIPTIONS {
+    return Err(ERRNO_INVAL);
+  }
+
+  let mut ready_events = Vec::new();
+  let mut timeouts = Vec::new();
+  for i in 0..subscriptions_len {
+    let subscription_ptr = subscriptions_ptr.checked_add(i * SUBSCRIPTION_SIZE).ok_or(ERRNO_FAULT)?;
+    // userdata: u64, type: u8, then for a clock (id: u32, timeout: u64, precision: u64, flags: u16)
+    // at an offset of 16 bytes and for the others (fd: u32)
+    let subscription = get_bytes(data, subscription_ptr, SUBSCRIPTION_SIZE).ok_or(ERRNO_FAULT)?;
+    let user_data = &subscription[0..8];
+    let event_type = subscription[8];
+    let id = u32::from_le_bytes(subscription[16..20].try_into().unwrap());
+    match event_type {
+      EVENTTYPE_CLOCK => {
+        let timeout = u64::from_le_bytes(subscription[24..32].try_into().unwrap());
+        let flags = u16::from_le_bytes(subscription[40..42].try_into().unwrap());
+        match clock_now_nanos(id as i32) {
+          Some(now) if flags & SUBCLOCKFLAGS_ABSTIME != 0 => timeouts.push((user_data, timeout.saturating_sub(now))),
+          Some(_) => timeouts.push((user_data, timeout)),
+          None => ready_events.push(create_event(user_data, ERRNO_INVAL, event_type)),
+        }
+      }
+      EVENTTYPE_FD_READ | EVENTTYPE_FD_WRITE => {
+        let is_valid_fd = if event_type == EVENTTYPE_FD_READ { id == 0 } else { matches!(id, 1 | 2) };
+        let errno = if is_valid_fd { ERRNO_SUCCESS } else { ERRNO_BADF };
+        ready_events.push(create_event(user_data, errno, event_type));
+      }
+      _ => return Err(ERRNO_INVAL),
+    }
+  }
+
+  if !ready_events.is_empty() {
+    return Ok((ready_events, None));
+  }
+  let timeout = timeouts.iter().map(|(_, timeout)| *timeout).min().unwrap_or(0);
+  let events = timeouts
+    .into_iter()
+    .filter(|(_, event_timeout)| *event_timeout == timeout)
+    .map(|(user_data, _)| create_event(user_data, ERRNO_SUCCESS, EVENTTYPE_CLOCK))
+    .collect();
+  Ok((events, Some(Duration::from_nanos(timeout))))
+}
+
+fn create_event(user_data: &[u8], errno: i32, event_type: u8) -> [u8; EVENT_SIZE] {
+  // userdata: u64, error: u16, type: u8, fd_readwrite: (nbytes: u64, flags: u16)
+  let mut event = [0u8; EVENT_SIZE];
+  event[0..8].copy_from_slice(user_data);
+  event[8..10].copy_from_slice(&(errno as u16).to_le_bytes());
+  event[10] = event_type;
+  event
 }
 
 /// Reads the text of a write along with the number of bytes that were
@@ -307,6 +408,7 @@ mod tests {
     ("clock_time_get", "i32 i64 i32"),
     ("clock_res_get", "i32 i32"),
     ("random_get", "i32 i32"),
+    ("poll_oneoff", "i32 i32 i32 i32"),
     ("args_sizes_get", "i32 i32"),
     ("environ_sizes_get", "i32 i32"),
     ("path_open", "i32 i32 i32 i32 i32 i64 i64 i32 i32"),
@@ -372,6 +474,101 @@ mod tests {
     assert!(module.read_u64(16) >= first);
     assert_eq!(first % CLOCK_RESOLUTION_NANOS, 0);
     assert_eq!(module.call("clock_time_get", &[i(2), Val::I64(0), i(16)]), ERRNO_INVAL);
+  }
+
+  #[test]
+  fn poll_oneoff_sleeps() {
+    let mut module = TestModule::with_memory();
+    // two relative timeouts on the monotonic clock where the second is sooner
+    module.write_memory(0, &create_clock_subscription(1, CLOCK_MONOTONIC, 60_000_000_000, 0));
+    module.write_memory(48, &create_clock_subscription(2, CLOCK_MONOTONIC, 30_000_000, 0));
+    let start = Instant::now();
+    assert_eq!(module.call("poll_oneoff", &[i(0), i(200), i(2), i(300)]), ERRNO_SUCCESS);
+    let elapsed = start.elapsed();
+    assert!(elapsed >= Duration::from_millis(30) && elapsed < Duration::from_secs(30), "{:?}", elapsed);
+    let memory = module.memory();
+    assert_eq!(&memory[300..304], &1u32.to_le_bytes());
+    assert_eq!(&memory[200..232], &create_event(&2u64.to_le_bytes(), ERRNO_SUCCESS, EVENTTYPE_CLOCK));
+
+    // doesn't sleep when the events can't be written
+    module.write_memory(0, &create_clock_subscription(1, CLOCK_MONOTONIC, u64::MAX, 0));
+    assert_eq!(module.call("poll_oneoff", &[i(0), i(65530), i(1), i(300)]), ERRNO_FAULT);
+    assert_eq!(module.call("poll_oneoff", &[i(0), i(200), i(1), i(65534)]), ERRNO_FAULT);
+    assert_eq!(module.call("poll_oneoff", &[i(65500), i(200), i(1), i(300)]), ERRNO_FAULT);
+    assert_eq!(module.call("poll_oneoff", &[i(0), i(200), i(0), i(300)]), ERRNO_INVAL);
+    assert_eq!(module.call("poll_oneoff", &[i(0), i(200), i(-1), i(300)]), ERRNO_INVAL);
+  }
+
+  #[test]
+  fn read_subscriptions_clocks() {
+    // an absolute time in the past doesn't wait
+    let data = create_clock_subscription(1, CLOCK_REALTIME, 1, SUBCLOCKFLAGS_ABSTIME);
+    let expected_event = create_event(&1u64.to_le_bytes(), ERRNO_SUCCESS, EVENTTYPE_CLOCK);
+    assert_eq!(read_subscriptions(&data, 0, 1), Ok((vec![expected_event], Some(Duration::ZERO))));
+
+    // an absolute time in the future waits until then
+    let now = clock_now_nanos(CLOCK_REALTIME).unwrap();
+    let data = create_clock_subscription(1, CLOCK_REALTIME, now + 60_000_000_000, SUBCLOCKFLAGS_ABSTIME);
+    let (events, duration) = read_subscriptions(&data, 0, 1).unwrap();
+    assert_eq!(events, vec![expected_event]);
+    let duration = duration.unwrap();
+    assert!(duration > Duration::from_secs(50) && duration <= Duration::from_secs(60), "{:?}", duration);
+
+    // every subscription with the shortest timeout occurs
+    let mut data = create_clock_subscription(1, CLOCK_MONOTONIC, 5, 0).to_vec();
+    data.extend(create_clock_subscription(2, CLOCK_MONOTONIC, 10, 0));
+    data.extend(create_clock_subscription(3, CLOCK_REALTIME, 5, 0));
+    assert_eq!(
+      read_subscriptions(&data, 0, 3),
+      Ok((
+        vec![expected_event, create_event(&3u64.to_le_bytes(), ERRNO_SUCCESS, EVENTTYPE_CLOCK)],
+        Some(Duration::from_nanos(5))
+      ))
+    );
+
+    // unknown clock
+    let data = create_clock_subscription(1, 2, 5, 0);
+    assert_eq!(
+      read_subscriptions(&data, 0, 1),
+      Ok((vec![create_event(&1u64.to_le_bytes(), ERRNO_INVAL, EVENTTYPE_CLOCK)], None))
+    );
+  }
+
+  #[test]
+  fn read_subscriptions_standard_streams_always_ready() {
+    let mut data = create_clock_subscription(1, CLOCK_MONOTONIC, u64::MAX, 0).to_vec();
+    for (user_data, event_type, fd) in [
+      (2u64, EVENTTYPE_FD_READ, 0u32),
+      (3, EVENTTYPE_FD_WRITE, 1),
+      (4, EVENTTYPE_FD_WRITE, 3),
+      (5, EVENTTYPE_FD_READ, 1),
+    ] {
+      let mut subscription = [0u8; 48];
+      subscription[0..8].copy_from_slice(&user_data.to_le_bytes());
+      subscription[8] = event_type;
+      subscription[16..20].copy_from_slice(&fd.to_le_bytes());
+      data.extend(subscription);
+    }
+    assert_eq!(
+      read_subscriptions(&data, 0, 5),
+      Ok((
+        vec![
+          create_event(&2u64.to_le_bytes(), ERRNO_SUCCESS, EVENTTYPE_FD_READ),
+          create_event(&3u64.to_le_bytes(), ERRNO_SUCCESS, EVENTTYPE_FD_WRITE),
+          create_event(&4u64.to_le_bytes(), ERRNO_BADF, EVENTTYPE_FD_WRITE),
+          create_event(&5u64.to_le_bytes(), ERRNO_BADF, EVENTTYPE_FD_READ),
+        ],
+        None
+      ))
+    );
+
+    assert_eq!(read_subscriptions(&data, 0, 6), Err(ERRNO_FAULT));
+    assert_eq!(read_subscriptions(&data, u32::MAX - 50, 2), Err(ERRNO_FAULT));
+    assert_eq!(read_subscriptions(&data, 0, 0), Err(ERRNO_INVAL));
+    assert_eq!(read_subscriptions(&data, 0, MAX_SUBSCRIPTIONS + 1), Err(ERRNO_INVAL));
+    // unknown event type
+    data[8] = 3;
+    assert_eq!(read_subscriptions(&data, 0, 5), Err(ERRNO_INVAL));
   }
 
   #[test]
@@ -591,6 +788,16 @@ mod tests {
       let memory = self.instance.get_memory(&mut self.store, "memory").unwrap();
       memory.write(&mut self.store, ptr, bytes).unwrap();
     }
+  }
+
+  fn create_clock_subscription(user_data: u64, clock_id: i32, timeout: u64, flags: u16) -> [u8; 48] {
+    let mut subscription = [0u8; 48];
+    subscription[0..8].copy_from_slice(&user_data.to_le_bytes());
+    subscription[8] = EVENTTYPE_CLOCK;
+    subscription[16..20].copy_from_slice(&clock_id.to_le_bytes());
+    subscription[24..32].copy_from_slice(&timeout.to_le_bytes());
+    subscription[40..42].copy_from_slice(&flags.to_le_bytes());
+    subscription
   }
 
   fn i(value: i32) -> Val {

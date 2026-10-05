@@ -43,6 +43,13 @@ impl WasmInstance {
 /// instance's memory in the store data so host functions can reach it, then
 /// runs the module's initializer when it has one.
 pub fn load_instance(store: &mut Store, module: &WasmModule, mut linker: Linker) -> Result<WasmInstance> {
+  // a WASI "command" only initializes its libc when running its main function,
+  // which leaves nothing initialized for the plugin's other exports
+  if module.inner.get_export("_start").is_some() && module.inner.get_export("_initialize").is_none() {
+    bail!(
+      "Error instantiating module: The plugin was built as a WASI command (it exports _start), but it must be built as a WASI reactor (exporting _initialize)."
+    );
+  }
   if let Err(err) = add_unsupported_wasi_imports(&mut linker, store, &module.inner) {
     bail!("Error instantiating module: {:#}", err);
   }
@@ -223,6 +230,17 @@ mod tests {
     let text = format!("{:#}", err);
     assert!(text.starts_with("Error initializing module: "), "{}", text);
     assert!(text.contains("The plugin attempted to exit with code 1."), "{}", text);
+  }
+
+  #[test]
+  fn errors_for_wasi_command() {
+    let err = load(r#"(func (export "_start"))"#).err().unwrap();
+    assert_eq!(
+      format!("{:#}", err),
+      "Error instantiating module: The plugin was built as a WASI command (it exports _start), but it must be built as a WASI reactor (exporting _initialize)."
+    );
+    // ok when it has both
+    assert!(load(r#"(func (export "_start")) (func (export "_initialize"))"#).is_ok());
   }
 
   #[test]
