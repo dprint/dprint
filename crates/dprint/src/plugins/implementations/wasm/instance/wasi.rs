@@ -313,6 +313,9 @@ fn read_subscriptions(data: &[u8], subscriptions_ptr: u32, subscriptions_len: u3
   }
 
   if !ready_events.is_empty() {
+    // the clocks that don't need to wait have also occurred
+    let elapsed_timeouts = timeouts.into_iter().filter(|(_, timeout)| *timeout == 0);
+    ready_events.extend(elapsed_timeouts.map(|(user_data, _)| create_event(user_data, ERRNO_SUCCESS, EVENTTYPE_CLOCK)));
     return Ok((ready_events, None));
   }
   let timeout = timeouts.iter().map(|(_, timeout)| *timeout).min().unwrap_or(0);
@@ -562,6 +565,23 @@ mod tests {
       ))
     );
 
+    // clocks that have already elapsed occur along with the streams
+    let mut elapsed_data = create_clock_subscription(6, CLOCK_MONOTONIC, 0, 0).to_vec();
+    elapsed_data.extend(create_clock_subscription(7, CLOCK_REALTIME, 1, SUBCLOCKFLAGS_ABSTIME));
+    elapsed_data.extend(create_clock_subscription(8, CLOCK_MONOTONIC, 1, 0));
+    elapsed_data.extend(&data[48..96]);
+    assert_eq!(
+      read_subscriptions(&elapsed_data, 0, 4),
+      Ok((
+        vec![
+          create_event(&2u64.to_le_bytes(), ERRNO_SUCCESS, EVENTTYPE_FD_READ),
+          create_event(&6u64.to_le_bytes(), ERRNO_SUCCESS, EVENTTYPE_CLOCK),
+          create_event(&7u64.to_le_bytes(), ERRNO_SUCCESS, EVENTTYPE_CLOCK),
+        ],
+        None
+      ))
+    );
+
     assert_eq!(read_subscriptions(&data, 0, 6), Err(ERRNO_FAULT));
     assert_eq!(read_subscriptions(&data, u32::MAX - 50, 2), Err(ERRNO_FAULT));
     assert_eq!(read_subscriptions(&data, 0, 0), Err(ERRNO_INVAL));
@@ -627,6 +647,20 @@ mod tests {
     }
     assert_eq!(module.call("fd_write", &[i(1), i(0), i(-1), i(60)]), ERRNO_INVAL);
     assert_eq!(module.call("fd_write", &[i(1), i(0), i(MAX_IOVS as i32 + 1), i(60)]), ERRNO_INVAL);
+  }
+
+  #[test]
+  fn fd_write_in_start_function() {
+    // the start function runs while instantiating
+    let mut module = TestModule::new(
+      "",
+      r#"(memory (export "memory") 1)
+         (data (i32.const 0) "\64\00\00\00\05\00\00\00")
+         (data (i32.const 100) "hello")
+         (func $start (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 60))))
+         (start $start)"#,
+    );
+    assert_eq!(&module.memory()[60..64], &5u32.to_le_bytes());
   }
 
   #[test]
