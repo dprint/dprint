@@ -142,12 +142,15 @@ Initialization functions:
 - `release_config(config_id: u32)` - Release the config from memory.
 - `get_config_diagnostics(config_id: u32) -> u32` - Called by the CLI to get the configuration diagnostics. Serialize the diagnostics as a JSON string, store it in the local bytes, and return the byte length.
 - `get_resolved_config(config_id: u32) -> u32` - Called by the CLI to get the resolved configuration for display in the CLI. Serialize it as a JSON string, store it in the local bytes, and return the byte length.
+- `get_config_file_matching(config_id: u32) -> u32` - Called by the CLI to get the file extensions and file names supported by the plugin and configuration. Serialize it as a JSON string, store it in the local bytes, and return the byte length. The file matching information is a JSON object with the following properties:
+  - `fileExtensions` - An array of strings that say the file extensions this plugin supports (it should NOT have a leading period on the extension)
+  - `fileNames` - An array of strings that say the file names this plugin supports
+  - `additive` - Whether the plugin formats a file it matches in addition to the plugin that claims the file, rather than claiming the file itself
 - `get_license_text() -> u32` - Store the plugin's license text in the local bytes and return the byte length.
 - `get_plugin_info() -> u32` - Store the plugin's JSON serialized information in the local bytes and return the byte length. The plugin info is a JSON object with the following properties:
   - `name` - String saying the plugin name.
   - `version` - Version of the plugin (ex. `"0.1.0"`)
   - `configKey` - Configuration key to use for this plugin in the dprint configuration file.
-  - `fileExtensions` - An array of strings that say the file extensions this plugin supports (it should NOT have a leading period on the extension)
   - `helpUrl` - A string containing the URL to some web help.
   - `configSchemaUrl` - Return an empty string for now.
 
