@@ -473,6 +473,47 @@ const buildJob = job("build", {
   outputs: buildJobOutputs,
 });
 
+// === test_known_plugins job ===
+
+// Starts up the latest version of every published plugin. This executes third
+// party code (process plugins don't run sandboxed), so it runs in its own job
+// that never runs for a release and doesn't save any caches. That way nothing
+// a plugin does on the runner can make its way into the release artifacts.
+const testKnownPluginsJob = job("test_known_plugins", {
+  name: "test_known_plugins",
+  runsOn: "ubuntu-latest",
+  if: isNotTag,
+  permissions: {
+    contents: "read",
+  },
+  env: {
+    CARGO_INCREMENTAL: 0,
+    RUST_BACKTRACE: "full",
+  },
+  steps: [
+    step({
+      name: "Checkout",
+      uses: "actions/checkout@v7",
+      with: { "persist-credentials": false },
+    }),
+    step({
+      uses: "denoland/setup-deno@v2",
+      with: {
+        "deno-version": "canary",
+      },
+    }),
+    step({ uses: "dsherret/rust-toolchain-file@v1" }),
+    step({
+      name: "Build",
+      run: "cargo build -p dprint --locked",
+    }),
+    step({
+      name: "Test known plugins",
+      run: "./.github/scripts/test_known_plugins.ts target/debug/dprint",
+    }),
+  ],
+});
+
 // === draft_release job ===
 
 // Builds the "## Changes" list from the commits between the previous release
@@ -643,6 +684,7 @@ workflow({
   },
   jobs: [
     buildJob,
+    testKnownPluginsJob,
     draftReleaseJob,
   ],
 }).writeOrLint({
