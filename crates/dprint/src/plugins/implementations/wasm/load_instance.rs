@@ -43,11 +43,11 @@ impl WasmInstance {
 
 /// Instantiates a compiled wasm module with the given linker, recording the
 /// instance's memory in the store data so host functions can reach it, then
-/// runs the module's initializer when it has one.
+/// runs the module's initializer when it has one that it doesn't run itself.
 pub fn load_instance(store: &mut Store, module: &WasmModule, mut linker: Linker) -> Result<WasmInstance> {
   // a WASI "command" only initializes its libc when running its main function,
   // which leaves nothing initialized for the plugin's other exports
-  if module.inner.get_export("_start").is_some() && module.inner.get_export("_initialize").is_none() {
+  if module.inner.get_export("_start").is_some() && !module.has_initialize_export() {
     bail!(
       "Error instantiating module: The plugin was built as a WASI command (it exports _start), but it must be built as a WASI reactor (exporting _initialize)."
     );
