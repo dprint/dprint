@@ -30,6 +30,7 @@ use super::instance::Store;
 use super::load_instance;
 use super::load_instance::WasmInstance;
 use super::load_instance::WasmModule;
+use super::load_instance::plugin_initializes_on_start;
 use crate::environment::Environment;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
@@ -45,7 +46,9 @@ pub struct WasmPlugin<TEnvironment: Environment> {
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
   pub fn new(compiled_wasm_bytes: &[u8], plugin_info: PluginInfo, wasm_module_creator: &WasmModuleCreator, environment: TEnvironment) -> Result<Self> {
-    let module = wasm_module_creator.create_from_serialized(compiled_wasm_bytes)?;
+    let module = wasm_module_creator
+      .create_from_serialized(compiled_wasm_bytes)?
+      .with_initializes_on_start(plugin_initializes_on_start(&plugin_info));
     Ok(WasmPlugin {
       module,
       environment,

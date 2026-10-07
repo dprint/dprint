@@ -1,5 +1,7 @@
 use anyhow::Result;
 use anyhow::bail;
+use deno_semver::Version;
+use dprint_core::plugins::PluginInfo;
 use wasmtime::Config;
 use wasmtime::Engine;
 use wasmtime::Func;
@@ -62,7 +64,8 @@ pub fn load_instance(store: &mut Store, module: &WasmModule, mut linker: Linker)
   }
   // plugins linked against a WASI libc are "reactors", which need to be
   // initialized before any of their other exports are called
-  if let Some(initialize) = instance.get_func(&mut *store, "_initialize")
+  if !module.initializes_on_start
+    && let Some(initialize) = instance.get_func(&mut *store, "_initialize")
     && let Err(err) = initialize.call(&mut *store, &[], &mut [])
   {
     bail!("Error initializing module: {:#}", err);
@@ -74,11 +77,22 @@ pub fn load_instance(store: &mut Store, module: &WasmModule, mut linker: Linker)
   })
 }
 
+/// Gets if the plugin is known to run `_initialize` as its wasm start function
+/// while still exporting it, in which case the host must not call it again.
+///
+/// This is hardcoded for old versions of dprint-plugin-gofumpt, which trap when
+/// initialized a second time (https://github.com/dprint/dprint/issues/1306).
+pub fn plugin_initializes_on_start(plugin_info: &PluginInfo) -> bool {
+  plugin_info.name == "dprint-plugin-gofumpt"
+    && Version::parse_from_npm(&plugin_info.version).is_ok_and(|version| version < Version::parse_from_npm("0.0.19").unwrap())
+}
+
 #[derive(Clone)]
 pub struct WasmModule {
   inner: wasmtime::Module,
   engine: wasmtime::Engine,
   version: PluginSchemaVersion,
+  initializes_on_start: bool,
 }
 
 impl WasmModule {
@@ -87,7 +101,19 @@ impl WasmModule {
       version: get_current_plugin_schema_version(&module)?,
       inner: module,
       engine,
+      initializes_on_start: false,
     })
+  }
+
+  /// Marks the module as running `_initialize` itself when instantiated,
+  /// so that loading an instance doesn't call it a second time.
+  pub fn with_initializes_on_start(mut self, value: bool) -> Self {
+    self.initializes_on_start = value;
+    self
+  }
+
+  pub fn has_initialize_export(&self) -> bool {
+    self.inner.get_export("_initialize").is_some()
   }
 
   pub fn version(&self) -> PluginSchemaVersion {
@@ -220,6 +246,39 @@ mod tests {
   }
 
   #[test]
+  fn skips_initialize_when_module_initializes_on_start() {
+    // traps when initialized a second time
+    let body = r#"(global $count (mut i32) (i32.const 0))
+         (func $init (export "_initialize")
+           (if (global.get $count) (then unreachable))
+           (global.set $count (i32.const 1)))
+         (start $init)"#;
+    let err = load(body).err().unwrap();
+    assert!(format!("{:#}", err).starts_with("Error initializing module: "), "{:#}", err);
+    assert!(load_with(body, |module| module.with_initializes_on_start(true)).is_ok());
+  }
+
+  #[test]
+  fn gofumpt_initializes_on_start() {
+    let run = |name: &str, version: &str| {
+      plugin_initializes_on_start(&PluginInfo {
+        name: name.to_string(),
+        version: version.to_string(),
+        config_key: String::new(),
+        help_url: String::new(),
+        config_schema_url: String::new(),
+        update_url: None,
+      })
+    };
+    assert!(run("dprint-plugin-gofumpt", "0.0.1"));
+    assert!(run("dprint-plugin-gofumpt", "0.0.18"));
+    assert!(!run("dprint-plugin-gofumpt", "0.0.19"));
+    assert!(!run("dprint-plugin-gofumpt", "0.1.0"));
+    assert!(!run("dprint-plugin-gofumpt", "invalid"));
+    assert!(!run("dprint-plugin-other", "0.0.18"));
+  }
+
+  #[test]
   fn errors_when_initializing_fails() {
     let err = load(
       r#"(import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
@@ -252,11 +311,15 @@ mod tests {
   }
 
   fn load(body: &str) -> Result<(Store, WasmInstance)> {
+    load_with(body, |module| module)
+  }
+
+  fn load_with(body: &str, map_module: impl FnOnce(WasmModule) -> WasmModule) -> Result<(Store, WasmInstance)> {
     let wasm = wat::parse_str(format!(
       r#"(module {} (func (export "dprint_plugin_version_4") (result i32) (i32.const 4)))"#,
       body
     ))?;
-    let module = WasmModuleCreator::default().create_from_wasm_bytes(&wasm)?;
+    let module = map_module(WasmModuleCreator::default().create_from_wasm_bytes(&wasm)?);
     let linker = create_identity_import_object(module.version(), module.engine())?;
     let mut store = module.new_store(WasmHostState::Empty);
     let instance = load_instance(&mut store, &module, linker)?;
