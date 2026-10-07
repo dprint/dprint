@@ -74,7 +74,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
         move |module: &WasmModule, host_format_sender| {
           let (linker, host_state) = create_pools_import_object(environment.clone(), &plugin_name, module.version(), module.engine(), host_format_sender)?;
           let mut store = module.new_store(host_state);
-          let instance = load_instance(&mut store, module, &linker)?;
+          let instance = load_instance(&mut store, module, linker)?;
           Ok((store, instance))
         }
       }),

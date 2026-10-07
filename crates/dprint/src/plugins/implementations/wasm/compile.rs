@@ -21,7 +21,7 @@ pub fn compile(wasm_bytes: &[u8]) -> Result<CompilationResult> {
   // load the plugin and get the info
   let linker = create_identity_import_object(module.version(), module.engine())?;
   let mut store = module.new_store(WasmHostState::Empty);
-  let instance = load_instance(&mut store, &module, &linker)?;
+  let instance = load_instance(&mut store, &module, linker)?;
   let mut instance = create_wasm_plugin_instance(store, instance)?;
 
   Ok(CompilationResult {

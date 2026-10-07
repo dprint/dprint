@@ -24,6 +24,7 @@ use super::WasmInstance;
 
 mod v3;
 mod v4;
+pub mod wasi;
 
 pub type WasmHostFormatSender = tokio::sync::mpsc::UnboundedSender<(HostFormatRequest, std::sync::mpsc::Sender<FormatResult>)>;
 
@@ -44,6 +45,14 @@ impl WasmHostState {
       WasmHostState::Empty => {}
       WasmHostState::V3(state) => state.memory = Some(memory),
       WasmHostState::V4(state) => state.memory = Some(memory),
+    }
+  }
+
+  /// Logs text the plugin wrote to stdout or stderr.
+  pub fn log_output(&self, text: &str) {
+    match self {
+      WasmHostState::Empty | WasmHostState::V3(_) => {}
+      WasmHostState::V4(state) => state.log_output(text),
     }
   }
 
