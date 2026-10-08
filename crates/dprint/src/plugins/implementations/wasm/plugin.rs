@@ -46,9 +46,18 @@ pub struct WasmPlugin<TEnvironment: Environment> {
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
   pub fn new(compiled_wasm_bytes: &[u8], plugin_info: PluginInfo, wasm_module_creator: &WasmModuleCreator, environment: TEnvironment) -> Result<Self> {
+    let initializes_on_start = plugin_initializes_on_start(&plugin_info);
+    if initializes_on_start {
+      log_warn!(
+        environment,
+        "WARNING: {} {} will break in a future version of dprint due to an incompatibility. Please upgrade to version 0.0.19 or later.",
+        plugin_info.name,
+        plugin_info.version,
+      );
+    }
     let module = wasm_module_creator
       .create_from_serialized(compiled_wasm_bytes)?
-      .with_initializes_on_start(plugin_initializes_on_start(&plugin_info));
+      .with_initializes_on_start(initializes_on_start);
     Ok(WasmPlugin {
       module,
       environment,
