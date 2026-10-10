@@ -650,6 +650,49 @@ pub fn find_npm_plugin_local_path(specifier: &NpmSpecifier, config_dir: &Path, e
   Ok(PathSource::new_local(canonical))
 }
 
+/// An npm package's files on disk.
+pub struct NpmPackageDir {
+  pub dir: PathBuf,
+  /// Whether the package was downloaded from the registry by this call instead
+  /// of being found in the cache.
+  pub is_first_download: bool,
+}
+
+/// Ensures `name@version` is extracted in the npm cache, downloading it from
+/// the registry when it's not there yet, and returns the directory containing
+/// the package's files.
+///
+/// A cached package is used as-is without making any network requests since
+/// `name@version` is immutable on npm.
+pub async fn ensure_npm_package_extracted(name: &str, version: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Result<NpmPackageDir> {
+  let registry = resolve_registry_for_package(name, start_dir, environment);
+  let registry_segment = registry_dir_segment(&registry.url);
+  let extract_dir = get_npm_extract_dir(&registry_segment, name, version, environment);
+  if environment.path_exists(&extract_dir) {
+    return Ok(NpmPackageDir {
+      dir: extract_dir,
+      is_first_download: false,
+    });
+  }
+
+  let tarball_bytes = fetch_npm_tarball(name, version, &registry, environment).await?;
+  let tarball_sha256 = get_sha256_checksum(&tarball_bytes);
+
+  // extract in a blocking task since tarball decompression and file I/O can be slow
+  let environment_clone = environment.clone();
+  let dir = extract_dir.clone();
+  dprint_core::async_runtime::spawn_blocking(move || extract_tarball_to_dir(&tarball_bytes, &dir, &environment_clone)).await??;
+
+  // record the tarball's checksum so a later `dprint add` of the same version
+  // can reuse it without re-downloading the tarball. Best-effort.
+  write_npm_tarball_meta(&registry_segment, name, version, &tarball_sha256, environment);
+
+  Ok(NpmPackageDir {
+    dir: extract_dir,
+    is_first_download: true,
+  })
+}
+
 /// Builds the error message for a missing plugin file inside an npm package.
 /// When the requested file is `plugin.wasm` (or vice-versa) and the other
 /// recognized plugin file is actually present, suggest the corrected
@@ -753,6 +796,22 @@ async fn fetch_and_verify_npm_tarball(
   registry: &NpmRegistryResolution,
   environment: &impl Environment,
 ) -> Result<Vec<u8>> {
+  let tarball_bytes = fetch_npm_tarball(name, version, registry, environment).await?;
+
+  if let Err(err) = verify_sha256_checksum(&tarball_bytes, expected_checksum) {
+    bail!(
+      "Invalid checksum for npm package {}@{}. The tarball's contents don't match the expected SHA-256.\n\n{:#}",
+      name,
+      version,
+      err,
+    );
+  }
+
+  Ok(tarball_bytes)
+}
+
+/// Fetches the tarball of `name@version` from `registry`.
+async fn fetch_npm_tarball(name: &str, version: &str, registry: &NpmRegistryResolution, environment: &impl Environment) -> Result<Vec<u8>> {
   let packument_url_str = get_packument_url(&registry.url, name);
   let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
   let (_, packument_file) = environment
@@ -768,18 +827,8 @@ async fn fetch_and_verify_npm_tarball(
     .download_file_err_404(&tarball_url, tarball_options)
     .await
     .with_context(|| format!("Failed to download npm tarball for {}@{}", name, version))?;
-  let tarball_bytes = tarball_file.content;
 
-  if let Err(err) = verify_sha256_checksum(&tarball_bytes, expected_checksum) {
-    bail!(
-      "Invalid checksum for npm package {}@{}. The tarball's contents don't match the expected SHA-256.\n\n{:#}",
-      name,
-      version,
-      err,
-    );
-  }
-
-  Ok(tarball_bytes)
+  Ok(tarball_file.content)
 }
 
 /// An npm-installed process plugin must ship its per-platform binary inside
@@ -1432,7 +1481,7 @@ fn get_tarball_url_from_packument(packument: &serde_json::Value, version: &str, 
 
 /// Walks up from `start_dir` looking for `node_modules/{package_name}/`.
 /// Returns `None` if not installed anywhere along the ancestor chain.
-fn find_package_in_node_modules(package_name: &str, start_dir: &Path, environment: &impl Environment) -> Option<std::path::PathBuf> {
+pub fn find_package_in_node_modules(package_name: &str, start_dir: &Path, environment: &impl Environment) -> Option<std::path::PathBuf> {
   for dir in start_dir.ancestors() {
     let candidate = dir.join("node_modules").join(package_name);
     if environment.path_exists(&candidate) {

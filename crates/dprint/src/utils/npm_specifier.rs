@@ -201,6 +201,10 @@ fn validate_safe_sub_path(path: &str, original: &str) -> Result<()> {
   if path.contains('\\') {
     bail!("Plugin path in npm specifier must not contain backslashes (got '{}'): {}", path, original);
   }
+  // a drive letter (ex. `C:/dir/file.json`) replaces the base path when joined on Windows
+  if path.contains(':') {
+    bail!("Plugin path in npm specifier must not contain colons (got '{}'): {}", path, original);
+  }
   for segment in path.split('/') {
     if segment.is_empty() {
       bail!("Plugin path in npm specifier must not contain empty segments (got '{}'): {}", path, original);

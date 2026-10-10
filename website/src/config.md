@@ -432,7 +432,7 @@ later values win.
 
 ## Extending a Different Configuration File
 
-You may extend other configuration files by specifying an `extends` property. This may be a file path, URL, or relative path (remote configuration may extend other configuration files via a relative path).
+You may extend other configuration files by specifying an `extends` property. This may be a file path, URL, relative path (remote configuration may extend other configuration files via a relative path), or [npm specifier](#extending-configuration-in-an-npm-package).
 
 <!-- dprint-ignore -->
 
@@ -455,6 +455,45 @@ Referencing multiple configuration files is also supported. These should be orde
 ```
 
 Note: The `includes` property of extended _remote_ configuration is ignored for security reasons out of an abundance of caution (to disallow the dprint cli pulling in sensitive files) and additionally non-Wasm plugins are ignored in remote configuration because they don't run sandboxed.
+
+### Extending Configuration in an npm Package
+
+Configuration files published in an npm package may be extended with an `npm:` specifier:
+
+<!-- dprint-ignore -->
+
+```json
+{
+  "extends": [
+    // the package's main configuration file, resolved from node_modules
+    "npm:@scope/dprint-config",
+    // an entry in the `exports` of the package's package.json or otherwise a file in the package
+    "npm:@scope/dprint-config/markdown",
+    "npm:@scope/dprint-config/configs/markdown.json",
+    // a specific version downloaded from the npm registry
+    "npm:@scope/dprint-config@1.2.3",
+    "npm:@scope/dprint-config@1.2.3/markdown"
+  ]
+}
+```
+
+- Omitting the version (`npm:@scope/name`) tells dprint to look up the package in `node_modules` walking up from the config file's directory. This behaves the same as extending the file in `node_modules` by its path.
+- Specifying an exact version (`npm:@scope/name@1.2.3`) downloads the package from the npm registry (honoring `.npmrc` and `NPM_CONFIG_REGISTRY` the same as [npm plugins](#plugins)) and no `node_modules` directory is necessary. The version must be exact (not a range or tag). This is remote configuration, so its `includes` and non-Wasm plugins are ignored. It may extend other files in the package by relative path, other versioned `npm:` specifiers, and URLs, but not files elsewhere on the machine.
+- The package's main configuration file is the first of: the `"."` entry in the `exports` of its package.json, the `main` of its package.json when that's a JSON file, or a `dprint.json` or `dprint.jsonc` file at the root of the package.
+- A path after the package name is looked up in the `exports` of the package's package.json (ex. `"./markdown": "./configs/markdown.json"`) and otherwise is the path of a file in the package. For conditional exports, the `dprint` and `default` conditions are matched. Exports not within a `dprint` condition are only used when they're a `.json` or `.jsonc` file and subpath patterns (ex. `./configs/*`) are not supported.
+
+For example, a package could provide several configuration files with the following package.json:
+
+```json
+{
+  "name": "@scope/dprint-config",
+  "version": "1.2.3",
+  "exports": {
+    ".": "./configs/index.json",
+    "./markdown": "./configs/markdown.json"
+  }
+}
+```
 
 ## Directory Specific Configuration
 

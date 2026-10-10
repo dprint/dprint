@@ -5,6 +5,7 @@ mod get_plugin_config_map;
 mod manipulation;
 mod resolve_config;
 mod resolve_main_config_path;
+mod resolve_npm_extends;
 mod types;
 
 pub use deserialize_config::*;

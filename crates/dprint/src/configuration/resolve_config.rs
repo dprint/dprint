@@ -27,6 +27,7 @@ use crate::plugins::parse_plugin_source_reference;
 use crate::utils::GlobPatternKind;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
+use crate::utils::ResolvedFilePathWithBytes;
 use crate::utils::ResolvedFilePathWithText;
 use crate::utils::ResolvedFilePathWithTextRef;
 use crate::utils::ShowConfirmStrategy;
@@ -34,6 +35,8 @@ use crate::utils::resolve_url_or_file_path_to_file_with_cache;
 
 use super::resolve_main_config_path::ResolvedConfigPathWithText;
 use super::resolve_main_config_path::resolve_main_config_path_and_bytes;
+use super::resolve_npm_extends::resolve_npm_extends;
+use super::resolve_npm_extends::resolve_relative_npm_extends;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedConfig {
@@ -345,10 +348,8 @@ fn resolve_extends<TEnvironment: Environment>(
 ) -> LocalBoxFuture<'static, Result<ResolvedConfig>> {
   // boxed because of recursion
   async move {
-    for url_or_file_path in extends {
-      let resolved_file = resolve_url_or_file_path_to_file_with_cache(&url_or_file_path, &base_path, &environment)
-        .await?
-        .into_text()?;
+    for specifier in extends {
+      let resolved_file = resolve_extends_file(&specifier, &base_path, &environment).await?.into_text()?;
       resolved_config = match handle_config_file(&resolved_file, resolved_config, &environment).await {
         Ok(resolved_config) => resolved_config,
         Err(err) => bail!("{:#}\n    at {}", err, resolved_file.source.display()),
@@ -357,6 +358,40 @@ fn resolve_extends<TEnvironment: Environment>(
     Ok(resolved_config)
   }
   .boxed_local()
+}
+
+async fn resolve_extends_file(specifier: &str, base_path: &PathSource, environment: &impl Environment) -> Result<ResolvedFilePathWithBytes> {
+  if specifier.starts_with("npm:") {
+    resolve_npm_extends(specifier, base_path, environment).await
+  } else if let PathSource::Npm(npm_base) = base_path {
+    if is_http_url(specifier) {
+      resolve_url_or_file_path_to_file_with_cache(specifier, base_path, environment).await
+    } else if is_relative_path(specifier) {
+      // a config file in an npm package extending another file in the package
+      resolve_relative_npm_extends(specifier, npm_base, environment).await
+    } else {
+      // IMPORTANT: Never allow configuration from the npm registry to extend a
+      // file on the local machine because that file would be considered local
+      // configuration and so wouldn't have the remote configuration restrictions.
+      bail!(
+        concat!(
+          "Cannot extend '{}' in a configuration file from the npm registry. ",
+          "Only relative paths to files in the package, npm specifiers, and http(s) urls are supported."
+        ),
+        specifier,
+      );
+    }
+  } else {
+    resolve_url_or_file_path_to_file_with_cache(specifier, base_path, environment).await
+  }
+}
+
+fn is_http_url(specifier: &str) -> bool {
+  url::Url::parse(specifier).is_ok_and(|url| matches!(url.scheme(), "http" | "https"))
+}
+
+fn is_relative_path(specifier: &str) -> bool {
+  !specifier.starts_with("~/") && url::Url::parse(specifier).is_err()
 }
 
 async fn handle_config_file<TEnvironment: Environment>(

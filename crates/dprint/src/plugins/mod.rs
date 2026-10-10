@@ -24,6 +24,8 @@ pub use name_resolution::PluginNameResolutionMaps;
 pub use npm_resolution::FetchNpmLatestInfo;
 pub use npm_resolution::MinimumDependencyAgeError;
 pub use npm_resolution::detect_npm_plugin_kind_in_node_modules;
+pub use npm_resolution::ensure_npm_package_extracted;
 pub use npm_resolution::fetch_npm_latest_info;
+pub use npm_resolution::find_package_in_node_modules;
 pub use npm_resolution::resolve_dependency_age_cutoff;
 pub use npm_resolution::resolve_npm_latest_version;
