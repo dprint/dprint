@@ -153,6 +153,7 @@ pub fn precompile_compatibility_hash() -> u64 {
 
 // holds the engine so every module it creates shares one engine, which the
 // modules and their stores must agree on
+#[derive(Clone)]
 pub struct WasmModuleCreator {
   engine: wasmtime::Engine,
 }
