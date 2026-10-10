@@ -151,7 +151,7 @@ const isLinuxGnu = matrix.target.equals("x86_64-unknown-linux-gnu");
 
 // === build job ===
 
-const checkout = step({ name: "Checkout", uses: "actions/checkout@v7" });
+const checkout = step({ name: "Checkout", uses: "actions/checkout@v7", with: { "persist-credentials": false } });
 const setupDeno = step({
   uses: "denoland/setup-deno@v2",
   with: {
@@ -449,6 +449,9 @@ const buildJob = job("build", {
   runsOn: matrix.os,
   strategy: { matrix },
   defaults: { run: { shell: "bash" } },
+  permissions: {
+    contents: "read",
+  },
   env: {
     // disabled to reduce ./target size and generally it's slower enabled
     CARGO_INCREMENTAL: 0,
@@ -565,7 +568,7 @@ const draftReleaseJob = job("draft_release", {
     step({
       name: "Clone repository",
       uses: "actions/checkout@v7",
-      with: { "fetch-depth": 0 },
+      with: { "fetch-depth": 0, "persist-credentials": false },
     }),
     changelog,
     step({
@@ -674,9 +677,7 @@ workflow({
     pull_request: { branches: ["main"] },
     push: { branches: ["main"], tags: ["*"] },
   },
-  permissions: {
-    contents: "read",
-  },
+  permissions: {},
   concurrency: {
     // https://stackoverflow.com/a/72408109/188246
     group: "${{ github.workflow }}-${{ github.head_ref || github.run_id }}",
