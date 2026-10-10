@@ -206,6 +206,8 @@ pub struct ProcessPluginFile {
   pub linux_powerpc64: Option<ProcessPluginPath>,
   #[serde(rename = "linux-powerpc64-musl")]
   pub linux_powerpc64_musl: Option<ProcessPluginPath>,
+  #[serde(rename = "linux-s390x")]
+  pub linux_s390x: Option<ProcessPluginPath>,
   #[serde(rename = "android-x86_64")]
   pub android_x86_64: Option<ProcessPluginPath>,
   #[serde(rename = "android-aarch64")]
@@ -304,6 +306,7 @@ pub fn get_os_path<'a>(plugin_file: &'a ProcessPluginFile, environment: &impl En
       "riscv64" => plugin_file.linux_riscv64.as_ref(),
       "loongarch64" => plugin_file.linux_loongarch64.as_ref(),
       "powerpc64" => plugin_file.linux_powerpc64.as_ref(),
+      "s390x" => plugin_file.linux_s390x.as_ref(),
       _ => None,
     },
     "linux-musl" => match arch.as_str() {

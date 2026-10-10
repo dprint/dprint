@@ -75,6 +75,13 @@ const profileDataItems: ProfileData[] = [{
   target: "riscv64gc-unknown-linux-musl",
   muslCrossImage: "ghcr.io/rust-cross/rust-musl-cross:riscv64gc-musl",
 }, {
+  // s390x (IBM Z): built with cross. Cranelift has a native s390x backend, so
+  // no Pulley fallback is needed. This is the only big-endian target, so the
+  // wasm plugin tests are run under qemu (see the s390x test step).
+  os: OperatingSystem.Linux,
+  target: "s390x-unknown-linux-gnu",
+  cross: true,
+}, {
   os: OperatingSystem.Linux,
   target: "loongarch64-unknown-linux-gnu",
   cross: true,
@@ -330,6 +337,16 @@ const tests = step(
   ),
 );
 
+// s390x is the only big-endian target, so run the tests that compile and run a
+// wasm plugin under cross's qemu runner to catch any endianness issues in the
+// host <-> plugin communication. The rest of the suite is skipped because it's
+// slow under emulation and the process plugin tests can't spawn s390x binaries.
+const s390xTests = step({
+  name: "Test wasm plugins (s390x)",
+  if: matrix.target.equals("s390x-unknown-linux-gnu").and(isNotTag),
+  run: `cross test -p dprint --locked --target ${matrix.target} -- should_format_single_file should_handle_wasm_plugin_erroring`,
+}).dependsOn(buildDebug);
+
 // Builds the published gnu binaries against an old glibc so they run on older
 // distros (dprint/dprint#796) -- the runner's glibc doesn't matter with zigbuild.
 // This runs after the tests so target/<target>/release/dprint is guaranteed to
@@ -476,6 +493,7 @@ const buildJob = job("build", {
     lint,
     buildDebug,
     tests,
+    s390xTests,
     uploadArtifacts,
     installerTests,
   ),

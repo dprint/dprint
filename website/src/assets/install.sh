@@ -36,6 +36,7 @@ else
 		"Linux loongarch64") target="loongarch64-unknown-linux" ;;
 		"Linux riscv64") target="riscv64gc-unknown-linux" ;;
 		"Linux ppc64le") target="powerpc64le-unknown-linux" ;;
+		"Linux s390x") target="s390x-unknown-linux-gnu" ;; # s390x build only has a GNU libc variant.
 		*) target="x86_64-unknown-linux" ;;
 	esac
 fi
