@@ -22,6 +22,8 @@ use crate::environment::DownloadedFile;
 
 const MAX_RETRIES: u8 = 2;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a whole request may take when failing fast.
+const FAIL_FAST_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long to wait on a server that was connected to for each part of its response.
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -53,13 +55,14 @@ impl RealUrlDownloader {
 
   pub async fn download(&self, url: &Url, options: DownloadOptions<'_>) -> Result<Option<DownloadedFile>> {
     let client = self.get_client(url, options.proxy).await?;
+    let max_retries = if options.fail_fast { 0 } else { MAX_RETRIES };
     let mut last_error = None;
-    for retry_count in 0..(MAX_RETRIES + 1) {
+    for retry_count in 0..=max_retries {
       match self.inner_download(url, options, retry_count, &client).await {
         Ok(result) => return Ok(result),
         Err(err) => {
-          if retry_count < MAX_RETRIES {
-            log_debug!(self.logger, "Error downloading {} ({}/{}): {:#}", url, retry_count, MAX_RETRIES, err);
+          if retry_count < max_retries {
+            log_debug!(self.logger, "Error downloading {} ({}/{}): {:#}", url, retry_count, max_retries, err);
           }
           last_error = Some(err);
         }
@@ -92,6 +95,9 @@ impl RealUrlDownloader {
 
   async fn inner_download(&self, url: &Url, options: DownloadOptions<'_>, retry_count: u8, client: &ClientWithProxy) -> Result<Option<DownloadedFile>> {
     let mut request = client.client.get(url.clone()).build()?;
+    if options.fail_fast {
+      *request.timeout_mut() = Some(FAIL_FAST_TIMEOUT);
+    }
     if let Some(auth) = options.auth {
       // replaces the header reqwest creates for credentials in the url
       request.headers_mut().insert(reqwest::header::AUTHORIZATION, auth.parse()?);
@@ -828,6 +834,35 @@ mod test {
         proxy
       )
     );
+  }
+
+  #[tokio::test]
+  async fn should_make_single_attempt_when_failing_fast() {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    let requests = Arc::new(AtomicUsize::new(0));
+    let origin = start_test_server({
+      let requests = requests.clone();
+      move |_, _| {
+        requests.fetch_add(1, Ordering::SeqCst);
+        "500 Internal Server Error\r\nContent-Length: 0\r\n\r\n".to_string()
+      }
+    });
+    let downloader = create_direct_downloader();
+    let url = url::Url::parse(&format!("{origin}/file")).unwrap();
+
+    let options = DownloadOptions {
+      fail_fast: true,
+      ..Default::default()
+    };
+    let err = downloader.download(&url, options).await.err().unwrap();
+    assert_eq!(err.to_string(), format!("Error downloading {url} - 500 Internal Server Error"));
+    assert_eq!(requests.load(Ordering::SeqCst), 1);
+
+    // retries otherwise
+    downloader.download(&url, DownloadOptions::default()).await.err().unwrap();
+    assert_eq!(requests.load(Ordering::SeqCst), 1 + super::MAX_RETRIES as usize + 1);
   }
 
   /// Starts a server that responds to each request with the provided

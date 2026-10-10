@@ -148,8 +148,8 @@ pub struct TestEnvironment {
   remote_file_redirects: Arc<Mutex<HashMap<String, String>>>,
   /// Last auth header seen for each URL.
   remote_file_auth: Arc<Mutex<HashMap<String, Option<String>>>>,
-  /// Last cache validators seen for each URL, rendered for assertions.
-  remote_file_cache_validators: Arc<Mutex<HashMap<String, String>>>,
+  /// Last `DownloadOptions` seen for each URL, rendered for assertions.
+  remote_file_options: Arc<Mutex<HashMap<String, String>>>,
   remote_file_proxies: Arc<Mutex<HashMap<String, String>>>,
   /// Number of times each URL was requested.
   remote_file_request_counts: Arc<Mutex<HashMap<String, usize>>>,
@@ -201,7 +201,7 @@ impl TestEnvironment {
       remote_file_headers: Default::default(),
       remote_file_redirects: Default::default(),
       remote_file_auth: Default::default(),
-      remote_file_cache_validators: Default::default(),
+      remote_file_options: Default::default(),
       remote_file_proxies: Default::default(),
       remote_file_request_counts: Default::default(),
       file_read_counts: Default::default(),
@@ -295,9 +295,9 @@ impl TestEnvironment {
     self.remote_file_auth.lock().remove(url).flatten()
   }
 
-  /// Takes the debug text of the `CacheValidators` the url was last requested with.
-  pub fn take_remote_file_cache_validators(&self, url: &str) -> Option<String> {
-    self.remote_file_cache_validators.lock().remove(url)
+  /// Takes the debug text of the `DownloadOptions` the url was last requested with.
+  pub fn take_remote_file_options(&self, url: &str) -> Option<String> {
+    self.remote_file_options.lock().remove(url)
   }
 
   /// Takes the debug text of the `DownloadProxy` the url was last requested with.
@@ -581,10 +581,7 @@ impl UrlDownloader for TestEnvironment {
   async fn download_file_no_redirects(&self, url: &Url, options: DownloadOptions<'_>) -> Result<Option<DownloadedFile>> {
     self.remote_file_auth.lock().insert(url.to_string(), options.auth.map(|s| s.to_string()));
     self.remote_file_proxies.lock().insert(url.to_string(), format!("{:?}", options.proxy));
-    self
-      .remote_file_cache_validators
-      .lock()
-      .insert(url.to_string(), format!("{:?}", options.cache_validators));
+    self.remote_file_options.lock().insert(url.to_string(), format!("{:?}", options));
     *self.remote_file_request_counts.lock().entry(url.to_string()).or_default() += 1;
 
     while self.unresponsive_remote_files.lock().iter().any(|u| u == url.as_str()) {

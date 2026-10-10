@@ -87,6 +87,10 @@ pub struct DownloadOptions<'a> {
   /// `If-Modified-Since`) so the server can respond with 304 Not Modified
   /// instead of the content when it's unchanged.
   pub cache_validators: CacheValidators<'a>,
+  /// Make a single attempt with a short timeout instead of retrying, for when
+  /// there's a fallback (ex. a cached copy) and the user shouldn't wait on a
+  /// server that can't be reached.
+  pub fail_fast: bool,
 }
 
 /// The validators of a cached response that let a server say it's unchanged.

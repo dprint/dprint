@@ -107,6 +107,7 @@ async fn resolve_url_to_file_with_cache<TEnvironment: Environment>(
           url,
           err
         );
+        defer_next_check(&cache, url);
         Ok(cached)
       }
       // the download error is the useful one
@@ -145,6 +146,32 @@ fn read_cached_chain<Sys: HttpCacheSys>(cache: &HttpCache<Sys>, url: &Url, allow
   bail!("Too many redirects for {}", url)
 }
 
+/// Refreshes the time of the stale cached responses in the url's chain so the
+/// server isn't asked about them on every run while it can't be reached, but
+/// once they're stale again.
+fn defer_next_check<Sys: HttpCacheSys>(cache: &HttpCache<Sys>, url: &Url) {
+  let mut current_url = url.clone();
+  for _ in 0..=MAX_REDIRECTS {
+    let Ok(key) = cache.cache_item_key(&current_url) else {
+      return;
+    };
+    let Ok(Some(entry)) = cache.get(&key) else {
+      return;
+    };
+    if !cache.is_fresh(&entry.metadata) {
+      // ignore errors
+      _ = cache.set(&current_url, entry.metadata.headers.clone(), &entry.content);
+    }
+    let Some(location) = entry.metadata.headers.get("location") else {
+      return;
+    };
+    let Ok(next_url) = current_url.join(location) else {
+      return;
+    };
+    current_url = next_url;
+  }
+}
+
 /// Downloads the url, following redirects and caching every response along
 /// the way. The validators of a cached response are sent so the server can
 /// respond with 304 Not Modified, in which case the cached content is used.
@@ -181,6 +208,8 @@ async fn download_through_cache<TEnvironment: Environment>(
         &current_url,
         DownloadOptions {
           cache_validators,
+          // the cached response is used when this fails
+          fail_fast: cached.is_some(),
           ..Default::default()
         },
       )
@@ -513,8 +542,8 @@ mod tests {
       assert_eq!(result.is_first_download, true);
       assert_eq!(result.content, b"v1");
       assert_eq!(
-        environment.take_remote_file_cache_validators(url).unwrap(),
-        "CacheValidators { etag: None, last_modified: None }"
+        environment.take_remote_file_options(url).unwrap(),
+        "DownloadOptions { auth: None, proxy: Environment, cache_validators: CacheValidators { etag: None, last_modified: None }, fail_fast: false }"
       );
 
       // fresh, so the server isn't asked
@@ -535,8 +564,8 @@ mod tests {
       assert_eq!(result.content, b"v1");
       assert_eq!(environment.remote_file_request_count(url), 2);
       assert_eq!(
-        environment.take_remote_file_cache_validators(url).unwrap(),
-        "CacheValidators { etag: Some(\"\\\"abc\\\"\"), last_modified: None }"
+        environment.take_remote_file_options(url).unwrap(),
+        "DownloadOptions { auth: None, proxy: Environment, cache_validators: CacheValidators { etag: Some(\"\\\"abc\\\"\"), last_modified: None }, fail_fast: true }"
       );
 
       // the unchanged response is fresh again
@@ -587,8 +616,8 @@ mod tests {
       assert_eq!(result.content, b"v2");
       assert_eq!(result.is_first_download, true);
       assert_eq!(
-        environment.take_remote_file_cache_validators(url).unwrap(),
-        "CacheValidators { etag: Some(\"\\\"v1\\\"\"), last_modified: None }"
+        environment.take_remote_file_options(url).unwrap(),
+        "DownloadOptions { auth: None, proxy: Environment, cache_validators: CacheValidators { etag: Some(\"\\\"v1\\\"\"), last_modified: None }, fail_fast: true }"
       );
 
       // now it has a time
@@ -689,6 +718,14 @@ mod tests {
         )]
       );
 
+      // no-cache means it's checked on every run
+      let result = resolve_url_or_file_path_to_file_with_cache(url, &base, RemoteCacheMode::Use, &environment)
+        .await
+        .unwrap();
+      assert_eq!(result.content, b"v1");
+      assert_eq!(environment.remote_file_request_count(url), 3);
+      assert_eq!(environment.take_stderr_messages().len(), 1);
+
       // a 404 is an answer rather than a failure though
       environment.remove_remote_file(url);
       let err = resolve_url_or_file_path_to_file_with_cache(url, &base, RemoteCacheMode::Use, &environment)
@@ -696,6 +733,49 @@ mod tests {
         .err()
         .unwrap();
       assert_eq!(err.to_string(), "Error downloading https://dprint.dev/config.json - 404 Not Found");
+    });
+  }
+
+  #[test]
+  fn should_defer_next_check_after_failing_to_reach_server() {
+    let environment = TestEnvironment::new();
+    let url = "https://dprint.dev/config.json";
+    environment.set_fs_time(1_000);
+    environment.add_remote_file_with_headers(url, b"v1", &[("cache-control", "max-age=300")]);
+    environment.clone().run_in_runtime(async move {
+      let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/"));
+      resolve_url_or_file_path_to_file_with_cache(url, &base, RemoteCacheMode::Use, &environment)
+        .await
+        .unwrap();
+
+      // stale and offline
+      environment.set_fs_time(1_300);
+      environment.add_remote_file_error(url, "dns error");
+      let result = resolve_url_or_file_path_to_file_with_cache(url, &base, RemoteCacheMode::Use, &environment)
+        .await
+        .unwrap();
+      assert_eq!(result.content, b"v1");
+      assert_eq!(environment.remote_file_request_count(url), 2);
+      assert_eq!(environment.take_stderr_messages().len(), 1);
+
+      // not checked again until it's stale again
+      environment.set_fs_time(1_599);
+      let result = resolve_url_or_file_path_to_file_with_cache(url, &base, RemoteCacheMode::Use, &environment)
+        .await
+        .unwrap();
+      assert_eq!(result.content, b"v1");
+      assert_eq!(environment.remote_file_request_count(url), 2);
+      assert!(environment.take_stderr_messages().is_empty());
+
+      // back online with a new version
+      environment.set_fs_time(1_600);
+      environment.add_remote_file_with_headers(url, b"v2", &[("cache-control", "max-age=300")]);
+      let result = resolve_url_or_file_path_to_file_with_cache(url, &base, RemoteCacheMode::Use, &environment)
+        .await
+        .unwrap();
+      assert_eq!(result.content, b"v2");
+      assert_eq!(environment.remote_file_request_count(url), 3);
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -723,8 +803,8 @@ mod tests {
       assert_eq!(result.is_first_download, false);
       assert_eq!(environment.remote_file_request_count(url), 2);
       assert_eq!(
-        environment.take_remote_file_cache_validators(url).unwrap(),
-        "CacheValidators { etag: None, last_modified: Some(\"Sun, 06 Nov 1994 08:49:37 GMT\") }"
+        environment.take_remote_file_options(url).unwrap(),
+        "DownloadOptions { auth: None, proxy: Environment, cache_validators: CacheValidators { etag: None, last_modified: Some(\"Sun, 06 Nov 1994 08:49:37 GMT\") }, fail_fast: true }"
       );
 
       // changed

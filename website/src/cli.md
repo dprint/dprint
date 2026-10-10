@@ -221,7 +221,7 @@ This flag is more useful for one-off commands. It is recommended to use the defa
 
 ### Reloading remote configuration files and plugins
 
-Remote configuration files (specified via `--config` or `extends`) are cached. The cached copy is used until it expires according to the response's caching headers (ex. `Cache-Control: max-age`), or for a day when there are none, after which dprint checks the server for a newer version. Remote plugins are cached until the cache is cleared. Provide `--reload` to check the server for newer versions of both right away:
+Remote configuration files (specified via `--config` or `extends`) are cached. The cached copy is used until it expires according to the response's caching headers (ex. `Cache-Control: max-age`), or for a day when there are none, after which dprint checks the server for a newer version. When the server can't be reached, the cached copy is used and the check is tried again once it's stale again. Remote plugins are cached until the cache is cleared. Provide `--reload` to check the server for newer versions of both right away:
 
 ```sh
 dprint fmt --reload
