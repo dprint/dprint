@@ -873,6 +873,7 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
         "(ex. 'P3D', 'PT72H'), a number of minutes (ex. '1440'), a date or RFC3339 timestamp (ex. '2026-01-15'), or '0' to disable. ",
         "Defaults to min-release-age in .npmrc, otherwise no minimum.",
       ))
+      .value_hint(clap::ValueHint::Other)
       .num_args(1)
       .required(false)
   }
@@ -992,9 +993,14 @@ EXAMPLES:
         .arg(
           Arg::new("lines")
             .long("lines")
-            .value_name("[file-path:]first:last[,first:last]...")
+            .value_name(match kind {
+              // zsh's completions need the colons escaped
+              CliArgParserKind::ForCompletions => r"[file-path\:]first\:last[,first\:last]...",
+              _ => "[file-path:]first:last[,first:last]...",
+            })
             .help("Only format the provided 1-based and inclusive ranges of lines of a file (ex. `--lines src/main.ts:10:20,35:40`). May be specified multiple times. The file path may be omitted when formatting a single file or using --stdin (ex. `--lines 10:20`). With --stdin-files, add the lines to a file path's line instead (ex. `src/main.ts:10:20,35:40`). What gets formatted is up to the plugin and plugins that don't support range formatting may format the entire file.")
             .value_parser(clap::value_parser!(FileLineRanges))
+            .value_hint(clap::ValueHint::AnyPath)
             .action(clap::ArgAction::Append)
             .required(false)
             .num_args(1)
@@ -1155,21 +1161,18 @@ EXAMPLES:
     .subcommand(
       Command::new("license")
         .about("Outputs the software license.")
-    )
-    .subcommand(
-      Command::new("editor-info")
-        .hide(true)
-    )
-    .subcommand(
+    );
+
+  // the generated completions include what's hidden, so leave those out of them
+  if kind != CliArgParserKind::ForCompletions {
+    app = app.subcommand(Command::new("editor-info").hide(true)).subcommand(
       Command::new("editor-service")
         .hide(true)
-        .arg(
-          Arg::new("parent-pid")
-            .long("parent-pid")
-            .required(true)
-            .num_args(1)
-        )
-    )
+        .arg(Arg::new("parent-pid").long("parent-pid").required(true).num_args(1)),
+    );
+  }
+
+  app = app
     .subcommand(
       Command::new("lsp")
       .about("Starts up a language server for formatting files.")
@@ -1188,7 +1191,11 @@ EXAMPLES:
         .long("config-discovery")
         .help("Sets the config discovery mode. Set to `false` to completely disable, `ignore-descendants` to avoid finding config files in child directories, or `global` to only use the global config file.")
         .global(true)
-        .value_parser(clap::value_parser!(ConfigDiscovery))
+        .value_parser(match kind {
+          // the parser accepts any text, so provide the values to complete
+          CliArgParserKind::ForCompletions => clap::builder::ValueParser::from(["true", "false", "ignore-descendants", "global"]),
+          _ => clap::value_parser!(ConfigDiscovery).into(),
+        })
         .value_name("BOOLEAN")
         .num_args(1)
         .require_equals(true)
@@ -1222,16 +1229,19 @@ EXAMPLES:
         .value_parser(["debug", "info", "warn", "error", "silent"])
         .default_value("info")
         .global(true),
-    )
-    .arg(
+    );
+
+  if kind != CliArgParserKind::ForCompletions {
+    app = app.arg(
       Arg::new("verbose")
         .long("verbose")
         .help("Alias for --log-level=debug")
         .hide(true)
         .global(true)
         .num_args(0)
-        .conflicts_with("log-level")
+        .conflicts_with("log-level"),
     );
+  }
 
   #[cfg(target_os = "windows")]
   if kind == CliArgParserKind::Default {
@@ -1279,6 +1289,7 @@ impl ClapExtensions for clap::Command {
         Arg::new("includes-override")
           .long("includes-override")
           .value_name("patterns")
+          .value_hint(clap::ValueHint::AnyPath)
           .help("List of file patterns in quotes to format. This overrides what is specified in the config file.")
           .num_args(1..),
       )
@@ -1286,6 +1297,7 @@ impl ClapExtensions for clap::Command {
         Arg::new("excludes")
           .long("excludes")
           .value_name("patterns")
+          .value_hint(clap::ValueHint::AnyPath)
           .help("List of file patterns or directories in quotes to exclude when formatting. This excludes in addition to what is found in the config file.")
           .num_args(1..),
       )
@@ -1293,6 +1305,7 @@ impl ClapExtensions for clap::Command {
         Arg::new("excludes-override")
           .long("excludes-override")
           .value_name("patterns")
+          .value_hint(clap::ValueHint::AnyPath)
           .help("List of file patterns or directories in quotes to exclude when formatting. This overrides what is specified in the config file.")
           .num_args(1..),
       )
@@ -1377,6 +1390,28 @@ mod test {
 
   use super::*;
   use crate::utils::MinimumDependencyAge;
+
+  #[test]
+  fn sub_command_help_has_global_options_last() {
+    let mut cli_parser = create_cli_parser(CliArgParserKind::Default);
+    cli_parser.build();
+    for sub_command in cli_parser.get_subcommands_mut().filter(|c| c.get_name() != "help") {
+      let help_text = sub_command.render_help().to_string();
+      let option_names = help_text
+        .lines()
+        .filter_map(|line| line.trim_start().split_once("--"))
+        .filter(|(prefix, _)| prefix.is_empty() || prefix.ends_with(", "))
+        .map(|(_, text)| text.split([' ', '=', '[']).next().unwrap())
+        .collect::<Vec<_>>();
+      let last_names = &option_names[option_names.len().saturating_sub(5)..];
+      assert_eq!(
+        last_names,
+        ["config", "config-discovery", "plugins", "log-level", "help"],
+        "help for {}",
+        sub_command.get_name()
+      );
+    }
+  }
 
   #[test]
   fn output_prefixed_command_aliases() {
