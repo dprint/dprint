@@ -1,0 +1,7 @@
+# aarch64-unknown-freebsd is a tier 3 Rust target with no prebuilt std, so
+# build std from source. this requires RUSTC_BOOTSTRAP=1 on a stable toolchain.
+[target.aarch64-unknown-freebsd]
+build-std = true
+
+[target.aarch64-unknown-freebsd.env]
+passthrough = ["RUSTC_BOOTSTRAP"]

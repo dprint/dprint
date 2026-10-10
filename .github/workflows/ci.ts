@@ -114,6 +114,17 @@ const profileDataItems: ProfileData[] = [{
   os: OperatingSystem.Linux,
   target: "x86_64-linux-android",
   cross: true,
+}, {
+  // freebsd: built with cross against its FreeBSD 13 sysroot.
+  os: OperatingSystem.Linux,
+  target: "x86_64-unknown-freebsd",
+  cross: true,
+}, {
+  // aarch64 freebsd is a tier 3 Rust target with no prebuilt std, so cross
+  // builds std from source (see Cross.toml and the build-std setup step).
+  os: OperatingSystem.Linux,
+  target: "aarch64-unknown-freebsd",
+  cross: true,
 }];
 
 const profiles = profileDataItems.map(profile => {
@@ -204,6 +215,12 @@ const setupRust = step({
   name: "Setup cross",
   if: isCross,
   run: "cargo install cross --git https://github.com/cross-rs/cross --rev 36c0d7810ddde073f603c82d896c2a6c886ff7a4",
+}, {
+  // -Zbuild-std is nightly only, so allow it on the pinned stable toolchain
+  // in order to build with the same compiler as every other target
+  name: "Setup build-std (aarch64 FreeBSD)",
+  if: matrix.target.equals("aarch64-unknown-freebsd"),
+  run: `echo "RUSTC_BOOTSTRAP=1" >> $GITHUB_ENV`,
 }, {
   name: "Setup zig",
   if: isZigbuild,

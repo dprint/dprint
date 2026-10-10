@@ -6,7 +6,7 @@ import decompress from "npm:decompress@4.2.1";
 
 interface Package {
   zipFileName: string;
-  os: "win32" | "darwin" | "linux" | "android";
+  os: "win32" | "darwin" | "linux" | "android" | "freebsd";
   cpu: "x64" | "arm64" | "riscv64" | "loong64" | "ppc64" | "s390x";
   libc?: "glibc" | "musl";
 }
@@ -96,6 +96,14 @@ const packages: Package[] = [{
   zipFileName: "dprint-x86_64-linux-android.zip",
   os: "android",
   cpu: "x64",
+}, {
+  zipFileName: "dprint-x86_64-unknown-freebsd.zip",
+  os: "freebsd",
+  cpu: "x64",
+}, {
+  zipFileName: "dprint-aarch64-unknown-freebsd.zip",
+  os: "freebsd",
+  cpu: "arm64",
 }];
 
 const markdownText = `# dprint
