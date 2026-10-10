@@ -50,8 +50,7 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
     bail!("You do not have write permission to {}", exe_path.display());
   }
 
-  // the release zips are named after the target triple the binary was built for
-  let zip_filename = format!("dprint-{}.zip", env!("TARGET"));
+  let zip_filename = release_zip_file_name();
   let zip_url = Url::parse(&format!(
     "https://github.com/dprint/dprint/releases/download/{}/{}",
     latest_version, zip_filename
@@ -131,6 +130,11 @@ fn try_kill_other_dprint_processes(environment: &impl Environment) {
       }
     }
   }
+}
+
+/// Gets the name of the release zip for the target triple this binary was built for.
+fn release_zip_file_name() -> String {
+  format!("dprint-{}.zip", env!("TARGET"))
 }
 
 #[cfg(test)]
@@ -236,5 +240,25 @@ mod test {
     let err = run_test_cli(vec!["upgrade"], &environment).err().unwrap();
     assert!(err.to_string().starts_with("Error downloading"));
     assert_eq!(environment.take_stdout_messages(), vec!["Upgrading from 0.0.0 to 0.1.0..."]);
+  }
+
+  #[test]
+  fn release_zip_file_name_should_be_a_released_artifact() {
+    // only enforced on the CI because a local build may be for a target that isn't released
+    if std::env::var_os("CI").is_none() {
+      return;
+    }
+    // the release artifacts are named `dprint-<target>.zip` for each target in ci.ts
+    let ci_file = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/ci.ts");
+    let ci_text = std::fs::read_to_string(ci_file).unwrap();
+    let released_zip_names = ci_text
+      .lines()
+      .filter_map(|line| line.trim().strip_prefix("target: \"")?.strip_suffix("\","))
+      .map(|target| format!("dprint-{}.zip", target))
+      .collect::<Vec<_>>();
+    assert!(released_zip_names.len() > 10, "failed parsing targets from ci.ts");
+    // ex. this would fail if a cargo-zigbuild target like `x86_64-unknown-linux-gnu.2.17` leaked into the name
+    let zip_name = super::release_zip_file_name();
+    assert!(released_zip_names.contains(&zip_name), "{} is not released: {:?}", zip_name, released_zip_names);
   }
 }
