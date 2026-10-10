@@ -143,6 +143,8 @@ struct Context {
 /// Communicates with a process plugin.
 pub struct ProcessPluginCommunicator {
   child: RefCell<Option<Child>>,
+  #[cfg(windows)]
+  job: Option<ProcessJob>,
   context: Rc<Context>,
 }
 
@@ -178,6 +180,9 @@ impl ProcessPluginCommunicator {
       args: args.join(" "),
       error: err,
     })?;
+    // assign the job right away so that it includes anything the plugin spawns
+    #[cfg(windows)]
+    let job = ProcessJob::for_child(&child);
 
     // read and output stderr prefixed
     let stderr = child.stderr.take().unwrap();
@@ -269,6 +274,8 @@ impl ProcessPluginCommunicator {
     });
 
     Ok(Self {
+      #[cfg(windows)]
+      job,
       child: RefCell::new(Some(child)),
       context,
     })
@@ -295,6 +302,10 @@ impl ProcessPluginCommunicator {
       #[cfg(unix)]
       unsafe {
         libc::kill(-(child.id() as i32), libc::SIGKILL);
+      }
+      #[cfg(windows)]
+      if let Some(job) = &self.job {
+        job.terminate();
       }
       let _ignore = child.kill();
       let _ignore = child.wait();
@@ -629,4 +640,48 @@ async fn host_format(context: Rc<Context>, message_id: u32, body: HostFormatMess
   .await;
   drop(store_guard); // explicit for clarity
   result
+}
+
+/// A Windows job object the process plugin is assigned to so that any
+/// subprocesses it spawns get killed along with it.
+#[cfg(windows)]
+struct ProcessJob(winapi::um::winnt::HANDLE);
+
+#[cfg(windows)]
+impl ProcessJob {
+  /// Creates a job and assigns the child to it. Processes the child spawns
+  /// from this point on are automatically part of the job.
+  fn for_child(child: &Child) -> Option<Self> {
+    use std::os::windows::io::AsRawHandle;
+    use winapi::um::jobapi2::AssignProcessToJobObject;
+    use winapi::um::jobapi2::CreateJobObjectW;
+
+    unsafe {
+      let handle = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
+      if handle.is_null() {
+        return None;
+      }
+      let job = Self(handle);
+      if AssignProcessToJobObject(job.0, child.as_raw_handle() as _) == 0 {
+        return None;
+      }
+      Some(job)
+    }
+  }
+
+  /// Kills every process in the job.
+  fn terminate(&self) {
+    unsafe {
+      winapi::um::jobapi2::TerminateJobObject(self.0, 1);
+    }
+  }
+}
+
+#[cfg(windows)]
+impl Drop for ProcessJob {
+  fn drop(&mut self) {
+    unsafe {
+      winapi::um::handleapi::CloseHandle(self.0);
+    }
+  }
 }
