@@ -173,7 +173,7 @@ Behaviour:
 - `dprint config update` will bump versioned npm specifiers to the latest published version (and compute the new checksum for process plugins). Unversioned specifiers are managed by your package manager, so they're skipped. See [Minimum Dependency Age](#minimum-dependency-age) to hold off on npm dependencies that are only days old.
 - `dprint add npm:@scope/name` resolves to the latest version and writes the pinned form, unless the package is listed in a nearby `package.json` under `devDependencies` — in which case the unversioned form is written so npm/`package-lock.json` stays the source of truth. When you don't include a plugin path, dprint inspects the package to detect whether it's a Wasm or process plugin and writes the right form automatically — for a process plugin that means `npm:@scope/name@<version>/plugin.json@<sha256>`.
 
-Available npm packages include `@dprint/typescript`, `@dprint/json`, `@dprint/markdown`, `@dprint/toml`, `@dprint/dockerfile`, `@dprint/biome`, `@dprint/oxc`, `@dprint/ruff`, `@dprint/sql`, `@dprint/mago`, `@dprint/jupyter`, `@dprint/exec`, `@dprint/prettier`, and `@dprint/roslyn`.
+Available npm packages include `@dprint/typescript`, `@dprint/json`, `@dprint/markdown`, `@dprint/toml`, `@dprint/dockerfile`, `@dprint/biome`, `@dprint/oxc`, `@dprint/ruff`, `@dprint/sql`, `@dprint/mago`, `@dprint/jupyter`, `@dprint/roslyn`, `@dprint/exec`, and `@dprint/prettier`.
 
 You can also reference a plugin file directly in `node_modules` if you prefer (`"./node_modules/@dprint/typescript/plugin.wasm"`); the `npm:` form just removes the need for that path.
 

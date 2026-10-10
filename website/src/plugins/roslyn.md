@@ -8,11 +8,7 @@ layout: layouts/documentation.njk
 
 Adapter plugin that formats C# and Visual Basic code via [Roslyn](https://github.com/dotnet/roslyn).
 
-<div class="message is-warning">
-  <div class="message-body">
-    This is a process plugin. Using this will cause the CLI to download, run, and communicate with a separate process that is not sandboxed (unlike Wasm plugins).
-  </div>
-</div>
+Formats .cs and .vb files.
 
 ## Install and Setup
 
@@ -30,13 +26,21 @@ This will update your config file to have an entry for the plugin. Then optional
 {
   "roslyn": {
     // roslyn's config goes here
-  }
-  // etc...
+  },
+  "plugins": [
+    "https://plugins.dprint.dev/roslyn-x.x.x.wasm"
+  ]
 }
 ```
 
 ## Configuration
 
-C# configuration uses the [`CSharpFormattingOptions`](https://docs.microsoft.com/en-us/dotnet/api/microsoft.codeanalysis.csharp.formatting.csharpformattingoptions?view=roslyn-dotnet) (use `"csharp.<property name goes here>": <value goes here>` in the configuration file).
+See [Configuration](/plugins/roslyn/config)
 
-It does not seem like Roslyn supports any VB specific configuration.
+## Playground
+
+See [Playground](https://dprint.dev/playground#plugin/roslyn)
+
+## Source
+
+See https://github.com/dprint/dprint-plugin-roslyn

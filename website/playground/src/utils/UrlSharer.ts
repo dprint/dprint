@@ -10,6 +10,7 @@ export const knownPlugins = new Set([
   "oxc",
   "mago",
   "ruff",
+  "roslyn",
   // third party plugins, but user name is removed because there can't be `/` in the url
   "malva",
   "markup_fmt",

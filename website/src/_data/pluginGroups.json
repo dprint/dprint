@@ -53,7 +53,7 @@
       { "slug": "oxc", "name": "Oxc", "ext": "JS · TS · JSON · CSS · GraphQL · YAML · TOML · Markdown" },
       { "slug": "ruff", "name": "Ruff", "ext": "Python" },
       { "slug": "mago", "name": "Mago", "ext": "PHP" },
-      { "slug": "roslyn", "name": "Roslyn", "ext": "C# · VB", "process": true }
+      { "slug": "roslyn", "name": "Roslyn", "ext": "C# · VB" }
     ]
   },
   {
