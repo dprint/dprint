@@ -8,7 +8,7 @@ layout: layouts/documentation.njk
 
 Install using one of the methods below.
 
-- Shell (Mac, Linux, WSL):
+- Shell (Mac, Linux, FreeBSD, WSL, Termux):
 
   ```sh
   curl -fsSL https://dprint.dev/install.sh | sh
