@@ -15,8 +15,6 @@ Formats .cs and .vb files.
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint add npm:@dprint/roslyn
-# or install from plugins.dprint.dev
 dprint add roslyn
 ```
 
