@@ -596,12 +596,9 @@ fn values_to_vec(values: clap::parser::ValuesRef<String>) -> Vec<String> {
 /// But it should be: dprint fmt --plugins <url1> <url2> -- <file-path>
 fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
   for (i, plugin) in plugins.iter().enumerate() {
-    let lower_plugin = plugin.to_lowercase();
-    let is_valid_plugin =
-      lower_plugin.ends_with(".wasm") || lower_plugin.ends_with(".json") || lower_plugin.contains(".wasm@") || lower_plugin.contains(".json@");
-    if !is_valid_plugin {
+    if !looks_like_plugin(plugin) {
       let start_message = format!(
-        "{} was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension.",
+        "{} was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension, or be an npm: specifier.",
         plugin
       );
       if i == 0 {
@@ -616,6 +613,15 @@ fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
     }
   }
   Ok(())
+}
+
+fn looks_like_plugin(plugin: &str) -> bool {
+  // npm: specifiers don't need an extension (ex. npm:@dprint/typescript@0.96.1)
+  if plugin.starts_with("npm:") {
+    return true;
+  }
+  let lower_plugin = plugin.to_lowercase();
+  lower_plugin.ends_with(".wasm") || lower_plugin.ends_with(".json") || lower_plugin.contains(".wasm@") || lower_plugin.contains(".json@")
 }
 
 #[derive(Default, PartialEq, Eq)]
@@ -1227,7 +1233,7 @@ mod test {
     let err = test_args(vec!["fmt", "--plugins", "test", "other.ts"]).err().unwrap();
     assert_eq!(
       err.to_string(),
-      concat!("test was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension.")
+      concat!("test was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension, or be an npm: specifier.")
     );
   }
 
@@ -1239,9 +1245,30 @@ mod test {
     assert_eq!(
       err.to_string(),
       concat!(
-        "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension.\n\n",
+        "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension, or be an npm: specifier.\n\n",
         "Maybe you meant to add two dashes after the plugins?\n",
         "  --plugins https://plugins.dprint.dev/test.wasm -- [files/directories/patterns]...",
+      )
+    );
+  }
+
+  #[test]
+  fn plugins_npm_specifier_no_files() {
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--plugins", "npm:@dprint/json@0.25.2"]).unwrap();
+    assert_eq!(fmt_cmd.patterns.include_patterns, None);
+    let args = test_args(vec!["check", "--plugins", "npm:@dprint/typescript@0.96.1", "npm:@dprint/json"]).unwrap();
+    assert_eq!(args.plugins, vec!["npm:@dprint/typescript@0.96.1", "npm:@dprint/json"]);
+  }
+
+  #[test]
+  fn plugins_npm_specifier_with_file_paths_no_dash() {
+    let err = test_args(vec!["fmt", "--plugins", "npm:@dprint/json@0.25.2", "other.ts"]).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      concat!(
+        "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension, or be an npm: specifier.\n\n",
+        "Maybe you meant to add two dashes after the plugins?\n",
+        "  --plugins npm:@dprint/json@0.25.2 -- [files/directories/patterns]...",
       )
     );
   }
