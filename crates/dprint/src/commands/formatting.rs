@@ -7,6 +7,7 @@ use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -513,9 +514,15 @@ fn resolve_line_ranges_by_path<TEnvironment: Environment>(
     match &line_range.path {
       Some(path) => {
         // resolve the same way as the file paths to format
-        let path = environment.cwd().join(path);
+        let path_text = path;
+        let path = environment.cwd().join(path_text);
         let path = match environment.canonicalize(&path) {
           Ok(path) => path.into_path_buf(),
+          // the path is also used to find the files to format, so the
+          // files a glob finds would be formatted in their entirety
+          Err(_) if crate::utils::is_pattern(path_text) => {
+            bail!("Lines can only be specified for a file path, but '{}' is a glob.", path_text);
+          }
           Err(_) => path, // doesn't exist, so it won't be formatted
         };
         result.entry(path).or_default().extend(&line_range.ranges);
@@ -523,6 +530,7 @@ fn resolve_line_ranges_by_path<TEnvironment: Environment>(
       None => ranges_without_path.extend(&line_range.ranges),
     }
   }
+  ensure_no_line_ranges_for_directory(&result, scopes)?;
 
   if !ranges_without_path.is_empty() {
     let mut file_paths = scopes.iter().flat_map(|s| s.file_paths_by_plugins.all_file_paths());
@@ -542,6 +550,33 @@ fn resolve_line_ranges_by_path<TEnvironment: Environment>(
   }
 
   Ok(result)
+}
+
+/// Errors when a path with line ranges is a directory because its files would
+/// be formatted in their entirety. This looks at the files that were found
+/// instead of the file system in order to not make any system calls.
+fn ensure_no_line_ranges_for_directory<TEnvironment: Environment>(
+  line_ranges: &LineRangesByPath,
+  scopes: &PluginsScopeAndPathsCollection<TEnvironment>,
+) -> Result<()> {
+  if line_ranges.is_empty() {
+    return Ok(());
+  }
+  let all_file_paths = || scopes.iter().flat_map(|s| s.file_paths_by_plugins.all_file_paths());
+  let mut paths_not_found = line_ranges.keys().map(|p| p.as_path()).collect::<HashSet<_>>();
+  for file_path in all_file_paths() {
+    paths_not_found.remove(file_path.as_path());
+  }
+  // these are now either directories or files that aren't being formatted
+  if paths_not_found.is_empty() {
+    return Ok(());
+  }
+  for file_path in all_file_paths() {
+    if let Some(dir_path) = file_path.ancestors().skip(1).find(|ancestor| paths_not_found.contains(ancestor)) {
+      bail!("Lines can only be specified for a file path, but '{}' is a directory.", dir_path.display());
+    }
+  }
+  Ok(())
 }
 
 /// Formats the provided lines of the text, returning `None` when nothing changed.
@@ -4980,6 +5015,59 @@ text2"
     // only the files with line ranges are formatted
     assert_eq!(environment.read_file("/c.txt").unwrap(), "c");
     assert_eq!(environment.read_file("/d.txt").unwrap(), "d");
+  }
+
+  #[test]
+  fn should_format_line_ranges_with_globs() {
+    let environment = build_line_ranges_environment();
+    // a file that's also matched by a glob only has its lines formatted
+    run_test_cli(vec!["fmt", "--lines", "/a.txt:2:2", "--", "/*.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    assert_eq!(environment.read_file("/a.txt").unwrap(), "a1\n_formatted_\na3\n_formatted");
+    assert_eq!(environment.read_file("/c.txt").unwrap(), "c_formatted");
+    assert_eq!(environment.read_file("/d.txt").unwrap(), "d_formatted");
+    assert_eq!(environment.read_file("/sub/b.txt").unwrap(), "b1\nb2\n_formatted");
+  }
+
+  #[test]
+  fn should_error_for_line_ranges_of_directory() {
+    // a glob isn't tested here because the test environment's canonicalize never fails
+    let environment = build_line_ranges_environment();
+    let err = run_test_cli(vec!["fmt", "--lines", "/sub:1:1"], &environment).err().unwrap();
+    assert_eq!(err.to_string(), "Lines can only be specified for a file path, but '/sub' is a directory.");
+    let test_std_in = TestStdInReader::from(
+      "/a.txt:1:1
+/sub:2
+",
+    );
+    let err = run_test_cli_with_stdin(vec!["fmt", "--stdin-files"], &environment, test_std_in).err().unwrap();
+    assert_eq!(err.to_string(), "Lines can only be specified for a file path, but '/sub' is a directory.");
+    // nothing was formatted
+    assert_eq!(
+      environment.read_file("/a.txt").unwrap(),
+      "a1
+a2
+a3
+_formatted"
+    );
+    assert_eq!(
+      environment.read_file("/sub/b.txt").unwrap(),
+      "b1
+b2
+_formatted"
+    );
+  }
+
+  #[test]
+  fn should_format_line_ranges_for_file_with_glob_chars_in_name() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file("/[id].txt", "a1\na2\n_formatted")
+      .write_file("/other.txt", "text")
+      .build();
+    run_test_cli(vec!["fmt", "--lines", "/[id].txt:2"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/[id].txt").unwrap(), "a1\n_formatted_\n_formatted");
+    assert_eq!(environment.read_file("/other.txt").unwrap(), "text");
   }
 
   #[test]
