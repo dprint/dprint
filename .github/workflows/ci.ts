@@ -18,6 +18,11 @@ interface ProfileData {
   /** Build using cross. */
   cross?: boolean;
   /**
+   * Run the wasm plugin smoke tests under cross's emulator. Only for cross
+   * targets that cross is able to run binaries for.
+   */
+  crossTest?: boolean;
+  /**
    * Build by running cargo directly inside this Docker image. Used for targets
    * cross doesn't provide an image for (e.g. riscv64gc/powerpc64le musl), where the image
    * already bundles the toolchain.
@@ -68,6 +73,7 @@ const profileDataItems: ProfileData[] = [{
   os: OperatingSystem.Linux,
   target: "riscv64gc-unknown-linux-gnu",
   cross: true,
+  crossTest: true,
 }, {
   // cross has no riscv64gc musl image, so build directly in the prebuilt
   // rust-musl-cross toolchain image instead (see the musl image build step).
@@ -76,19 +82,21 @@ const profileDataItems: ProfileData[] = [{
   muslCrossImage: "ghcr.io/rust-cross/rust-musl-cross:riscv64gc-musl",
 }, {
   // s390x (IBM Z): built with cross. Cranelift has a native s390x backend, so
-  // no Pulley fallback is needed. This is the only big-endian target, so the
-  // wasm plugin tests are run under qemu (see the s390x test step).
+  // no Pulley fallback is needed. This is the only big-endian target.
   os: OperatingSystem.Linux,
   target: "s390x-unknown-linux-gnu",
   cross: true,
+  crossTest: true,
 }, {
   os: OperatingSystem.Linux,
   target: "loongarch64-unknown-linux-gnu",
   cross: true,
+  crossTest: true,
 }, {
   os: OperatingSystem.Linux,
   target: "loongarch64-unknown-linux-musl",
   cross: true,
+  crossTest: true,
 }, {
   // ppc64le: built with cross. Cranelift has no native ppc64 backend, so this
   // compiles to wasmtime's portable Pulley bytecode (see the `use_pulley` cfg in
@@ -96,6 +104,7 @@ const profileDataItems: ProfileData[] = [{
   os: OperatingSystem.Linux,
   target: "powerpc64le-unknown-linux-gnu",
   cross: true,
+  crossTest: true,
 }, {
   // cross has no powerpc64le musl image, so build directly in the prebuilt
   // rust-musl-cross toolchain image instead (see the musl image build step).
@@ -110,10 +119,12 @@ const profileDataItems: ProfileData[] = [{
   os: OperatingSystem.Linux,
   target: "aarch64-linux-android",
   cross: true,
+  crossTest: true,
 }, {
   os: OperatingSystem.Linux,
   target: "x86_64-linux-android",
   cross: true,
+  crossTest: true,
 }, {
   // freebsd: built with cross against its FreeBSD 13 sysroot.
   os: OperatingSystem.Linux,
@@ -157,6 +168,7 @@ const matrix = defineMatrix({
     run_tests: (profile.runTests ?? false).toString(),
     target: profile.target,
     cross: (profile.cross ?? false).toString(),
+    cross_test: (profile.crossTest ?? false).toString(),
     musl_image: profile.muslCrossImage ?? "",
     zigbuild_glibc: profile.zigbuildGlibc ?? "",
     // build and test through cargo-zigbuild for zigbuild targets so the test
@@ -363,13 +375,15 @@ const tests = step(
   ),
 );
 
-// s390x is the only big-endian target, so run the tests that compile and run a
-// wasm plugin under cross's qemu runner to catch any endianness issues in the
-// host <-> plugin communication. The rest of the suite is skipped because it's
-// slow under emulation and the process plugin tests can't spawn s390x binaries.
-const s390xTests = step({
-  name: "Test wasm plugins (s390x)",
-  if: matrix.target.equals("s390x-unknown-linux-gnu").and(isNotTag),
+// Runs the tests that compile and run a wasm plugin under cross's emulator for
+// the cross targets it can run binaries for. No other job executes the Pulley
+// interpreter (powerpc64le, loongarch64, android) or a big-endian host (s390x),
+// so this is what catches a broken wasm runtime on those targets. The rest of
+// the suite is skipped because it's slow under emulation and the process plugin
+// tests can't spawn binaries for the target.
+const crossTests = step({
+  name: "Test wasm plugins (cross)",
+  if: matrix.cross_test.equals("true").and(isNotTag),
   run: `cross test -p dprint --locked --target ${matrix.target} -- should_format_single_file should_handle_wasm_plugin_erroring`,
 }).dependsOn(buildDebug);
 
@@ -519,7 +533,7 @@ const buildJob = job("build", {
     lint,
     buildDebug,
     tests,
-    s390xTests,
+    crossTests,
     uploadArtifacts,
     installerTests,
   ),
