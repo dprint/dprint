@@ -394,11 +394,38 @@ impl Environment for RealEnvironment {
 
   fn kill_processes_using_dir(&self, dir_path: impl AsRef<Path>) -> usize {
     let dir_path = dir_path.as_ref();
-    self.kill_processes(|process| process.exe().is_some_and(|exe| exe.starts_with(dir_path)) || locks_cached_wasm_plugins(process))
-  }
+    let mut system = self.system.lock();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let mut killed_pids = Vec::new();
+    for process in system.processes().values() {
+      let Some(exe) = process.exe() else {
+        continue;
+      };
+      if exe.starts_with(dir_path) {
+        log_debug!(self, "Killing process {} using executable: {}", process.pid(), exe.display());
+        if process.kill() {
+          killed_pids.push(process.pid());
+        }
+      }
+    }
 
-  fn kill_long_running_dprint_processes(&self) -> usize {
-    self.kill_processes(locks_cached_wasm_plugins)
+    // wait for the killed processes to actually exit so their executables are no
+    // longer locked before the caller tries to delete them again. poll with a
+    // timeout rather than `Process::wait`, which blocks indefinitely (e.g. on a
+    // process we couldn't kill, or a zombie its real parent hasn't reaped yet).
+    if !killed_pids.is_empty() {
+      let mut remaining_polls = 100; // ~2s at 20ms per poll
+      while remaining_polls > 0 {
+        system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&killed_pids), true);
+        if killed_pids.iter().all(|pid| system.process(*pid).is_none()) {
+          break;
+        }
+        remaining_polls -= 1;
+        std::thread::sleep(std::time::Duration::from_millis(20));
+      }
+    }
+
+    killed_pids.len()
   }
 
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
@@ -759,119 +786,6 @@ fn get_cache_dir_internal(get_env_var: impl Fn(&str) -> Option<String>) -> io::R
   }
 }
 
-impl RealEnvironment {
-  /// Kills the running processes matching the predicate, returning how many
-  /// were killed.
-  fn kill_processes(&self, should_kill: impl Fn(&sysinfo::Process) -> bool) -> usize {
-    let mut system = self.system.lock();
-    let mut refresh_kind = sysinfo::ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::OnlyIfNotSet);
-    if cfg!(windows) {
-      // only `locks_cached_wasm_plugins` needs these
-      refresh_kind = refresh_kind
-        .with_cmd(sysinfo::UpdateKind::OnlyIfNotSet)
-        .with_environ(sysinfo::UpdateKind::OnlyIfNotSet);
-    }
-    system.refresh_processes_specifics(sysinfo::ProcessesToUpdate::All, true, refresh_kind);
-    let mut killed_pids = Vec::new();
-    for process in system.processes().values() {
-      if should_kill(process) {
-        log_debug!(
-          self,
-          "Killing process {} using executable: {}",
-          process.pid(),
-          process.exe().unwrap_or(Path::new("<unknown>")).display()
-        );
-        if process.kill() {
-          killed_pids.push(process.pid());
-        }
-      }
-    }
-
-    // wait for the killed processes to actually exit so their files are no
-    // longer locked before the caller tries to delete them again. poll with a
-    // timeout rather than `Process::wait`, which blocks indefinitely (e.g. on a
-    // process we couldn't kill, or a zombie its real parent hasn't reaped yet).
-    if !killed_pids.is_empty() {
-      let mut remaining_polls = 100; // ~2s at 20ms per poll
-      while remaining_polls > 0 {
-        system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&killed_pids), true);
-        if killed_pids.iter().all(|pid| system.process(*pid).is_none()) {
-          break;
-        }
-        remaining_polls -= 1;
-        std::thread::sleep(std::time::Duration::from_millis(20));
-      }
-    }
-
-    killed_pids.len()
-  }
-}
-
-/// Gets if this is another long-running dprint process (`dprint lsp` or
-/// `dprint editor-service`) that could be preventing a compiled Wasm plugin in
-/// the cache from being replaced or deleted (see
-/// `Environment::kill_long_running_dprint_processes`).
-fn locks_cached_wasm_plugins(process: &sysinfo::Process) -> bool {
-  // only Windows prevents replacing or deleting a memory mapped file
-  if !cfg!(windows) || process.pid().as_u32() == std::process::id() {
-    return false;
-  }
-  let is_dprint = process
-    .exe()
-    .and_then(|exe| exe.file_stem())
-    .is_some_and(|name| name.eq_ignore_ascii_case("dprint"));
-  is_dprint && is_long_running_sub_command(process.cmd()) && uses_same_cache_dir(process)
-}
-
-/// Gets if the command line arguments of a dprint process are for a sub
-/// command that runs until an editor shuts it down.
-fn is_long_running_sub_command(args: &[OsString]) -> bool {
-  // the sub command is the first argument that's not a global flag or the
-  // value of one. this doesn't handle `--plugins` because it's not possible
-  // to tell where its values end, in which case this returns `false`
-  let mut args = args.iter().skip(1).map(|arg| arg.to_string_lossy());
-  while let Some(arg) = args.next() {
-    if matches!(arg.as_ref(), "-c" | "--config" | "-L" | "--log-level") {
-      args.next(); // skip the flag's value
-    } else if !arg.starts_with('-') {
-      return matches!(arg.as_ref(), "lsp" | "editor-service");
-    }
-  }
-  false
-}
-
-/// Gets if the process was started with the same cache directory environment
-/// variable as the current process, which is `false` when not able to tell.
-fn uses_same_cache_dir(process: &sysinfo::Process) -> bool {
-  let environ = process.environ();
-  if environ.is_empty() {
-    return false; // not able to read the process' environment variables
-  }
-  let process_value = environ.iter().find_map(|var| {
-    let var = var.to_string_lossy();
-    let (name, value) = var.split_once('=')?;
-    name.eq_ignore_ascii_case(CACHE_DIR_ENV_VAR_NAME).then(|| value.to_string())
-  });
-  #[allow(clippy::disallowed_methods)]
-  let current_value = std::env::var(CACHE_DIR_ENV_VAR_NAME).ok();
-  is_same_cache_dir_env_var(process_value.as_deref(), current_value.as_deref())
-}
-
-/// Gets if two values of the cache directory environment variable refer to
-/// the same directory on Windows. This only compares the text, so it's
-/// `false` for some values that resolve to the same directory.
-fn is_same_cache_dir_env_var(a: Option<&str>, b: Option<&str>) -> bool {
-  fn normalize(value: Option<&str>) -> Option<String> {
-    let value = value?;
-    if value.trim().is_empty() {
-      return None; // uses the default directory
-    }
-    Some(value.replace('\\', "/").trim_end_matches('/').to_lowercase())
-  }
-
-  normalize(a) == normalize(b)
-}
-
 #[cfg(test)]
 mod test {
   use super::*;
@@ -888,38 +802,6 @@ mod test {
     assert_eq!(get_cache_dir_internal(|_| Some("".to_string())).unwrap(), default_dir);
     assert_eq!(get_cache_dir_internal(|_| Some("  ".to_string())).unwrap(), default_dir);
     assert_eq!(get_cache_dir_internal(|_| None).unwrap(), default_dir);
-  }
-
-  #[test]
-  fn should_get_if_long_running_sub_command() {
-    fn run(args: &[&str]) -> bool {
-      let args = std::iter::once("dprint").chain(args.iter().copied()).map(OsString::from).collect::<Vec<_>>();
-      is_long_running_sub_command(&args)
-    }
-
-    assert!(run(&["lsp"]));
-    assert!(run(&["editor-service", "--parent-pid", "123", "--config", "dprint.json", "--verbose"]));
-    assert!(run(&["--config", "dprint.json", "lsp"]));
-    assert!(run(&["-c", "lsp", "lsp"]));
-    assert!(run(&["-L", "debug", "--config-discovery=false", "lsp"]));
-    assert!(run(&["--log-level=debug", "lsp"]));
-    assert!(!run(&[]));
-    assert!(!run(&["fmt"]));
-    assert!(!run(&["fmt", "lsp"]));
-    assert!(!run(&["-c", "lsp", "fmt"]));
-    assert!(!run(&["check", "--excludes", "editor-service"]));
-    assert!(!run(&["--plugins", "plugin.wasm", "lsp"]));
-  }
-
-  #[test]
-  fn should_get_if_same_cache_dir_env_var() {
-    assert!(is_same_cache_dir_env_var(None, None));
-    assert!(is_same_cache_dir_env_var(None, Some("  ")));
-    assert!(is_same_cache_dir_env_var(Some("C:\\cache"), Some("C:\\cache")));
-    assert!(is_same_cache_dir_env_var(Some("C:\\cache\\"), Some("c:/Cache")));
-    assert!(!is_same_cache_dir_env_var(Some("C:\\cache"), None));
-    assert!(!is_same_cache_dir_env_var(None, Some("C:\\cache")));
-    assert!(!is_same_cache_dir_env_var(Some("C:\\cache"), Some("C:\\other")));
   }
 
   #[test]

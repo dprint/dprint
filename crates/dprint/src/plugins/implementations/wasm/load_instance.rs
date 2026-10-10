@@ -193,10 +193,9 @@ impl WasmModuleCreator {
   pub fn create_from_serialized_file(&self, file_path: &Path) -> Result<WasmModule> {
     // SAFETY: same as `create_from_serialized`. Additionally, the file's
     // contents must not change while the module is alive. The cache only ever
-    // replaces an artifact by renaming a new file over it or deletes it. On
-    // unix both leave an existing mapping of the old file intact and Windows
-    // doesn't allow either while the file is mapped (wasmtime keeps the file
-    // open without sharing write or delete access).
+    // replaces an artifact by renaming a new file over it or deletes it, both
+    // of which leave an existing mapping of the old file intact on unix (the
+    // only place this is used).
     unsafe {
       match Module::deserialize_file(&self.engine, file_path) {
         Ok(module) => WasmModule::new(module, self.engine.clone()),

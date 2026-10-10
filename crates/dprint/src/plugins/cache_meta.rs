@@ -126,11 +126,7 @@ pub fn write_meta(hash: &str, meta: &PluginCacheMeta, environment: &impl Environ
 /// don't exist.
 pub fn remove_entry(hash: &str, environment: &impl Environment) {
   let _ = environment.remove_file(meta_path(hash, environment));
-  let wasm_file_path = wasm_artifact_path(hash, environment);
-  // an editor's dprint process having the plugin loaded prevents deleting it on Windows
-  if environment.remove_file(&wasm_file_path).is_err() && environment.kill_long_running_dprint_processes() > 0 {
-    let _ = environment.remove_file(&wasm_file_path);
-  }
+  let _ = environment.remove_file(wasm_artifact_path(hash, environment));
   environment.try_remove_dir_all(process_dir_path(hash, environment));
 }
 
@@ -216,19 +212,5 @@ mod test {
     assert!(read_meta("h", &environment).is_none());
     assert!(!environment.path_exists(&wasm_artifact_path("h", &environment)));
     assert!(!environment.path_exists(&process_dir_path("h", &environment)));
-  }
-
-  #[test]
-  fn remove_entry_kills_dprint_process_preventing_wasm_artifact_deletion() {
-    let environment = TestEnvironment::new();
-    environment.mk_dir_all(plugins_dir(&environment)).unwrap();
-    let wasm_file_path = wasm_artifact_path("h", &environment);
-    environment.write_file(&wasm_file_path, "compiled").unwrap();
-    environment.add_file_mapped_by_dprint_process(&wasm_file_path);
-
-    remove_entry("h", &environment);
-
-    assert!(!environment.path_exists(&wasm_file_path));
-    assert!(!environment.has_running_dprint_process());
   }
 }

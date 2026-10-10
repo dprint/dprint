@@ -279,17 +279,9 @@ pub trait Environment:
   /// Kills any running process whose executable lives under the given directory
   /// and returns how many were killed. Used when clearing the cache so a process
   /// plugin that's still running can't stop its executable from being deleted
-  /// (e.g. on Windows a running executable can't be removed). This also does
-  /// what `kill_long_running_dprint_processes` does. This is best-effort and
-  /// never fails.
+  /// (e.g. on Windows a running executable can't be removed). This is best-effort
+  /// and never fails.
   fn kill_processes_using_dir(&self, dir_path: impl AsRef<Path>) -> usize;
-  /// Kills the other long-running dprint processes (`dprint lsp` and
-  /// `dprint editor-service`) when they could be preventing a compiled Wasm
-  /// plugin in the cache from being replaced or deleted and returns how many
-  /// were killed. Those processes keep their plugins memory mapped and Windows
-  /// doesn't allow replacing or deleting a mapped file. This is best-effort and
-  /// never fails.
-  fn kill_long_running_dprint_processes(&self) -> usize;
   /// Gets whether anything exists at the path (follows symlinks, so a broken
   /// symlink does not count as existing).
   fn path_exists(&self, path: impl AsRef<Path>) -> bool;

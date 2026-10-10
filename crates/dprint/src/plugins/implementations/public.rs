@@ -135,12 +135,12 @@ async fn create_wasm_plugin<TEnvironment: Environment>(
     let plugin_info = cache_item.info.clone();
     let wasm_module_creator = wasm_module_creator.clone();
     move || {
-      // memory mapping the file is much faster than reading it. note that
-      // Windows doesn't allow replacing or deleting a mapped file, so
-      // whatever does that needs to deal with other dprint processes that
-      // have the plugin loaded (see `kill_long_running_dprint_processes`)
+      // memory mapping the file is much faster than reading it, but only do
+      // it on unix because Windows doesn't allow replacing or deleting a
+      // mapped file, which would prevent recompiling the plugin or clearing
+      // the cache while another dprint process has the plugin loaded
       let read_module = || wasm_module_creator.create_from_serialized(&environment.read_file_bytes(&file_path)?);
-      let module = if environment.is_real() {
+      let module = if cfg!(unix) && environment.is_real() {
         match wasm_module_creator.create_from_serialized_file(&file_path) {
           Ok(module) => module,
           Err(err) => {
