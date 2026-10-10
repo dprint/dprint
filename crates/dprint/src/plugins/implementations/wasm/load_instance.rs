@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use anyhow::Result;
 use anyhow::bail;
 use deno_semver::Version;
@@ -179,6 +181,23 @@ impl WasmModuleCreator {
     // compatibility check, not a safety boundary against tampered bytes.
     unsafe {
       match Module::deserialize(&self.engine, compiled_module_bytes) {
+        Ok(module) => WasmModule::new(module, self.engine.clone()),
+        Err(err) => bail!("Error deserializing compiled wasm module: {:#}", err),
+      }
+    }
+  }
+
+  /// Creates a module by memory mapping the serialized native artifact
+  /// produced by `compile`, which loads its pages lazily instead of reading
+  /// and copying the whole file up front.
+  pub fn create_from_serialized_file(&self, file_path: &Path) -> Result<WasmModule> {
+    // SAFETY: same as `create_from_serialized`. Additionally, the file's
+    // contents must not change while the module is alive. The cache only ever
+    // replaces an artifact by renaming a new file over it or deletes it, both
+    // of which leave an existing mapping of the old file intact on unix (the
+    // only place this is used).
+    unsafe {
+      match Module::deserialize_file(&self.engine, file_path) {
         Ok(module) => WasmModule::new(module, self.engine.clone()),
         Err(err) => bail!("Error deserializing compiled wasm module: {:#}", err),
       }

@@ -24,7 +24,6 @@ use dprint_core::configuration::ConfigurationDiagnostic;
 use dprint_core::plugins::PluginInfo;
 
 use super::WasmHostFormatSender;
-use super::WasmModuleCreator;
 use super::create_pools_import_object;
 use super::instance::Store;
 use super::load_instance;
@@ -45,7 +44,7 @@ pub struct WasmPlugin<TEnvironment: Environment> {
 }
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
-  pub fn new(compiled_wasm_bytes: &[u8], plugin_info: PluginInfo, wasm_module_creator: &WasmModuleCreator, environment: TEnvironment) -> Result<Self> {
+  pub fn new(module: WasmModule, plugin_info: PluginInfo, environment: TEnvironment) -> Result<Self> {
     let initializes_on_start = plugin_initializes_on_start(&plugin_info);
     if initializes_on_start {
       log_warn!(
@@ -55,9 +54,7 @@ impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
         plugin_info.version,
       );
     }
-    let module = wasm_module_creator
-      .create_from_serialized(compiled_wasm_bytes)?
-      .with_initializes_on_start(initializes_on_start);
+    let module = module.with_initializes_on_start(initializes_on_start);
     Ok(WasmPlugin {
       module,
       environment,
