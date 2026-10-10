@@ -53,7 +53,7 @@ The `plugins` property specifies which plugins to use for formatting. These may 
 }
 ```
 
-Alternatively, these may be provided to the CLI via the `--plugins <plugin urls or file paths...>` flag.
+Alternatively, these may be provided to the CLI via the `--plugins <plugin urls, file paths, or npm: specifiers...>` flag (ex. `dprint fmt --plugins npm:@dprint/json@x.x.x`).
 
 Note: The order of the plugins in this array defines the precedence. If two plugins support the same file extension then define the one you want to format that extension with first. For more fine grained control, see "associations" below.
 
