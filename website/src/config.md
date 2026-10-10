@@ -432,7 +432,7 @@ later values win.
 
 ## Extending a Different Configuration File
 
-You may extend other configuration files by specifying an `extends` property. This may be a file path, URL, relative path (remote configuration may extend other configuration files via a relative path), or [npm specifier](#extending-configuration-in-an-npm-package).
+You may extend other configuration files by specifying an `extends` property. This may be a file path, URL, or relative path (remote configuration may extend other configuration files via a relative path). This includes `npm:` URLs for [configuration in an npm package](#extending-configuration-in-an-npm-package).
 
 <!-- dprint-ignore -->
 

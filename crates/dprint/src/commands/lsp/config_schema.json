@@ -22,10 +22,10 @@
     "extends": {
       "description": "Configurations to extend.",
       "anyOf": [{
-        "description": "A file path, url, or npm specifier (ex. `npm:@scope/name`) of a configuration file to extend.",
+        "description": "A file path or url to a configuration file to extend.",
         "type": "string"
       }, {
-        "description": "A collection of file paths, urls, and/or npm specifiers of configuration files to extend.",
+        "description": "A collection of file paths and/or urls to configuration files to extend.",
         "type": "array",
         "items": {
           "type": "string"
