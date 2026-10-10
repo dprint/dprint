@@ -185,12 +185,19 @@ dprint fmt --config https://dprint.dev/path/to/some/config.json
 
 This flag is more useful for one-off commands. It is recommended to use the default configuration file location and name as that will lead to a better user experience.
 
-### Reloading remote configuration files
+### Reloading remote configuration files and plugins
 
-Remote configuration files (specified via `--config` or `extends`) are cached. The cached copy is used until it expires according to the response's caching headers (ex. `Cache-Control: max-age`), or for a day when there are none, after which dprint checks the server for a newer version. Provide `--reload` to check right away instead of waiting:
+Remote configuration files (specified via `--config` or `extends`) are cached. The cached copy is used until it expires according to the response's caching headers (ex. `Cache-Control: max-age`), or for a day when there are none, after which dprint checks the server for a newer version. Remote plugins are cached until the cache is cleared. Provide `--reload` to check the server for newer versions of both right away:
 
 ```sh
 dprint fmt --reload
+```
+
+Reloading a plugin downloads and sets it up again, so specify what to reload when only one kind changed:
+
+```sh
+dprint fmt --reload=config
+dprint fmt --reload=plugins
 ```
 
 ## Changing Config Discovery

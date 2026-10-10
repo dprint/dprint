@@ -1445,6 +1445,34 @@ mod test {
   }
 
   #[test]
+  fn should_download_remote_plugins_again_when_reloading() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file("/file.txt", "text")
+      .build();
+    let plugin_url = "https://plugins.dprint.dev/test-plugin.wasm";
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+    assert_eq!(environment.remote_file_request_count(plugin_url), 1);
+
+    // cached
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+    assert_eq!(environment.remote_file_request_count(plugin_url), 1);
+    run_test_cli(vec!["fmt", "--reload=config", "/file.txt"], &environment).unwrap();
+    assert_eq!(environment.remote_file_request_count(plugin_url), 1);
+
+    // reloaded
+    run_test_cli(vec!["fmt", "--reload=plugins", "/file.txt"], &environment).unwrap();
+    assert_eq!(environment.remote_file_request_count(plugin_url), 2);
+    run_test_cli(vec!["fmt", "--reload", "/file.txt"], &environment).unwrap();
+    assert_eq!(environment.remote_file_request_count(plugin_url), 3);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_formatted");
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
+  }
+
+  #[test]
   fn should_use_extended_config_when_specifying_same_plugin_as_extended_config() {
     // https://github.com/dprint/dprint/issues/1043
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()

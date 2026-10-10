@@ -458,7 +458,7 @@ Note: The `includes` property of extended _remote_ configuration is ignored for 
 
 ### Remote configuration caching
 
-A remote configuration file is cached and used until it expires according to the caching headers of the response (ex. `Cache-Control: max-age`), or for a day when the response has none. After that, dprint checks the server for a newer version and keeps using the cached one when it's unchanged or the server can't be reached. Run with `--reload` to check the server right away (see [reloading remote configuration files](/cli#reloading-remote-configuration-files)), or put a version in the file name (ex. `file.v1.json`) when a configuration should never change out from under its users.
+A remote configuration file is cached and used until it expires according to the caching headers of the response (ex. `Cache-Control: max-age`), or for a day when the response has none. After that, dprint checks the server for a newer version and keeps using the cached one when it's unchanged or the server can't be reached. Run with `--reload=config` to check the server right away (see [reloading remote configuration files and plugins](/cli#reloading-remote-configuration-files-and-plugins)), or put a version in the file name (ex. `file.v1.json`) when a configuration should never change out from under its users.
 
 ## Directory Specific Configuration
 

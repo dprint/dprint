@@ -3813,7 +3813,7 @@ mod test {
     config_override: Option<PathBuf>,
   ) -> (Backend<TestEnvironment>, JoinHandle<bool>, Arc<TestClient>) {
     let plugin_cache = PluginCache::new(environment.clone());
-    let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
+    let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache, false));
     let (tx, rx) = mpsc::unbounded_channel();
     let recv_task = start_message_handler(&environment, &plugin_resolver, config_override, RemoteCacheMode::Use, rx);
     let test_client = Arc::new(TestClient::default());

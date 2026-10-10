@@ -3620,7 +3620,7 @@ text",
 
   fn test_plugin_resolver(environment: &TestEnvironment) -> std::rc::Rc<crate::plugins::PluginResolver<TestEnvironment>> {
     let plugin_cache = crate::plugins::PluginCache::new(environment.clone());
-    std::rc::Rc::new(crate::plugins::PluginResolver::new(environment.clone(), plugin_cache))
+    std::rc::Rc::new(crate::plugins::PluginResolver::new(environment.clone(), plugin_cache, false))
   }
 
   /// Builds a self-contained npm process-plugin tarball (a `plugin.json` that

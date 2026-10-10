@@ -41,7 +41,7 @@ mod test {
       let environment = environment.clone();
       async move {
         let plugin_cache = PluginCache::new(environment.clone());
-        let resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
+        let resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache, false));
         let cli_args = CliArgs::empty();
         let config = Rc::new(resolve_config_from_args(&cli_args, &environment).await.unwrap());
         let plugins = resolver.resolve_plugins(config.plugins.clone()).await.unwrap();
@@ -106,7 +106,7 @@ mod test {
       let environment = environment.clone();
       async move {
         let plugin_cache = PluginCache::new(environment.clone());
-        let resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
+        let resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache, false));
         let cli_args = CliArgs::empty();
         let config = Rc::new(resolve_config_from_args(&cli_args, &environment).await.unwrap());
         let plugins = resolver.resolve_plugins(config.plugins.clone()).await.unwrap();
