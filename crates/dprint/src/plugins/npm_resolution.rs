@@ -106,6 +106,8 @@ pub struct PreResolvedProcessPluginExecutable {
   pub name: String,
   pub version: String,
   pub executable_path: PathBuf,
+  /// Checksum of the per-platform package's tarball from the plugin.json.
+  pub tarball_checksum: String,
 }
 
 /// Information about the latest published version of an npm-distributed plugin.
@@ -186,7 +188,8 @@ pub async fn resolve_npm_latest_version(
 pub fn read_npm_tarball_checksum(name: &str, version: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Option<String> {
   let registry = resolve_registry_for_package(name, start_dir, environment);
   let registry_segment = registry_dir_segment(&registry.url);
-  Some(read_npm_tarball_meta(&registry_segment, name, version, environment)?.tarball_sha256)
+  let extract_dir = get_npm_extract_dir(&registry_segment, name, version, environment);
+  read_npm_package_dir_checksum(&extract_dir, environment)
 }
 
 /// For a pathless `dprint add` on a repeat add: if `name@version` is already
@@ -474,6 +477,8 @@ pub async fn resolve_npm_from_registry(options: ResolveNpmRegistryOptions<'_>, e
   if !establish_checksum {
     if let Some(checksum) = checksum {
       if tarball_sha256 != checksum {
+        // don't keep what couldn't be verified so that it's downloaded again next time
+        remove_npm_package_dir(&package.dir, environment);
         bail!(
           "Invalid checksum for npm package {}. Check the plugin's release notes for the expected checksum.\n\nActual: {}\nExpected: {}",
           specifier.display(),
@@ -649,40 +654,40 @@ pub async fn ensure_npm_package_extracted(
   let lock = get_npm_package_lock(&extract_dir);
   let _guard = lock.lock().await;
 
-  let has_extract_dir = environment.path_exists(&extract_dir);
-  if has_extract_dir && let Some(meta) = read_npm_tarball_meta(&registry_segment, name, version, environment) {
+  if let Some(tarball_checksum) = read_npm_package_dir_checksum(&extract_dir, environment) {
     return Ok(NpmPackageDir {
       dir: extract_dir,
-      tarball_checksum: meta.tarball_sha256,
+      tarball_checksum,
       is_first_download: false,
     });
   }
 
   let tarball_bytes = fetch_npm_tarball(name, version, registry, environment).await?;
-  let tarball_sha256 = get_sha256_checksum(&tarball_bytes);
 
-  if has_extract_dir {
-    // the directory doesn't have a recorded checksum, so there's no way to know
-    // its contents are this tarball's. It needs to be gone before the checksum
-    // is recorded, otherwise it would be considered to be this tarball's
-    environment
-      .remove_dir_all(&extract_dir)
-      .with_context(|| format!("Failed to remove {}", extract_dir.display()))?;
-  }
-
-  // record the checksum before extracting so that an extracted directory
-  // always has the checksum of the tarball it came from alongside it
-  write_npm_tarball_meta(&registry_segment, name, version, &tarball_sha256, environment)
-    .with_context(|| format!("Failed to write the npm cache metadata for {}@{}", name, version))?;
-
-  // extract in a blocking task since tarball decompression and file I/O can be slow
+  // extract in a blocking task since hashing, tarball decompression and file I/O can be slow
   let environment_clone = environment.clone();
   let dir = extract_dir.clone();
-  dprint_core::async_runtime::spawn_blocking(move || extract_tarball_to_dir(&tarball_bytes, &dir, &environment_clone)).await??;
+  dprint_core::async_runtime::spawn_blocking(move || -> Result<()> {
+    let environment = environment_clone;
+    if environment.path_exists(&dir) && read_npm_package_dir_checksum(&dir, &environment).is_none() {
+      // the directory doesn't have a recorded checksum (ex. it was extracted by
+      // an old version of dprint), so there's no way to know what's in it
+      environment
+        .remove_dir_all(&dir)
+        .with_context(|| format!("Failed to remove {}", dir.display()))?;
+    }
+    extract_tarball_to_dir(&tarball_bytes, &get_sha256_checksum(&tarball_bytes), &dir, &environment)
+  })
+  .await??;
+
+  // use the checksum recorded in the directory instead of the one of what was
+  // just downloaded because another process may have extracted it first
+  let tarball_checksum =
+    read_npm_package_dir_checksum(&extract_dir, environment).ok_or_else(|| anyhow::anyhow!("Failed to read the checksum of {}", extract_dir.display()))?;
 
   Ok(NpmPackageDir {
     dir: extract_dir,
-    tarball_checksum: tarball_sha256,
+    tarball_checksum,
     is_first_download: true,
   })
 }
@@ -771,6 +776,8 @@ async fn try_resolve_process_plugin_per_platform_executable(
     .await
     .with_context(|| format!("Resolving npm dependency for process plugin '{}'", plugin_file.name))?;
   if package.tarball_checksum != os_path.checksum {
+    // don't keep what couldn't be verified so that it's downloaded again next time
+    remove_npm_package_dir(&package.dir, environment);
     bail!(
       concat!(
         "Resolving npm dependency for process plugin '{}': Invalid checksum for npm package {}@{}. ",
@@ -797,6 +804,7 @@ async fn try_resolve_process_plugin_per_platform_executable(
   }
 
   Ok(Some(PreResolvedProcessPluginExecutable {
+    tarball_checksum: os_path.checksum.clone(),
     name: plugin_file.name,
     version: plugin_file.version,
     executable_path,
@@ -906,10 +914,19 @@ fn is_absolute_reference(reference: &str) -> bool {
 /// Returns the directory where an npm package tarball should be extracted.
 /// Namespaced by the registry so the same name@version from different registries
 /// (e.g. public npmjs.org vs a private registry) do not collide.
+///
+/// A scoped package is in a directory for its scope (ex. `@scope/name@1.0.0`).
 pub(super) fn get_npm_extract_dir(registry_segment: &str, package_name: &str, version: &str, environment: &impl Environment) -> PathBuf {
-  // use a sanitized name for the directory (replace / with __)
-  let dir_name = format!("{}@{}", package_name.replace('/', "__"), version);
-  environment.get_cache_dir().join("npm").join(registry_segment).join(dir_name)
+  let mut dir = environment.get_cache_dir().join("npm").join(registry_segment);
+  let (scope, name) = match package_name.split_once('/') {
+    Some((scope, name)) => (Some(scope), name),
+    None => (None, package_name),
+  };
+  if let Some(scope) = scope {
+    dir.push(scope);
+  }
+  dir.push(format!("{}@{}", name, version));
+  dir
 }
 
 thread_local! {
@@ -922,18 +939,23 @@ fn get_npm_package_lock(extract_dir: &Path) -> Rc<tokio::sync::Mutex<()>> {
   NPM_PACKAGE_LOCKS.with_borrow_mut(|locks| locks.entry(extract_dir.to_path_buf()).or_default().clone())
 }
 
-/// The SHA-256 of the tarball a `name@version` directory in the npm cache was
-/// extracted from. It's what a checksum in a plugin specifier is verified
-/// against when the extracted directory is reused and what lets a later
-/// `dprint add` of the same version skip re-downloading the tarball. The checksum
-/// is a package-version property — the same regardless of which plugin file in
-/// the package an entry points at — so only it is cached here; the plugin kind
-/// is always derived from the specifier path or the extracted files. If a
-/// registry ever republishes the same version with different bytes the cached
-/// checksum goes stale, but that fails closed: a specifier with the new
-/// checksum errors on the mismatch (and `clear-cache` fixes it).
-struct NpmTarballMeta {
-  tarball_sha256: String,
+/// Name of the file in a package's directory in the npm cache that has the
+/// SHA-256 of the tarball the directory was extracted from.
+///
+/// It's what a checksum in a plugin specifier is verified against when the
+/// extracted directory is reused and what lets `dprint add` skip downloading
+/// the tarball. The file is written into the directory before the directory is
+/// moved into place, so a package's directory and its checksum always appear
+/// together and can't get out of sync with each other.
+const NPM_PACKAGE_META_FILE_NAME: &str = ".dprint-npm-meta.json";
+
+/// Reads the checksum of the tarball a package's directory in the npm cache
+/// was extracted from, or `None` if the directory doesn't exist or doesn't
+/// have one recorded.
+pub(super) fn read_npm_package_dir_checksum(extract_dir: &Path, environment: &impl Environment) -> Option<String> {
+  let text = environment.read_file(extract_dir.join(NPM_PACKAGE_META_FILE_NAME)).ok()?;
+  let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+  Some(value.get("tarballChecksum")?.as_str()?.to_string())
 }
 
 /// Removes a package's directory from the npm cache.
@@ -942,60 +964,34 @@ struct NpmTarballMeta {
 /// partially removed (ex. a file in it is in use) isn't considered to be a
 /// package that can be used.
 pub(super) fn remove_npm_package_dir(extract_dir: &Path, environment: &impl Environment) {
-  if let Some(dir_name) = extract_dir.file_name() {
-    let mut meta_file_name = dir_name.to_os_string();
-    meta_file_name.push(".meta.json");
-    let _ = environment.remove_file(extract_dir.with_file_name(meta_file_name));
-  }
+  let _ = environment.remove_file(extract_dir.join(NPM_PACKAGE_META_FILE_NAME));
   environment.try_remove_dir_all(extract_dir);
 }
 
-/// Path of the sidecar file caching a tarball's checksum, kept next to (not
-/// inside) the `name@version` extract directory so it doesn't mix with the
-/// package's own files. Wiped by `dprint clear-cache` along with the rest of
-/// the npm cache.
-fn npm_tarball_meta_path(registry_segment: &str, package_name: &str, version: &str, environment: &impl Environment) -> PathBuf {
-  let file_name = format!("{}@{}.meta.json", package_name.replace('/', "__"), version);
-  environment.get_cache_dir().join("npm").join(registry_segment).join(file_name)
-}
-
-/// Reads the cached tarball sidecar, or `None` if it's missing or unreadable.
-fn read_npm_tarball_meta(registry_segment: &str, package_name: &str, version: &str, environment: &impl Environment) -> Option<NpmTarballMeta> {
-  let path = npm_tarball_meta_path(registry_segment, package_name, version, environment);
-  let text = environment.read_file(&path).ok()?;
-  let value: serde_json::Value = serde_json::from_str(&text).ok()?;
-  let tarball_sha256 = value.get("tarballChecksum")?.as_str()?.to_string();
-  Some(NpmTarballMeta { tarball_sha256 })
-}
-
-/// Writes the tarball sidecar.
-fn write_npm_tarball_meta(registry_segment: &str, package_name: &str, version: &str, tarball_sha256: &str, environment: &impl Environment) -> Result<()> {
-  let json = serde_json::json!({ "tarballChecksum": tarball_sha256 });
-  let path = npm_tarball_meta_path(registry_segment, package_name, version, environment);
-  if let Some(parent) = path.parent() {
-    environment.mk_dir_all(parent)?;
-  }
-  // atomic so a concurrent reader never sees a partially written file
-  environment.atomic_write_file_bytes(&path, json.to_string().as_bytes())?;
-  Ok(())
-}
-
 /// Returns a filesystem- and key-safe segment identifying a registry by host
-/// (and port, if non-default). For URLs we can't parse or that have no host,
-/// falls back to `unknown_<hash>` so distinct unparseable URLs land in
-/// different cache directories instead of colliding under a shared `unknown`.
+/// (and port, if non-default). A registry at a path on its host (ex.
+/// `https://example.com/npm/internal/`) also gets a hash of the url so the
+/// registries of a host don't share a directory. For URLs we can't parse or
+/// that have no host, falls back to `unknown_<hash>` so distinct unparseable
+/// URLs land in different cache directories instead of colliding under a
+/// shared `unknown`.
 pub(super) fn registry_dir_segment(registry_url: &str) -> String {
-  let fallback = || format!("unknown_{:016x}", crate::utils::get_bytes_hash(registry_url.as_bytes()));
+  let url_hash = || format!("{:016x}", crate::utils::get_bytes_hash(registry_url.trim_end_matches('/').as_bytes()));
   let Ok(url) = url::Url::parse(registry_url) else {
-    return fallback();
+    return format!("unknown_{}", url_hash());
   };
   let Some(host) = url.host_str() else {
-    return fallback();
+    return format!("unknown_{}", url_hash());
   };
-  match url.port() {
+  let mut segment = match url.port() {
     Some(port) => format!("{host}_{port}"),
     None => host.to_string(),
+  };
+  if !url.path().trim_matches('/').is_empty() {
+    segment.push('_');
+    segment.push_str(&url_hash());
   }
+  segment
 }
 
 /// Extracts an npm tarball to a directory on disk.
@@ -1011,8 +1007,9 @@ pub(super) fn registry_dir_segment(registry_url: &str) -> String {
 /// - If the final rename fails because a racing extract finished first, we
 ///   discard our copy and use the winner's `dest_dir`.
 ///
-/// Strips the first path component (usually `package/`) from each entry.
-fn extract_tarball_to_dir(tarball_bytes: &[u8], dest_dir: &Path, environment: &impl Environment) -> Result<()> {
+/// Strips the first path component (usually `package/`) from each entry and
+/// records the tarball's checksum in the directory.
+fn extract_tarball_to_dir(tarball_bytes: &[u8], tarball_sha256: &str, dest_dir: &Path, environment: &impl Environment) -> Result<()> {
   use crate::utils::fs::get_atomic_path;
 
   if environment.path_exists(dest_dir) {
@@ -1022,7 +1019,13 @@ fn extract_tarball_to_dir(tarball_bytes: &[u8], dest_dir: &Path, environment: &i
   let temp_dir = get_atomic_path(environment, dest_dir);
   environment.mk_dir_all(&temp_dir)?;
 
-  if let Err(err) = extract_tarball_to_dir_inner(tarball_bytes, &temp_dir, environment) {
+  let result = extract_tarball_to_dir_inner(tarball_bytes, &temp_dir, environment).and_then(|()| {
+    // written after extracting so it's this file and not one in the tarball
+    let json = serde_json::json!({ "tarballChecksum": tarball_sha256 });
+    environment.write_file(temp_dir.join(NPM_PACKAGE_META_FILE_NAME), &json.to_string())?;
+    Ok(())
+  });
+  if let Err(err) = result {
     environment.try_remove_dir_all(&temp_dir);
     return Err(err);
   }
@@ -1137,7 +1140,7 @@ fn extract_tarball_to_dir_inner(tarball_bytes: &[u8], output_dir: &Path, environ
     {
       use sys_traits::FsSetPermissions;
       environment
-        .fs_set_permissions(&dest_path, mode)
+        .fs_set_permissions(&dest_path, mode & 0o755)
         .with_context(|| format!("Failed to set permissions on {}", dest_path.display()))?;
     }
   }
@@ -2407,7 +2410,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("extracted");
 
-        extract_tarball_to_dir(&tarball, &dest, &env).unwrap();
+        extract_tarball_to_dir(&tarball, "checksum", &dest, &env).unwrap();
 
         assert_eq!(std::fs::read(dest.join("plugin.wasm")).unwrap(), b"wasm-bytes");
         assert_eq!(std::fs::read(dest.join("extra").join("data.bin")).unwrap(), b"extra-data");
@@ -2426,7 +2429,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("extracted");
 
-        let err = extract_tarball_to_dir(&tarball, &dest, &env).unwrap_err();
+        let err = extract_tarball_to_dir(&tarball, "checksum", &dest, &env).unwrap_err();
         assert!(err.to_string().contains("Inconsistent npm tarball"), "got: {}", err);
       })
     });
@@ -2442,7 +2445,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("extracted");
 
-        let err = extract_tarball_to_dir(&tarball, &dest, &env).unwrap_err();
+        let err = extract_tarball_to_dir(&tarball, "checksum", &dest, &env).unwrap_err();
         assert!(err.to_string().contains("no extractable files"), "got: {}", err);
       })
     });
@@ -2461,7 +2464,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("extracted");
 
-        extract_tarball_to_dir(&tarball, &dest, &env).unwrap();
+        extract_tarball_to_dir(&tarball, "checksum", &dest, &env).unwrap();
         assert_eq!(std::fs::read(dest.join("plugin.wasm")).unwrap(), b"wasm-bytes");
         assert_eq!(std::fs::read(dest.join("extra.bin")).unwrap(), b"extra");
       })
@@ -2481,7 +2484,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("extracted");
 
-        let err = extract_tarball_to_dir(&tarball, &dest, &env).unwrap_err();
+        let err = extract_tarball_to_dir(&tarball, "checksum", &dest, &env).unwrap_err();
         assert!(err.to_string().contains("non-relative top-level component"), "got: {}", err);
       })
     });
@@ -2495,6 +2498,34 @@ mod tests {
     assert_eq!(registry_dir_segment("https://registry.npmjs.org/"), "registry.npmjs.org");
     // non-default ports are encoded so :443 vs :8443 don't share a directory
     assert_eq!(registry_dir_segment("http://localhost:8080"), "localhost_8080");
+  }
+
+  #[test]
+  fn registry_dir_segment_registries_at_paths_of_a_host_get_distinct_segments() {
+    let a = registry_dir_segment("https://example.com/npm/a/");
+    let b = registry_dir_segment("https://example.com/npm/b/");
+    assert_ne!(a, b);
+    assert_ne!(a, registry_dir_segment("https://example.com"));
+    assert!(a.starts_with("example.com_"), "got: {a}");
+    assert_eq!(a, registry_dir_segment("https://example.com/npm/a"));
+  }
+
+  #[test]
+  fn get_npm_extract_dir_puts_scoped_packages_in_a_scope_dir() {
+    let environment = crate::environment::TestEnvironment::new();
+    let npm_dir = environment.get_cache_dir().join("npm/registry.npmjs.org");
+    assert_eq!(
+      get_npm_extract_dir("registry.npmjs.org", "foo", "1.0.0", &environment),
+      npm_dir.join("foo@1.0.0")
+    );
+    assert_eq!(
+      get_npm_extract_dir("registry.npmjs.org", "@a/b__c", "1.0.0", &environment),
+      npm_dir.join("@a").join("b__c@1.0.0")
+    );
+    assert_eq!(
+      get_npm_extract_dir("registry.npmjs.org", "@a__b/c", "1.0.0", &environment),
+      npm_dir.join("@a__b").join("c@1.0.0")
+    );
   }
 
   #[test]
@@ -2532,13 +2563,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("extracted");
 
-        extract_tarball_to_dir(&tarball, &dest, &env).unwrap();
+        extract_tarball_to_dir(&tarball, "checksum", &dest, &env).unwrap();
         assert_eq!(std::fs::read(dest.join("plugin.wasm")).unwrap(), b"first-extract");
 
         // a second call with different bytes must NOT overwrite — we trust
         // dest_dir's existence to mean "already extracted"
         let different = create_test_tarball(&[("package/plugin.wasm", b"second-extract")]);
-        extract_tarball_to_dir(&different, &dest, &env).unwrap();
+        extract_tarball_to_dir(&different, "checksum", &dest, &env).unwrap();
         assert_eq!(
           std::fs::read(dest.join("plugin.wasm")).unwrap(),
           b"first-extract",
@@ -2573,7 +2604,7 @@ mod tests {
         std::fs::create_dir_all(&dest).unwrap();
         std::fs::write(dest.join("plugin.wasm"), b"winner").unwrap();
 
-        extract_tarball_to_dir(&tarball, &dest, &env).unwrap();
+        extract_tarball_to_dir(&tarball, "checksum", &dest, &env).unwrap();
         assert_eq!(std::fs::read(dest.join("plugin.wasm")).unwrap(), b"winner");
 
         // no temp dir orphans
@@ -3270,7 +3301,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("extracted");
 
-        extract_tarball_to_dir(&tarball, &dest, &env).unwrap();
+        extract_tarball_to_dir(&tarball, "checksum", &dest, &env).unwrap();
 
         let exec_mode = std::fs::metadata(dest.join("scripts").join("run.sh")).unwrap().permissions().mode() & 0o777;
         assert_eq!(exec_mode, 0o755, "expected exec bits preserved");

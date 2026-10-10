@@ -4762,7 +4762,7 @@ text",
       environment.take_stderr_messages(),
       vec![
         "Updating test-plugin 0.1.0 to npm:@dprint/test-plugin@0.3.0...",
-        "Compiling /cache/npm/registry.npmjs.org/@dprint__test-plugin@0.3.0/plugin.wasm",
+        "Compiling /cache/npm/registry.npmjs.org/@dprint/test-plugin@0.3.0/plugin.wasm",
       ]
     );
   }
@@ -4790,7 +4790,7 @@ text",
       environment.take_stderr_messages(),
       vec![
         "Updating test-plugin 0.1.0 to npm:@dprint/test-plugin@0.3.0...",
-        "Compiling /cache/npm/registry.npmjs.org/@dprint__test-plugin@0.3.0/plugin.wasm",
+        "Compiling /cache/npm/registry.npmjs.org/@dprint/test-plugin@0.3.0/plugin.wasm",
       ]
     );
   }
@@ -4838,7 +4838,7 @@ text",
       environment.take_stderr_messages(),
       vec![
         "Updating test-plugin 0.2.0 to npm:@dprint/test-plugin@0.2.0...",
-        "Compiling /cache/npm/registry.npmjs.org/@dprint__test-plugin@0.2.0/plugin.wasm",
+        "Compiling /cache/npm/registry.npmjs.org/@dprint/test-plugin@0.2.0/plugin.wasm",
       ]
     );
   }
@@ -4952,7 +4952,7 @@ text",
       environment.take_stderr_messages(),
       vec![
         "Updating test-plugin 0.2.0 to npm:@dprint/test-plugin@0.1.0...",
-        "Compiling /cache/npm/registry.npmjs.org/@dprint__test-plugin@0.1.0/plugin.wasm",
+        "Compiling /cache/npm/registry.npmjs.org/@dprint/test-plugin@0.1.0/plugin.wasm",
       ]
     );
   }
@@ -5576,7 +5576,7 @@ text",
       environment.take_stderr_messages(),
       vec![
         "Updating test-plugin 0.1.0 to 0.3.0...",
-        "Compiling /cache/npm/dprint.example.com/@dprint__test-plugin@0.3.0/plugin.wasm",
+        "Compiling /cache/npm/dprint.example.com/@dprint/test-plugin@0.3.0/plugin.wasm",
       ]
     );
   }
@@ -5615,7 +5615,7 @@ text",
       environment.take_stderr_messages(),
       vec![
         "Updating test-plugin 0.1.0 to npm:@dprint/test-plugin@0.3.0...",
-        "Compiling /cache/npm/dprint.example.com/@dprint__test-plugin@0.3.0/plugin.wasm",
+        "Compiling /cache/npm/dprint.example.com/@dprint/test-plugin@0.3.0/plugin.wasm",
       ]
     );
   }
@@ -5805,7 +5805,7 @@ text",
       environment.take_stderr_messages(),
       vec![
         "Updating test-plugin 0.1.0 to npm:@dprint/example@1.0.0/test-plugin/plugin.wasm...",
-        "Compiling /cache/npm/registry.npmjs.org/@dprint__example@1.0.0/test-plugin/plugin.wasm",
+        "Compiling /cache/npm/registry.npmjs.org/@dprint/example@1.0.0/test-plugin/plugin.wasm",
       ]
     );
   }

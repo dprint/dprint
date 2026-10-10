@@ -164,15 +164,42 @@ where
     Ok(())
   }
 
+  /// Whether the executable of a process plugin that's run from the npm cache
+  /// is still in the package that was verified when the plugin was set up.
+  ///
+  /// IMPORTANT: The package's directory is shared with anything else using the
+  /// package and what uses it without a checksum can cause it to be downloaded
+  /// again, so its recorded checksum must be checked before every use.
+  fn is_npm_executable_usable(&self, meta: &PluginCacheMeta) -> bool {
+    let Some(package_dir) = self.npm_executable_package_dir(meta) else {
+      return false;
+    };
+    let Some(expected_checksum) = &meta.npm_executable_checksum else {
+      return false;
+    };
+    npm_resolution::read_npm_package_dir_checksum(&package_dir, &self.environment).as_ref() == Some(expected_checksum)
+      && self.environment.path_is_file(meta.artifact_file_path("", &self.environment))
+  }
+
   /// Gets the directory in the npm cache of the package that a process
-  /// plugin's executable is run from (`<registry>/<name>@<version>`).
+  /// plugin's executable is run from (`<registry>/<name>@<version>` or
+  /// `<registry>/@<scope>/<name>@<version>`).
   fn npm_executable_package_dir(&self, meta: &PluginCacheMeta) -> Option<PathBuf> {
     let sub_path = Path::new(meta.npm_executable_sub_path.as_deref()?);
-    let mut components = sub_path.components();
-    let (Some(Component::Normal(registry)), Some(Component::Normal(package))) = (components.next(), components.next()) else {
+    // don't trust the path to be within the npm cache
+    if !sub_path.components().all(|c| matches!(c, Component::Normal(_))) {
       return None;
-    };
-    Some(npm_cache_dir(&self.environment).join(registry).join(package))
+    }
+    let mut components = sub_path.components();
+    let mut dir = npm_cache_dir(&self.environment).join(components.next()?);
+    let package = components.next()?;
+    dir.push(package);
+    if package.as_os_str().to_string_lossy().starts_with('@') {
+      dir.push(components.next()?);
+    }
+    // the executable is a file within the package
+    components.next()?;
+    Some(dir)
   }
 
   /// Returns the `PathSource` whose cache key matches how the resolve flow
@@ -555,16 +582,19 @@ where
       local_stamps,
     } = options;
     self.environment.mk_dir_all(plugins_dir(&self.environment))?;
-    let npm_executable_sub_path = match &pre_resolved_executable {
-      Some(executable) => Some(
-        executable
-          .executable_path
-          .strip_prefix(npm_cache_dir(&self.environment))
-          .context("Internal error: expected the process plugin's executable to be in the npm cache")?
-          .to_string_lossy()
-          .into_owned(),
+    let (npm_executable_sub_path, npm_executable_checksum) = match &pre_resolved_executable {
+      Some(executable) => (
+        Some(
+          executable
+            .executable_path
+            .strip_prefix(npm_cache_dir(&self.environment))
+            .context("Internal error: expected the process plugin's executable to be in the npm cache")?
+            .to_string_lossy()
+            .into_owned(),
+        ),
+        Some(executable.tarball_checksum.clone()),
       ),
-      None => None,
+      None => (None, None),
     };
     let dest = SetupPluginDest {
       wasm_file_path: wasm_artifact_path(hash, &self.environment),
@@ -590,6 +620,7 @@ where
       info: setup_result.plugin_info.clone(),
       executable_sub_path: setup_result.executable_sub_path,
       npm_executable_sub_path,
+      npm_executable_checksum,
       local_stamps,
     };
     write_meta(hash, &meta, &self.environment)?;
@@ -614,11 +645,12 @@ where
     if source.is_local() && !self.local_stamps_match(&meta) {
       return None;
     }
-    let file_path = meta.artifact_file_path(hash, &self.environment);
-    if meta.npm_executable_sub_path.is_some() && !self.environment.path_is_file(&file_path) {
-      // the package was removed from the npm cache, so set the plugin up again
+    if meta.npm_executable_sub_path.is_some() && !self.is_npm_executable_usable(&meta) {
+      // the package in the npm cache is no longer the one that was verified
+      // when setting the plugin up, so set the plugin up again
       return None;
     }
+    let file_path = meta.artifact_file_path(hash, &self.environment);
     Some(PluginCacheItem {
       file_path,
       info: meta.info,
@@ -813,6 +845,7 @@ mod test {
       },
       executable_sub_path: None,
       npm_executable_sub_path: None,
+      npm_executable_checksum: None,
       local_stamps: None,
     }
   }
@@ -1000,18 +1033,14 @@ mod test {
 
     // seed the npm extract dir and the compiled artifact + sidecar as if a
     // previous resolve had run
-    let extract_dir = environment.get_cache_dir().join("npm").join("registry.npmjs.org").join("@dprint__test@1.0.0");
+    let extract_dir = environment.get_cache_dir().join("npm/registry.npmjs.org/@dprint/test@1.0.0");
     environment.mk_dir_all(&extract_dir).unwrap();
     environment.write_file(&extract_dir.join("plugin.wasm"), "fake").unwrap();
-    let extract_dir_meta = extract_dir.with_file_name("@dprint__test@1.0.0.meta.json");
-    environment.write_file(&extract_dir_meta, "{}").unwrap();
 
     // and the per-platform package a process plugin's executable is run from
     let executable_dir = environment.get_cache_dir().join("npm").join("registry.npmjs.org").join("test-bin@1.0.0");
     environment.mk_dir_all(&executable_dir).unwrap();
     environment.write_file(&executable_dir.join("bin"), "fake").unwrap();
-    let executable_dir_meta = executable_dir.with_file_name("test-bin@1.0.0.meta.json");
-    environment.write_file(&executable_dir_meta, "{}").unwrap();
 
     let cache_key = plugin_cache.compute_cache_key(&plugin_source.path_source)?;
     let hash = entry_hash(&cache_key, &environment);
@@ -1025,9 +1054,7 @@ mod test {
     plugin_cache.forget(&plugin_source).await?;
 
     assert!(!environment.path_exists(&extract_dir));
-    assert!(!environment.path_exists(&extract_dir_meta));
     assert!(!environment.path_exists(&executable_dir));
-    assert!(!environment.path_exists(&executable_dir_meta));
     assert!(!environment.path_exists(&artifact));
     assert!(read_meta(&hash, &environment).is_none());
     Ok(())
@@ -1211,6 +1238,7 @@ mod test {
       name: "p".to_string(),
       version: "0.1.0".to_string(),
       executable_path: PathBuf::new(),
+      tarball_checksum: String::new(),
     };
     assert_eq!(stamps(PluginKind::Process, Some(&dummy_executable)).len(), 1);
 

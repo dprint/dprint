@@ -60,6 +60,11 @@ pub struct PluginCacheMeta {
   /// instead of being extracted into the plugin's own directory.
   #[serde(skip_serializing_if = "Option::is_none", default)]
   pub npm_executable_sub_path: Option<String>,
+  /// Checksum of the tarball of the per-platform npm package the executable at
+  /// `npm_executable_sub_path` is in. The package's directory in the npm cache
+  /// is shared, so a cache hit requires it to still be this tarball's.
+  #[serde(skip_serializing_if = "Option::is_none", default)]
+  pub npm_executable_checksum: Option<String>,
   /// Modification stamps for the local source file(s). Present only for local
   /// sources, where edits must invalidate the cache; absent for content-pinned
   /// remote and versioned-npm sources, whose mere presence is a cache hit.
@@ -189,6 +194,7 @@ mod test {
       },
       executable_sub_path: None,
       npm_executable_sub_path: None,
+      npm_executable_checksum: None,
       local_stamps: None,
     }
   }

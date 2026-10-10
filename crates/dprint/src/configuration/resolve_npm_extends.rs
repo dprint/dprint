@@ -687,16 +687,25 @@ mod tests {
       let _ = environment.take_stderr_messages(); // wasm compile message
 
       // and still verifies the checksum of the package's tarball
-      let err = plugin_cache.get_plugin_cache_item(&plugin("npm:config@1.0.0/plugin.json@wrong")).await.err().unwrap();
+      let err = plugin_cache.get_plugin_cache_item(&plugin("npm:config@1.0.0/plugin.json")).await.err().unwrap();
+      assert!(err.to_string().contains("must have a checksum specified"), "{:#}", err);
+      let err = plugin_cache
+        .get_plugin_cache_item(&plugin("npm:config@1.0.0/plugin.json@wrong"))
+        .await
+        .err()
+        .unwrap();
       assert_eq!(
         err.to_string(),
         format!(
-          "Invalid checksum for npm package npm:config@1.0.0/plugin.json. Check the plugin's release notes for the expected checksum.\n\nActual: {}\nExpected: wrong",
+          "Invalid checksum for npm package npm:config@1.0.0/plugin.json. Check the plugin's release notes for the expected checksum.
+
+Actual: {}
+Expected: wrong",
           checksum
         ),
       );
-      let err = plugin_cache.get_plugin_cache_item(&plugin("npm:config@1.0.0/plugin.json")).await.err().unwrap();
-      assert!(err.to_string().contains("must have a checksum specified"), "{:#}", err);
+      // what couldn't be verified isn't kept
+      assert!(!environment.path_exists(environment.get_cache_dir().join("npm/registry.npmjs.org/config@1.0.0")));
     });
   }
 
