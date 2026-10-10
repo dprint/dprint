@@ -11,6 +11,7 @@ use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginCacheItem;
 use crate::plugins::PluginSourceReference;
+use crate::plugins::wasm_resolution_cache_path_for_artifact;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
 
@@ -132,11 +133,12 @@ async fn create_wasm_plugin<TEnvironment: Environment>(
   dprint_core::async_runtime::spawn_blocking({
     let environment = environment.clone();
     let file_path = cache_item.file_path.clone();
+    let resolution_cache_path = wasm_resolution_cache_path_for_artifact(&file_path);
     let plugin_info = cache_item.info.clone();
     let wasm_module_creator = wasm_module_creator.clone();
     move || {
       let file_bytes = environment.read_file_bytes(&file_path)?;
-      wasm::WasmPlugin::new(&file_bytes, plugin_info, &wasm_module_creator, environment)
+      wasm::WasmPlugin::new(&file_bytes, plugin_info, &wasm_module_creator, environment, resolution_cache_path)
     }
   })
   .await?

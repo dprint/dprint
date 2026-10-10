@@ -25,6 +25,7 @@ use dprint_core::plugins::PluginInfo;
 
 use super::WasmHostFormatSender;
 use super::WasmModuleCreator;
+use super::WasmPluginResolutionCache;
 use super::create_pools_import_object;
 use super::instance::Store;
 use super::load_instance;
@@ -42,10 +43,17 @@ pub struct WasmPlugin<TEnvironment: Environment> {
   module: WasmModule,
   environment: TEnvironment,
   plugin_info: PluginInfo,
+  resolution_cache: Arc<WasmPluginResolutionCache<TEnvironment>>,
 }
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
-  pub fn new(compiled_wasm_bytes: &[u8], plugin_info: PluginInfo, wasm_module_creator: &WasmModuleCreator, environment: TEnvironment) -> Result<Self> {
+  pub fn new(
+    compiled_wasm_bytes: &[u8],
+    plugin_info: PluginInfo,
+    wasm_module_creator: &WasmModuleCreator,
+    environment: TEnvironment,
+    resolution_cache_path: PathBuf,
+  ) -> Result<Self> {
     let initializes_on_start = plugin_initializes_on_start(&plugin_info);
     if initializes_on_start {
       log_warn!(
@@ -60,6 +68,7 @@ impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
       .with_initializes_on_start(initializes_on_start);
     Ok(WasmPlugin {
       module,
+      resolution_cache: Arc::new(WasmPluginResolutionCache::new(resolution_cache_path, environment.clone())),
       environment,
       plugin_info,
     })
@@ -90,6 +99,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
           Ok((store, instance))
         }
       }),
+      self.resolution_cache.clone(),
       self.environment.clone(),
     ));
 
@@ -136,6 +146,7 @@ pub struct InitializedWasmPlugin<TEnvironment: Environment> {
   pending_instances: RefCell<Vec<WasmPluginSenderWithState>>,
   module: WasmModule,
   load_instance: Arc<LoadInstanceFn>,
+  resolution_cache: Arc<WasmPluginResolutionCache<TEnvironment>>,
   environment: TEnvironment,
 }
 
@@ -161,12 +172,19 @@ impl<TEnvironment: Environment> Drop for InitializedWasmPlugin<TEnvironment> {
 }
 
 impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
-  pub fn new(name: String, module: WasmModule, load_instance: Arc<LoadInstanceFn>, environment: TEnvironment) -> Self {
+  pub fn new(
+    name: String,
+    module: WasmModule,
+    load_instance: Arc<LoadInstanceFn>,
+    resolution_cache: Arc<WasmPluginResolutionCache<TEnvironment>>,
+    environment: TEnvironment,
+  ) -> Self {
     Self {
       name,
       pending_instances: Default::default(),
       module,
       load_instance,
+      resolution_cache,
       environment,
     }
   }
@@ -379,45 +397,69 @@ impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnv
   }
 
   async fn resolved_config(&self, config: Arc<FormatConfig>) -> Result<String> {
-    self
-      .with_instance(None, move |plugin_sender| {
+    if let Some(value) = self.resolution_cache.get_resolved_config(&config) {
+      return Ok(value);
+    }
+    let value = self
+      .with_instance(None, {
         let config = config.clone();
-        async move {
-          let (tx, rx) = tokio::sync::oneshot::channel();
-          plugin_sender.send(WasmPluginMessage::ResolvedConfig(config, tx))?;
-          rx.await?
+        move |plugin_sender| {
+          let config = config.clone();
+          async move {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            plugin_sender.send(WasmPluginMessage::ResolvedConfig(config, tx))?;
+            rx.await?
+          }
+          .boxed_local()
         }
-        .boxed_local()
       })
-      .await
+      .await?;
+    self.resolution_cache.set_resolved_config(&config, &value);
+    Ok(value)
   }
 
   async fn file_matching_info(&self, config: Arc<FormatConfig>) -> Result<FileMatchingInfo> {
-    self
-      .with_instance(None, move |plugin_sender| {
+    if let Some(value) = self.resolution_cache.get_file_matching_info(&config) {
+      return Ok(value);
+    }
+    let value = self
+      .with_instance(None, {
         let config = config.clone();
-        async move {
-          let (tx, rx) = tokio::sync::oneshot::channel();
-          plugin_sender.send(WasmPluginMessage::FileMatchingInfo(config, tx))?;
-          rx.await?
+        move |plugin_sender| {
+          let config = config.clone();
+          async move {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            plugin_sender.send(WasmPluginMessage::FileMatchingInfo(config, tx))?;
+            rx.await?
+          }
+          .boxed_local()
         }
-        .boxed_local()
       })
-      .await
+      .await?;
+    self.resolution_cache.set_file_matching_info(&config, &value);
+    Ok(value)
   }
 
   async fn config_diagnostics(&self, config: Arc<FormatConfig>) -> Result<Vec<ConfigurationDiagnostic>> {
-    self
-      .with_instance(None, move |plugin_sender| {
+    if let Some(value) = self.resolution_cache.get_config_diagnostics(&config) {
+      return Ok(value);
+    }
+    let value = self
+      .with_instance(None, {
         let config = config.clone();
-        async move {
-          let (tx, rx) = tokio::sync::oneshot::channel();
-          plugin_sender.send(WasmPluginMessage::ConfigDiagnostics(config, tx))?;
-          rx.await?
+        move |plugin_sender| {
+          let config = config.clone();
+          async move {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            plugin_sender.send(WasmPluginMessage::ConfigDiagnostics(config, tx))?;
+            rx.await?
+          }
+          .boxed_local()
         }
-        .boxed_local()
       })
-      .await
+      .await?;
+    self.resolution_cache.set_config_diagnostics(&config, &value);
+    Ok(value)
   }
 
   async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {

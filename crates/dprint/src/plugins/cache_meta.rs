@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -127,6 +128,7 @@ pub fn write_meta(hash: &str, meta: &PluginCacheMeta, environment: &impl Environ
 pub fn remove_entry(hash: &str, environment: &impl Environment) {
   let _ = environment.remove_file(meta_path(hash, environment));
   let _ = environment.remove_file(wasm_artifact_path(hash, environment));
+  let _ = environment.remove_file(wasm_resolution_cache_path(hash, environment));
   environment.try_remove_dir_all(process_dir_path(hash, environment));
 }
 
@@ -143,6 +145,16 @@ pub fn plugins_dir(environment: &impl Environment) -> PathBuf {
 /// Destination for a wasm plugin's compiled artifact.
 pub fn wasm_artifact_path(hash: &str, environment: &impl Environment) -> PathBuf {
   plugins_dir(environment).join(format!("{hash}.cwasm"))
+}
+
+/// Sidecar beside a wasm plugin's compiled artifact that caches what the
+/// plugin derives from each configuration (see `WasmPluginResolutionCache`).
+pub fn wasm_resolution_cache_path(hash: &str, environment: &impl Environment) -> PathBuf {
+  wasm_resolution_cache_path_for_artifact(&wasm_artifact_path(hash, environment))
+}
+
+pub fn wasm_resolution_cache_path_for_artifact(artifact_path: &Path) -> PathBuf {
+  artifact_path.with_extension("resolved.json")
 }
 
 /// Destination directory a process plugin is extracted into.

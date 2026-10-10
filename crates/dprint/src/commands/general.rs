@@ -405,6 +405,27 @@ mod test {
   }
 
   #[test]
+  fn should_not_create_wasm_instance_when_plugin_resolution_cached() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_default_config(|config_file| {
+        config_file.add_remote_wasm_plugin();
+      })
+      .write_file("/file.txt", "text")
+      .build();
+    let count_created_instances = |messages: Vec<String>| messages.iter().filter(|m| m.contains("Creating instance of test-plugin")).count();
+
+    // the first run needs an instance to ask the plugin for its file matching info
+    run_test_cli(vec!["output-file-paths", "--log-level=debug"], &environment).unwrap();
+    assert_eq!(count_created_instances(environment.take_stderr_messages()), 1);
+    assert_eq!(environment.take_stdout_messages(), vec!["/file.txt"]);
+
+    // the second run gets it from the cache beside the compiled plugin
+    run_test_cli(vec!["output-file-paths", "--log-level=debug"], &environment).unwrap();
+    assert_eq!(count_created_instances(environment.take_stderr_messages()), 0);
+    assert_eq!(environment.take_stdout_messages(), vec!["/file.txt"]);
+  }
+
+  #[test]
   fn should_not_output_file_paths_not_supported_by_plugins() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .write_file("/file.ts", "const t=4;")

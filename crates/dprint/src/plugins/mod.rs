@@ -1,6 +1,7 @@
 mod cache;
 mod cache_fs_locks;
 mod cache_meta;
+pub use cache_meta::wasm_resolution_cache_path_for_artifact;
 mod helpers;
 mod implementations;
 mod name_resolution;
