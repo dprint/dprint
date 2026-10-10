@@ -18,6 +18,7 @@ use super::cache_meta::LocalStamp;
 use super::cache_meta::PluginCacheMeta;
 use super::cache_meta::current_signature;
 use super::cache_meta::entry_hash;
+use super::cache_meta::npm_cache_dir;
 use super::cache_meta::plugins_dir;
 use super::cache_meta::process_dir_path;
 use super::cache_meta::read_meta;
@@ -65,7 +66,7 @@ struct SetupAndStoreOptions<'a> {
   resolved_source: &'a PathSource,
   file_bytes: Vec<u8>,
   plugin_kind: PluginKind,
-  pre_resolved_tarball: Option<npm_resolution::PreResolvedProcessPluginTarball>,
+  pre_resolved_executable: Option<npm_resolution::PreResolvedProcessPluginExecutable>,
   local_stamps: Option<Vec<LocalStamp>>,
 }
 
@@ -195,7 +196,7 @@ where
             checksum: None,
           };
           self
-            .get_local_plugin(&local_ref, resolved.pre_resolved_tarball)
+            .get_local_plugin(&local_ref, resolved.pre_resolved_executable)
             .await
             .with_context(|| format!("Setting up {}", npm_source.specifier.display()))
         }
@@ -235,7 +236,7 @@ where
         resolved_source: &resolved.local_path,
         file_bytes: resolved.plugin_bytes,
         plugin_kind: resolved.plugin_kind,
-        pre_resolved_tarball: resolved.pre_resolved_tarball,
+        pre_resolved_executable: resolved.pre_resolved_executable,
         local_stamps: None,
       })
       .await
@@ -314,7 +315,7 @@ where
           resolved_source: &resolved.local_path,
           file_bytes: resolved.plugin_bytes,
           plugin_kind: resolved.plugin_kind,
-          pre_resolved_tarball: resolved.pre_resolved_tarball,
+          pre_resolved_executable: resolved.pre_resolved_executable,
           local_stamps: None,
         })
         .await
@@ -352,7 +353,7 @@ where
           resolved_source: &resolved_source,
           file_bytes,
           plugin_kind,
-          pre_resolved_tarball: None,
+          pre_resolved_executable: None,
           local_stamps: None,
         })
         .await
@@ -366,7 +367,7 @@ where
   async fn get_local_plugin(
     &self,
     source_reference: &PluginSourceReference,
-    pre_resolved_tarball: Option<npm_resolution::PreResolvedProcessPluginTarball>,
+    pre_resolved_executable: Option<npm_resolution::PreResolvedProcessPluginExecutable>,
   ) -> Result<PluginCacheItem> {
     let local_path = source_reference
       .path_source
@@ -398,7 +399,7 @@ where
       &source_reference.path_source,
       &file_bytes,
       plugin_kind,
-      pre_resolved_tarball.as_ref(),
+      pre_resolved_executable.as_ref(),
     );
     self
       .setup_and_store(SetupAndStoreOptions {
@@ -407,7 +408,7 @@ where
         resolved_source: &source_reference.path_source,
         file_bytes,
         plugin_kind,
-        pre_resolved_tarball,
+        pre_resolved_executable,
         local_stamps,
       })
       .await
@@ -499,7 +500,7 @@ where
         resolved_source: &resolved_source,
         file_bytes,
         plugin_kind,
-        pre_resolved_tarball: None,
+        pre_resolved_executable: None,
         local_stamps,
       })
       .await
@@ -533,10 +534,21 @@ where
       resolved_source,
       file_bytes,
       plugin_kind,
-      pre_resolved_tarball,
+      pre_resolved_executable,
       local_stamps,
     } = options;
     self.environment.mk_dir_all(plugins_dir(&self.environment))?;
+    let npm_executable_sub_path = match &pre_resolved_executable {
+      Some(executable) => Some(
+        executable
+          .executable_path
+          .strip_prefix(npm_cache_dir(&self.environment))
+          .context("Internal error: expected the process plugin's executable to be in the npm cache")?
+          .to_string_lossy()
+          .into_owned(),
+      ),
+      None => None,
+    };
     let dest = SetupPluginDest {
       wasm_file_path: wasm_artifact_path(hash, &self.environment),
       process_dir_path: process_dir_path(hash, &self.environment),
@@ -546,7 +558,7 @@ where
         resolved_source,
         file_bytes,
         plugin_kind,
-        pre_resolved_tarball,
+        pre_resolved_executable,
         dest: &dest,
       },
       &self.environment,
@@ -560,6 +572,7 @@ where
       created_time: self.environment.get_time_secs(),
       info: setup_result.plugin_info.clone(),
       executable_sub_path: setup_result.executable_sub_path,
+      npm_executable_sub_path,
       local_stamps,
     };
     write_meta(hash, &meta, &self.environment)?;
@@ -584,8 +597,13 @@ where
     if source.is_local() && !self.local_stamps_match(&meta) {
       return None;
     }
+    let file_path = meta.artifact_file_path(hash, &self.environment);
+    if meta.npm_executable_sub_path.is_some() && !self.environment.path_is_file(&file_path) {
+      // the package was removed from the npm cache, so set the plugin up again
+      return None;
+    }
     Some(PluginCacheItem {
-      file_path: meta.artifact_file_path(hash, &self.environment),
+      file_path,
       info: meta.info,
       plugin_kind: meta.plugin_kind,
     })
@@ -619,11 +637,11 @@ where
     source: &PathSource,
     plugin_bytes: &[u8],
     plugin_kind: PluginKind,
-    pre_resolved_tarball: Option<&npm_resolution::PreResolvedProcessPluginTarball>,
+    pre_resolved_executable: Option<&npm_resolution::PreResolvedProcessPluginExecutable>,
   ) -> Option<Vec<LocalStamp>> {
     let mut stamps = vec![primary?];
     if plugin_kind == PluginKind::Process
-      && pre_resolved_tarball.is_none()
+      && pre_resolved_executable.is_none()
       && let Some(archive_path) = self.resolve_local_per_platform_archive_path(source, plugin_bytes)
       && let Some(stamp) = self.stamp_for(&archive_path)
     {
@@ -656,7 +674,7 @@ where
   fn resolve_local_per_platform_archive_path(&self, source: &PathSource, plugin_bytes: &[u8]) -> Option<PathBuf> {
     let plugin_file = parse_process_plugin_file(plugin_bytes).ok()?;
     let os_path = get_process_plugin_os_path(&plugin_file, &self.environment).ok()?;
-    // an `npm:` reference is handled via pre_resolved_tarball; an http(s) one is
+    // an `npm:` reference is handled via pre_resolved_executable; an http(s) one is
     // fetched fresh during setup. we only stamp *local* references.
     if os_path.reference.starts_with("npm:") || os_path.reference.starts_with("http://") || os_path.reference.starts_with("https://") {
       return None;
@@ -777,6 +795,7 @@ mod test {
         update_url: None,
       },
       executable_sub_path: None,
+      npm_executable_sub_path: None,
       local_stamps: None,
     }
   }
@@ -1141,7 +1160,7 @@ mod test {
     let plugin_bytes = environment.read_file_bytes(&plugin_json_path).unwrap();
 
     // mirrors the real call sites: capture the primary stamp, then build
-    let stamps = |kind, tarball: Option<&npm_resolution::PreResolvedProcessPluginTarball>| {
+    let stamps = |kind, tarball: Option<&npm_resolution::PreResolvedProcessPluginExecutable>| {
       let primary = source.maybe_local_path().and_then(|p| plugin_cache.stamp_for(p));
       plugin_cache.build_local_stamps(primary, &source, &plugin_bytes, kind, tarball).unwrap()
     };
@@ -1155,15 +1174,14 @@ mod test {
     let stamps_v2 = stamps(PluginKind::Process, None);
     assert_ne!(stamps_v1, stamps_v2);
 
-    // with a pre_resolved_tarball the per-platform archive comes from npm, so
+    // with a pre_resolved_executable the per-platform archive comes from npm, so
     // the local file on disk is irrelevant and is not stamped
-    let dummy_tarball = npm_resolution::PreResolvedProcessPluginTarball {
+    let dummy_executable = npm_resolution::PreResolvedProcessPluginExecutable {
       name: "p".to_string(),
       version: "0.1.0".to_string(),
-      tarball_bytes: Vec::new(),
-      executable_sub_path: String::new(),
+      executable_path: PathBuf::new(),
     };
-    assert_eq!(stamps(PluginKind::Process, Some(&dummy_tarball)).len(), 1);
+    assert_eq!(stamps(PluginKind::Process, Some(&dummy_executable)).len(), 1);
 
     // wasm plugins only stamp the primary file
     assert_eq!(stamps(PluginKind::Wasm, None).len(), 1);

@@ -55,6 +55,11 @@ pub struct PluginCacheMeta {
   /// Executable path relative to the plugin's extract dir. Process plugins only.
   #[serde(skip_serializing_if = "Option::is_none", default)]
   pub executable_sub_path: Option<String>,
+  /// Executable path relative to the npm cache dir. Only for process plugins
+  /// whose executable is in a per-platform npm package, which is run in place
+  /// instead of being extracted into the plugin's own directory.
+  #[serde(skip_serializing_if = "Option::is_none", default)]
+  pub npm_executable_sub_path: Option<String>,
   /// Modification stamps for the local source file(s). Present only for local
   /// sources, where edits must invalidate the cache; absent for content-pinned
   /// remote and versioned-npm sources, whose mere presence is a cache hit.
@@ -68,10 +73,13 @@ impl PluginCacheMeta {
   pub fn artifact_file_path(&self, hash: &str, environment: &impl Environment) -> PathBuf {
     match self.plugin_kind {
       PluginKind::Wasm => wasm_artifact_path(hash, environment),
-      PluginKind::Process => {
-        let sub_path = self.executable_sub_path.as_deref().unwrap_or_default();
-        process_dir_path(hash, environment).join(sub_path)
-      }
+      PluginKind::Process => match &self.npm_executable_sub_path {
+        Some(sub_path) => npm_cache_dir(environment).join(sub_path),
+        None => {
+          let sub_path = self.executable_sub_path.as_deref().unwrap_or_default();
+          process_dir_path(hash, environment).join(sub_path)
+        }
+      },
     }
   }
 }
@@ -140,6 +148,11 @@ pub fn plugins_dir(environment: &impl Environment) -> PathBuf {
   environment.get_cache_dir().join("plugins")
 }
 
+/// Directory npm packages are extracted into.
+pub fn npm_cache_dir(environment: &impl Environment) -> PathBuf {
+  environment.get_cache_dir().join("npm")
+}
+
 /// Destination for a wasm plugin's compiled artifact.
 pub fn wasm_artifact_path(hash: &str, environment: &impl Environment) -> PathBuf {
   plugins_dir(environment).join(format!("{hash}.cwasm"))
@@ -175,6 +188,7 @@ mod test {
         update_url: None,
       },
       executable_sub_path: None,
+      npm_executable_sub_path: None,
       local_stamps: None,
     }
   }
