@@ -7,7 +7,7 @@ import decompress from "npm:decompress@4.2.1";
 interface Package {
   zipFileName: string;
   os: "win32" | "darwin" | "linux" | "android";
-  cpu: "x64" | "arm64" | "riscv64" | "loong64" | "ppc64";
+  cpu: "x64" | "arm64" | "riscv64" | "loong64" | "ppc64" | "s390x";
   libc?: "glibc" | "musl";
 }
 
@@ -81,6 +81,11 @@ const packages: Package[] = [{
   os: "linux",
   cpu: "ppc64",
   libc: "musl",
+}, {
+  zipFileName: "dprint-s390x-unknown-linux-gnu.zip",
+  os: "linux",
+  cpu: "s390x",
+  libc: "glibc",
 }, {
   // android (Termux): Node reports the platform as "android" and the arch as
   // "arm64"/"x64". bionic libc, so no libc field (npm only knows glibc/musl).
