@@ -1,6 +1,7 @@
 use crate::utils::PathSource;
 use std::path::Path;
 
+use anyhow::Context;
 use anyhow::Result;
 
 use crate::environment::Environment;
@@ -32,7 +33,29 @@ pub async fn setup_wasm_plugin<TEnvironment: Environment>(
   .await??;
   drop(guard);
   environment.mk_dir_all(dest_file_path.parent().unwrap())?;
-  environment.atomic_write_file_bytes(dest_file_path, &compile_result.bytes)?;
+  let is_replacing = environment.path_exists(dest_file_path);
+  if let Err(err) = environment.atomic_write_file_bytes(dest_file_path, &compile_result.bytes) {
+    // another dprint process having the previous version of the plugin loaded
+    // prevents replacing it on Windows, so kill the ones editors start (which
+    // they restart) and try again
+    let result = if is_replacing && environment.kill_long_running_dprint_processes() > 0 {
+      environment.atomic_write_file_bytes(dest_file_path, &compile_result.bytes)
+    } else {
+      Err(err)
+    };
+    if let Err(err) = result {
+      return if is_replacing && cfg!(windows) {
+        Err(err).with_context(|| {
+          format!(
+            "Failed replacing {}. Maybe another dprint process is using this plugin?",
+            dest_file_path.display()
+          )
+        })
+      } else {
+        Err(err.into())
+      };
+    }
+  }
 
   Ok(SetupPluginResult {
     plugin_info: compile_result.plugin_info,

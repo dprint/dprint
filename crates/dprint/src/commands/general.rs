@@ -828,6 +828,21 @@ mod test {
   }
 
   #[test]
+  fn should_clear_cache_directory_killing_dprint_process_with_wasm_plugin_loaded() {
+    let environment = TestEnvironment::new();
+    let wasm_file = "/cache/plugins/hash.cwasm";
+    environment.mk_dir_all("/cache/plugins").unwrap();
+    environment.write_file(wasm_file, "").unwrap();
+    // pretend an editor's dprint process has the plugin memory mapped, which
+    // prevents deleting it on Windows until the process is killed
+    environment.add_file_mapped_by_dprint_process(wasm_file);
+    run_test_cli(vec!["clear-cache"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
+    assert_eq!(environment.path_exists("/cache"), false);
+    assert_eq!(environment.has_running_dprint_process(), false);
+  }
+
+  #[test]
   fn should_clear_cache_directory_retrying_when_process_plugin_restarts() {
     let environment = TestEnvironment::new();
     let plugin_exe = "/cache/plugins/test-plugin/0.1.0/x86_64/test-plugin.exe";

@@ -175,6 +175,10 @@ pub struct TestEnvironment {
   /// `kill_processes_using_dir`. The restart count models an editor such as the
   /// VSCode extension respawning its process plugins.
   running_processes: Arc<Mutex<Vec<(PathBuf, usize)>>>,
+  /// Files that a long-running dprint process is pretending to have memory
+  /// mapped. These can't be removed (simulating Windows) until the process is
+  /// killed via `kill_long_running_dprint_processes`.
+  files_mapped_by_dprint_process: Arc<Mutex<Vec<PathBuf>>>,
   /// Number of times `remove_dir_all` should fail with a transient error before
   /// succeeding, independent of any running process. Models a flaky deletion
   /// (e.g. a file briefly locked) that succeeds on retry.
@@ -220,6 +224,7 @@ impl TestEnvironment {
       is_terminal_interactive: Arc::new(Mutex::new(true)),
       run_command_results: Default::default(),
       running_processes: Default::default(),
+      files_mapped_by_dprint_process: Default::default(),
       remove_dir_all_failures: Default::default(),
     };
     env.mk_dir_all("/").unwrap();
@@ -404,6 +409,17 @@ impl TestEnvironment {
   pub fn is_process_running(&self, exe_path: impl AsRef<Path>) -> bool {
     let exe_path = self.clean_path(exe_path);
     self.running_processes.lock().iter().any(|(p, _)| *p == exe_path)
+  }
+
+  /// Simulates another long-running dprint process (ex. `dprint lsp`) having
+  /// the file memory mapped, which prevents removing it until that process is
+  /// killed.
+  pub fn add_file_mapped_by_dprint_process(&self, file_path: impl AsRef<Path>) {
+    self.files_mapped_by_dprint_process.lock().push(self.clean_path(file_path));
+  }
+
+  pub fn has_running_dprint_process(&self) -> bool {
+    !self.files_mapped_by_dprint_process.lock().is_empty()
   }
 
   /// Makes the next `count` `remove_dir_all` calls fail with a transient error
@@ -612,6 +628,12 @@ impl Environment for TestEnvironment {
 
   fn remove_file(&self, file_path: impl AsRef<Path>) -> io::Result<()> {
     let file_path = self.clean_path(file_path);
+    if self.files_mapped_by_dprint_process.lock().contains(&file_path) {
+      return Err(io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!("Error deleting file '{}': a process is using it", file_path.display()),
+      ));
+    }
     self.sys.fs_remove_file(file_path)
   }
 
@@ -628,7 +650,9 @@ impl Environment for TestEnvironment {
       }
     }
     // simulate a running process locking its executable (e.g. on Windows)
-    if self.running_processes.lock().iter().any(|(exe, _)| exe.starts_with(&dir_path)) {
+    if self.running_processes.lock().iter().any(|(exe, _)| exe.starts_with(&dir_path))
+      || self.files_mapped_by_dprint_process.lock().iter().any(|file| file.starts_with(&dir_path))
+    {
       return Err(io::Error::new(
         io::ErrorKind::PermissionDenied,
         format!("Error deleting directory '{}': a process is using a file within it", dir_path.display()),
@@ -639,7 +663,7 @@ impl Environment for TestEnvironment {
 
   fn kill_processes_using_dir(&self, dir_path: impl AsRef<Path>) -> usize {
     let dir_path = self.clean_path(dir_path);
-    let mut killed = 0;
+    let mut killed = self.kill_long_running_dprint_processes();
     self.running_processes.lock().retain_mut(|(exe, restarts)| {
       if !exe.starts_with(&dir_path) {
         return true;
@@ -655,6 +679,16 @@ impl Environment for TestEnvironment {
       }
     });
     killed
+  }
+
+  fn kill_long_running_dprint_processes(&self) -> usize {
+    let mut files = self.files_mapped_by_dprint_process.lock();
+    if files.is_empty() {
+      0
+    } else {
+      files.clear();
+      1
+    }
   }
 
   fn dir_info(&self, dir_path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
