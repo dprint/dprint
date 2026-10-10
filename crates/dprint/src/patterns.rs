@@ -149,7 +149,7 @@ pub struct OrderedPatternsMatcher {
 }
 
 impl OrderedPatternsMatcher {
-  pub fn new(patterns: &[String], config_base_path: &CanonicalizedPathBuf) -> Result<Self> {
+  pub fn new(patterns: &[String], config_bases: ConfigPatternBases) -> Result<Self> {
     let matcher = GlobMatcher::new(
       GlobPatterns {
         shebangs: Vec::new(),
@@ -160,12 +160,12 @@ impl OrderedPatternsMatcher {
         // matching pattern opts the path out of being excluded and a matching
         // negated pattern excludes it
         config_excludes: process_config_patterns(patterns)
-          .map(|pattern| new_config_glob_pattern(pattern, config_base_path).invert())
+          .map(|pattern| new_config_glob_pattern(pattern, config_bases).invert())
           .collect(),
       },
       &GlobMatcherOptions {
         case_sensitive: true,
-        base_dir: config_base_path.clone(),
+        base_dir: config_bases.floating.clone(),
       },
     )?;
     Ok(Self { matcher })
@@ -221,10 +221,22 @@ fn get_config_includes_file_patterns(
       // resolve CLI patterns based on the current working directory
       process_cli_override_patterns(includes_overrides, cwd, config, environment)
     }
-    None => new_config_glob_patterns(process_config_patterns(config.includes.as_ref()?), &config.base_path),
+    None => {
+      let mut patterns = new_config_glob_patterns(process_config_patterns(config.includes.as_ref()?), config.pattern_bases());
+      retain_patterns_reaching_dir(&mut patterns, &config.base_path);
+      patterns
+    }
   });
 
   Some(file_patterns)
+}
+
+/// Removes the patterns that can't match anything in the directory or its
+/// ancestors (ex. the anchored includes of a `--config` file that governs a
+/// path on another drive) so they don't affect which directory the remaining
+/// patterns get matched from.
+fn retain_patterns_reaching_dir(patterns: &mut Vec<GlobPattern>, dir: &CanonicalizedPathBuf) {
+  patterns.retain(|pattern| pattern.base_dir.starts_with(dir) || dir.starts_with(&pattern.base_dir));
 }
 
 fn get_config_exclude_file_patterns(
@@ -263,7 +275,7 @@ fn get_config_exclude_file_patterns(
     None => config
       .excludes
       .as_ref()
-      .map(|excludes| new_config_glob_patterns(process_config_patterns(excludes), &config.base_path))
+      .map(|excludes| new_config_glob_patterns(process_config_patterns(excludes), config.pattern_bases()))
       .unwrap_or_default(),
   });
 
@@ -391,21 +403,45 @@ fn normalize_path(path: PathBuf) -> PathBuf {
   result
 }
 
+/// The directories a config file's patterns are relative to. These are both
+/// the config file's directory except when a config file specified via
+/// `--config` governs explicitly specified paths outside its directory.
+#[derive(Debug, Clone, Copy)]
+pub struct ConfigPatternBases<'a> {
+  /// Directory for the patterns that match at any depth (ex. `**/*.ts`, `dist`).
+  pub floating: &'a CanonicalizedPathBuf,
+  /// Directory for the patterns anchored to the config file's directory
+  /// (ex. `src/**/*.ts`, `./dist`, `../other`).
+  pub anchored: &'a CanonicalizedPathBuf,
+}
+
+impl<'a> From<&'a CanonicalizedPathBuf> for ConfigPatternBases<'a> {
+  fn from(base_path: &'a CanonicalizedPathBuf) -> Self {
+    Self {
+      floating: base_path,
+      anchored: base_path,
+    }
+  }
+}
+
 /// Creates the glob patterns for a config file's processed patterns, which are
 /// relative to the config file's directory. A pattern starting with `../` is
 /// based at the corresponding ancestor directory.
-pub fn new_config_glob_patterns(patterns: impl IntoIterator<Item = String>, config_base_path: &CanonicalizedPathBuf) -> Vec<GlobPattern> {
-  patterns.into_iter().map(|pattern| new_config_glob_pattern(pattern, config_base_path)).collect()
+pub fn new_config_glob_patterns(patterns: impl IntoIterator<Item = String>, config_bases: ConfigPatternBases) -> Vec<GlobPattern> {
+  patterns.into_iter().map(|pattern| new_config_glob_pattern(pattern, config_bases)).collect()
 }
 
-pub fn new_config_glob_pattern(pattern: String, config_base_path: &CanonicalizedPathBuf) -> GlobPattern {
+pub fn new_config_glob_pattern(pattern: String, config_bases: ConfigPatternBases) -> GlobPattern {
   let is_negated = is_negated_glob(&pattern);
   let non_negated = non_negated_glob(&pattern);
+  if is_floating_pattern(non_negated) {
+    return GlobPattern::new(pattern, config_bases.floating.clone());
+  }
   let mut remaining = non_negated.strip_prefix("./").unwrap_or(non_negated);
   if !remaining.starts_with("../") {
-    return GlobPattern::new(pattern, config_base_path.clone());
+    return GlobPattern::new(pattern, config_bases.anchored.clone());
   }
-  let mut base_dir = config_base_path.clone();
+  let mut base_dir = config_bases.anchored.clone();
   while let Some(rest) = remaining.strip_prefix("../") {
     if let Some(parent) = base_dir.parent() {
       base_dir = parent;
@@ -415,6 +451,18 @@ pub fn new_config_glob_pattern(pattern: String, config_base_path: &Canonicalized
   // anchor the pattern to the ancestor directory
   let relative_pattern = format!("{}./{}", if is_negated { "!" } else { "" }, remaining);
   GlobPattern::new(relative_pattern, base_dir)
+}
+
+/// Gets whether the non-negated pattern matches at any depth (ex. `**/*.ts`,
+/// `dist`) as opposed to being anchored to a directory (ex. `src/**/*.ts`,
+/// `./dist`, `../other`).
+fn is_floating_pattern(non_negated_pattern: &str) -> bool {
+  let pattern = non_negated_pattern;
+  if pattern == "**" || pattern.starts_with("**/") {
+    return true;
+  }
+  let name = pattern.trim_end_matches('/');
+  !name.contains('/') && !matches!(name, "" | "." | "..")
 }
 
 pub fn process_config_patterns(file_patterns: &[String]) -> impl Iterator<Item = String> + '_ {
@@ -529,17 +577,85 @@ mod test {
   fn should_create_config_glob_pattern_relative_to_config_dir() {
     let base = CanonicalizedPathBuf::new_for_testing("/a/b");
     let pattern = |text: &str| {
-      let pattern = new_config_glob_pattern(text.to_string(), &base);
+      let pattern = new_config_glob_pattern(text.to_string(), (&base).into());
       (pattern.relative_pattern, pattern.base_dir.to_string_lossy().replace('\\', "/"))
     };
     assert_eq!(pattern("src/**/*.ts"), ("src/**/*.ts".to_string(), "/a/b".to_string()));
     assert_eq!(pattern("./src"), ("./src".to_string(), "/a/b".to_string()));
     assert_eq!(pattern("../src/**"), ("./src/**".to_string(), "/a".to_string()));
     assert_eq!(pattern("./../src"), ("./src".to_string(), "/a".to_string()));
+    assert_eq!(pattern("../"), ("./".to_string(), "/a".to_string()));
     assert_eq!(pattern("!../src"), ("!./src".to_string(), "/a".to_string()));
     assert_eq!(pattern("../../**/Cargo.toml"), ("./**/Cargo.toml".to_string(), "/".to_string()));
     // stops at the root directory
     assert_eq!(pattern("../../../src"), ("./src".to_string(), "/".to_string()));
+  }
+
+  #[test]
+  fn should_create_config_glob_pattern_with_separate_bases() {
+    let floating = CanonicalizedPathBuf::new_for_testing("/");
+    let anchored = CanonicalizedPathBuf::new_for_testing("/a/b");
+    let pattern = |text: &str| {
+      let pattern = new_config_glob_pattern(
+        text.to_string(),
+        ConfigPatternBases {
+          floating: &floating,
+          anchored: &anchored,
+        },
+      );
+      (pattern.relative_pattern, pattern.base_dir.to_string_lossy().replace('\\', "/"))
+    };
+    // patterns matching at any depth
+    assert_eq!(pattern("**/*.ts"), ("**/*.ts".to_string(), "/".to_string()));
+    assert_eq!(pattern("!**/*.ts"), ("!**/*.ts".to_string(), "/".to_string()));
+    assert_eq!(pattern("**"), ("**".to_string(), "/".to_string()));
+    assert_eq!(pattern("*.ts"), ("*.ts".to_string(), "/".to_string()));
+    assert_eq!(pattern("dist"), ("dist".to_string(), "/".to_string()));
+    assert_eq!(pattern("dist/"), ("dist/".to_string(), "/".to_string()));
+    // anchored patterns
+    assert_eq!(pattern("./"), ("./".to_string(), "/a/b".to_string()));
+    assert_eq!(pattern("../"), ("./".to_string(), "/a".to_string()));
+    assert_eq!(pattern("src/**/*.ts"), ("src/**/*.ts".to_string(), "/a/b".to_string()));
+    assert_eq!(pattern("!src/**/*.ts"), ("!src/**/*.ts".to_string(), "/a/b".to_string()));
+    assert_eq!(pattern("./dist"), ("./dist".to_string(), "/a/b".to_string()));
+    assert_eq!(pattern("./**/*.ts"), ("./**/*.ts".to_string(), "/a/b".to_string()));
+    assert_eq!(pattern("../src/**"), ("./src/**".to_string(), "/a".to_string()));
+  }
+
+  #[cfg(windows)]
+  #[test]
+  fn should_remove_includes_on_another_drive() {
+    let config_dir = CanonicalizedPathBuf::new_for_testing("C:\\config");
+    let root_dir = CanonicalizedPathBuf::new_for_testing("V:\\");
+    let matches = |includes: &[&str]| {
+      let mut patterns = new_config_glob_patterns(
+        includes.iter().map(|p| p.to_string()),
+        ConfigPatternBases {
+          floating: &root_dir,
+          anchored: &config_dir,
+        },
+      );
+      retain_patterns_reaching_dir(&mut patterns, &root_dir);
+      let matcher = GlobMatcher::new(
+        GlobPatterns {
+          shebangs: Vec::new(),
+          arg_includes: None,
+          config_includes: Some(patterns),
+          arg_excludes: None,
+          config_excludes: Vec::new(),
+        },
+        &GlobMatcherOptions {
+          case_sensitive: true,
+          base_dir: root_dir.clone(),
+        },
+      )
+      .unwrap();
+      matcher.matches_detail("V:\\a.md") == GlobMatchesDetail::Matched
+    };
+    // the order of the includes doesn't matter
+    assert!(matches(&["src/**/*.md", "**/*.md"]));
+    assert!(matches(&["**/*.md", "src/**/*.md"]));
+    assert!(!matches(&["src/**/*.md"]));
   }
 
   #[test]
@@ -566,7 +682,7 @@ mod test {
     let new_matcher = |includes: &[&str], excludes: &[&str]| {
       let to_patterns = |patterns: &[&str]| {
         let patterns = patterns.iter().map(|p| p.to_string()).collect::<Vec<_>>();
-        new_config_glob_patterns(process_config_patterns(&patterns), &cwd)
+        new_config_glob_patterns(process_config_patterns(&patterns), (&cwd).into())
       };
       GlobMatcher::new(
         GlobPatterns {
