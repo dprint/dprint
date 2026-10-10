@@ -3,7 +3,7 @@ use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::environment::CanonicalizedPathBuf;
+use crate::patterns::ConfigPatternBases;
 use crate::patterns::OrderedPatternsMatcher;
 use crate::resolution::PluginWithConfig;
 use crate::utils::get_lowercase_file_extension;
@@ -35,7 +35,7 @@ pub struct PluginNameResolutionMaps {
 impl PluginNameResolutionMaps {
   pub fn from_plugins<'a>(
     plugins: impl Iterator<Item = &'a PluginWithConfig>,
-    config_base_path: &CanonicalizedPathBuf,
+    config_bases: ConfigPatternBases,
     shebangs: Option<&IndexMap<String, String>>,
   ) -> Result<Self> {
     let mut plugin_name_maps = PluginNameResolutionMaps::default();
@@ -65,7 +65,7 @@ impl PluginNameResolutionMaps {
           .push(index);
       }
 
-      let associations = get_plugin_association_glob_matcher(plugin, config_base_path)?;
+      let associations = get_plugin_association_glob_matcher(plugin, config_bases)?;
       // an additive plugin never claims a file, so it's matched on its own
       if associations.is_some() && !additive {
         plugin_name_maps.association_indexes.push(index);
@@ -275,9 +275,9 @@ fn map_contains(map: &HashMap<String, Vec<usize>>, key: &str, index: usize) -> b
   map.get(key).is_some_and(|indexes| indexes.contains(&index))
 }
 
-fn get_plugin_association_glob_matcher(plugin: &PluginWithConfig, config_base_path: &CanonicalizedPathBuf) -> Result<Option<OrderedPatternsMatcher>> {
+fn get_plugin_association_glob_matcher(plugin: &PluginWithConfig, config_bases: ConfigPatternBases) -> Result<Option<OrderedPatternsMatcher>> {
   match plugin.associations.as_deref() {
-    Some(associations) => Ok(Some(OrderedPatternsMatcher::new(associations, config_base_path)?)),
+    Some(associations) => Ok(Some(OrderedPatternsMatcher::new(associations, config_bases)?)),
     None => Ok(None),
   }
 }

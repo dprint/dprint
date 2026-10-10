@@ -240,7 +240,7 @@ async fn get_and_resolve_file_patterns(
 
 /// Gets the highest directory the config includes are based at, which is an
 /// ancestor of the config file's directory when an include starts with `../`.
-fn get_includes_base_dir(config_base_path: &CanonicalizedPathBuf, file_patterns: &GlobPatterns) -> CanonicalizedPathBuf {
+pub fn get_includes_base_dir(config_base_path: &CanonicalizedPathBuf, file_patterns: &GlobPatterns) -> CanonicalizedPathBuf {
   let mut base_dir = config_base_path.clone();
   for pattern in file_patterns.config_includes.iter().flatten() {
     if !is_negated_glob(&pattern.relative_pattern) && base_dir.starts_with(&pattern.base_dir) {

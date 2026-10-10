@@ -19,6 +19,7 @@ use crate::configuration::ConfigMapValue;
 use crate::configuration::deserialize_config;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
+use crate::patterns::ConfigPatternBases;
 use crate::patterns::new_config_glob_pattern;
 use crate::patterns::process_config_pattern;
 use crate::plugins::PluginSourceReference;
@@ -39,6 +40,11 @@ pub struct ResolvedConfig {
   pub source: PathSource,
   /// The folder that should be considered the "root".
   pub base_path: CanonicalizedPathBuf,
+  /// The directory the config file's anchored patterns (ex. `src/**/*.ts`) are
+  /// relative to when it's not the base path. This is set when a config file
+  /// specified via `--config` governs explicitly specified paths outside its
+  /// directory.
+  pub anchored_patterns_base_path: Option<CanonicalizedPathBuf>,
   /// Whether this is the user's global configuration file.
   pub is_global: bool,
   pub includes: Option<Vec<String>>,
@@ -57,6 +63,29 @@ pub struct ResolvedConfig {
   /// a matching plugin because a shared config may configure more plugins than
   /// the ones being used.
   pub extended_only_plugin_config_keys: HashSet<String>,
+}
+
+impl ResolvedConfig {
+  /// Gets the directories the config file's patterns are relative to.
+  pub fn pattern_bases(&self) -> ConfigPatternBases<'_> {
+    ConfigPatternBases {
+      floating: &self.base_path,
+      anchored: self.anchored_patterns_base_path.as_ref().unwrap_or(&self.base_path),
+    }
+  }
+
+  /// Bases the config at the root directory of explicitly specified paths
+  /// outside its directory so it governs them.
+  ///
+  /// The patterns of a config file specified via `--config` that match at any
+  /// depth (ex. `**/*.ts`) then apply to those paths, while its anchored
+  /// patterns (ex. `src/**/*.ts`) stay relative to the config file's directory.
+  pub fn rebase_for_outside_paths(&mut self, root_dir: CanonicalizedPathBuf, is_config_arg: bool) {
+    let previous_base_path = std::mem::replace(&mut self.base_path, root_dir);
+    if is_config_arg && self.anchored_patterns_base_path.is_none() {
+      self.anchored_patterns_base_path = Some(previous_base_path);
+    }
+  }
 }
 
 #[derive(Debug, Error)]
@@ -134,6 +163,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
           config_map: ConfigMap::new(),
           extended_only_plugin_config_keys: HashSet::new(),
           base_path: environment.cwd().clone(),
+          anchored_patterns_base_path: None,
           source: PathSource::new_local(environment.cwd().join_panic_relative("dprint.json")),
           is_global: false,
           excludes: None,
@@ -214,6 +244,7 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   let resolved_config = ResolvedConfig {
     source: config_path_and_text.source.clone(),
     base_path: config_path_and_text.base_path.clone(),
+    anchored_patterns_base_path: None,
     is_global: config_path_and_text.is_global_config,
     config_map,
     extended_only_plugin_config_keys: HashSet::new(),
@@ -244,7 +275,7 @@ pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Re
   config.plugins = filter_duplicate_plugin_sources(std::mem::take(&mut config.plugins));
 
   // combine excludes, rebasing the ancestor's patterns onto this config's directory
-  config.excludes = inherit_excludes(config.excludes, parent.excludes.as_deref(), &parent.base_path, &config.base_path);
+  config.excludes = inherit_excludes(config.excludes, parent.excludes.as_deref(), parent.pattern_bases(), &config.base_path);
 
   // inherit the incremental flag when not specified in the nested config
   if config.incremental.is_none() {
@@ -282,7 +313,7 @@ pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Re
 fn inherit_excludes(
   own: Option<Vec<String>>,
   ancestor: Option<&[String]>,
-  ancestor_base: &CanonicalizedPathBuf,
+  ancestor_bases: ConfigPatternBases,
   new_base: &CanonicalizedPathBuf,
 ) -> Option<Vec<String>> {
   let Some(ancestor) = ancestor else {
@@ -295,7 +326,7 @@ fn inherit_excludes(
     // sees the pattern the way the ancestor interprets it
     .flat_map(|pattern| process_config_pattern(pattern))
     .filter_map(|pattern| {
-      new_config_glob_pattern(pattern, ancestor_base)
+      new_config_glob_pattern(pattern, ancestor_bases)
         .into_new_base(new_base.clone(), GlobPatternKind::Exclude)
         .map(|p| p.relative_pattern)
     })
@@ -1531,6 +1562,7 @@ mod tests {
       let source = CanonicalizedPathBuf::new_for_testing(path);
       ResolvedConfig {
         base_path: source.parent().unwrap(),
+        anchored_patterns_base_path: None,
         source: PathSource::new_local(source),
         is_global: false,
         includes: None,
@@ -2372,6 +2404,7 @@ mod tests {
     let parent = ResolvedConfig {
       source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/dprint.json")),
       base_path: CanonicalizedPathBuf::new_for_testing("/"),
+      anchored_patterns_base_path: None,
       is_global: false,
       includes: Some(vec!["**/*.txt".to_string()]),
       // both patterns match at any depth, so both rebase into the nested directory
@@ -2403,6 +2436,7 @@ mod tests {
     let child = ResolvedConfig {
       source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/sub/dprint.json")),
       base_path: CanonicalizedPathBuf::new_for_testing("/sub"),
+      anchored_patterns_base_path: None,
       is_global: false,
       includes: None,
       excludes: Some(vec!["sub-excludes".to_string()]),
@@ -2469,7 +2503,7 @@ mod tests {
       inherit_excludes(
         None,
         Some(&ancestor.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
-        &CanonicalizedPathBuf::new_for_testing(ancestor_base),
+        (&CanonicalizedPathBuf::new_for_testing(ancestor_base)).into(),
         &CanonicalizedPathBuf::new_for_testing(new_base),
       )
     }
@@ -2508,7 +2542,7 @@ mod tests {
       inherit_excludes(
         Some(vec!["own".to_string()]),
         Some(&["other/dist".to_string()]),
-        &CanonicalizedPathBuf::new_for_testing("/"),
+        (&CanonicalizedPathBuf::new_for_testing("/")).into(),
         &CanonicalizedPathBuf::new_for_testing("/sub"),
       ),
       Some(vec!["own".to_string()])
@@ -2520,6 +2554,7 @@ mod tests {
     let parent = ResolvedConfig {
       source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/dprint.json")),
       base_path: CanonicalizedPathBuf::new_for_testing("/"),
+      anchored_patterns_base_path: None,
       is_global: false,
       includes: None,
       excludes: None,
@@ -2541,6 +2576,7 @@ mod tests {
     let child = ResolvedConfig {
       source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/sub/dprint.json")),
       base_path: CanonicalizedPathBuf::new_for_testing("/sub"),
+      anchored_patterns_base_path: None,
       is_global: false,
       includes: None,
       excludes: None,

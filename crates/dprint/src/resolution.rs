@@ -52,6 +52,7 @@ use crate::paths::NoFilesFoundError;
 use crate::paths::get_and_resolve_file_paths;
 use crate::paths::get_file_paths_by_plugins;
 use crate::paths::get_plugin_names_for_file_on_disk;
+use crate::patterns::ConfigPatternBases;
 use crate::patterns::FileMatcher;
 use crate::patterns::FileMatcherOptions;
 use crate::patterns::OrderedPatternsMatcher;
@@ -349,7 +350,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     config: Rc<ResolvedConfig>,
     global_config_diagnostics: Vec<GlobalConfigDiagnostic>,
   ) -> Result<Self> {
-    let plugin_name_maps = PluginNameResolutionMaps::from_plugins(plugins.iter().map(|p| p.as_ref()), &config.base_path, config.shebangs.as_ref())?;
+    let plugin_name_maps = PluginNameResolutionMaps::from_plugins(plugins.iter().map(|p| p.as_ref()), config.pattern_bases(), config.shebangs.as_ref())?;
 
     Ok(PluginsScope {
       environment,
@@ -903,7 +904,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     patterns: Rc<FilePatternArgs>,
   ) -> Result<Vec<PluginsScopeAndPaths<TEnvironment>>> {
     let mut rebased_config = (**config).clone();
-    rebased_config.base_path = base_path;
+    rebased_config.rebase_for_outside_paths(base_path, self.args.config.is_some());
     self
       .resolve_scope_and_descendants(Rc::new(rebased_config), config_discovery, root_config_path, patterns)
       .await
@@ -1109,14 +1110,14 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
   // now get global config
   let global_config_result = get_global_config(config_map);
   let global_config = global_config_result.config;
-  let config_base_path = config.base_path.clone();
+  let config_bases = config.pattern_bases();
 
   // create the scope
   let plugins = plugins_with_config
     .into_iter()
     .map(|(plugin_config, plugin)| {
       let global_config = global_config.clone();
-      let overrides = resolve_plugin_config_overrides(plugin_config.overrides, &config_base_path, plugin_resolver)?;
+      let overrides = resolve_plugin_config_overrides(plugin_config.overrides, config_bases, plugin_resolver)?;
       let next_config_id = plugin_resolver.next_config_id();
       Ok(
         async move {
@@ -1169,13 +1170,13 @@ fn filter_duplicate_plugin_names(plugins: Vec<Rc<PluginWrapper>>) -> Vec<Rc<Plug
 
 fn resolve_plugin_config_overrides<TEnvironment: Environment>(
   overrides: Vec<RawPluginConfigOverride>,
-  config_base_path: &CanonicalizedPathBuf,
+  config_bases: ConfigPatternBases,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<Vec<PluginConfigOverride>> {
   overrides
     .into_iter()
     .map(|override_config| {
-      let matcher = OrderedPatternsMatcher::new(&override_config.files, config_base_path)?;
+      let matcher = OrderedPatternsMatcher::new(&override_config.files, config_bases)?;
       Ok(PluginConfigOverride {
         files: override_config.files,
         properties: override_config.properties,
@@ -1248,6 +1249,7 @@ mod test {
         config_map: Default::default(),
         extended_only_plugin_config_keys: Default::default(),
         base_path: base_path.clone(),
+        anchored_patterns_base_path: None,
         source: PathSource::new_local(base_path.join_panic_relative("dprint.json")),
         is_global: false,
         excludes: None,
@@ -1304,7 +1306,7 @@ mod test {
       files: vec!["**/package.txt".to_string()],
       properties: ConfigKeyMap::from([("ending".to_string(), "package".into())]),
       config_id: FormatConfigId::from_raw(2),
-      matcher: OrderedPatternsMatcher::new(&["**/package.txt".to_string()], &config_base_path).unwrap(),
+      matcher: OrderedPatternsMatcher::new(&["**/package.txt".to_string()], (&config_base_path).into()).unwrap(),
     }]);
 
     assert_ne!(get_plugin_hash(&plugin_without_override), get_plugin_hash(&plugin_with_override));
@@ -1318,7 +1320,7 @@ mod test {
 
   fn create_plugin_with_override(files: Vec<String>, properties: ConfigKeyMap) -> PluginWithConfig {
     let config_base_path = CanonicalizedPathBuf::new_for_testing("/config");
-    let matcher = OrderedPatternsMatcher::new(&files, &config_base_path).unwrap();
+    let matcher = OrderedPatternsMatcher::new(&files, (&config_base_path).into()).unwrap();
     create_plugin_with_overrides(vec![PluginConfigOverride {
       files,
       properties,

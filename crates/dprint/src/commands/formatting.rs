@@ -25,8 +25,10 @@ use crate::format::RunForFilePathError;
 use crate::format::run_parallelized;
 use crate::incremental::GetIncrementalFileOptions;
 use crate::incremental::get_incremental_file;
+use crate::paths::get_includes_base_dir;
 use crate::patterns::FileMatcher;
 use crate::patterns::FileMatcherOptions;
+use crate::patterns::get_all_file_patterns;
 use crate::plugins::PluginResolver;
 use crate::resolution::PluginsScope;
 use crate::resolution::ResolvePluginsScopeAndPathsOptions;
@@ -43,15 +45,31 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
-  let config = Rc::new(resolve_config_from_args(args, environment).await?);
-  let plugins_scope = Rc::new(resolve_plugins_scope(config, environment, plugin_resolver).await?);
+  let mut config = resolve_config_from_args(args, environment).await?;
+  let resolved_file_path = if environment.is_absolute_path(&cmd.file_name_or_path) {
+    // canonicalize the file path, then check if it's in the list of file paths.
+    let resolved_file_path = environment.canonicalize_maybe_not_exists(&cmd.file_name_or_path)?;
+    // an explicitly specified config file governs explicitly specified paths
+    // anywhere, so base it at the path's root directory when the path is
+    // outside the directory its includes are based at the same way a normal
+    // `fmt` does for a path arg
+    if args.config.is_some() {
+      let file_patterns = get_all_file_patterns(&config, &cmd.patterns, &environment.cwd(), environment);
+      if !resolved_file_path.starts_with(&get_includes_base_dir(&config.base_path, &file_patterns)) {
+        let root_dir = environment.canonicalize(resolved_file_path.as_ref().ancestors().last().unwrap())?;
+        config.rebase_for_outside_paths(root_dir, /* is config arg */ true);
+      }
+    }
+    Some(resolved_file_path)
+  } else {
+    None
+  };
+  let plugins_scope = Rc::new(resolve_plugins_scope(Rc::new(config), environment, plugin_resolver).await?);
   plugins_scope.ensure_plugins_found()?;
   plugins_scope.ensure_no_global_config_diagnostics()?;
 
   // if the path is absolute, then apply exclusion rules
-  if environment.is_absolute_path(&cmd.file_name_or_path) {
-    // canonicalize the file path, then check if it's in the list of file paths.
-    let resolved_file_path = environment.canonicalize_maybe_not_exists(&cmd.file_name_or_path)?;
+  if let Some(resolved_file_path) = resolved_file_path {
     let mut file_matcher = FileMatcher::new(
       environment.clone(),
       FileMatcherOptions {
@@ -5001,6 +5019,140 @@ text_formatted"
     let test_std_in = TestStdInReader::from("text");
     run_test_cli_with_stdin(vec!["fmt", "--stdin", "/sub-dir/file.txt"], &environment, test_std_in).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["text_new_ending"]);
+  }
+
+  #[test]
+  fn should_format_stdin_file_outside_dir_of_config_arg() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config/dprint.json", |c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file("/home/file.txt", "")
+      .build();
+    let test_std_in = TestStdInReader::from("text");
+
+    // the explicitly specified config file governs explicitly specified paths
+    // anywhere, the same way it does for a `fmt` path arg
+    run_test_cli_with_stdin(
+      vec!["fmt", "--config", "/config/dprint.json", "--stdin", "/home/file.txt"],
+      &environment,
+      test_std_in.clone(),
+    )
+    .unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["text_formatted"]);
+
+    // still not formatted when excluded
+    run_test_cli_with_stdin(
+      vec!["fmt", "--config", "/config/dprint.json", "--stdin", "/home/file.txt", "--excludes", "home"],
+      &environment,
+      test_std_in,
+    )
+    .unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["text"]);
+  }
+
+  #[test]
+  fn should_only_apply_floating_config_patterns_to_stdin_file_outside_dir_of_config_arg() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config/dprint.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_includes("src/**/*.txt")
+          .add_includes("**/*_any.txt")
+          .add_excludes("**/skip_any.txt")
+          .add_excludes("./sub");
+      })
+      .build();
+    let test_std_in = TestStdInReader::from("text");
+
+    for (path, expected) in [
+      // patterns matching at any depth apply outside the config file's directory
+      ("/home/file_any.txt", "text_formatted"),
+      ("/home/skip_any.txt", "text"),
+      // ...while the anchored patterns stay relative to the config file's directory
+      ("/home/file.txt", "text"),
+      ("/src/file.txt", "text"),
+      ("/home/src/file.txt", "text"),
+      ("/sub/file_any.txt", "text_formatted"),
+      ("/config/src/file.txt", "text_formatted"),
+      ("/config/sub/file_any.txt", "text"),
+    ] {
+      run_test_cli_with_stdin(
+        vec!["fmt", "--config", "/config/dprint.json", "--stdin", path],
+        &environment,
+        test_std_in.clone(),
+      )
+      .unwrap();
+      assert_eq!(environment.take_stdout_messages(), vec![expected], "path: {}", path);
+    }
+  }
+
+  #[test]
+  fn should_not_format_stdin_file_within_ancestor_includes_base_of_config_arg() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/a/config/dprint.json", |c| {
+        c.add_remote_wasm_plugin().add_includes("../other/**/*.txt").add_includes("**/*.txt");
+      })
+      .build();
+    let test_std_in = TestStdInReader::from("text");
+
+    for (path, expected) in [
+      // outside the directory the includes are based at
+      ("/b/file.txt", "text_formatted"),
+      // within it, so not matched the same as for a `fmt` path arg
+      ("/a/sibling/file.txt", "text"),
+    ] {
+      run_test_cli_with_stdin(
+        vec!["fmt", "--config", "/a/config/dprint.json", "--stdin", path],
+        &environment,
+        test_std_in.clone(),
+      )
+      .unwrap();
+      assert_eq!(environment.take_stdout_messages(), vec![expected], "path: {}", path);
+    }
+  }
+
+  #[test]
+  fn should_only_apply_floating_config_patterns_to_path_args_outside_dir_of_config_arg() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/config/dprint.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_includes("src/**/*.txt")
+          .add_includes("**/*_any.txt")
+          .add_excludes("**/skip_any.txt")
+          .add_excludes("./sub");
+      })
+      .write_file("/home/file_any.txt", "text")
+      .write_file("/home/skip_any.txt", "text")
+      .write_file("/home/file.txt", "text")
+      .write_file("/src/file.txt", "text")
+      .write_file("/home/src/file.txt", "text")
+      .write_file("/sub/file_any.txt", "text")
+      .build();
+
+    // the same as when the paths are provided to `--stdin`
+    run_test_cli(
+      vec![
+        "fmt",
+        "--config",
+        "/config/dprint.json",
+        "/home/file_any.txt",
+        "/home/skip_any.txt",
+        "/home/file.txt",
+        "/src/file.txt",
+        "/home/src/file.txt",
+        "/sub/file_any.txt",
+      ],
+      &environment,
+    )
+    .unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/home/file_any.txt").unwrap(), "text_formatted");
+    assert_eq!(environment.read_file("/home/skip_any.txt").unwrap(), "text");
+    assert_eq!(environment.read_file("/home/file.txt").unwrap(), "text");
+    assert_eq!(environment.read_file("/src/file.txt").unwrap(), "text");
+    assert_eq!(environment.read_file("/home/src/file.txt").unwrap(), "text");
+    assert_eq!(environment.read_file("/sub/file_any.txt").unwrap(), "text_formatted");
   }
 
   #[test]
