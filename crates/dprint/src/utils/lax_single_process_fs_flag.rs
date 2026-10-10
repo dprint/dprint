@@ -4,7 +4,6 @@
 // https://github.com/denoland/deno/blob/17ddf2f97c58db0b6825809a8bc325f0bda65b1b/cli/util/fs.rs#L471
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use crate::environment::Environment;
@@ -44,7 +43,7 @@ impl<TEnvironment: Environment> LaxSingleProcessFsFlag<TEnvironment> {
               log_debug!(environment, "Acquired file lock at {}", file_path.display());
               #[allow(clippy::disallowed_methods)]
               let _ignore = std::fs::write(&last_updated_path, "");
-              let token = Arc::new(tokio_util::sync::CancellationToken::new());
+              let (finished_sender, finished_receiver) = std::sync::mpsc::channel::<()>();
 
               // Spawn a blocking task that will continually update a file
               // signalling the lock is alive. This is a fail safe for when
@@ -55,16 +54,24 @@ impl<TEnvironment: Environment> LaxSingleProcessFsFlag<TEnvironment> {
               // This uses a blocking task because we use a single threaded
               // runtime and this is time sensitive so we don't want it to update
               // at the whims of of whatever is occurring on the runtime thread.
+              //
+              // The wait is done on a channel rather than a plain sleep so that
+              // dropping the guard wakes the thread immediately. Otherwise the
+              // runtime would wait up to the full poll interval for this task
+              // when the process shuts down.
               dprint_core::async_runtime::spawn_blocking({
-                let token = token.clone();
                 let last_updated_path = last_updated_path.clone();
                 move || {
                   let mut i = 0;
-                  while !token.is_cancelled() {
+                  loop {
                     i += 1;
                     #[allow(clippy::disallowed_methods)]
                     let _ignore = std::fs::write(&last_updated_path, i.to_string());
-                    std::thread::sleep(Duration::from_millis(poll_file_update_ms));
+                    match finished_receiver.recv_timeout(Duration::from_millis(poll_file_update_ms)) {
+                      Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                      // a message was sent or the sender was dropped
+                      _ => break,
+                    }
                   }
                 }
               });
@@ -72,7 +79,7 @@ impl<TEnvironment: Environment> LaxSingleProcessFsFlag<TEnvironment> {
               return Self(Some(LaxSingleProcessFsFlagInner {
                 file_path,
                 fs_file,
-                finished_token: token,
+                finished_sender,
                 environment: environment.clone(),
               }));
             }
@@ -132,15 +139,15 @@ impl<TEnvironment: Environment> LaxSingleProcessFsFlag<TEnvironment> {
 struct LaxSingleProcessFsFlagInner<TEnvironment: Environment> {
   file_path: PathBuf,
   fs_file: std::fs::File,
-  finished_token: Arc<tokio_util::sync::CancellationToken>,
+  finished_sender: std::sync::mpsc::Sender<()>,
   environment: TEnvironment,
 }
 
 impl<TEnvironment: Environment> Drop for LaxSingleProcessFsFlagInner<TEnvironment> {
   fn drop(&mut self) {
     use fs3::FileExt;
-    // kill the poll thread
-    self.finished_token.cancel();
+    // kill the poll thread (ignore the error if the thread already exited)
+    let _ignore = self.finished_sender.send(());
     // release the file lock
     if let Err(err) = FileExt::unlock(&self.fs_file) {
       log_debug!(self.environment, "Failed releasing lock for {}. {:#}", self.file_path.display(), err);
