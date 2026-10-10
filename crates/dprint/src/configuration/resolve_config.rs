@@ -355,6 +355,18 @@ struct ExtendsContext {
   npm_resolver: Rc<NpmExtendsResolver>,
 }
 
+impl ExtendsContext {
+  /// Whether a configuration file that's extended in this context must be
+  /// considered remote configuration.
+  ///
+  /// IMPORTANT: A local file that's extended by remote configuration is remote
+  /// configuration. Otherwise remote configuration could get around what it's
+  /// not allowed to do by extending a file on the machine that does it instead.
+  fn is_remote(&self, source: &PathSource) -> bool {
+    !source.is_local() || self.ancestors.iter().any(|ancestor| !ancestor.is_local())
+  }
+}
+
 fn resolve_extends<TEnvironment: Environment>(
   mut resolved_config: ResolvedConfig,
   extends: Vec<String>,
@@ -431,8 +443,10 @@ async fn handle_config_file<TEnvironment: Environment>(
   })?;
   let extends = take_extends(&mut new_config_map)?;
 
+  let is_remote = extends_context.is_remote(&config_path_and_text.source);
+
   // Discard any properties that shouldn't be inherited
-  if !config_path_and_text.source.is_local() {
+  if is_remote {
     // IMPORTANT
     // =========
     // Remove the includes from all referenced remote configuration since
@@ -466,11 +480,7 @@ async fn handle_config_file<TEnvironment: Environment>(
   // Also remove any non-wasm plugins, but only for remote configurations.
   // The assumption here is that the user won't be malicious to themselves.
   let plugins = take_plugins_array_from_config_map(&mut new_config_map, &config_path_and_text.source.parent(), environment)?;
-  let plugins = if !config_path_and_text.source.is_local() {
-    filter_non_wasm_plugins(plugins, environment)
-  } else {
-    plugins
-  };
+  let plugins = if is_remote { filter_non_wasm_plugins(plugins, environment) } else { plugins };
   // =========
 
   // combine plugins, keeping the higher-precedence (earlier) entry when the same

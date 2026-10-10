@@ -880,6 +880,52 @@ Expected: wrong",
   }
 
   #[test]
+  fn should_consider_local_file_extended_by_remote_config_as_remote() {
+    let local_config = r#"{
+      "includes": ["**/*.ts"],
+      "plugins": ["./test-plugin.json@checksum", "./test-plugin.wasm"],
+      "prop1": 1
+    }"#;
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/url.json", r#"{ "extends": "https://dprint.dev/config.json" }"#)
+      .write_file("/npm.json", r#"{ "extends": "npm:config@1.0.0" }"#)
+      .write_file("/local.json", r#"{ "extends": "./dir/local.json" }"#)
+      .write_file("/home/local.json", local_config)
+      .write_file("/dir/local.json", local_config)
+      .build();
+    environment.add_remote_file_bytes("https://dprint.dev/config.json", br#"{ "extends": "~/local.json" }"#.to_vec());
+    add_registry_package(
+      &environment,
+      "config",
+      "1.0.0",
+      &[("package/dprint.json", r#"{ "extends": "https://dprint.dev/config.json" }"#)],
+    );
+
+    environment.clone().run_in_runtime(async move {
+      for config_path in ["/url.json", "/npm.json"] {
+        let result = resolve_config(config_path, &environment).await.unwrap();
+        assert_eq!(get_number(&result, "prop1"), 1);
+        // the includes and non-wasm plugins are ignored
+        assert_eq!(result.includes, None);
+        assert!(!result.config_map.contains_key("includes"));
+        assert_eq!(
+          result.plugins,
+          vec![PluginSourceReference {
+            path_source: PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/home/test-plugin.wasm")),
+            checksum: None,
+          }]
+        );
+        assert!(!environment.take_stderr_messages().is_empty());
+      }
+
+      // not when only extended by local config
+      let result = resolve_config("/local.json", &environment).await.unwrap();
+      assert_eq!(result.plugins.len(), 2);
+      assert!(environment.take_stderr_messages().is_empty());
+    });
+  }
+
+  #[test]
   fn should_error_for_circular_extends() {
     let environment = TestEnvironmentBuilder::new()
       .write_file("/self.json", r#"{ "extends": "./self.json" }"#)
