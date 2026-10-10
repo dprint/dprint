@@ -23,8 +23,6 @@ In your project's directory with a dprint.json file, run:
 
 ```shellsession
 dprint add bartlomieju/lax-sql
-# or install from npm
-dprint add npm:lax-sql
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify an `"sql"` property to add configuration:
@@ -35,7 +33,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // sql config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/bartlomieju/lax-sql-x.x.x.wasm"
+    "npm:lax-sql@x.x.x"
   ]
 }
 ```

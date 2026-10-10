@@ -24,7 +24,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // Pretty YAML config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/g-plane/pretty_yaml-vx.x.x.wasm"
+    "npm:dprint-plugin-yaml@x.x.x"
   ]
 }
 ```

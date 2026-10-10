@@ -25,8 +25,6 @@ In your project's directory with a dprint.json file, run:
 
 ```shellsession
 dprint add kachick/typstyle
-# or install from npm
-dprint add npm:@kachick/dprint-plugin-typstyle
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"typst"` property to add configuration:
@@ -37,7 +35,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // typst config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/kachick/typstyle-x.x.x.wasm"
+    "npm:@kachick/dprint-plugin-typstyle@x.x.x"
   ]
 }
 ```

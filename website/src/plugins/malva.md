@@ -24,7 +24,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // malva config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/g-plane/malva-vx.x.x.wasm"
+    "npm:dprint-plugin-malva@x.x.x"
   ]
 }
 ```

@@ -23,8 +23,6 @@ In your project's directory with a dprint.json file, run:
 
 ```shellsession
 dprint add kachick/kdl
-# or install from npm
-dprint add npm:@kachick/dprint-plugin-kdl
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"kdl"` property to add configuration:
@@ -35,7 +33,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // kdl config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/kachick/kdl-x.x.x.wasm"
+    "npm:@kachick/dprint-plugin-kdl@x.x.x"
   ]
 }
 ```
