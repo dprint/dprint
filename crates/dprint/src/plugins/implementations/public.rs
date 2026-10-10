@@ -19,7 +19,8 @@ pub struct SetupPluginResult {
   pub plugin_info: PluginInfo,
   /// For process plugins, the executable's path relative to its extract dir.
   /// Stored in the cache meta so the file path can be re-derived on a hit
-  /// without re-extracting. `None` for wasm plugins.
+  /// without re-extracting. `None` for wasm plugins and for process plugins
+  /// whose executable is run in place from the npm cache.
   pub executable_sub_path: Option<String>,
 }
 
@@ -40,7 +41,7 @@ pub struct SetupPluginOptions<'a> {
   pub resolved_source: &'a PathSource,
   pub file_bytes: Vec<u8>,
   pub plugin_kind: PluginKind,
-  pub pre_resolved_tarball: Option<crate::plugins::npm_resolution::PreResolvedProcessPluginTarball>,
+  pub pre_resolved_executable: Option<crate::plugins::npm_resolution::PreResolvedProcessPluginExecutable>,
   pub dest: &'a SetupPluginDest,
 }
 
@@ -49,12 +50,12 @@ pub async fn setup_plugin<TEnvironment: Environment>(options: SetupPluginOptions
     resolved_source,
     file_bytes,
     plugin_kind,
-    pre_resolved_tarball,
+    pre_resolved_executable,
     dest,
   } = options;
   match plugin_kind {
     PluginKind::Wasm => wasm::setup_wasm_plugin(resolved_source, file_bytes, &dest.wasm_file_path, environment).await,
-    PluginKind::Process => process::setup_process_plugin(resolved_source, &file_bytes, pre_resolved_tarball, &dest.process_dir_path, environment).await,
+    PluginKind::Process => process::setup_process_plugin(resolved_source, &file_bytes, pre_resolved_executable, &dest.process_dir_path, environment).await,
   }
 }
 

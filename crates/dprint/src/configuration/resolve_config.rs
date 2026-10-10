@@ -1,12 +1,14 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::Path;
+use std::rc::Rc;
 
 use anyhow::Result;
 use anyhow::bail;
 use deno_terminal::colors;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
+use dprint_core::async_runtime::future;
 use dprint_core::configuration::ConfigKeyValue;
 use indexmap::IndexMap;
 use thiserror::Error;
@@ -28,6 +30,7 @@ use crate::plugins::parse_plugin_source_reference;
 use crate::utils::GlobPatternKind;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
+use crate::utils::ResolvedFilePathWithBytes;
 use crate::utils::ResolvedFilePathWithText;
 use crate::utils::ResolvedFilePathWithTextRef;
 use crate::utils::ShowConfirmStrategy;
@@ -35,6 +38,7 @@ use crate::utils::resolve_url_or_file_path_to_file_with_cache;
 
 use super::resolve_main_config_path::ResolvedConfigPathWithText;
 use super::resolve_main_config_path::resolve_main_config_path_and_bytes;
+use super::resolve_npm_extends::NpmExtendsResolver;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedConfig {
@@ -259,7 +263,13 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   };
 
   // resolve extends
-  Ok(resolve_extends(resolved_config, extends, base_source, remote_cache_mode, environment.clone()).await?)
+  let extends_context = ExtendsContext {
+    base_path: base_source,
+    ancestors: vec![config_path_and_text.source.clone()],
+    remote_cache_mode,
+    npm_resolver: Default::default(),
+  };
+  Ok(resolve_extends(resolved_config, extends, extends_context, environment.clone()).await?)
 }
 
 /// Merges the ancestor (`parent`) configuration into a nested configuration
@@ -339,20 +349,48 @@ fn inherit_excludes(
   if result.is_empty() { None } else { Some(result) }
 }
 
+struct ExtendsContext {
+  /// What the `extends` of the configuration file are relative to.
+  base_path: PathSource,
+  /// The configuration file being extended followed by the configuration
+  /// files that led to it being extended.
+  ancestors: Vec<PathSource>,
+  remote_cache_mode: RemoteCacheMode,
+  npm_resolver: Rc<NpmExtendsResolver>,
+}
+
+impl ExtendsContext {
+  /// Whether a configuration file that's extended in this context must be
+  /// considered remote configuration.
+  ///
+  /// IMPORTANT: A local file that's extended by remote configuration is remote
+  /// configuration. Otherwise remote configuration could get around what it's
+  /// not allowed to do by extending a file on the machine that does it instead.
+  fn is_remote(&self, source: &PathSource) -> bool {
+    !source.is_local() || self.ancestors.iter().any(|ancestor| !ancestor.is_local())
+  }
+}
+
 fn resolve_extends<TEnvironment: Environment>(
   mut resolved_config: ResolvedConfig,
   extends: Vec<String>,
-  base_path: PathSource,
-  remote_cache_mode: RemoteCacheMode,
+  context: ExtendsContext,
   environment: TEnvironment,
 ) -> LocalBoxFuture<'static, Result<ResolvedConfig>> {
   // boxed because of recursion
   async move {
-    for url_or_file_path in extends {
-      let resolved_file = resolve_url_or_file_path_to_file_with_cache(&url_or_file_path, &base_path, remote_cache_mode, &environment)
-        .await?
-        .into_text()?;
-      resolved_config = match handle_config_file(&resolved_file, resolved_config, remote_cache_mode, &environment).await {
+    // get the files in parallel, then merge them in order of precedence
+    let resolved_files = future::join_all(extends.iter().map(|specifier| resolve_extends_file(specifier, &context, &environment))).await;
+    for resolved_file in resolved_files {
+      let resolved_file = resolved_file?.into_text()?;
+      if context.ancestors.contains(&resolved_file.source) {
+        bail!(
+          "Circular extends detected: {} -> {}",
+          context.ancestors.iter().map(|source| source.display()).collect::<Vec<_>>().join(" -> "),
+          resolved_file.source.display(),
+        );
+      }
+      resolved_config = match handle_config_file(&resolved_file, resolved_config, &context, &environment).await {
         Ok(resolved_config) => resolved_config,
         Err(err) => bail!("{:#}\n    at {}", err, resolved_file.source.display()),
       }
@@ -362,10 +400,45 @@ fn resolve_extends<TEnvironment: Environment>(
   .boxed_local()
 }
 
+async fn resolve_extends_file(specifier: &str, context: &ExtendsContext, environment: &impl Environment) -> Result<ResolvedFilePathWithBytes> {
+  let base_path = &context.base_path;
+  if specifier.starts_with("npm:") {
+    context.npm_resolver.resolve(specifier, base_path, environment).await
+  } else if let PathSource::Npm(npm_base) = base_path {
+    if is_http_url(specifier) {
+      resolve_url_or_file_path_to_file_with_cache(specifier, base_path, context.remote_cache_mode, environment).await
+    } else if is_relative_path(specifier) {
+      // a config file in an npm package extending another file in the package
+      context.npm_resolver.resolve_relative(specifier, npm_base, environment).await
+    } else {
+      // IMPORTANT: Never allow configuration from the npm registry to extend a
+      // file on the local machine because that file would be considered local
+      // configuration and so wouldn't have the remote configuration restrictions.
+      bail!(
+        concat!(
+          "Cannot extend '{}' in a configuration file from the npm registry. ",
+          "Only relative paths to files in the package, npm specifiers, and http(s) urls are supported."
+        ),
+        specifier,
+      );
+    }
+  } else {
+    resolve_url_or_file_path_to_file_with_cache(specifier, base_path, context.remote_cache_mode, environment).await
+  }
+}
+
+fn is_http_url(specifier: &str) -> bool {
+  url::Url::parse(specifier).is_ok_and(|url| matches!(url.scheme(), "http" | "https"))
+}
+
+fn is_relative_path(specifier: &str) -> bool {
+  !specifier.starts_with("~/") && url::Url::parse(specifier).is_err()
+}
+
 async fn handle_config_file<TEnvironment: Environment>(
   config_path_and_text: &ResolvedFilePathWithText,
   mut resolved_config: ResolvedConfig,
-  remote_cache_mode: RemoteCacheMode,
+  extends_context: &ExtendsContext,
   environment: &TEnvironment,
 ) -> Result<ResolvedConfig> {
   let mut new_config_map = get_config_map_from_path(ConfigPathContext {
@@ -374,8 +447,10 @@ async fn handle_config_file<TEnvironment: Environment>(
   })?;
   let extends = take_extends(&mut new_config_map)?;
 
+  let is_remote = extends_context.is_remote(&config_path_and_text.source);
+
   // Discard any properties that shouldn't be inherited
-  if !config_path_and_text.source.is_local() {
+  if is_remote {
     // IMPORTANT
     // =========
     // Remove the includes from all referenced remote configuration since
@@ -409,11 +484,7 @@ async fn handle_config_file<TEnvironment: Environment>(
   // Also remove any non-wasm plugins, but only for remote configurations.
   // The assumption here is that the user won't be malicious to themselves.
   let plugins = take_plugins_array_from_config_map(&mut new_config_map, &config_path_and_text.source.parent(), environment)?;
-  let plugins = if !config_path_and_text.source.is_local() {
-    filter_non_wasm_plugins(plugins, environment)
-  } else {
-    plugins
-  };
+  let plugins = if is_remote { filter_non_wasm_plugins(plugins, environment) } else { plugins };
   // =========
 
   // combine plugins, keeping the higher-precedence (earlier) entry when the same
@@ -431,14 +502,15 @@ async fn handle_config_file<TEnvironment: Environment>(
 
   merge_config_map_into(&mut resolved_config.config_map, new_config_map)?;
 
-  resolve_extends(
-    resolved_config,
-    extends,
-    config_path_and_text.source.parent(),
-    remote_cache_mode,
-    environment.clone(),
-  )
-  .await
+  let mut ancestors = extends_context.ancestors.clone();
+  ancestors.push(config_path_and_text.source.clone());
+  let extends_context = ExtendsContext {
+    base_path: config_path_and_text.source.parent(),
+    ancestors,
+    remote_cache_mode: extends_context.remote_cache_mode,
+    npm_resolver: extends_context.npm_resolver.clone(),
+  };
+  resolve_extends(resolved_config, extends, extends_context, environment.clone()).await
 }
 
 /// Merges the lower precedence `source` config map into the higher precedence

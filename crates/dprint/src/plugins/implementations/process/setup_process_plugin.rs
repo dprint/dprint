@@ -10,7 +10,6 @@ use std::str;
 
 use crate::environment::Environment;
 use crate::plugins::implementations::SetupPluginResult;
-use crate::plugins::npm_resolution::extract_tarball_replacing;
 use crate::utils::PathSource;
 use crate::utils::extract_zip;
 use crate::utils::fetch_file_or_url_bytes;
@@ -28,37 +27,20 @@ fn get_plugin_executable_file_name(plugin_name: &str) -> String {
 
 /// Takes a url or file path and extracts the plugin into `dest_dir_path`.
 /// Returns the executable file path once complete.
-/// If `pre_resolved_tarball` is provided (npm-installed process plugins), the
-/// full per-platform tarball is extracted into the destination directory so
-/// the executable can sit alongside any sibling files it ships. Otherwise
-/// the reference inside `plugin_file_bytes` is fetched as a zip and
-/// extracted. Both paths stage the extract in a sibling temp dir and rename
-/// into place so a crash mid-extract can't leave a half-populated cache.
+/// If `pre_resolved_executable` is provided (npm-installed process plugins), the
+/// executable is run in place from its per-platform package in the npm cache
+/// and nothing is extracted. Otherwise the reference inside `plugin_file_bytes`
+/// is fetched as a zip and extracted, which is staged in a sibling temp dir and
+/// renamed into place so a crash mid-extract can't leave a half-populated cache.
 pub async fn setup_process_plugin<TEnvironment: Environment>(
   url_or_file_path: &PathSource,
   plugin_file_bytes: &[u8],
-  pre_resolved_tarball: Option<crate::plugins::npm_resolution::PreResolvedProcessPluginTarball>,
+  pre_resolved_executable: Option<crate::plugins::npm_resolution::PreResolvedProcessPluginExecutable>,
   dest_dir_path: &Path,
   environment: &TEnvironment,
 ) -> Result<SetupPluginResult> {
-  if let Some(tarball) = pre_resolved_tarball {
-    let result = setup_from_tarball(
-      dest_dir_path,
-      tarball.name,
-      tarball.version,
-      tarball.tarball_bytes,
-      &tarball.executable_sub_path,
-      environment,
-    )
-    .await;
-    return match result {
-      Ok(result) => Ok(result),
-      Err(err) => {
-        log_debug!(environment, "Failed setting up process plugin. {:#}", err);
-        environment.try_remove_dir_all(dest_dir_path);
-        Err(err)
-      }
-    };
+  if let Some(executable) = pre_resolved_executable {
+    return start_communicator_and_collect_info(executable.executable_path, None, executable.version, executable.name, environment).await;
   }
 
   let plugin_zip_bytes = get_plugin_zip_bytes(url_or_file_path, plugin_file_bytes, environment).await?;
@@ -119,42 +101,12 @@ async fn setup_from_zip<TEnvironment: Environment>(
   }
 
   let plugin_executable_file_path = plugin_cache_dir_path.join(&executable_sub_path);
-  start_communicator_and_collect_info(plugin_executable_file_path, executable_sub_path, plugin_version, plugin_name, environment).await
-}
-
-/// Extracts a per-platform npm tarball into the plugin cache directory. The
-/// tarball is fully unpacked (wrapper directory stripped, file modes
-/// preserved) so the executable can reference siblings that ship in the
-/// same package. `executable_sub_path` is the binary's path inside the
-/// tarball's top-level wrapper — i.e. the same string the plugin.json
-/// reference carries after the version.
-async fn setup_from_tarball<TEnvironment: Environment>(
-  plugin_cache_dir_path: &Path,
-  plugin_name: String,
-  plugin_version: String,
-  tarball_bytes: Vec<u8>,
-  executable_sub_path: &str,
-  environment: &TEnvironment,
-) -> Result<SetupPluginResult> {
-  let executable_path = plugin_cache_dir_path.join(executable_sub_path);
-  let extract_env = environment.clone();
-  let extract_dest = plugin_cache_dir_path.to_path_buf();
-  // tarball decompression + file I/O blocks; keep it off the runtime thread.
-  dprint_core::async_runtime::spawn_blocking(move || extract_tarball_replacing(&tarball_bytes, &extract_dest, &extract_env)).await??;
-
-  if !environment.path_exists(&executable_path) {
-    bail!(
-      "Tarball for {} did not contain the executable at the path given by the plugin.json reference ({}).",
-      plugin_name,
-      executable_sub_path,
-    );
-  }
-  start_communicator_and_collect_info(executable_path, executable_sub_path.to_string(), plugin_version, plugin_name, environment).await
+  start_communicator_and_collect_info(plugin_executable_file_path, Some(executable_sub_path), plugin_version, plugin_name, environment).await
 }
 
 async fn start_communicator_and_collect_info<TEnvironment: Environment>(
   plugin_executable_file_path: PathBuf,
-  executable_sub_path: String,
+  executable_sub_path: Option<String>,
   plugin_version: String,
   plugin_name: String,
   environment: &TEnvironment,
@@ -176,7 +128,7 @@ async fn start_communicator_and_collect_info<TEnvironment: Environment>(
   Ok(SetupPluginResult {
     plugin_info,
     file_path: plugin_executable_file_path,
-    executable_sub_path: Some(executable_sub_path),
+    executable_sub_path,
   })
 }
 
