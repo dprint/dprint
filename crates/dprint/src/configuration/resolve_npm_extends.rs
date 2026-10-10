@@ -8,6 +8,7 @@ use anyhow::bail;
 use crate::environment::Environment;
 use crate::plugins::ensure_npm_package_extracted;
 use crate::plugins::find_package_in_node_modules;
+use crate::plugins::resolve_registry_for_package;
 use crate::utils::NpmPathSource;
 use crate::utils::NpmSpecifier;
 use crate::utils::PathSource;
@@ -43,7 +44,8 @@ pub async fn resolve_npm_extends(text: &str, base: &PathSource, environment: &im
         PathSource::Npm(npm) => npm.base_dir.clone(),
         PathSource::Remote(_) => None,
       };
-      let package = ensure_npm_package_extracted(&name, &version, base_dir.as_ref().map(|d| d.as_ref()), environment).await?;
+      let registry = resolve_registry_for_package(&name, base_dir.as_ref().map(|d| d.as_ref()), environment);
+      let package = ensure_npm_package_extracted(&name, &version, &registry, environment).await?;
       let path = resolve_config_path_in_package(&package.dir, &name, sub_path.as_deref(), environment)?;
       let content = read_package_file(&package.dir, &name, &path, environment)?;
       Ok(ResolvedFilePathWithBytes {
@@ -108,7 +110,8 @@ pub async fn resolve_relative_npm_extends(relative_path: &str, base: &NpmPathSou
   };
   let path = join_package_path(&specifier.path, relative_path)
     .with_context(|| format!("Failed resolving '{}' in the \"extends\" of {}", relative_path, specifier.display()))?;
-  let package = ensure_npm_package_extracted(&specifier.name, version, base.base_dir.as_ref().map(|d| d.as_ref()), environment).await?;
+  let registry = resolve_registry_for_package(&specifier.name, base.base_dir.as_ref().map(|d| d.as_ref()), environment);
+  let package = ensure_npm_package_extracted(&specifier.name, version, &registry, environment).await?;
   let content = read_package_file(&package.dir, &specifier.name, &path, environment)?;
   Ok(ResolvedFilePathWithBytes {
     source: PathSource::new_npm(
@@ -555,6 +558,57 @@ mod tests {
           checksum: None,
         }]
       );
+    });
+  }
+
+  #[test]
+  fn should_share_extracted_package_with_npm_plugins() {
+    use crate::plugins::PluginCache;
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/dprint.json", r#"{ "extends": "npm:config@1.0.0" }"#)
+      .build();
+    let packument_url = "https://registry.npmjs.org/config";
+    let tarball_url = "https://registry.npmjs.org/config/-/config-1.0.0.tgz";
+    let files: [(&str, &[u8]); 3] = [
+      ("package/dprint.json", br#"{ "prop1": 1 }"#),
+      ("package/plugin.wasm", WASM_PLUGIN_BYTES),
+      ("package/plugin.json", b"{}"),
+    ];
+    let tarball = create_test_npm_tarball(&files);
+    let checksum = crate::utils::get_sha256_checksum(&tarball);
+    let packument = serde_json::json!({ "versions": { "1.0.0": { "dist": { "tarball": tarball_url } } } });
+    environment.add_remote_file_bytes(packument_url, packument.to_string().into_bytes());
+    environment.add_remote_file_bytes(tarball_url, tarball);
+
+    environment.clone().run_in_runtime(async move {
+      let result = resolve_config("/dprint.json", &environment).await.unwrap();
+      assert_eq!(get_number(&result, "prop1"), 1);
+
+      // the plugin uses the package the config was extended from
+      environment.add_remote_file_error(packument_url, "must not be fetched again");
+      environment.add_remote_file_error(tarball_url, "must not be fetched again");
+      let plugin_cache = PluginCache::new(environment.clone());
+      let plugin = |text: &str| crate::plugins::parse_plugin_source_reference(text, &PathSource::new_local(environment.cwd()), &environment).unwrap();
+      let cache_item = plugin_cache
+        .get_plugin_cache_item(&plugin(&format!("npm:config@1.0.0@{}", checksum)))
+        .await
+        .unwrap();
+      assert_eq!(cache_item.info.name, "test-plugin");
+      let _ = environment.take_stderr_messages(); // wasm compile message
+
+      // and still verifies the checksum of the package's tarball
+      let err = plugin_cache.get_plugin_cache_item(&plugin("npm:config@1.0.0/plugin.json@wrong")).await.err().unwrap();
+      assert_eq!(
+        err.to_string(),
+        format!(
+          "Invalid checksum for npm package npm:config@1.0.0/plugin.json. Check the plugin's release notes for the expected checksum.\n\nActual: {}\nExpected: wrong",
+          checksum
+        ),
+      );
+      let err = plugin_cache.get_plugin_cache_item(&plugin("npm:config@1.0.0/plugin.json")).await.err().unwrap();
+      assert!(err.to_string().contains("must have a checksum specified"), "{:#}", err);
     });
   }
 

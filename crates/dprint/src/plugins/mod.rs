@@ -29,3 +29,4 @@ pub use npm_resolution::fetch_npm_latest_info;
 pub use npm_resolution::find_package_in_node_modules;
 pub use npm_resolution::resolve_dependency_age_cutoff;
 pub use npm_resolution::resolve_npm_latest_version;
+pub use npm_resolution::resolve_registry_for_package;

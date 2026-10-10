@@ -452,9 +452,10 @@ pub struct ResolveNpmRegistryOptions<'a> {
   pub config_dir: Option<&'a Path>,
 }
 
-/// Resolves an npm plugin from the registry (versioned specifier): downloads the
-/// tarball, verifies (or computes) its checksum, extracts it, reads the plugin
-/// file, and resolves the per-platform binary for process plugins.
+/// Resolves an npm plugin from the registry (versioned specifier): ensures the
+/// package is extracted in the npm cache (downloading it when it's not), verifies
+/// (or establishes) its tarball's checksum, reads the plugin file, and resolves
+/// the per-platform binary for process plugins.
 pub async fn resolve_npm_from_registry(options: ResolveNpmRegistryOptions<'_>, environment: &impl Environment) -> Result<NpmResolvedPlugin> {
   let ResolveNpmRegistryOptions {
     specifier,
@@ -468,34 +469,11 @@ pub async fn resolve_npm_from_registry(options: ResolveNpmRegistryOptions<'_>, e
     .version
     .as_deref()
     .ok_or_else(|| anyhow::anyhow!("Cannot resolve npm plugin without a version from the registry"))?;
-  let registry_segment = registry_dir_segment(&registry.url);
+  let package = ensure_npm_package_extracted(&specifier.name, version, registry, environment).await?;
+  let tarball_sha256 = package.tarball_checksum;
 
-  // fetch the packument to get the tarball URL
-  let packument_url_str = get_packument_url(&registry.url, &specifier.name);
-  let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
-  log_debug!(environment, "Fetching npm packument: {}", packument_url);
-  let (_, packument_file) = environment
-    .download_file_err_404(&packument_url, registry.packument_download_options(&packument_url))
-    .await
-    .with_context(|| format!("Failed to fetch npm packument for {}", specifier.name))?;
-  let packument: serde_json::Value =
-    serde_json::from_slice(&packument_file.content).with_context(|| format!("Failed to parse npm packument for {}", specifier.name))?;
-
-  let tarball_url_str = get_tarball_url_from_packument(&packument, version, &specifier.name)?;
-  let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
-  log_debug!(environment, "Downloading npm tarball: {}", tarball_url);
-
-  let tarball_options = registry.tarball_download_options(&packument_url, &tarball_url);
-  let (_, tarball_file) = environment
-    .download_file_err_404(&tarball_url, tarball_options)
-    .await
-    .with_context(|| format!("Failed to download npm tarball for {}@{}", specifier.name, version))?;
-  let tarball_bytes = tarball_file.content;
-
-  let tarball_sha256 = get_sha256_checksum(&tarball_bytes);
-
-  // verify the checksum before any extraction work — unless we're establishing
-  // it (add mode), where there's nothing to verify against yet.
+  // verify the checksum before using anything in the package — unless we're
+  // establishing it (add mode), where there's nothing to verify against yet.
   if !establish_checksum {
     if let Some(checksum) = checksum {
       if tarball_sha256 != checksum {
@@ -519,15 +497,13 @@ pub async fn resolve_npm_from_registry(options: ResolveNpmRegistryOptions<'_>, e
     }
   }
 
-  // extract and read the plugin file in a blocking task since
-  // tarball decompression and file I/O can be slow
-  let extract_dir = get_npm_extract_dir(&registry_segment, &specifier.name, version, environment);
+  // read the plugin file in a blocking task since file I/O can be slow
+  let extract_dir = package.dir;
   let requested_path = specifier.path.clone();
   let specifier_clone = specifier.clone();
   let environment_clone = environment.clone();
   let (plugin_bytes, local_path, resolved_path) = dprint_core::async_runtime::spawn_blocking(move || -> Result<_> {
     let environment = environment_clone;
-    extract_tarball_to_dir(&tarball_bytes, &extract_dir, &environment)?;
 
     // for a pathless add, pick whichever plugin file the package actually ships.
     let resolved_path = if detect_path {
@@ -566,10 +542,6 @@ pub async fn resolve_npm_from_registry(options: ResolveNpmRegistryOptions<'_>, e
   } else {
     None
   };
-
-  // record the tarball's checksum so a later `dprint add` of the same version
-  // can reuse it without re-downloading the tarball. Best-effort.
-  write_npm_tarball_meta(&registry_segment, &specifier.name, version, &tarball_sha256, environment);
 
   Ok(NpmResolvedPlugin {
     plugin_bytes,
@@ -653,6 +625,8 @@ pub fn find_npm_plugin_local_path(specifier: &NpmSpecifier, config_dir: &Path, e
 /// An npm package's files on disk.
 pub struct NpmPackageDir {
   pub dir: PathBuf,
+  /// SHA-256 of the tarball the directory was extracted from.
+  pub tarball_checksum: String,
   /// Whether the package was downloaded from the registry by this call instead
   /// of being found in the cache.
   pub is_first_download: bool,
@@ -664,31 +638,48 @@ pub struct NpmPackageDir {
 ///
 /// A cached package is used as-is without making any network requests since
 /// `name@version` is immutable on npm.
-pub async fn ensure_npm_package_extracted(name: &str, version: &str, start_dir: Option<&Path>, environment: &impl Environment) -> Result<NpmPackageDir> {
-  let registry = resolve_registry_for_package(name, start_dir, environment);
+pub async fn ensure_npm_package_extracted(
+  name: &str,
+  version: &str,
+  registry: &NpmRegistryResolution,
+  environment: &impl Environment,
+) -> Result<NpmPackageDir> {
   let registry_segment = registry_dir_segment(&registry.url);
   let extract_dir = get_npm_extract_dir(&registry_segment, name, version, environment);
-  if environment.path_exists(&extract_dir) {
+  let has_extract_dir = environment.path_exists(&extract_dir);
+  if has_extract_dir && let Some(meta) = read_npm_tarball_meta(&registry_segment, name, version, environment) {
     return Ok(NpmPackageDir {
       dir: extract_dir,
+      tarball_checksum: meta.tarball_sha256,
       is_first_download: false,
     });
   }
 
-  let tarball_bytes = fetch_npm_tarball(name, version, &registry, environment).await?;
+  let tarball_bytes = fetch_npm_tarball(name, version, registry, environment).await?;
   let tarball_sha256 = get_sha256_checksum(&tarball_bytes);
+
+  // record the checksum before extracting so that an extracted directory
+  // always has the checksum of the tarball it came from alongside it
+  write_npm_tarball_meta(&registry_segment, name, version, &tarball_sha256, environment)
+    .with_context(|| format!("Failed to write the npm cache metadata for {}@{}", name, version))?;
 
   // extract in a blocking task since tarball decompression and file I/O can be slow
   let environment_clone = environment.clone();
   let dir = extract_dir.clone();
-  dprint_core::async_runtime::spawn_blocking(move || extract_tarball_to_dir(&tarball_bytes, &dir, &environment_clone)).await??;
-
-  // record the tarball's checksum so a later `dprint add` of the same version
-  // can reuse it without re-downloading the tarball. Best-effort.
-  write_npm_tarball_meta(&registry_segment, name, version, &tarball_sha256, environment);
+  dprint_core::async_runtime::spawn_blocking(move || {
+    if has_extract_dir {
+      // the directory doesn't have a recorded checksum, so there's no way to
+      // know its contents are this tarball's
+      extract_tarball_replacing(&tarball_bytes, &dir, &environment_clone)
+    } else {
+      extract_tarball_to_dir(&tarball_bytes, &dir, &environment_clone)
+    }
+  })
+  .await??;
 
   Ok(NpmPackageDir {
     dir: extract_dir,
+    tarball_checksum: tarball_sha256,
     is_first_download: true,
   })
 }
@@ -814,6 +805,7 @@ async fn fetch_and_verify_npm_tarball(
 async fn fetch_npm_tarball(name: &str, version: &str, registry: &NpmRegistryResolution, environment: &impl Environment) -> Result<Vec<u8>> {
   let packument_url_str = get_packument_url(&registry.url, name);
   let packument_url = url::Url::parse(&packument_url_str).with_context(|| format!("Failed to parse npm packument URL: {}", packument_url_str))?;
+  log_debug!(environment, "Fetching npm packument: {}", packument_url);
   let (_, packument_file) = environment
     .download_file_err_404(&packument_url, registry.packument_download_options(&packument_url))
     .await
@@ -822,6 +814,7 @@ async fn fetch_npm_tarball(name: &str, version: &str, registry: &NpmRegistryReso
 
   let tarball_url_str = get_tarball_url_from_packument(&packument, version, name)?;
   let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
+  log_debug!(environment, "Downloading npm tarball: {}", tarball_url);
   let tarball_options = registry.tarball_download_options(&packument_url, &tarball_url);
   let (_, tarball_file) = environment
     .download_file_err_404(&tarball_url, tarball_options)
@@ -917,14 +910,16 @@ pub(super) fn get_npm_extract_dir(registry_segment: &str, package_name: &str, ve
   environment.get_cache_dir().join("npm").join(registry_segment).join(dir_name)
 }
 
-/// The tarball's SHA-256, cached so a later `dprint add` of the same
-/// `name@version` can reuse it without re-downloading the tarball. The checksum
+/// The SHA-256 of the tarball a `name@version` directory in the npm cache was
+/// extracted from. It's what a checksum in a plugin specifier is verified
+/// against when the extracted directory is reused and what lets a later
+/// `dprint add` of the same version skip re-downloading the tarball. The checksum
 /// is a package-version property — the same regardless of which plugin file in
 /// the package an entry points at — so only it is cached here; the plugin kind
 /// is always derived from the specifier path or the extracted files. If a
 /// registry ever republishes the same version with different bytes the cached
-/// checksum goes stale, but that fails closed: the next `dprint fmt`
-/// re-downloads and errors on the mismatch (and `clear-cache` fixes it).
+/// checksum goes stale, but that fails closed: a specifier with the new
+/// checksum errors on the mismatch (and `clear-cache` fixes it).
 struct NpmTarballMeta {
   tarball_sha256: String,
 }
@@ -947,12 +942,15 @@ fn read_npm_tarball_meta(registry_segment: &str, package_name: &str, version: &s
   Some(NpmTarballMeta { tarball_sha256 })
 }
 
-/// Writes the tarball sidecar. Best-effort — a failure just means the next
-/// `dprint add` re-downloads to recompute the checksum.
-fn write_npm_tarball_meta(registry_segment: &str, package_name: &str, version: &str, tarball_sha256: &str, environment: &impl Environment) {
+/// Writes the tarball sidecar.
+fn write_npm_tarball_meta(registry_segment: &str, package_name: &str, version: &str, tarball_sha256: &str, environment: &impl Environment) -> Result<()> {
   let json = serde_json::json!({ "tarballChecksum": tarball_sha256 });
   let path = npm_tarball_meta_path(registry_segment, package_name, version, environment);
-  let _ = environment.write_file(&path, &json.to_string());
+  if let Some(parent) = path.parent() {
+    environment.mk_dir_all(parent)?;
+  }
+  environment.write_file(&path, &json.to_string())?;
+  Ok(())
 }
 
 /// Returns a filesystem- and key-safe segment identifying a registry by host
@@ -1851,6 +1849,8 @@ mod tests {
     // directly instead of through the environment's proxy
     let cdn_tarball_url = "https://cdn.example.com/foo-1.0.0.tgz";
     add_package(cdn_tarball_url);
+    // remove the extracted package so it's downloaded again
+    environment.remove_dir_all(environment.get_cache_dir().join("npm")).unwrap();
     resolve().await.unwrap();
     assert_eq!(environment.take_remote_file_proxy(packument_url).as_deref(), Some(npm_proxy));
     assert_eq!(environment.take_remote_file_proxy(cdn_tarball_url).as_deref(), Some("Direct"));
