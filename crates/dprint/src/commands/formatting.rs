@@ -1406,6 +1406,45 @@ mod test {
   }
 
   #[test]
+  fn should_use_updated_remote_config_when_reloading() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "shared-ending" }"#);
+      })
+      .with_default_config(|c| {
+        c.add_config_section("extends", r#""https://dprint.dev/shared.json""#);
+      })
+      .write_file("/file.txt", "text")
+      .build();
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_shared-ending");
+
+    // the remote config changes, but the cached one is still fresh
+    environment.add_remote_file_bytes(
+      "https://dprint.dev/shared.json",
+      r#"{ "plugins": ["https://plugins.dprint.dev/test-plugin.wasm"], "test-plugin": { "ending": "updated-ending" } }"#.into(),
+    );
+    environment.write_file("/file.txt", "text").unwrap();
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_shared-ending");
+    assert_eq!(environment.remote_file_request_count("https://dprint.dev/shared.json"), 1);
+
+    // reloading gets the change
+    environment.write_file("/file.txt", "text").unwrap();
+    run_test_cli(vec!["fmt", "--reload", "/file.txt"], &environment).unwrap();
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_updated-ending");
+    assert_eq!(environment.remote_file_request_count("https://dprint.dev/shared.json"), 2);
+
+    // which is then cached
+    environment.write_file("/file.txt", "text").unwrap();
+    run_test_cli(vec!["fmt", "/file.txt"], &environment).unwrap();
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_updated-ending");
+    assert_eq!(environment.remote_file_request_count("https://dprint.dev/shared.json"), 2);
+    environment.take_stdout_messages();
+    environment.take_stderr_messages();
+  }
+
+  #[test]
   fn should_use_extended_config_when_specifying_same_plugin_as_extended_config() {
     // https://github.com/dprint/dprint/issues/1043
     let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()

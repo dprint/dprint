@@ -143,9 +143,13 @@ pub struct TestEnvironment {
   stdout_messages: Arc<Mutex<Vec<String>>>,
   stderr_messages: Arc<Mutex<Vec<String>>>,
   remote_files: Arc<Mutex<HashMap<String, Result<Vec<u8>>>>>,
+  /// Response headers of the remote files that have them.
+  remote_file_headers: Arc<Mutex<HashMap<String, HashMap<String, String>>>>,
   remote_file_redirects: Arc<Mutex<HashMap<String, String>>>,
   /// Last auth header seen for each URL.
   remote_file_auth: Arc<Mutex<HashMap<String, Option<String>>>>,
+  /// Last cache validators seen for each URL, rendered for assertions.
+  remote_file_cache_validators: Arc<Mutex<HashMap<String, String>>>,
   remote_file_proxies: Arc<Mutex<HashMap<String, String>>>,
   /// Number of times each URL was requested.
   remote_file_request_counts: Arc<Mutex<HashMap<String, usize>>>,
@@ -194,8 +198,10 @@ impl TestEnvironment {
       stdout_messages: Default::default(),
       stderr_messages: Default::default(),
       remote_files: Default::default(),
+      remote_file_headers: Default::default(),
       remote_file_redirects: Default::default(),
       remote_file_auth: Default::default(),
+      remote_file_cache_validators: Default::default(),
       remote_file_proxies: Default::default(),
       remote_file_request_counts: Default::default(),
       file_read_counts: Default::default(),
@@ -248,6 +254,24 @@ impl TestEnvironment {
 
   pub fn add_remote_file_bytes(&self, path: &str, bytes: Vec<u8>) {
     self.remote_files.lock().insert(String::from(path), Ok(bytes));
+    // the headers of a previous version don't apply
+    self.remote_file_headers.lock().remove(path);
+  }
+
+  /// Adds a remote file whose responses have the provided headers. A request
+  /// with cache validators matching the `etag` or `last-modified` header gets
+  /// a 304 Not Modified response.
+  pub fn add_remote_file_with_headers(&self, path: &str, bytes: &[u8], headers: &[(&str, &str)]) {
+    self.add_remote_file_bytes(path, bytes.to_vec());
+    self.remote_file_headers.lock().insert(
+      path.to_string(),
+      headers.iter().map(|(name, value)| (name.to_string(), value.to_string())).collect(),
+    );
+  }
+
+  pub fn remove_remote_file(&self, path: &str) {
+    self.remote_files.lock().remove(path);
+    self.remote_file_headers.lock().remove(path);
   }
 
   pub fn add_remote_file_error(&self, path: &str, err: &str) {
@@ -269,6 +293,11 @@ impl TestEnvironment {
 
   pub fn take_remote_file_auth(&self, url: &str) -> Option<String> {
     self.remote_file_auth.lock().remove(url).flatten()
+  }
+
+  /// Takes the debug text of the `CacheValidators` the url was last requested with.
+  pub fn take_remote_file_cache_validators(&self, url: &str) -> Option<String> {
+    self.remote_file_cache_validators.lock().remove(url)
   }
 
   /// Takes the debug text of the `DownloadProxy` the url was last requested with.
@@ -552,6 +581,10 @@ impl UrlDownloader for TestEnvironment {
   async fn download_file_no_redirects(&self, url: &Url, options: DownloadOptions<'_>) -> Result<Option<DownloadedFile>> {
     self.remote_file_auth.lock().insert(url.to_string(), options.auth.map(|s| s.to_string()));
     self.remote_file_proxies.lock().insert(url.to_string(), format!("{:?}", options.proxy));
+    self
+      .remote_file_cache_validators
+      .lock()
+      .insert(url.to_string(), format!("{:?}", options.cache_validators));
     *self.remote_file_request_counts.lock().entry(url.to_string()).or_default() += 1;
 
     while self.unresponsive_remote_files.lock().iter().any(|u| u == url.as_str()) {
@@ -564,13 +597,22 @@ impl UrlDownloader for TestEnvironment {
       return Ok(Some(DownloadedFile {
         headers: [("location".to_string(), target.clone())].into_iter().collect(),
         content: vec![],
+        not_modified: false,
       }));
     }
     drop(redirects);
 
-    Ok(self.get_remote_file(url.as_str())?.map(|content| DownloadedFile {
-      headers: Default::default(),
-      content,
+    let Some(content) = self.get_remote_file(url.as_str())? else {
+      return Ok(None);
+    };
+    let headers = self.remote_file_headers.lock().get(url.as_str()).cloned().unwrap_or_default();
+    let validators = options.cache_validators;
+    let not_modified = (validators.etag.is_some() && validators.etag == headers.get("etag").map(|s| s.as_str()))
+      || (validators.last_modified.is_some() && validators.last_modified == headers.get("last-modified").map(|s| s.as_str()));
+    Ok(Some(DownloadedFile {
+      headers,
+      content: if not_modified { vec![] } else { content },
+      not_modified,
     }))
   }
 }

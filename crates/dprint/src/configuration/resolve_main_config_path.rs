@@ -73,7 +73,7 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
   let config_discovery = args.config_discovery(environment);
   if let Some(config) = &args.config {
     let cwd = environment.cwd();
-    let resolved_file = resolve_url_or_file_path_to_file_with_cache(config, &PathSource::new_local(cwd.clone()), environment)
+    let resolved_file = resolve_url_or_file_path_to_file_with_cache(config, &PathSource::new_local(cwd.clone()), args.remote_cache_mode(), environment)
       .await?
       .into_text()?;
     // a local config file's patterns are relative to its directory, the same as

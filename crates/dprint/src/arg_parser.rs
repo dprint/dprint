@@ -5,6 +5,7 @@ use anyhow::bail;
 use clap::ArgMatches;
 use thiserror::Error;
 
+use crate::cache::RemoteCacheMode;
 use crate::environment::Environment;
 use crate::utils::LogLevel;
 use crate::utils::MinimumDependencyAgeArg;
@@ -61,6 +62,9 @@ pub struct CliArgs {
   pub log_level: LogLevel,
   pub plugins: Vec<String>,
   pub config: Option<String>,
+  /// Whether to check for newer remote configuration files instead of using
+  /// the cached ones while they're fresh.
+  pub reload: bool,
   config_discovery: Option<ConfigDiscovery>,
 }
 
@@ -72,6 +76,7 @@ impl CliArgs {
       log_level: LogLevel::Info,
       plugins: vec![],
       config: None,
+      reload: false,
       config_discovery: None,
     }
   }
@@ -95,8 +100,13 @@ impl CliArgs {
       log_level: LogLevel::Info,
       config: None,
       plugins: Vec::new(),
+      reload: false,
       config_discovery: None,
     }
+  }
+
+  pub fn remote_cache_mode(&self) -> RemoteCacheMode {
+    if self.reload { RemoteCacheMode::Reload } else { RemoteCacheMode::Use }
   }
 
   pub fn config_discovery_arg_set(&self) -> bool {
@@ -522,6 +532,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     sub_command,
     log_level,
     config: matches.get_one::<String>("config").map(String::from),
+    reload: matches.get_flag("reload"),
     config_discovery: if is_global_config {
       Some(ConfigDiscovery::Global)
     } else if is_config_update {
@@ -1033,6 +1044,13 @@ EXAMPLES:
         .value_hint(clap::ValueHint::AnyPath)
         .global(true)
         .num_args(1..)
+    )
+    .arg(
+      Arg::new("reload")
+        .long("reload")
+        .help("Checks for newer versions of remote configuration files instead of using the cached ones until they expire.")
+        .global(true)
+        .num_args(0)
     )
     .arg(
       Arg::new("log-level")
@@ -1649,6 +1667,19 @@ mod test {
       let check_cmd = parse_check_sub_command(vec!["check", "--log-level=silent", "--fail-fast=false"]).unwrap();
       assert_eq!(check_cmd.fail_fast, false);
     }
+  }
+
+  #[test]
+  fn reload() {
+    let args = test_args(vec!["fmt"]).unwrap();
+    assert_eq!(args.reload, false);
+    assert_eq!(args.remote_cache_mode(), RemoteCacheMode::Use);
+    // global, so it's accepted before and after the sub command
+    let args = test_args(vec!["fmt", "--reload"]).unwrap();
+    assert_eq!(args.reload, true);
+    assert_eq!(args.remote_cache_mode(), RemoteCacheMode::Reload);
+    let args = test_args(vec!["--reload", "check", "file.txt"]).unwrap();
+    assert_eq!(args.reload, true);
   }
 
   fn parse_check_sub_command(args: Vec<&str>) -> Result<CheckSubCommand, ParseArgsError> {

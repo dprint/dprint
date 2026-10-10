@@ -18,6 +18,7 @@ use url::Url;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::FilePatternArgs;
 use crate::arg_parser::OutputResolvedConfigSubCommand;
+use crate::cache::RemoteCacheMode;
 use crate::configuration::GetInitConfigFileTextOptions;
 use crate::configuration::get_init_config_file_text;
 use crate::configuration::*;
@@ -53,6 +54,7 @@ use crate::utils::pretty_print_json_text;
 pub struct InitConfigFileOptions<'a> {
   pub global: bool,
   pub config_arg: Option<&'a str>,
+  pub remote_cache_mode: RemoteCacheMode,
   /// Skip the interactive plugin prompt and accept the smart defaults.
   pub non_interactive: bool,
   /// Don't write an npm plugin version published more recently than this.
@@ -140,6 +142,7 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
       base_path: config_dir.clone().unwrap_or_else(|| environment.cwd()),
       is_global_config: options.global,
     },
+    options.remote_cache_mode,
     environment,
   )
   .await?;

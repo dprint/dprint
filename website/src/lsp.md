@@ -61,7 +61,7 @@ This means files in different projects, or in directories of a monorepo with the
 
 A file is then only formatted when the configuration file would have `dprint fmt` format it—the file needs to match the configuration's `includes` and a plugin, and not be matched by its `excludes` or a `.gitignore` file. Otherwise the server responds to the editor with no edits.
 
-Configuration files are read on each request, so a change to one is used the next time a file is formatted without needing to restart the server.
+Configuration files are read on each request, so a change to one is used the next time a file is formatted without needing to restart the server. Remote configuration files they extend are [cached](/config#remote-configuration-caching) though, and `dprint lsp --reload` has the server check for newer versions of them whenever a configuration file changes.
 
 Note: The language server does not use the config discovery mode. The `--config-discovery` flag and the `DPRINT_CONFIG_DISCOVERY` environment variable described in [changing config discovery](/cli#changing-config-discovery) have no effect on `dprint lsp`. The `--plugins` flag has no effect either. The server only uses the plugins in the configuration file.
 

@@ -14,6 +14,7 @@ use thiserror::Error;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::ConfigDiscovery;
 use crate::arg_parser::SubCommand;
+use crate::cache::RemoteCacheMode;
 use crate::configuration::ConfigMap;
 use crate::configuration::ConfigMapValue;
 use crate::configuration::deserialize_config;
@@ -154,7 +155,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
           return Err(ResolveConfigError::Other(anyhow::anyhow!("Confirmation cancelled.")));
         }
       }
-      resolve_config_from_path_with_bytes(&resolved_config_path, environment).await?
+      resolve_config_from_path_with_bytes(&resolved_config_path, args.remote_cache_mode(), environment).await?
     }
     None => {
       if !args.plugins.is_empty() {
@@ -199,6 +200,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
 
 pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   config_path_and_text: &ResolvedConfigPathWithText,
+  remote_cache_mode: RemoteCacheMode,
   environment: &TEnvironment,
 ) -> Result<ResolvedConfig, ResolveConfigError> {
   let base_source = config_path_and_text.source.parent();
@@ -257,7 +259,7 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   };
 
   // resolve extends
-  Ok(resolve_extends(resolved_config, extends, base_source, environment.clone()).await?)
+  Ok(resolve_extends(resolved_config, extends, base_source, remote_cache_mode, environment.clone()).await?)
 }
 
 /// Merges the ancestor (`parent`) configuration into a nested configuration
@@ -341,15 +343,16 @@ fn resolve_extends<TEnvironment: Environment>(
   mut resolved_config: ResolvedConfig,
   extends: Vec<String>,
   base_path: PathSource,
+  remote_cache_mode: RemoteCacheMode,
   environment: TEnvironment,
 ) -> LocalBoxFuture<'static, Result<ResolvedConfig>> {
   // boxed because of recursion
   async move {
     for url_or_file_path in extends {
-      let resolved_file = resolve_url_or_file_path_to_file_with_cache(&url_or_file_path, &base_path, &environment)
+      let resolved_file = resolve_url_or_file_path_to_file_with_cache(&url_or_file_path, &base_path, remote_cache_mode, &environment)
         .await?
         .into_text()?;
-      resolved_config = match handle_config_file(&resolved_file, resolved_config, &environment).await {
+      resolved_config = match handle_config_file(&resolved_file, resolved_config, remote_cache_mode, &environment).await {
         Ok(resolved_config) => resolved_config,
         Err(err) => bail!("{:#}\n    at {}", err, resolved_file.source.display()),
       }
@@ -362,6 +365,7 @@ fn resolve_extends<TEnvironment: Environment>(
 async fn handle_config_file<TEnvironment: Environment>(
   config_path_and_text: &ResolvedFilePathWithText,
   mut resolved_config: ResolvedConfig,
+  remote_cache_mode: RemoteCacheMode,
   environment: &TEnvironment,
 ) -> Result<ResolvedConfig> {
   let mut new_config_map = get_config_map_from_path(ConfigPathContext {
@@ -427,7 +431,14 @@ async fn handle_config_file<TEnvironment: Environment>(
 
   merge_config_map_into(&mut resolved_config.config_map, new_config_map)?;
 
-  resolve_extends(resolved_config, extends, config_path_and_text.source.parent(), environment.clone()).await
+  resolve_extends(
+    resolved_config,
+    extends,
+    config_path_and_text.source.parent(),
+    remote_cache_mode,
+    environment.clone(),
+  )
+  .await
 }
 
 /// Merges the lower precedence `source` config map into the higher precedence
@@ -794,7 +805,9 @@ mod tests {
       is_global_config: false,
       is_first_download: false,
     };
-    resolve_config_from_path_with_bytes(&config_path, environment).await.unwrap()
+    resolve_config_from_path_with_bytes(&config_path, RemoteCacheMode::Use, environment)
+      .await
+      .unwrap()
   }
 
   #[test]

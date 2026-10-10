@@ -69,6 +69,7 @@ use tokio::try_join;
 use url::Url;
 
 use crate::arg_parser::CliArgs;
+use crate::cache::RemoteCacheMode;
 use crate::configuration::resolve_global_config_path_and_text;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
@@ -389,7 +390,7 @@ pub async fn run_language_server<TEnvironment: Environment>(
   let (tx, rx) = mpsc::unbounded_channel();
 
   let config_path = args.config.as_ref().map(|config| environment.cwd().join(config));
-  let recv_task = start_message_handler(environment, plugin_resolver, config_path, rx);
+  let recv_task = start_message_handler(environment, plugin_resolver, config_path, args.remote_cache_mode(), rx);
 
   let environment = environment.clone();
   let lsp_task = dprint_core::async_runtime::spawn(async move {
@@ -420,6 +421,7 @@ fn start_message_handler<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   config_override: Option<PathBuf>,
+  remote_cache_mode: RemoteCacheMode,
   mut rx: mpsc::UnboundedReceiver<ChannelMessage>,
 ) -> JoinHandle<bool> {
   // tower_lsp required Backend to implement Send and Sync, but
@@ -430,7 +432,12 @@ fn start_message_handler<TEnvironment: Environment>(
   let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
   let ensure_stable_format = EnsureStableFormat::for_editor(environment);
   let environment = environment.clone();
-  let scope_container = Rc::new(LspPluginsScopeContainer::new(environment.clone(), plugin_resolver.clone(), config_override));
+  let scope_container = Rc::new(LspPluginsScopeContainer::new(
+    environment.clone(),
+    plugin_resolver.clone(),
+    config_override,
+    remote_cache_mode,
+  ));
   let config_completions = Rc::new(ConfigCompletions::new(environment.clone(), scope_container.clone()));
   dprint_core::async_runtime::spawn(async move {
     let mut pending_tokens = PendingTokens::default();
@@ -3808,7 +3815,7 @@ mod test {
     let plugin_cache = PluginCache::new(environment.clone());
     let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
     let (tx, rx) = mpsc::unbounded_channel();
-    let recv_task = start_message_handler(&environment, &plugin_resolver, config_override, rx);
+    let recv_task = start_message_handler(&environment, &plugin_resolver, config_override, RemoteCacheMode::Use, rx);
     let test_client = Arc::new(TestClient::default());
     (Backend::new(ClientWrapper::new(test_client.clone()), environment, tx), recv_task, test_client)
   }

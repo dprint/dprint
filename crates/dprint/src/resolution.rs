@@ -974,7 +974,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     patterns: Rc<FilePatternArgs>,
   ) -> LocalBoxFuture<'a, Result<Vec<PluginsScopeAndPaths<TEnvironment>>>> {
     async move {
-      let mut config = resolve_config_from_path_with_bytes(&config_path, self.environment).await?;
+      let mut config = resolve_config_from_path_with_bytes(&config_path, self.args.remote_cache_mode(), self.environment).await?;
       // when a nested config opts into inheriting, merge in the ancestor config
       if is_descendant_config && config.inherit == Some(true) {
         config = inherit_config(config, &parent_config)?;

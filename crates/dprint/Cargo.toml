@@ -29,6 +29,7 @@ dprint-core = { path = "../core", version = "=0.70.0", features = ["process", "w
 dunce = "=1.0.4"
 flate2 = "=1.1.9"
 fs3 = "=0.5.0"
+httpdate = "=1.0.3"
 ignore = "=0.4.23"
 indexmap.workspace = true
 ipnet = "2.11.0"
