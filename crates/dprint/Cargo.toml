@@ -16,8 +16,8 @@ description = "Binary for dprint code formatter—a pluggable and configurable c
 # released that breaks compiling dprint
 anyhow.workspace = true
 base64 = "=0.22.1"
-clap = "=4.5.4"
-clap_complete = "=4.5.2"
+clap = "=4.6.7"
+clap_complete = "=4.6.11"
 console_static_text = "=0.9.0"
 crossterm = "=0.27.0" # manually retest everything when bumping this crate
 deno_npmrc = "=0.9.0"
