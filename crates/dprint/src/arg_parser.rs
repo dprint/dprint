@@ -1215,7 +1215,11 @@ EXAMPLES:
         .long("reload")
         .help("Checks for newer versions of remote configuration files and plugins instead of using the cached ones. Specify `config` or `plugins` to only check one of them.")
         .global(true)
-        .value_parser(clap::value_parser!(ReloadArg))
+        .value_parser(match kind {
+          // the parser accepts any text, so provide the values to complete
+          CliArgParserKind::ForCompletions => clap::builder::ValueParser::from(["config", "plugins", "all"]),
+          _ => clap::value_parser!(ReloadArg).into(),
+        })
         .value_name("config|plugins")
         .num_args(0..=1)
         .require_equals(true)
@@ -1403,10 +1407,10 @@ mod test {
         .filter(|(prefix, _)| prefix.is_empty() || prefix.ends_with(", "))
         .map(|(_, text)| text.split([' ', '=', '[']).next().unwrap())
         .collect::<Vec<_>>();
-      let last_names = &option_names[option_names.len().saturating_sub(5)..];
+      let last_names = &option_names[option_names.len().saturating_sub(6)..];
       assert_eq!(
         last_names,
-        ["config", "config-discovery", "plugins", "log-level", "help"],
+        ["config", "config-discovery", "plugins", "reload", "log-level", "help"],
         "help for {}",
         sub_command.get_name()
       );
