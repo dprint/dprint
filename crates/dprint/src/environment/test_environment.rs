@@ -149,6 +149,8 @@ pub struct TestEnvironment {
   remote_file_proxies: Arc<Mutex<HashMap<String, String>>>,
   /// Number of times each URL was requested.
   remote_file_request_counts: Arc<Mutex<HashMap<String, usize>>>,
+  /// Number of times each file was read (whether or not it existed).
+  file_read_counts: Arc<Mutex<HashMap<PathBuf, usize>>>,
   /// URLs whose requests never get a response.
   unresponsive_remote_files: Arc<Mutex<Vec<String>>>,
   selection_result: Arc<Mutex<usize>>,
@@ -196,6 +198,7 @@ impl TestEnvironment {
       remote_file_auth: Default::default(),
       remote_file_proxies: Default::default(),
       remote_file_request_counts: Default::default(),
+      file_read_counts: Default::default(),
       unresponsive_remote_files: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
       multi_selection_result: Arc::new(Mutex::new(None)),
@@ -276,6 +279,11 @@ impl TestEnvironment {
   /// Gets the number of times the URL was requested.
   pub fn remote_file_request_count(&self, url: &str) -> usize {
     self.remote_file_request_counts.lock().get(url).copied().unwrap_or(0)
+  }
+
+  /// Gets the number of times the file was read, whether or not it existed.
+  pub fn file_read_count(&self, path: impl AsRef<Path>) -> usize {
+    self.file_read_counts.lock().get(&self.clean_path(path)).copied().unwrap_or(0)
   }
 
   /// Makes requests of the URL not get a response, which models a host
@@ -596,6 +604,7 @@ impl Environment for TestEnvironment {
 
   fn read_file_bytes(&self, file_path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
     let file_path = self.clean_path(file_path);
+    *self.file_read_counts.lock().entry(file_path.clone()).or_default() += 1;
     self.sys.fs_read(file_path).map(|b| b.into_owned())
   }
 

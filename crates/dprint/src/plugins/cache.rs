@@ -5,6 +5,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use dprint_core::plugins::PluginInfo;
@@ -90,9 +91,13 @@ pub struct PluginCache<TEnvironment: Environment> {
   environment: TEnvironment,
   fs_locks: CacheFsLockPool<TEnvironment>,
   /// Memoized npm registry resolutions keyed on (package name, config dir).
-  /// Resolving via `.npmrc` walks the directory tree, so the same key is hit
-  /// multiple times per plugin (cache lookup, store, forget cleanup).
+  /// The same key is hit multiple times per plugin (cache lookup, store,
+  /// forget cleanup) and resolving logs a warning for bad credentials, which
+  /// should only show up once.
   registry_cache: Mutex<HashMap<RegistryUrlKey, npm_resolution::NpmRegistryResolution>>,
+  /// The `.npmrc` files found walking up from each config dir, read once per
+  /// run and shared by every npm plugin resolved from that dir.
+  npmrc_cache: Mutex<HashMap<Option<PathBuf>, Arc<npm_resolution::NpmrcChain>>>,
 }
 
 impl<TEnvironment> PluginCache<TEnvironment>
@@ -103,6 +108,7 @@ where
     PluginCache {
       fs_locks: CacheFsLockPool::new(environment.clone()),
       registry_cache: Mutex::new(HashMap::new()),
+      npmrc_cache: Mutex::new(HashMap::new()),
       environment,
     }
   }
@@ -670,11 +676,21 @@ where
     if let Some(info) = self.registry_cache.lock().get(&key) {
       return info.clone();
     }
-    // resolved outside the lock since it does file I/O. a concurrent caller may
-    // compute the same value — harmless since the result is deterministic.
-    let info = npm_resolution::resolve_registry_for_package(package_name, start_dir, &self.environment);
+    let info = self.npmrc_chain(start_dir).registry_for_package(package_name, &self.environment);
     self.registry_cache.lock().insert(key, info.clone());
     info
+  }
+
+  fn npmrc_chain(&self, start_dir: Option<&Path>) -> Arc<npm_resolution::NpmrcChain> {
+    let key = start_dir.map(|p| p.to_path_buf());
+    if let Some(chain) = self.npmrc_cache.lock().get(&key) {
+      return chain.clone();
+    }
+    // loaded outside the lock since it does file I/O. a concurrent caller may
+    // load the same files — harmless since the result is deterministic.
+    let chain = Arc::new(npm_resolution::NpmrcChain::load(start_dir, &self.environment));
+    self.npmrc_cache.lock().insert(key, chain.clone());
+    chain
   }
 
   pub(super) fn resolve_registry_url(&self, package_name: &str, start_dir: Option<&Path>) -> String {
@@ -1203,6 +1219,30 @@ mod test {
     assert_eq!(cached.info.name, "test-plugin");
 
     Ok(())
+  }
+
+  #[test]
+  fn npm_registry_resolve_reads_npmrc_once_for_all_packages() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/home").unwrap();
+    environment.mk_dir_all("/repo/sub").unwrap();
+    environment.write_file("/repo/.npmrc", "@dprint:registry=https://dprint.example.com").unwrap();
+    environment.write_file("/home/.npmrc", "https-proxy=http://proxy.corp:8080").unwrap();
+
+    let plugin_cache = PluginCache::new(environment.clone());
+    let start_dir = Some(std::path::Path::new("/repo/sub"));
+    let typescript = plugin_cache.resolve_registry("@dprint/typescript", start_dir);
+    let json = plugin_cache.resolve_registry("@dprint/json", start_dir);
+    let unscoped = plugin_cache.resolve_registry("some-plugin", start_dir);
+    assert_eq!(typescript.url, "https://dprint.example.com");
+    assert_eq!(json.url, "https://dprint.example.com");
+    assert_eq!(unscoped.url, "https://registry.npmjs.org");
+    assert_eq!(unscoped.proxy.as_ref().map(|p| p.url.as_str()), Some("http://proxy.corp:8080"));
+
+    // the walk happened once for the three packages
+    for path in ["/repo/sub/.npmrc", "/repo/.npmrc", "/.npmrc", "/home/.npmrc"] {
+      assert_eq!(environment.file_read_count(path), 1, "{path}");
+    }
   }
 
   #[tokio::test]
