@@ -129,10 +129,9 @@ pub struct FetchNpmLatestInfo<'a> {
   /// Directory to start the `.npmrc` walk from when resolving the registry.
   /// `None` falls back to `~/.npmrc` and then the default registry.
   pub start_dir: Option<&'a Path>,
-  /// Force computing the tarball checksum even for wasm plugins. Used on
-  /// update when the existing specifier carries a checksum, so the upgrade
-  /// pins to the new tarball rather than carrying the stale hash. Non-wasm
-  /// plugins always compute the checksum regardless.
+  /// Force computing the tarball checksum even for wasm plugins, for an entry
+  /// that's written with one (ex. `dprint add --checksum`). Non-wasm plugins
+  /// always compute the checksum regardless.
   pub want_tarball_sha: bool,
   /// When set, a version published after the cutoff is passed over for the
   /// newest one old enough. See [`select_version_from_packument`].
@@ -730,11 +729,15 @@ fn alternate_plugin_filename(requested: &str, package_dir: &Path, environment: &
   }
 }
 
+/// The specifier as the user would write it with `path` in place of its own,
+/// which leaves the default `plugin.wasm` out.
 fn npm_specifier_with_path(specifier: &NpmSpecifier, path: &str) -> String {
-  match &specifier.version {
-    Some(version) => format!("npm:{}@{}/{}", specifier.name, version, path),
-    None => format!("npm:{}/{}", specifier.name, path),
+  NpmSpecifier {
+    name: specifier.name.clone(),
+    version: specifier.version.clone(),
+    path: path.to_string(),
   }
+  .display()
 }
 
 /// Reads a process plugin manifest (plugin.json) and, if the platform-specific

@@ -1299,6 +1299,7 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
 ) -> Result<Vec<Result<PluginUpdateInfo, PluginUpdateError>>> {
   async fn resolve_plugin_update_info<TEnvironment: Environment>(
     environment: &TEnvironment,
+    plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
     plugin_reference: PluginSourceReference,
     plugin_result: Result<Rc<PluginWrapper>>,
     context: PluginUpdateContext,
@@ -1331,48 +1332,8 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
         return None;
       };
       let start_dir = npm_source.base_dir.as_ref().map(|d| d.as_ref());
-      // preserve the user's checksum on update: if they pinned a checksum on
-      // the old reference, fetch a fresh one for the new version instead of
-      // carrying the stale hash (which would fail verification on next run)
-      let args = FetchNpmLatestInfo {
-        specifier: &npm_source.specifier,
-        start_dir,
-        want_tarball_sha: plugin_reference.checksum.is_some(),
-        minimum_dependency_age: context.age_cutoff.as_ref(),
-      };
-      match fetch_npm_latest_info(args, environment).await {
-        // an update should never take the user backwards, which the registry's
-        // latest tag can do (ex. a version was unpublished) and which the
-        // minimum dependency age can do by holding a newer release back (the
-        // resolution says so itself when that happens, so this stays neutral)
-        Ok(info) if is_version_downgrade(current_version, &info.version) => {
-          log_warn!(
-            environment,
-            "Skipping {}. The version resolved ({}) is older than the {} in use.",
-            plugin.info().name,
-            info.version,
-            current_version,
-          );
-          return None;
-        }
-        Ok(info) => {
-          let new_specifier = crate::utils::NpmSpecifier {
-            name: npm_source.specifier.name.clone(),
-            version: Some(info.version.clone()),
-            path: npm_source.specifier.path.clone(),
-          };
-          let new_reference = PluginSourceReference {
-            path_source: PathSource::new_npm(new_specifier, npm_source.base_dir.clone()),
-            checksum: info.tarball_sha256,
-          };
-          return Some(Ok(PluginUpdateInfo {
-            name: plugin.info().name.to_string(),
-            old_version: current_version.to_string(),
-            old_reference: plugin_reference,
-            new_version: info.version,
-            new_reference,
-          }));
-        }
+      let new_version = match resolve_npm_latest_version(&npm_source.specifier.name, start_dir, context.age_cutoff.as_ref(), environment).await {
+        Ok(version) => version,
         Err(err) => {
           // being held back by the minimum dependency age isn't a failure to
           // update — the plugin stays where it is until its version ages in
@@ -1385,7 +1346,74 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
             error: err,
           }));
         }
+      };
+      // an update should never take the user backwards, which the registry's
+      // latest tag can do (ex. a version was unpublished) and which the
+      // minimum dependency age can do by holding a newer release back (the
+      // resolution says so itself when that happens, so this stays neutral)
+      if is_version_downgrade(current_version, &new_version) {
+        log_warn!(
+          environment,
+          "Skipping {}. The version resolved ({}) is older than the {} in use.",
+          plugin.info().name,
+          new_version,
+          current_version,
+        );
+        return None;
       }
+      if new_version == current_version {
+        return None;
+      }
+      // the plugin file is detected from the package at the new version rather
+      // than carried over from the entry, since a plugin can change kind
+      // between versions (ex. a process plugin rewritten as wasm, whose
+      // package then ships plugin.wasm instead of plugin.json). a path chosen
+      // within the package is the user's and stays. setting the package up
+      // here also warms the cache for the config updates that run after
+      let path_was_explicit = !npm_source.specifier.has_conventional_path();
+      let versioned = crate::utils::NpmSpecifier {
+        name: npm_source.specifier.name.clone(),
+        version: Some(new_version.clone()),
+        path: npm_source.specifier.path.clone(),
+      };
+      let resolved = match plugin_resolver
+        .resolve_npm_for_add(&versioned, path_was_explicit, npm_source.base_dir.as_ref())
+        .await
+      {
+        Ok(resolved) => resolved,
+        Err(error) => {
+          return Some(Err(PluginUpdateError {
+            name: plugin_reference.path_source.display(),
+            error,
+          }));
+        }
+      };
+      // a process plugin always carries the package's checksum. a wasm plugin
+      // keeps one only when the user pinned it: the checksum on a process
+      // plugin that became wasm was required rather than chosen, so it goes.
+      // either way it's the new version's checksum, not the stale one
+      let old_kind = npm_source.specifier.plugin_kind();
+      let checksum = match resolved.plugin_kind {
+        PluginKind::Process => Some(resolved.checksum),
+        PluginKind::Wasm if old_had_checksum && old_kind == PluginKind::Wasm => Some(resolved.checksum),
+        PluginKind::Wasm => None,
+      };
+      let new_specifier = crate::utils::NpmSpecifier {
+        name: npm_source.specifier.name.clone(),
+        version: Some(new_version.clone()),
+        path: resolved.path,
+      };
+      let new_reference = PluginSourceReference {
+        path_source: PathSource::new_npm(new_specifier, npm_source.base_dir.clone()),
+        checksum,
+      };
+      return Some(Ok(PluginUpdateInfo {
+        name: plugin.info().name.to_string(),
+        old_version: current_version.to_string(),
+        old_reference: plugin_reference,
+        new_version,
+        new_reference,
+      }));
     }
 
     let latest = read_plugin_latest_info(environment, &plugin).await;
@@ -1455,8 +1483,11 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
     .into_iter()
     .map(|(plugin_reference, plugin_result)| {
       let environment = environment.clone();
+      let plugin_resolver = plugin_resolver.clone();
       let context = context.clone();
-      dprint_core::async_runtime::spawn(async move { resolve_plugin_update_info(&environment, plugin_reference, plugin_result, context).await })
+      dprint_core::async_runtime::spawn(
+        async move { resolve_plugin_update_info(&environment, &plugin_resolver, plugin_reference, plugin_result, context).await },
+      )
     })
     .collect::<Vec<_>>();
 
@@ -5419,6 +5450,144 @@ text",
     assert!(stderr.iter().any(|m| m == "Updating test-plugin 0.1.0 to 0.1.5..."), "got: {stderr:?}");
   }
 
+  /// Serves `@dprint/test-process` on the registry with `old_tarball` at 0.1.0
+  /// and `new_tarball` at 0.3.0 (tagged latest), for an entry whose package
+  /// ships something different at the new version.
+  fn npm_test_process_package_builder(old_tarball: Vec<u8>, new_tarball: Vec<u8>) -> TestEnvironmentBuilder {
+    let tarball_url = |version: &str| format!("https://registry.npmjs.org/@dprint/test-process/-/test-process-{version}.tgz");
+    let packument = json!({
+      "dist-tags": { "latest": "0.3.0" },
+      "versions": {
+        "0.1.0": { "dist": { "tarball": tarball_url("0.1.0") } },
+        "0.3.0": { "dist": { "tarball": tarball_url("0.3.0") } },
+      }
+    });
+    let mut builder = TestEnvironmentBuilder::new();
+    builder
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-process", packument.to_string().into_bytes())
+      .add_remote_file_bytes(&tarball_url("0.1.0"), old_tarball)
+      .add_remote_file_bytes(&tarball_url("0.3.0"), new_tarball)
+      .with_info_file(|_| {});
+    builder
+  }
+
+  #[test]
+  fn config_update_drops_plugin_json_when_an_npm_process_plugin_becomes_wasm() {
+    // a process plugin rewritten as wasm ships plugin.wasm in place of
+    // plugin.json, so the entry's path is detected from the new version rather
+    // than carried over. the checksum goes too: a process plugin's entry had
+    // one because it was required, not because the user pinned it
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+    use crate::utils::get_sha256_checksum;
+
+    let old_tarball = process_plugin_npm_tarball();
+    let old_entry = format!("npm:@dprint/test-process@0.1.0/plugin.json@{}", get_sha256_checksum(&old_tarball));
+    let new_tarball = create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]);
+    let environment = npm_test_process_package_builder(old_tarball, new_tarball)
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin(&old_entry);
+      })
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains("\"npm:@dprint/test-process@0.3.0\""), "got: {dprint_json}");
+    assert!(!dprint_json.contains("plugin.json"), "got: {dprint_json}");
+    // a wasm plugin updates without the confirmation a process plugin needs
+    let stderr = environment.take_stderr_messages();
+    assert!(stderr.iter().any(|m| m == "Updating test-process-plugin 0.1.0 to 0.3.0..."), "got: {stderr:?}");
+    assert!(!stderr.iter().any(|m| m.contains("Do you want to update it?")), "got: {stderr:?}");
+  }
+
+  #[test]
+  fn config_update_adds_plugin_json_when_an_npm_wasm_plugin_becomes_process() {
+    // the other way around, the new version ships plugin.json and so needs the
+    // package's checksum and the confirmation any process plugin gets
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+    use crate::utils::get_sha256_checksum;
+
+    let old_tarball = create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]);
+    let new_tarball = process_plugin_npm_tarball();
+    let expected_entry = format!("npm:@dprint/test-process@0.3.0/plugin.json@{}", get_sha256_checksum(&new_tarball));
+    let environment = npm_test_process_package_builder(old_tarball, new_tarball)
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("npm:@dprint/test-process@0.1.0");
+      })
+      .initialize()
+      .build();
+    environment.set_confirm_results(vec![Ok(Some(true))]);
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains(&format!("\"{expected_entry}\"")), "got: {dprint_json}");
+    let stderr = environment.take_stderr_messages();
+    assert!(
+      stderr.contains(&format!("The process plugin test-plugin 0.1.0 has a new url: {expected_entry}")),
+      "got: {stderr:?}"
+    );
+  }
+
+  #[test]
+  fn config_update_keeps_a_pinned_checksum_on_an_npm_wasm_plugin() {
+    // a checksum the user pinned on a wasm entry is replaced with the new
+    // version's rather than dropped or left stale
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+    use crate::utils::get_sha256_checksum;
+
+    let old_tarball = create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]);
+    let new_tarball = create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES), ("package/README.md", b"# changed")]);
+    let old_entry = format!("npm:@dprint/test-process@0.1.0@{}", get_sha256_checksum(&old_tarball));
+    let expected_entry = format!("npm:@dprint/test-process@0.3.0@{}", get_sha256_checksum(&new_tarball));
+    let environment = npm_test_process_package_builder(old_tarball, new_tarball)
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin(&old_entry);
+      })
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(dprint_json.contains(&format!("\"{expected_entry}\"")), "got: {dprint_json}");
+    environment.take_stderr_messages();
+  }
+
+  #[test]
+  fn config_update_keeps_a_path_chosen_within_an_npm_package() {
+    // a path within the package is the user's, so it isn't swapped for a
+    // conventional root file the package may also ship
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+
+    let tarball = || {
+      create_test_npm_tarball(&[
+        ("package/test-plugin/plugin.wasm", WASM_PLUGIN_BYTES),
+        ("package/plugin.wasm", WASM_PLUGIN_BYTES),
+      ])
+    };
+    let environment = npm_test_process_package_builder(tarball(), tarball())
+      .with_local_config("/dprint.json", |config| {
+        config.add_plugin("npm:@dprint/test-process@0.1.0/test-plugin/plugin.wasm");
+      })
+      .initialize()
+      .build();
+
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+
+    let dprint_json = environment.read_file("/dprint.json").unwrap();
+    assert!(
+      dprint_json.contains("\"npm:@dprint/test-process@0.3.0/test-plugin/plugin.wasm\""),
+      "got: {dprint_json}"
+    );
+    environment.take_stderr_messages();
+  }
+
   #[test]
   fn config_update_keeps_the_url_when_the_packages_latest_isnt_a_version() {
     // the registry's `latest` tag never went through the specifier parser, so a
@@ -5578,8 +5747,8 @@ text",
     assert_eq!(
       environment.take_stderr_messages(),
       vec![
-        "Updating test-plugin 0.1.0 to 0.3.0...",
         "Compiling /cache/npm/dprint.example.com/@dprint/test-plugin@0.3.0/plugin.wasm",
+        "Updating test-plugin 0.1.0 to 0.3.0...",
       ]
     );
   }
