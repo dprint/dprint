@@ -1,5 +1,8 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::SystemTime;
 
 use anyhow::Context;
@@ -640,6 +643,12 @@ pub async fn ensure_npm_package_extracted(
 ) -> Result<NpmPackageDir> {
   let registry_segment = registry_dir_segment(&registry.url);
   let extract_dir = get_npm_extract_dir(&registry_segment, name, version, environment);
+
+  // several plugins and configs can use the same package at the same time, so
+  // ensure only the first one downloads it and the rest then use what it extracted
+  let lock = get_npm_package_lock(&extract_dir);
+  let _guard = lock.lock().await;
+
   let has_extract_dir = environment.path_exists(&extract_dir);
   if has_extract_dir && let Some(meta) = read_npm_tarball_meta(&registry_segment, name, version, environment) {
     return Ok(NpmPackageDir {
@@ -901,6 +910,16 @@ pub(super) fn get_npm_extract_dir(registry_segment: &str, package_name: &str, ve
   // use a sanitized name for the directory (replace / with __)
   let dir_name = format!("{}@{}", package_name.replace('/', "__"), version);
   environment.get_cache_dir().join("npm").join(registry_segment).join(dir_name)
+}
+
+thread_local! {
+  static NPM_PACKAGE_LOCKS: RefCell<HashMap<PathBuf, Rc<tokio::sync::Mutex<()>>>> = Default::default();
+}
+
+/// Gets the lock to hold in this process while downloading and extracting a
+/// package to the provided directory.
+fn get_npm_package_lock(extract_dir: &Path) -> Rc<tokio::sync::Mutex<()>> {
+  NPM_PACKAGE_LOCKS.with_borrow_mut(|locks| locks.entry(extract_dir.to_path_buf()).or_default().clone())
 }
 
 /// The SHA-256 of the tarball a `name@version` directory in the npm cache was

@@ -7,6 +7,7 @@ use anyhow::bail;
 use deno_terminal::colors;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
+use dprint_core::async_runtime::future;
 use dprint_core::configuration::ConfigKeyValue;
 use indexmap::IndexMap;
 use thiserror::Error;
@@ -348,8 +349,10 @@ fn resolve_extends<TEnvironment: Environment>(
 ) -> LocalBoxFuture<'static, Result<ResolvedConfig>> {
   // boxed because of recursion
   async move {
-    for specifier in extends {
-      let resolved_file = resolve_extends_file(&specifier, &base_path, &environment).await?.into_text()?;
+    // get the files in parallel, then merge them in order of precedence
+    let resolved_files = future::join_all(extends.iter().map(|specifier| resolve_extends_file(specifier, &base_path, &environment))).await;
+    for resolved_file in resolved_files {
+      let resolved_file = resolved_file?.into_text()?;
       resolved_config = match handle_config_file(&resolved_file, resolved_config, &environment).await {
         Ok(resolved_config) => resolved_config,
         Err(err) => bail!("{:#}\n    at {}", err, resolved_file.source.display()),

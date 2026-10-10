@@ -613,6 +613,53 @@ mod tests {
   }
 
   #[test]
+  fn should_download_package_once_when_used_at_same_time() {
+    use crate::plugins::PluginCache;
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+
+    let environment = TestEnvironmentBuilder::new()
+      .write_file(
+        "/dprint.json",
+        r#"{ "extends": ["npm:config@1.0.0/a.json", "npm:config@1.0.0/b.json", "npm:config@1.0.0/c.json"] }"#,
+      )
+      .build();
+    let packument_url = "https://registry.npmjs.org/config";
+    let tarball_url = "https://registry.npmjs.org/config/-/config-1.0.0.tgz";
+    let files: [(&str, &[u8]); 5] = [
+      ("package/a.json", br#"{ "prop1": 1 }"#),
+      ("package/b.json", br#"{ "prop2": 2 }"#),
+      ("package/c.json", br#"{ "prop3": 3 }"#),
+      ("package/one/plugin.wasm", WASM_PLUGIN_BYTES),
+      ("package/two/plugin.wasm", WASM_PLUGIN_BYTES),
+    ];
+    let packument = serde_json::json!({ "versions": { "1.0.0": { "dist": { "tarball": tarball_url } } } });
+    environment.add_remote_file_bytes(packument_url, packument.to_string().into_bytes());
+    environment.add_remote_file_bytes(tarball_url, create_test_npm_tarball(&files));
+
+    environment.clone().run_in_runtime(async move {
+      // extends of several files in a package
+      let result = resolve_config("/dprint.json", &environment).await.unwrap();
+      assert_eq!(get_number(&result, "prop1"), 1);
+      assert_eq!(get_number(&result, "prop2"), 2);
+      assert_eq!(get_number(&result, "prop3"), 3);
+      assert_eq!(environment.remote_file_request_count(packument_url), 1);
+      assert_eq!(environment.remote_file_request_count(tarball_url), 1);
+
+      // plugins at different sub paths of a package
+      environment.remove_dir_all(environment.get_cache_dir().join("npm")).unwrap();
+      let plugin_cache = PluginCache::new(environment.clone());
+      let plugin = |text: &str| crate::plugins::parse_plugin_source_reference(text, &PathSource::new_local(environment.cwd()), &environment).unwrap();
+      let (one, two) = (plugin("npm:config@1.0.0/one/plugin.wasm"), plugin("npm:config@1.0.0/two/plugin.wasm"));
+      let (one, two) = dprint_core::async_runtime::future::join(plugin_cache.get_plugin_cache_item(&one), plugin_cache.get_plugin_cache_item(&two)).await;
+      assert_eq!(one.unwrap().info.name, "test-plugin");
+      assert_eq!(two.unwrap().info.name, "test-plugin");
+      assert_eq!(environment.remote_file_request_count(packument_url), 2);
+      assert_eq!(environment.remote_file_request_count(tarball_url), 2);
+      let _ = environment.take_stderr_messages(); // wasm compile messages
+    });
+  }
+
+  #[test]
   fn should_resolve_exports() {
     fn resolve(exports: &serde_json::Value, key: &str) -> Option<String> {
       resolve_export(exports, key).map(|s| s.to_string())
