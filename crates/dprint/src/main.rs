@@ -66,7 +66,13 @@ async fn run() -> Result<(), (AppError, LogLevel)> {
   })
   .map_err(|err| (err.into(), args.log_level))?;
   let plugin_cache = plugins::PluginCache::new(environment.clone());
-  let plugin_resolver = Rc::new(plugins::PluginResolver::new(environment.clone(), plugin_cache));
+  let plugin_resolver = Rc::new(plugins::PluginResolver::new(
+    environment.clone(),
+    plugin_cache,
+    plugins::PluginResolverOptions {
+      reload_plugins: args.reload.plugins,
+    },
+  ));
 
   let result = run_cli::run_cli(&args, &environment, &plugin_resolver).await;
   plugin_resolver.clear_and_shutdown_initialized().await;

@@ -16,6 +16,7 @@ use thiserror::Error;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::ConfigDiscovery;
 use crate::arg_parser::SubCommand;
+use crate::cache::RemoteCacheMode;
 use crate::configuration::ConfigMap;
 use crate::configuration::ConfigMapValue;
 use crate::configuration::deserialize_config;
@@ -158,7 +159,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
           return Err(ResolveConfigError::Other(anyhow::anyhow!("Confirmation cancelled.")));
         }
       }
-      resolve_config_from_path_with_bytes(&resolved_config_path, environment).await?
+      resolve_config_from_path_with_bytes(&resolved_config_path, args.remote_cache_mode(), environment).await?
     }
     None => {
       if !args.plugins.is_empty() {
@@ -203,6 +204,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
 
 pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   config_path_and_text: &ResolvedConfigPathWithText,
+  remote_cache_mode: RemoteCacheMode,
   environment: &TEnvironment,
 ) -> Result<ResolvedConfig, ResolveConfigError> {
   let base_source = config_path_and_text.source.parent();
@@ -264,6 +266,7 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   let extends_context = ExtendsContext {
     base_path: base_source,
     ancestors: vec![config_path_and_text.source.clone()],
+    remote_cache_mode,
     npm_resolver: Default::default(),
   };
   Ok(resolve_extends(resolved_config, extends, extends_context, environment.clone()).await?)
@@ -352,6 +355,7 @@ struct ExtendsContext {
   /// The configuration file being extended followed by the configuration
   /// files that led to it being extended.
   ancestors: Vec<PathSource>,
+  remote_cache_mode: RemoteCacheMode,
   npm_resolver: Rc<NpmExtendsResolver>,
 }
 
@@ -402,7 +406,7 @@ async fn resolve_extends_file(specifier: &str, context: &ExtendsContext, environ
     context.npm_resolver.resolve(specifier, base_path, environment).await
   } else if let PathSource::Npm(npm_base) = base_path {
     if is_http_url(specifier) {
-      resolve_url_or_file_path_to_file_with_cache(specifier, base_path, environment).await
+      resolve_url_or_file_path_to_file_with_cache(specifier, base_path, context.remote_cache_mode, environment).await
     } else if is_relative_path(specifier) {
       // a config file in an npm package extending another file in the package
       context.npm_resolver.resolve_relative(specifier, npm_base, environment).await
@@ -419,7 +423,7 @@ async fn resolve_extends_file(specifier: &str, context: &ExtendsContext, environ
       );
     }
   } else {
-    resolve_url_or_file_path_to_file_with_cache(specifier, base_path, environment).await
+    resolve_url_or_file_path_to_file_with_cache(specifier, base_path, context.remote_cache_mode, environment).await
   }
 }
 
@@ -503,6 +507,7 @@ async fn handle_config_file<TEnvironment: Environment>(
   let extends_context = ExtendsContext {
     base_path: config_path_and_text.source.parent(),
     ancestors,
+    remote_cache_mode: extends_context.remote_cache_mode,
     npm_resolver: extends_context.npm_resolver.clone(),
   };
   resolve_extends(resolved_config, extends, extends_context, environment.clone()).await
@@ -872,7 +877,9 @@ mod tests {
       is_global_config: false,
       is_first_download: false,
     };
-    resolve_config_from_path_with_bytes(&config_path, environment).await.unwrap()
+    resolve_config_from_path_with_bytes(&config_path, RemoteCacheMode::Use, environment)
+      .await
+      .unwrap()
   }
 
   #[test]

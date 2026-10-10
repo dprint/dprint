@@ -128,6 +128,7 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
           InitConfigFileOptions {
             global: *global,
             config_arg: args.config.as_deref(),
+            remote_cache_mode: args.remote_cache_mode(),
             non_interactive: *yes,
             minimum_dependency_age: minimum_dependency_age.clone(),
           },

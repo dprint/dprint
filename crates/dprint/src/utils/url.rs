@@ -22,6 +22,8 @@ use crate::environment::DownloadedFile;
 
 const MAX_RETRIES: u8 = 2;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long a whole request may take when failing fast.
+const FAIL_FAST_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long to wait on a server that was connected to for each part of its response.
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -53,13 +55,14 @@ impl RealUrlDownloader {
 
   pub async fn download(&self, url: &Url, options: DownloadOptions<'_>) -> Result<Option<DownloadedFile>> {
     let client = self.get_client(url, options.proxy).await?;
+    let max_retries = if options.fail_fast { 0 } else { MAX_RETRIES };
     let mut last_error = None;
-    for retry_count in 0..(MAX_RETRIES + 1) {
-      match self.inner_download(url, options.auth, retry_count, &client).await {
+    for retry_count in 0..=max_retries {
+      match self.inner_download(url, options, retry_count, &client).await {
         Ok(result) => return Ok(result),
         Err(err) => {
-          if retry_count < MAX_RETRIES {
-            log_debug!(self.logger, "Error downloading {} ({}/{}): {:#}", url, retry_count, MAX_RETRIES, err);
+          if retry_count < max_retries {
+            log_debug!(self.logger, "Error downloading {} ({}/{}): {:#}", url, retry_count, max_retries, err);
           }
           last_error = Some(err);
         }
@@ -74,7 +77,7 @@ impl RealUrlDownloader {
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     rt.block_on(async {
       let client = self.get_client(&url, DownloadProxy::Environment).await?;
-      Ok(self.inner_download(&url, None, 0, &client).await?.map(|r| r.content))
+      Ok(self.inner_download(&url, DownloadOptions::default(), 0, &client).await?.map(|r| r.content))
     })
   }
 
@@ -90,11 +93,21 @@ impl RealUrlDownloader {
     dprint_core::async_runtime::spawn_blocking(move || client_store.get(proxy)).await?
   }
 
-  async fn inner_download(&self, url: &Url, auth: Option<&str>, retry_count: u8, client: &ClientWithProxy) -> Result<Option<DownloadedFile>> {
+  async fn inner_download(&self, url: &Url, options: DownloadOptions<'_>, retry_count: u8, client: &ClientWithProxy) -> Result<Option<DownloadedFile>> {
     let mut request = client.client.get(url.clone()).build()?;
-    if let Some(auth) = auth {
+    if options.fail_fast {
+      *request.timeout_mut() = Some(FAIL_FAST_TIMEOUT);
+    }
+    if let Some(auth) = options.auth {
       // replaces the header reqwest creates for credentials in the url
       request.headers_mut().insert(reqwest::header::AUTHORIZATION, auth.parse()?);
+    }
+    // an invalid cached validator just means asking for the content
+    if let Some(etag) = options.cache_validators.etag.and_then(|v| v.parse().ok()) {
+      request.headers_mut().insert(reqwest::header::IF_NONE_MATCH, etag);
+    }
+    if let Some(last_modified) = options.cache_validators.last_modified.and_then(|v| v.parse().ok()) {
+      request.headers_mut().insert(reqwest::header::IF_MODIFIED_SINCE, last_modified);
     }
     let mut resp = match client.client.execute(request).await {
       Ok(resp) => resp,
@@ -107,17 +120,40 @@ impl RealUrlDownloader {
     if status == reqwest::StatusCode::NOT_FOUND {
       return Ok(None);
     }
-    let headers: HashMap<String, String> = resp
-      .headers()
-      .iter()
-      .filter_map(|(name, value)| Some((name.as_str().to_string(), std::str::from_utf8(value.as_bytes()).ok()?.to_string())))
-      .collect();
+    let mut headers: HashMap<String, String> = HashMap::with_capacity(resp.headers().len());
+    for (name, value) in resp.headers() {
+      let Ok(value) = std::str::from_utf8(value.as_bytes()) else {
+        continue;
+      };
+      // a header sent on multiple lines is the same as a comma separated one
+      match headers.entry(name.as_str().to_string()) {
+        std::collections::hash_map::Entry::Occupied(mut entry) => {
+          let existing = entry.get_mut();
+          existing.push_str(", ");
+          existing.push_str(value);
+        }
+        std::collections::hash_map::Entry::Vacant(entry) => {
+          entry.insert(value.to_string());
+        }
+      }
+    }
 
+    if status == reqwest::StatusCode::NOT_MODIFIED && !options.cache_validators.is_empty() {
+      return Ok(Some(DownloadedFile {
+        headers,
+        content: vec![],
+        not_modified: true,
+      }));
+    }
     if status.is_redirection() {
       if !headers.contains_key("location") {
         bail!("Error downloading {} - {} without a location to redirect to", url, status.as_u16());
       }
-      return Ok(Some(DownloadedFile { headers, content: vec![] }));
+      return Ok(Some(DownloadedFile {
+        headers,
+        content: vec![],
+        not_modified: false,
+      }));
     }
     if !status.is_success() {
       match status.canonical_reason() {
@@ -153,7 +189,11 @@ impl RealUrlDownloader {
     if let Some(progress) = progress {
       progress.finish();
     }
-    Ok(Some(DownloadedFile { headers, content }))
+    Ok(Some(DownloadedFile {
+      headers,
+      content,
+      not_modified: false,
+    }))
   }
 }
 
@@ -754,7 +794,12 @@ mod test {
     let download = async |url: &str, proxy: &str| {
       let url = url.parse().unwrap();
       let client = downloader.get_client(&url, DownloadProxy::Url(proxy)).await.unwrap();
-      downloader.inner_download(&url, None, 0, &client).await.err().unwrap().to_string()
+      downloader
+        .inner_download(&url, DownloadOptions::default(), 0, &client)
+        .await
+        .err()
+        .unwrap()
+        .to_string()
     };
 
     // nothing listening at the proxy's address, both for a request
@@ -789,6 +834,35 @@ mod test {
         proxy
       )
     );
+  }
+
+  #[tokio::test]
+  async fn should_make_single_attempt_when_failing_fast() {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    let requests = Arc::new(AtomicUsize::new(0));
+    let origin = start_test_server({
+      let requests = requests.clone();
+      move |_, _| {
+        requests.fetch_add(1, Ordering::SeqCst);
+        "500 Internal Server Error\r\nContent-Length: 0\r\n\r\n".to_string()
+      }
+    });
+    let downloader = create_direct_downloader();
+    let url = url::Url::parse(&format!("{origin}/file")).unwrap();
+
+    let options = DownloadOptions {
+      fail_fast: true,
+      ..Default::default()
+    };
+    let err = downloader.download(&url, options).await.err().unwrap();
+    assert_eq!(err.to_string(), format!("Error downloading {url} - 500 Internal Server Error"));
+    assert_eq!(requests.load(Ordering::SeqCst), 1);
+
+    // retries otherwise
+    downloader.download(&url, DownloadOptions::default()).await.err().unwrap();
+    assert_eq!(requests.load(Ordering::SeqCst), 1 + super::MAX_RETRIES as usize + 1);
   }
 
   /// Starts a server that responds to each request with the provided

@@ -43,6 +43,8 @@ impl NpmRegistryResolution {
     DownloadOptions {
       auth: self.auth_header.as_deref(),
       proxy: self.proxy_for(packument_url),
+      cache_validators: Default::default(),
+      fail_fast: false,
     }
   }
 
@@ -52,6 +54,8 @@ impl NpmRegistryResolution {
     DownloadOptions {
       auth: same_origin_auth(packument_url, tarball_url, self.auth_header.as_deref()),
       proxy: self.proxy_for(tarball_url),
+      cache_validators: Default::default(),
+      fail_fast: false,
     }
   }
 

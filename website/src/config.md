@@ -456,6 +456,10 @@ Referencing multiple configuration files is also supported. These should be orde
 
 Note: The `includes` property of extended _remote_ configuration is ignored for security reasons out of an abundance of caution (to disallow the dprint cli pulling in sensitive files) and additionally non-Wasm plugins are ignored in remote configuration because they don't run sandboxed.
 
+### Remote configuration caching
+
+A remote configuration file is cached and used until it expires according to the caching headers of the response (ex. `Cache-Control: max-age`), or for a day when the response has none. After that, dprint checks the server for a newer version and keeps using the cached one when it's unchanged or the server can't be reached. Run with `--reload=config` to check the server right away (see [reloading remote configuration files and plugins](/cli#reloading-remote-configuration-files-and-plugins)), or put a version in the file name (ex. `file.v1.json`) when a configuration should never change out from under its users.
+
 ## Directory Specific Configuration
 
 Useful for monorepos, you may place additional configuration files in descendant directories. When dprint searches for files to format, it stops descending into a directory once it discovers a configuration file there and uses that configuration file for the files in that subtree instead (see [changing config discovery](/cli#changing-config-discovery)).

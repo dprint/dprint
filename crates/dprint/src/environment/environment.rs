@@ -71,6 +71,10 @@ pub struct TestFilePermissions {
 pub struct DownloadedFile {
   pub headers: std::collections::HashMap<String, String>,
   pub content: Vec<u8>,
+  /// Whether the server responded with 304 Not Modified to a request that
+  /// had cache validators (see `DownloadOptions`). The content is empty and
+  /// the headers are the ones to update the cached response with.
+  pub not_modified: bool,
 }
 
 /// How a file should be requested.
@@ -79,6 +83,29 @@ pub struct DownloadOptions<'a> {
   /// Value of the `Authorization` header to send.
   pub auth: Option<&'a str>,
   pub proxy: DownloadProxy<'a>,
+  /// Validators of a cached response to send (`If-None-Match` and
+  /// `If-Modified-Since`) so the server can respond with 304 Not Modified
+  /// instead of the content when it's unchanged.
+  pub cache_validators: CacheValidators<'a>,
+  /// Make a single attempt with a short timeout instead of retrying, for when
+  /// there's a fallback (ex. a cached copy) and the user shouldn't wait on a
+  /// server that can't be reached.
+  pub fail_fast: bool,
+}
+
+/// The validators of a cached response that let a server say it's unchanged.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct CacheValidators<'a> {
+  /// Value of the cached response's `ETag` header.
+  pub etag: Option<&'a str>,
+  /// Value of the cached response's `Last-Modified` header.
+  pub last_modified: Option<&'a str>,
+}
+
+impl CacheValidators<'_> {
+  pub fn is_empty(&self) -> bool {
+    self.etag.is_none() && self.last_modified.is_none()
+  }
 }
 
 /// What a request is sent through.

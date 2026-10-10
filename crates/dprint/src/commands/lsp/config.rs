@@ -10,6 +10,7 @@ use anyhow::Result;
 use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::LocalBoxFuture;
 
+use crate::cache::RemoteCacheMode;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
@@ -36,18 +37,25 @@ pub struct LspPluginsScopeContainer<TEnvironment: Environment> {
   plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
   plugins_scope_by_config: RefCell<HashMap<String, Rc<ScopeCell<TEnvironment>>>>,
   config_override: Option<PathBuf>,
+  remote_cache_mode: RemoteCacheMode,
   /// Incremented each time the plugins are shut down, which is when the
   /// scopes that were resolved before then can't be used anymore.
   plugins_generation: Cell<usize>,
 }
 
 impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
-  pub fn new(environment: TEnvironment, plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>, config_override: Option<PathBuf>) -> Self {
+  pub fn new(
+    environment: TEnvironment,
+    plugin_resolver: Rc<plugins::PluginResolver<TEnvironment>>,
+    config_override: Option<PathBuf>,
+    remote_cache_mode: RemoteCacheMode,
+  ) -> Self {
     Self {
       environment,
       plugin_resolver,
       plugins_scope_by_config: Default::default(),
       config_override,
+      remote_cache_mode,
       plugins_generation: Default::default(),
     }
   }
@@ -125,7 +133,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
   /// config file it's using.
   fn resolve_config<'a>(&'a self, config_file: &'a ResolvedConfigPathWithText, use_global_config: bool) -> LocalBoxFuture<'a, Result<ResolvedConfig>> {
     async move {
-      let config = resolve_config_from_path_with_bytes(config_file, &self.environment).await?;
+      let config = resolve_config_from_path_with_bytes(config_file, self.remote_cache_mode, &self.environment).await?;
       // a specified config file is used on its own
       if config.inherit != Some(true) || config.is_global || self.config_override.is_some() {
         return Ok(config);
