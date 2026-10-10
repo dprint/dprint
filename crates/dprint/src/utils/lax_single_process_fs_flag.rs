@@ -146,7 +146,7 @@ struct LaxSingleProcessFsFlagInner<TEnvironment: Environment> {
 impl<TEnvironment: Environment> Drop for LaxSingleProcessFsFlagInner<TEnvironment> {
   fn drop(&mut self) {
     use fs3::FileExt;
-    // kill the poll thread (ignore the error if the thread already exited)
+    // kill the poll thread (ignore the error if the task never ran)
     let _ignore = self.finished_sender.send(());
     // release the file lock
     if let Err(err) = FileExt::unlock(&self.fs_file) {
