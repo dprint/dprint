@@ -27,6 +27,11 @@ use serde::Deserialize;
 use serde::Serialize;
 
 fn main() -> Result<(), FormatError> {
+  if std::env::args().any(|arg| arg == "--pipe-holder") {
+    std::thread::sleep(std::time::Duration::from_secs(20));
+    return Ok(());
+  }
+
   let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
   rt.block_on(async move {
     if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
@@ -223,6 +228,14 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
       )
     } else if file_text == "should_error" {
       return Err("Did error.".into());
+    } else if file_text == "spawn_pipe_holder" {
+      // spawn a subprocess that inherits and holds open this process' stdio pipes
+      let exe = std::env::current_exe()?;
+      std::process::Command::new(exe)
+        .arg("--pipe-holder")
+        .stdin(std::process::Stdio::null())
+        .spawn()?;
+      file_text.to_string()
     } else {
       file_text.to_string()
     };

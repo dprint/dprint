@@ -1,4 +1,5 @@
 use anyhow::Result;
+use anyhow::bail;
 use deno_terminal::colors;
 use dprint_core::communication::AtomicFlag;
 use dprint_core::plugins::HostFormatRequest;
@@ -6,6 +7,7 @@ use dprint_core::plugins::NullCancellationToken;
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -15,13 +17,18 @@ use thiserror::Error;
 use crate::arg_parser::CheckSubCommand;
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::DiffFormat;
+use crate::arg_parser::FileLineRanges;
 use crate::arg_parser::FmtSubCommand;
+use crate::arg_parser::LineRange;
 use crate::arg_parser::OutputFormatTimesSubCommand;
 use crate::arg_parser::StdInFmtSubCommand;
 use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
+use crate::format::LineRangesByPath;
 use crate::format::RunForFilePathError;
+use crate::format::get_line_range_byte_range;
+use crate::format::merge_line_ranges;
 use crate::format::run_parallelized;
 use crate::incremental::GetIncrementalFileOptions;
 use crate::incremental::get_incremental_file;
@@ -31,6 +38,7 @@ use crate::patterns::FileMatcherOptions;
 use crate::patterns::get_all_file_patterns;
 use crate::plugins::PluginResolver;
 use crate::resolution::PluginsScope;
+use crate::resolution::PluginsScopeAndPathsCollection;
 use crate::resolution::ResolvePluginsScopeAndPathsOptions;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
@@ -93,6 +101,7 @@ pub async fn stdin_fmt<TEnvironment: Environment>(
     &cmd.file_bytes,
     plugins_scope,
     EnsureStableFormat(cmd.enable_stable_format),
+    &cmd.line_ranges,
     environment,
   )
   .await
@@ -103,20 +112,25 @@ async fn output_stdin_format<TEnvironment: Environment>(
   file_bytes: &[u8],
   plugins_scope: Rc<PluginsScope<TEnvironment>>,
   ensure_stable_format: EnsureStableFormat,
+  line_ranges: &[LineRange],
   environment: &TEnvironment,
 ) -> Result<()> {
-  let result = plugins_scope
-    .format_stable(
-      HostFormatRequest {
-        file_path,
-        file_bytes: file_bytes.to_vec(),
-        range: None,
-        override_config: Default::default(),
-        token: Arc::new(NullCancellationToken),
-      },
-      ensure_stable_format,
-    )
-    .await?;
+  let result = if line_ranges.is_empty() {
+    plugins_scope
+      .format_stable(
+        HostFormatRequest {
+          file_path,
+          file_bytes: file_bytes.to_vec(),
+          range: None,
+          override_config: Default::default(),
+          token: Arc::new(NullCancellationToken),
+        },
+        ensure_stable_format,
+      )
+      .await?
+  } else {
+    format_line_ranges(&file_path, file_bytes, line_ranges, &plugins_scope).await?
+  };
   match result {
     Some(text) => environment.log_machine_readable(&text),
     None => environment.log_machine_readable(file_bytes),
@@ -142,7 +156,7 @@ pub async fn output_format_times<TEnvironment: Environment>(
   let durations: Arc<Mutex<Vec<(PathBuf, u128)>>> = Arc::new(Mutex::new(Vec::new()));
 
   for scope_and_paths in scopes.into_iter() {
-    run_parallelized(scope_and_paths, environment, None, EnsureStableFormat(false), {
+    run_parallelized(scope_and_paths, environment, None, EnsureStableFormat(false), Default::default(), {
       let durations = durations.clone();
       move |file_path, _, _, start_instant, _| {
         let duration = start_instant.elapsed().as_millis();
@@ -215,52 +229,59 @@ pub async fn check<TEnvironment: Environment>(
         )
       })
       .map(Arc::new);
-    run_parallelized(scope_and_paths, environment, incremental_file.clone(), EnsureStableFormat(false), {
-      let not_formatted_files_count = not_formatted_files_count.clone();
-      let incremental_file = incremental_file.clone();
-      let fail_fast_flag = fail_fast_flag.clone();
-      move |file_path, file_bytes, formatted_bytes, _, environment| {
-        if formatted_bytes != file_bytes {
-          not_formatted_files_count.inc();
-          if output_json {
-            output_json_difference(
-              OutputJsonDifferenceOptions {
-                file_path: &file_path,
-                file_bytes: &file_bytes,
-                formatted_bytes: &formatted_bytes,
-                diff_format,
-              },
-              &environment,
-            );
-          } else if list_different {
-            log_stdout_info!(environment, "{}", file_path.display());
+    run_parallelized(
+      scope_and_paths,
+      environment,
+      incremental_file.clone(),
+      EnsureStableFormat(false),
+      Default::default(),
+      {
+        let not_formatted_files_count = not_formatted_files_count.clone();
+        let incremental_file = incremental_file.clone();
+        let fail_fast_flag = fail_fast_flag.clone();
+        move |file_path, file_bytes, formatted_bytes, _, environment| {
+          if formatted_bytes != file_bytes {
+            not_formatted_files_count.inc();
+            if output_json {
+              output_json_difference(
+                OutputJsonDifferenceOptions {
+                  file_path: &file_path,
+                  file_bytes: &file_bytes,
+                  formatted_bytes: &formatted_bytes,
+                  diff_format,
+                },
+                &environment,
+              );
+            } else if list_different {
+              log_stdout_info!(environment, "{}", file_path.display());
+            } else {
+              output_difference(
+                OutputDifferenceOptions {
+                  file_path: &file_path,
+                  file_bytes: &file_bytes,
+                  formatted_bytes: &formatted_bytes,
+                  diff_format,
+                },
+                &environment,
+              );
+            }
+            if let Some(fail_fast_flag) = &fail_fast_flag {
+              fail_fast_flag.raise();
+              return Err(RunForFilePathError::Stop);
+            }
           } else {
-            output_difference(
-              OutputDifferenceOptions {
-                file_path: &file_path,
-                file_bytes: &file_bytes,
-                formatted_bytes: &formatted_bytes,
-                diff_format,
-              },
-              &environment,
-            );
+            // update the incremental cache when the file is already formatted correctly
+            // so that this runs faster next time, but don't update it with the
+            // correctly formatted file because it hasn't undergone a stable
+            // formatting check
+            if let Some(incremental_file) = &incremental_file {
+              incremental_file.update_file(&formatted_bytes);
+            }
           }
-          if let Some(fail_fast_flag) = &fail_fast_flag {
-            fail_fast_flag.raise();
-            return Err(RunForFilePathError::Stop);
-          }
-        } else {
-          // update the incremental cache when the file is already formatted correctly
-          // so that this runs faster next time, but don't update it with the
-          // correctly formatted file because it hasn't undergone a stable
-          // formatting check
-          if let Some(incremental_file) = &incremental_file {
-            incremental_file.update_file(&formatted_bytes);
-          }
+          Ok(())
         }
-        Ok(())
-      }
-    })
+      },
+    )
     .await?;
 
     if fail_fast_flag.as_ref().map(|flag| flag.is_raised()).unwrap_or(false) {
@@ -402,12 +423,16 @@ pub async fn format<TEnvironment: Environment>(
   .await?;
   scopes.ensure_valid_for_cli_args(args)?;
 
+  let line_ranges = Rc::new(resolve_line_ranges_by_path(&cmd.line_ranges, &scopes, environment)?);
+
   let formatted_files_count = Arc::new(AtomicCounter::default());
   for scope_and_paths in scopes.into_iter() {
     let incremental_file = scope_and_paths
       .scope
       .config
       .as_ref()
+      // a file that only had some of its lines formatted isn't known to be formatted
+      .filter(|_| line_ranges.is_empty())
       .and_then(|config| {
         get_incremental_file(
           GetIncrementalFileOptions {
@@ -428,6 +453,7 @@ pub async fn format<TEnvironment: Environment>(
       environment,
       incremental_file.clone(),
       EnsureStableFormat(cmd.enable_stable_format),
+      line_ranges.clone(),
       {
         let formatted_files_count = formatted_files_count.clone();
         let incremental_file = incremental_file.clone();
@@ -474,6 +500,116 @@ pub async fn format<TEnvironment: Environment>(
   }
 
   Ok(())
+}
+
+/// Resolves the `--lines` ranges to the files that will be formatted.
+fn resolve_line_ranges_by_path<TEnvironment: Environment>(
+  line_ranges: &[FileLineRanges],
+  scopes: &PluginsScopeAndPathsCollection<TEnvironment>,
+  environment: &TEnvironment,
+) -> Result<LineRangesByPath> {
+  let mut result = LineRangesByPath::new();
+  let mut ranges_without_path = Vec::<LineRange>::new();
+  for line_range in line_ranges {
+    match &line_range.path {
+      Some(path) => {
+        // resolve the same way as the file paths to format
+        let path_text = path;
+        let path = environment.cwd().join(path_text);
+        let path = match environment.canonicalize(&path) {
+          Ok(path) => path.into_path_buf(),
+          // the path is also used to find the files to format, so the
+          // files a glob finds would be formatted in their entirety
+          Err(_) if crate::utils::is_pattern(path_text) => {
+            bail!("Lines can only be specified for a file path, but '{}' is a glob.", path_text);
+          }
+          Err(_) => path, // doesn't exist, so it won't be formatted
+        };
+        result.entry(path).or_default().extend(&line_range.ranges);
+      }
+      None => ranges_without_path.extend(&line_range.ranges),
+    }
+  }
+  ensure_no_line_ranges_for_directory(&result, scopes)?;
+
+  if !ranges_without_path.is_empty() {
+    let mut file_paths = scopes.iter().flat_map(|s| s.file_paths_by_plugins.all_file_paths());
+    if let Some(file_path) = file_paths.next() {
+      let remaining_count = file_paths.count();
+      if remaining_count > 0 {
+        bail!(
+          concat!(
+            "A --lines flag without a file path can only be used when formatting a single file, but {} files were found. ",
+            "Specify the file each range is for (ex. --lines path/to/file.ts:10:20).",
+          ),
+          remaining_count + 1
+        );
+      }
+      result.entry(file_path.clone()).or_default().extend(ranges_without_path);
+    }
+  }
+
+  Ok(result)
+}
+
+/// Errors when a path with line ranges is a directory because its files would
+/// be formatted in their entirety. This looks at the files that were found
+/// instead of the file system in order to not make any system calls.
+fn ensure_no_line_ranges_for_directory<TEnvironment: Environment>(
+  line_ranges: &LineRangesByPath,
+  scopes: &PluginsScopeAndPathsCollection<TEnvironment>,
+) -> Result<()> {
+  if line_ranges.is_empty() {
+    return Ok(());
+  }
+  let all_file_paths = || scopes.iter().flat_map(|s| s.file_paths_by_plugins.all_file_paths());
+  let mut paths_not_found = line_ranges.keys().map(|p| p.as_path()).collect::<HashSet<_>>();
+  for file_path in all_file_paths() {
+    paths_not_found.remove(file_path.as_path());
+  }
+  // these are now either directories or files that aren't being formatted
+  if paths_not_found.is_empty() {
+    return Ok(());
+  }
+  for file_path in all_file_paths() {
+    if let Some(dir_path) = file_path.ancestors().skip(1).find(|ancestor| paths_not_found.contains(ancestor)) {
+      bail!("Lines can only be specified for a file path, but '{}' is a directory.", dir_path.display());
+    }
+  }
+  Ok(())
+}
+
+/// Formats the provided lines of the text, returning `None` when nothing changed.
+///
+/// The ranges are passed on to the plugins, so what's formatted is up to them.
+async fn format_line_ranges<TEnvironment: Environment>(
+  file_path: &Path,
+  file_bytes: &[u8],
+  line_ranges: &[LineRange],
+  plugins_scope: &Rc<PluginsScope<TEnvironment>>,
+) -> Result<Option<Vec<u8>>> {
+  let mut formatted_bytes: Option<Vec<u8>> = None;
+  // go from the last range to the first so that formatting a range
+  // doesn't shift the lines of the ranges that are still to be formatted
+  for line_range in merge_line_ranges(line_ranges).into_iter().rev() {
+    let current_bytes = formatted_bytes.as_deref().unwrap_or(file_bytes);
+    let Some(range) = get_line_range_byte_range(current_bytes, line_range) else {
+      continue; // past the end of the text
+    };
+    let result = plugins_scope
+      .format(HostFormatRequest {
+        file_path: file_path.to_path_buf(),
+        file_bytes: current_bytes.to_vec(),
+        range: Some(range),
+        override_config: Default::default(),
+        token: Arc::new(NullCancellationToken),
+      })
+      .await?;
+    if let Some(new_bytes) = result {
+      formatted_bytes = Some(new_bytes);
+    }
+  }
+  Ok(formatted_bytes)
 }
 
 #[cfg(test)]
@@ -4864,6 +5000,177 @@ text2"
       environment.take_stderr_messages(),
       vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
     );
+  }
+
+  #[test]
+  fn should_format_line_ranges_for_stdin_fmt() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin().build();
+    let run = |args: Vec<&str>, text: &str| {
+      let mut all_args = vec!["fmt", "--stdin", "file.txt"];
+      all_args.extend(args);
+      run_test_cli_with_stdin(all_args, &environment, TestStdInReader::from(text)).unwrap();
+      environment.take_stdout_messages()
+    };
+
+    // the test plugin replaces the range with _formatted_ and
+    // leaves the text alone when it ends with _formatted
+    let text = "line1\nline2\nline3\nline4\n_formatted";
+    assert_eq!(run(vec!["--lines", "2:2"], text), vec!["line1\n_formatted_\nline3\nline4\n_formatted"]);
+    assert_eq!(run(vec!["--lines=2:3"], text), vec!["line1\n_formatted_\nline4\n_formatted"]);
+    // multiple ranges in any order
+    assert_eq!(
+      run(vec!["--lines", "1", "--lines", "4:4", "--lines", "2:2"], text),
+      vec!["_formatted_\nline3\n_formatted_\n_formatted"]
+    );
+    // overlapping ranges are formatted as one
+    assert_eq!(run(vec!["--lines", "2:3", "--lines", "3:4"], text), vec!["line1\n_formatted_\n_formatted"]);
+    // excludes the carriage return
+    let crlf_text = "line1\r\nline2\r\n_formatted";
+    assert_eq!(run(vec!["--lines", "1:1"], crlf_text), vec!["_formatted_\r\nline2\r\n_formatted"]);
+    assert_eq!(run(vec!["--lines", "2:2"], crlf_text), vec!["line1\r\n_formatted_\r\n_formatted"]);
+    // past the end of the text
+    assert_eq!(run(vec!["--lines", "6:7"], text), vec![text]);
+    assert_eq!(run(vec!["--lines", "50:60"], text), vec![text]);
+  }
+
+  #[test]
+  fn should_format_line_ranges_for_file() {
+    let file_path = "/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file(file_path, "line1\nline2\nline3\n_formatted")
+      .write_file("/other.txt", "text")
+      .build();
+    run_test_cli(vec!["fmt", "--lines", "1:1", "--lines", "3:3", file_path], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(file_path).unwrap(), "_formatted_\nline2\n_formatted_\n_formatted");
+
+    // nothing to format
+    run_test_cli(vec!["fmt", "--lines", "10:12", file_path], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), Vec::<String>::new());
+    assert_eq!(environment.read_file(file_path).unwrap(), "_formatted_\nline2\n_formatted_\n_formatted");
+
+    // a range without a file path needs a single file
+    let err = run_test_cli(vec!["fmt", "--lines", "1:1"], &environment).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      concat!(
+        "A --lines flag without a file path can only be used when formatting a single file, but 2 files were found. ",
+        "Specify the file each range is for (ex. --lines path/to/file.ts:10:20).",
+      )
+    );
+    assert_eq!(environment.read_file("/other.txt").unwrap(), "text");
+  }
+
+  fn build_line_ranges_environment() -> TestEnvironment {
+    // the test plugin replaces a range with _formatted_ and
+    // leaves the text alone when it ends with _formatted
+    TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file("/a.txt", "a1\na2\na3\n_formatted")
+      .write_file("/sub/b.txt", "b1\nb2\n_formatted")
+      .write_file("/c.txt", "c")
+      .write_file("/d.txt", "d")
+      .build()
+  }
+
+  #[test]
+  fn should_format_line_ranges_for_multiple_files() {
+    let environment = build_line_ranges_environment();
+    run_test_cli(vec!["fmt", "--lines", "/a.txt:1:1,3", "--lines", "sub/b.txt:2:2"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/a.txt").unwrap(), "_formatted_\na2\n_formatted_\n_formatted");
+    assert_eq!(environment.read_file("/sub/b.txt").unwrap(), "b1\n_formatted_\n_formatted");
+    // only the files with line ranges are formatted
+    assert_eq!(environment.read_file("/c.txt").unwrap(), "c");
+    assert_eq!(environment.read_file("/d.txt").unwrap(), "d");
+  }
+
+  #[test]
+  fn should_format_line_ranges_with_globs() {
+    let environment = build_line_ranges_environment();
+    // a file that's also matched by a glob only has its lines formatted
+    run_test_cli(vec!["fmt", "--lines", "/a.txt:2:2", "--", "/*.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    assert_eq!(environment.read_file("/a.txt").unwrap(), "a1\n_formatted_\na3\n_formatted");
+    assert_eq!(environment.read_file("/c.txt").unwrap(), "c_formatted");
+    assert_eq!(environment.read_file("/d.txt").unwrap(), "d_formatted");
+    assert_eq!(environment.read_file("/sub/b.txt").unwrap(), "b1\nb2\n_formatted");
+  }
+
+  #[test]
+  fn should_error_for_line_ranges_of_directory() {
+    // a glob isn't tested here because the test environment's canonicalize never fails
+    let environment = build_line_ranges_environment();
+    let err = run_test_cli(vec!["fmt", "--lines", "/sub:1:1"], &environment).err().unwrap();
+    assert_eq!(err.to_string(), "Lines can only be specified for a file path, but '/sub' is a directory.");
+    let test_std_in = TestStdInReader::from(
+      "/a.txt:1:1
+/sub:2
+",
+    );
+    let err = run_test_cli_with_stdin(vec!["fmt", "--stdin-files"], &environment, test_std_in).err().unwrap();
+    assert_eq!(err.to_string(), "Lines can only be specified for a file path, but '/sub' is a directory.");
+    // nothing was formatted
+    assert_eq!(
+      environment.read_file("/a.txt").unwrap(),
+      "a1
+a2
+a3
+_formatted"
+    );
+    assert_eq!(
+      environment.read_file("/sub/b.txt").unwrap(),
+      "b1
+b2
+_formatted"
+    );
+  }
+
+  #[test]
+  fn should_format_line_ranges_for_file_with_glob_chars_in_name() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .write_file("/[id].txt", "a1\na2\n_formatted")
+      .write_file("/other.txt", "text")
+      .build();
+    run_test_cli(vec!["fmt", "--lines", "/[id].txt:2"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/[id].txt").unwrap(), "a1\n_formatted_\n_formatted");
+    assert_eq!(environment.read_file("/other.txt").unwrap(), "text");
+  }
+
+  #[test]
+  fn should_format_line_ranges_and_entire_files() {
+    let environment = build_line_ranges_environment();
+    run_test_cli(vec!["fmt", "--lines", "/a.txt:2:2", "--", "/a.txt", "/c.txt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/a.txt").unwrap(), "a1\n_formatted_\na3\n_formatted");
+    // a file without line ranges is formatted in its entirety
+    assert_eq!(environment.read_file("/c.txt").unwrap(), "c_formatted");
+    assert_eq!(environment.read_file("/sub/b.txt").unwrap(), "b1\nb2\n_formatted");
+    assert_eq!(environment.read_file("/d.txt").unwrap(), "d");
+  }
+
+  #[test]
+  fn should_format_line_ranges_from_stdin_files() {
+    let environment = build_line_ranges_environment();
+    let test_std_in = TestStdInReader::from("/a.txt:1:1,3\n/c.txt\n/sub/b.txt:2\n");
+    run_test_cli_with_stdin(vec!["fmt", "--stdin-files"], &environment, test_std_in).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
+    assert_eq!(environment.read_file("/a.txt").unwrap(), "_formatted_\na2\n_formatted_\n_formatted");
+    assert_eq!(environment.read_file("/sub/b.txt").unwrap(), "b1\n_formatted_\n_formatted");
+    assert_eq!(environment.read_file("/c.txt").unwrap(), "c_formatted");
+    assert_eq!(environment.read_file("/d.txt").unwrap(), "d");
+  }
+
+  #[test]
+  fn should_not_use_incremental_when_formatting_line_ranges() {
+    let environment = build_line_ranges_environment();
+    run_test_cli(vec!["fmt", "--incremental", "--lines", "/a.txt:1:1"], &environment).unwrap();
+    assert_eq!(environment.read_file("/a.txt").unwrap(), "_formatted_\na2\na3\n_formatted");
+    environment.take_stdout_messages();
+    // the other lines still get formatted afterwards
+    run_test_cli(vec!["fmt", "--incremental", "--lines", "/a.txt:2:2"], &environment).unwrap();
+    assert_eq!(environment.read_file("/a.txt").unwrap(), "_formatted_\n_formatted_\na3\n_formatted");
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
   }
 
   #[test]

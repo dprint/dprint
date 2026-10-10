@@ -30,6 +30,7 @@ jobs:
             run_tests: "true"
             target: x86_64-apple-darwin
             cross: "false"
+            cross_test: "false"
             musl_image: ""
             zigbuild_glibc: ""
             cargo: cargo
@@ -38,6 +39,7 @@ jobs:
             run_tests: "true"
             target: aarch64-apple-darwin
             cross: "false"
+            cross_test: "false"
             musl_image: ""
             zigbuild_glibc: ""
             cargo: cargo
@@ -46,6 +48,7 @@ jobs:
             run_tests: "true"
             target: x86_64-pc-windows-msvc
             cross: "false"
+            cross_test: "false"
             musl_image: ""
             zigbuild_glibc: ""
             cargo: cargo
@@ -54,6 +57,7 @@ jobs:
             run_tests: "true"
             target: aarch64-pc-windows-msvc
             cross: "false"
+            cross_test: "false"
             musl_image: ""
             zigbuild_glibc: ""
             cargo: cargo
@@ -62,6 +66,7 @@ jobs:
             run_tests: "true"
             target: x86_64-unknown-linux-gnu
             cross: "false"
+            cross_test: "false"
             musl_image: ""
             zigbuild_glibc: "2.17"
             cargo: cargo-zigbuild
@@ -70,6 +75,7 @@ jobs:
             run_tests: "false"
             target: x86_64-unknown-linux-musl
             cross: "false"
+            cross_test: "false"
             musl_image: ""
             zigbuild_glibc: ""
             cargo: cargo
@@ -78,6 +84,7 @@ jobs:
             run_tests: "true"
             target: aarch64-unknown-linux-gnu
             cross: "false"
+            cross_test: "false"
             musl_image: ""
             zigbuild_glibc: "2.17"
             cargo: cargo-zigbuild
@@ -86,6 +93,7 @@ jobs:
             run_tests: "false"
             target: aarch64-unknown-linux-musl
             cross: "false"
+            cross_test: "false"
             musl_image: ""
             zigbuild_glibc: ""
             cargo: cargo
@@ -94,6 +102,7 @@ jobs:
             run_tests: "false"
             target: riscv64gc-unknown-linux-gnu
             cross: "true"
+            cross_test: "true"
             musl_image: ""
             zigbuild_glibc: ""
             cargo: cargo
@@ -102,6 +111,7 @@ jobs:
             run_tests: "false"
             target: riscv64gc-unknown-linux-musl
             cross: "false"
+            cross_test: "false"
             musl_image: "ghcr.io/rust-cross/rust-musl-cross:riscv64gc-musl"
             zigbuild_glibc: ""
             cargo: cargo
@@ -110,6 +120,7 @@ jobs:
             run_tests: "false"
             target: s390x-unknown-linux-gnu
             cross: "true"
+            cross_test: "true"
             musl_image: ""
             zigbuild_glibc: ""
             cargo: cargo
@@ -118,6 +129,7 @@ jobs:
             run_tests: "false"
             target: loongarch64-unknown-linux-gnu
             cross: "true"
+            cross_test: "true"
             musl_image: ""
             zigbuild_glibc: ""
             cargo: cargo
@@ -126,6 +138,7 @@ jobs:
             run_tests: "false"
             target: loongarch64-unknown-linux-musl
             cross: "true"
+            cross_test: "true"
             musl_image: ""
             zigbuild_glibc: ""
             cargo: cargo
@@ -134,6 +147,7 @@ jobs:
             run_tests: "false"
             target: powerpc64le-unknown-linux-gnu
             cross: "true"
+            cross_test: "true"
             musl_image: ""
             zigbuild_glibc: ""
             cargo: cargo
@@ -142,6 +156,7 @@ jobs:
             run_tests: "false"
             target: powerpc64le-unknown-linux-musl
             cross: "false"
+            cross_test: "false"
             musl_image: "ghcr.io/rust-cross/rust-musl-cross:powerpc64le-musl"
             zigbuild_glibc: ""
             cargo: cargo
@@ -150,6 +165,7 @@ jobs:
             run_tests: "false"
             target: aarch64-linux-android
             cross: "true"
+            cross_test: "true"
             musl_image: ""
             zigbuild_glibc: ""
             cargo: cargo
@@ -158,6 +174,7 @@ jobs:
             run_tests: "false"
             target: x86_64-linux-android
             cross: "true"
+            cross_test: "true"
             musl_image: ""
             zigbuild_glibc: ""
             cargo: cargo
@@ -166,6 +183,7 @@ jobs:
             run_tests: "false"
             target: x86_64-unknown-freebsd
             cross: "true"
+            cross_test: "false"
             musl_image: ""
             zigbuild_glibc: ""
             cargo: cargo
@@ -174,6 +192,7 @@ jobs:
             run_tests: "false"
             target: aarch64-unknown-freebsd
             cross: "true"
+            cross_test: "false"
             musl_image: ""
             zigbuild_glibc: ""
             cargo: cargo
@@ -323,8 +342,8 @@ jobs:
       - name: Test (Release)
         if: 'matrix.run_tests == ''true'' && startsWith(github.ref, ''refs/tags/'')'
         run: "${{ matrix.cargo }} test --locked --target ${{ matrix.cargo_target }} --all-features --release"
-      - name: Test wasm plugins (s390x)
-        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.target == ''s390x-unknown-linux-gnu'' && !startsWith(github.ref, ''refs/tags/'')'
+      - name: Test wasm plugins (cross)
+        if: '((matrix.target != ''aarch64-unknown-linux-gnu'' && matrix.target != ''aarch64-unknown-linux-musl'') || github.ref == ''refs/heads/main'' || startsWith(github.ref, ''refs/tags/'')) && matrix.cross_test == ''true'' && !startsWith(github.ref, ''refs/tags/'')'
         run: "cross test -p dprint --locked --target ${{ matrix.target }} -- should_format_single_file should_handle_wasm_plugin_erroring"
       - name: Build zigbuild (Release)
         if: 'startsWith(github.ref, ''refs/tags/'') && (matrix.target == ''x86_64-apple-darwin'' || matrix.target == ''aarch64-apple-darwin'' || matrix.target == ''x86_64-pc-windows-msvc'' || matrix.target == ''aarch64-pc-windows-msvc'' || matrix.target == ''x86_64-unknown-linux-gnu'' || matrix.target == ''x86_64-unknown-linux-musl'' || matrix.target == ''aarch64-unknown-linux-gnu'' || matrix.target == ''aarch64-unknown-linux-musl'' || matrix.target == ''riscv64gc-unknown-linux-gnu'' || matrix.target == ''riscv64gc-unknown-linux-musl'' || matrix.target == ''s390x-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-gnu'' || matrix.target == ''loongarch64-unknown-linux-musl'' || matrix.target == ''powerpc64le-unknown-linux-gnu'' || matrix.target == ''powerpc64le-unknown-linux-musl'' || matrix.target == ''aarch64-linux-android'' || matrix.target == ''x86_64-linux-android'' || matrix.target == ''x86_64-unknown-freebsd'' || matrix.target == ''aarch64-unknown-freebsd'') && matrix.zigbuild_glibc != '''''
