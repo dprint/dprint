@@ -896,7 +896,7 @@ impl Environment for TestEnvironment {
       match entry {
         Entry::Occupied(entry) => Ok(entry.get().clone()),
         Entry::Vacant(entry) => {
-          let value = crate::plugins::compile_wasm(bytes).unwrap();
+          let value = crate::plugins::compile_wasm(bytes, self.max_threads()).unwrap();
           entry.insert(value.clone());
           Ok(value)
         }
