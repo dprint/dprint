@@ -40,6 +40,14 @@ impl NpmSpecifier {
     plugin_kind_from_extension(&self.path).unwrap_or(PluginKind::Wasm)
   }
 
+  /// Whether `path` is one of the conventional root plugin files
+  /// (`plugin.wasm` / `plugin.json`) rather than a path chosen within the
+  /// package. The conventional file is detected from the package again on
+  /// update, since a plugin can change kind between versions.
+  pub fn has_conventional_path(&self) -> bool {
+    self.path == DEFAULT_NPM_PLUGIN_FILE || self.path == "plugin.json"
+  }
+
   /// Returns the specifier string suitable for display.
   pub fn display(&self) -> String {
     let path_suffix = if self.path == DEFAULT_NPM_PLUGIN_FILE {
@@ -444,6 +452,19 @@ mod tests {
     assert_eq!(result.specifier.version, Some("1.0.0".to_string()));
     assert_eq!(result.specifier.path, "plugin.json");
     assert_eq!(result.checksum, Some("sha256hash".to_string()));
+  }
+
+  #[test]
+  fn has_conventional_path_for_the_root_plugin_files() {
+    let path = |path: &str| NpmSpecifier {
+      name: "foo".to_string(),
+      version: None,
+      path: path.to_string(),
+    };
+    assert!(path("plugin.wasm").has_conventional_path());
+    assert!(path("plugin.json").has_conventional_path());
+    assert!(!path("json/plugin.wasm").has_conventional_path());
+    assert!(!path("exec/plugin.json").has_conventional_path());
   }
 
   #[test]

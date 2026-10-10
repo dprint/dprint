@@ -1334,6 +1334,52 @@ mod test {
   }
 
   #[tokio::test]
+  async fn npm_node_modules_resolve_suggests_the_plugin_file_the_package_ships() -> Result<()> {
+    let environment = TestEnvironment::new();
+    let plugin_cache = PluginCache::new(environment.clone());
+    let resolve_error = |path: &str| {
+      let plugin_cache = &plugin_cache;
+      let path = path.to_string();
+      async move {
+        let plugin_source = PluginSourceReference {
+          path_source: PathSource::new_npm(
+            NpmSpecifier {
+              name: "foo".to_string(),
+              version: None,
+              path,
+            },
+            None,
+          ),
+          checksum: None,
+        };
+        match plugin_cache.get_plugin_cache_item(&plugin_source).await {
+          Ok(_) => panic!("expected an error"),
+          Err(err) => format!("{err:#}"),
+        }
+      }
+    };
+
+    // the suggestion is written the way the user would write it, which leaves
+    // out the default plugin.wasm
+    environment.mk_dir_all("/node_modules/foo").unwrap();
+    environment.write_file("/node_modules/foo/plugin.wasm", "wasm").unwrap();
+    let chained = resolve_error("plugin.json").await;
+    assert!(
+      chained.contains("The package contains plugin.wasm instead — reference it as `npm:foo`."),
+      "got: {chained}"
+    );
+
+    environment.remove_file("/node_modules/foo/plugin.wasm").unwrap();
+    environment.write_file("/node_modules/foo/plugin.json", "{}").unwrap();
+    let chained = resolve_error("plugin.wasm").await;
+    assert!(
+      chained.contains("The package contains plugin.json instead — reference it as `npm:foo/plugin.json`."),
+      "got: {chained}"
+    );
+    Ok(())
+  }
+
+  #[tokio::test]
   async fn npm_registry_tarball_rejects_path_traversal_entries() -> Result<()> {
     use crate::test_helpers::create_test_npm_tarball_raw_paths;
 
