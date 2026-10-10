@@ -10,9 +10,10 @@ use crate::environment::DownloadedFile;
 use crate::environment::UrlDownloader;
 use crate::utils::get_bytes_hash;
 
-type CachedDownloadResult = Result<Option<Vec<u8>>, String>;
-/// The url, a hash of the auth, and the proxy.
-type CachedDownloadKey = (String, Option<u64>, String);
+/// The content and whether it was a 304 Not Modified response.
+type CachedDownloadResult = Result<Option<(Vec<u8>, bool)>, String>;
+/// The url, a hash of the auth, the proxy, and the cache validators.
+type CachedDownloadKey = (String, Option<u64>, String, String);
 
 pub struct CachedDownloader<TInner: UrlDownloader> {
   inner: TInner,
@@ -35,13 +36,15 @@ impl<TInner: UrlDownloader> UrlDownloader for CachedDownloader<TInner> {
       url.to_string(),
       options.auth.map(|s| get_bytes_hash(s.as_bytes())),
       format!("{:?}", options.proxy),
+      format!("{:?}", options.cache_validators),
     );
     {
       if let Some(result) = self.results.borrow().get(&key) {
         return match result {
-          Ok(result) => Ok(result.clone().map(|content| DownloadedFile {
+          Ok(result) => Ok(result.clone().map(|(content, not_modified)| DownloadedFile {
             headers: Default::default(),
             content,
+            not_modified,
           })),
           Err(err) => Err(anyhow!("{:#}", err)),
         };
@@ -51,7 +54,7 @@ impl<TInner: UrlDownloader> UrlDownloader for CachedDownloader<TInner> {
     self.results.borrow_mut().insert(
       key,
       match &result {
-        Ok(result) => Ok(result.as_ref().map(|r| r.content.clone())),
+        Ok(result) => Ok(result.as_ref().map(|r| (r.content.clone(), r.not_modified))),
         Err(err) => Err(format!("{:#}", err)),
       },
     );

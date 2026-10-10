@@ -13,6 +13,7 @@ use crate::arg_parser::parse_args;
 use crate::environment::TestEnvironment;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginResolver;
+use crate::plugins::PluginResolverOptions;
 use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
 
@@ -195,9 +196,15 @@ pub fn run_test_cli(args: Vec<&str>, environment: &TestEnvironment) -> Result<()
 pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, stdin_reader: TestStdInReader) -> Result<(), TestAppError> {
   let mut args: Vec<String> = args.into_iter().map(String::from).collect();
   args.insert(0, String::from(""));
-  let plugin_cache = PluginCache::new(environment.clone());
-  let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache));
   let args = parse_args(args, stdin_reader).map_err(|err| Into::<AppError>::into(err))?;
+  let plugin_cache = PluginCache::new(environment.clone());
+  let plugin_resolver = Rc::new(PluginResolver::new(
+    environment.clone(),
+    plugin_cache,
+    PluginResolverOptions {
+      reload_plugins: args.reload.plugins,
+    },
+  ));
   environment.set_stdout_machine_readable(args.is_stdout_machine_readable());
   environment.set_log_level(args.log_level);
 
@@ -357,6 +364,7 @@ OPTIONS:
   -c, --config <config>             Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.
       --config-discovery=<BOOLEAN>  Sets the config discovery mode. Set to `false` to completely disable, `ignore-descendants` to avoid finding config files in child directories, or `global` to only use the global config file.
       --plugins <urls/files>...     List of urls or file paths of plugins to use. This overrides what is specified in the config file.
+      --reload[=<config|plugins>]   Checks for newer versions of remote configuration files and plugins instead of using the cached ones. Specify `config` or `plugins` to only check one of them.
   -L, --log-level <log-level>       Set log level [default: info] [possible values: debug, info, warn, error, silent]
 
 ENVIRONMENT VARIABLES:
