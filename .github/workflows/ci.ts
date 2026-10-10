@@ -19,7 +19,7 @@ interface ProfileData {
   cross?: boolean;
   /**
    * Build by running cargo directly inside this Docker image. Used for targets
-   * cross doesn't provide an image for (e.g. powerpc64le musl), where the image
+   * cross doesn't provide an image for (e.g. riscv64gc/powerpc64le musl), where the image
    * already bundles the toolchain.
    */
   muslCrossImage?: string;
@@ -68,6 +68,12 @@ const profileDataItems: ProfileData[] = [{
   os: OperatingSystem.Linux,
   target: "riscv64gc-unknown-linux-gnu",
   cross: true,
+}, {
+  // cross has no riscv64gc musl image, so build directly in the prebuilt
+  // rust-musl-cross toolchain image instead (see the musl image build step).
+  os: OperatingSystem.Linux,
+  target: "riscv64gc-unknown-linux-musl",
+  muslCrossImage: "ghcr.io/rust-cross/rust-musl-cross:riscv64gc-musl",
 }, {
   os: OperatingSystem.Linux,
   target: "loongarch64-unknown-linux-gnu",

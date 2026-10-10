@@ -34,7 +34,7 @@ else
 			fi
 			;;
 		"Linux loongarch64") target="loongarch64-unknown-linux" ;;
-		"Linux riscv64") target="riscv64gc-unknown-linux-gnu" ;; # riscv64 build only has a GNU libc variant.
+		"Linux riscv64") target="riscv64gc-unknown-linux" ;;
 		"Linux ppc64le") target="powerpc64le-unknown-linux" ;;
 		*) target="x86_64-unknown-linux" ;;
 	esac
