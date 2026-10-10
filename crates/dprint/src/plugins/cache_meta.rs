@@ -117,7 +117,11 @@ pub fn read_meta(hash: &str, environment: &impl Environment) -> Option<PluginCac
   serde_json::from_str(&text).ok()
 }
 
+/// Writes the sidecar for a newly set up entry. This also drops what was cached
+/// from the previous plugin at this hash (ex. a rebuilt local plugin is set up
+/// again under the same hash) since it may no longer apply.
 pub fn write_meta(hash: &str, meta: &PluginCacheMeta, environment: &impl Environment) -> Result<()> {
+  let _ = environment.remove_file(wasm_resolution_cache_path(hash, environment));
   let serialized = serde_json::to_string(meta)?;
   Ok(environment.atomic_write_file_bytes(meta_path(hash, environment), serialized.as_bytes())?)
 }
@@ -216,6 +220,7 @@ mod test {
     environment.mk_dir_all(&dir).unwrap();
     write_meta("h", &make_meta("sig"), &environment).unwrap();
     environment.write_file(&wasm_artifact_path("h", &environment), "compiled").unwrap();
+    environment.write_file(&wasm_resolution_cache_path("h", &environment), "{}").unwrap();
     environment.mk_dir_all(process_dir_path("h", &environment)).unwrap();
     environment.write_file(&process_dir_path("h", &environment).join("exe"), "bin").unwrap();
 
@@ -223,6 +228,18 @@ mod test {
 
     assert!(read_meta("h", &environment).is_none());
     assert!(!environment.path_exists(&wasm_artifact_path("h", &environment)));
+    assert!(!environment.path_exists(&wasm_resolution_cache_path("h", &environment)));
     assert!(!environment.path_exists(&process_dir_path("h", &environment)));
+  }
+
+  #[test]
+  fn write_meta_drops_previous_resolution_cache() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all(plugins_dir(&environment)).unwrap();
+    environment.write_file(&wasm_resolution_cache_path("h", &environment), "{}").unwrap();
+
+    write_meta("h", &make_meta("sig"), &environment).unwrap();
+
+    assert!(!environment.path_exists(&wasm_resolution_cache_path("h", &environment)));
   }
 }
