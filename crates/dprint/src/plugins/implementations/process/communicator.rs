@@ -338,7 +338,6 @@ mod test {
   #[test]
   fn should_not_hang_when_plugin_subprocess_holds_stdio_open() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin().build();
-    unsafe { std::env::set_var("DPRINT_TEST_PROCESS_PLUGIN_SPAWN_PIPE_HOLDER", "1") };
     let (tx, rx) = std::sync::mpsc::channel::<()>();
     let test_environment = environment.clone();
     let handle = std::thread::spawn(move || {
@@ -355,7 +354,8 @@ mod test {
           let formatted_text = communicator
             .format_text(InitializedPluginFormatRequest {
               file_path: PathBuf::from("test.txt"),
-              file_text: "testing".to_string().into_bytes(),
+              // special text that makes the plugin spawn a subprocess that holds its stdio pipes open
+              file_text: "spawn_pipe_holder".to_string().into_bytes(),
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),
@@ -366,13 +366,12 @@ mod test {
             .unwrap();
           assert_eq!(
             formatted_text.map(|t| String::from_utf8(t).unwrap()),
-            Some("testing_formatted_process".to_string())
+            Some("spawn_pipe_holder_formatted_process".to_string())
           );
 
           communicator.shutdown().await;
         }
       });
-      unsafe { std::env::remove_var("DPRINT_TEST_PROCESS_PLUGIN_SPAWN_PIPE_HOLDER") };
       tx.send(()).unwrap();
     });
     let completed = rx.recv_timeout(std::time::Duration::from_secs(10));

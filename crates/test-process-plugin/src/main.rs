@@ -38,12 +38,6 @@ fn main() -> Result<(), FormatError> {
       start_parent_process_checker_task(parent_process_id);
     }
 
-    if std::env::var("DPRINT_TEST_PROCESS_PLUGIN_SPAWN_PIPE_HOLDER").as_deref() == Ok("1")
-      && let Ok(exe) = std::env::current_exe()
-    {
-      let _ignore = std::process::Command::new(exe).arg("--pipe-holder").stdin(std::process::Stdio::null()).spawn();
-    }
-
     handle_process_stdio_messages(TestProcessPluginHandler::new()).await
   })
 }
@@ -234,6 +228,14 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
       )
     } else if file_text == "should_error" {
       return Err("Did error.".into());
+    } else if file_text == "spawn_pipe_holder" {
+      // spawn a subprocess that inherits and holds open this process' stdio pipes
+      let exe = std::env::current_exe()?;
+      std::process::Command::new(exe)
+        .arg("--pipe-holder")
+        .stdin(std::process::Stdio::null())
+        .spawn()?;
+      file_text.to_string()
     } else {
       file_text.to_string()
     };
