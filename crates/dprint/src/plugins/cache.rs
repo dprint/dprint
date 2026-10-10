@@ -3,6 +3,7 @@ use anyhow::Result;
 use anyhow::bail;
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -142,6 +143,11 @@ where
     let _setup_guard = self.fs_locks.lock(&cache_source).await;
     let cache_key = self.compute_cache_key(&cache_source)?;
     let hash = entry_hash(&cache_key, &self.environment);
+    // also remove the per-platform npm package a process plugin's executable is
+    // run from, so that setting the plugin up again gets a fresh copy of it
+    if let Some(package_dir) = read_meta(&hash, &self.environment).and_then(|meta| self.npm_executable_package_dir(&meta)) {
+      npm_resolution::remove_npm_package_dir(&package_dir, &self.environment);
+    }
     remove_entry(&hash, &self.environment);
 
     // also remove the npm tarball extract dir for versioned npm specifiers
@@ -152,10 +158,21 @@ where
       let registry = self.resolve_registry_url(&npm_source.specifier.name, start_dir);
       let registry_segment = npm_resolution::registry_dir_segment(&registry);
       let extract_dir = npm_resolution::get_npm_extract_dir(&registry_segment, &npm_source.specifier.name, version, &self.environment);
-      self.environment.try_remove_dir_all(&extract_dir);
+      npm_resolution::remove_npm_package_dir(&extract_dir, &self.environment);
     }
 
     Ok(())
+  }
+
+  /// Gets the directory in the npm cache of the package that a process
+  /// plugin's executable is run from (`<registry>/<name>@<version>`).
+  fn npm_executable_package_dir(&self, meta: &PluginCacheMeta) -> Option<PathBuf> {
+    let sub_path = Path::new(meta.npm_executable_sub_path.as_deref()?);
+    let mut components = sub_path.components();
+    let (Some(Component::Normal(registry)), Some(Component::Normal(package))) = (components.next(), components.next()) else {
+      return None;
+    };
+    Some(npm_cache_dir(&self.environment).join(registry).join(package))
   }
 
   /// Returns the `PathSource` whose cache key matches how the resolve flow
@@ -986,17 +1003,31 @@ mod test {
     let extract_dir = environment.get_cache_dir().join("npm").join("registry.npmjs.org").join("@dprint__test@1.0.0");
     environment.mk_dir_all(&extract_dir).unwrap();
     environment.write_file(&extract_dir.join("plugin.wasm"), "fake").unwrap();
+    let extract_dir_meta = extract_dir.with_file_name("@dprint__test@1.0.0.meta.json");
+    environment.write_file(&extract_dir_meta, "{}").unwrap();
+
+    // and the per-platform package a process plugin's executable is run from
+    let executable_dir = environment.get_cache_dir().join("npm").join("registry.npmjs.org").join("test-bin@1.0.0");
+    environment.mk_dir_all(&executable_dir).unwrap();
+    environment.write_file(&executable_dir.join("bin"), "fake").unwrap();
+    let executable_dir_meta = executable_dir.with_file_name("test-bin@1.0.0.meta.json");
+    environment.write_file(&executable_dir_meta, "{}").unwrap();
 
     let cache_key = plugin_cache.compute_cache_key(&plugin_source.path_source)?;
     let hash = entry_hash(&cache_key, &environment);
     let artifact = wasm_artifact_path(&hash, &environment);
     environment.mk_dir_all(plugins_dir(&environment)).unwrap();
     environment.write_file(&artifact, "compiled").unwrap();
-    write_meta(&hash, &make_wasm_meta(&cache_key, "test-plugin", "1.0.0", &environment), &environment)?;
+    let mut meta = make_wasm_meta(&cache_key, "test-plugin", "1.0.0", &environment);
+    meta.npm_executable_sub_path = Some("registry.npmjs.org/test-bin@1.0.0/bin".to_string());
+    write_meta(&hash, &meta, &environment)?;
 
     plugin_cache.forget(&plugin_source).await?;
 
     assert!(!environment.path_exists(&extract_dir));
+    assert!(!environment.path_exists(&extract_dir_meta));
+    assert!(!environment.path_exists(&executable_dir));
+    assert!(!environment.path_exists(&executable_dir_meta));
     assert!(!environment.path_exists(&artifact));
     assert!(read_meta(&hash, &environment).is_none());
     Ok(())

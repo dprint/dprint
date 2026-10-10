@@ -661,6 +661,15 @@ pub async fn ensure_npm_package_extracted(
   let tarball_bytes = fetch_npm_tarball(name, version, registry, environment).await?;
   let tarball_sha256 = get_sha256_checksum(&tarball_bytes);
 
+  if has_extract_dir {
+    // the directory doesn't have a recorded checksum, so there's no way to know
+    // its contents are this tarball's. It needs to be gone before the checksum
+    // is recorded, otherwise it would be considered to be this tarball's
+    environment
+      .remove_dir_all(&extract_dir)
+      .with_context(|| format!("Failed to remove {}", extract_dir.display()))?;
+  }
+
   // record the checksum before extracting so that an extracted directory
   // always has the checksum of the tarball it came from alongside it
   write_npm_tarball_meta(&registry_segment, name, version, &tarball_sha256, environment)
@@ -669,16 +678,7 @@ pub async fn ensure_npm_package_extracted(
   // extract in a blocking task since tarball decompression and file I/O can be slow
   let environment_clone = environment.clone();
   let dir = extract_dir.clone();
-  dprint_core::async_runtime::spawn_blocking(move || {
-    if has_extract_dir {
-      // the directory doesn't have a recorded checksum, so there's no way to
-      // know its contents are this tarball's
-      extract_tarball_replacing(&tarball_bytes, &dir, &environment_clone)
-    } else {
-      extract_tarball_to_dir(&tarball_bytes, &dir, &environment_clone)
-    }
-  })
-  .await??;
+  dprint_core::async_runtime::spawn_blocking(move || extract_tarball_to_dir(&tarball_bytes, &dir, &environment_clone)).await??;
 
   Ok(NpmPackageDir {
     dir: extract_dir,
@@ -936,6 +936,20 @@ struct NpmTarballMeta {
   tarball_sha256: String,
 }
 
+/// Removes a package's directory from the npm cache.
+///
+/// The recorded checksum is removed first so that a directory which was only
+/// partially removed (ex. a file in it is in use) isn't considered to be a
+/// package that can be used.
+pub(super) fn remove_npm_package_dir(extract_dir: &Path, environment: &impl Environment) {
+  if let Some(dir_name) = extract_dir.file_name() {
+    let mut meta_file_name = dir_name.to_os_string();
+    meta_file_name.push(".meta.json");
+    let _ = environment.remove_file(extract_dir.with_file_name(meta_file_name));
+  }
+  environment.try_remove_dir_all(extract_dir);
+}
+
 /// Path of the sidecar file caching a tarball's checksum, kept next to (not
 /// inside) the `name@version` extract directory so it doesn't mix with the
 /// package's own files. Wiped by `dprint clear-cache` along with the rest of
@@ -1027,36 +1041,6 @@ fn extract_tarball_to_dir(tarball_bytes: &[u8], dest_dir: &Path, environment: &i
       }
     }
   }
-}
-
-/// Extracts an npm tarball into `dest_dir`, replacing any existing contents.
-/// Same wrapper-stripping / path-traversal / permission-preserving rules as
-/// [`extract_tarball_to_dir`], but for a directory whose existing contents
-/// can't be used. The extract goes through a sibling temp dir so a crash
-/// mid-extract can't leave the destination half-populated.
-fn extract_tarball_replacing(tarball_bytes: &[u8], dest_dir: &Path, environment: &impl Environment) -> Result<()> {
-  use crate::utils::fs::get_atomic_path;
-
-  let temp_dir = get_atomic_path(environment, dest_dir);
-  environment.mk_dir_all(&temp_dir)?;
-
-  if let Err(err) = extract_tarball_to_dir_inner(tarball_bytes, &temp_dir, environment) {
-    environment.try_remove_dir_all(&temp_dir);
-    return Err(err);
-  }
-
-  // remove any existing directory before moving the staged extract into place.
-  // surface a removal failure directly — otherwise the rename below fails with
-  // a confusing "directory not empty" error that hides the real cause.
-  if let Err(err) = environment.remove_dir_all(dest_dir) {
-    environment.try_remove_dir_all(&temp_dir);
-    return Err(err.into());
-  }
-  if let Err(err) = environment.rename(&temp_dir, dest_dir) {
-    environment.try_remove_dir_all(&temp_dir);
-    return Err(err.into());
-  }
-  Ok(())
 }
 
 fn extract_tarball_to_dir_inner(tarball_bytes: &[u8], output_dir: &Path, environment: &impl Environment) -> Result<()> {
@@ -2908,6 +2892,33 @@ mod tests {
         ),
       );
     }
+  }
+
+  #[tokio::test]
+  async fn ensure_npm_package_extracted_replaces_dir_without_recorded_checksum() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    let tarball_checksum = stage_per_platform_npm_package(&environment, "foo", "1.0.0", &[("package/file.txt", b"new")]);
+    let registry = resolve_registry_for_package("foo", None, &environment);
+    let extract_dir = environment.get_cache_dir().join("npm/registry.npmjs.org/foo@1.0.0");
+    environment.mk_dir_all(&extract_dir).unwrap();
+    environment.write_file(extract_dir.join("file.txt"), "old").unwrap();
+    environment.write_file(extract_dir.join("stale.txt"), "old").unwrap();
+
+    let package = ensure_npm_package_extracted("foo", "1.0.0", &registry, &environment).await.unwrap();
+    assert_eq!(package.dir, extract_dir);
+    assert_eq!(package.tarball_checksum, tarball_checksum);
+    assert!(package.is_first_download);
+    assert_eq!(environment.read_file(extract_dir.join("file.txt")).unwrap(), "new");
+    assert!(!environment.path_exists(extract_dir.join("stale.txt")));
+
+    // now it has a recorded checksum, so it's used as-is
+    environment.write_file(extract_dir.join("file.txt"), "kept").unwrap();
+    let package = ensure_npm_package_extracted("foo", "1.0.0", &registry, &environment).await.unwrap();
+    assert_eq!(package.tarball_checksum, tarball_checksum);
+    assert!(!package.is_first_download);
+    assert_eq!(environment.read_file(extract_dir.join("file.txt")).unwrap(), "kept");
+    assert_eq!(environment.remote_file_request_count("https://registry.npmjs.org/foo/-/foo-1.0.0.tgz"), 1);
   }
 
   #[tokio::test]
