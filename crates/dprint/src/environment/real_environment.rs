@@ -636,7 +636,7 @@ impl Environment for RealEnvironment {
   }
 
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult> {
-    crate::plugins::compile_wasm(wasm_bytes)
+    crate::plugins::compile_wasm(wasm_bytes, self.max_threads())
   }
 
   fn wasm_cache_key(&self) -> String {

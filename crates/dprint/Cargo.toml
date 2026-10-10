@@ -38,6 +38,7 @@ once_cell = "=1.21.3"
 parking_lot = "=0.12.3"
 percent-encoding = "=2.3.1"
 rand = "=0.9.1"
+rayon = "=1.11.0"
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "=0.10.9"
@@ -70,18 +71,36 @@ rkyv = "=0.8.15"
 # wasm plugin runtime (wasmtime). default features are disabled to keep the
 # binary small — we only need to compile and run modules synchronously;
 # component-model, async, winch, the wat parser, wasm GC, the on-disk cache and
-# the pooling allocator are all unused.
+# the pooling allocator are all unused. `parallel-compilation` compiles a
+# module's functions in parallel on the rayon pool the compile is run in.
 
 # most targets: native Cranelift codegen.
 [target.'cfg(not(any(target_arch = "powerpc64", target_arch = "loongarch64", target_os = "android")))'.dependencies]
-wasmtime = { version = "=43.0.2", default-features = false, features = ["cranelift", "runtime", "std", "anyhow", "demangle", "addr2line"] }
+wasmtime = { version = "=43.0.2", default-features = false, features = [
+  "cranelift",
+  "parallel-compilation",
+  "runtime",
+  "std",
+  "anyhow",
+  "demangle",
+  "addr2line",
+] }
 
 # powerpc64/loongarch64 have no native Cranelift backend, and the Android sandbox
 # lacks the signal-based traps native code needs, so these compile to Pulley
 # bytecode (still via Cranelift) and interpret it. the `pulley` feature adds the
 # bytecode emitter; the interpreter is already part of `runtime`.
 [target.'cfg(any(target_arch = "powerpc64", target_arch = "loongarch64", target_os = "android"))'.dependencies]
-wasmtime = { version = "=43.0.2", default-features = false, features = ["cranelift", "runtime", "std", "anyhow", "demangle", "addr2line", "pulley"] }
+wasmtime = { version = "=43.0.2", default-features = false, features = [
+  "cranelift",
+  "parallel-compilation",
+  "runtime",
+  "std",
+  "anyhow",
+  "demangle",
+  "addr2line",
+  "pulley",
+] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "=0.55.0"
