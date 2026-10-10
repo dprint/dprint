@@ -95,6 +95,40 @@ Use `dprint fmt --stdin <file-path/file-name/extension>` and provide the input f
 
 Provide a full file path to format with inclusion/exclusion rules of your dprint configuration file or provide only a file name or extension to always format the file.
 
+### Formatting a Range of Lines
+
+Use the `--lines <file-path>:<first>:<last>` flag to only format a range of lines in a file. Line numbers are 1-based and the range is inclusive. Separate several ranges in a file with commas and specify the flag multiple times to format several files:
+
+```sh
+dprint fmt --lines src/main.ts:10:20,35:40,52 --lines src/other.ts:5:8
+```
+
+The files of the ranges are formatted in addition to any other files provided on the command line, which are formatted in their entirety. When no other files are provided, only the files of the ranges are formatted.
+
+The file path may be omitted when formatting a single file or the text provided to `--stdin`:
+
+```sh
+dprint fmt --lines 10:20,35:40 src/main.ts
+dprint fmt --stdin src/main.ts --lines 10:20 < src/main.ts
+```
+
+With `--stdin-files`, add the lines to the end of a file path instead. A file path without lines is formatted in its entirety:
+
+```sh
+printf 'src/main.ts:10:20,35:40\nsrc/other.ts\n' | dprint fmt --stdin-files
+```
+
+This is useful for tools that only format modified lines. For example, with [Jujutsu's `jj fix`](https://docs.jj-vcs.dev/latest/config/#enforce-code-formatting-on-modified-lines):
+
+```toml
+[fix.tools.dprint]
+command = ["dprint", "fmt", "--stdin", "$path"]
+line-range-args = ["--lines=$first:$last"]
+patterns = ["glob:'**/*.ts'"]
+```
+
+The range is passed on to the plugin the same way as range formatting in the [language server](/lsp), so what's formatted is up to the plugin. A plugin that doesn't support range formatting may format the entire file or leave the text as-is.
+
 ### Formatting a list of files from Standard Input
 
 Requires dprint >= 0.55.0

@@ -1,8 +1,10 @@
 use anyhow::Result;
 use anyhow::bail;
 use dprint_core::async_runtime::future;
+use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::NullCancellationToken;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -12,6 +14,7 @@ use std::time::Instant;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
+use crate::arg_parser::LineRange;
 use crate::environment::Environment;
 use crate::incremental::IncrementalFile;
 use crate::resolution::GetPluginResult;
@@ -44,6 +47,15 @@ impl EnsureStableFormat {
     });
     EnsureStableFormat(enabled)
   }
+}
+
+/// The lines to limit the formatting of a file to. A file that's
+/// not in here is formatted in its entirety.
+pub type LineRangesByPath = HashMap<PathBuf, Vec<LineRange>>;
+
+enum FileFormatKind {
+  EntireFile(EnsureStableFormat),
+  LineRanges(Vec<LineRange>),
 }
 
 #[derive(Debug, Error)]
@@ -79,6 +91,7 @@ pub async fn run_parallelized<F, TEnvironment: Environment>(
   environment: &TEnvironment,
   incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
   ensure_stable_format: EnsureStableFormat,
+  line_ranges: Rc<LineRangesByPath>,
   f: F,
 ) -> Result<(), RunParallelizedError>
 where
@@ -134,6 +147,7 @@ where
       let f = f.clone();
       let semaphores = semaphores.clone();
       let scope = scope.clone();
+      let line_ranges = line_ranges.clone();
       async move {
         let _semaphore_permits = SemaphorePermitReleaser { index, semaphores };
         // resolve the plugins
@@ -169,6 +183,7 @@ where
           let plugins = plugins.clone();
           let error_logger = error_logger.clone();
           let scope = scope.clone();
+          let line_ranges = line_ranges.clone();
           format_handles.push(dprint_core::async_runtime::spawn(async move {
             let long_format_token = CancellationToken::new();
             dprint_core::async_runtime::spawn({
@@ -186,7 +201,11 @@ where
                 }
               }
             });
-            let result = run_for_file_path(environment, incremental_file, scope, plugins, file_path.clone(), ensure_stable_format, f).await;
+            let format_kind = match line_ranges.get(&file_path) {
+              Some(line_ranges) => FileFormatKind::LineRanges(line_ranges.clone()),
+              None => FileFormatKind::EntireFile(ensure_stable_format),
+            };
+            let result = run_for_file_path(environment, incremental_file, scope, plugins, file_path.clone(), format_kind, f).await;
             long_format_token.cancel();
             if let Err(err) = result {
               match err {
@@ -236,7 +255,7 @@ where
     scope: Rc<PluginsScope<TEnvironment>>,
     plugins: Rc<Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>>,
     file_path: PathBuf,
-    ensure_stable_format: EnsureStableFormat,
+    format_kind: FileFormatKind,
     f: F,
   ) -> Result<(), RunForFilePathError>
   where
@@ -260,13 +279,21 @@ where
       return Ok(());
     };
 
-    let (start_instant, formatted_text) =
-      run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), &file_text).await?;
-
-    let formatted_text = if ensure_stable_format.0 && formatted_text != file_text {
-      get_stabilized_format_text(environment.clone(), scope, plugins, file_path.clone(), formatted_text).await?
-    } else {
-      formatted_text
+    let (start_instant, formatted_text) = match format_kind {
+      // the ranges wouldn't apply to the formatted text, so only format them once
+      FileFormatKind::LineRanges(line_ranges) => {
+        run_line_ranges_for_file_path(environment.clone(), scope, plugins, file_path.clone(), &file_text, &line_ranges).await?
+      }
+      FileFormatKind::EntireFile(ensure_stable_format) => {
+        let (start_instant, formatted_text) =
+          run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), &file_text, None).await?;
+        let formatted_text = if ensure_stable_format.0 && formatted_text != file_text {
+          get_stabilized_format_text(environment.clone(), scope, plugins, file_path.clone(), formatted_text).await?
+        } else {
+          formatted_text
+        };
+        (start_instant, formatted_text)
+      }
     };
 
     dprint_core::async_runtime::spawn_blocking(move || f(file_path, file_text, formatted_text, start_instant, environment)).await??;
@@ -284,12 +311,36 @@ where
     stabilize_format_text(&environment, &file_path, formatted_text, |text| {
       let (environment, scope, plugins, file_path) = (environment.clone(), scope.clone(), plugins.clone(), file_path.clone());
       async move {
-        run_single_pass_for_file_path(environment, scope, plugins, file_path, &text)
+        run_single_pass_for_file_path(environment, scope, plugins, file_path, &text, None)
           .await
           .map(|(_, text)| text)
       }
     })
     .await
+  }
+
+  /// Formats only the provided lines of the file.
+  async fn run_line_ranges_for_file_path<TEnvironment: Environment>(
+    environment: TEnvironment,
+    scope: Rc<PluginsScope<TEnvironment>>,
+    plugins: Rc<Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>>,
+    file_path: PathBuf,
+    file_text: &[u8],
+    line_ranges: &[LineRange],
+  ) -> Result<(Instant, Vec<u8>)> {
+    let start_instant = Instant::now();
+    let mut file_text = Cow::Borrowed(file_text);
+    // go from the last range to the first so that formatting a range
+    // doesn't shift the lines of the ranges that are still to be formatted
+    for line_range in merge_line_ranges(line_ranges).into_iter().rev() {
+      let Some(range) = get_line_range_byte_range(&file_text, line_range) else {
+        continue; // past the end of the text
+      };
+      let (_, formatted_text) =
+        run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), &file_text, Some(range)).await?;
+      file_text = Cow::Owned(formatted_text);
+    }
+    Ok((start_instant, file_text.into_owned()))
   }
 
   async fn run_single_pass_for_file_path<TEnvironment: Environment>(
@@ -298,6 +349,7 @@ where
     plugins: Rc<Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>>,
     file_path: PathBuf,
     file_text: &[u8],
+    range: FormatRange,
   ) -> Result<(Instant, Vec<u8>)> {
     let start_instant = Instant::now();
     let original_text = file_text;
@@ -309,7 +361,7 @@ where
         .format_text(InitializedPluginWithConfigFormatRequest {
           file_path: file_path.to_path_buf(),
           file_bytes: file_text.to_vec(),
-          range: None,
+          range: range.clone(),
           override_config: plugin.get_config_file_overrides_for_path(&file_path),
           on_host_format: scope.create_host_format_callback(),
           token: Arc::new(NullCancellationToken),
@@ -350,6 +402,38 @@ where
 
     Ok((start_instant, file_text.into_owned()))
   }
+}
+
+/// Sorts the line ranges and combines the ones that overlap or are adjacent.
+pub fn merge_line_ranges(line_ranges: &[LineRange]) -> Vec<LineRange> {
+  let mut sorted_ranges = line_ranges.to_vec();
+  sorted_ranges.sort_by_key(|r| (r.first, r.last));
+  let mut result: Vec<LineRange> = Vec::with_capacity(sorted_ranges.len());
+  for range in sorted_ranges {
+    match result.last_mut() {
+      Some(previous) if range.first <= previous.last.saturating_add(1) => {
+        previous.last = previous.last.max(range.last);
+      }
+      _ => result.push(range),
+    }
+  }
+  result
+}
+
+/// Gets the byte range from the start of the first line to the end of the
+/// last line (excluding its newline), clamping to the end of the text.
+/// Returns `None` when the first line is past the end of the text.
+pub fn get_line_range_byte_range(text: &[u8], line_range: LineRange) -> Option<std::ops::Range<usize>> {
+  let mut line_starts = std::iter::once(0).chain(text.iter().enumerate().filter(|(_, byte)| **byte == b'\n').map(|(i, _)| i + 1));
+  let start = line_starts.nth(line_range.first - 1).filter(|start| *start < text.len())?;
+  let end = match line_starts.nth(line_range.last - line_range.first) {
+    Some(next_line_start) => {
+      let end = next_line_start - 1;
+      if end > start && text[end - 1] == b'\r' { end - 1 } else { end }
+    }
+    None => text.len(),
+  };
+  Some(start..end)
 }
 
 /// Formats the already formatted text again until the output doesn't change.
@@ -553,6 +637,37 @@ mod test {
 
   use super::*;
   use crate::utils::Semaphore;
+
+  #[test]
+  fn should_get_line_range_byte_range() {
+    fn get(text: &str, first: usize, last: usize) -> Option<std::ops::Range<usize>> {
+      get_line_range_byte_range(text.as_bytes(), LineRange { first, last })
+    }
+
+    assert_eq!(get("a\nbb\nccc", 1, 1), Some(0..1));
+    assert_eq!(get("a\nbb\nccc", 2, 3), Some(2..8));
+    assert_eq!(get("a\nbb\nccc", 2, 100), Some(2..8));
+    assert_eq!(get("a\nbb\nccc", 4, 4), None);
+    assert_eq!(get("a\n", 1, 1), Some(0..1));
+    assert_eq!(get("a\n", 2, 2), None);
+    assert_eq!(get("", 1, 1), None);
+    assert_eq!(get("\n\n", 2, 2), Some(1..1));
+    assert_eq!(get("a\r\nb\r\n", 1, 1), Some(0..1));
+    assert_eq!(get("a\r\nb\r\n", 1, 2), Some(0..4));
+    assert_eq!(get("\r\n\r\n", 1, 1), Some(0..0));
+  }
+
+  #[test]
+  fn should_merge_line_ranges() {
+    fn merge(ranges: &[(usize, usize)]) -> Vec<(usize, usize)> {
+      let ranges = ranges.iter().map(|&(first, last)| LineRange { first, last }).collect::<Vec<_>>();
+      merge_line_ranges(&ranges).into_iter().map(|r| (r.first, r.last)).collect()
+    }
+
+    assert_eq!(merge(&[(5, 6), (1, 2)]), vec![(1, 2), (5, 6)]);
+    assert_eq!(merge(&[(1, 2), (3, 4), (10, 12), (11, 11), (12, 20)]), vec![(1, 4), (10, 20)]);
+    assert_eq!(merge(&[(1, usize::MAX), (2, 3)]), vec![(1, usize::MAX)]);
+  }
 
   #[test]
   fn target_cpu_calc() {
