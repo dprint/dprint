@@ -6543,15 +6543,58 @@ text_formatted"
       }
     });
     environment.add_remote_file_bytes("https://registry.npmjs.org/test-process", top_packument.to_string().into_bytes());
-    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz", top_tarball);
-    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process-bin", per_platform_packument.to_string().into_bytes());
-    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process-bin/-/test-process-bin-0.1.0.tgz", per_platform_tarball);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz", top_tarball.clone());
+    let add_per_platform_package = || {
+      environment.add_remote_file_bytes("https://registry.npmjs.org/test-process-bin", per_platform_packument.to_string().into_bytes());
+      environment.add_remote_file_bytes(
+        "https://registry.npmjs.org/test-process-bin/-/test-process-bin-0.1.0.tgz",
+        per_platform_tarball.clone(),
+      );
+    };
+    add_per_platform_package();
+    let format_file = || {
+      environment.write_file("/file.txt_ps", "text").unwrap();
+      run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
+      assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+      assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_formatted_process");
+      let _ = environment.take_stderr_messages();
+    };
 
-    run_test_cli(vec!["fmt", "/file.txt_ps"], &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_formatted_process");
+    format_file();
 
-    let _ = environment.take_stderr_messages();
+    // the executable is run in place from the npm cache
+    let per_platform_dir = environment.get_cache_dir().join("npm/registry.npmjs.org/test-process-bin@0.1.0");
+    assert!(environment.path_exists(per_platform_dir.join(binary_filename)));
+
+    // nothing is downloaded the next time
+    for url in [
+      "https://registry.npmjs.org/test-process",
+      "https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz",
+      "https://registry.npmjs.org/test-process-bin",
+      "https://registry.npmjs.org/test-process-bin/-/test-process-bin-0.1.0.tgz",
+    ] {
+      environment.add_remote_file_error(url, "must not be fetched again");
+    }
+    format_file();
+
+    // sets the plugin up again when the per-platform package is no longer in the npm cache
+    environment.remove_dir_all(&per_platform_dir).unwrap();
+    add_per_platform_package();
+    format_file();
+    assert!(environment.path_exists(per_platform_dir.join(binary_filename)));
+
+    // never runs the executable when the package in the npm cache isn't the
+    // one that was verified (ex. something else caused it to be replaced)
+    let per_platform_tarball_url = "https://registry.npmjs.org/test-process-bin/-/test-process-bin-0.1.0.tgz";
+    let request_count = environment.remote_file_request_count(per_platform_tarball_url);
+    environment
+      .write_file(per_platform_dir.join(".dprint-npm-meta.json"), r#"{ "tarballChecksum": "other" }"#)
+      .unwrap();
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process", top_packument.to_string().into_bytes());
+    environment.add_remote_file_bytes("https://registry.npmjs.org/test-process/-/test-process-1.0.0.tgz", top_tarball.clone());
+    // it's downloaded and verified again instead
+    format_file();
+    assert_eq!(environment.remote_file_request_count(per_platform_tarball_url), request_count + 1);
   }
 
   #[test]

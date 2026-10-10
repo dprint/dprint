@@ -83,7 +83,12 @@ pub fn parse_plugin_source_reference(text: &str, base: &PathSource, environment:
     validate_plugin_extension(&parsed.specifier, text)?;
     // store the config directory for node_modules resolution. Callers pass the
     // directory to resolve plugin references from, not the config file path.
-    let base_dir = base.maybe_local_path().cloned();
+    let base_dir = match base {
+      PathSource::Local(local) => Some(local.path.clone()),
+      // a config file from the npm registry, so use the directory it was resolved from
+      PathSource::Npm(npm) => npm.base_dir.clone(),
+      PathSource::Remote(_) => None,
+    };
     return Ok(PluginSourceReference {
       path_source: PathSource::new_npm(parsed.specifier, base_dir),
       checksum: parsed.checksum,

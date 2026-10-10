@@ -209,6 +209,10 @@ fn validate_safe_sub_path(path: &str, original: &str) -> Result<()> {
   if path.contains('\\') {
     bail!("Plugin path in npm specifier must not contain backslashes (got '{}'): {}", path, original);
   }
+  // a drive letter (ex. `C:/dir/file.json`) replaces the base path when joined on Windows
+  if path.contains(':') {
+    bail!("Plugin path in npm specifier must not contain colons (got '{}'): {}", path, original);
+  }
   for segment in path.split('/') {
     if segment.is_empty() {
       bail!("Plugin path in npm specifier must not contain empty segments (got '{}'): {}", path, original);
@@ -239,6 +243,11 @@ pub fn validate_safe_version(version: &str, original: &str) -> Result<()> {
   if version == "." || version == ".." {
     bail!("Version in npm specifier must not be '.' or '..' (got '{}'): {}", version, original);
   }
+  // Windows ignores trailing dots in a directory name, so this would be the
+  // directory of another version
+  if version.ends_with('.') {
+    bail!("Version in npm specifier must not end with '.' (got '{}'): {}", version, original);
+  }
   if !version.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+' | '_' | '~')) {
     bail!("Version in npm specifier contains invalid characters (got '{}'): {}", version, original);
   }
@@ -255,6 +264,10 @@ pub fn validate_safe_version(version: &str, original: &str) -> Result<()> {
 fn validate_safe_package_name(name: &str, original: &str) -> Result<()> {
   if name.contains('\\') {
     bail!("Package name in npm specifier must not contain backslashes (got '{}'): {}", name, original);
+  }
+  // a drive letter (ex. `C:name`) replaces the base path when joined on Windows
+  if name.contains(':') {
+    bail!("Package name in npm specifier must not contain colons (got '{}'): {}", name, original);
   }
   for segment in name.split('/') {
     if segment.is_empty() {
@@ -593,6 +606,18 @@ mod tests {
         "expected name rejection for {input}, got: {msg}",
       );
     }
+  }
+
+  #[test]
+  fn parse_rejects_paths_that_alias_or_replace_directories_on_windows() {
+    // a trailing dot is ignored in a directory name
+    assert!(parse_npm_specifier("npm:foo@1.0.0.").is_err());
+    assert!(parse_npm_specifier("npm:foo@1.0.0./file.json").is_err());
+    // a drive letter replaces the path it's joined to
+    assert!(parse_npm_specifier("npm:C:foo@1.0.0").is_err());
+    assert!(parse_npm_specifier("npm:@scope/C:foo@1.0.0").is_err());
+    assert!(parse_npm_specifier("npm:foo@1.0.0/C:/file.json").is_err());
+    assert!(parse_npm_specifier("npm:foo@1.0.0/file.json:stream").is_err());
   }
 
   #[test]
