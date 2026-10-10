@@ -133,26 +133,36 @@ pub async fn resolve_relative_npm_extends(relative_path: &str, base: &NpmPathSou
 /// they don't have a match, a sub path is the path of a file in the package and
 /// no sub path is the package.json's `main` if it's a JSON file or otherwise a
 /// dprint.json file at the root of the package.
+///
+/// Falling back when there's no match is more lenient than Node.js, which only
+/// allows what's in the `exports`. It's done because a package's `exports` are
+/// often only written for its JS and don't have its configuration files.
 fn resolve_config_path_in_package(package_dir: &Path, package_name: &str, sub_path: Option<&str>, environment: &impl Environment) -> Result<String> {
   let package_json = read_package_json(package_dir, environment)?;
   let export_key = match sub_path {
     Some(sub_path) => format!("./{}", sub_path),
     None => ".".to_string(),
   };
-  if let Some(target) = package_json
-    .as_ref()
-    .and_then(|p| p.get("exports"))
-    .and_then(|e| resolve_export(e, &export_key))
-  {
-    let Some(path) = normalize_package_json_path(target) else {
-      bail!(
-        "The \"exports\" of npm package {} has an invalid target for \"{}\": {}",
-        package_name,
-        export_key,
-        target
-      );
-    };
-    return Ok(path);
+  let export = match package_json.as_ref().and_then(|p| p.get("exports")) {
+    Some(exports) => resolve_export(exports, &export_key),
+    None => ExportResolution::NotFound,
+  };
+  match export {
+    ExportResolution::Target(target) => {
+      let Some(path) = normalize_package_json_path(&target) else {
+        bail!(
+          "The \"exports\" of npm package {} has an invalid target for \"{}\": {}",
+          package_name,
+          export_key,
+          target
+        );
+      };
+      return Ok(path);
+    }
+    ExportResolution::Excluded => {
+      bail!("The \"exports\" of npm package {} excludes \"{}\".", package_name, export_key);
+    }
+    ExportResolution::NotFound => {}
   }
 
   if let Some(sub_path) = sub_path {
@@ -197,33 +207,88 @@ fn read_package_json(package_dir: &Path, environment: &impl Environment) -> Resu
   Ok(Some(value))
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum ExportResolution {
+  /// Path of the file being exported (ex. `./src/index.json`).
+  Target(String),
+  /// The package explicitly doesn't export this (a `null` target).
+  Excluded,
+  NotFound,
+}
+
 /// Resolves a key (ex. `.` or `./sub/path`) in a package.json's `exports`
-/// to its target.
-///
-/// Subpath patterns (ex. `./configs/*`) are not supported.
-fn resolve_export<'a>(exports: &'a serde_json::Value, key: &str) -> Option<&'a str> {
-  match exports {
-    serde_json::Value::Object(obj) if obj.keys().any(|k| k.starts_with('.')) => resolve_export_target(obj.get(key)?, false),
+/// to its target following Node.js' resolution: an exact key has the highest
+/// precedence, then the most specific subpath pattern (ex. `./configs/*`).
+fn resolve_export(exports: &serde_json::Value, key: &str) -> ExportResolution {
+  let sub_paths = match exports {
+    serde_json::Value::Object(obj) if obj.keys().any(|k| k.starts_with('.')) => obj,
     // anything else is shorthand for the "." export
-    _ if key == "." => resolve_export_target(exports, false),
-    _ => None,
+    _ if key == "." => return resolve_export_target(exports, None, false),
+    _ => return ExportResolution::NotFound,
+  };
+  if !key.contains('*')
+    && let Some(target) = sub_paths.get(key)
+  {
+    return resolve_export_target(target, None, false);
+  }
+
+  // the pattern with the longest text before the `*` wins, then the longest pattern
+  let best_match = sub_paths
+    .iter()
+    .filter_map(|(pattern, target)| {
+      let (prefix, suffix) = pattern.split_once('*')?;
+      if suffix.contains('*') {
+        return None;
+      }
+      let pattern_match = key.strip_prefix(prefix)?.strip_suffix(suffix)?;
+      (!pattern_match.is_empty()).then_some((prefix.len(), pattern.len(), pattern_match, target))
+    })
+    .max_by_key(|(prefix_len, pattern_len, _, _)| (*prefix_len, *pattern_len));
+  match best_match {
+    Some((_, _, pattern_match, target)) => resolve_export_target(target, Some(pattern_match), false),
+    None => ExportResolution::NotFound,
   }
 }
 
 /// Resolves the target of an export. A target that's not within a `dprint`
 /// condition is only used when it's a JSON file since the export is otherwise
 /// most likely for a JS runtime (ex. `"default": "./index.js"`).
-fn resolve_export_target(target: &serde_json::Value, is_dprint_condition: bool) -> Option<&str> {
+fn resolve_export_target(target: &serde_json::Value, pattern_match: Option<&str>, is_dprint_condition: bool) -> ExportResolution {
   match target {
-    serde_json::Value::String(text) => (is_dprint_condition || is_json_file_name(text)).then_some(text),
-    // the first matching condition wins
-    serde_json::Value::Object(conditions) => conditions.iter().find_map(|(condition, target)| match condition.as_str() {
-      "dprint" => resolve_export_target(target, true),
-      "default" => resolve_export_target(target, is_dprint_condition),
-      _ => None,
-    }),
-    serde_json::Value::Array(targets) => targets.iter().find_map(|target| resolve_export_target(target, is_dprint_condition)),
-    _ => None,
+    serde_json::Value::String(text) => {
+      if is_dprint_condition || is_json_file_name(text) {
+        ExportResolution::Target(match pattern_match {
+          Some(pattern_match) => text.replace('*', pattern_match),
+          None => text.to_string(),
+        })
+      } else {
+        ExportResolution::NotFound
+      }
+    }
+    serde_json::Value::Null => ExportResolution::Excluded,
+    // the first matching condition that resolves wins
+    serde_json::Value::Object(conditions) => conditions
+      .iter()
+      .filter_map(|(condition, target)| match condition.as_str() {
+        "dprint" => Some(resolve_export_target(target, pattern_match, true)),
+        "default" => Some(resolve_export_target(target, pattern_match, is_dprint_condition)),
+        _ => None,
+      })
+      .find(|resolution| *resolution != ExportResolution::NotFound)
+      .unwrap_or(ExportResolution::NotFound),
+    // the first target that can be used wins
+    serde_json::Value::Array(targets) => {
+      let mut result = ExportResolution::NotFound;
+      for target in targets {
+        match resolve_export_target(target, pattern_match, is_dprint_condition) {
+          ExportResolution::Target(target) => return ExportResolution::Target(target),
+          ExportResolution::Excluded => result = ExportResolution::Excluded,
+          ExportResolution::NotFound => {}
+        }
+      }
+      result
+    }
+    _ => ExportResolution::NotFound,
   }
 }
 
@@ -350,6 +415,29 @@ mod tests {
       assert_eq!(get_number(&result, "prop2"), 2);
       assert_eq!(get_number(&result, "prop3"), 3);
       assert_eq!(get_number(&result, "prop4"), 4);
+    });
+  }
+
+  #[test]
+  fn should_follow_export_patterns_and_exclusions() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/dprint.json", r#"{ "extends": "npm:config/markdown" }"#)
+      .write_file("/excluded.json", r#"{ "extends": "npm:config/internal/base.json" }"#)
+      .write_file(
+        "/node_modules/config/package.json",
+        r#"{ "exports": { "./*": "./configs/*.json", "./internal/*": null } }"#,
+      )
+      .write_file("/node_modules/config/configs/markdown.json", r#"{ "prop1": 1 }"#)
+      .write_file("/node_modules/config/internal/base.json", r#"{ "prop2": 2 }"#)
+      .build();
+
+    environment.clone().run_in_runtime(async move {
+      let result = resolve_config("/dprint.json", &environment).await.unwrap();
+      assert_eq!(get_number(&result, "prop1"), 1);
+      assert_eq!(
+        resolve_config("/excluded.json", &environment).await.unwrap_err().to_string(),
+        "The \"exports\" of npm package config excludes \"./internal/base.json\".",
+      );
     });
   }
 
@@ -661,32 +749,53 @@ mod tests {
 
   #[test]
   fn should_resolve_exports() {
-    fn resolve(exports: &serde_json::Value, key: &str) -> Option<String> {
-      resolve_export(exports, key).map(|s| s.to_string())
+    fn target(text: &str) -> ExportResolution {
+      ExportResolution::Target(text.to_string())
     }
 
     let text = serde_json::json!("./index.json");
-    assert_eq!(resolve(&text, "."), Some("./index.json".to_string()));
-    assert_eq!(resolve(&text, "./sub"), None);
+    assert_eq!(resolve_export(&text, "."), target("./index.json"));
+    assert_eq!(resolve_export(&text, "./sub"), ExportResolution::NotFound);
 
     let conditions = serde_json::json!({ "import": "./index.js", "default": "./index.json" });
-    assert_eq!(resolve(&conditions, "."), Some("./index.json".to_string()));
-    assert_eq!(resolve(&conditions, "./sub"), None);
+    assert_eq!(resolve_export(&conditions, "."), target("./index.json"));
+    assert_eq!(resolve_export(&conditions, "./sub"), ExportResolution::NotFound);
 
     let sub_paths = serde_json::json!({
       ".": [{ "import": "./index.js" }, "./index.json"],
       "./sub": { "dprint": { "default": "./sub.json" }, "default": "./sub.js" },
       "./none": null,
+      "./condition-none": { "dprint": null, "default": "./other.json" },
     });
-    assert_eq!(resolve(&sub_paths, "."), Some("./index.json".to_string()));
-    assert_eq!(resolve(&sub_paths, "./sub"), Some("./sub.json".to_string()));
-    assert_eq!(resolve(&sub_paths, "./none"), None);
-    assert_eq!(resolve(&sub_paths, "./other"), None);
+    assert_eq!(resolve_export(&sub_paths, "."), target("./index.json"));
+    assert_eq!(resolve_export(&sub_paths, "./sub"), target("./sub.json"));
+    assert_eq!(resolve_export(&sub_paths, "./none"), ExportResolution::Excluded);
+    assert_eq!(resolve_export(&sub_paths, "./condition-none"), ExportResolution::Excluded);
+    assert_eq!(resolve_export(&sub_paths, "./other"), ExportResolution::NotFound);
 
     // only uses a non-JSON file when it's for the dprint condition
-    assert_eq!(resolve(&serde_json::json!("./index.js"), "."), None);
-    assert_eq!(resolve(&serde_json::json!({ "import": "./index.mjs", "default": "./index.js" }), "."), None);
-    assert_eq!(resolve(&serde_json::json!({ "dprint": "./config" }), "."), Some("./config".to_string()));
+    assert_eq!(resolve_export(&serde_json::json!("./index.js"), "."), ExportResolution::NotFound);
+    assert_eq!(
+      resolve_export(&serde_json::json!({ "import": "./index.mjs", "default": "./index.js" }), "."),
+      ExportResolution::NotFound
+    );
+    assert_eq!(resolve_export(&serde_json::json!({ "dprint": "./config" }), "."), target("./config"));
+
+    // subpath patterns
+    let patterns = serde_json::json!({
+      "./*": "./configs/*.json",
+      "./langs/*": "./configs/langs/*/config.json",
+      "./langs/*.json": "./configs/langs/*.json",
+      "./langs/internal/*": null,
+      "./langs/exact": "./exact.json",
+    });
+    assert_eq!(resolve_export(&patterns, "./markdown"), target("./configs/markdown.json"));
+    assert_eq!(resolve_export(&patterns, "./a/b"), target("./configs/a/b.json"));
+    assert_eq!(resolve_export(&patterns, "./langs/ts"), target("./configs/langs/ts/config.json"));
+    assert_eq!(resolve_export(&patterns, "./langs/ts.json"), target("./configs/langs/ts.json"));
+    assert_eq!(resolve_export(&patterns, "./langs/internal/ts"), ExportResolution::Excluded);
+    assert_eq!(resolve_export(&patterns, "./langs/exact"), target("./exact.json"));
+    assert_eq!(resolve_export(&patterns, "."), ExportResolution::NotFound);
   }
 
   #[test]
