@@ -50,20 +50,8 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
     bail!("You do not have write permission to {}", exe_path.display());
   }
 
-  let arch = match environment.cpu_arch().as_str() {
-    // the riscv64 release targets are named after the "gc" extension set
-    "riscv64" => "riscv64gc".to_string(),
-    arch => arch.to_string(),
-  };
-  let os = environment.os();
-  let zip_suffix = match os.as_str() {
-    "linux" => "unknown-linux-gnu",
-    "linux-musl" => "unknown-linux-musl",
-    "macos" => "apple-darwin",
-    "windows" => "pc-windows-msvc",
-    _ => bail!("Not implemented operating system: {}", os),
-  };
-  let zip_filename = format!("dprint-{}-{}.zip", arch, zip_suffix);
+  // the release zips are named after the target triple the binary was built for
+  let zip_filename = format!("dprint-{}.zip", env!("TARGET"));
   let zip_url = Url::parse(&format!(
     "https://github.com/dprint/dprint/releases/download/{}/{}",
     latest_version, zip_filename
