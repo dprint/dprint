@@ -923,8 +923,26 @@ SOFTWARE.
       run_test_cli(vec!["completions", kind], &environment).unwrap();
       let logged_messages = environment.take_stdout_messages();
       assert_eq!(logged_messages.len(), 1);
-      assert!(!logged_messages[0].contains("hidden"));
+      // nothing that's hidden should be completed
+      for hidden_text in ["hidden", "editor-info", "editor-service", "parent-pid", "verbose"] {
+        assert!(!logged_messages[0].contains(hidden_text), "{kind} completions had '{hidden_text}'");
+      }
     }
+  }
+
+  #[test]
+  fn should_complete_arg_values_in_zsh() {
+    let environment = TestEnvironment::new();
+    run_test_cli(vec!["completions", "zsh"], &environment).unwrap();
+    let logged_messages = environment.take_stdout_messages();
+    assert_eq!(logged_messages.len(), 1);
+    let fmt_section = logged_messages[0].split("(fmt)").nth(1).unwrap().split("(check)").next().unwrap();
+    let get_line = |start_text: &str| fmt_section.lines().find(|line| line.starts_with(start_text)).unwrap();
+    assert!(get_line("'--config-discovery=").ends_with(r":BOOLEAN:(true false ignore-descendants global)' \"));
+    // the value is optional
+    assert!(get_line("'--incremental=").ends_with(r":: :(true false)' \"));
+    // the colons need to be escaped in order to not end the message
+    assert!(get_line("'*--lines=").ends_with(r":[file-path\:]first\:last[,first\:last]...:_files' \"));
   }
 
   #[test]
