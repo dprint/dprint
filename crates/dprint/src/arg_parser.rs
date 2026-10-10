@@ -1029,7 +1029,7 @@ EXAMPLES:
       Arg::new("plugins")
         .long("plugins")
         .value_name("urls/files")
-        .help("List of urls, file paths, or npm: specifiers of plugins to use. This overrides what is specified in the config file.")
+        .help("List of urls or file paths of plugins to use. This overrides what is specified in the config file.")
         .value_hint(clap::ValueHint::AnyPath)
         .global(true)
         .num_args(1..)
