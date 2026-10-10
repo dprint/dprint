@@ -16,6 +16,8 @@ workflow({
       },
     },
   },
+  // everything runs with the bot's PAT, so the workflow token needs nothing
+  permissions: {},
   jobs: [
     job("rust", {
       name: "release",

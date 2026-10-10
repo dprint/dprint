@@ -17,9 +17,12 @@ on:
   pull_request:
     branches:
       - main
+permissions: {}
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -37,9 +40,32 @@ jobs:
         run: (cd website/playground && deno task test)
       - name: Build website
         run: "(cd website && deno task build:ci)"
+      - name: Upload artifact website
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
+        with:
+          name: website
+          path: website/_site
+          retention-days: 1
+  deploy:
+    needs:
+      - build
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Download artifact website
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: website
+          path: website/_site
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@132898c54c57c7cc6b80eb3a89968de8fc283505 # releases/v3
-        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
         with:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           BRANCH: gh-pages

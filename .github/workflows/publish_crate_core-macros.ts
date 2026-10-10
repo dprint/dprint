@@ -4,14 +4,16 @@ import { expr, job, step, workflow } from "jsr:@david/gagen@0.6.0";
 workflow({
   name: "cargo publish core-macros crate",
   on: { workflow_dispatch: {} },
-  permissions: { "id-token": "write", contents: "read" },
+  permissions: {},
   jobs: [
     job("rust", {
       name: "cargo publish core-macros crate",
       runsOn: "ubuntu-latest",
       timeoutMinutes: 30,
+      // id-token: crates.io trusted publishing
+      permissions: { contents: "read", "id-token": "write" },
       steps: step(
-        { name: "Clone repository", uses: "actions/checkout@v7", with: { token: expr("secrets.GH_DPRINTBOT_PAT") } },
+        { name: "Clone repository", uses: "actions/checkout@v7", with: { "persist-credentials": false } },
         { uses: "dsherret/rust-toolchain-file@v1" },
         { uses: "rust-lang/crates-io-auth-action@v1", id: "auth" },
         { name: "Cargo publish", env: { CARGO_REGISTRY_TOKEN: expr("steps.auth.outputs.token") }, run: ["cd crates/core-macros", "cargo publish"] },

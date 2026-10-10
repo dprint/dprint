@@ -9,8 +9,10 @@ const npmDist = artifact("npm-dist");
 const publishCargoJob = job("publish-cargo", {
   runsOn: "ubuntu-latest",
   if: isDprintRepo,
+  // id-token: crates.io trusted publishing
+  permissions: { contents: "read", "id-token": "write" },
   steps: step(
-    { name: "Checkout", uses: "actions/checkout@v7" },
+    { name: "Checkout", uses: "actions/checkout@v7", with: { "persist-credentials": false } },
     { uses: "dsherret/rust-toolchain-file@v1" },
     { uses: "rust-lang/crates-io-auth-action@v1", id: "auth" },
     {
@@ -31,8 +33,9 @@ const buildNpmJob = job("build-npm", {
   runsOn: "ubuntu-latest",
   if: isDprintRepo,
   timeoutMinutes: 30,
+  permissions: { contents: "read" },
   steps: step(
-    { name: "Checkout", uses: "actions/checkout@v7" },
+    { name: "Checkout", uses: "actions/checkout@v7", with: { "persist-credentials": false } },
     { uses: "denoland/setup-deno@v2" },
     { name: "Build npm packages", run: `deno run -A deployment/npm/build.ts ${expr("inputs.version || ''")}` },
     { name: "Tar npm dist (preserves permissions)", run: "tar cf deployment/npm/dist.tar -C deployment/npm --exclude='node_modules' dist" },
@@ -51,10 +54,11 @@ const testNpmJob = job("test-npm", {
   needs: [buildNpmJob],
   runsOn: testMatrix.runner,
   timeoutMinutes: 15,
+  permissions: { contents: "read" },
   strategy: { matrix: testMatrix, failFast: false },
   defaults: { run: { shell: "bash" } },
   steps: step(
-    { name: "Checkout", uses: "actions/checkout@v7" },
+    { name: "Checkout", uses: "actions/checkout@v7", with: { "persist-credentials": false } },
     { name: "Install Node", uses: "actions/setup-node@v7", with: { "node-version": "24.x" } },
     npmDist.download({ dirPath: "deployment/npm" }),
     { name: "Extract npm dist", run: "tar xf deployment/npm/dist.tar -C deployment/npm" },
@@ -180,9 +184,10 @@ const publishNpmJob = job("publish-npm", {
   if: "!(inputs.dry_run || false)",
   runsOn: "ubuntu-latest",
   timeoutMinutes: 15,
-  permissions: { "id-token": "write" },
+  // id-token: npm trusted publishing
+  permissions: { contents: "read", "id-token": "write" },
   steps: step(
-    { name: "Checkout", uses: "actions/checkout@v7" },
+    { name: "Checkout", uses: "actions/checkout@v7", with: { "persist-credentials": false } },
     { uses: "denoland/setup-deno@v2" },
     { name: "Install Node", uses: "actions/setup-node@v7", with: { "node-version": "24.x", "registry-url": "https://registry.npmjs.org" } },
     npmDist.download({ dirPath: "deployment/npm" }),
@@ -211,7 +216,7 @@ workflow({
       },
     },
   },
-  permissions: { "id-token": "write", contents: "read" },
+  permissions: {},
   jobs: [
     publishCargoJob,
     buildNpmJob,

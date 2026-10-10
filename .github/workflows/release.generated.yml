@@ -12,6 +12,7 @@ on:
           - patch
           - minor
         required: true
+permissions: {}
 jobs:
   rust:
     name: release
