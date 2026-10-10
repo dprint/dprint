@@ -13,6 +13,7 @@ use crate::arg_parser::parse_args;
 use crate::environment::TestEnvironment;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginResolver;
+use crate::plugins::PluginResolverOptions;
 use crate::run_cli::run_cli;
 use crate::utils::TestStdInReader;
 
@@ -197,7 +198,13 @@ pub fn run_test_cli_with_stdin(args: Vec<&str>, environment: &TestEnvironment, s
   args.insert(0, String::from(""));
   let args = parse_args(args, stdin_reader).map_err(|err| Into::<AppError>::into(err))?;
   let plugin_cache = PluginCache::new(environment.clone());
-  let plugin_resolver = Rc::new(PluginResolver::new(environment.clone(), plugin_cache, args.reload.plugins));
+  let plugin_resolver = Rc::new(PluginResolver::new(
+    environment.clone(),
+    plugin_cache,
+    PluginResolverOptions {
+      reload_plugins: args.reload.plugins,
+    },
+  ));
   environment.set_stdout_machine_readable(args.is_stdout_machine_readable());
   environment.set_log_level(args.log_level);
 

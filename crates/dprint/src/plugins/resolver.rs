@@ -52,28 +52,33 @@ impl PluginWrapper {
   }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PluginResolverOptions {
+  /// Whether to download remote plugins again instead of using the cached
+  /// ones (`--reload`).
+  pub reload_plugins: bool,
+}
+
 pub struct PluginResolver<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_cache: PluginCache<TEnvironment>,
   memory_cache: RefCell<HashMap<PluginSourceReference, Rc<tokio::sync::OnceCell<Rc<PluginWrapper>>>>>,
   wasm_module_creator: WasmModuleCreator,
   next_config_id: IdGenerator,
-  /// Whether to download remote plugins again instead of using the cached
-  /// ones (`--reload`).
-  reload_plugins: bool,
+  options: PluginResolverOptions,
   /// The plugins downloaded again, so each is only reloaded once per process.
   reloaded: RefCell<HashSet<PluginSourceReference>>,
 }
 
 impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
-  pub fn new(environment: TEnvironment, plugin_cache: PluginCache<TEnvironment>, reload_plugins: bool) -> Self {
+  pub fn new(environment: TEnvironment, plugin_cache: PluginCache<TEnvironment>, options: PluginResolverOptions) -> Self {
     PluginResolver {
       environment,
       plugin_cache,
       memory_cache: Default::default(),
       wasm_module_creator: Default::default(),
       next_config_id: Default::default(),
-      reload_plugins,
+      options,
       reloaded: Default::default(),
     }
   }
@@ -170,7 +175,7 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
   /// language server after a config change). Local plugins are already
   /// checked for changes.
   fn should_reload(&self, plugin_reference: &PluginSourceReference) -> bool {
-    self.reload_plugins && matches!(plugin_reference.path_source, PathSource::Remote(_)) && self.reloaded.borrow_mut().insert(plugin_reference.clone())
+    self.options.reload_plugins && matches!(plugin_reference.path_source, PathSource::Remote(_)) && self.reloaded.borrow_mut().insert(plugin_reference.clone())
   }
 }
 
@@ -192,13 +197,21 @@ mod test {
         };
 
         // cached by a previous process
-        let resolver = Rc::new(PluginResolver::new(environment.clone(), PluginCache::new(environment.clone()), false));
+        let resolver = Rc::new(PluginResolver::new(
+          environment.clone(),
+          PluginCache::new(environment.clone()),
+          PluginResolverOptions::default(),
+        ));
         resolver.resolve_plugins(vec![reference.clone()]).await.unwrap();
         assert_eq!(environment.remote_file_request_count(url), 1);
         resolver.clear_and_shutdown_initialized().await;
 
         // reloading downloads it again, but only once in the process
-        let resolver = Rc::new(PluginResolver::new(environment.clone(), PluginCache::new(environment.clone()), true));
+        let resolver = Rc::new(PluginResolver::new(
+          environment.clone(),
+          PluginCache::new(environment.clone()),
+          PluginResolverOptions { reload_plugins: true },
+        ));
         resolver.resolve_plugins(vec![reference.clone()]).await.unwrap();
         assert_eq!(environment.remote_file_request_count(url), 2);
         resolver.clear_and_shutdown_initialized().await;
@@ -207,7 +220,11 @@ mod test {
         resolver.clear_and_shutdown_initialized().await;
 
         // not reloading uses the cache
-        let resolver = Rc::new(PluginResolver::new(environment.clone(), PluginCache::new(environment.clone()), false));
+        let resolver = Rc::new(PluginResolver::new(
+          environment.clone(),
+          PluginCache::new(environment.clone()),
+          PluginResolverOptions::default(),
+        ));
         resolver.resolve_plugins(vec![reference]).await.unwrap();
         assert_eq!(environment.remote_file_request_count(url), 2);
         resolver.clear_and_shutdown_initialized().await;
