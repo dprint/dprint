@@ -56,6 +56,11 @@ const packages: Package[] = [{
   cpu: "riscv64",
   libc: "glibc",
 }, {
+  zipFileName: "dprint-riscv64gc-unknown-linux-musl.zip",
+  os: "linux",
+  cpu: "riscv64",
+  libc: "musl",
+}, {
   zipFileName: "dprint-loongarch64-unknown-linux-gnu.zip",
   os: "linux",
   cpu: "loong64",

@@ -50,7 +50,11 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
     bail!("You do not have write permission to {}", exe_path.display());
   }
 
-  let arch = environment.cpu_arch();
+  let arch = match environment.cpu_arch().as_str() {
+    // the riscv64 release targets are named after the "gc" extension set
+    "riscv64" => "riscv64gc".to_string(),
+    arch => arch.to_string(),
+  };
   let os = environment.os();
   let zip_suffix = match os.as_str() {
     "linux" => "unknown-linux-gnu",
