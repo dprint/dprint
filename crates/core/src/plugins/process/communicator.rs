@@ -290,10 +290,13 @@ impl ProcessPluginCommunicator {
         // plugin a chance to clean up (ex. in case it has spawned
         // any processes it needs to kill or something like that)
         _ = self.send_with_acknowledgement(MessageBody::Close) => {}
-        _ = tokio::time::sleep(Duration::from_millis(250)) => {}
+        _ = tokio::time::sleep(Duration::from_millis(250)) => {
+          self.kill();
+        }
       }
+    } else {
+      self.kill();
     }
-    self.kill();
   }
 
   pub fn kill(&self) {
@@ -308,7 +311,6 @@ impl ProcessPluginCommunicator {
         job.terminate();
       }
       let _ignore = child.kill();
-      let _ignore = child.wait();
     }
   }
 
