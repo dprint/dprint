@@ -243,7 +243,7 @@ pub fn resolve_dependency_age_cutoff(
   if let Some(flag) = flag {
     return DependencyAgeCutoff::new(flag.age(), format!("--minimum-dependency-age {}", flag.text()), now);
   }
-  let days = resolve_min_release_age_days(start_dir, environment)?;
+  let days = NpmrcChain::load(start_dir, environment).min_release_age_days()?;
   DependencyAgeCutoff::new(&MinimumDependencyAge::from_days(days), format!("min-release-age={} in .npmrc", days), now)
 }
 
@@ -396,26 +396,6 @@ fn too_new_error(name: &str, latest: &str, cutoff: &DependencyAgeCutoff) -> Erro
 /// date for it (or one this dprint can't read).
 fn published_time(times: &serde_json::Map<String, serde_json::Value>, version: &str) -> Option<SystemTime> {
   parse_rfc3339(times.get(version)?.as_str()?)
-}
-
-/// Reads `min-release-age` (a whole number of days) from the nearest .npmrc
-/// that sets it. Unlike the registry, which is resolved per package, this is a
-/// single value, so the first file setting it wins.
-fn resolve_min_release_age_days(start_dir: Option<&Path>, environment: &impl Environment) -> Option<u64> {
-  fn read(npmrc_path: &Path, environment: &impl Environment) -> Option<u64> {
-    let text = environment.read_file(npmrc_path).ok()?;
-    deno_npmrc::NpmRc::parse(environment, &text).ok()?.min_release_age_days
-  }
-
-  if let Some(start) = start_dir {
-    for dir in start.ancestors() {
-      if let Some(days) = read(&dir.join(".npmrc"), environment) {
-        return Some(days);
-      }
-    }
-  }
-  let home_dir = environment.get_home_dir()?;
-  read(&home_dir.join(".npmrc"), environment)
 }
 
 /// Reads `dist-tags.latest` from a packument.
@@ -1150,57 +1130,133 @@ fn normalize_path(path: &Path) -> PathBuf {
 /// 3. ~/.npmrc
 /// 4. https://registry.npmjs.org (no credentials)
 ///
-/// The proxy is resolved separately from these (see [`resolve_npm_proxy`]),
+/// The proxy is resolved separately from these (see [`NpmrcChain::proxy`]),
 /// since it's often configured in a different place than the registry.
+///
+/// Reads the `.npmrc` files on every call. Callers resolving several packages
+/// from the same directory should load an [`NpmrcChain`] once instead.
 pub fn resolve_registry_for_package(package_name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> NpmRegistryResolution {
-  NpmRegistryResolution {
-    proxy: resolve_npm_proxy(start_dir, environment),
-    ..resolve_registry_without_proxy(package_name, start_dir, environment)
-  }
+  NpmrcChain::load(start_dir, environment).registry_for_package(package_name, environment)
 }
 
-fn resolve_registry_without_proxy(package_name: &str, start_dir: Option<&Path>, environment: &impl Environment) -> NpmRegistryResolution {
-  // env vars take precedence over .npmrc — but they only set the URL,
-  // never auth, so we can return immediately.
-  if let Some(registry) = environment.env_var("NPM_CONFIG_REGISTRY") {
-    let registry = registry.to_string_lossy().to_string();
-    return NpmRegistryResolution {
-      url: registry.trim_end_matches('/').to_string(),
-      auth_header: None,
-      proxy: None,
+/// The `.npmrc` files that apply to a directory, nearest first: those found
+/// walking up from the start directory, then the user-level `~/.npmrc`.
+///
+/// Each file is read once on load so the registry, proxy and `min-release-age`
+/// lookups share the reads instead of each walking the directory tree, and so
+/// a caller can resolve many packages from the same directory without reading
+/// the files again.
+pub struct NpmrcChain {
+  files: Vec<NpmrcFile>,
+}
+
+struct NpmrcFile {
+  text: String,
+  /// `None` when the file couldn't be parsed, in which case the settings that
+  /// go through the parser treat the file as not setting them.
+  parsed: Option<deno_npmrc::NpmRc>,
+}
+
+impl NpmrcChain {
+  pub fn load(start_dir: Option<&Path>, environment: &impl Environment) -> Self {
+    let mut files = Vec::new();
+    let mut load_dir = |dir: &Path| {
+      if let Ok(text) = environment.read_file(dir.join(".npmrc")) {
+        let parsed = deno_npmrc::NpmRc::parse(environment, &text).ok();
+        files.push(NpmrcFile { text, parsed });
+      }
     };
+    if let Some(start) = start_dir {
+      for dir in start.ancestors() {
+        load_dir(dir);
+      }
+    }
+    // the user-level file is only a fallback, so when the walk already went
+    // through the home directory there's nothing more it could set
+    if let Some(home_dir) = environment.get_home_dir()
+      && !start_dir.is_some_and(|start| start.ancestors().any(|dir| dir == home_dir.as_ref()))
+    {
+      load_dir(home_dir.as_ref());
+    }
+    NpmrcChain { files }
   }
 
-  // walk up from the config file's directory checking for .npmrc files
-  if let Some(start) = start_dir {
-    for dir in start.ancestors() {
-      if let Some(info) = resolve_registry_from_npmrc(package_name, &dir.join(".npmrc"), environment) {
-        return info;
-      }
+  /// Resolves the registry URL, credentials and proxy for a package. See
+  /// [`resolve_registry_for_package`] for the precedence.
+  pub fn registry_for_package(&self, package_name: &str, environment: &impl Environment) -> NpmRegistryResolution {
+    NpmRegistryResolution {
+      proxy: self.proxy(environment),
+      ..self.registry_without_proxy(package_name, environment)
     }
   }
 
-  // user-level ~/.npmrc
-  if let Some(home_dir) = environment.get_home_dir()
-    && let Some(info) = resolve_registry_from_npmrc(package_name, &home_dir.join(".npmrc"), environment)
-  {
-    return info;
+  /// Reads `min-release-age` (a whole number of days) from the nearest .npmrc
+  /// that sets it. Unlike the registry, which is resolved per package, this is a
+  /// single value, so the first file setting it wins.
+  pub fn min_release_age_days(&self) -> Option<u64> {
+    self.files.iter().find_map(|file| file.parsed.as_ref()?.min_release_age_days)
   }
 
-  NpmRegistryResolution {
-    url: deno_npmrc::NPM_DEFAULT_REGISTRY.to_string(),
-    auth_header: None,
-    proxy: None,
+  fn registry_without_proxy(&self, package_name: &str, environment: &impl Environment) -> NpmRegistryResolution {
+    // env vars take precedence over .npmrc — but they only set the URL,
+    // never auth, so we can return immediately.
+    if let Some(registry) = environment.env_var("NPM_CONFIG_REGISTRY") {
+      let registry = registry.to_string_lossy().to_string();
+      return NpmRegistryResolution {
+        url: registry.trim_end_matches('/').to_string(),
+        auth_header: None,
+        proxy: None,
+      };
+    }
+
+    // the nearest .npmrc that applies to this package wins
+    if let Some(info) = self
+      .files
+      .iter()
+      .find_map(|file| resolve_registry_from_npmrc(package_name, file.parsed.as_ref()?, environment))
+    {
+      return info;
+    }
+
+    NpmRegistryResolution {
+      url: deno_npmrc::NPM_DEFAULT_REGISTRY.to_string(),
+      auth_header: None,
+      proxy: None,
+    }
+  }
+
+  /// Resolves the proxy npm is configured to use, checking (in order):
+  /// 1. NPM_CONFIG_HTTPS_PROXY and NPM_CONFIG_PROXY env vars
+  /// 2. .npmrc files walking up from the start directory
+  /// 3. ~/.npmrc
+  ///
+  /// `https-proxy` is preferred over `proxy` like npm does for registry
+  /// requests. Returns `None` when npm has no proxy configured, in which case
+  /// requests fall back to the proxy environment variables (ex. `HTTPS_PROXY`)
+  /// like any other request dprint makes. The same goes for a proxy that can't
+  /// be used (ex. one with an unknown scheme), since failing every request
+  /// because of an npm setting would be worse than not following it.
+  fn proxy(&self, environment: &impl Environment) -> Option<NpmProxy> {
+    // npm matches these regardless of their casing
+    let env_var = |name: &str| {
+      let value = environment.env_var(name).or_else(|| environment.env_var(&name.to_lowercase()))?;
+      let value = value.to_string_lossy().trim().to_string();
+      if value.is_empty() { None } else { Some(value) }
+    };
+    if let Some(url) = env_var("NPM_CONFIG_HTTPS_PROXY").or_else(|| env_var("NPM_CONFIG_PROXY"))
+      && let Some(proxy) = to_usable_proxy(url, env_var("NPM_CONFIG_NOPROXY"), environment)
+    {
+      return Some(proxy);
+    }
+
+    self.files.iter().find_map(|file| resolve_proxy_from_npmrc(&file.text, environment))
   }
 }
 
-/// Parses a single .npmrc file and resolves the registry for a package.
-/// Returns `None` if the file doesn't exist, or if it doesn't configure a registry
-/// that applies to this package (so the caller keeps walking).
-fn resolve_registry_from_npmrc(package_name: &str, npmrc_path: &Path, environment: &impl Environment) -> Option<NpmRegistryResolution> {
-  let text = environment.read_file(npmrc_path).ok()?;
-  let npmrc = deno_npmrc::NpmRc::parse(environment, &text).ok()?;
-
+/// Resolves the registry for a package from a parsed .npmrc file. Returns
+/// `None` if it doesn't configure a registry that applies to this package (so
+/// the caller keeps walking).
+fn resolve_registry_from_npmrc(package_name: &str, npmrc: &deno_npmrc::NpmRc, environment: &impl Environment) -> Option<NpmRegistryResolution> {
   // figure out whether this .npmrc actually applies to this package — either
   // a scope registry matching the package's scope, or a default registry.
   let scope = scope_of(package_name);
@@ -1222,46 +1278,12 @@ fn resolve_registry_from_npmrc(package_name: &str, npmrc_path: &Path, environmen
   Some(NpmRegistryResolution { url, auth_header, proxy: None })
 }
 
-/// Resolves the proxy npm is configured to use, checking (in order):
-/// 1. NPM_CONFIG_HTTPS_PROXY and NPM_CONFIG_PROXY env vars
-/// 2. .npmrc files walking up from `start_dir`
-/// 3. ~/.npmrc
-///
-/// `https-proxy` is preferred over `proxy` like npm does for registry
-/// requests. Returns `None` when npm has no proxy configured, in which case
-/// requests fall back to the proxy environment variables (ex. `HTTPS_PROXY`)
-/// like any other request dprint makes. The same goes for a proxy that can't
-/// be used (ex. one with an unknown scheme), since failing every request
-/// because of an npm setting would be worse than not following it.
-fn resolve_npm_proxy(start_dir: Option<&Path>, environment: &impl Environment) -> Option<NpmProxy> {
-  fn read(npmrc_path: &Path, environment: &impl Environment) -> Option<NpmProxy> {
-    let text = environment.read_file(npmrc_path).ok()?;
-    let read_value = |key: &str| expand_npmrc_env_vars(&read_npmrc_value(&text, key)?, environment);
-    let url = read_value("https-proxy").or_else(|| read_value("proxy"))?;
-    to_usable_proxy(url, read_value("noproxy"), environment)
-  }
-
-  // npm matches these regardless of their casing
-  let env_var = |name: &str| {
-    let value = environment.env_var(name).or_else(|| environment.env_var(&name.to_lowercase()))?;
-    let value = value.to_string_lossy().trim().to_string();
-    if value.is_empty() { None } else { Some(value) }
-  };
-  if let Some(url) = env_var("NPM_CONFIG_HTTPS_PROXY").or_else(|| env_var("NPM_CONFIG_PROXY"))
-    && let Some(proxy) = to_usable_proxy(url, env_var("NPM_CONFIG_NOPROXY"), environment)
-  {
-    return Some(proxy);
-  }
-
-  if let Some(start) = start_dir {
-    for dir in start.ancestors() {
-      if let Some(proxy) = read(&dir.join(".npmrc"), environment) {
-        return Some(proxy);
-      }
-    }
-  }
-  let home_dir = environment.get_home_dir()?;
-  read(&home_dir.join(".npmrc"), environment)
+/// Reads the proxy from the text of a single .npmrc file, or `None` when it
+/// doesn't set one (so the caller keeps walking).
+fn resolve_proxy_from_npmrc(text: &str, environment: &impl Environment) -> Option<NpmProxy> {
+  let read_value = |key: &str| expand_npmrc_env_vars(&read_npmrc_value(text, key)?, environment);
+  let url = read_value("https-proxy").or_else(|| read_value("proxy"))?;
+  to_usable_proxy(url, read_value("noproxy"), environment)
 }
 
 fn to_usable_proxy(url: String, no_proxy: Option<String>, environment: &impl Environment) -> Option<NpmProxy> {
@@ -1606,6 +1628,23 @@ mod tests {
     environment.write_file("/.npmrc", "@dprint:registry=https://dprint.example.com").unwrap();
     let info = resolve_registry_for_package("@dprint/typescript", Some(std::path::Path::new("/repo")), &environment);
     assert_eq!(info.url, "https://dprint.example.com");
+  }
+
+  #[test]
+  fn resolve_registry_reads_each_npmrc_once() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    // the registry and the proxy come from different files, and the home
+    // directory (`/home` in tests) is also part of the walk
+    environment.mk_dir_all("/home/repo").unwrap();
+    environment.write_file("/home/repo/.npmrc", "https-proxy=http://proxy.corp:8080").unwrap();
+    environment.write_file("/home/.npmrc", "@dprint:registry=https://dprint.example.com").unwrap();
+    let info = resolve_registry_for_package("@dprint/typescript", Some(std::path::Path::new("/home/repo")), &environment);
+    assert_eq!(info.url, "https://dprint.example.com");
+    assert_eq!(info.proxy.as_ref().map(|p| p.url.as_str()), Some("http://proxy.corp:8080"));
+    for path in ["/home/repo/.npmrc", "/home/.npmrc", "/.npmrc"] {
+      assert_eq!(environment.file_read_count(path), 1, "{path}");
+    }
   }
 
   #[tokio::test]
