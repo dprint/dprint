@@ -39,7 +39,7 @@ See [Setup](/setup).
 
 ## Plugins
 
-The `plugins` property specifies which plugins to use for formatting. These may be URLs or file paths to a WebAssembly file of the plugin.
+The `plugins` property specifies which plugins to use for formatting. These may be URLs or file paths to a WebAssembly file of the plugin, or `npm:` specifiers (see [using plugins from npm](#using-plugins-from-npm) below).
 
 ```json
 {
