@@ -15,9 +15,9 @@ Formats .cs and .vb files.
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint add roslyn
-# or install from npm
 dprint add npm:@dprint/roslyn
+# or install from plugins.dprint.dev
+dprint add roslyn
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"roslyn"` property to add configuration:
@@ -28,7 +28,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // roslyn's config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/roslyn-x.x.x.wasm"
+    "npm:@dprint/roslyn@x.x.x"
   ]
 }
 ```
