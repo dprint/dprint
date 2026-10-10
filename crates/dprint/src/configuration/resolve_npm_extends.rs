@@ -1,14 +1,18 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
 
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
+use crate::plugins::NpmrcChain;
 use crate::plugins::ensure_npm_package_extracted;
 use crate::plugins::find_package_in_node_modules;
-use crate::plugins::resolve_registry_for_package;
 use crate::utils::NpmPathSource;
 use crate::utils::NpmSpecifier;
 use crate::utils::PathSource;
@@ -19,182 +23,262 @@ use crate::utils::parse_npm_specifier;
 /// say what its configuration file is.
 const DEFAULT_CONFIG_FILE_NAMES: [&str; 2] = ["dprint.json", "dprint.jsonc"];
 
-/// Resolves an `npm:` specifier in a configuration file's `extends` property
-/// to the configuration file in the npm package. Supported formats:
-/// - `npm:@scope/name` (node_modules, the package's main configuration file)
-/// - `npm:@scope/name/sub/path` (node_modules, an export or file in the package)
-/// - `npm:@scope/name@version` (registry, the package's main configuration file)
-/// - `npm:@scope/name@version/sub/path` (registry, an export or file in the package)
+/// Resolves the npm specifiers in the `extends` of a configuration file and
+/// of everything it extends.
 ///
-/// A configuration file found in node_modules is a local file the same as if
-/// it was referenced by its path, while one downloaded from the registry is
-/// considered remote configuration.
-pub async fn resolve_npm_extends(text: &str, base: &PathSource, environment: &impl Environment) -> Result<ResolvedFilePathWithBytes> {
-  let parsed = parse_npm_specifier(text)?;
-  if parsed.checksum.is_some() {
-    bail!("Checksums are not supported for npm specifiers in \"extends\": {}", text);
-  }
-  let name = parsed.specifier.name;
-  let sub_path = parsed.path_was_explicit.then_some(parsed.specifier.path);
+/// Remembers what it reads so each `.npmrc`, package and package.json is only
+/// looked at once for a configuration file no matter how many times it's used.
+#[derive(Default)]
+pub struct NpmExtendsResolver {
+  /// The `.npmrc` files that apply to a directory.
+  npmrc_chains: RefCell<HashMap<Option<PathBuf>, Rc<NpmrcChain>>>,
+  /// Directories in the npm cache of the registry packages that were resolved.
+  registry_package_dirs: RefCell<HashMap<RegistryPackageKey, PathBuf>>,
+  package_jsons: RefCell<HashMap<PathBuf, Rc<Option<serde_json::Value>>>>,
+}
 
-  match parsed.specifier.version {
-    Some(version) => {
-      let base_dir = match base {
-        PathSource::Local(local) => Some(local.path.clone()),
-        PathSource::Npm(npm) => npm.base_dir.clone(),
-        PathSource::Remote(_) => None,
-      };
-      let registry = resolve_registry_for_package(&name, base_dir.as_ref().map(|d| d.as_ref()), environment);
-      let package = ensure_npm_package_extracted(&name, &version, &registry, environment).await?;
-      let path = resolve_config_path_in_package(&package.dir, &name, sub_path.as_deref(), environment)?;
-      let content = read_package_file(&package.dir, &name, &path, environment)?;
-      Ok(ResolvedFilePathWithBytes {
-        source: PathSource::new_npm(
-          NpmSpecifier {
+#[derive(PartialEq, Eq, Hash)]
+struct RegistryPackageKey {
+  /// Directory the registry is resolved from.
+  base_dir: Option<PathBuf>,
+  name: String,
+  version: String,
+}
+
+impl NpmExtendsResolver {
+  /// Resolves an `npm:` specifier in a configuration file's `extends` property
+  /// to the configuration file in the npm package. Supported formats:
+  /// - `npm:@scope/name` (node_modules, the package's main configuration file)
+  /// - `npm:@scope/name/sub/path` (node_modules, an export or file in the package)
+  /// - `npm:@scope/name@version` (registry, the package's main configuration file)
+  /// - `npm:@scope/name@version/sub/path` (registry, an export or file in the package)
+  ///
+  /// A configuration file found in node_modules is a local file the same as if
+  /// it was referenced by its path, while one downloaded from the registry is
+  /// considered remote configuration.
+  pub async fn resolve(&self, text: &str, base: &PathSource, environment: &impl Environment) -> Result<ResolvedFilePathWithBytes> {
+    let parsed = parse_npm_specifier(text)?;
+    if parsed.checksum.is_some() {
+      bail!("Checksums are not supported for npm specifiers in \"extends\": {}", text);
+    }
+    let name = parsed.specifier.name;
+    let sub_path = parsed.path_was_explicit.then_some(parsed.specifier.path);
+
+    match parsed.specifier.version {
+      Some(version) => {
+        let base_dir = match base {
+          PathSource::Local(local) => Some(local.path.clone()),
+          PathSource::Npm(npm) => npm.base_dir.clone(),
+          PathSource::Remote(_) => None,
+        };
+        let package = self.ensure_registry_package(&name, &version, base_dir.as_ref(), environment).await?;
+        let path = self.resolve_config_path_in_package(&package.dir, &name, sub_path.as_deref(), environment)?;
+        let content = read_package_file(&package.dir, &name, &path, environment)?;
+        Ok(ResolvedFilePathWithBytes {
+          source: PathSource::new_npm(
+            NpmSpecifier {
+              name,
+              version: Some(version),
+              path,
+            },
+            base_dir,
+          ),
+          is_first_download: package.is_first_download,
+          content,
+        })
+      }
+      None => {
+        let PathSource::Local(local_base) = base else {
+          bail!(
+            concat!(
+              "Cannot resolve {} from node_modules because the configuration file extending it is not a local file ({}). ",
+              "Specify a version to resolve it from the npm registry (ex. npm:{}@x.x.x)."
+            ),
+            text,
+            base.display(),
             name,
-            version: Some(version),
-            path,
-          },
-          base_dir,
-        ),
-        is_first_download: package.is_first_download,
-        content,
-      })
+          );
+        };
+        let Some(package_dir) = find_package_in_node_modules(&name, local_base.path.as_ref(), environment) else {
+          bail!(
+            concat!(
+              "Could not find {} in node_modules. Make sure the package is installed (ex. npm install {}) ",
+              "or specify a version to resolve it from the npm registry (ex. npm:{}@x.x.x)."
+            ),
+            name,
+            name,
+            name,
+          );
+        };
+        let path = self.resolve_config_path_in_package(&package_dir, &name, sub_path.as_deref(), environment)?;
+        let file_path = get_existing_package_file_path(&package_dir, &name, &path, environment)?;
+        let file_path = environment.canonicalize(file_path)?;
+        let content = environment.read_file_bytes(&file_path)?;
+        Ok(ResolvedFilePathWithBytes {
+          source: PathSource::new_local(file_path),
+          is_first_download: false,
+          content,
+        })
+      }
     }
-    None => {
-      let PathSource::Local(local_base) = base else {
-        bail!(
-          concat!(
-            "Cannot resolve {} from node_modules because the configuration file extending it is not a local file ({}). ",
-            "Specify a version to resolve it from the npm registry (ex. npm:{}@x.x.x)."
-          ),
-          text,
-          base.display(),
-          name,
-        );
-      };
-      let Some(package_dir) = find_package_in_node_modules(&name, local_base.path.as_ref(), environment) else {
-        bail!(
-          concat!(
-            "Could not find {} in node_modules. Make sure the package is installed (ex. npm install {}) ",
-            "or specify a version to resolve it from the npm registry (ex. npm:{}@x.x.x)."
-          ),
-          name,
-          name,
-          name,
-        );
-      };
-      let path = resolve_config_path_in_package(&package_dir, &name, sub_path.as_deref(), environment)?;
-      let file_path = get_existing_package_file_path(&package_dir, &name, &path, environment)?;
-      let file_path = environment.canonicalize(file_path)?;
-      let content = environment.read_file_bytes(&file_path)?;
-      Ok(ResolvedFilePathWithBytes {
-        source: PathSource::new_local(file_path),
+  }
+
+  /// Resolves a relative path in the `extends` property of a configuration file
+  /// that came from an npm registry package to another file in that package.
+  pub async fn resolve_relative(&self, relative_path: &str, base: &NpmPathSource, environment: &impl Environment) -> Result<ResolvedFilePathWithBytes> {
+    let specifier = &base.specifier;
+    let Some(version) = &specifier.version else {
+      // configuration files from node_modules are local files
+      bail!(
+        "Cannot resolve a relative path against an npm specifier without a version: {}",
+        specifier.display()
+      );
+    };
+    let path = join_package_path(&specifier.path, relative_path)
+      .with_context(|| format!("Failed resolving '{}' in the \"extends\" of {}", relative_path, specifier.display()))?;
+    let package = self
+      .ensure_registry_package(&specifier.name, version, base.base_dir.as_ref(), environment)
+      .await?;
+    let content = read_package_file(&package.dir, &specifier.name, &path, environment)?;
+    Ok(ResolvedFilePathWithBytes {
+      source: PathSource::new_npm(
+        NpmSpecifier {
+          name: specifier.name.clone(),
+          version: Some(version.clone()),
+          path,
+        },
+        base.base_dir.clone(),
+      ),
+      is_first_download: package.is_first_download,
+      content,
+    })
+  }
+
+  /// Gets the directory of a registry package in the npm cache, downloading
+  /// the package when it's not there.
+  async fn ensure_registry_package(
+    &self,
+    name: &str,
+    version: &str,
+    base_dir: Option<&CanonicalizedPathBuf>,
+    environment: &impl Environment,
+  ) -> Result<RegistryPackageDir> {
+    let base_dir = base_dir.map(|d| -> &Path { d.as_ref() });
+    let key = RegistryPackageKey {
+      base_dir: base_dir.map(|d| d.to_path_buf()),
+      name: name.to_string(),
+      version: version.to_string(),
+    };
+    if let Some(dir) = self.registry_package_dirs.borrow().get(&key) {
+      return Ok(RegistryPackageDir {
+        dir: dir.clone(),
         is_first_download: false,
-        content,
-      })
+      });
     }
+    let registry = self.npmrc_chain(base_dir, environment).registry_for_package(name, environment);
+    let package = ensure_npm_package_extracted(name, version, &registry, environment).await?;
+    self.registry_package_dirs.borrow_mut().insert(key, package.dir.clone());
+    Ok(RegistryPackageDir {
+      dir: package.dir,
+      is_first_download: package.is_first_download,
+    })
   }
-}
 
-/// Resolves a relative path in the `extends` property of a configuration file
-/// that came from an npm registry package to another file in that package.
-pub async fn resolve_relative_npm_extends(relative_path: &str, base: &NpmPathSource, environment: &impl Environment) -> Result<ResolvedFilePathWithBytes> {
-  let specifier = &base.specifier;
-  let Some(version) = &specifier.version else {
-    // configuration files from node_modules are local files
+  fn npmrc_chain(&self, start_dir: Option<&Path>, environment: &impl Environment) -> Rc<NpmrcChain> {
+    self
+      .npmrc_chains
+      .borrow_mut()
+      .entry(start_dir.map(|d| d.to_path_buf()))
+      .or_insert_with(|| Rc::new(NpmrcChain::load(start_dir, environment)))
+      .clone()
+  }
+
+  fn read_package_json(&self, package_dir: &Path, environment: &impl Environment) -> Result<Rc<Option<serde_json::Value>>> {
+    if let Some(package_json) = self.package_jsons.borrow().get(package_dir) {
+      return Ok(package_json.clone());
+    }
+    let package_json = Rc::new(read_package_json(package_dir, environment)?);
+    self.package_jsons.borrow_mut().insert(package_dir.to_path_buf(), package_json.clone());
+    Ok(package_json)
+  }
+
+  /// Gets the path within the package of the configuration file being referenced.
+  ///
+  /// The `exports` of the package's package.json have the highest precedence. When
+  /// they don't have a match, a sub path is the path of a file in the package and
+  /// no sub path is the package.json's `main` if it's a JSON file or otherwise a
+  /// dprint.json file at the root of the package.
+  ///
+  /// Falling back when there's no match is more lenient than Node.js, which only
+  /// allows what's in the `exports`. It's done because a package's `exports` are
+  /// often only written for its JS and don't have its configuration files.
+  fn resolve_config_path_in_package(&self, package_dir: &Path, package_name: &str, sub_path: Option<&str>, environment: &impl Environment) -> Result<String> {
+    let package_json = self.read_package_json(package_dir, environment)?;
+    let export_key = match sub_path {
+      Some(sub_path) => format!("./{}", sub_path),
+      None => ".".to_string(),
+    };
+    let export = match package_json.as_ref().as_ref().and_then(|p| p.get("exports")) {
+      Some(exports) => resolve_export(exports, &export_key),
+      None => ExportResolution::NotFound,
+    };
+    match export {
+      ExportResolution::Target(target) => {
+        let Some(path) = normalize_package_json_path(&target) else {
+          bail!(
+            "The \"exports\" of npm package {} has an invalid target for \"{}\": {}",
+            package_name,
+            export_key,
+            target
+          );
+        };
+        return Ok(path);
+      }
+      ExportResolution::Excluded => {
+        bail!("The \"exports\" of npm package {} excludes \"{}\".", package_name, export_key);
+      }
+      ExportResolution::NotFound => {}
+    }
+
+    if let Some(sub_path) = sub_path {
+      return Ok(sub_path.to_string());
+    }
+
+    let main = package_json
+      .as_ref()
+      .as_ref()
+      .and_then(|p| p.get("main"))
+      .and_then(|m| m.as_str())
+      .filter(|m| is_json_file_name(m))
+      .and_then(normalize_package_json_path)
+      .filter(|m| environment.path_exists(package_dir.join(m)));
+    if let Some(main) = main {
+      return Ok(main);
+    }
+
+    for file_name in DEFAULT_CONFIG_FILE_NAMES {
+      if environment.path_exists(package_dir.join(file_name)) {
+        return Ok(file_name.to_string());
+      }
+    }
+
     bail!(
-      "Cannot resolve a relative path against an npm specifier without a version: {}",
-      specifier.display()
+      concat!(
+        "Could not determine the configuration file of npm package {}. Specify a file in the package ",
+        "(ex. npm:{}/config.json) or have the package provide a dprint.json file, a \".\" entry ",
+        "in its package.json's \"exports\", or a JSON file as its package.json's \"main\"."
+      ),
+      package_name,
+      package_name,
     );
-  };
-  let path = join_package_path(&specifier.path, relative_path)
-    .with_context(|| format!("Failed resolving '{}' in the \"extends\" of {}", relative_path, specifier.display()))?;
-  let registry = resolve_registry_for_package(&specifier.name, base.base_dir.as_ref().map(|d| d.as_ref()), environment);
-  let package = ensure_npm_package_extracted(&specifier.name, version, &registry, environment).await?;
-  let content = read_package_file(&package.dir, &specifier.name, &path, environment)?;
-  Ok(ResolvedFilePathWithBytes {
-    source: PathSource::new_npm(
-      NpmSpecifier {
-        name: specifier.name.clone(),
-        version: Some(version.clone()),
-        path,
-      },
-      base.base_dir.clone(),
-    ),
-    is_first_download: package.is_first_download,
-    content,
-  })
+  }
 }
 
-/// Gets the path within the package of the configuration file being referenced.
-///
-/// The `exports` of the package's package.json have the highest precedence. When
-/// they don't have a match, a sub path is the path of a file in the package and
-/// no sub path is the package.json's `main` if it's a JSON file or otherwise a
-/// dprint.json file at the root of the package.
-///
-/// Falling back when there's no match is more lenient than Node.js, which only
-/// allows what's in the `exports`. It's done because a package's `exports` are
-/// often only written for its JS and don't have its configuration files.
-fn resolve_config_path_in_package(package_dir: &Path, package_name: &str, sub_path: Option<&str>, environment: &impl Environment) -> Result<String> {
-  let package_json = read_package_json(package_dir, environment)?;
-  let export_key = match sub_path {
-    Some(sub_path) => format!("./{}", sub_path),
-    None => ".".to_string(),
-  };
-  let export = match package_json.as_ref().and_then(|p| p.get("exports")) {
-    Some(exports) => resolve_export(exports, &export_key),
-    None => ExportResolution::NotFound,
-  };
-  match export {
-    ExportResolution::Target(target) => {
-      let Some(path) = normalize_package_json_path(&target) else {
-        bail!(
-          "The \"exports\" of npm package {} has an invalid target for \"{}\": {}",
-          package_name,
-          export_key,
-          target
-        );
-      };
-      return Ok(path);
-    }
-    ExportResolution::Excluded => {
-      bail!("The \"exports\" of npm package {} excludes \"{}\".", package_name, export_key);
-    }
-    ExportResolution::NotFound => {}
-  }
-
-  if let Some(sub_path) = sub_path {
-    return Ok(sub_path.to_string());
-  }
-
-  let main = package_json
-    .as_ref()
-    .and_then(|p| p.get("main"))
-    .and_then(|m| m.as_str())
-    .filter(|m| is_json_file_name(m))
-    .and_then(normalize_package_json_path)
-    .filter(|m| environment.path_exists(package_dir.join(m)));
-  if let Some(main) = main {
-    return Ok(main);
-  }
-
-  for file_name in DEFAULT_CONFIG_FILE_NAMES {
-    if environment.path_exists(package_dir.join(file_name)) {
-      return Ok(file_name.to_string());
-    }
-  }
-
-  bail!(
-    concat!(
-      "Could not determine the configuration file of npm package {}. Specify a file in the package ",
-      "(ex. npm:{}/config.json) or have the package provide a dprint.json file, a \".\" entry ",
-      "in its package.json's \"exports\", or a JSON file as its package.json's \"main\"."
-    ),
-    package_name,
-    package_name,
-  );
+struct RegistryPackageDir {
+  dir: PathBuf,
+  /// Whether the package was downloaded from the registry instead of being
+  /// found in the cache.
+  is_first_download: bool,
 }
 
 fn read_package_json(package_dir: &Path, environment: &impl Environment) -> Result<Option<serde_json::Value>> {
@@ -753,6 +837,92 @@ Expected: wrong",
       assert_eq!(environment.remote_file_request_count(packument_url), 2);
       assert_eq!(environment.remote_file_request_count(tarball_url), 2);
       let _ = environment.take_stderr_messages(); // wasm compile messages
+    });
+  }
+
+  #[test]
+  fn should_only_read_npmrc_and_package_json_once() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/project/.npmrc", "registry=https://npm.example.com/")
+      .build();
+    let packument_url = "https://npm.example.com/config";
+    let tarball_url = "https://npm.example.com/config/-/config-1.0.0.tgz";
+    let files: [(&str, &[u8]); 4] = [
+      ("package/package.json", br#"{ "exports": { "./a": "./a.json", "./b": "./b.json" } }"#),
+      ("package/a.json", br#"{ "prop1": 1 }"#),
+      ("package/b.json", br#"{ "prop2": 2 }"#),
+      ("package/c.json", br#"{ "prop3": 3 }"#),
+    ];
+    let packument = serde_json::json!({ "versions": { "1.0.0": { "dist": { "tarball": tarball_url } } } });
+    environment.add_remote_file_bytes(packument_url, packument.to_string().into_bytes());
+    environment.add_remote_file_bytes(tarball_url, create_test_npm_tarball(&files));
+
+    environment.clone().run_in_runtime(async move {
+      let resolver = NpmExtendsResolver::default();
+      let base = PathSource::new_local(CanonicalizedPathBuf::new_for_testing("/project"));
+      let file = resolver.resolve("npm:config@1.0.0/a", &base, &environment).await.unwrap();
+      assert_eq!(file.source.display(), "npm:config@1.0.0/a.json");
+      assert!(file.is_first_download);
+
+      // changing these has no effect because what was read is reused
+      let package_dir = environment.get_cache_dir().join("npm/npm.example.com/config@1.0.0");
+      environment.write_file(package_dir.join("package.json"), "{}").unwrap();
+      environment.remove_file("/project/.npmrc").unwrap();
+
+      let file = resolver.resolve("npm:config@1.0.0/b", &base, &environment).await.unwrap();
+      assert_eq!(file.source.display(), "npm:config@1.0.0/b.json");
+      assert!(!file.is_first_download);
+      let PathSource::Npm(npm_source) = &file.source else { unreachable!() };
+      let file = resolver.resolve_relative("./c.json", npm_source, &environment).await.unwrap();
+      assert_eq!(file.source.display(), "npm:config@1.0.0/c.json");
+      assert_eq!(environment.remote_file_request_count(tarball_url), 1);
+    });
+  }
+
+  #[test]
+  fn should_error_for_circular_extends() {
+    let environment = TestEnvironmentBuilder::new()
+      .write_file("/self.json", r#"{ "extends": "./self.json" }"#)
+      .write_file("/a.json", r#"{ "extends": "./dir/b.json" }"#)
+      .write_file("/dir/b.json", r#"{ "extends": "npm:config@1.0.0" }"#)
+      .write_file("/diamond.json", r#"{ "extends": ["./left.json", "./right.json"] }"#)
+      .write_file("/left.json", r#"{ "extends": "./shared.json", "prop1": 1 }"#)
+      .write_file("/right.json", r#"{ "extends": "./shared.json", "prop2": 2 }"#)
+      .write_file("/shared.json", r#"{ "prop3": 3 }"#)
+      .build();
+    add_registry_package(
+      &environment,
+      "config",
+      "1.0.0",
+      &[
+        ("package/dprint.json", r#"{ "extends": "./other.json" }"#),
+        ("package/other.json", r#"{ "extends": "npm:config@1.0.0/dprint.json" }"#),
+      ],
+    );
+
+    environment.clone().run_in_runtime(async move {
+      assert_eq!(
+        resolve_config("/self.json", &environment).await.unwrap_err().to_string(),
+        "Circular extends detected: /self.json -> /self.json",
+      );
+      assert_eq!(
+        resolve_config("/a.json", &environment).await.unwrap_err().to_string(),
+        concat!(
+          "Circular extends detected: /a.json -> /dir/b.json -> npm:config@1.0.0/dprint.json -> npm:config@1.0.0/other.json -> npm:config@1.0.0/dprint.json
+",
+          "    at npm:config@1.0.0/other.json
+",
+          "    at npm:config@1.0.0/dprint.json
+",
+          "    at /dir/b.json"
+        ),
+      );
+
+      // extending the same file in several places is fine
+      let result = resolve_config("/diamond.json", &environment).await.unwrap();
+      assert_eq!(get_number(&result, "prop1"), 1);
+      assert_eq!(get_number(&result, "prop2"), 2);
+      assert_eq!(get_number(&result, "prop3"), 3);
     });
   }
 
