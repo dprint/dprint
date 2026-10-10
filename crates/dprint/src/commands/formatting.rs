@@ -5740,7 +5740,7 @@ text_formatted"
         err.assert_exit_code(11);
         assert_eq!(
           err.to_string(),
-          concat!("Config discovery was disabled and no plugins (--plugins <url/path/npm>) and/or config (--config <path>) was specified.",)
+          concat!("Config discovery was disabled and no plugins (--plugins <url/path>) and/or config (--config <path>) was specified.",)
         );
       }
       // override env

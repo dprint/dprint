@@ -101,7 +101,7 @@ pub enum ResolveConfigError {
     #[source]
     inner: Option<anyhow::Error>,
   },
-  #[error("Config discovery was disabled and no plugins (--plugins <url/path/npm>) and/or config (--config <path>) was specified.")]
+  #[error("Config discovery was disabled and no plugins (--plugins <url/path>) and/or config (--config <path>) was specified.")]
   ConfigDiscoveryDisabled,
   Other(#[from] anyhow::Error),
 }

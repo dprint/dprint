@@ -354,10 +354,10 @@ SUBCOMMANDS:
 More details at `dprint help <SUBCOMMAND>`
 
 OPTIONS:
-  -c, --config <config>              Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.
-      --config-discovery=<BOOLEAN>   Sets the config discovery mode. Set to `false` to completely disable, `ignore-descendants` to avoid finding config files in child directories, or `global` to only use the global config file.
-      --plugins <urls/files/npm>...  List of urls, file paths, or npm: specifiers of plugins to use. This overrides what is specified in the config file.
-  -L, --log-level <log-level>        Set log level [default: info] [possible values: debug, info, warn, error, silent]
+  -c, --config <config>             Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.
+      --config-discovery=<BOOLEAN>  Sets the config discovery mode. Set to `false` to completely disable, `ignore-descendants` to avoid finding config files in child directories, or `global` to only use the global config file.
+      --plugins <urls/files>...     List of urls, file paths, or npm: specifiers of plugins to use. This overrides what is specified in the config file.
+  -L, --log-level <log-level>       Set log level [default: info] [possible values: debug, info, warn, error, silent]
 
 ENVIRONMENT VARIABLES:
   DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
