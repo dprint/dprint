@@ -27,10 +27,21 @@ use serde::Deserialize;
 use serde::Serialize;
 
 fn main() -> Result<(), FormatError> {
+  if std::env::args().any(|arg| arg == "--pipe-holder") {
+    std::thread::sleep(std::time::Duration::from_secs(20));
+    return Ok(());
+  }
+
   let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
   rt.block_on(async move {
     if let Some(parent_process_id) = get_parent_process_id_from_cli_args() {
       start_parent_process_checker_task(parent_process_id);
+    }
+
+    if std::env::var("DPRINT_TEST_PROCESS_PLUGIN_SPAWN_PIPE_HOLDER").as_deref() == Ok("1")
+      && let Ok(exe) = std::env::current_exe()
+    {
+      let _ignore = std::process::Command::new(exe).arg("--pipe-holder").stdin(std::process::Stdio::null()).spawn();
     }
 
     handle_process_stdio_messages(TestProcessPluginHandler::new()).await

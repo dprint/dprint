@@ -334,4 +334,52 @@ mod test {
       }
     })
   }
+
+  #[test]
+  fn should_not_hang_when_plugin_subprocess_holds_stdio_open() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin().build();
+    unsafe { std::env::set_var("DPRINT_TEST_PROCESS_PLUGIN_SPAWN_PIPE_HOLDER", "1") };
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let test_environment = environment.clone();
+    let handle = std::thread::spawn(move || {
+      test_environment.run_in_runtime({
+        let environment = test_environment.clone();
+        async move {
+          let communicator = Rc::new(InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone()).await);
+          let format_config = Arc::new(FormatConfig {
+            id: FormatConfigId::from_raw(1),
+            plugin: Default::default(),
+            global: Default::default(),
+          });
+
+          let formatted_text = communicator
+            .format_text(InitializedPluginFormatRequest {
+              file_path: PathBuf::from("test.txt"),
+              file_text: "testing".to_string().into_bytes(),
+              range: None,
+              config: format_config.clone(),
+              override_config: Default::default(),
+              on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
+              token: Arc::new(NullCancellationToken),
+            })
+            .await
+            .unwrap();
+          assert_eq!(
+            formatted_text.map(|t| String::from_utf8(t).unwrap()),
+            Some("testing_formatted_process".to_string())
+          );
+
+          communicator.shutdown().await;
+        }
+      });
+      unsafe { std::env::remove_var("DPRINT_TEST_PROCESS_PLUGIN_SPAWN_PIPE_HOLDER") };
+      tx.send(()).unwrap();
+    });
+    let completed = rx.recv_timeout(std::time::Duration::from_secs(10));
+    assert!(
+      completed.is_ok(),
+      "hung shutting down a process plugin whose spawned subprocess holds the stdio pipes open"
+    );
+    handle.join().unwrap();
+  }
 }

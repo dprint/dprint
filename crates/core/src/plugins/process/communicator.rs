@@ -51,6 +51,9 @@ use crate::plugins::error_to_string;
 
 type Result<T> = std::result::Result<T, FormatError>;
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 type DprintCancellationToken = Arc<dyn super::super::CancellationToken>;
 
 /// The detailed reason a schema version negotiation step failed.
@@ -166,17 +169,15 @@ impl ProcessPluginCommunicator {
     }
 
     let shutdown_flag = Arc::new(AtomicFlag::default());
-    let mut child = Command::new(executable_file_path)
-      .args(&args)
-      .stdin(Stdio::piped())
-      .stderr(Stdio::piped())
-      .stdout(Stdio::piped())
-      .spawn()
-      .map_err(|err| CommunicatorError::StartProcess {
-        executable: executable_file_path.display().to_string(),
-        args: args.join(" "),
-        error: err,
-      })?;
+    let mut command = Command::new(executable_file_path);
+    command.args(&args).stdin(Stdio::piped()).stderr(Stdio::piped()).stdout(Stdio::piped());
+    #[cfg(unix)]
+    command.process_group(0);
+    let mut child = command.spawn().map_err(|err| CommunicatorError::StartProcess {
+      executable: executable_file_path.display().to_string(),
+      args: args.join(" "),
+      error: err,
+    })?;
 
     // read and output stderr prefixed
     let stderr = child.stderr.take().unwrap();
@@ -282,19 +283,21 @@ impl ProcessPluginCommunicator {
         // plugin a chance to clean up (ex. in case it has spawned
         // any processes it needs to kill or something like that)
         _ = self.send_with_acknowledgement(MessageBody::Close) => {}
-        _ = tokio::time::sleep(Duration::from_millis(250)) => {
-          self.kill();
-        }
+        _ = tokio::time::sleep(Duration::from_millis(250)) => {}
       }
-    } else {
-      self.kill();
     }
+    self.kill();
   }
 
   pub fn kill(&self) {
     self.context.shutdown_flag.raise();
     if let Some(mut child) = self.child.borrow_mut().take() {
+      #[cfg(unix)]
+      unsafe {
+        libc::kill(-(child.id() as i32), libc::SIGKILL);
+      }
       let _ignore = child.kill();
+      let _ignore = child.wait();
     }
   }
 
