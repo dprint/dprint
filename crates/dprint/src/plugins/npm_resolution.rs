@@ -942,7 +942,8 @@ fn write_npm_tarball_meta(registry_segment: &str, package_name: &str, version: &
   if let Some(parent) = path.parent() {
     environment.mk_dir_all(parent)?;
   }
-  environment.write_file(&path, &json.to_string())?;
+  // atomic so a concurrent reader never sees a partially written file
+  environment.atomic_write_file_bytes(&path, json.to_string().as_bytes())?;
   Ok(())
 }
 
