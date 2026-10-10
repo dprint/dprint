@@ -84,7 +84,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
       // compiled for a CPU with different features, or by a different
       // wasm engine/rustc version, or the cache file is corrupt). When that happens,
       // forget the cache, recompile from source, and try once more.
-      let plugin = match create_wasm_plugin(&environment, &cache_item, wasm_module_creator) {
+      let plugin = match create_wasm_plugin(&environment, &cache_item, wasm_module_creator).await {
         Ok(plugin) => plugin,
         Err(err) => {
           log_debug!(
@@ -95,7 +95,7 @@ pub async fn create_plugin<TEnvironment: Environment>(
 
           // forget and try again
           let cache_item = plugin_cache.forget_and_recreate(plugin_reference).await?;
-          create_wasm_plugin(&environment, &cache_item, wasm_module_creator)?
+          create_wasm_plugin(&environment, &cache_item, wasm_module_creator).await?
         }
       };
       Ok(Box::new(plugin))
@@ -123,13 +123,23 @@ pub async fn create_plugin<TEnvironment: Environment>(
 /// Reads the cached compiled Wasm module and loads it, verifying it can run on
 /// this machine. Returns an error when the cache is unreadable or the module
 /// can't be loaded so the caller can recompile from source.
-fn create_wasm_plugin<TEnvironment: Environment>(
+async fn create_wasm_plugin<TEnvironment: Environment>(
   environment: &TEnvironment,
   cache_item: &PluginCacheItem,
   wasm_module_creator: &WasmModuleCreator,
 ) -> Result<wasm::WasmPlugin<TEnvironment>> {
-  let file_bytes = environment.read_file_bytes(&cache_item.file_path)?;
-  wasm::WasmPlugin::new(&file_bytes, cache_item.info.clone(), wasm_module_creator, environment.clone())
+  // do this on a blocking thread so that the plugins get loaded in parallel
+  dprint_core::async_runtime::spawn_blocking({
+    let environment = environment.clone();
+    let file_path = cache_item.file_path.clone();
+    let plugin_info = cache_item.info.clone();
+    let wasm_module_creator = wasm_module_creator.clone();
+    move || {
+      let file_bytes = environment.read_file_bytes(&file_path)?;
+      wasm::WasmPlugin::new(&file_bytes, plugin_info, &wasm_module_creator, environment)
+    }
+  })
+  .await?
 }
 
 #[cfg(test)]
