@@ -76,7 +76,7 @@ rkyv = "=0.8.15"
 
 # most targets: native Cranelift codegen.
 [target.'cfg(not(any(target_arch = "powerpc64", target_arch = "loongarch64", target_os = "android")))'.dependencies]
-wasmtime = { version = "=43.0.2", default-features = false, features = [
+wasmtime = { version = "=49.0.2", default-features = false, features = [
   "cranelift",
   "parallel-compilation",
   "runtime",
@@ -91,7 +91,7 @@ wasmtime = { version = "=43.0.2", default-features = false, features = [
 # bytecode (still via Cranelift) and interpret it. the `pulley` feature adds the
 # bytecode emitter; the interpreter is already part of `runtime`.
 [target.'cfg(any(target_arch = "powerpc64", target_arch = "loongarch64", target_os = "android"))'.dependencies]
-wasmtime = { version = "=43.0.2", default-features = false, features = [
+wasmtime = { version = "=49.0.2", default-features = false, features = [
   "cranelift",
   "parallel-compilation",
   "runtime",

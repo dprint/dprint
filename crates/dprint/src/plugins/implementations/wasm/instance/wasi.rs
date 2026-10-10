@@ -120,7 +120,7 @@ pub fn add_unsupported_wasi_imports(linker: &mut Linker, store: &mut Store, modu
     let ExternType::Func(ty) = import.ty() else {
       continue;
     };
-    if linker.get(&mut *store, MODULE, import.name()).is_some() {
+    if linker.get(&mut *store, MODULE, import.name()).is_ok() {
       continue;
     }
     let returns_errno = ty.results().len() == 1 && matches!(ty.results().next(), Some(ValType::I32));
