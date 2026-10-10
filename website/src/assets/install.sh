@@ -18,6 +18,8 @@ else
 	case $(uname -sm) in
 		"Darwin x86_64") target="x86_64-apple-darwin" ;;
 		"Darwin arm64") target="aarch64-apple-darwin" ;;
+		"FreeBSD amd64") target="x86_64-unknown-freebsd" ;;
+		"FreeBSD arm64") target="aarch64-unknown-freebsd" ;;
 		# Termux reports "Linux aarch64"/"Linux x86_64" but uses Android's bionic libc, so check uname -o.
 		"Linux aarch64")
 			if [ "$(uname -o 2>/dev/null)" = "Android" ]; then
