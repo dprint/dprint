@@ -130,7 +130,7 @@ There is no minimum otherwise — a version is only ever held back when you ask 
 
 ### Installing Plugins via CLI
 
-Plugins are downloaded and set up automatically the first time they're needed. To do this ahead of time for the plugins in the configuration file (ex. when building a container image or to warm a cache on CI), run:
+Plugins are downloaded and set up automatically the first time they're needed. To do this ahead of time for the plugins in the configuration file, run:
 
 ```sh
 dprint install
