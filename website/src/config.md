@@ -128,6 +128,24 @@ There is no minimum otherwise — a version is only ever held back when you ask 
 - Only stable releases at or below the package's `latest` tag are considered when walking back, so a prerelease can't be selected by a walk back you didn't ask for. A package whose `latest` tag is itself a prerelease walks back through prereleases, since that's all it has.
 - `dprint config update` leaves a plugin where it is when no version of its package is old enough, reporting it rather than failing. `dprint init` and `dprint config add` error in the same situation, since there's nothing to write.
 
+### Installing Plugins via CLI
+
+Plugins are downloaded and set up automatically the first time they're needed. To do this ahead of time for the plugins in the configuration file (ex. when building a container image or to warm a cache on CI), run:
+
+```sh
+dprint install
+```
+
+To also install the plugins of the configuration files in descendant directories, run `dprint install --recursive`.
+
+Providing plugins acts like `dprint add` and then installs the plugins in the configuration file:
+
+```sh
+dprint install typescript json markdown
+```
+
+Note: `dprint config install` also works and is equivalent.
+
 ### Updating Plugins via CLI
 
 Plugins can be updated to the latest version in the configuration file by running:

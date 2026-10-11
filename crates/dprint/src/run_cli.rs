@@ -141,6 +141,7 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
         package_json,
         checksum,
         minimum_dependency_age,
+        install,
       } => {
         commands::add_plugin_config_file(
           args,
@@ -154,8 +155,13 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
           environment,
           plugin_resolver,
         )
-        .await
+        .await?;
+        if *install {
+          commands::install_plugins(args, environment, plugin_resolver).await?;
+        }
+        Ok(())
       }
+      ConfigSubCommand::Install => commands::install_plugins(args, environment, plugin_resolver).await,
       ConfigSubCommand::Update {
         yes,
         dry_run,
