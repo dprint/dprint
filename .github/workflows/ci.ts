@@ -306,21 +306,15 @@ function glibcCheckRun(profileDir: "debug" | "release"): string[] {
   ];
 }
 
-const buildDebug = step({
+// Only for the targets that don't run the test suite. The ones that do get
+// their debug build from the test build instead (see `testBuildRun`), since a
+// `-p dprint` build resolves different features than the tests do and so
+// none of it would be reused.
+const buildDebug = step.if(isNotTag).dependsOn(setupRust)({
   name: "Build (Debug)",
-  if: isCross.not().and(isMuslImage.not()).and(isZigbuild.not()),
+  if: runTests.not().and(isCross.not()).and(isMuslImage.not()),
   env: aarch64LinkerEnv,
   run: `cargo build -p dprint --locked --target ${matrix.target}`,
-}, {
-  // build with zigbuild in debug too so PRs exercise the release toolchain
-  // (the release build only runs on tags)
-  name: "Build zigbuild (Debug)",
-  if: isZigbuild,
-  run: `cargo zigbuild -p dprint --locked --target ${matrix.target}.${matrix.zigbuild_glibc}`,
-}, {
-  name: "Check glibc requirement (Debug)",
-  if: isZigbuild,
-  run: glibcCheckRun("debug"),
 }, {
   name: "Build cross (Debug)",
   if: isCross,
@@ -329,7 +323,59 @@ const buildDebug = step({
   name: "Build musl image (Debug)",
   if: isMuslImage,
   run: muslImageRun(""),
-}).dependsOn(setupRust);
+});
+
+// Builds everything the test step needs in a single invocation: the test
+// binaries along with the dprint and test-process-plugin executables the tests
+// spawn. This uses the same flags as the test step so cargo resolves the same
+// features (ones from dev-dependencies and `--all-features` included), which
+// leaves the test step with nothing to compile. Building the executables with
+// `-p <name>` instead resolves fewer features, so cargo compiles them and
+// their dependencies a second time.
+function testBuildRun(releaseArgs: string): string {
+  return `${matrix.cargo} build --locked --target ${matrix.cargo_target} --all-features --lib --bins --tests${releaseArgs}`;
+}
+
+const tests = step(
+  // debug
+  step.if(runDebugTests).dependsOn(setupRust)(
+    step({
+      name: "Build tests (Debug)",
+      run: testBuildRun(""),
+    }),
+    step({
+      // check the debug build too so PRs exercise the release toolchain
+      // (the release build only runs on tags)
+      name: "Check glibc requirement (Debug)",
+      if: isZigbuild,
+      run: glibcCheckRun("debug"),
+    }),
+    step({
+      name: "Test (Debug)",
+      run: `${matrix.cargo} test --locked --target ${matrix.cargo_target} --all-features`,
+    }),
+    step({
+      name: "Test integration",
+      if: isLinuxGnu,
+      run: `./target/${matrix.target}/debug/dprint check`,
+    }),
+  ),
+  // release
+  step.if(runTests.and(isTag)).dependsOn(setupRust)(
+    step({
+      name: "Build tests (Release)",
+      run: testBuildRun(" --release"),
+    }),
+    step({
+      name: "Test (Release)",
+      run: `${matrix.cargo} test --locked --target ${matrix.cargo_target} --all-features --release`,
+    }),
+  ),
+);
+
+// The test build leaves a dprint executable at target/<target>/release/dprint
+// that's compiled with the test suite's features, so the published binaries
+// are built after the tests in order to guarantee that's not what gets zipped.
 const buildRelease = step({
   name: "Build (Release)",
   if: isCross.not().and(isMuslImage.not()).and(isZigbuild.not()),
@@ -343,37 +389,7 @@ const buildRelease = step({
   name: "Build musl image (Release)",
   if: isMuslImage,
   run: muslImageRun(" --release"),
-}).dependsOn(setupRust);
-
-const tests = step(
-  // debug
-  step.if(runDebugTests).dependsOn(buildDebug)(
-    step({
-      name: "Build test plugins (Debug)",
-      run: `${matrix.cargo} build -p test-process-plugin --locked --target ${matrix.cargo_target}`,
-    }),
-    step({
-      name: "Test (Debug)",
-      run: `${matrix.cargo} test --locked --target ${matrix.cargo_target} --all-features`,
-    }),
-    step({
-      name: "Test integration",
-      if: isLinuxGnu,
-      run: `${matrix.cargo} run -p dprint --locked --target ${matrix.cargo_target} -- check`,
-    }),
-  ),
-  // release
-  step.if(runTests.and(isTag)).dependsOn(buildRelease)(
-    step({
-      name: "Build test plugins (Release)",
-      run: `${matrix.cargo} build -p test-process-plugin --locked --target ${matrix.cargo_target} --release`,
-    }),
-    step({
-      name: "Test (Release)",
-      run: `${matrix.cargo} test --locked --target ${matrix.cargo_target} --all-features --release`,
-    }),
-  ),
-);
+}).dependsOn(setupRust).comesAfter(tests);
 
 // Runs the tests that compile and run a wasm plugin under cross's emulator for
 // the cross targets it can run binaries for. No other job executes the Pulley
@@ -389,8 +405,7 @@ const crossTests = step({
 
 // Builds the published gnu binaries against an old glibc so they run on older
 // distros (dprint/dprint#796) -- the runner's glibc doesn't matter with zigbuild.
-// This runs after the tests so target/<target>/release/dprint is guaranteed to
-// be zigbuild output when it gets zipped, even if a test step rebuilds it.
+// Like the other release builds, this runs after the tests.
 const buildZigbuildRelease = step({
   name: "Build zigbuild (Release)",
   if: isZigbuild,
