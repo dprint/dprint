@@ -16,7 +16,7 @@ use crate::utils::is_shebang_prefix_match;
 /// Text added to the file path given to the plugins, before the extension,
 /// for a file that was given an extension it doesn't have on disk (ex. the
 /// one its shebang line maps to). The real path is what's before it.
-pub const EXT_ADDED_FILE_PATH_MARKER: &str = ".dprint-ext-added";
+const EXT_ADDED_FILE_PATH_MARKER: &str = ".dprint-ext-added";
 
 #[derive(Default)]
 pub struct PluginNameResolutionMaps {

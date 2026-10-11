@@ -55,7 +55,6 @@ use crate::patterns::ConfigPatternBases;
 use crate::patterns::FileMatcher;
 use crate::patterns::FileMatcherOptions;
 use crate::patterns::OrderedPatternsMatcher;
-use crate::plugins::EXT_ADDED_FILE_PATH_MARKER;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
@@ -456,9 +455,9 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
         shebang.hash(&mut hasher);
         extension.hash(&mut hasher);
       }
-      // and the file path a plugin gets for a file matched by its shebang
-      // affects how the plugin formats it
-      EXT_ADDED_FILE_PATH_MARKER.hash(&mut hasher);
+      // version to bump in order to format the files of configs with shebangs
+      // again when changing how files matched by a shebang get formatted
+      1u8.hash(&mut hasher);
     }
     hasher.finish()
   }
