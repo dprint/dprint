@@ -983,7 +983,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
         // inherits from the config files in its own ancestor directories
         let options = ResolveConfigWithAncestorsOptions {
           remote_cache_mode: self.args.remote_cache_mode(),
-          use_global_config: matches!(config_discovery, ConfigDiscovery::Default),
+          use_global_config: false,
         };
         resolve_config_from_path_with_ancestors(&config_path, options, self.environment).await?
       };

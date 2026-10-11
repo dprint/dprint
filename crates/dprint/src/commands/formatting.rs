@@ -5999,12 +5999,13 @@ text_formatted"
   }
 
   #[test]
-  fn should_inherit_global_config_in_main_config_without_ancestor_config() {
+  fn should_not_inherit_global_config_in_main_config_without_ancestor_config() {
+    // the global config file is for directories without a config file
     let file_path = "/project/file.txt";
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
       .with_global_config(|config| {
-        config.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "global" }"#);
+        config.add_remote_wasm_plugin();
       })
       .with_local_config("/project/dprint.json", |config| {
         config.set_inherit(true);
@@ -6012,22 +6013,13 @@ text_formatted"
       .write_file(&file_path, "text")
       .set_cwd("/project")
       .build();
-
-    // the global config file is only used in the default config discovery mode
-    let err = run_test_cli(vec!["fmt", "--config-discovery=ignore-descendants"], &environment).err().unwrap();
+    let err = run_test_cli(vec!["fmt"], &environment).err().unwrap();
     assert_eq!(
       err.to_string(),
       "No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file."
     );
     err.assert_exit_code(13);
-
-    run_test_cli(vec!["fmt"], &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
-    );
-    assert_eq!(environment.read_file(&file_path).unwrap(), "text_global");
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text");
   }
 
   #[test]

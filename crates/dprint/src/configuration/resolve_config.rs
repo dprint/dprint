@@ -165,9 +165,8 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
       if config_discovery.traverse_ancestors() {
         let options = ResolveConfigWithAncestorsOptions {
           remote_cache_mode: args.remote_cache_mode(),
-          // only fall back to the global config file when config discovery is
-          // in its default mode to match main config file resolution
-          use_global_config: matches!(config_discovery, ConfigDiscovery::Default),
+          // the global config file is for directories without a config file
+          use_global_config: false,
         };
         resolve_config_from_path_with_ancestors(&resolved_config_path, options, environment).await?
       } else {
