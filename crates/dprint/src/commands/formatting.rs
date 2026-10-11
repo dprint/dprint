@@ -2520,16 +2520,22 @@ text2_formatted"
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(4)]);
     assert_eq!(
       environment.read_file(&script_path).unwrap(),
-      "#!/bin/sh\n/scripts/build.txt_ps_formatted_process"
+      "#!/bin/sh\n/scripts/build.$dprint$shebang.txt_ps_formatted_process"
     );
-    assert_eq!(environment.read_file(&dotfile_path).unwrap(), "#!/bin/sh\n/.envrc.txt_ps_formatted_process");
+    assert_eq!(
+      environment.read_file(&dotfile_path).unwrap(),
+      "#!/bin/sh\n/.envrc.$dprint$shebang.txt_ps_formatted_process"
+    );
     assert_eq!(environment.read_file(&override_path).unwrap(), "#!/bin/sh\ntext_overridden");
     assert_eq!(environment.read_file(&ext_path).unwrap(), "#!/bin/sh\n/scripts/file.txt_ps_formatted_process");
 
     // same when formatting the text provided via stdin
     let test_std_in = TestStdInReader::from("#!/bin/sh\noutput_file_path");
     run_test_cli_with_stdin(vec!["fmt", "--config", "/config.json", "--stdin", "./scripts/other"], &environment, test_std_in).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec!["#!/bin/sh\n./scripts/other.txt_ps_formatted_process"]);
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec!["#!/bin/sh\n./scripts/other.$dprint$shebang.txt_ps_formatted_process"]
+    );
   }
 
   #[test]

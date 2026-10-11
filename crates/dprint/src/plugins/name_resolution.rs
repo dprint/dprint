@@ -13,6 +13,10 @@ use crate::utils::get_lowercase_file_name;
 use crate::utils::get_shebang_line;
 use crate::utils::is_shebang_prefix_match;
 
+/// Text added to the file path given to the plugins, before the extension,
+/// for a file that was given the extension its shebang line maps to.
+const SHEBANG_FILE_PATH_MARKER: &str = ".$dprint$shebang";
+
 #[derive(Default)]
 pub struct PluginNameResolutionMaps {
   /// The scope's plugins in configuration order, which is the order they
@@ -136,7 +140,8 @@ impl PluginNameResolutionMaps {
   ///
   /// Plugins decide how to format a file based on its path, so a file that's
   /// formatted because of its shebang line is given the extension its shebang
-  /// maps to (ex. `build.sh` for a file named `build`).
+  /// maps to (ex. `build.$dprint$shebang.sh` for a file named `build`). The
+  /// marker before the extension lets a plugin tell the path isn't the real one.
   pub fn get_plugin_file_path<'a>(&self, file_path: &'a Path, file_bytes_start: &[u8]) -> Cow<'a, Path> {
     if !self.may_match_shebang(file_path) || self.get_plugin_names_from_file_path(file_path).has_claiming_plugin() {
       return Cow::Borrowed(file_path);
@@ -145,6 +150,7 @@ impl PluginNameResolutionMaps {
       return Cow::Borrowed(file_path);
     };
     let mut plugin_file_path = file_path.as_os_str().to_owned();
+    plugin_file_path.push(SHEBANG_FILE_PATH_MARKER);
     plugin_file_path.push(".");
     plugin_file_path.push(extension);
     Cow::Owned(PathBuf::from(plugin_file_path))
