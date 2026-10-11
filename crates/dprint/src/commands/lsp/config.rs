@@ -9,7 +9,6 @@ use anyhow::Context;
 use anyhow::Result;
 
 use crate::cache::RemoteCacheMode;
-use crate::configuration::ResolveConfigWithAncestorsOptions;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
@@ -96,7 +95,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     };
     // only allow one task in here per config
     let mut cell = cell.lock().await;
-    let config = self.resolve_config(&config_file_bytes, use_global_config).await?;
+    let config = self.resolve_config(&config_file_bytes).await?;
 
     if let Some(cached_scope) = cell.as_ref() {
       let is_same_config = cached_scope.scope.config.as_deref() == Some(&config);
@@ -127,11 +126,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
 
   /// Resolves the config of a config file, merging in the config file of an
   /// ancestor directory when it specifies `"inherit": true`.
-  async fn resolve_config(&self, config_file: &ResolvedConfigPathWithText, use_global_config: bool) -> Result<ResolvedConfig> {
-    let options = ResolveConfigWithAncestorsOptions {
-      remote_cache_mode: self.remote_cache_mode,
-      use_global_config,
-    };
-    Ok(resolve_config_from_path_with_ancestors(config_file, options, &self.environment).await?)
+  async fn resolve_config(&self, config_file: &ResolvedConfigPathWithText) -> Result<ResolvedConfig> {
+    Ok(resolve_config_from_path_with_ancestors(config_file, self.remote_cache_mode, &self.environment).await?)
   }
 }

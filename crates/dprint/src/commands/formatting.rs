@@ -5999,11 +5999,11 @@ text_formatted"
   }
 
   #[test]
-  fn should_not_inherit_global_config_in_main_config_without_ancestor_config() {
-    // the global config file is for directories without a config file
+  fn should_error_inheriting_without_ancestor_config() {
     let file_path = "/project/file.txt";
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
+      // the global config file is never inherited from
       .with_global_config(|config| {
         config.add_remote_wasm_plugin();
       })
@@ -6011,15 +6011,55 @@ text_formatted"
         config.set_inherit(true);
       })
       .write_file(&file_path, "text")
+      .write_file("/other/file.txt", "text")
       .set_cwd("/project")
       .build();
-    let err = run_test_cli(vec!["fmt"], &environment).err().unwrap();
-    assert_eq!(
-      err.to_string(),
-      "No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file."
+    let expected_text = concat!(
+      "Could not find a configuration file in an ancestor directory to inherit from. ",
+      "Add one or remove \"inherit\": true from the configuration file.\n",
+      "    at /project/dprint.json",
     );
-    err.assert_exit_code(13);
+    let err = run_test_cli(vec!["fmt"], &environment).err().unwrap();
+    assert_eq!(err.to_string(), expected_text);
+    err.assert_exit_code(11);
+
+    // specified config file
+    environment.set_cwd("/");
+    let err = run_test_cli(vec!["fmt", "--config", "project/dprint.json"], &environment).err().unwrap();
+    assert_eq!(err.to_string(), expected_text);
+    err.assert_exit_code(11);
+
+    // descendant config file of a directory that's using the global config file
+    let err = run_test_cli(vec!["fmt", "."], &environment).err().unwrap();
+    assert_eq!(err.to_string(), expected_text);
+    err.assert_exit_code(11);
+
+    // config file found for a path outside the cwd
+    environment.set_cwd("/other");
+    let err = run_test_cli(vec!["fmt", ".", "/project/file.txt"], &environment).err().unwrap();
+    assert_eq!(err.to_string(), expected_text);
+    err.assert_exit_code(11);
+
+    // the global config file's plugin was resolved before getting to the other config files
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
     assert_eq!(environment.read_file(&file_path).unwrap(), "text");
+  }
+
+  #[test]
+  fn should_error_for_inherit_in_global_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|config| {
+        config.set_inherit(true).add_remote_wasm_plugin();
+      })
+      .write_file("/file.txt", "text")
+      .build();
+    let err = run_test_cli(vec!["fmt", "."], &environment).err().unwrap();
+    assert!(err.to_string().starts_with("The global configuration file cannot specify \"inherit\": true"));
+    err.assert_exit_code(11);
   }
 
   #[test]

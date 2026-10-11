@@ -276,8 +276,6 @@ struct ConfigEditorRequest {
   pub file_path: PathBuf,
   pub file_text: String,
   pub position: Position,
-  /// Whether a config file that inherits may inherit from the global config file.
-  pub use_global_config: bool,
 }
 
 enum ChannelMessage {
@@ -458,18 +456,14 @@ fn start_message_handler<TEnvironment: Environment>(
         ChannelMessage::Completion(request, sender) => {
           let config_completions = config_completions.clone();
           dprint_core::async_runtime::spawn(async move {
-            let result = config_completions
-              .completions(&request.file_path, &request.file_text, request.position, request.use_global_config)
-              .await;
+            let result = config_completions.completions(&request.file_path, &request.file_text, request.position).await;
             let _ = sender.send(result);
           });
         }
         ChannelMessage::Hover(request, sender) => {
           let config_completions = config_completions.clone();
           dprint_core::async_runtime::spawn(async move {
-            let result = config_completions
-              .hover(&request.file_path, &request.file_text, request.position, request.use_global_config)
-              .await;
+            let result = config_completions.hover(&request.file_path, &request.file_text, request.position).await;
             let _ = sender.send(result);
           });
         }
@@ -963,7 +957,6 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       file_path,
       file_text,
       position: params.text_document_position.position,
-      use_global_config: self.state.lock().settings.use_global_config,
     };
     if self.sender.send(ChannelMessage::Completion(request, sender)).is_err() {
       return Ok(None);
@@ -987,7 +980,6 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       file_path,
       file_text,
       position: params.text_document_position_params.position,
-      use_global_config: self.state.lock().settings.use_global_config,
     };
     if self.sender.send(ChannelMessage::Hover(request, sender)).is_err() {
       return Ok(None);

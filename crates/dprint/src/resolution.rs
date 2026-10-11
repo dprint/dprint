@@ -33,13 +33,13 @@ use crate::arg_parser::FilePatternArgs;
 use crate::configuration::GlobalConfigDiagnostic;
 use crate::configuration::RawPluginConfigOverride;
 use crate::configuration::ResolveConfigError;
-use crate::configuration::ResolveConfigWithAncestorsOptions;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
 use crate::configuration::get_global_config;
 use crate::configuration::get_plugin_config_map;
 use crate::configuration::inherit_config;
+use crate::configuration::new_no_config_to_inherit_error;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::resolve_config_from_path_with_ancestors;
 use crate::configuration::resolve_config_from_path_with_bytes;
@@ -974,6 +974,10 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
         let config = resolve_config_from_path_with_bytes(&config_path, self.args.remote_cache_mode(), self.environment).await?;
         // when a nested config opts into inheriting, merge in the ancestor config
         if config.inherit == Some(true) {
+          // the global config file is never inherited from
+          if parent_config.is_global {
+            return Err(ResolveConfigError::Other(new_no_config_to_inherit_error(&config.source)).into());
+          }
           inherit_config(config, &parent_config)?
         } else {
           config
@@ -981,11 +985,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
       } else {
         // a config file found for paths outside the main config's directory
         // inherits from the config files in its own ancestor directories
-        let options = ResolveConfigWithAncestorsOptions {
-          remote_cache_mode: self.args.remote_cache_mode(),
-          use_global_config: false,
-        };
-        resolve_config_from_path_with_ancestors(&config_path, options, self.environment).await?
+        resolve_config_from_path_with_ancestors(&config_path, self.args.remote_cache_mode(), self.environment).await?
       };
       if !self.args.plugins.is_empty() {
         config.plugins.clone_from(&parent_config.plugins);
