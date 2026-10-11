@@ -3408,6 +3408,33 @@ mod test {
   }
 
   #[test]
+  fn should_install_plugins_inherited_from_ancestor_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true).add_remote_process_plugin();
+      })
+      .set_cwd("/sub_dir")
+      .build();
+    run_test_cli(vec!["install"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec!["Installed test-process-plugin 0.1.0", "Installed test-plugin 0.2.0"]
+    );
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "Extracting zip for test-process-plugin",
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm"
+      ]
+    );
+  }
+
+  #[test]
   fn should_error_installing_plugin_that_fails_to_resolve() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()

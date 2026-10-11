@@ -518,6 +518,8 @@ When inheriting:
 - The ancestor's `excludes` are combined with the nested configuration file's `excludes`.
 - The ancestor's `includes` are _not_ inherited.
 
+The ancestor configuration file is the closest one found in the ancestor directories, which may also inherit. This is the case regardless of the directory dprint is run in, so running dprint in `./sub-project` uses the same configuration as running it in the root directory. When there's no configuration file in an ancestor directory, the [global configuration file](/global-config) is inherited from when one exists. A configuration file specified via `--config` is used on its own.
+
 Inheriting is opt-in (rather than opt-out) so that adding a configuration file higher up in the directory structure does not unexpectedly start affecting a nested configuration file.
 
 ## Incremental

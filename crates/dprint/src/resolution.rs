@@ -33,6 +33,7 @@ use crate::arg_parser::FilePatternArgs;
 use crate::configuration::GlobalConfigDiagnostic;
 use crate::configuration::RawPluginConfigOverride;
 use crate::configuration::ResolveConfigError;
+use crate::configuration::ResolveConfigWithAncestorsOptions;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
@@ -40,8 +41,9 @@ use crate::configuration::get_global_config;
 use crate::configuration::get_plugin_config_map;
 use crate::configuration::inherit_config;
 use crate::configuration::resolve_config_from_args;
+use crate::configuration::resolve_config_from_path_with_ancestors;
 use crate::configuration::resolve_config_from_path_with_bytes;
-use crate::configuration::resolve_global_config_path_and_text;
+use crate::configuration::resolve_global_config_path_and_text_at_path_root;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
@@ -913,13 +915,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
   /// Gets the global config file based at the root directory of the provided
   /// path so the path is within the resulting config's directory.
   fn global_config_path_based_at_path_root(&self, path: &Path) -> Result<Option<ResolvedConfigPathWithText>> {
-    let Some(global_config_path) = resolve_global_config_path_and_text(self.environment)? else {
-      return Ok(None);
-    };
-    Ok(Some(ResolvedConfigPathWithText {
-      base_path: self.canonical_path_root_dir(path)?,
-      ..global_config_path
-    }))
+    Ok(resolve_global_config_path_and_text_at_path_root(self.environment, path)?)
   }
 
   /// Gets the canonicalized root directory of the provided path (ex. the
@@ -974,11 +970,23 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     patterns: Rc<FilePatternArgs>,
   ) -> LocalBoxFuture<'a, Result<Vec<PluginsScopeAndPaths<TEnvironment>>>> {
     async move {
-      let mut config = resolve_config_from_path_with_bytes(&config_path, self.args.remote_cache_mode(), self.environment).await?;
-      // when a nested config opts into inheriting, merge in the ancestor config
-      if is_descendant_config && config.inherit == Some(true) {
-        config = inherit_config(config, &parent_config)?;
-      }
+      let mut config = if is_descendant_config {
+        let config = resolve_config_from_path_with_bytes(&config_path, self.args.remote_cache_mode(), self.environment).await?;
+        // when a nested config opts into inheriting, merge in the ancestor config
+        if config.inherit == Some(true) {
+          inherit_config(config, &parent_config)?
+        } else {
+          config
+        }
+      } else {
+        // a config file found for paths outside the main config's directory
+        // inherits from the config files in its own ancestor directories
+        let options = ResolveConfigWithAncestorsOptions {
+          remote_cache_mode: self.args.remote_cache_mode(),
+          use_global_config: matches!(config_discovery, ConfigDiscovery::Default),
+        };
+        resolve_config_from_path_with_ancestors(&config_path, options, self.environment).await?
+      };
       if !self.args.plugins.is_empty() {
         config.plugins.clone_from(&parent_config.plugins);
       }

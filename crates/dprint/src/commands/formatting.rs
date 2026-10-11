@@ -5941,6 +5941,142 @@ text_formatted"
   }
 
   #[test]
+  fn should_inherit_ancestor_config_in_main_config() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/sub_dir/file.txt";
+    let file_path3 = "/sub_dir/nested/file.txt";
+    let file_path4 = "/sub_dir/other/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "root" }"#);
+      })
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true).add_config_section("test-plugin", r#"{ "ending": "sub" }"#);
+      })
+      .with_local_config("/sub_dir/nested/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text")
+      .write_file(&file_path3, "text")
+      .write_file(&file_path4, "text")
+      .build();
+
+    // the config file in the cwd inherits the merged ancestor config (sub_dir, then root)
+    environment.set_cwd("/sub_dir/nested");
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text_sub");
+
+    // same when it's found in an ancestor directory of the cwd
+    environment.set_cwd("/sub_dir/other");
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path4).unwrap(), "text_sub");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text");
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text");
+  }
+
+  #[test]
+  fn should_inherit_ancestor_excludes_in_main_config() {
+    let file_path1 = "/sub_dir/file.txt";
+    let file_path2 = "/sub_dir/skip/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin().add_excludes("**/skip");
+      })
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text")
+      .set_cwd("/sub_dir")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text");
+  }
+
+  #[test]
+  fn should_inherit_global_config_in_main_config_without_ancestor_config() {
+    let file_path = "/project/file.txt";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|config| {
+        config.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "global" }"#);
+      })
+      .with_local_config("/project/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .write_file(&file_path, "text")
+      .set_cwd("/project")
+      .build();
+
+    // the global config file is only used in the default config discovery mode
+    let err = run_test_cli(vec!["fmt", "--config-discovery=ignore-descendants"], &environment).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      "No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file."
+    );
+    err.assert_exit_code(13);
+
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text_global");
+  }
+
+  #[test]
+  fn should_not_inherit_ancestor_config_for_config_arg() {
+    // a specified config file is used on its own
+    let file_path = "/sub_dir/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .write_file(&file_path, "text")
+      .set_cwd("/sub_dir")
+      .build();
+    let err = run_test_cli(vec!["fmt", "--config", "dprint.json"], &environment).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      "No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file."
+    );
+    err.assert_exit_code(13);
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text");
+  }
+
+  #[test]
+  fn should_inherit_ancestor_config_in_config_for_path_outside_cwd() {
+    let file_path = "/other/sub_dir/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "project" }"#);
+      })
+      .with_local_config("/other/dprint.json", |config| {
+        config.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "other" }"#);
+      })
+      .with_local_config("/other/sub_dir/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .write_file("/project/file.txt", "text")
+      .write_file(&file_path, "text")
+      .set_cwd("/project")
+      .build();
+    run_test_cli(vec!["fmt", file_path], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    // inherits from the config file in its own ancestor directory and not the cwd's config file
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text_other");
+  }
+
+  #[test]
   fn should_not_error_nested_config_no_matching_files_in_scope_cli_args() {
     let file_path1 = "/sub_dir/file.txt";
     let file_path2 = "/sub_dir/sub_dir/file.txt";

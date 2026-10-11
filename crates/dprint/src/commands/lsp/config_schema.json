@@ -15,7 +15,7 @@
       "default": true
     },
     "inherit": {
-      "description": "For a nested (directory specific) configuration file, whether to inherit the plugins and configuration of the ancestor configuration file. Has no effect on a root configuration file.",
+      "description": "Whether to inherit the plugins and configuration of the closest configuration file in an ancestor directory. Has no effect on a configuration file specified via `--config`.",
       "type": "boolean",
       "default": false
     },

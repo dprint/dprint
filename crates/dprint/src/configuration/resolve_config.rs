@@ -37,6 +37,8 @@ use crate::utils::ShowConfirmStrategy;
 use crate::utils::resolve_url_or_file_path_to_file_with_cache;
 
 use super::resolve_main_config_path::ResolvedConfigPathWithText;
+use super::resolve_main_config_path::get_default_config_file_in_ancestor_directories;
+use super::resolve_main_config_path::resolve_global_config_path_and_text_at_path_root;
 use super::resolve_main_config_path::resolve_main_config_path_and_bytes;
 use super::resolve_npm_extends::NpmExtendsResolver;
 
@@ -159,7 +161,19 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
           return Err(ResolveConfigError::Other(anyhow::anyhow!("Confirmation cancelled.")));
         }
       }
-      resolve_config_from_path_with_bytes(&resolved_config_path, args.remote_cache_mode(), environment).await?
+      let config_discovery = args.config_discovery(environment);
+      // a specified config file is used on its own
+      if args.config.is_none() && config_discovery.traverse_ancestors() {
+        let options = ResolveConfigWithAncestorsOptions {
+          remote_cache_mode: args.remote_cache_mode(),
+          // only fall back to the global config file when config discovery is
+          // in its default mode to match main config file resolution
+          use_global_config: matches!(config_discovery, ConfigDiscovery::Default),
+        };
+        resolve_config_from_path_with_ancestors(&resolved_config_path, options, environment).await?
+      } else {
+        resolve_config_from_path_with_bytes(&resolved_config_path, args.remote_cache_mode(), environment).await?
+      }
     }
     None => {
       if !args.plugins.is_empty() {
@@ -200,6 +214,47 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
   }
 
   Ok(resolved_config)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ResolveConfigWithAncestorsOptions {
+  pub remote_cache_mode: RemoteCacheMode,
+  /// Whether to inherit from the global config file when there's no config
+  /// file in an ancestor directory.
+  pub use_global_config: bool,
+}
+
+/// Resolves the config of a config file, merging in the config file of an
+/// ancestor directory when it specifies `"inherit": true`.
+pub fn resolve_config_from_path_with_ancestors<'a, TEnvironment: Environment>(
+  config_file: &'a ResolvedConfigPathWithText,
+  options: ResolveConfigWithAncestorsOptions,
+  environment: &'a TEnvironment,
+) -> LocalBoxFuture<'a, Result<ResolvedConfig, ResolveConfigError>> {
+  async move {
+    let config = resolve_config_from_path_with_bytes(config_file, options.remote_cache_mode, environment).await?;
+    if config.inherit != Some(true) || config.is_global {
+      return Ok(config);
+    }
+    let ancestor_config_file = match config.base_path.parent() {
+      Some(parent_dir) => get_default_config_file_in_ancestor_directories(environment, parent_dir.as_ref())?,
+      None => None,
+    };
+    let ancestor_config_file = match ancestor_config_file {
+      Some(config_file) => Some(config_file),
+      None if options.use_global_config => {
+        resolve_global_config_path_and_text_at_path_root(environment, config.base_path.as_ref()).map_err(anyhow::Error::from)?
+      }
+      None => None,
+    };
+    let Some(ancestor_config_file) = ancestor_config_file else {
+      return Ok(config);
+    };
+    // the ancestor config file may also inherit
+    let ancestor_config = resolve_config_from_path_with_ancestors(&ancestor_config_file, options, environment).await?;
+    Ok(inherit_config(config, &ancestor_config)?)
+  }
+  .boxed_local()
 }
 
 pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
