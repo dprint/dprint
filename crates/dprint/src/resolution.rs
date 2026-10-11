@@ -55,6 +55,7 @@ use crate::patterns::ConfigPatternBases;
 use crate::patterns::FileMatcher;
 use crate::patterns::FileMatcherOptions;
 use crate::patterns::OrderedPatternsMatcher;
+use crate::plugins::EXT_ADDED_FILE_PATH_MARKER;
 use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
@@ -62,7 +63,6 @@ use crate::plugins::OutputPluginConfigDiagnosticsError;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginWrapper;
-use crate::plugins::VIRTUAL_FILE_PATH_MARKER;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::utils::FastInsecureHasher;
 use crate::utils::GlobOutput;
@@ -458,7 +458,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       }
       // and the file path a plugin gets for a file matched by its shebang
       // affects how the plugin formats it
-      VIRTUAL_FILE_PATH_MARKER.hash(&mut hasher);
+      EXT_ADDED_FILE_PATH_MARKER.hash(&mut hasher);
     }
     hasher.finish()
   }
