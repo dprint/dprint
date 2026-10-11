@@ -2544,6 +2544,25 @@ text2_formatted"
       environment.take_stdout_messages(),
       vec!["#!/bin/sh\n./scripts/other.dprint-ext-added.txt_ps_formatted_process"]
     );
+
+    // a path that was given to a plugin is matched by its real path and the
+    // added extension, which is what a plugin provides when formatting with the host
+    for (file_path, text) in [
+      ("./scripts/other.dprint-ext-added.txt_ps", "output_file_path"),
+      ("./scripts/association.dprint-ext-added.other", "output_file_path"),
+    ] {
+      let test_std_in = TestStdInReader::from(text);
+      run_test_cli_with_stdin(vec!["fmt", "--config", "/config.json", "--stdin", file_path], &environment, test_std_in).unwrap();
+      assert_eq!(environment.take_stdout_messages(), vec![format!("{}_formatted_process", file_path)]);
+    }
+    let test_std_in = TestStdInReader::from("text");
+    run_test_cli_with_stdin(
+      vec!["fmt", "--config", "/config.json", "--stdin", "./scripts/override.dprint-ext-added.txt_ps"],
+      &environment,
+      test_std_in,
+    )
+    .unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["text_overridden"]);
   }
 
   #[test]

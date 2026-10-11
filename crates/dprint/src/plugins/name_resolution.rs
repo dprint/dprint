@@ -101,6 +101,11 @@ impl PluginNameResolutionMaps {
   /// extensionless and no plugin claimed it by path. `file_bytes_start` only
   /// needs to contain the start of the file.
   pub fn get_plugin_names_from_file_path_and_bytes<'a>(&'a self, file_path: &Path, file_bytes_start: &[u8]) -> Vec<&'a str> {
+    // a plugin may provide back the file path it was given when asking the
+    // host to format some text, which is matched the same as it was before
+    if let Some((real_file_path, extension)) = self.split_plugin_file_path(file_path) {
+      return self.get_plugin_names_with_added_extension(real_file_path, &extension.to_lowercase());
+    }
     let path_plugin_names = self.get_plugin_names_from_file_path(file_path);
     if path_plugin_names.has_claiming_plugin() {
       return path_plugin_names.into_names();
@@ -130,11 +135,7 @@ impl PluginNameResolutionMaps {
   /// `#!/usr/bin/env deno run --allow-read` but not `#!/usr/bin/env deno runtest`.
   pub fn get_plugin_names_from_shebang<'a>(&'a self, file_path: &Path, file_bytes_start: &[u8]) -> Option<Vec<&'a str>> {
     let extension = self.get_shebang_extension(file_path, file_bytes_start)?;
-    // the shebang says what the file's contents are, so it decides which plugin
-    // claims the file—an additive plugin still matches by the file's own name
-    let file_name = get_lowercase_file_name(file_path);
-    let claiming_plugins = self.claiming_plugins(file_path, None, Some(extension));
-    Some(self.get_plugin_names(&claiming_plugins, file_path, file_name.as_deref(), Some(extension)))
+    Some(self.get_plugin_names_with_added_extension(file_path, extension))
   }
 
   /// Gets the file path to provide to the plugins when formatting the file.
@@ -172,24 +173,38 @@ impl PluginNameResolutionMaps {
 
   /// Gets the real file path from a file path that was given to a plugin, which
   /// a plugin may provide back when asking the host to format some text.
-  pub fn get_real_file_path<'a>(&self, plugin_file_path: &'a Path) -> Cow<'a, Path> {
-    if self.shebang_to_extension.is_empty() {
-      return Cow::Borrowed(plugin_file_path);
+  pub fn get_real_file_path<'a>(&self, plugin_file_path: &'a Path) -> &'a Path {
+    match self.split_plugin_file_path(plugin_file_path) {
+      Some((real_file_path, _)) => real_file_path,
+      None => plugin_file_path,
     }
-    let Some(path_text) = plugin_file_path.to_str() else {
-      return Cow::Borrowed(plugin_file_path);
-    };
+  }
+
+  /// The plugins for a file that's given an extension it doesn't have on disk.
+  fn get_plugin_names_with_added_extension<'a>(&'a self, real_file_path: &Path, extension: &str) -> Vec<&'a str> {
+    // the extension says what the file's contents are, so it decides which plugin
+    // claims the file—an additive plugin still matches by the file's own name
+    let file_name = get_lowercase_file_name(real_file_path);
+    let claiming_plugins = self.claiming_plugins(real_file_path, None, Some(extension));
+    self.get_plugin_names(&claiming_plugins, real_file_path, file_name.as_deref(), Some(extension))
+  }
+
+  /// Splits a file path that was given to a plugin into the real file path
+  /// and the extension that was added to it.
+  fn split_plugin_file_path<'a>(&self, plugin_file_path: &'a Path) -> Option<(&'a Path, &'a str)> {
+    if self.shebang_to_extension.is_empty() {
+      return None;
+    }
+    let path_text = plugin_file_path.to_str()?;
     let marker_with_dot = format!("{}.", EXT_ADDED_FILE_PATH_MARKER);
-    let Some(index) = path_text.rfind(&marker_with_dot) else {
-      return Cow::Borrowed(plugin_file_path);
-    };
+    let index = path_text.rfind(&marker_with_dot)?;
     // the marker and extension are at the end of the file name
     let extension = &path_text[index + marker_with_dot.len()..];
     let has_file_name = path_text[..index].chars().next_back().is_some_and(|c| !std::path::is_separator(c));
     if !has_file_name || extension.is_empty() || extension.contains(|c| c == '.' || std::path::is_separator(c)) {
-      return Cow::Borrowed(plugin_file_path);
+      return None;
     }
-    Cow::Owned(PathBuf::from(&path_text[..index]))
+    Some((Path::new(&path_text[..index]), extension))
   }
 
   /// Gets the extension that an extensionless file's shebang line maps to.

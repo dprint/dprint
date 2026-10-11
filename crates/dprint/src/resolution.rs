@@ -544,7 +544,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     );
     let plugin_file_path = self.plugin_name_maps.get_plugin_file_path(&request.file_path, &request.file_bytes).into_owned();
     // a plugin might be asking to format with the file path it was given
-    let real_file_path = self.plugin_name_maps.get_real_file_path(&request.file_path).into_owned();
+    let real_file_path = self.plugin_name_maps.get_real_file_path(&request.file_path).to_path_buf();
     let scope = self.clone();
     async move {
       let mut file_text = request.file_bytes;
