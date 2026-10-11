@@ -875,7 +875,8 @@ async fn get_possible_plugins_to_add<TEnvironment: Environment>(
 
 /// Downloads and sets up the plugins in the configuration file (and in the
 /// configuration files of descendant directories with `--recursive`), so
-/// they're in the cache and ready to use.
+/// they're in the cache and ready to use. Providing `--plugins` installs
+/// those plugins instead.
 pub async fn install_plugins<TEnvironment: Environment>(
   cmd: &InstallSubCommand,
   args: &CliArgs,
@@ -908,7 +909,12 @@ pub async fn install_plugins<TEnvironment: Environment>(
   for plugin in &plugins {
     let info = plugin.info();
     if seen_plugins.insert((&info.name, &info.version)) {
-      log_stdout_info!(environment, "Installed {} {}", info.name, info.version);
+      if plugin.was_set_up() {
+        log_stdout_info!(environment, "Installed {} {}", info.name, info.version);
+      } else {
+        // less prominent because nothing was done
+        log_stdout_info!(environment, "{}", colors::gray(format!("Already installed {} {}", info.name, info.version)));
+      }
     }
   }
   if seen_plugins.is_empty() {
@@ -3359,7 +3365,10 @@ mod test {
     run_test_cli(vec!["config", "install"], &environment).unwrap();
     assert_eq!(
       environment.take_stdout_messages(),
-      vec!["Installed test-plugin 0.2.0", "Installed test-process-plugin 0.1.0"]
+      vec![
+        colors::gray("Already installed test-plugin 0.2.0").to_string(),
+        colors::gray("Already installed test-process-plugin 0.1.0").to_string()
+      ]
     );
     assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
 
@@ -3399,7 +3408,10 @@ mod test {
     );
     assert_eq!(
       environment.take_stdout_messages(),
-      vec!["Installed test-process-plugin 0.1.0", "Installed test-plugin 0.2.0"]
+      vec![
+        colors::gray("Already installed test-process-plugin 0.1.0").to_string(),
+        "Installed test-plugin 0.2.0".to_string()
+      ]
     );
     assert_eq!(
       environment.take_stderr_messages(),
@@ -3491,9 +3503,82 @@ mod test {
     run_test_cli(vec!["install", "--recursive"], &environment).unwrap();
     assert_eq!(
       environment.take_stdout_messages(),
-      vec!["Installed test-plugin 0.2.0", "Installed test-process-plugin 0.1.0"]
+      vec![
+        colors::gray("Already installed test-plugin 0.2.0").to_string(),
+        "Installed test-process-plugin 0.1.0".to_string()
+      ]
     );
     assert_eq!(environment.take_stderr_messages(), vec!["Extracting zip for test-process-plugin"]);
+
+    run_test_cli(vec!["install", "--recursive"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec![
+        colors::gray("Already installed test-plugin 0.2.0").to_string(),
+        colors::gray("Already installed test-process-plugin 0.1.0").to_string()
+      ]
+    );
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+  }
+
+  #[test]
+  fn should_install_plugins_arg_instead_of_config_file_plugins() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
+      .with_default_config(|config| {
+        config.add_remote_process_plugin();
+      })
+      .build();
+    let config_text = environment.read_file("./dprint.json").unwrap();
+    run_test_cli(vec!["install", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Installed test-plugin 0.2.0"]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
+    // the config file's plugin is not installed and the config file is left alone
+    assert_eq!(environment.remote_file_request_count("https://plugins.dprint.dev/test-process.json"), 0);
+    assert_eq!(environment.read_file("./dprint.json").unwrap(), config_text);
+  }
+
+  #[test]
+  fn should_install_plugins_arg_without_config_file() {
+    let environment = TestEnvironmentBuilder::new().add_remote_wasm_plugin().build();
+    run_test_cli(vec!["install", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Installed test-plugin 0.2.0"]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
+    // no config file gets created
+    assert!(environment.read_file("/dprint.json").is_err());
+  }
+
+  #[test]
+  fn should_install_plugins_arg_instead_of_config_file_plugins_when_recursive() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
+      .with_default_config(|config| {
+        config.add_remote_process_plugin();
+      })
+      .with_local_config("/sub/dprint.json", |config| {
+        config.add_remote_process_plugin();
+      })
+      .build();
+    run_test_cli(
+      vec!["install", "--recursive", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"],
+      &environment,
+    )
+    .unwrap();
+    // the override applies to the descendant config files as well
+    assert_eq!(environment.take_stdout_messages(), vec!["Installed test-plugin 0.2.0"]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
+    assert_eq!(environment.remote_file_request_count("https://plugins.dprint.dev/test-process.json"), 0);
   }
 
   #[test]
