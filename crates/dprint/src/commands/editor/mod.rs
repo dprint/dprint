@@ -296,9 +296,17 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
     let has_config_changed = last_config.is_none() || last_config.unwrap() != &config || self.plugins_scope.is_none();
     if has_config_changed {
       self.plugins_scope.take();
-      let tokens = self.context.cancellation_tokens.take_all();
-      for token in tokens.values() {
+      let mut tokens = self.context.cancellation_tokens.take_all().into_iter().collect::<Vec<_>>();
+      tokens.sort_by_key(|(message_id, _)| *message_id);
+      for (message_id, token) in tokens {
         token.cancel();
+        // the editor didn't ask for these to be cancelled, so respond in
+        // order to not leave it waiting on them
+        send_error_response(
+          &self.context,
+          message_id,
+          anyhow!("Formatting was cancelled because the configuration changed."),
+        );
       }
       self.plugin_resolver.clear_and_shutdown_initialized().await;
 
@@ -1119,6 +1127,136 @@ mod test {
       }
       assert!(context.output_closed.is_cancelled());
     });
+  }
+
+  #[test]
+  fn should_clamp_format_range_to_text_for_editor_service() {
+    let txt_file_path = PathBuf::from("/file.txt");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file(&txt_file_path, "")
+      .initialize()
+      .build();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+          let format_range = |range: std::ops::Range<usize>| {
+            let communicator = communicator.clone();
+            let txt_file_path = txt_file_path.clone();
+            async move {
+              let result = communicator
+                .format_text(
+                  &txt_file_path,
+                  "testing".to_string().into_bytes(),
+                  Some(range),
+                  Default::default(),
+                  Default::default(),
+                )
+                .await;
+              String::from_utf8(result.unwrap().unwrap()).unwrap()
+            }
+          };
+
+          // end past the end of the text
+          assert_eq!(format_range(2..100).await, format_range(2..7).await);
+          // start and end past the end of the text
+          assert_eq!(format_range(50..100).await, format_range(7..7).await);
+          // start after the end
+          assert_eq!(format_range(5..2).await, format_range(2..2).await);
+          // the whole text once clamped
+          assert_eq!(format_range(0..100).await, "testing_formatted");
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_respond_to_format_cancelled_by_config_change_for_editor_service() {
+    let txt_file_path = PathBuf::from("/file.txt");
+    let config_file_path = PathBuf::from("/dprint.json");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file(&txt_file_path, "")
+      .initialize()
+      .build();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      let environment = environment.clone();
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+          assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true);
+
+          // format that doesn't finish until it's cancelled
+          let handle = dprint_core::async_runtime::spawn({
+            let communicator = communicator.clone();
+            let txt_file_path = txt_file_path.clone();
+            async move {
+              communicator
+                .format_text(
+                  &txt_file_path,
+                  "wait_cancellation".to_string().into_bytes(),
+                  None,
+                  Default::default(),
+                  Default::default(),
+                )
+                .await
+            }
+          });
+
+          // give some time for the message to be sent
+          tokio::time::sleep(Duration::from_millis(50)).await;
+
+          // the service notices the config change on the next check
+          let config_file_text = environment.read_file(&config_file_path).unwrap();
+          environment
+            .write_file(
+              &config_file_path,
+              &config_file_text.replacen('{', r#"{ "test-plugin": { "ending": "new_ending" },"#, 1),
+            )
+            .unwrap();
+          assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true);
+
+          let err = handle.await.unwrap().err().unwrap();
+          assert_eq!(err.to_string(), "Formatting was cancelled because the configuration changed.");
+
+          assert_eq!(
+            communicator
+              .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_new_ending"
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
   }
 
   #[test]
