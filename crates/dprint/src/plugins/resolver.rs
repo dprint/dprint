@@ -23,6 +23,7 @@ use crate::utils::PathSource;
 pub struct PluginWrapper {
   plugin: Box<dyn Plugin>,
   initialized_plugin: AsyncCell<Rc<dyn InitializedPlugin>>,
+  was_set_up: bool,
 }
 
 impl PluginWrapper {
@@ -30,7 +31,14 @@ impl PluginWrapper {
     Self {
       plugin,
       initialized_plugin: Default::default(),
+      was_set_up: false,
     }
+  }
+
+  /// Whether this process set the plugin up (downloaded, compiled, or
+  /// extracted it) instead of it already being in the cache.
+  pub fn was_set_up(&self) -> bool {
+    self.was_set_up
   }
 
   pub fn info(&self) -> &PluginInfo {
@@ -149,7 +157,10 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
             .with_context(|| format!("Error forgetting plugin {} from the cache to reload it", plugin_reference.display()))?;
         }
         match create_plugin(&self.plugin_cache, self.environment.clone(), &plugin_reference, &self.wasm_module_creator).await {
-          Ok(plugin) => Ok(Rc::new(PluginWrapper::new(plugin))),
+          Ok(created) => Ok(Rc::new(PluginWrapper {
+            was_set_up: created.was_set_up,
+            ..PluginWrapper::new(created.plugin)
+          })),
           Err(err) => {
             match self.plugin_cache.forget(&plugin_reference).await {
               Ok(()) => {}

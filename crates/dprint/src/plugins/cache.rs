@@ -3,6 +3,7 @@ use anyhow::Result;
 use anyhow::bail;
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
@@ -48,6 +49,9 @@ pub struct PluginCacheItem {
   pub file_path: PathBuf,
   pub info: PluginInfo,
   pub plugin_kind: PluginKind,
+  /// Whether this process set the plugin up (downloaded, compiled, or
+  /// extracted it) instead of it already being in the cache.
+  pub was_set_up: bool,
 }
 
 /// What [`PluginCache::resolve_npm_for_add`] resolved: the plugin kind, the
@@ -100,6 +104,9 @@ pub struct PluginCache<TEnvironment: Environment> {
   /// The `.npmrc` files found walking up from each config dir, read once per
   /// run and shared by every npm plugin resolved from that dir.
   npmrc_cache: Mutex<HashMap<Option<PathBuf>, Arc<npm_resolution::NpmrcChain>>>,
+  /// The hashes of the entries this process set up, which is used to tell a
+  /// plugin that was just set up from one that was already in the cache.
+  set_up_hashes: Mutex<HashSet<String>>,
 }
 
 impl<TEnvironment> PluginCache<TEnvironment>
@@ -111,6 +118,7 @@ where
       fs_locks: CacheFsLockPool::new(environment.clone()),
       registry_cache: Mutex::new(HashMap::new()),
       npmrc_cache: Mutex::new(HashMap::new()),
+      set_up_hashes: Mutex::new(HashSet::new()),
       environment,
     }
   }
@@ -624,11 +632,13 @@ where
       local_stamps,
     };
     write_meta(hash, &meta, &self.environment)?;
+    self.set_up_hashes.lock().insert(hash.to_string());
 
     Ok(PluginCacheItem {
       file_path: setup_result.file_path,
       info: setup_result.plugin_info,
       plugin_kind,
+      was_set_up: true,
     })
   }
 
@@ -655,6 +665,9 @@ where
       file_path,
       info: meta.info,
       plugin_kind: meta.plugin_kind,
+      // a hit may be for an entry set up earlier in this process (ex. by
+      // `dprint add` warming the cache)
+      was_set_up: self.set_up_hashes.lock().contains(hash),
     })
   }
 

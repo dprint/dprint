@@ -59,12 +59,19 @@ pub async fn setup_plugin<TEnvironment: Environment>(options: SetupPluginOptions
   }
 }
 
+pub struct CreatedPlugin {
+  pub plugin: Box<dyn Plugin>,
+  /// Whether this process set the plugin up instead of it already being in
+  /// the cache.
+  pub was_set_up: bool,
+}
+
 pub async fn create_plugin<TEnvironment: Environment>(
   plugin_cache: &PluginCache<TEnvironment>,
   environment: TEnvironment,
   plugin_reference: &PluginSourceReference,
   wasm_module_creator: &WasmModuleCreator,
-) -> Result<Box<dyn Plugin>> {
+) -> Result<CreatedPlugin> {
   let cache_item = match plugin_cache.get_plugin_cache_item(plugin_reference).await {
     Ok(cache_item) => cache_item,
     Err(err) => {
@@ -85,8 +92,8 @@ pub async fn create_plugin<TEnvironment: Environment>(
       // compiled for a CPU with different features, or by a different
       // wasm engine/rustc version, or the cache file is corrupt). When that happens,
       // forget the cache, recompile from source, and try once more.
-      let plugin = match create_wasm_plugin(&environment, &cache_item, wasm_module_creator).await {
-        Ok(plugin) => plugin,
+      let (plugin, was_set_up) = match create_wasm_plugin(&environment, &cache_item, wasm_module_creator).await {
+        Ok(plugin) => (plugin, cache_item.was_set_up),
         Err(err) => {
           log_debug!(
             environment,
@@ -96,10 +103,13 @@ pub async fn create_plugin<TEnvironment: Environment>(
 
           // forget and try again
           let cache_item = plugin_cache.forget_and_recreate(plugin_reference).await?;
-          create_wasm_plugin(&environment, &cache_item, wasm_module_creator).await?
+          (create_wasm_plugin(&environment, &cache_item, wasm_module_creator).await?, cache_item.was_set_up)
         }
       };
-      Ok(Box::new(plugin))
+      Ok(CreatedPlugin {
+        plugin: Box::new(plugin),
+        was_set_up,
+      })
     }
     PluginKind::Process => {
       let cache_item = if !environment.path_exists(&cache_item.file_path) {
@@ -116,7 +126,10 @@ pub async fn create_plugin<TEnvironment: Environment>(
       };
 
       let executable_path = super::process::get_test_safe_executable_path(&cache_item.info.version, cache_item.file_path, &environment);
-      Ok(Box::new(process::ProcessPlugin::new(environment, executable_path, cache_item.info)))
+      Ok(CreatedPlugin {
+        plugin: Box::new(process::ProcessPlugin::new(environment, executable_path, cache_item.info)),
+        was_set_up: cache_item.was_set_up,
+      })
     }
   }
 }
@@ -183,10 +196,11 @@ mod test {
     environment.write_file_bytes(&cache_item.file_path, b"corrupt").unwrap();
 
     // creating the plugin should recompile from source instead of failing
-    let plugin = create_plugin(&plugin_cache, environment.clone(), &plugin_reference, &wasm_module_creator)
+    let created = create_plugin(&plugin_cache, environment.clone(), &plugin_reference, &wasm_module_creator)
       .await
       .unwrap();
-    assert_eq!(plugin.info().name, "test-plugin");
+    assert_eq!(created.plugin.info().name, "test-plugin");
+    assert!(created.was_set_up);
     assert_eq!(environment.take_stderr_messages(), vec!["Compiling https://plugins.dprint.dev/test.wasm"]);
   }
 }
