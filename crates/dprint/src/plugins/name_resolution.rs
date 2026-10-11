@@ -14,8 +14,9 @@ use crate::utils::get_shebang_line;
 use crate::utils::is_shebang_prefix_match;
 
 /// Text added to the file path given to the plugins, before the extension,
+/// when the path isn't the one of the file on disk. Currently that's only
 /// for a file that was given the extension its shebang line maps to.
-pub const SHEBANG_FILE_PATH_MARKER: &str = ".dprint-shebang";
+pub const VIRTUAL_FILE_PATH_MARKER: &str = ".dprint-virtual";
 
 #[derive(Default)]
 pub struct PluginNameResolutionMaps {
@@ -140,7 +141,7 @@ impl PluginNameResolutionMaps {
   ///
   /// Plugins decide how to format a file based on its path, so a file that's
   /// formatted because of its shebang line is given the extension its shebang
-  /// maps to (ex. `build.dprint-shebang.sh` for a file named `build`). The
+  /// maps to (ex. `build.dprint-virtual.sh` for a file named `build`). The
   /// marker before the extension lets a plugin tell the path isn't the real one.
   pub fn get_plugin_file_path<'a>(&self, file_path: &'a Path, file_bytes_start: &[u8]) -> Cow<'a, Path> {
     if !self.may_match_shebang(file_path) {
@@ -163,7 +164,7 @@ impl PluginNameResolutionMaps {
     if ends_with_path_separator(file_path) {
       plugin_file_path = file_path.with_file_name(file_name).into_os_string();
     }
-    plugin_file_path.push(SHEBANG_FILE_PATH_MARKER);
+    plugin_file_path.push(VIRTUAL_FILE_PATH_MARKER);
     plugin_file_path.push(".");
     plugin_file_path.push(extension);
     Cow::Owned(PathBuf::from(plugin_file_path))
@@ -178,7 +179,7 @@ impl PluginNameResolutionMaps {
     let Some(path_text) = plugin_file_path.to_str() else {
       return Cow::Borrowed(plugin_file_path);
     };
-    let marker_with_dot = format!("{}.", SHEBANG_FILE_PATH_MARKER);
+    let marker_with_dot = format!("{}.", VIRTUAL_FILE_PATH_MARKER);
     let Some(index) = path_text.rfind(&marker_with_dot) else {
       return Cow::Borrowed(plugin_file_path);
     };
@@ -366,9 +367,9 @@ mod test {
     let plugin_path = |path: &str, text: &str| maps.get_plugin_file_path(Path::new(path), text.as_bytes()).to_string_lossy().to_string();
     let real_path = |path: &str| maps.get_real_file_path(Path::new(path)).to_string_lossy().to_string();
 
-    assert_eq!(plugin_path("/scripts/build", "#!/bin/sh\ntext"), "/scripts/build.dprint-shebang.sh");
-    assert_eq!(plugin_path("./build", "#!/bin/sh -e\ntext"), "./build.dprint-shebang.sh");
-    assert_eq!(plugin_path("/.envrc", "#!/bin/sh\ntext"), "/.envrc.dprint-shebang.sh");
+    assert_eq!(plugin_path("/scripts/build", "#!/bin/sh\ntext"), "/scripts/build.dprint-virtual.sh");
+    assert_eq!(plugin_path("./build", "#!/bin/sh -e\ntext"), "./build.dprint-virtual.sh");
+    assert_eq!(plugin_path("/.envrc", "#!/bin/sh\ntext"), "/.envrc.dprint-virtual.sh");
     // has an extension
     assert_eq!(plugin_path("/scripts/build.txt", "#!/bin/sh\ntext"), "/scripts/build.txt");
     // no matching shebang
@@ -376,19 +377,19 @@ mod test {
     assert_eq!(plugin_path("/scripts/build", "text"), "/scripts/build");
     // the marker is added to the file name
     let trailing_separator_path = plugin_path("/scripts/build/", "#!/bin/sh\ntext");
-    assert!(trailing_separator_path.ends_with("build.dprint-shebang.sh"), "{}", trailing_separator_path);
+    assert!(trailing_separator_path.ends_with("build.dprint-virtual.sh"), "{}", trailing_separator_path);
     assert_eq!(plugin_path("..", "#!/bin/sh\ntext"), "..");
 
-    assert_eq!(real_path("/scripts/build.dprint-shebang.sh"), "/scripts/build");
-    assert_eq!(real_path("./build.dprint-shebang.sh"), "./build");
-    assert_eq!(real_path("/.envrc.dprint-shebang.sh"), "/.envrc");
+    assert_eq!(real_path("/scripts/build.dprint-virtual.sh"), "/scripts/build");
+    assert_eq!(real_path("./build.dprint-virtual.sh"), "./build");
+    assert_eq!(real_path("/.envrc.dprint-virtual.sh"), "/.envrc");
     assert_eq!(real_path("/scripts/build"), "/scripts/build");
     assert_eq!(real_path("/scripts/build.sh"), "/scripts/build.sh");
     // not at the end of the file name
-    assert_eq!(real_path("/scripts/build.dprint-shebang.sh.txt"), "/scripts/build.dprint-shebang.sh.txt");
-    assert_eq!(real_path("/scripts/build.dprint-shebang.sh/file"), "/scripts/build.dprint-shebang.sh/file");
-    assert_eq!(real_path("/scripts/build.dprint-shebang."), "/scripts/build.dprint-shebang.");
+    assert_eq!(real_path("/scripts/build.dprint-virtual.sh.txt"), "/scripts/build.dprint-virtual.sh.txt");
+    assert_eq!(real_path("/scripts/build.dprint-virtual.sh/file"), "/scripts/build.dprint-virtual.sh/file");
+    assert_eq!(real_path("/scripts/build.dprint-virtual."), "/scripts/build.dprint-virtual.");
     // no file name before it
-    assert_eq!(real_path("/scripts/.dprint-shebang.sh"), "/scripts/.dprint-shebang.sh");
+    assert_eq!(real_path("/scripts/.dprint-virtual.sh"), "/scripts/.dprint-virtual.sh");
   }
 }

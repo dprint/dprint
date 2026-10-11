@@ -62,7 +62,7 @@ use crate::plugins::OutputPluginConfigDiagnosticsError;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginWrapper;
-use crate::plugins::SHEBANG_FILE_PATH_MARKER;
+use crate::plugins::VIRTUAL_FILE_PATH_MARKER;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::utils::FastInsecureHasher;
 use crate::utils::GlobOutput;
@@ -458,7 +458,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       }
       // and the file path a plugin gets for a file matched by its shebang
       // affects how the plugin formats it
-      SHEBANG_FILE_PATH_MARKER.hash(&mut hasher);
+      VIRTUAL_FILE_PATH_MARKER.hash(&mut hasher);
     }
     hasher.finish()
   }
