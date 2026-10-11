@@ -940,6 +940,93 @@ mod test {
   }
 
   #[test]
+  fn should_inherit_ancestor_config_for_editor_service() {
+    let txt_file_path = PathBuf::from("/sub_dir/file.txt");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "root" }"#);
+      })
+      .with_local_config("/sub_dir/dprint.json", |c| {
+        c.set_inherit(true);
+      })
+      .write_file(&txt_file_path, "")
+      .initialize()
+      .set_cwd("/sub_dir")
+      .build();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+
+          assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true);
+          assert_eq!(
+            communicator
+              .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_root"
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_error_for_inherit_without_ancestor_config_for_editor_service() {
+    let txt_file_path = PathBuf::from("/project/file.txt");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      // the global config file is not inherited from
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .with_local_config("/project/dprint.json", |c| {
+        c.set_inherit(true);
+      })
+      .write_file(&txt_file_path, "")
+      .set_cwd("/project")
+      .build();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+
+          let err = communicator.check_file(&txt_file_path).await.err().unwrap();
+          assert!(
+            err
+              .to_string()
+              .contains("Could not find a configuration file in an ancestor directory to inherit from."),
+            "{}",
+            err
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
   fn should_format_for_editor_service_with_global_config() {
     let txt_file_path = PathBuf::from("/file.txt");
     let ignored_file_path = PathBuf::from("/ignored_file.txt");

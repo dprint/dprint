@@ -7,16 +7,13 @@ use std::rc::Rc;
 
 use anyhow::Context;
 use anyhow::Result;
-use dprint_core::async_runtime::FutureExt;
-use dprint_core::async_runtime::LocalBoxFuture;
 
 use crate::cache::RemoteCacheMode;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
-use crate::configuration::inherit_config;
-use crate::configuration::resolve_config_from_path_with_bytes;
-use crate::configuration::resolve_global_config_path_and_text;
+use crate::configuration::resolve_config_from_path_with_ancestors;
+use crate::configuration::resolve_global_config_path_and_text_at_path_root;
 use crate::environment::Environment;
 use crate::plugins;
 use crate::resolution::PluginsScope;
@@ -82,7 +79,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     } else {
       match get_default_config_file_in_ancestor_directories(&self.environment, dir_path)? {
         Some(config) => Some(config),
-        None if use_global_config => self.resolve_global_config_file(dir_path)?,
+        None if use_global_config => resolve_global_config_path_and_text_at_path_root(&self.environment, dir_path)?,
         None => None,
       }
     };
@@ -98,7 +95,7 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
     };
     // only allow one task in here per config
     let mut cell = cell.lock().await;
-    let config = self.resolve_config(&config_file_bytes, use_global_config).await?;
+    let config = self.resolve_config(&config_file_bytes).await?;
 
     if let Some(cached_scope) = cell.as_ref() {
       let is_same_config = cached_scope.scope.config.as_deref() == Some(&config);
@@ -128,46 +125,8 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
   }
 
   /// Resolves the config of a config file, merging in the config file of an
-  /// ancestor directory when it specifies `"inherit": true`. This is what the
-  /// cli does for the config files in the descendant directories of the
-  /// config file it's using.
-  fn resolve_config<'a>(&'a self, config_file: &'a ResolvedConfigPathWithText, use_global_config: bool) -> LocalBoxFuture<'a, Result<ResolvedConfig>> {
-    async move {
-      let config = resolve_config_from_path_with_bytes(config_file, self.remote_cache_mode, &self.environment).await?;
-      // a specified config file is used on its own
-      if config.inherit != Some(true) || config.is_global || self.config_override.is_some() {
-        return Ok(config);
-      }
-      let Some(parent_dir) = config.base_path.parent() else {
-        return Ok(config);
-      };
-      let ancestor_config_file = match get_default_config_file_in_ancestor_directories(&self.environment, parent_dir.as_ref())? {
-        Some(config_file) => Some(config_file),
-        None if use_global_config => self.resolve_global_config_file(parent_dir.as_ref())?,
-        None => None,
-      };
-      let Some(ancestor_config_file) = ancestor_config_file else {
-        return Ok(config);
-      };
-      // the ancestor config file may also inherit
-      let ancestor_config = self.resolve_config(&ancestor_config_file, use_global_config).await?;
-      inherit_config(config, &ancestor_config)
-    }
-    .boxed_local()
-  }
-
-  /// Gets the global config file based at the root directory of the provided
-  /// path, which is how the cli uses it for a path outside the cwd. The global
-  /// config file is otherwise based at the server's cwd, and a config file only
-  /// formats the files within its base directory.
-  fn resolve_global_config_file(&self, dir_path: &Path) -> Result<Option<ResolvedConfigPathWithText>> {
-    let Some(config_file) = resolve_global_config_path_and_text(&self.environment)? else {
-      return Ok(None);
-    };
-    let root_dir = dir_path.ancestors().last().unwrap_or(dir_path);
-    Ok(Some(ResolvedConfigPathWithText {
-      base_path: self.environment.canonicalize(root_dir)?,
-      ..config_file
-    }))
+  /// ancestor directory when it specifies `"inherit": true`.
+  async fn resolve_config(&self, config_file: &ResolvedConfigPathWithText) -> Result<ResolvedConfig> {
+    Ok(resolve_config_from_path_with_ancestors(config_file, self.remote_cache_mode, &self.environment).await?)
   }
 }

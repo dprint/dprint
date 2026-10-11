@@ -15,7 +15,7 @@
       "default": true
     },
     "inherit": {
-      "description": "For a nested (directory specific) configuration file, whether to inherit the plugins and configuration of the ancestor configuration file. Has no effect on a root configuration file.",
+      "description": "Whether to inherit the plugins and configuration of the closest configuration file in an ancestor directory. It is an error when there is no configuration file in an ancestor directory, and the global configuration file may not specify this.",
       "type": "boolean",
       "default": false
     },

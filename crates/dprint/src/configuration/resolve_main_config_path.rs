@@ -124,6 +124,22 @@ pub fn resolve_global_config_path_and_text(environment: &impl Environment) -> st
   }
 }
 
+/// Gets the global config file based at the root directory of the provided
+/// path so the path is within the resulting config's directory. The global
+/// config file is otherwise based at the cwd, and a config file only formats
+/// the files within its base directory.
+pub fn resolve_global_config_path_and_text_at_path_root(environment: &impl Environment, path: &Path) -> std::io::Result<Option<ResolvedConfigPathWithText>> {
+  let Some(config_file) = resolve_global_config_path_and_text(environment)? else {
+    return Ok(None);
+  };
+  // ex. the drive root on Windows
+  let root_dir = path.ancestors().last().unwrap_or(path);
+  Ok(Some(ResolvedConfigPathWithText {
+    base_path: environment.canonicalize(root_dir)?,
+    ..config_file
+  }))
+}
+
 enum ResolveGlobalConfigPathResult {
   Found(ResolvedConfigPathWithText),
   NotFound,

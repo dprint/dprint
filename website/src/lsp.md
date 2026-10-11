@@ -53,7 +53,7 @@ Documents with other schemes that aren't files on the file system are not format
 The server doesn't use a single configuration file for a workspace. On each request it resolves the configuration file for the file being formatted:
 
 1. The closest `dprint.json`, `dprint.jsonc`, `.dprint.json`, or `.dprint.jsonc` in the file's directory or its ancestor directories is used.
-2. When that configuration file specifies [`"inherit": true`](/config#directory-specific-configuration), it's merged with the next configuration file found in its ancestor directories, the same as the CLI does. That one may also inherit, and when there's none in an ancestor directory the global configuration file is inherited from when [using the global configuration](#global-configuration).
+2. When that configuration file specifies [`"inherit": true`](/config#directory-specific-configuration), it's merged with the next configuration file found in its ancestor directories, the same as the CLI does. That one may also inherit. It's an error when there's no configuration file in an ancestor directory to inherit from. The global configuration file is never inherited from and may not specify `"inherit": true` itself.
 3. When no configuration file is found in an ancestor directory, the [global configuration file](/global-config) is used when one exists and the server is set to [use it](#global-configuration).
 4. Otherwise the file is not formatted and you're [notified](#no-configuration-file-notification) the first time that happens in a session.
 

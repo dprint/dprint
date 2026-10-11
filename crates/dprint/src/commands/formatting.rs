@@ -5941,6 +5941,301 @@ text_formatted"
   }
 
   #[test]
+  fn should_inherit_ancestor_config_in_main_config() {
+    let file_path1 = "/file.txt";
+    let file_path2 = "/sub_dir/file.txt";
+    let file_path3 = "/sub_dir/nested/file.txt";
+    let file_path4 = "/sub_dir/other/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "root" }"#);
+      })
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true).add_config_section("test-plugin", r#"{ "ending": "sub" }"#);
+      })
+      .with_local_config("/sub_dir/nested/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text")
+      .write_file(&file_path3, "text")
+      .write_file(&file_path4, "text")
+      .build();
+
+    // the config file in the cwd inherits the merged ancestor config (sub_dir, then root)
+    environment.set_cwd("/sub_dir/nested");
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path3).unwrap(), "text_sub");
+
+    // same when it's found in an ancestor directory of the cwd
+    environment.set_cwd("/sub_dir/other");
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path4).unwrap(), "text_sub");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text");
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text");
+  }
+
+  #[test]
+  fn should_inherit_ancestor_excludes_in_main_config() {
+    let file_path1 = "/sub_dir/file.txt";
+    let file_path2 = "/sub_dir/skip/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin().add_excludes("**/skip");
+      })
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .write_file(&file_path1, "text")
+      .write_file(&file_path2, "text")
+      .set_cwd("/sub_dir")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path1).unwrap(), "text_formatted");
+    assert_eq!(environment.read_file(&file_path2).unwrap(), "text");
+  }
+
+  #[test]
+  fn should_error_inheriting_without_ancestor_config() {
+    let file_path = "/project/file.txt";
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      // the global config file is never inherited from
+      .with_global_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/project/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .write_file(&file_path, "text")
+      .write_file("/other/file.txt", "text")
+      .set_cwd("/project")
+      .build();
+    let expected_text = concat!(
+      "Could not find a configuration file in an ancestor directory to inherit from. ",
+      "Add one or remove \"inherit\": true from the configuration file.\n",
+      "    at /project/dprint.json",
+    );
+    let err = run_test_cli(vec!["fmt"], &environment).err().unwrap();
+    assert_eq!(err.to_string(), expected_text);
+    err.assert_exit_code(11);
+
+    // specified config file
+    environment.set_cwd("/");
+    let err = run_test_cli(vec!["fmt", "--config", "project/dprint.json"], &environment).err().unwrap();
+    assert_eq!(err.to_string(), expected_text);
+    err.assert_exit_code(11);
+
+    // descendant config file of a directory that's using the global config file
+    let err = run_test_cli(vec!["fmt", "."], &environment).err().unwrap();
+    assert_eq!(err.to_string(), expected_text);
+    err.assert_exit_code(11);
+
+    // config file found for a path outside the cwd
+    environment.set_cwd("/other");
+    let err = run_test_cli(vec!["fmt", ".", "/project/file.txt"], &environment).err().unwrap();
+    assert_eq!(err.to_string(), expected_text);
+    err.assert_exit_code(11);
+
+    // the global config file's plugin was resolved before getting to the other config files
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text");
+  }
+
+  #[test]
+  fn should_inherit_ancestor_config_in_extended_config() {
+    let file_path = "/project/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/shared/dprint.json", |c| {
+        c.add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "shared", "line_width": 40 }"#);
+      })
+      .with_local_config("/shared/other.json", |c| {
+        c.add_config_section("test-plugin", r#"{ "ending": "other" }"#);
+      })
+      // inherits from the config file in an ancestor directory of it, which
+      // has a lower precedence than what it extends
+      .with_local_config("/shared/sub/base.json", |c| {
+        c.set_inherit(true).add_config_section("extends", r#""../other.json""#);
+      })
+      .with_local_config("/project/dprint.json", |c| {
+        c.add_config_section("extends", r#""../shared/sub/base.json""#);
+      })
+      .write_file(&file_path, "text")
+      .set_cwd("/project")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text_other");
+
+    run_test_cli(vec!["output-resolved-config"], &environment).unwrap();
+    let output = environment.take_stdout_messages().join("\n");
+    assert!(output.contains(r#""lineWidth": 40"#), "{}", output);
+  }
+
+  #[test]
+  fn should_error_for_inherit_in_extended_config_without_ancestor_config() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_local_config("/shared/base.json", |c| {
+        c.set_inherit(true);
+      })
+      .with_local_config("/project/dprint.json", |c| {
+        c.add_remote_wasm_plugin().add_config_section("extends", r#""../shared/base.json""#);
+      })
+      .write_file("/project/file.txt", "text")
+      .set_cwd("/project")
+      .build();
+    let err = run_test_cli(vec!["fmt"], &environment).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      concat!(
+        "Could not find a configuration file in an ancestor directory to inherit from. ",
+        "Add one or remove \"inherit\": true from the configuration file.\n",
+        "    at /shared/base.json",
+      )
+    );
+    err.assert_exit_code(11);
+  }
+
+  #[test]
+  fn should_error_for_circular_inherit_in_extended_config() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section("extends", r#""sub/base.json""#);
+      })
+      .with_local_config("/sub/base.json", |c| {
+        c.set_inherit(true);
+      })
+      .write_file("/file.txt", "text")
+      .build();
+    let err = run_test_cli(vec!["fmt"], &environment).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      "Circular inherit detected: /dprint.json -> /dprint.json\n    at /sub/base.json"
+    );
+    err.assert_exit_code(11);
+  }
+
+  #[test]
+  fn should_warn_for_inherit_in_remote_config() {
+    let file_path = "/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.set_inherit(true)
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "ending": "shared" }"#);
+      })
+      .write_file(&file_path, "text")
+      .build();
+    let expected_warning = "The 'inherit' property is ignored on remote configuration because it has no ancestor directories.";
+
+    // specified config file
+    run_test_cli(vec!["fmt", "--config", "https://dprint.dev/shared.json"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    let logs = environment.take_stderr_messages();
+    assert_eq!(logs.len(), 1);
+    assert!(logs[0].ends_with(expected_warning), "{}", logs[0]);
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text_shared");
+
+    // only warns on the first download
+    run_test_cli(vec!["check", "--config", "https://dprint.dev/shared.json"], &environment).unwrap();
+    assert!(environment.take_stderr_messages().is_empty());
+  }
+
+  #[test]
+  fn should_warn_for_inherit_in_extended_remote_config() {
+    let file_path = "/file.txt";
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin()
+      .with_remote_config("https://dprint.dev/shared.json", |c| {
+        c.set_inherit(true).add_config_section("test-plugin", r#"{ "ending": "shared" }"#);
+      })
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section("extends", r#""https://dprint.dev/shared.json""#);
+      })
+      .write_file(&file_path, "text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    let logs = environment.take_stderr_messages();
+    assert_eq!(logs.len(), 2);
+    assert!(
+      logs[0].ends_with("The 'inherit' property is ignored on remote configuration because it has no ancestor directories."),
+      "{}",
+      logs[0]
+    );
+    assert_eq!(logs[1], "Compiling https://plugins.dprint.dev/test-plugin.wasm");
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text_shared");
+  }
+
+  #[test]
+  fn should_error_for_inherit_in_global_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|config| {
+        config.set_inherit(true).add_remote_wasm_plugin();
+      })
+      .write_file("/file.txt", "text")
+      .build();
+    let err = run_test_cli(vec!["fmt", "."], &environment).err().unwrap();
+    assert!(err.to_string().starts_with("The global configuration file cannot specify \"inherit\": true"));
+    err.assert_exit_code(11);
+  }
+
+  #[test]
+  fn should_inherit_ancestor_config_for_config_arg() {
+    let file_path = "/sub_dir/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "root" }"#);
+      })
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .write_file(&file_path, "text")
+      .build();
+
+    // inherits from the ancestor directories of the specified config file
+    run_test_cli(vec!["fmt", "--config", "sub_dir/dprint.json"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text_root");
+
+    // same when config discovery is disabled
+    environment.write_file(&file_path, "text").unwrap();
+    run_test_cli(vec!["fmt", "--config", "sub_dir/dprint.json", "--config-discovery=false"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text_root");
+  }
+
+  #[test]
+  fn should_inherit_ancestor_config_in_config_for_path_outside_cwd() {
+    let file_path = "/other/sub_dir/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_local_config("/project/dprint.json", |config| {
+        config.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "project" }"#);
+      })
+      .with_local_config("/other/dprint.json", |config| {
+        config.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "other" }"#);
+      })
+      .with_local_config("/other/sub_dir/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .write_file("/project/file.txt", "text")
+      .write_file(&file_path, "text")
+      .set_cwd("/project")
+      .build();
+    run_test_cli(vec!["fmt", file_path], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    // inherits from the config file in its own ancestor directory and not the cwd's config file
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text_other");
+  }
+
+  #[test]
   fn should_not_error_nested_config_no_matching_files_in_scope_cli_args() {
     let file_path1 = "/sub_dir/file.txt";
     let file_path2 = "/sub_dir/sub_dir/file.txt";
