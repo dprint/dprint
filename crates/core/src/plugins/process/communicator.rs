@@ -117,7 +117,6 @@ pub type HostFormatCallback = Rc<dyn Fn(HostFormatRequest) -> LocalBoxFuture<'st
 
 pub struct ProcessPluginCommunicatorFormatRequest {
   pub file_path: PathBuf,
-  /// Shared so that a caller that keeps the bytes doesn't need to copy them.
   pub file_bytes: Arc<Vec<u8>>,
   pub range: FormatRange,
   pub config_id: FormatConfigId,

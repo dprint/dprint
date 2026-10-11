@@ -60,7 +60,6 @@ pub struct FormatConfig {
 
 pub struct InitializedPluginFormatRequest {
   pub file_path: PathBuf,
-  /// Shared so that a caller that keeps the text doesn't need to copy it.
   pub file_text: Arc<Vec<u8>>,
   pub range: FormatRange,
   pub config: Arc<FormatConfig>,
