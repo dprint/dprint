@@ -659,13 +659,12 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
   };
 
   let plugins = maybe_values_to_vec(matches.get_many("plugins"));
-  let is_install = matches!(
-    sub_command,
-    SubCommand::Config(ConfigSubCommand::Install(_) | ConfigSubCommand::Add { install: Some(_), .. })
-  );
-  if is_install && !plugins.is_empty() {
-    // it installs the plugins in the config file, which this would override
-    bail!("Cannot specify --plugins with the install sub command.");
+  let is_add_and_install = matches!(sub_command, SubCommand::Config(ConfigSubCommand::Add { install: Some(_), .. }));
+  if is_add_and_install && !plugins.is_empty() {
+    // the --plugins would be installed instead of the plugins being added
+    bail!(
+      "Cannot specify --plugins when providing plugins to add with the install sub command. Run `dprint add <plugins>` to add them to the config file or `dprint install --plugins <urls/files>` to only install plugins."
+    );
   }
 
   Ok(CliArgs {
@@ -1911,14 +1910,24 @@ mod test {
       assert!(test_args(vec!["install", "-g", "--recursive"]).is_err());
       assert!(test_args(vec!["install", "--recursive", "--config-discovery=true"]).is_err());
 
-      // would override the plugins being installed
-      for args in [
-        vec!["install", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"],
-        vec!["install", "typescript", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"],
-      ] {
-        let err = test_args(args).err().unwrap();
-        assert_eq!(err.to_string(), "Cannot specify --plugins with the install sub command.");
+      // installs the provided plugins instead of the ones in the config file
+      for (flags, recursive) in [(vec![], false), (vec!["--recursive"], true)] {
+        let mut cli_args = vec!["install"];
+        cli_args.extend(flags);
+        cli_args.extend(["--plugins", "https://plugins.dprint.dev/test-plugin.wasm"]);
+        let args = test_args(cli_args).unwrap();
+        assert_eq!(args.sub_command, install(recursive));
+        assert_eq!(args.plugins, vec!["https://plugins.dprint.dev/test-plugin.wasm"]);
       }
+
+      // would install the --plugins instead of the plugin being added
+      let err = test_args(vec!["install", "typescript", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"])
+        .err()
+        .unwrap();
+      assert_eq!(
+        err.to_string(),
+        "Cannot specify --plugins when providing plugins to add with the install sub command. Run `dprint add <plugins>` to add them to the config file or `dprint install --plugins <urls/files>` to only install plugins."
+      );
     }
 
     let args = test_args(vec!["add", "typescript"]).unwrap();

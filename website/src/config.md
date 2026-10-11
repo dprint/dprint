@@ -138,6 +138,8 @@ dprint install
 
 To also install the plugins of the configuration files in descendant directories, run `dprint install --recursive`.
 
+To install specific plugins instead of the ones in the configuration file (which then isn't required), run `dprint install --plugins <urls/files>...`.
+
 Providing plugins acts like `dprint add` and then installs the plugins in the configuration file:
 
 ```sh
