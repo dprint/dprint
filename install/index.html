@@ -159,6 +159,16 @@
 </code></pre>
 </li>
 <li>
+<p><a href="https://www.npmjs.com/">npm</a>:</p>
+<pre><code class="language-sh hljs language-bash"><span class="hljs-comment"># globally</span>
+npm install -g dprint
+
+<span class="hljs-comment"># or for your project</span>
+npm install dprint
+npx dprint <span class="hljs-built_in">help</span>
+</code></pre>
+</li>
+<li>
 <p><a href="https://scoop.sh/">Scoop</a> (Windows):</p>
 <pre><code class="language-sh hljs language-bash">scoop install dprint
 </code></pre>
@@ -175,29 +185,17 @@ cargo install --locked dprint
 </code></pre>
 </li>
 <li>
-<p><a href="https://www.npmjs.com/">npm</a>:</p>
-<pre><code class="language-sh hljs language-bash"><span class="hljs-comment"># for your project</span>
-npm install dprint
-npx dprint <span class="hljs-built_in">help</span>
-
-<span class="hljs-comment"># or install globally</span>
-npm install -g dprint
-dprint <span class="hljs-built_in">help</span>
-</code></pre>
-</li>
-<li>
 <p>python/<a href="https://docs.astral.sh/uv/">uv</a> via <a href="https://github.com/trim21/dprint-py">https://github.com/trim21/dprint-py</a>:</p>
 <pre><code class="language-sh hljs language-bash">uv add dprint-py
 uv run dprint <span class="hljs-built_in">help</span>
 </code></pre>
 <p><a href="https://mise.jdx.dev">mise</a>:</p>
-<pre><code class="language-sh hljs language-bash"><span class="hljs-comment"># for your project</span>
+<pre><code class="language-sh hljs language-bash"><span class="hljs-comment"># globally</span>
+mise use dprint --global
+
+<span class="hljs-comment"># or for your project</span>
 mise use dprint
 mise x dprint -- dprint <span class="hljs-built_in">help</span>
-
-<span class="hljs-comment"># or install globally</span>
-mise use dprint --global
-dprint <span class="hljs-built_in">help</span>
 </code></pre>
 </li>
 <li>
