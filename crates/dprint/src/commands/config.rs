@@ -17,6 +17,7 @@ use url::Url;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::FilePatternArgs;
+use crate::arg_parser::InstallSubCommand;
 use crate::arg_parser::OutputResolvedConfigSubCommand;
 use crate::cache::RemoteCacheMode;
 use crate::configuration::GetInitConfigFileTextOptions;
@@ -41,6 +42,7 @@ use crate::plugins::read_update_url;
 use crate::plugins::resolve_dependency_age_cutoff;
 use crate::plugins::resolve_npm_latest_version;
 use crate::resolution::GetPluginResult;
+use crate::resolution::ResolvePluginsError;
 use crate::resolution::ResolvePluginsScopeAndPathsOptions;
 use crate::resolution::resolve_plugins_scope;
 use crate::resolution::resolve_plugins_scope_and_paths;
@@ -869,6 +871,51 @@ async fn get_possible_plugins_to_add<TEnvironment: Environment>(
       .filter(|p| !current_plugin_names.contains(&p.name))
       .collect(),
   )
+}
+
+/// Downloads and sets up the plugins in the configuration file (and in the
+/// configuration files of descendant directories with `--recursive`), so
+/// they're in the cache and ready to use.
+pub async fn install_plugins<TEnvironment: Environment>(
+  cmd: &InstallSubCommand,
+  args: &CliArgs,
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+) -> Result<()> {
+  // resolving the plugins is what downloads and sets them up
+  let plugins = if cmd.recursive && args.config_discovery(environment).traverse_descendants() {
+    // the directory tree is searched to find the other config files
+    let scopes = resolve_plugins_scope_and_paths(
+      args,
+      &FilePatternArgs::default(),
+      environment,
+      plugin_resolver,
+      ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
+    )
+    .await?;
+    scopes
+      .iter()
+      .flat_map(|scope| scope.scope.plugins.values())
+      .map(|plugin| plugin.plugin.clone())
+      .collect::<Vec<_>>()
+  } else {
+    // only resolve the plugins, as there's no need to start them up
+    let config = resolve_config_from_args(args, environment).await?;
+    plugin_resolver.resolve_plugins(config.plugins).await.map_err(ResolvePluginsError::from)?
+  };
+
+  let mut seen_plugins = HashSet::new();
+  for plugin in &plugins {
+    let info = plugin.info();
+    if seen_plugins.insert((&info.name, &info.version)) {
+      log_stdout_info!(environment, "Installed {} {}", info.name, info.version);
+    }
+  }
+  if seen_plugins.is_empty() {
+    log_stdout_info!(environment, "No plugins to install.");
+  }
+
+  Ok(())
 }
 
 pub struct UpdatePluginsOptions {
@@ -3282,6 +3329,190 @@ mod test {
         "}",
       )]
     );
+  }
+
+  #[test]
+  fn should_install_plugins() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin().add_remote_process_plugin();
+      })
+      .build();
+    run_test_cli(vec!["install"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec!["Installed test-plugin 0.2.0", "Installed test-process-plugin 0.1.0"]
+    );
+    let mut stderr_messages = environment.take_stderr_messages();
+    stderr_messages.sort();
+    assert_eq!(
+      stderr_messages,
+      vec![
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm",
+        "Extracting zip for test-process-plugin"
+      ]
+    );
+
+    // already set up, so nothing is downloaded or compiled
+    run_test_cli(vec!["config", "install"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec!["Installed test-plugin 0.2.0", "Installed test-process-plugin 0.1.0"]
+    );
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+
+    // and formatting uses what was installed
+    environment.write_file("/file.txt", "text").unwrap();
+    environment.write_file("/file.txt_ps", "text").unwrap();
+    run_test_cli(vec!["fmt", "/file.txt", "/file.txt_ps"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![crate::test_helpers::get_plural_formatted_text(2)]);
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+    for url in [
+      "https://plugins.dprint.dev/test-plugin.wasm",
+      "https://plugins.dprint.dev/test-process.json",
+      "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
+    ] {
+      assert_eq!(environment.remote_file_request_count(url), 1, "{}", url);
+    }
+  }
+
+  #[test]
+  fn should_install_plugins_in_global_config_when_no_local_config() {
+    // the config file is found the same way as `dprint add`
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
+      .with_global_config(|config| {
+        config.add_remote_process_plugin();
+      })
+      .build();
+    run_test_cli(vec!["install"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Installed test-process-plugin 0.1.0"]);
+    assert_eq!(environment.take_stderr_messages(), vec!["Extracting zip for test-process-plugin"]);
+
+    run_test_cli(vec!["install", "https://plugins.dprint.dev/test-plugin.wasm"], &environment).unwrap();
+    assert_contains!(
+      environment.read_file("/global-config/dprint.json").unwrap(),
+      "\"https://plugins.dprint.dev/test-plugin.wasm\""
+    );
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec!["Installed test-process-plugin 0.1.0", "Installed test-plugin 0.2.0"]
+    );
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
+  }
+
+  #[test]
+  fn should_error_installing_plugin_that_fails_to_resolve() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin_with_checksum("asdf");
+      })
+      .build();
+    let err = run_test_cli(vec!["install"], &environment).err().unwrap();
+    err.assert_exit_code(12);
+    assert_contains!(err.to_string(), "Error resolving plugin https://plugins.dprint.dev/test-plugin.wasm");
+    assert_eq!(environment.take_stdout_messages(), Vec::<String>::new());
+  }
+
+  #[test]
+  fn should_install_plugins_in_global_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
+      .with_default_config(|config| {
+        config.add_remote_process_plugin();
+      })
+      .with_global_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .build();
+    run_test_cli(vec!["install", "-g"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Installed test-plugin 0.2.0"]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
+  }
+
+  #[test]
+  fn should_install_plugins_in_descendant_configs_when_recursive() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/sub/dprint.json", |config| {
+        config.add_remote_process_plugin();
+      })
+      .build();
+    // only the main config file by default
+    run_test_cli(vec!["install"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Installed test-plugin 0.2.0"]);
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
+
+    run_test_cli(vec!["install", "--recursive"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec!["Installed test-plugin 0.2.0", "Installed test-process-plugin 0.1.0"]
+    );
+    assert_eq!(environment.take_stderr_messages(), vec!["Extracting zip for test-process-plugin"]);
+  }
+
+  #[test]
+  fn should_add_and_install_plugin_when_install_provided_plugin() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
+      .with_default_config(|config| {
+        config.add_remote_process_plugin();
+      })
+      .build();
+    let expected_text = environment
+      .read_file("./dprint.json")
+      .unwrap()
+      .replace("\"\n  ]", "\",\n    \"https://plugins.dprint.dev/test-plugin.wasm\"\n  ]");
+    run_test_cli(vec!["install", "https://plugins.dprint.dev/test-plugin.wasm"], &environment).unwrap();
+    assert_eq!(environment.read_file("./dprint.json").unwrap(), expected_text);
+    // installs everything in the config file and not only what was added
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec!["Installed test-process-plugin 0.1.0", "Installed test-plugin 0.2.0"]
+    );
+    let mut stderr_messages = environment.take_stderr_messages();
+    stderr_messages.sort();
+    assert_eq!(
+      stderr_messages,
+      vec![
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm",
+        "Extracting zip for test-process-plugin"
+      ]
+    );
+  }
+
+  #[test]
+  fn should_handle_no_plugins_to_install() {
+    let environment = TestEnvironmentBuilder::new().with_default_config(|_| {}).build();
+    run_test_cli(vec!["install"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["No plugins to install."]);
+  }
+
+  #[test]
+  fn should_error_installing_without_config_file() {
+    let environment = TestEnvironmentBuilder::new().build();
+    let err = run_test_cli(vec!["install"], &environment).err().unwrap();
+    err.assert_exit_code(11);
+    assert_contains!(err.to_string(), "No config file found at /dprint.json.");
   }
 
   #[test]

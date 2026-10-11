@@ -345,6 +345,7 @@ USAGE:
 SUBCOMMANDS:
   init               Initializes a configuration file in the current directory, or adds plugins to an existing one.
   add                Adds a plugin to the configuration file.
+  install            Installs the plugins in the configuration file, adding any provided plugins to it first.
   fmt                Formats the source files and writes the result to the file system.
   check              Checks for any files that haven't been formatted.
   config             Functionality related to the configuration file.
