@@ -3,6 +3,8 @@ use std::io::BufRead;
 use std::io::Read;
 use std::path::Path;
 
+use dprint_core::configuration::get_shebang_line;
+use dprint_core::configuration::is_shebang_prefix_match;
 use sys_traits::FsOpen;
 use sys_traits::OpenOptions;
 
@@ -57,24 +59,6 @@ pub fn read_file_shebang_line(environment: &impl Environment, file_path: &Path) 
   Ok(Some(line))
 }
 
-/// Gets the trimmed first line of the file when it starts with a shebang (`#!`).
-pub fn get_shebang_line(file_bytes_start: &[u8]) -> Option<&str> {
-  if !file_bytes_start.starts_with(b"#!") {
-    return None;
-  }
-  let end = file_bytes_start.iter().position(|b| *b == b'\n').unwrap_or(file_bytes_start.len());
-  std::str::from_utf8(&file_bytes_start[..end]).ok().map(|line| line.trim())
-}
-
-/// Whether the shebang line equals the configured shebang or starts with it
-/// followed by whitespace.
-pub fn is_shebang_prefix_match(shebang_line: &str, configured_shebang: &str) -> bool {
-  match shebang_line.strip_prefix(configured_shebang) {
-    Some(rest) => rest.is_empty() || rest.starts_with(char::is_whitespace),
-    None => false,
-  }
-}
-
 #[cfg(test)]
 mod test {
   use std::path::PathBuf;
@@ -107,29 +91,5 @@ mod test {
     // missing file
     let environment = TestEnvironment::new();
     assert!(read_file_shebang_line(&environment, &PathBuf::from("/missing")).is_err());
-  }
-
-  #[test]
-  fn shebang_line() {
-    assert_eq!(get_shebang_line(b"#!/bin/sh\ntext"), Some("#!/bin/sh"));
-    assert_eq!(get_shebang_line(b"#!/bin/sh \r\ntext"), Some("#!/bin/sh"));
-    assert_eq!(get_shebang_line(b"#!/bin/sh"), Some("#!/bin/sh"));
-    assert_eq!(get_shebang_line(b"text"), None);
-    assert_eq!(get_shebang_line(b""), None);
-    // non-utf8
-    assert_eq!(get_shebang_line(b"#!/bin/sh\xff\n"), None);
-  }
-
-  #[test]
-  fn shebang_prefix_match() {
-    assert!(is_shebang_prefix_match("#!/usr/bin/env deno run", "#!/usr/bin/env deno run"));
-    assert!(is_shebang_prefix_match("#!/usr/bin/env deno run --allow-read", "#!/usr/bin/env deno run"));
-    assert!(is_shebang_prefix_match("#!/usr/bin/env deno run --allow-read", "#!/usr/bin/env deno"));
-    assert!(is_shebang_prefix_match("#!/usr/bin/env deno\trun", "#!/usr/bin/env deno"));
-    assert!(!is_shebang_prefix_match("#!/usr/bin/env deno runtest", "#!/usr/bin/env deno run"));
-    assert!(!is_shebang_prefix_match("#!/usr/bin/env nodemon", "#!/usr/bin/env node"));
-    assert!(!is_shebang_prefix_match("#!/bin/shell", "#!/bin/sh"));
-    assert!(!is_shebang_prefix_match("#!/bin/sh", "#!/bin/sh -e"));
-    assert!(!is_shebang_prefix_match("#!/usr/bin/env -S deno run", "#!/usr/bin/env deno run"));
   }
 }

@@ -1090,7 +1090,10 @@ pub async fn resolve_plugins_scope<TEnvironment: Environment>(
 
   // now get global config
   let global_config_result = get_global_config(config_map);
-  let global_config = global_config_result.config;
+  let mut global_config = global_config_result.config;
+  // provide these to the plugins so they can tell what extension
+  // a file that was matched by its shebang should be formatted as
+  global_config.shebangs = config.shebangs.clone();
   let config_bases = config.pattern_bases();
 
   // create the scope

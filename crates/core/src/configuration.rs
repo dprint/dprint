@@ -1,4 +1,5 @@
 use std::hash::Hash;
+use std::path::Path;
 
 use indexmap::IndexMap;
 use serde::Deserialize;
@@ -258,13 +259,77 @@ impl From<&str> for ConfigKeyValue {
   }
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default, Hash)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GlobalConfiguration {
   pub line_width: Option<u32>,
   pub use_tabs: Option<bool>,
   pub indent_width: Option<u8>,
   pub new_line_kind: Option<NewLineKind>,
+  /// Maps a shebang line to the file extension its file should be treated as
+  /// having (ex. `#!/bin/sh` to `sh`). A file gets sent to a plugin based on
+  /// this, so use `resolve_shebang_extension` to get the extension to format
+  /// a file without an extension as.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub shebangs: Option<IndexMap<String, String>>,
+}
+
+impl Hash for GlobalConfiguration {
+  fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    self.line_width.hash(state);
+    self.use_tabs.hash(state);
+    self.indent_width.hash(state);
+    self.new_line_kind.hash(state);
+    match &self.shebangs {
+      Some(shebangs) => {
+        state.write_u8(1);
+        state.write_usize(shebangs.len());
+        for (shebang, extension) in shebangs {
+          shebang.hash(state);
+          extension.hash(state);
+        }
+      }
+      None => state.write_u8(0),
+    }
+  }
+}
+
+/// Gets the file extension that a file without an extension should be
+/// treated as having based on its shebang line (ex. `sh` for a file named
+/// `build` that starts with `#!/bin/sh`).
+///
+/// A configured shebang matches when the file's shebang line equals it or
+/// starts with it followed by whitespace. When multiple match, the longest
+/// one wins. `file_bytes_start` only needs to contain the start of the file.
+pub fn resolve_shebang_extension<'a>(shebangs: &'a IndexMap<String, String>, file_path: &Path, file_bytes_start: &[u8]) -> Option<&'a str> {
+  if shebangs.is_empty() || file_path.extension().is_some() {
+    return None;
+  }
+  let shebang_line = get_shebang_line(file_bytes_start)?;
+  shebangs
+    .iter()
+    .filter(|(configured_shebang, _)| is_shebang_prefix_match(shebang_line, configured_shebang))
+    // the most specific shebang wins (ex. `deno run` over `deno`)
+    .max_by_key(|(configured_shebang, _)| configured_shebang.len())
+    .map(|(_, extension)| extension.as_str())
+}
+
+/// Gets the trimmed first line of the file when it starts with a shebang (`#!`).
+pub fn get_shebang_line(file_bytes_start: &[u8]) -> Option<&str> {
+  if !file_bytes_start.starts_with(b"#!") {
+    return None;
+  }
+  let end = file_bytes_start.iter().position(|b| *b == b'\n').unwrap_or(file_bytes_start.len());
+  std::str::from_utf8(&file_bytes_start[..end]).ok().map(|line| line.trim())
+}
+
+/// Whether the shebang line equals the configured shebang or starts with it
+/// followed by whitespace.
+pub fn is_shebang_prefix_match(shebang_line: &str, configured_shebang: &str) -> bool {
+  match shebang_line.strip_prefix(configured_shebang) {
+    Some(rest) => rest.is_empty() || rest.starts_with(char::is_whitespace),
+    None => false,
+  }
 }
 
 pub const RECOMMENDED_GLOBAL_CONFIGURATION: RecommendedGlobalConfiguration = RecommendedGlobalConfiguration {
@@ -288,6 +353,7 @@ impl From<RecommendedGlobalConfiguration> for GlobalConfiguration {
       use_tabs: Some(config.use_tabs),
       indent_width: Some(config.indent_width),
       new_line_kind: Some(config.new_line_kind),
+      shebangs: None,
     }
   }
 }
@@ -328,6 +394,8 @@ pub fn resolve_global_config(config: &mut ConfigKeyMap) -> ResolveConfigurationR
         }
       }
     }),
+    // this is an object, so it's not in the key value pairs
+    shebangs: None,
   };
 
   ResolveConfigurationResult {
@@ -465,6 +533,79 @@ pub fn get_unknown_property_diagnostics(config: ConfigKeyMap) -> Vec<Configurati
 #[cfg(test)]
 mod test {
   use super::*;
+
+  #[cfg(any(feature = "process", feature = "wasm"))]
+  #[test]
+  fn global_config_serializes_shebangs() {
+    let config = GlobalConfiguration {
+      line_width: Some(80),
+      shebangs: Some(IndexMap::from([("#!/bin/sh".to_string(), "sh".to_string())])),
+      ..Default::default()
+    };
+    let text = serde_json::to_string(&config).unwrap();
+    assert_eq!(
+      text,
+      r##"{"lineWidth":80,"useTabs":null,"indentWidth":null,"newLineKind":null,"shebangs":{"#!/bin/sh":"sh"}}"##
+    );
+    assert_eq!(serde_json::from_str::<GlobalConfiguration>(&text).unwrap(), config);
+
+    // not provided by an older CLI
+    let config = GlobalConfiguration {
+      line_width: Some(80),
+      ..Default::default()
+    };
+    let text = serde_json::to_string(&config).unwrap();
+    assert_eq!(text, r#"{"lineWidth":80,"useTabs":null,"indentWidth":null,"newLineKind":null}"#);
+    assert_eq!(serde_json::from_str::<GlobalConfiguration>(&text).unwrap(), config);
+  }
+
+  #[test]
+  fn shebang_extension() {
+    let shebangs = IndexMap::from([
+      ("#!/usr/bin/env deno".to_string(), "js".to_string()),
+      ("#!/usr/bin/env deno run".to_string(), "ts".to_string()),
+      ("#!/bin/sh".to_string(), "sh".to_string()),
+    ]);
+    let resolve = |path: &str, text: &str| resolve_shebang_extension(&shebangs, Path::new(path), text.as_bytes());
+
+    assert_eq!(resolve("/build", "#!/bin/sh\ntext"), Some("sh"));
+    assert_eq!(resolve("/build", "#!/bin/sh -e\r\ntext"), Some("sh"));
+    // the longest one wins
+    assert_eq!(resolve("/build", "#!/usr/bin/env deno run --allow-read\n"), Some("ts"));
+    assert_eq!(resolve("/build", "#!/usr/bin/env deno test\n"), Some("js"));
+    // dotfiles don't have an extension
+    assert_eq!(resolve("/.envrc", "#!/bin/sh\n"), Some("sh"));
+    // has an extension
+    assert_eq!(resolve("/build.txt", "#!/bin/sh\n"), None);
+    // no matching shebang
+    assert_eq!(resolve("/build", "#!/bin/shell\n"), None);
+    assert_eq!(resolve("/build", "text\n"), None);
+    assert_eq!(resolve_shebang_extension(&IndexMap::new(), Path::new("/build"), b"#!/bin/sh\n"), None);
+  }
+
+  #[test]
+  fn shebang_line() {
+    assert_eq!(get_shebang_line(b"#!/bin/sh\ntext"), Some("#!/bin/sh"));
+    assert_eq!(get_shebang_line(b"#!/bin/sh \r\ntext"), Some("#!/bin/sh"));
+    assert_eq!(get_shebang_line(b"#!/bin/sh"), Some("#!/bin/sh"));
+    assert_eq!(get_shebang_line(b"text"), None);
+    assert_eq!(get_shebang_line(b""), None);
+    // non-utf8
+    assert_eq!(get_shebang_line(b"#!/bin/sh\xff\n"), None);
+  }
+
+  #[test]
+  fn shebang_prefix_match() {
+    assert!(is_shebang_prefix_match("#!/usr/bin/env deno run", "#!/usr/bin/env deno run"));
+    assert!(is_shebang_prefix_match("#!/usr/bin/env deno run --allow-read", "#!/usr/bin/env deno run"));
+    assert!(is_shebang_prefix_match("#!/usr/bin/env deno run --allow-read", "#!/usr/bin/env deno"));
+    assert!(is_shebang_prefix_match("#!/usr/bin/env deno\trun", "#!/usr/bin/env deno"));
+    assert!(!is_shebang_prefix_match("#!/usr/bin/env deno runtest", "#!/usr/bin/env deno run"));
+    assert!(!is_shebang_prefix_match("#!/usr/bin/env nodemon", "#!/usr/bin/env node"));
+    assert!(!is_shebang_prefix_match("#!/bin/shell", "#!/bin/sh"));
+    assert!(!is_shebang_prefix_match("#!/bin/sh", "#!/bin/sh -e"));
+    assert!(!is_shebang_prefix_match("#!/usr/bin/env -S deno run", "#!/usr/bin/env deno run"));
+  }
 
   #[test]
   fn config_key_value_hash_includes_lengths() {

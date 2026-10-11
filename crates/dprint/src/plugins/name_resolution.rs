@@ -1,4 +1,5 @@
 use anyhow::Result;
+use dprint_core::configuration::resolve_shebang_extension;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::path::Path;
@@ -8,8 +9,6 @@ use crate::patterns::OrderedPatternsMatcher;
 use crate::resolution::PluginWithConfig;
 use crate::utils::get_lowercase_file_extension;
 use crate::utils::get_lowercase_file_name;
-use crate::utils::get_shebang_line;
-use crate::utils::is_shebang_prefix_match;
 
 #[derive(Default)]
 pub struct PluginNameResolutionMaps {
@@ -27,9 +26,8 @@ pub struct PluginNameResolutionMaps {
   /// `associations`, so claiming a file doesn't have to look at the others.
   association_indexes: Vec<usize>,
   /// Maps a file's shebang line to a file extension so extensionless scripts
-  /// can be routed to a plugin. Sorted by shebang length descending so the
-  /// most specific entry matches first.
-  shebang_to_extension: Vec<(String, String)>,
+  /// can be routed to a plugin.
+  shebang_to_extension: IndexMap<String, String>,
 }
 
 impl PluginNameResolutionMaps {
@@ -40,11 +38,7 @@ impl PluginNameResolutionMaps {
   ) -> Result<Self> {
     let mut plugin_name_maps = PluginNameResolutionMaps::default();
     if let Some(shebangs) = shebangs {
-      plugin_name_maps.shebang_to_extension = shebangs.iter().map(|(shebang, extension)| (shebang.clone(), extension.clone())).collect();
-      // longest first so a more specific shebang wins (ex. `deno run` over `deno`)
-      plugin_name_maps
-        .shebang_to_extension
-        .sort_by_key(|(shebang, _)| std::cmp::Reverse(shebang.len()));
+      plugin_name_maps.shebang_to_extension = shebangs.clone();
     }
     for plugin in plugins {
       let index = plugin_name_maps.plugins.len();
@@ -122,15 +116,7 @@ impl PluginNameResolutionMaps {
   /// starts with it followed by whitespace, so `#!/usr/bin/env deno run` matches
   /// `#!/usr/bin/env deno run --allow-read` but not `#!/usr/bin/env deno runtest`.
   pub fn get_plugin_names_from_shebang<'a>(&'a self, file_path: &Path, file_bytes_start: &[u8]) -> Option<Vec<&'a str>> {
-    if !self.may_match_shebang(file_path) {
-      return None;
-    }
-    let shebang = get_shebang_line(file_bytes_start)?;
-    let extension = self
-      .shebang_to_extension
-      .iter()
-      .find(|(configured_shebang, _)| is_shebang_prefix_match(shebang, configured_shebang))
-      .map(|(_, extension)| extension)?;
+    let extension = resolve_shebang_extension(&self.shebang_to_extension, file_path, file_bytes_start)?;
     // the shebang says what the file's contents are, so it decides which plugin
     // claims the file—an additive plugin still matches by the file's own name
     let file_name = get_lowercase_file_name(file_path);

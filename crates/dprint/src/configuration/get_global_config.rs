@@ -83,6 +83,7 @@ mod tests {
         use_tabs: Some(true),
         indent_width: Some(2),
         new_line_kind: Some(NewLineKind::CarriageReturnLineFeed),
+        shebangs: None,
       },
       &[],
     );
@@ -103,6 +104,7 @@ mod tests {
         } else {
           NewLineKind::LineFeed
         }),
+        shebangs: None,
       },
       &[],
     );
@@ -119,6 +121,7 @@ mod tests {
         use_tabs: None,
         indent_width: None,
         new_line_kind: None,
+        shebangs: None,
       },
       &["Unexpected non-string, boolean, or int property (test)"],
     );
@@ -136,6 +139,7 @@ mod tests {
         use_tabs: None,
         indent_width: None,
         new_line_kind: None,
+        shebangs: None,
       },
       &[
         "invalid digit found in string (lineWidth)",
@@ -155,6 +159,7 @@ mod tests {
         use_tabs: None,
         indent_width: None,
         new_line_kind: None,
+        shebangs: None,
       },
       &[],
     );
