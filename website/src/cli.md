@@ -97,10 +97,10 @@ Provide a full file path to format with inclusion/exclusion rules of your dprint
 
 ### Formatting a Range of Lines
 
-Use the `--lines <file-path>:<first>:<last>` flag to only format a range of lines in a file. Line numbers are 1-based and the range is inclusive. Separate several ranges in a file with commas and specify the flag multiple times to format several files:
+Use the `--lines <file-path>:<first>-<last>` flag to only format a range of lines in a file. Line numbers are 1-based and the range is inclusive. Separate several ranges in a file with commas and specify the flag multiple times to format several files:
 
 ```sh
-dprint fmt --lines src/main.ts:10:20,35:40,52 --lines src/other.ts:5:8
+dprint fmt --lines src/main.ts:10-20,35-40,52 --lines src/other.ts:5-8
 ```
 
 The files of the ranges are formatted in addition to any other files provided on the command line, which are formatted in their entirety. When no other files are provided, only the files of the ranges are formatted.
@@ -108,14 +108,14 @@ The files of the ranges are formatted in addition to any other files provided on
 The file path may be omitted when formatting a single file or the text provided to `--stdin`:
 
 ```sh
-dprint fmt --lines 10:20,35:40 src/main.ts
-dprint fmt --stdin src/main.ts --lines 10:20 < src/main.ts
+dprint fmt --lines 10-20,35-40 src/main.ts
+dprint fmt --stdin src/main.ts --lines 10-20 < src/main.ts
 ```
 
 With `--stdin-files`, add the lines to the end of a file path instead. A file path without lines is formatted in its entirety:
 
 ```sh
-printf 'src/main.ts:10:20,35:40\nsrc/other.ts\n' | dprint fmt --stdin-files
+printf 'src/main.ts:10-20,35-40\nsrc/other.ts\n' | dprint fmt --stdin-files
 ```
 
 This is useful for tools that only format modified lines. For example, with [Jujutsu's `jj fix`](https://docs.jj-vcs.dev/latest/config/#enforce-code-formatting-on-modified-lines):
@@ -123,7 +123,7 @@ This is useful for tools that only format modified lines. For example, with [Juj
 ```toml
 [fix.tools.dprint]
 command = ["dprint", "fmt", "--stdin", "$path"]
-line-range-args = ["--lines=$first:$last"]
+line-range-args = ["--lines=$first-$last"]
 patterns = ["glob:'**/*.ts'"]
 ```
 
