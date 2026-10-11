@@ -908,7 +908,8 @@ pub async fn install_plugins<TEnvironment: Environment>(
   for plugin in &plugins {
     let info = plugin.info();
     if seen_plugins.insert((&info.name, &info.version)) {
-      log_stdout_info!(environment, "Installed {} {}", info.name, info.version);
+      let status = if plugin.was_set_up() { "Installed" } else { "Already installed" };
+      log_stdout_info!(environment, "{} {} {}", status, info.name, info.version);
     }
   }
   if seen_plugins.is_empty() {
@@ -3359,7 +3360,7 @@ mod test {
     run_test_cli(vec!["config", "install"], &environment).unwrap();
     assert_eq!(
       environment.take_stdout_messages(),
-      vec!["Installed test-plugin 0.2.0", "Installed test-process-plugin 0.1.0"]
+      vec!["Already installed test-plugin 0.2.0", "Already installed test-process-plugin 0.1.0"]
     );
     assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
 
@@ -3399,7 +3400,7 @@ mod test {
     );
     assert_eq!(
       environment.take_stdout_messages(),
-      vec!["Installed test-process-plugin 0.1.0", "Installed test-plugin 0.2.0"]
+      vec!["Already installed test-process-plugin 0.1.0", "Installed test-plugin 0.2.0"]
     );
     assert_eq!(
       environment.take_stderr_messages(),
@@ -3491,9 +3492,16 @@ mod test {
     run_test_cli(vec!["install", "--recursive"], &environment).unwrap();
     assert_eq!(
       environment.take_stdout_messages(),
-      vec!["Installed test-plugin 0.2.0", "Installed test-process-plugin 0.1.0"]
+      vec!["Already installed test-plugin 0.2.0", "Installed test-process-plugin 0.1.0"]
     );
     assert_eq!(environment.take_stderr_messages(), vec!["Extracting zip for test-process-plugin"]);
+
+    run_test_cli(vec!["install", "--recursive"], &environment).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec!["Already installed test-plugin 0.2.0", "Already installed test-process-plugin 0.1.0"]
+    );
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
   }
 
   #[test]
