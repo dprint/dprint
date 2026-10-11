@@ -94,10 +94,10 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
   // paths outside the directory the traversal starts in, like ../file.txt)
   let mut literal_arg_paths = extract_literal_arg_paths(environment, &mut opts.file_patterns, &opts.pattern_base);
   rewrite_literal_exclude_paths(environment, &mut opts.file_patterns, &opts.pattern_base);
-  extract_outside_arg_patterns(&mut opts.file_patterns, &opts.pattern_base, &mut literal_arg_paths.outside_base_paths);
+  let arg_pattern_base_dirs = extract_outside_arg_patterns(&mut opts.file_patterns, &opts.pattern_base, &mut literal_arg_paths.outside_base_paths);
   let mut run_traversal = requires_traversal(&opts.file_patterns);
   if run_traversal {
-    opts.start_dir = expand_start_dir_for_arg_patterns(opts.start_dir, &opts.file_patterns, &opts.pattern_base);
+    opts.start_dir = expand_start_dir_for_arg_patterns(opts.start_dir, &arg_pattern_base_dirs, &opts.pattern_base);
   } else {
     log_debug!(environment, "Skipping traversal because the CLI args were all file paths.");
   }
@@ -451,9 +451,18 @@ fn could_be_literal_path(pattern: &str) -> bool {
 /// separately the same way it does for literal paths outside the base. A
 /// pattern based at an ancestor of the base is kept for the current scope and
 /// additionally resolved separately for the parts outside the scope.
-fn extract_outside_arg_patterns(file_patterns: &mut GlobPatterns, pattern_base: &CanonicalizedPathBuf, outside_base_paths: &mut Vec<OutsideBasePath>) {
+///
+/// Returns the deepest base directory of each positive CLI glob pattern that
+/// only matches within the scope, which is what the traversal's start
+/// directory gets decided from.
+fn extract_outside_arg_patterns(
+  file_patterns: &mut GlobPatterns,
+  pattern_base: &CanonicalizedPathBuf,
+  outside_base_paths: &mut Vec<OutsideBasePath>,
+) -> Vec<CanonicalizedPathBuf> {
+  let mut in_scope_base_dirs = Vec::new();
   let Some(includes) = &mut file_patterns.arg_includes else {
-    return;
+    return in_scope_base_dirs;
   };
   includes.retain(|pattern| {
     if !is_positive_glob_pattern(pattern) {
@@ -461,6 +470,7 @@ fn extract_outside_arg_patterns(file_patterns: &mut GlobPatterns, pattern_base: 
     }
     let deepest_base = pattern.deepest_base_dir();
     if deepest_base.starts_with(pattern_base) {
+      in_scope_base_dirs.push(deepest_base);
       return true; // only matches within the scope
     }
     outside_base_paths.push(OutsideBasePath {
@@ -470,6 +480,7 @@ fn extract_outside_arg_patterns(file_patterns: &mut GlobPatterns, pattern_base: 
     // a pattern based at an ancestor directory also matches within the scope
     pattern_base.starts_with(&deepest_base)
   });
+  in_scope_base_dirs
 }
 
 /// Gets whether resolving the patterns requires traversing the file system.
@@ -495,15 +506,11 @@ fn is_positive_glob_pattern(pattern: &GlobPattern) -> bool {
 /// directory can be found (ex. `dprint fmt ../sub_dir/**/*.ts`). This stays
 /// fast because the traversal quickly prunes directories the patterns can't
 /// match (see `GlobPattern::matches_dir_for_traversal`).
-fn expand_start_dir_for_arg_patterns(mut start_dir: PathBuf, file_patterns: &GlobPatterns, pattern_base: &CanonicalizedPathBuf) -> PathBuf {
-  for pattern in file_patterns.arg_includes.iter().flatten() {
-    if !is_positive_glob_pattern(pattern) {
-      continue;
-    }
-    let deepest_base = pattern.deepest_base_dir();
-    if !deepest_base.starts_with(pattern_base) {
-      continue;
-    }
+///
+/// The base directories are the deepest base directory of each of those
+/// patterns that's within the pattern base.
+fn expand_start_dir_for_arg_patterns(mut start_dir: PathBuf, arg_pattern_base_dirs: &[CanonicalizedPathBuf], pattern_base: &CanonicalizedPathBuf) -> PathBuf {
+  for deepest_base in arg_pattern_base_dirs {
     // move the start dir up (bounded by the pattern base) until it contains
     // the pattern's base directory
     while !deepest_base.as_ref().starts_with(&start_dir) {
