@@ -2484,6 +2484,55 @@ text2_formatted"
   }
 
   #[test]
+  fn should_provide_file_path_with_shebang_extension_to_plugin() {
+    let script_path = "/scripts/build";
+    let dotfile_path = "/.envrc";
+    let override_path = "/scripts/override";
+    let ext_path = "/scripts/file.txt_ps";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_process_plugin()
+          .add_config_section(
+            "shebangs",
+            r##"{
+              "#!/bin/sh": "txt_ps"
+            }"##,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "overrides": {
+                "files": "**/override",
+                "ending": "overridden"
+              }
+            }"#,
+          );
+      })
+      .write_file(&script_path, "#!/bin/sh\noutput_file_path")
+      .write_file(&dotfile_path, "#!/bin/sh\noutput_file_path")
+      // the overrides are matched against the real path
+      .write_file(&override_path, "#!/bin/sh\ntext")
+      .write_file(&ext_path, "#!/bin/sh\noutput_file_path")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(4)]);
+    assert_eq!(
+      environment.read_file(&script_path).unwrap(),
+      "#!/bin/sh\n/scripts/build.txt_ps_formatted_process"
+    );
+    assert_eq!(environment.read_file(&dotfile_path).unwrap(), "#!/bin/sh\n/.envrc.txt_ps_formatted_process");
+    assert_eq!(environment.read_file(&override_path).unwrap(), "#!/bin/sh\ntext_overridden");
+    assert_eq!(environment.read_file(&ext_path).unwrap(), "#!/bin/sh\n/scripts/file.txt_ps_formatted_process");
+
+    // same when formatting the text provided via stdin
+    let test_std_in = TestStdInReader::from("#!/bin/sh\noutput_file_path");
+    run_test_cli_with_stdin(vec!["fmt", "--config", "/config.json", "--stdin", "./scripts/other"], &environment, test_std_in).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["#!/bin/sh\n./scripts/other.txt_ps_formatted_process"]);
+  }
+
+  #[test]
   fn should_evaluate_associations_against_real_path_for_shebang_files() {
     let script_path = "/scripts/build";
     let excluded_path = "/scripts/legacy-build";

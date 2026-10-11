@@ -354,12 +354,13 @@ where
     let start_instant = Instant::now();
     let original_text = file_text;
     let mut file_text = Cow::Borrowed(file_text);
+    let plugin_file_path = scope.plugin_name_maps.get_plugin_file_path(&file_path, &file_text);
     let plugins_len = plugins.len();
     for (i, (plugin, initialized_plugin)) in plugins.iter().enumerate() {
       let start_instant = Instant::now();
       let format_text_result = initialized_plugin
         .format_text(InitializedPluginWithConfigFormatRequest {
-          file_path: file_path.to_path_buf(),
+          file_path: plugin_file_path.to_path_buf(),
           file_bytes: file_text.to_vec(),
           range: range.clone(),
           override_config: plugin.get_config_file_overrides_for_path(&file_path),

@@ -1,7 +1,9 @@
 use anyhow::Result;
 use indexmap::IndexMap;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
+use std::path::PathBuf;
 
 use crate::patterns::ConfigPatternBases;
 use crate::patterns::OrderedPatternsMatcher;
@@ -122,20 +124,47 @@ impl PluginNameResolutionMaps {
   /// starts with it followed by whitespace, so `#!/usr/bin/env deno run` matches
   /// `#!/usr/bin/env deno run --allow-read` but not `#!/usr/bin/env deno runtest`.
   pub fn get_plugin_names_from_shebang<'a>(&'a self, file_path: &Path, file_bytes_start: &[u8]) -> Option<Vec<&'a str>> {
-    if !self.may_match_shebang(file_path) {
-      return None;
-    }
-    let shebang = get_shebang_line(file_bytes_start)?;
-    let extension = self
-      .shebang_to_extension
-      .iter()
-      .find(|(configured_shebang, _)| is_shebang_prefix_match(shebang, configured_shebang))
-      .map(|(_, extension)| extension)?;
+    let extension = self.get_shebang_extension(file_path, file_bytes_start)?;
     // the shebang says what the file's contents are, so it decides which plugin
     // claims the file—an additive plugin still matches by the file's own name
     let file_name = get_lowercase_file_name(file_path);
     let claiming_plugins = self.claiming_plugins(file_path, None, Some(extension));
     Some(self.get_plugin_names(&claiming_plugins, file_path, file_name.as_deref(), Some(extension)))
+  }
+
+  /// Gets the file path to provide to the plugins when formatting the file.
+  ///
+  /// Plugins decide how to format a file based on its path, so a file that's
+  /// formatted because of its shebang line is given the extension its shebang
+  /// maps to (ex. `build.sh` for a file named `build`).
+  pub fn get_plugin_file_path<'a>(&self, file_path: &'a Path, file_bytes_start: &[u8]) -> Cow<'a, Path> {
+    if !self.may_match_shebang(file_path) || self.get_plugin_names_from_file_path(file_path).has_claiming_plugin() {
+      return Cow::Borrowed(file_path);
+    }
+    let Some(extension) = self.get_shebang_extension(file_path, file_bytes_start) else {
+      return Cow::Borrowed(file_path);
+    };
+    // only an additive plugin formats the file and that matched its real path
+    if self.claiming_plugins(file_path, None, Some(extension)).is_empty() {
+      return Cow::Borrowed(file_path);
+    }
+    let mut plugin_file_path = file_path.as_os_str().to_owned();
+    plugin_file_path.push(".");
+    plugin_file_path.push(extension);
+    Cow::Owned(PathBuf::from(plugin_file_path))
+  }
+
+  /// Gets the extension that an extensionless file's shebang line maps to.
+  fn get_shebang_extension(&self, file_path: &Path, file_bytes_start: &[u8]) -> Option<&String> {
+    if !self.may_match_shebang(file_path) {
+      return None;
+    }
+    let shebang = get_shebang_line(file_bytes_start)?;
+    self
+      .shebang_to_extension
+      .iter()
+      .find(|(configured_shebang, _)| is_shebang_prefix_match(shebang, configured_shebang))
+      .map(|(_, extension)| extension)
   }
 
   /// The plugins that format the file, in configuration order: the plugins that

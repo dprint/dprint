@@ -390,6 +390,7 @@ With the above, a file named `build` starting with `#!/bin/sh` is formatted as i
 - A configured shebang matches when the file's first line equals it or starts with it followed by whitespace, so `#!/usr/bin/env deno run` matches `#!/usr/bin/env deno run --allow-read` but not `#!/usr/bin/env deno runtest`. When multiple entries match, the longest one wins. `#!/usr/bin/env -S deno run` is a different line, so list it separately if you use it.
 - Extensionless files are checked for a matching shebang regardless of the config file's `"includes"` patterns. Negated include patterns, `"excludes"`, gitignore, and file patterns provided on the command line (including `--includes-override`) still apply.
 - dprint only reads the first line of extensionless files to check for a shebang.
+- The plugin is given the file's path with the mapped extension added (ex. `build.sh` for a file named `build`) because plugins decide how to format a file based on its extension. This means the path a plugin sees doesn't exist on disk (ex. the `{{file_path}}` in an exec plugin command).
 - When using `"extends"`, the shebangs are merged with the extending config's entries taking precedence. A nested config inherits them with `"inherit": true` unless it specifies its own.
 
 ## Overrides

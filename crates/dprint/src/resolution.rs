@@ -539,6 +539,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       plugin_names.join(", "),
       request.range,
     );
+    let plugin_file_path = self.plugin_name_maps.get_plugin_file_path(&request.file_path, &request.file_bytes).into_owned();
     let scope = self.clone();
     async move {
       let mut file_text = request.file_bytes;
@@ -549,7 +550,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
           Ok(GetPluginResult::Success(initialized_plugin)) => {
             let result = initialized_plugin
               .format_text(InitializedPluginWithConfigFormatRequest {
-                file_path: request.file_path.clone(),
+                file_path: plugin_file_path.clone(),
                 file_bytes: file_text.clone(),
                 range: request.range.clone(),
                 override_config: plugin.get_merged_overrides_for_path(&request.file_path, &request.override_config),
