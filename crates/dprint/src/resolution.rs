@@ -455,8 +455,8 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
         shebang.hash(&mut hasher);
         extension.hash(&mut hasher);
       }
-      // version to bump in order to format the files of configs with shebangs
-      // again when changing how files matched by a shebang get formatted
+      // version bump in order to format the files of configs with shebangs
+      // again because we changed how files matched by a shebang get formatted
       1u8.hash(&mut hasher);
     }
     hasher.finish()
