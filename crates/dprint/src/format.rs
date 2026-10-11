@@ -62,9 +62,16 @@ enum FileFormatKind {
 struct FormatFilePaths {
   /// The path of the file on disk.
   real: PathBuf,
-  /// The path to give to the plugins, which is different than the real
-  /// path for a file that's formatted because of its shebang line.
-  plugin: PathBuf,
+  /// The path to give to the plugins when it's different than the real path,
+  /// which is for a file that's formatted because of its shebang line.
+  plugin: Option<PathBuf>,
+}
+
+impl FormatFilePaths {
+  /// The path to give to the plugins.
+  fn plugin(&self) -> &Path {
+    self.plugin.as_deref().unwrap_or(&self.real)
+  }
 }
 
 #[derive(Debug, Error)]
@@ -291,7 +298,10 @@ where
     // this is decided once from the file's original text because that's what
     // the plugins formatting the file were decided from
     let file_paths = FormatFilePaths {
-      plugin: scope.plugin_name_maps.get_plugin_file_path(&file_path, &file_text).into_owned(),
+      plugin: match scope.plugin_name_maps.get_plugin_file_path(&file_path, &file_text) {
+        Cow::Borrowed(_) => None,
+        Cow::Owned(plugin_file_path) => Some(plugin_file_path),
+      },
       real: file_path.clone(),
     };
     let (start_instant, formatted_text) = match format_kind {
@@ -369,16 +379,16 @@ where
     let start_instant = Instant::now();
     let original_text = file_text;
     let mut file_text = Cow::Borrowed(file_text);
-    let file_path = file_paths.real;
+    let file_path = &file_paths.real;
     let plugins_len = plugins.len();
     for (i, (plugin, initialized_plugin)) in plugins.iter().enumerate() {
       let start_instant = Instant::now();
       let format_text_result = initialized_plugin
         .format_text(InitializedPluginWithConfigFormatRequest {
-          file_path: file_paths.plugin.clone(),
+          file_path: file_paths.plugin().to_path_buf(),
           file_bytes: file_text.to_vec(),
           range: range.clone(),
-          override_config: plugin.get_config_file_overrides_for_path(&file_path),
+          override_config: plugin.get_config_file_overrides_for_path(file_path),
           on_host_format: scope.create_host_format_callback(),
           token: Arc::new(NullCancellationToken),
         })
