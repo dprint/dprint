@@ -192,8 +192,13 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
           send_error_response(&self.context, message.id, anyhow!("CLI cannot handle a CanFormatResponse message."));
         }
         EditorMessageBody::Format(body) => {
-          if self.plugins_scope.is_none() {
-            self.ensure_latest_config().await?;
+          if self.plugins_scope.is_none()
+            && let Err(err) = self.ensure_latest_config().await
+          {
+            // respond with the error instead of exiting so the editor can
+            // show it and the config file can be fixed without a restart
+            send_error_response(&self.context, message.id, err);
+            continue;
           }
           let token = Arc::new(CancellationToken::new());
           let request = HostFormatRequest {
@@ -1014,6 +1019,51 @@ mod test {
             "{}",
             err
           );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_respond_with_error_for_format_with_config_error_for_editor_service() {
+    let txt_file_path = PathBuf::from("/file.txt");
+    let config_file_path = PathBuf::from("/dprint.json");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file(&txt_file_path, "")
+      .initialize()
+      .build();
+    let config_file_text = environment.read_file(&config_file_path).unwrap();
+    environment.write_file(&config_file_path, "{ invalid").unwrap();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      let environment = environment.clone();
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+          let format = || communicator.format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default());
+
+          // a format request is the first message some editors send
+          let err = format().await.err().unwrap();
+          assert!(err.to_string().contains("dprint.json"), "{}", err);
+          let err = format().await.err().unwrap();
+          assert!(err.to_string().contains("dprint.json"), "{}", err);
+
+          // keeps running, so formatting works once the config file is fixed
+          environment.write_file(&config_file_path, &config_file_text).unwrap();
+          assert_eq!(format().await.unwrap().unwrap(), b"testing_formatted");
 
           communicator.exit().await.unwrap();
         });
