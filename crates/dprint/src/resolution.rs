@@ -455,6 +455,9 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
         shebang.hash(&mut hasher);
         extension.hash(&mut hasher);
       }
+      // version bump in order to format the files of configs with shebangs
+      // again because we changed how files matched by a shebang get formatted
+      1u8.hash(&mut hasher);
     }
     hasher.finish()
   }
@@ -539,6 +542,9 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       plugin_names.join(", "),
       request.range,
     );
+    let plugin_file_path = self.plugin_name_maps.get_plugin_file_path(&request.file_path, &request.file_bytes).into_owned();
+    // a plugin might be asking to format with the file path it was given
+    let real_file_path = self.plugin_name_maps.get_real_file_path(&request.file_path).to_path_buf();
     let scope = self.clone();
     async move {
       let mut file_text = request.file_bytes;
@@ -549,10 +555,10 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
           Ok(GetPluginResult::Success(initialized_plugin)) => {
             let result = initialized_plugin
               .format_text(InitializedPluginWithConfigFormatRequest {
-                file_path: request.file_path.clone(),
+                file_path: plugin_file_path.clone(),
                 file_bytes: file_text.clone(),
                 range: request.range.clone(),
-                override_config: plugin.get_merged_overrides_for_path(&request.file_path, &request.override_config),
+                override_config: plugin.get_merged_overrides_for_path(&real_file_path, &request.override_config),
                 on_host_format: scope.create_host_format_callback(),
                 token: request.token.clone(),
               })

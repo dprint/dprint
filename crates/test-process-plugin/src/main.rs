@@ -226,6 +226,8 @@ impl AsyncPluginHandler for TestProcessPluginHandler {
         "plugin-config: {}",
         result.map(|r| String::from_utf8(r).unwrap()).unwrap_or_else(|| new_text.to_string())
       )
+    } else if let Some(text) = file_text.strip_suffix("output_file_path") {
+      format!("{}{}", text, request.file_path.display())
     } else if file_text == "should_error" {
       return Err("Did error.".into());
     } else if file_text == "spawn_pipe_holder" {

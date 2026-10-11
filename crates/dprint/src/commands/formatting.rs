@@ -2484,6 +2484,88 @@ text2_formatted"
   }
 
   #[test]
+  fn should_provide_file_path_with_shebang_extension_to_plugin() {
+    let script_path = "/scripts/build";
+    let dotfile_path = "/.envrc";
+    let override_path = "/scripts/override";
+    let ext_path = "/scripts/file.txt_ps";
+    let association_path = "/scripts/association";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
+      .with_local_config("/config.json", |c| {
+        c.add_remote_process_plugin()
+          .add_config_section(
+            "shebangs",
+            r##"{
+              "#!/bin/sh": "txt_ps"
+            }"##,
+          )
+          .add_config_section(
+            "testProcessPlugin",
+            r#"{
+              "associations": ["**/*.txt_ps", "**/association"],
+              "overrides": {
+                "files": "**/override",
+                "ending": "overridden"
+              }
+            }"#,
+          );
+      })
+      .write_file(&script_path, "#!/bin/sh\noutput_file_path")
+      .write_file(&dotfile_path, "#!/bin/sh\noutput_file_path")
+      // the overrides are matched against the real path
+      .write_file(&override_path, "#!/bin/sh\ntext")
+      .write_file(&ext_path, "#!/bin/sh\noutput_file_path")
+      // matched by the plugin's associations, so it's given its real path
+      .write_file(&association_path, "#!/bin/sh\noutput_file_path")
+      .build();
+
+    run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
+
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(5)]);
+    assert_eq!(
+      environment.read_file(&association_path).unwrap(),
+      "#!/bin/sh\n/scripts/association_formatted_process"
+    );
+    assert_eq!(
+      environment.read_file(&script_path).unwrap(),
+      "#!/bin/sh\n/scripts/build.dprint-ext-added.txt_ps_formatted_process"
+    );
+    assert_eq!(
+      environment.read_file(&dotfile_path).unwrap(),
+      "#!/bin/sh\n/.envrc.dprint-ext-added.txt_ps_formatted_process"
+    );
+    assert_eq!(environment.read_file(&override_path).unwrap(), "#!/bin/sh\ntext_overridden");
+    assert_eq!(environment.read_file(&ext_path).unwrap(), "#!/bin/sh\n/scripts/file.txt_ps_formatted_process");
+
+    // same when formatting the text provided via stdin
+    let test_std_in = TestStdInReader::from("#!/bin/sh\noutput_file_path");
+    run_test_cli_with_stdin(vec!["fmt", "--config", "/config.json", "--stdin", "./scripts/other"], &environment, test_std_in).unwrap();
+    assert_eq!(
+      environment.take_stdout_messages(),
+      vec!["#!/bin/sh\n./scripts/other.dprint-ext-added.txt_ps_formatted_process"]
+    );
+
+    // a path that was given to a plugin is matched by its real path and the
+    // added extension, which is what a plugin provides when formatting with the host
+    for (file_path, text) in [
+      ("./scripts/other.dprint-ext-added.txt_ps", "output_file_path"),
+      ("./scripts/association.dprint-ext-added.other", "output_file_path"),
+    ] {
+      let test_std_in = TestStdInReader::from(text);
+      run_test_cli_with_stdin(vec!["fmt", "--config", "/config.json", "--stdin", file_path], &environment, test_std_in).unwrap();
+      assert_eq!(environment.take_stdout_messages(), vec![format!("{}_formatted_process", file_path)]);
+    }
+    let test_std_in = TestStdInReader::from("text");
+    run_test_cli_with_stdin(
+      vec!["fmt", "--config", "/config.json", "--stdin", "./scripts/override.dprint-ext-added.txt_ps"],
+      &environment,
+      test_std_in,
+    )
+    .unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["text_overridden"]);
+  }
+
+  #[test]
   fn should_evaluate_associations_against_real_path_for_shebang_files() {
     let script_path = "/scripts/build";
     let excluded_path = "/scripts/legacy-build";
