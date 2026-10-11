@@ -15,7 +15,7 @@
       "default": true
     },
     "inherit": {
-      "description": "Whether to inherit the plugins and configuration of the closest configuration file in an ancestor directory. It is an error when there is no configuration file in an ancestor directory, and the global configuration file may not specify this.",
+      "description": "Whether to inherit the plugins and configuration of the closest configuration file in an ancestor directory. When there is no configuration file in an ancestor directory, a warning is shown and the configuration file is used on its own. The global configuration file is never inherited from and may not specify this.",
       "type": "boolean",
       "default": false
     },

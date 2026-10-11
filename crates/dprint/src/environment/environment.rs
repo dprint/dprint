@@ -380,6 +380,10 @@ pub trait Environment:
   fn is_ci(&self) -> bool;
   fn is_terminal_interactive(&self) -> bool;
   fn log_level(&self) -> LogLevel;
+  /// Gets whether this is the first time the key was provided to this method in
+  /// the process. This is for only logging a message once when the code that
+  /// logs it runs many times (ex. on every request in the editor service).
+  fn is_first_log_of(&self, key: &str) -> bool;
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult>;
   fn wasm_cache_key(&self) -> String;
   /// Returns the current CPU usage as a value from 0-100.

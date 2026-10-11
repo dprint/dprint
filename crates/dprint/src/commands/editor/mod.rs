@@ -1069,16 +1069,16 @@ mod test {
   }
 
   #[test]
-  fn should_error_for_inherit_without_ancestor_config_for_editor_service() {
+  fn should_warn_for_inherit_without_ancestor_config_for_editor_service() {
     let txt_file_path = PathBuf::from("/project/file.txt");
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
       // the global config file is not inherited from
       .with_global_config(|c| {
-        c.add_remote_wasm_plugin();
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "global" }"#);
       })
       .with_local_config("/project/dprint.json", |c| {
-        c.set_inherit(true);
+        c.set_inherit(true).add_remote_wasm_plugin();
       })
       .write_file(&txt_file_path, "")
       .set_cwd("/project")
@@ -1091,13 +1091,15 @@ mod test {
         TestEnvironment::new().run_in_runtime(async move {
           let communicator = EditorServiceCommunicator::new(stdin, stdout);
 
-          let err = communicator.check_file(&txt_file_path).await.err().unwrap();
-          assert!(
-            err
-              .to_string()
-              .contains("Could not find a configuration file in an ancestor directory to inherit from."),
-            "{}",
-            err
+          // the config is resolved for each of these
+          assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true);
+          assert_eq!(
+            communicator
+              .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_formatted"
           );
 
           communicator.exit().await.unwrap();
@@ -1109,6 +1111,19 @@ mod test {
     run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
 
     result.join().unwrap();
+
+    // only warns once
+    let logs = environment.take_stderr_messages();
+    let logs = logs.iter().filter(|log| !log.starts_with("Compiling ")).collect::<Vec<_>>();
+    assert_eq!(logs.len(), 1, "{:?}", logs);
+    assert!(
+      logs[0].ends_with(concat!(
+        "The 'inherit' property is ignored in /project/dprint.json because there is no ",
+        "configuration file in an ancestor directory to inherit from."
+      )),
+      "{}",
+      logs[0]
+    );
   }
 
   #[test]
