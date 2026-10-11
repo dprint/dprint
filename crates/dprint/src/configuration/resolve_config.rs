@@ -60,8 +60,8 @@ pub struct ResolvedConfig {
   /// Maps a shebang line (ex. `#!/usr/bin/env bash`) to a file extension so
   /// extensionless scripts can be routed to a plugin.
   pub shebangs: Option<IndexMap<String, String>>,
-  /// Whether a nested (directory specific) configuration file should inherit
-  /// the plugins and configuration of its ancestor configuration file.
+  /// Whether the configuration file should inherit the plugins and configuration
+  /// of the closest configuration file in an ancestor directory.
   pub inherit: Option<bool>,
   pub config_map: ConfigMap,
   /// Keys of the plugin configurations in `config_map` that were only specified
@@ -204,12 +204,13 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
 }
 
 /// Resolves the config of a config file, merging in the config file of an
-/// ancestor directory when it specifies `"inherit": true`. It's an error when
-/// there's no config file in an ancestor directory to inherit from (the global
-/// config file is never inherited from).
+/// ancestor directory when it specifies `"inherit": true`. The config file is
+/// used on its own and a warning is shown when there's no config file in an
+/// ancestor directory to inherit from (the global config file is never
+/// inherited from).
 ///
-/// A remote config file has no ancestor directories, so it's used on its own
-/// and a warning is shown.
+/// A remote config file has no ancestor directories, so it's also used on its
+/// own with a warning.
 pub fn resolve_config_from_path_with_ancestors<'a, TEnvironment: Environment>(
   config_file: &'a ResolvedConfigPathWithText,
   remote_cache_mode: RemoteCacheMode,
@@ -238,7 +239,8 @@ fn resolve_config_from_path_with_ancestors_inner<'a, TEnvironment: Environment>(
       return Ok(config);
     }
     let Some(ancestor_config_file) = find_config_file_to_inherit(&config.source, environment, &inherit_chain)? else {
-      return Err(new_no_config_to_inherit_error(&config.source).into());
+      warn_no_config_to_inherit(&config.source, environment);
+      return Ok(config);
     };
     // the ancestor config file may also inherit
     let ancestor_config = resolve_config_from_path_with_ancestors_inner(&ancestor_config_file, remote_cache_mode, environment, inherit_chain).await?;
@@ -246,17 +248,6 @@ fn resolve_config_from_path_with_ancestors_inner<'a, TEnvironment: Environment>(
   }
   .boxed_local()
 }
-
-/// Creates the error for a config file that specifies `"inherit": true` when
-/// there's no config file in an ancestor directory to inherit from.
-fn new_no_config_to_inherit_error(config_source: &PathSource) -> anyhow::Error {
-  anyhow::anyhow!("{}\n    at {}", NO_CONFIG_TO_INHERIT_MESSAGE, config_source.display())
-}
-
-const NO_CONFIG_TO_INHERIT_MESSAGE: &str = concat!(
-  "Could not find a configuration file in an ancestor directory to inherit from. ",
-  "Add one or remove \"inherit\": true from the configuration file."
-);
 
 /// Resolves the config of a config file without having the config file inherit
 /// from the config file of an ancestor directory. The local config files it
@@ -611,7 +602,8 @@ async fn handle_config_file<TEnvironment: Environment>(
     Ok(resolved_config)
   } else {
     let Some(ancestor_config_file) = find_config_file_to_inherit(&config_path_and_text.source, environment, &inherit_chain)? else {
-      bail!("{}", NO_CONFIG_TO_INHERIT_MESSAGE);
+      warn_no_config_to_inherit(&config_path_and_text.source, environment);
+      return Ok(resolved_config);
     };
     let ancestor_config = resolve_config_from_path_with_ancestors_inner(&ancestor_config_file, remote_cache_mode, environment, inherit_chain.to_vec()).await?;
     inherit_config(resolved_config, &ancestor_config)
@@ -640,6 +632,12 @@ fn find_config_file_to_inherit(
     );
   }
   Ok(Some(ancestor_config_file))
+}
+
+/// Warns that a config file specifying `"inherit": true` is being used on its
+/// own because there's no config file in an ancestor directory to inherit from.
+fn warn_no_config_to_inherit(config_source: &PathSource, environment: &impl Environment) {
+  log_warn!(environment, &get_warn_no_config_to_inherit_message(config_source));
 }
 
 /// Merges the lower precedence `source` config map into the higher precedence
@@ -943,6 +941,14 @@ fn get_warn_inherit_message() -> String {
   format!(
     "{} The 'inherit' property is ignored on remote configuration because it has no ancestor directories.",
     colors::bold("Note: "),
+  )
+}
+
+fn get_warn_no_config_to_inherit_message(config_source: &PathSource) -> String {
+  format!(
+    "{} The 'inherit' property is ignored in {} because there is no configuration file in an ancestor directory to inherit from.",
+    colors::bold("Note: "),
+    config_source.display(),
   )
 }
 

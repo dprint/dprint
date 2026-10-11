@@ -3149,7 +3149,7 @@ mod test {
   }
 
   #[test]
-  fn should_error_for_inherit_without_config_to_inherit_with_lsp() {
+  fn should_warn_for_inherit_without_config_to_inherit_with_lsp() {
     let environment = TestEnvironmentBuilder::new()
       .add_remote_wasm_plugin()
       // not allowed in the global config file
@@ -3180,26 +3180,43 @@ mod test {
           backend.initialized(InitializedParams {}).await;
           test_client.take_messages();
 
-          macro_rules! assert_error_logged {
-            ($uri:expr, $message:expr) => {
-              did_open!(backend, $uri, "testing");
-              assert_format!(backend, $uri, None);
-              let logs = environment.take_stderr_messages();
-              assert_eq!(logs.len(), 1, "{:?}", logs);
-              assert!(logs[0].contains($message), "{}", logs[0]);
-              let messages = test_client.take_messages();
-              assert_eq!(messages.len(), 1, "{:?}", messages);
-              assert_eq!(messages[0].0, MessageType::ERROR);
-              assert!(messages[0].1.contains($message), "{}", messages[0].1);
-            };
-          }
-
-          // the global config file is not inherited from
+          // the global config file is not inherited from, so
+          // the config file is used on its own with a warning
           let file_uri = Uri::from_str("file:///project/file.txt").unwrap();
-          assert_error_logged!(file_uri, "Could not find a configuration file in an ancestor directory to inherit from.");
+          did_open!(backend, file_uri, "testing");
+          let expected_edits = Some(vec![TextEdit {
+            range: Range::new(Position::new(0, 7), Position::new(0, 7)),
+            new_text: "_formatted".to_string(),
+          }]);
+          assert_format!(backend, file_uri, expected_edits.clone());
+          let logs = environment.take_stderr_messages();
+          let logs = logs.iter().filter(|log| !log.starts_with("Compiling ")).collect::<Vec<_>>();
+          assert_eq!(logs.len(), 1, "{:?}", logs);
+          assert!(
+            logs[0].ends_with(concat!(
+              "The 'inherit' property is ignored in /project/dprint.json because there is no ",
+              "configuration file in an ancestor directory to inherit from."
+            )),
+            "{}",
+            logs[0]
+          );
+          assert_eq!(test_client.take_messages(), vec![]);
+
+          // warns each time the config is resolved
+          assert_format!(backend, file_uri, expected_edits);
+          assert_eq!(environment.take_stderr_messages().len(), 1);
 
           let file_uri = Uri::from_str("file:///scratch/file.txt").unwrap();
-          assert_error_logged!(file_uri, "The global configuration file cannot specify \"inherit\": true");
+          let message = "The global configuration file cannot specify \"inherit\": true";
+          did_open!(backend, file_uri, "testing");
+          assert_format!(backend, file_uri, None);
+          let logs = environment.take_stderr_messages();
+          assert_eq!(logs.len(), 1, "{:?}", logs);
+          assert!(logs[0].contains(message), "{}", logs[0]);
+          let messages = test_client.take_messages();
+          assert_eq!(messages.len(), 1, "{:?}", messages);
+          assert_eq!(messages[0].0, MessageType::ERROR);
+          assert!(messages[0].1.contains(message), "{}", messages[0].1);
 
           backend.shutdown().await.unwrap();
         }
