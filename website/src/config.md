@@ -520,12 +520,6 @@ When inheriting:
 
 Inheriting is opt-in (rather than opt-out) so that adding a configuration file higher up in the directory structure does not unexpectedly start affecting a nested configuration file.
 
-This isn't specific to nested configuration files. Any configuration file that specifies `"inherit": true` inherits from the closest configuration file in an ancestor directory of itself, including the main one (found from the current directory or specified with `--config`) and local configuration files it extends. Note that:
-
-- When there's no configuration file in an ancestor directory, a warning is shown and the configuration file is used on its own.
-- The global configuration file is never inherited from and cannot specify `"inherit": true`.
-- `"inherit": true` is ignored with a warning in remote configuration because it has no ancestor directories.
-
 ## Incremental
 
 By default, dprint will only format files that have changed since the last time you formatted the code in order to drastically improve performance.
