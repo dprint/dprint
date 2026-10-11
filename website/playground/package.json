@@ -25,7 +25,7 @@
     "extends": "react-app"
   },
   "dependencies": {
-    "@dprint/formatter": "^0.4.1",
+    "@dprint/formatter": "^0.6.0",
     "json5": "^2.2.3",
     "lz-string": "^1.5.0",
     "monaco-editor": "^0.55.1",
