@@ -1085,6 +1085,61 @@ mod test {
   }
 
   #[test]
+  fn should_clamp_format_range_to_text_for_editor_service() {
+    let txt_file_path = PathBuf::from("/file.txt");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file(&txt_file_path, "")
+      .initialize()
+      .build();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+          let format_range = |range: std::ops::Range<usize>| {
+            let communicator = communicator.clone();
+            let txt_file_path = txt_file_path.clone();
+            async move {
+              let result = communicator
+                .format_text(
+                  &txt_file_path,
+                  "testing".to_string().into_bytes(),
+                  Some(range),
+                  Default::default(),
+                  Default::default(),
+                )
+                .await;
+              String::from_utf8(result.unwrap().unwrap()).unwrap()
+            }
+          };
+
+          // end past the end of the text
+          assert_eq!(format_range(2..100).await, format_range(2..7).await);
+          // start and end past the end of the text
+          assert_eq!(format_range(50..100).await, format_range(7..7).await);
+          // start after the end
+          assert_eq!(format_range(5..2).await, format_range(2..2).await);
+          // the whole text once clamped
+          assert_eq!(format_range(0..100).await, "testing_formatted");
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
   fn should_respond_to_format_cancelled_by_config_change_for_editor_service() {
     let txt_file_path = PathBuf::from("/file.txt");
     let config_file_path = PathBuf::from("/dprint.json");

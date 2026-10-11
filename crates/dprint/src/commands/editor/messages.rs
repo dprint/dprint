@@ -44,14 +44,17 @@ impl EditorMessage {
         let end_byte_index = reader.read_u32()?;
         let override_config = reader.read_sized_bytes()?;
         let file_text = reader.read_sized_bytes()?;
+        // clamp the range to the text because the plugins index into the text with it
+        let end_byte_index = std::cmp::min(end_byte_index as usize, file_text.len());
+        let start_byte_index = std::cmp::min(start_byte_index as usize, end_byte_index);
         EditorMessageBody::Format(FormatEditorMessageBody {
           file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
-          range: if start_byte_index == 0 && end_byte_index == file_text.len() as u32 {
+          range: if start_byte_index == 0 && end_byte_index == file_text.len() {
             None
           } else {
             Some(std::ops::Range {
-              start: start_byte_index as usize,
-              end: end_byte_index as usize,
+              start: start_byte_index,
+              end: end_byte_index,
             })
           },
           file_bytes: file_text,
