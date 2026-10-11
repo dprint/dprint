@@ -32,6 +32,7 @@ use crate::format::merge_line_ranges;
 use crate::format::run_parallelized;
 use crate::incremental::GetIncrementalFileOptions;
 use crate::incremental::get_incremental_file;
+use crate::paths::NoFilesFoundError;
 use crate::paths::get_includes_base_dir;
 use crate::patterns::FileMatcher;
 use crate::patterns::FileMatcherOptions;
@@ -421,9 +422,14 @@ pub async fn format<TEnvironment: Environment>(
     ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
   )
   .await?;
-  scopes.ensure_valid_for_cli_args(args)?;
-
-  let line_ranges = Rc::new(resolve_line_ranges_by_path(&cmd.line_ranges, &scopes, environment)?);
+  let line_ranges = resolve_line_ranges_by_path(&cmd.line_ranges, &scopes, environment);
+  match scopes.ensure_valid_for_cli_args(args) {
+    // a path with lines that isn't a file being formatted is
+    // the more specific reason for why no files were found
+    Err(err) if line_ranges.is_err() && err.is::<NoFilesFoundError>() => {}
+    result => result?,
+  }
+  let line_ranges = Rc::new(line_ranges?);
 
   let formatted_files_count = Arc::new(AtomicCounter::default());
   for scope_and_paths in scopes.into_iter() {
@@ -509,6 +515,7 @@ fn resolve_line_ranges_by_path<TEnvironment: Environment>(
   environment: &TEnvironment,
 ) -> Result<LineRangesByPath> {
   let mut result = LineRangesByPath::new();
+  let mut specified_paths = Vec::<SpecifiedLineRangesPath>::new();
   let mut ranges_without_path = Vec::<LineRange>::new();
   for line_range in line_ranges {
     match &line_range.path {
@@ -523,14 +530,18 @@ fn resolve_line_ranges_by_path<TEnvironment: Environment>(
           Err(_) if crate::utils::is_pattern(path_text) => {
             bail!("Lines can only be specified for a file path, but '{}' is a glob.", path_text);
           }
-          Err(_) => path, // doesn't exist, so it won't be formatted
+          Err(_) => path, // doesn't exist, which is an error below
         };
+        specified_paths.push(SpecifiedLineRangesPath {
+          path: path.clone(),
+          text: path_text,
+        });
         result.entry(path).or_default().extend(&line_range.ranges);
       }
       None => ranges_without_path.extend(&line_range.ranges),
     }
   }
-  ensure_no_line_ranges_for_directory(&result, scopes)?;
+  ensure_line_ranges_paths_are_formatted_files(&specified_paths, scopes)?;
 
   if !ranges_without_path.is_empty() {
     let mut file_paths = scopes.iter().flat_map(|s| s.file_paths_by_plugins.all_file_paths());
@@ -552,18 +563,28 @@ fn resolve_line_ranges_by_path<TEnvironment: Environment>(
   Ok(result)
 }
 
-/// Errors when a path with line ranges is a directory because its files would
-/// be formatted in their entirety. This looks at the files that were found
-/// instead of the file system in order to not make any system calls.
-fn ensure_no_line_ranges_for_directory<TEnvironment: Environment>(
-  line_ranges: &LineRangesByPath,
+/// A path that line ranges were specified for.
+struct SpecifiedLineRangesPath<'a> {
+  /// The path resolved the same way as the file paths to format.
+  path: PathBuf,
+  /// The path as it was provided, which is what's shown to the user.
+  text: &'a str,
+}
+
+/// Errors when a path with line ranges isn't a file that's being formatted,
+/// which is the case when it doesn't exist, is excluded, isn't matched by a
+/// plugin, or is a directory (its files would be formatted in their entirety).
+/// This looks at the files that were found instead of the file system in order
+/// to not make any system calls.
+fn ensure_line_ranges_paths_are_formatted_files<TEnvironment: Environment>(
+  specified_paths: &[SpecifiedLineRangesPath],
   scopes: &PluginsScopeAndPathsCollection<TEnvironment>,
 ) -> Result<()> {
-  if line_ranges.is_empty() {
+  if specified_paths.is_empty() {
     return Ok(());
   }
   let all_file_paths = || scopes.iter().flat_map(|s| s.file_paths_by_plugins.all_file_paths());
-  let mut paths_not_found = line_ranges.keys().map(|p| p.as_path()).collect::<HashSet<_>>();
+  let mut paths_not_found = specified_paths.iter().map(|p| p.path.as_path()).collect::<HashSet<_>>();
   for file_path in all_file_paths() {
     paths_not_found.remove(file_path.as_path());
   }
@@ -576,7 +597,28 @@ fn ensure_no_line_ranges_for_directory<TEnvironment: Environment>(
       bail!("Lines can only be specified for a file path, but '{}' is a directory.", dir_path.display());
     }
   }
-  Ok(())
+  // error for the first one that was specified
+  let Some(specified_path) = specified_paths.iter().find(|p| paths_not_found.contains(p.path.as_path())) else {
+    return Ok(());
+  };
+  let hint = if looks_like_colon_separated_line_range(specified_path.text) {
+    " Note that a range of lines is separated with a dash and not a colon (ex. --lines 10-20 or --lines path/to/file.ts:10-20)."
+  } else {
+    ""
+  };
+  bail!(
+    "Lines were specified for '{}', but it's not a file that's being formatted.{}",
+    specified_path.text,
+    hint
+  );
+}
+
+/// Gets if the path of some line ranges looks like it has the first line of
+/// a range that was separated with a colon (ex. `10` in `10:20` or `file.ts:10`
+/// in `file.ts:10:20`), which was the syntax before it changed to a dash.
+fn looks_like_colon_separated_line_range(path_text: &str) -> bool {
+  let last_part = path_text.rsplit_once(':').map(|(_, last_part)| last_part).unwrap_or(path_text);
+  !last_part.is_empty() && last_part.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// Formats the provided lines of the text, returning `None` when nothing changed.
@@ -5205,6 +5247,83 @@ _formatted"
 b2
 _formatted"
     );
+  }
+
+  #[test]
+  fn should_error_for_line_ranges_of_path_not_formatted() {
+    let environment = build_line_ranges_environment();
+    let assert_nothing_formatted = || {
+      assert_eq!(environment.read_file("/a.txt").unwrap(), "a1\na2\na3\n_formatted");
+      assert_eq!(environment.read_file("/sub/b.txt").unwrap(), "b1\nb2\n_formatted");
+      assert_eq!(environment.read_file("/c.txt").unwrap(), "c");
+    };
+    let dash_hint = "Note that a range of lines is separated with a dash and not a colon (ex. --lines 10-20 or --lines path/to/file.ts:10-20).";
+
+    // old colon separated syntax with a single file
+    let err = run_test_cli(vec!["fmt", "--lines", "2:3", "/a.txt"], &environment).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      format!("Lines were specified for '2', but it's not a file that's being formatted. {dash_hint}")
+    );
+    assert_nothing_formatted();
+
+    // old colon separated syntax with a path
+    let err = run_test_cli(vec!["fmt", "--lines", "/a.txt:2:3"], &environment).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      format!("Lines were specified for '/a.txt:2', but it's not a file that's being formatted. {dash_hint}")
+    );
+    let err = run_test_cli(vec!["fmt", "--lines", "/a.txt:2:3", "--", "/c.txt"], &environment).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      format!("Lines were specified for '/a.txt:2', but it's not a file that's being formatted. {dash_hint}")
+    );
+    assert_nothing_formatted();
+
+    // old colon separated syntax in --stdin-files
+    let test_std_in = TestStdInReader::from("/a.txt:1-1\nsub/b.txt:1:2\n");
+    let err = run_test_cli_with_stdin(vec!["fmt", "--stdin-files"], &environment, test_std_in).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      format!("Lines were specified for 'sub/b.txt:1', but it's not a file that's being formatted. {dash_hint}")
+    );
+    assert_nothing_formatted();
+
+    // file that doesn't exist
+    let err = run_test_cli(vec!["fmt", "--lines", "/a.txt:1", "--lines", "sub/missing.txt:2-3"], &environment)
+      .err()
+      .unwrap();
+    assert_eq!(
+      err.to_string(),
+      "Lines were specified for 'sub/missing.txt', but it's not a file that's being formatted."
+    );
+    assert_nothing_formatted();
+
+    // file that's not matched by a plugin
+    environment.write_file("/file.unknown", "text").unwrap();
+    let err = run_test_cli(vec!["fmt", "--lines", "/file.unknown:1", "--", "/a.txt"], &environment)
+      .err()
+      .unwrap();
+    assert_eq!(
+      err.to_string(),
+      "Lines were specified for '/file.unknown', but it's not a file that's being formatted."
+    );
+    assert_nothing_formatted();
+  }
+
+  #[test]
+  fn should_format_line_ranges_for_file_named_with_digits() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "associations": ["**/10"] }"#);
+      })
+      .write_file("/10", "a1\na2\n_formatted")
+      .write_file("/other.txt", "text")
+      .build();
+    run_test_cli(vec!["fmt", "--lines", "10:2"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/10").unwrap(), "a1\n_formatted_\n_formatted");
+    assert_eq!(environment.read_file("/other.txt").unwrap(), "text");
   }
 
   #[test]
