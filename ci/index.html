@@ -162,6 +162,7 @@ dprint check
 curl -fsSL https://dprint.dev/install.sh | sh -s X.X.X &gt; /dev/null 2&gt;&amp;1
 <span class="hljs-variable">$HOME</span>/.dprint/bin/dprint check
 </code></pre>
+<p>To download and set up the plugins in a separate step (ex. when building a container image), run <code>dprint install</code>. See <a href="/config#installing-plugins-via-cli">Installing Plugins via CLI</a>.</p>
 <h2 id="coloured-output" tabindex="-1"><a class="header-anchor" href="#coloured-output">Coloured Output</a></h2>
 <p>dprint colours its output by default, including in CI logs. Set <code>NO_COLOR</code> to turn colours off, or <code>FORCE_COLOR</code> to turn them back on in an environment that sets <code>NO_COLOR</code>. See <a href="/cli#coloured-output">Coloured Output</a> for details.</p>
 
