@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
@@ -296,14 +297,18 @@ fn is_in_node_modules(dir: &Path) -> bool {
   dir.components().any(|component| component.as_os_str() == "node_modules")
 }
 
-fn process_file_pattern_slashes(file_pattern: &str) -> String {
+fn process_file_pattern_slashes(file_pattern: &str) -> Cow<'_, str> {
   // Convert all backslashes to forward slashes.
   // It is true that this means someone cannot specify patterns that
   // match files with backslashes in their name on Linux, however,
   // it is more desirable for this CLI to work the same way no matter
   // what operation system the user is on and for the CLI to match
   // backslashes as a path separator.
-  file_pattern.replace('\\', "/")
+  if file_pattern.contains('\\') {
+    Cow::Owned(file_pattern.replace('\\', "/"))
+  } else {
+    Cow::Borrowed(file_pattern)
+  }
 }
 
 /// Processes the `--includes-override`/`--excludes-override` patterns, resolving
@@ -334,7 +339,7 @@ fn process_cli_patterns<'a>(
   file_patterns
     .iter()
     .flat_map(move |pattern| {
-      let pattern = process_file_pattern_slashes(pattern);
+      let pattern = process_file_pattern_slashes(pattern).into_owned();
       let is_existing_path = pattern.contains('{') && environment.path_exists(cwd.join(non_negated_glob(&pattern)));
       let (literal, pattern) = if is_existing_path { (Some(pattern), None) } else { (None, Some(pattern)) };
       literal.into_iter().chain(pattern.into_iter().flat_map(expand_braces))
@@ -359,16 +364,8 @@ fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf, environme
   // resolve the pattern against the nearest ancestor directory it's within
   // so that patterns like ../file.txt or absolute paths outside the current
   // working directory get a base directory that contains them
-  let mut base_dir = cwd.clone();
-  loop {
-    if let Ok(relative_pattern) = absolute_pattern.strip_prefix(base_dir.as_ref()) {
-      return build_cli_pattern(relative_pattern, is_negated, base_dir);
-    }
-
-    let Some(parent) = base_dir.parent() else {
-      break;
-    };
-    base_dir = parent;
+  if let Some((base_dir, relative_pattern)) = cwd.nearest_ancestor_containing(&absolute_pattern) {
+    return build_cli_pattern(relative_pattern, is_negated, base_dir);
   }
 
   // the pattern is on a different root than the cwd (ex. another drive
@@ -380,11 +377,12 @@ fn process_cli_pattern(file_pattern: &str, cwd: &CanonicalizedPathBuf, environme
     return build_cli_pattern(relative_pattern, is_negated, root_dir);
   }
 
-  GlobPattern::new(file_pattern, cwd.clone())
+  GlobPattern::new(file_pattern.into_owned(), cwd.clone())
 }
 
 fn build_cli_pattern(relative_pattern: &Path, is_negated: bool, base_dir: CanonicalizedPathBuf) -> GlobPattern {
-  let relative_pattern = process_file_pattern_slashes(&relative_pattern.to_string_lossy());
+  let relative_pattern = relative_pattern.to_string_lossy();
+  let relative_pattern = process_file_pattern_slashes(&relative_pattern);
   let relative_pattern = format!("{}./{}", if is_negated { "!" } else { "" }, relative_pattern);
   GlobPattern::new(relative_pattern, base_dir)
 }
@@ -472,7 +470,7 @@ pub fn process_config_patterns(file_patterns: &[String]) -> impl Iterator<Item =
 /// Processes a config file pattern, which may be multiple patterns when it
 /// has a brace group that spans path components (ex. `{.,src/**}/*.js`).
 pub fn process_config_pattern(file_pattern: &str) -> impl Iterator<Item = String> + use<> {
-  expand_braces(process_file_pattern_slashes(file_pattern)).map(process_expanded_config_pattern)
+  expand_braces(process_file_pattern_slashes(file_pattern).into_owned()).map(process_expanded_config_pattern)
 }
 
 fn process_expanded_config_pattern(mut file_pattern: String) -> String {

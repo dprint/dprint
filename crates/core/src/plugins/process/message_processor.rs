@@ -284,6 +284,8 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
         MessageBody::HostFormat(_) => {
           send_error_response(&context, message.id, MessageProcessorError::CannotHostFormat.into());
         }
+        // only written by the host, which a plugin reads as a `Format` message
+        MessageBody::FormatShared(_) => unreachable!(),
         MessageBody::Unknown(message_kind) => panic!("Received unknown message kind: {}", message_kind),
       }
     }

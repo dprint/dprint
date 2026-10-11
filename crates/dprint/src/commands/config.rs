@@ -1671,7 +1671,7 @@ pub async fn output_resolved_config<TEnvironment: Environment>(
   let included_plugin_names = cmd.file_path.as_ref().map(|file_path| {
     let file_path = environment.cwd().join(file_path);
     get_plugin_names_for_file_on_disk(&plugins_scope.plugin_name_maps, &file_path, environment)
-      .into_iter()
+      .iter()
       .collect::<HashSet<_>>()
   });
 

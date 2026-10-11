@@ -21,6 +21,7 @@ use crate::utils::gitignore::GitIgnoreTree;
 use crate::utils::gitignore::GitIgnoreTreeOptions;
 use crate::utils::gitignore::resolve_global_gitignore_lines;
 use crate::utils::read_matching_shebang_line;
+use indexmap::IndexSet;
 
 use super::ExcludeMatchDetail;
 use super::GlobMatcher;
@@ -93,10 +94,10 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
   // paths outside the directory the traversal starts in, like ../file.txt)
   let mut literal_arg_paths = extract_literal_arg_paths(environment, &mut opts.file_patterns, &opts.pattern_base);
   rewrite_literal_exclude_paths(environment, &mut opts.file_patterns, &opts.pattern_base);
-  extract_outside_arg_patterns(&mut opts.file_patterns, &opts.pattern_base, &mut literal_arg_paths.outside_base_paths);
+  let arg_pattern_base_dirs = extract_outside_arg_patterns(&mut opts.file_patterns, &opts.pattern_base, &mut literal_arg_paths.outside_base_paths);
   let mut run_traversal = requires_traversal(&opts.file_patterns);
   if run_traversal {
-    opts.start_dir = expand_start_dir_for_arg_patterns(opts.start_dir, &opts.file_patterns, &opts.pattern_base);
+    opts.start_dir = expand_start_dir_for_arg_patterns(opts.start_dir, &arg_pattern_base_dirs, &opts.pattern_base);
   } else {
     log_debug!(environment, "Skipping traversal because the CLI args were all file paths.");
   }
@@ -246,8 +247,8 @@ pub fn glob(environment: &impl Environment, mut opts: GlobOptions) -> Result<Glo
 }
 
 struct LiteralArgPaths {
-  /// Files to match in the current scope.
-  file_paths: Vec<PathBuf>,
+  /// Files to match in the current scope, without duplicates.
+  file_paths: IndexSet<PathBuf>,
   /// Existing paths outside the pattern base directory.
   outside_base_paths: Vec<OutsideBasePath>,
 }
@@ -262,9 +263,10 @@ struct LiteralArgPaths {
 /// base directory are returned separately because the config file to use for
 /// them needs to be resolved by the caller.
 fn extract_literal_arg_paths(environment: &impl Environment, file_patterns: &mut GlobPatterns, pattern_base: &CanonicalizedPathBuf) -> LiteralArgPaths {
+  // the outside paths that were already added
   let mut seen = HashSet::new();
   let mut result = LiteralArgPaths {
-    file_paths: Vec::new(),
+    file_paths: IndexSet::new(),
     outside_base_paths: Vec::new(),
   };
   for pattern in file_patterns.arg_includes.iter_mut().flatten() {
@@ -352,9 +354,7 @@ fn extract_literal_arg_paths(environment: &impl Environment, file_patterns: &mut
       pattern.base_dir = pattern_base.clone();
       if is_file {
         pattern.relative_pattern = format!("./{}", escape_glob_text(&relative));
-        if seen.insert(path.clone()) {
-          result.file_paths.push(path);
-        }
+        result.file_paths.insert(path);
       } else {
         // an existing directory, so match everything within it
         pattern.relative_pattern = format!("./{}/**", escape_glob_text(&relative));
@@ -451,16 +451,26 @@ fn could_be_literal_path(pattern: &str) -> bool {
 /// separately the same way it does for literal paths outside the base. A
 /// pattern based at an ancestor of the base is kept for the current scope and
 /// additionally resolved separately for the parts outside the scope.
-fn extract_outside_arg_patterns(file_patterns: &mut GlobPatterns, pattern_base: &CanonicalizedPathBuf, outside_base_paths: &mut Vec<OutsideBasePath>) {
+///
+/// Returns the deepest base directory of each positive CLI glob pattern that
+/// only matches within the scope, which is what the traversal's start
+/// directory gets decided from.
+fn extract_outside_arg_patterns(
+  file_patterns: &mut GlobPatterns,
+  pattern_base: &CanonicalizedPathBuf,
+  outside_base_paths: &mut Vec<OutsideBasePath>,
+) -> Vec<CanonicalizedPathBuf> {
+  let mut in_scope_base_dirs = Vec::new();
   let Some(includes) = &mut file_patterns.arg_includes else {
-    return;
+    return in_scope_base_dirs;
   };
   includes.retain(|pattern| {
     if !is_positive_glob_pattern(pattern) {
       return true;
     }
-    let deepest_base = pattern.clone().into_deepest_base().base_dir;
+    let deepest_base = pattern.deepest_base_dir();
     if deepest_base.starts_with(pattern_base) {
+      in_scope_base_dirs.push(deepest_base);
       return true; // only matches within the scope
     }
     outside_base_paths.push(OutsideBasePath {
@@ -470,6 +480,7 @@ fn extract_outside_arg_patterns(file_patterns: &mut GlobPatterns, pattern_base: 
     // a pattern based at an ancestor directory also matches within the scope
     pattern_base.starts_with(&deepest_base)
   });
+  in_scope_base_dirs
 }
 
 /// Gets whether resolving the patterns requires traversing the file system.
@@ -495,15 +506,11 @@ fn is_positive_glob_pattern(pattern: &GlobPattern) -> bool {
 /// directory can be found (ex. `dprint fmt ../sub_dir/**/*.ts`). This stays
 /// fast because the traversal quickly prunes directories the patterns can't
 /// match (see `GlobPattern::matches_dir_for_traversal`).
-fn expand_start_dir_for_arg_patterns(mut start_dir: PathBuf, file_patterns: &GlobPatterns, pattern_base: &CanonicalizedPathBuf) -> PathBuf {
-  for pattern in file_patterns.arg_includes.iter().flatten() {
-    if !is_positive_glob_pattern(pattern) {
-      continue;
-    }
-    let deepest_base = pattern.clone().into_deepest_base().base_dir;
-    if !deepest_base.starts_with(pattern_base) {
-      continue;
-    }
+///
+/// The base directories are the deepest base directory of each of those
+/// patterns that's within the pattern base.
+fn expand_start_dir_for_arg_patterns(mut start_dir: PathBuf, arg_pattern_base_dirs: &[CanonicalizedPathBuf], pattern_base: &CanonicalizedPathBuf) -> PathBuf {
+  for deepest_base in arg_pattern_base_dirs {
     // move the start dir up (bounded by the pattern base) until it contains
     // the pattern's base directory
     while !deepest_base.as_ref().starts_with(&start_dir) {
@@ -536,7 +543,10 @@ fn check_dir_chain<TEnvironment: Environment>(
   base_dir: &Path,
   dir: &Path,
 ) -> DirChainResult {
-  for dir in dirs_from_base_to(base_dir, dir) {
+  // the directories between the base directory (exclusive) and the
+  // provided directory (inclusive) ordered top down
+  let depth = dir.ancestors().take_while(|ancestor| *ancestor != base_dir).count();
+  for dir in (0..depth).rev().filter_map(|i| dir.ancestors().nth(i)) {
     if dir.file_name().is_some_and(|f| f == ".git") {
       return DirChainResult::Excluded;
     }
@@ -559,14 +569,6 @@ fn check_dir_chain<TEnvironment: Environment>(
     }
   }
   DirChainResult::Matched
-}
-
-/// Gets the directories between the base directory (exclusive) and the
-/// provided directory (inclusive) ordered top down.
-fn dirs_from_base_to<'a>(base_dir: &Path, dir: &'a Path) -> Vec<&'a Path> {
-  let mut dirs = dir.ancestors().take_while(|ancestor| *ancestor != base_dir).collect::<Vec<_>>();
-  dirs.reverse();
-  dirs
 }
 
 /// Adds a config file found along a directory chain, deduplicating because
@@ -761,9 +763,12 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
         .iter()
         .filter_map(|e| match e {
           DirEntry::Directory(_) => None,
-          DirEntry::File { name, path } => {
+          DirEntry::File { path } => {
             // the config file already in use doesn't create a new scope
-            if name.to_str().is_some_and(|name| POSSIBLE_CONFIG_FILE_NAMES.contains(&name))
+            if path
+              .file_name()
+              .and_then(|name| name.to_str())
+              .is_some_and(|name| POSSIBLE_CONFIG_FILE_NAMES.contains(&name))
               && Some(path.as_path()) != self.options.current_config_path.as_deref()
             {
               Some(path)
@@ -819,7 +824,7 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
         };
         Some(DirOrConfigEntry::Dir { path, check_gitignore })
       }
-      DirEntry::File { path, .. } => {
+      DirEntry::File { path } => {
         // read the shebang here too since these threads run in parallel and
         // reading the file is I/O bound
         let shebang_line = self.maybe_read_shebang_line(&path);

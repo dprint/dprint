@@ -17,6 +17,7 @@ use crate::patterns::get_all_file_patterns;
 use crate::patterns::process_cli_path_args;
 use crate::patterns::process_config_patterns;
 use crate::plugins::PluginNameResolutionMaps;
+use crate::plugins::ResolvedPluginNames;
 use crate::resolution::PluginWithConfig;
 use crate::utils::GlobOptions;
 use crate::utils::GlobOutput;
@@ -53,9 +54,9 @@ struct PluginNamesBuilder {
 }
 
 impl PluginNamesBuilder {
-  fn build(&mut self, names: &[&str]) -> PluginNamesKey<'_> {
+  fn build<'a>(&mut self, names: impl Iterator<Item = &'a str>) -> PluginNamesKey<'_> {
     self.buffer.clear();
-    for (i, name) in names.iter().enumerate() {
+    for (i, name) in names.enumerate() {
       if i > 0 {
         self.buffer.push_str(PluginNames::SEPARATOR);
       }
@@ -127,7 +128,7 @@ pub fn get_file_paths_by_plugins(
     if !plugin_names.is_empty() {
       // only a handful of distinct keys exist no matter how many files there
       // are, so allocate one only when the key hasn't been seen yet
-      let key = plugin_names_builder.build(&plugin_names);
+      let key = plugin_names_builder.build(plugin_names.iter());
       match file_paths_by_plugin.get_mut(key.as_str()) {
         Some(file_paths) => file_paths.push(file_path),
         None => {
@@ -142,7 +143,11 @@ pub fn get_file_paths_by_plugins(
 
 /// Resolves the plugins for a file on disk, reading its shebang line when it's
 /// an extensionless file that no plugin claimed by path.
-pub fn get_plugin_names_for_file_on_disk<'a>(plugin_name_maps: &'a PluginNameResolutionMaps, file_path: &Path, environment: &impl Environment) -> Vec<&'a str> {
+pub fn get_plugin_names_for_file_on_disk<'a>(
+  plugin_name_maps: &'a PluginNameResolutionMaps,
+  file_path: &Path,
+  environment: &impl Environment,
+) -> ResolvedPluginNames<'a> {
   let path_plugin_names = plugin_name_maps.get_plugin_names_from_file_path(file_path);
   if path_plugin_names.has_claiming_plugin() || !plugin_name_maps.may_match_shebang(file_path) {
     return path_plugin_names.into_names();

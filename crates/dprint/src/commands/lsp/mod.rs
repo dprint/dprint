@@ -200,8 +200,8 @@ struct EditorFormatRequest {
   pub file_path: PathBuf,
   /// The notebook file's path when the document is a notebook cell.
   pub notebook_path: Option<PathBuf>,
-  pub file_text: String,
-  pub maybe_line_index: Option<LineIndex>,
+  pub file_text: Arc<String>,
+  pub maybe_line_index: Option<Arc<LineIndex>>,
   pub range: FormatRange,
   /// Whether to use the global config file when there's no config file in
   /// an ancestor directory.
@@ -274,7 +274,7 @@ impl NotFormattedReason {
 
 struct ConfigEditorRequest {
   pub file_path: PathBuf,
-  pub file_text: String,
+  pub file_text: Arc<String>,
   pub position: Position,
   /// Whether to use the global config file when there's no config file in
   /// an ancestor directory.
@@ -368,14 +368,14 @@ async fn handle_format_request<TEnvironment: Environment>(
     let new_text = match maybe_cell_range {
       Some(range) => {
         let new_text = trim_formatted_cell_text(&request.file_text, new_text, &range);
-        if new_text == request.file_text {
+        if new_text == *request.file_text {
           return Ok(FormatOutcome::NotFormatted(NotFormattedReason::Unchanged));
         }
         new_text
       }
       None => new_text,
     };
-    let line_index = request.maybe_line_index.unwrap_or_else(|| LineIndex::new(&request.file_text));
+    let line_index = request.maybe_line_index.unwrap_or_else(|| Arc::new(LineIndex::new(&request.file_text)));
     Ok(FormatOutcome::Edits(get_edits(&request.file_text, &new_text, &line_index)))
   })
   .await?
@@ -758,7 +758,7 @@ impl<TEnvironment: Environment> Backend<TEnvironment> {
   }
 
   /// Gets the text of a config file document for the completion and hover requests.
-  fn get_config_content(&self, uri: &Uri) -> Option<(String, Option<LineIndex>)> {
+  fn get_config_content(&self, uri: &Uri) -> Option<(Arc<String>, Option<Arc<LineIndex>>)> {
     match self.state.lock().documents.get_content(uri) {
       Ok(content) => Some(content),
       Err(err) => {

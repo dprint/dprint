@@ -132,37 +132,9 @@ impl GlobPattern {
   /// which is a possible file name.
   pub fn into_deepest_base(self) -> Self {
     let is_negated = self.is_negated();
-    let pattern = non_negated_glob(&self.relative_pattern);
-    let stripped_dot_slash = pattern.starts_with("./");
-    let pattern = pattern.strip_prefix("./").unwrap_or(pattern);
-    let parts: Vec<&str> = pattern.split('/').collect();
-
-    let mut base_parts = Vec::new();
-    let mut remaining_parts = Vec::new();
-    let mut found_glob = false;
-
-    for part in &parts {
-      if !found_glob && !is_pattern(part) {
-        base_parts.push(*part);
-      } else {
-        found_glob = true;
-        remaining_parts.push(*part);
-      }
-    }
-
-    // handle case where there are no globs (treat last segment as pattern)
-    if !found_glob && !base_parts.is_empty() {
-      remaining_parts.push(base_parts.pop().unwrap());
-    }
-
-    let new_base_dir = if base_parts.is_empty() {
-      self.base_dir.clone()
-    } else {
-      // unescape so escaped literal parts (ex. `\[a\]`) become the actual
-      // directory name in the new base path
-      let base_parts = base_parts.iter().map(|part| unescape_glob_text(part)).collect::<Vec<_>>();
-      self.base_dir.join_panic_relative(base_parts.join("/"))
-    };
+    let stripped_dot_slash = non_negated_glob(&self.relative_pattern).starts_with("./");
+    let (base_parts, remaining_parts) = self.deepest_base_parts();
+    let new_base_dir = self.base_dir_with_parts(&base_parts);
 
     let new_relative = remaining_parts.join("/");
     let new_relative = if stripped_dot_slash { format!("./{}", new_relative) } else { new_relative };
@@ -174,6 +146,51 @@ impl GlobPattern {
     }
   }
 
+  /// Gets the base directory `into_deepest_base` would give the pattern
+  /// without creating the pattern.
+  pub fn deepest_base_dir(&self) -> CanonicalizedPathBuf {
+    let (base_parts, _) = self.deepest_base_parts();
+    self.base_dir_with_parts(&base_parts)
+  }
+
+  /// Splits the parts of the pattern into the leading ones that name a
+  /// directory, which can become part of the base directory, and the rest.
+  fn deepest_base_parts(&self) -> (Vec<&str>, Vec<&str>) {
+    let pattern = non_negated_glob(&self.relative_pattern);
+    let pattern = pattern.strip_prefix("./").unwrap_or(pattern);
+
+    let mut base_parts = Vec::new();
+    let mut remaining_parts = Vec::new();
+    let mut found_glob = false;
+
+    for part in pattern.split('/') {
+      if !found_glob && !is_pattern(part) {
+        base_parts.push(part);
+      } else {
+        found_glob = true;
+        remaining_parts.push(part);
+      }
+    }
+
+    // handle case where there are no globs (treat last segment as pattern)
+    if !found_glob && !base_parts.is_empty() {
+      remaining_parts.push(base_parts.pop().unwrap());
+    }
+
+    (base_parts, remaining_parts)
+  }
+
+  fn base_dir_with_parts(&self, base_parts: &[&str]) -> CanonicalizedPathBuf {
+    if base_parts.is_empty() {
+      self.base_dir.clone()
+    } else {
+      // unescape so escaped literal parts (ex. `\[a\]`) become the actual
+      // directory name in the new base path
+      let base_parts = base_parts.iter().map(|part| unescape_glob_text(part)).collect::<Vec<_>>();
+      self.base_dir.join_panic_relative(base_parts.join("/"))
+    }
+  }
+
   pub fn into_new_base(self, new_base_dir: CanonicalizedPathBuf, kind: GlobPatternKind) -> Option<Self> {
     if self.base_dir == new_base_dir {
       Some(self)
@@ -181,7 +198,7 @@ impl GlobPattern {
       let is_negated = self.is_negated();
 
       let start_pattern = {
-        let mut value = prefix.to_string_lossy().to_string().replace('\\', "/");
+        let mut value = prefix.to_string_lossy().replace('\\', "/");
         if value.starts_with("./") {
           value.drain(..2);
         }
@@ -336,10 +353,8 @@ impl GlobPattern {
     let is_negated = self.is_negated();
     let pattern = non_negated_glob(&self.relative_pattern);
     let pattern = pattern.strip_prefix("./").unwrap_or(pattern);
-    let mut base = self.base_dir.to_string_lossy().to_string();
-    if cfg!(windows) {
-      base = base.replace("\\", "/");
-    }
+    let base = self.base_dir.to_string_lossy();
+    let mut base = if cfg!(windows) { base.replace("\\", "/") } else { base.into_owned() };
     if !base.ends_with("/") && !pattern.starts_with("/") {
       base.push('/');
     }

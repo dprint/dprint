@@ -15,8 +15,9 @@ use crate::utils::is_shebang_prefix_match;
 
 /// Text added to the file path given to the plugins, before the extension,
 /// for a file that was given an extension it doesn't have on disk (ex. the
-/// one its shebang line maps to). The real path is what's before it.
-const EXT_ADDED_FILE_PATH_MARKER: &str = ".dprint-ext-added";
+/// one its shebang line maps to). The real path is what's before it. This
+/// includes the dot that starts the added extension.
+const EXT_ADDED_FILE_PATH_MARKER: &str = ".dprint-ext-added.";
 
 #[derive(Default)]
 pub struct PluginNameResolutionMaps {
@@ -93,14 +94,14 @@ impl PluginNameResolutionMaps {
     let claiming_plugins = self.claiming_plugins(file_path, file_name.as_deref(), extension.as_deref());
     PathPluginNames {
       has_claiming_plugin: !claiming_plugins.is_empty(),
-      names: self.get_plugin_names(&claiming_plugins, file_path, file_name.as_deref(), extension.as_deref()),
+      names: self.get_plugin_names(claiming_plugins, file_path, file_name.as_deref(), extension.as_deref()),
     }
   }
 
   /// Resolves plugins for a file, falling back to its shebang line when it's
   /// extensionless and no plugin claimed it by path. `file_bytes_start` only
   /// needs to contain the start of the file.
-  pub fn get_plugin_names_from_file_path_and_bytes<'a>(&'a self, file_path: &Path, file_bytes_start: &[u8]) -> Vec<&'a str> {
+  pub fn get_plugin_names_from_file_path_and_bytes<'a>(&'a self, file_path: &Path, file_bytes_start: &[u8]) -> ResolvedPluginNames<'a> {
     // a plugin may provide back the file path it was given when asking the
     // host to format some text, which is matched the same as it was before
     if let Some((real_file_path, extension)) = self.split_plugin_file_path(file_path) {
@@ -133,7 +134,7 @@ impl PluginNameResolutionMaps {
   /// A configured shebang matches when the file's shebang line equals it or
   /// starts with it followed by whitespace, so `#!/usr/bin/env deno run` matches
   /// `#!/usr/bin/env deno run --allow-read` but not `#!/usr/bin/env deno runtest`.
-  pub fn get_plugin_names_from_shebang<'a>(&'a self, file_path: &Path, file_bytes_start: &[u8]) -> Option<Vec<&'a str>> {
+  pub fn get_plugin_names_from_shebang<'a>(&'a self, file_path: &Path, file_bytes_start: &[u8]) -> Option<ResolvedPluginNames<'a>> {
     let extension = self.get_shebang_extension(file_path, file_bytes_start)?;
     Some(self.get_plugin_names_with_added_extension(file_path, extension))
   }
@@ -166,7 +167,6 @@ impl PluginNameResolutionMaps {
       plugin_file_path = file_path.with_file_name(file_name).into_os_string();
     }
     plugin_file_path.push(EXT_ADDED_FILE_PATH_MARKER);
-    plugin_file_path.push(".");
     plugin_file_path.push(extension);
     Cow::Owned(PathBuf::from(plugin_file_path))
   }
@@ -181,12 +181,12 @@ impl PluginNameResolutionMaps {
   }
 
   /// The plugins for a file that's given an extension it doesn't have on disk.
-  fn get_plugin_names_with_added_extension<'a>(&'a self, real_file_path: &Path, extension: &str) -> Vec<&'a str> {
+  fn get_plugin_names_with_added_extension<'a>(&'a self, real_file_path: &Path, extension: &str) -> ResolvedPluginNames<'a> {
     // the extension says what the file's contents are, so it decides which plugin
     // claims the file—an additive plugin still matches by the file's own name
     let file_name = get_lowercase_file_name(real_file_path);
     let claiming_plugins = self.claiming_plugins(real_file_path, None, Some(extension));
-    self.get_plugin_names(&claiming_plugins, real_file_path, file_name.as_deref(), Some(extension))
+    self.get_plugin_names(claiming_plugins, real_file_path, file_name.as_deref(), Some(extension))
   }
 
   /// Splits a file path that was given to a plugin into the real file path
@@ -196,10 +196,9 @@ impl PluginNameResolutionMaps {
       return None;
     }
     let path_text = plugin_file_path.to_str()?;
-    let marker_with_dot = format!("{}.", EXT_ADDED_FILE_PATH_MARKER);
-    let index = path_text.rfind(&marker_with_dot)?;
+    let index = path_text.rfind(EXT_ADDED_FILE_PATH_MARKER)?;
     // the marker and extension are at the end of the file name
-    let extension = &path_text[index + marker_with_dot.len()..];
+    let extension = &path_text[index + EXT_ADDED_FILE_PATH_MARKER.len()..];
     let has_file_name = path_text[..index].chars().next_back().is_some_and(|c| !std::path::is_separator(c));
     if !has_file_name || extension.is_empty() || extension.contains(|c| c == '.' || std::path::is_separator(c)) {
       return None;
@@ -222,23 +221,36 @@ impl PluginNameResolutionMaps {
 
   /// The plugins that format the file, in configuration order: the plugins that
   /// claim it plus every additive plugin that matches it.
-  fn get_plugin_names<'a>(&'a self, claiming_plugins: &ClaimingPlugins, file_path: &Path, file_name: Option<&str>, extension: Option<&str>) -> Vec<&'a str> {
+  fn get_plugin_names<'a>(
+    &'a self,
+    claiming_plugins: ClaimingPlugins,
+    file_path: &Path,
+    file_name: Option<&str>,
+    extension: Option<&str>,
+  ) -> ResolvedPluginNames<'a> {
     if !self.has_additive {
-      return claiming_plugins.indexes().iter().map(|&index| self.plugins[index].name.as_str()).collect();
+      return ResolvedPluginNames {
+        maps: self,
+        indexes: claiming_plugins,
+      };
     }
-    self
-      .plugins
-      .iter()
-      .enumerate()
-      .filter(|(index, plugin)| {
-        if plugin.additive {
-          self.matches_file(*index, file_path, file_name, extension)
+    let indexes = (0..self.plugins.len())
+      .filter(|&index| {
+        if self.plugins[index].additive {
+          self.matches_file(index, file_path, file_name, extension)
         } else {
-          claiming_plugins.contains(*index)
+          claiming_plugins.contains(index)
         }
       })
-      .map(|(_, plugin)| plugin.name.as_str())
-      .collect()
+      .collect::<Vec<_>>();
+    ResolvedPluginNames {
+      maps: self,
+      indexes: match indexes.as_slice() {
+        [] => ClaimingPlugins::None,
+        [index] => ClaimingPlugins::One(*index),
+        _ => ClaimingPlugins::Many(indexes),
+      },
+    }
   }
 
   /// The non-additive plugins that claim the file: the ones whose associations
@@ -299,7 +311,7 @@ impl PluginNameResolutionMaps {
 
 /// The plugins that format a file based on its path.
 pub struct PathPluginNames<'a> {
-  names: Vec<&'a str>,
+  names: ResolvedPluginNames<'a>,
   has_claiming_plugin: bool,
 }
 
@@ -310,8 +322,29 @@ impl<'a> PathPluginNames<'a> {
     self.has_claiming_plugin
   }
 
-  pub fn into_names(self) -> Vec<&'a str> {
+  pub fn into_names(self) -> ResolvedPluginNames<'a> {
     self.names
+  }
+}
+
+/// The names of the plugins that format a file, in configuration order.
+///
+/// This refers to the plugins rather than collecting their names, so that
+/// resolving the plugins of a file doesn't allocate in the usual case of a
+/// single plugin formatting it.
+pub struct ResolvedPluginNames<'a> {
+  maps: &'a PluginNameResolutionMaps,
+  indexes: ClaimingPlugins,
+}
+
+impl<'a> ResolvedPluginNames<'a> {
+  pub fn is_empty(&self) -> bool {
+    self.indexes.is_empty()
+  }
+
+  pub fn iter(&self) -> impl Iterator<Item = &'a str> + '_ {
+    let maps = self.maps;
+    self.indexes.indexes().iter().map(move |&index| maps.plugins[index].name.as_str())
   }
 }
 
@@ -329,6 +362,9 @@ struct PluginEntry {
 
 /// The plugins claiming a file, as indexes into [`PluginNameResolutionMaps`]'s
 /// plugins. Only `associations` can have several plugins claim the same file.
+///
+/// This is also used for the plugins that format a file, where additive
+/// plugins are the other way to end up with several.
 enum ClaimingPlugins {
   None,
   One(usize),
