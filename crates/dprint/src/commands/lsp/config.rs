@@ -14,7 +14,6 @@ use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
 use crate::configuration::resolve_config_from_path_with_ancestors;
-use crate::configuration::resolve_config_from_path_with_bytes;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
 use crate::environment::Environment;
 use crate::plugins;
@@ -129,10 +128,6 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
   /// Resolves the config of a config file, merging in the config file of an
   /// ancestor directory when it specifies `"inherit": true`.
   async fn resolve_config(&self, config_file: &ResolvedConfigPathWithText, use_global_config: bool) -> Result<ResolvedConfig> {
-    // a specified config file is used on its own
-    if self.config_override.is_some() {
-      return Ok(resolve_config_from_path_with_bytes(config_file, self.remote_cache_mode, &self.environment).await?);
-    }
     let options = ResolveConfigWithAncestorsOptions {
       remote_cache_mode: self.remote_cache_mode,
       use_global_config,

@@ -6031,26 +6031,33 @@ text_formatted"
   }
 
   #[test]
-  fn should_not_inherit_ancestor_config_for_config_arg() {
-    // a specified config file is used on its own
+  fn should_inherit_ancestor_config_for_config_arg() {
     let file_path = "/sub_dir/file.txt";
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
       .with_default_config(|config| {
-        config.add_remote_wasm_plugin();
+        config.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "root" }"#);
       })
       .with_local_config("/sub_dir/dprint.json", |config| {
         config.set_inherit(true);
       })
       .write_file(&file_path, "text")
-      .set_cwd("/sub_dir")
       .build();
-    let err = run_test_cli(vec!["fmt", "--config", "dprint.json"], &environment).err().unwrap();
+
+    // ancestor directories aren't searched when config discovery is disabled
+    let err = run_test_cli(vec!["fmt", "--config", "sub_dir/dprint.json", "--config-discovery=false"], &environment)
+      .err()
+      .unwrap();
     assert_eq!(
       err.to_string(),
       "No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file."
     );
     err.assert_exit_code(13);
     assert_eq!(environment.read_file(&file_path).unwrap(), "text");
+
+    // inherits from the ancestor directories of the specified config file
+    run_test_cli(vec!["fmt", "--config", "sub_dir/dprint.json"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file(&file_path).unwrap(), "text_root");
   }
 
   #[test]

@@ -162,8 +162,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
         }
       }
       let config_discovery = args.config_discovery(environment);
-      // a specified config file is used on its own
-      if args.config.is_none() && config_discovery.traverse_ancestors() {
+      if config_discovery.traverse_ancestors() {
         let options = ResolveConfigWithAncestorsOptions {
           remote_cache_mode: args.remote_cache_mode(),
           // only fall back to the global config file when config discovery is
@@ -225,7 +224,8 @@ pub struct ResolveConfigWithAncestorsOptions {
 }
 
 /// Resolves the config of a config file, merging in the config file of an
-/// ancestor directory when it specifies `"inherit": true`.
+/// ancestor directory when it specifies `"inherit": true`. A remote config
+/// file has no ancestor directories, so it's used on its own.
 pub fn resolve_config_from_path_with_ancestors<'a, TEnvironment: Environment>(
   config_file: &'a ResolvedConfigPathWithText,
   options: ResolveConfigWithAncestorsOptions,
@@ -233,7 +233,7 @@ pub fn resolve_config_from_path_with_ancestors<'a, TEnvironment: Environment>(
 ) -> LocalBoxFuture<'a, Result<ResolvedConfig, ResolveConfigError>> {
   async move {
     let config = resolve_config_from_path_with_bytes(config_file, options.remote_cache_mode, environment).await?;
-    if config.inherit != Some(true) || config.is_global {
+    if config.inherit != Some(true) || config.is_global || !config.source.is_local() {
       return Ok(config);
     }
     let ancestor_config_file = match config.base_path.parent() {
