@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en"><head>
-    <script async="" src="/scripts.9c8fa12f3a.js"></script>
+    <script async="" src="/scripts.3cf2392470.js"></script>
     <meta charset="utf-8">
     <title>Oxc Plugin - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -160,8 +160,6 @@
 <h2 id="install-and-setup" tabindex="-1"><a class="header-anchor" href="#install-and-setup">Install and Setup</a></h2>
 <p>In your project's directory with a dprint.json file, run:</p>
 <pre><code class="language-shellsession hljs language-shell">dprint add oxc
-<span class="hljs-meta prompt_"># </span><span class="language-bash">or install from npm</span>
-dprint add npm:@dprint/oxc
 </code></pre>
 <p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"oxc"</code> property to add configuration:</p>
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
@@ -169,7 +167,7 @@ dprint add npm:@dprint/oxc
     <span class="hljs-comment">// oxc's config goes here</span>
   <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
   <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
-    <span class="hljs-string">"https://plugins.dprint.dev/oxc-x.x.x.wasm"</span>
+    <span class="hljs-string">"npm:@dprint/oxc@x.x.x"</span>
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
@@ -181,8 +179,8 @@ dprint add npm:@dprint/oxc
 <pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
   <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
     <span class="hljs-comment">// formats .json files instead of the Oxc plugin</span>
-    <span class="hljs-string">"https://plugins.dprint.dev/json-x.x.x.wasm"</span><span class="hljs-punctuation">,</span>
-    <span class="hljs-string">"https://plugins.dprint.dev/oxc-x.x.x.wasm"</span>
+    <span class="hljs-string">"npm:@dprint/json@x.x.x"</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-string">"npm:@dprint/oxc@x.x.x"</span>
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
