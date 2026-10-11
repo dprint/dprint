@@ -15,7 +15,7 @@ use crate::utils::is_shebang_prefix_match;
 
 /// Text added to the file path given to the plugins, before the extension,
 /// for a file that was given the extension its shebang line maps to.
-const SHEBANG_FILE_PATH_MARKER: &str = ".$dprint$shebang";
+pub const SHEBANG_FILE_PATH_MARKER: &str = ".dprint-shebang";
 
 #[derive(Default)]
 pub struct PluginNameResolutionMaps {
@@ -140,20 +140,55 @@ impl PluginNameResolutionMaps {
   ///
   /// Plugins decide how to format a file based on its path, so a file that's
   /// formatted because of its shebang line is given the extension its shebang
-  /// maps to (ex. `build.$dprint$shebang.sh` for a file named `build`). The
+  /// maps to (ex. `build.dprint-shebang.sh` for a file named `build`). The
   /// marker before the extension lets a plugin tell the path isn't the real one.
   pub fn get_plugin_file_path<'a>(&self, file_path: &'a Path, file_bytes_start: &[u8]) -> Cow<'a, Path> {
-    if !self.may_match_shebang(file_path) || self.get_plugin_names_from_file_path(file_path).has_claiming_plugin() {
+    if !self.may_match_shebang(file_path) {
+      return Cow::Borrowed(file_path);
+    }
+    let Some(file_name) = file_path.file_name() else {
+      return Cow::Borrowed(file_path);
+    };
+    // a plugin that claims the file by its path is given that path
+    let lowercase_file_name = get_lowercase_file_name(file_path);
+    if !self.claiming_plugins(file_path, lowercase_file_name.as_deref(), None).is_empty() {
       return Cow::Borrowed(file_path);
     }
     let Some(extension) = self.get_shebang_extension(file_path, file_bytes_start) else {
       return Cow::Borrowed(file_path);
     };
+    // add to the end of the path's text in order to keep the path's
+    // separators, which means removing a trailing separator if there's one
     let mut plugin_file_path = file_path.as_os_str().to_owned();
+    if ends_with_path_separator(file_path) {
+      plugin_file_path = file_path.with_file_name(file_name).into_os_string();
+    }
     plugin_file_path.push(SHEBANG_FILE_PATH_MARKER);
     plugin_file_path.push(".");
     plugin_file_path.push(extension);
     Cow::Owned(PathBuf::from(plugin_file_path))
+  }
+
+  /// Gets the real file path from a file path that was given to a plugin, which
+  /// a plugin may provide back when asking the host to format some text.
+  pub fn get_real_file_path<'a>(&self, plugin_file_path: &'a Path) -> Cow<'a, Path> {
+    if self.shebang_to_extension.is_empty() {
+      return Cow::Borrowed(plugin_file_path);
+    }
+    let Some(path_text) = plugin_file_path.to_str() else {
+      return Cow::Borrowed(plugin_file_path);
+    };
+    let marker_with_dot = format!("{}.", SHEBANG_FILE_PATH_MARKER);
+    let Some(index) = path_text.rfind(&marker_with_dot) else {
+      return Cow::Borrowed(plugin_file_path);
+    };
+    // the marker and extension are at the end of the file name
+    let extension = &path_text[index + marker_with_dot.len()..];
+    let has_file_name = path_text[..index].chars().next_back().is_some_and(|c| !std::path::is_separator(c));
+    if !has_file_name || extension.is_empty() || extension.contains(|c| c == '.' || std::path::is_separator(c)) {
+      return Cow::Borrowed(plugin_file_path);
+    }
+    Cow::Owned(PathBuf::from(&path_text[..index]))
   }
 
   /// Gets the extension that an extensionless file's shebang line maps to.
@@ -310,5 +345,50 @@ fn get_plugin_association_glob_matcher(plugin: &PluginWithConfig, config_bases: 
   match plugin.associations.as_deref() {
     Some(associations) => Ok(Some(OrderedPatternsMatcher::new(associations, config_bases)?)),
     None => Ok(None),
+  }
+}
+
+fn ends_with_path_separator(path: &Path) -> bool {
+  path.to_string_lossy().chars().next_back().is_some_and(std::path::is_separator)
+}
+
+#[cfg(test)]
+mod test {
+  use crate::environment::CanonicalizedPathBuf;
+
+  use super::*;
+
+  #[test]
+  fn plugin_and_real_file_path() {
+    let base = CanonicalizedPathBuf::new_for_testing("/");
+    let shebangs = IndexMap::from([("#!/bin/sh".to_string(), "sh".to_string())]);
+    let maps = PluginNameResolutionMaps::from_plugins(std::iter::empty(), (&base).into(), Some(&shebangs)).unwrap();
+    let plugin_path = |path: &str, text: &str| maps.get_plugin_file_path(Path::new(path), text.as_bytes()).to_string_lossy().to_string();
+    let real_path = |path: &str| maps.get_real_file_path(Path::new(path)).to_string_lossy().to_string();
+
+    assert_eq!(plugin_path("/scripts/build", "#!/bin/sh\ntext"), "/scripts/build.dprint-shebang.sh");
+    assert_eq!(plugin_path("./build", "#!/bin/sh -e\ntext"), "./build.dprint-shebang.sh");
+    assert_eq!(plugin_path("/.envrc", "#!/bin/sh\ntext"), "/.envrc.dprint-shebang.sh");
+    // has an extension
+    assert_eq!(plugin_path("/scripts/build.txt", "#!/bin/sh\ntext"), "/scripts/build.txt");
+    // no matching shebang
+    assert_eq!(plugin_path("/scripts/build", "#!/bin/bash\ntext"), "/scripts/build");
+    assert_eq!(plugin_path("/scripts/build", "text"), "/scripts/build");
+    // the marker is added to the file name
+    let trailing_separator_path = plugin_path("/scripts/build/", "#!/bin/sh\ntext");
+    assert!(trailing_separator_path.ends_with("build.dprint-shebang.sh"), "{}", trailing_separator_path);
+    assert_eq!(plugin_path("..", "#!/bin/sh\ntext"), "..");
+
+    assert_eq!(real_path("/scripts/build.dprint-shebang.sh"), "/scripts/build");
+    assert_eq!(real_path("./build.dprint-shebang.sh"), "./build");
+    assert_eq!(real_path("/.envrc.dprint-shebang.sh"), "/.envrc");
+    assert_eq!(real_path("/scripts/build"), "/scripts/build");
+    assert_eq!(real_path("/scripts/build.sh"), "/scripts/build.sh");
+    // not at the end of the file name
+    assert_eq!(real_path("/scripts/build.dprint-shebang.sh.txt"), "/scripts/build.dprint-shebang.sh.txt");
+    assert_eq!(real_path("/scripts/build.dprint-shebang.sh/file"), "/scripts/build.dprint-shebang.sh/file");
+    assert_eq!(real_path("/scripts/build.dprint-shebang."), "/scripts/build.dprint-shebang.");
+    // no file name before it
+    assert_eq!(real_path("/scripts/.dprint-shebang.sh"), "/scripts/.dprint-shebang.sh");
   }
 }

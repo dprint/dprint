@@ -58,6 +58,15 @@ enum FileFormatKind {
   LineRanges(Vec<LineRange>),
 }
 
+#[derive(Clone)]
+struct FormatFilePaths {
+  /// The path of the file on disk.
+  real: PathBuf,
+  /// The path to give to the plugins, which is different than the real
+  /// path for a file that's formatted because of its shebang line.
+  plugin: PathBuf,
+}
+
 #[derive(Debug, Error)]
 pub enum RunForFilePathError {
   #[error("")]
@@ -279,16 +288,22 @@ where
       return Ok(());
     };
 
+    // this is decided once from the file's original text because that's what
+    // the plugins formatting the file were decided from
+    let file_paths = FormatFilePaths {
+      plugin: scope.plugin_name_maps.get_plugin_file_path(&file_path, &file_text).into_owned(),
+      real: file_path.clone(),
+    };
     let (start_instant, formatted_text) = match format_kind {
       // the ranges wouldn't apply to the formatted text, so only format them once
       FileFormatKind::LineRanges(line_ranges) => {
-        run_line_ranges_for_file_path(environment.clone(), scope, plugins, file_path.clone(), &file_text, &line_ranges).await?
+        run_line_ranges_for_file_path(environment.clone(), scope, plugins, file_paths, &file_text, &line_ranges).await?
       }
       FileFormatKind::EntireFile(ensure_stable_format) => {
         let (start_instant, formatted_text) =
-          run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), &file_text, None).await?;
+          run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_paths.clone(), &file_text, None).await?;
         let formatted_text = if ensure_stable_format.0 && formatted_text != file_text {
-          get_stabilized_format_text(environment.clone(), scope, plugins, file_path.clone(), formatted_text).await?
+          get_stabilized_format_text(environment.clone(), scope, plugins, file_paths, formatted_text).await?
         } else {
           formatted_text
         };
@@ -305,13 +320,13 @@ where
     environment: TEnvironment,
     scope: Rc<PluginsScope<TEnvironment>>,
     plugins: Rc<Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>>,
-    file_path: PathBuf,
+    file_paths: FormatFilePaths,
     formatted_text: Vec<u8>,
   ) -> Result<Vec<u8>> {
-    stabilize_format_text(&environment, &file_path, formatted_text, |text| {
-      let (environment, scope, plugins, file_path) = (environment.clone(), scope.clone(), plugins.clone(), file_path.clone());
+    stabilize_format_text(&environment, &file_paths.real, formatted_text, |text| {
+      let (environment, scope, plugins, file_paths) = (environment.clone(), scope.clone(), plugins.clone(), file_paths.clone());
       async move {
-        run_single_pass_for_file_path(environment, scope, plugins, file_path, &text, None)
+        run_single_pass_for_file_path(environment, scope, plugins, file_paths, &text, None)
           .await
           .map(|(_, text)| text)
       }
@@ -324,7 +339,7 @@ where
     environment: TEnvironment,
     scope: Rc<PluginsScope<TEnvironment>>,
     plugins: Rc<Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>>,
-    file_path: PathBuf,
+    file_paths: FormatFilePaths,
     file_text: &[u8],
     line_ranges: &[LineRange],
   ) -> Result<(Instant, Vec<u8>)> {
@@ -337,7 +352,7 @@ where
         continue; // past the end of the text
       };
       let (_, formatted_text) =
-        run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_path.clone(), &file_text, Some(range)).await?;
+        run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_paths.clone(), &file_text, Some(range)).await?;
       file_text = Cow::Owned(formatted_text);
     }
     Ok((start_instant, file_text.into_owned()))
@@ -347,20 +362,20 @@ where
     environment: TEnvironment,
     scope: Rc<PluginsScope<TEnvironment>>,
     plugins: Rc<Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>>,
-    file_path: PathBuf,
+    file_paths: FormatFilePaths,
     file_text: &[u8],
     range: FormatRange,
   ) -> Result<(Instant, Vec<u8>)> {
     let start_instant = Instant::now();
     let original_text = file_text;
     let mut file_text = Cow::Borrowed(file_text);
-    let plugin_file_path = scope.plugin_name_maps.get_plugin_file_path(&file_path, &file_text);
+    let file_path = file_paths.real;
     let plugins_len = plugins.len();
     for (i, (plugin, initialized_plugin)) in plugins.iter().enumerate() {
       let start_instant = Instant::now();
       let format_text_result = initialized_plugin
         .format_text(InitializedPluginWithConfigFormatRequest {
-          file_path: plugin_file_path.to_path_buf(),
+          file_path: file_paths.plugin.clone(),
           file_bytes: file_text.to_vec(),
           range: range.clone(),
           override_config: plugin.get_config_file_overrides_for_path(&file_path),

@@ -2489,6 +2489,7 @@ text2_formatted"
     let dotfile_path = "/.envrc";
     let override_path = "/scripts/override";
     let ext_path = "/scripts/file.txt_ps";
+    let association_path = "/scripts/association";
     let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin()
       .with_local_config("/config.json", |c| {
         c.add_remote_process_plugin()
@@ -2501,6 +2502,7 @@ text2_formatted"
           .add_config_section(
             "testProcessPlugin",
             r#"{
+              "associations": ["**/*.txt_ps", "**/association"],
               "overrides": {
                 "files": "**/override",
                 "ending": "overridden"
@@ -2513,18 +2515,24 @@ text2_formatted"
       // the overrides are matched against the real path
       .write_file(&override_path, "#!/bin/sh\ntext")
       .write_file(&ext_path, "#!/bin/sh\noutput_file_path")
+      // matched by the plugin's associations, so it's given its real path
+      .write_file(&association_path, "#!/bin/sh\noutput_file_path")
       .build();
 
     run_test_cli(vec!["fmt", "--config", "/config.json"], &environment).unwrap();
 
-    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(4)]);
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(5)]);
+    assert_eq!(
+      environment.read_file(&association_path).unwrap(),
+      "#!/bin/sh\n/scripts/association_formatted_process"
+    );
     assert_eq!(
       environment.read_file(&script_path).unwrap(),
-      "#!/bin/sh\n/scripts/build.$dprint$shebang.txt_ps_formatted_process"
+      "#!/bin/sh\n/scripts/build.dprint-shebang.txt_ps_formatted_process"
     );
     assert_eq!(
       environment.read_file(&dotfile_path).unwrap(),
-      "#!/bin/sh\n/.envrc.$dprint$shebang.txt_ps_formatted_process"
+      "#!/bin/sh\n/.envrc.dprint-shebang.txt_ps_formatted_process"
     );
     assert_eq!(environment.read_file(&override_path).unwrap(), "#!/bin/sh\ntext_overridden");
     assert_eq!(environment.read_file(&ext_path).unwrap(), "#!/bin/sh\n/scripts/file.txt_ps_formatted_process");
@@ -2534,7 +2542,7 @@ text2_formatted"
     run_test_cli_with_stdin(vec!["fmt", "--config", "/config.json", "--stdin", "./scripts/other"], &environment, test_std_in).unwrap();
     assert_eq!(
       environment.take_stdout_messages(),
-      vec!["#!/bin/sh\n./scripts/other.$dprint$shebang.txt_ps_formatted_process"]
+      vec!["#!/bin/sh\n./scripts/other.dprint-shebang.txt_ps_formatted_process"]
     );
   }
 

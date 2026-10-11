@@ -62,6 +62,7 @@ use crate::plugins::OutputPluginConfigDiagnosticsError;
 use crate::plugins::PluginNameResolutionMaps;
 use crate::plugins::PluginResolver;
 use crate::plugins::PluginWrapper;
+use crate::plugins::SHEBANG_FILE_PATH_MARKER;
 use crate::plugins::output_plugin_config_diagnostics;
 use crate::utils::FastInsecureHasher;
 use crate::utils::GlobOutput;
@@ -455,6 +456,9 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
         shebang.hash(&mut hasher);
         extension.hash(&mut hasher);
       }
+      // and the file path a plugin gets for a file matched by its shebang
+      // affects how the plugin formats it
+      SHEBANG_FILE_PATH_MARKER.hash(&mut hasher);
     }
     hasher.finish()
   }
@@ -540,6 +544,8 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
       request.range,
     );
     let plugin_file_path = self.plugin_name_maps.get_plugin_file_path(&request.file_path, &request.file_bytes).into_owned();
+    // a plugin might be asking to format with the file path it was given
+    let real_file_path = self.plugin_name_maps.get_real_file_path(&request.file_path).into_owned();
     let scope = self.clone();
     async move {
       let mut file_text = request.file_bytes;
@@ -553,7 +559,7 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
                 file_path: plugin_file_path.clone(),
                 file_bytes: file_text.clone(),
                 range: request.range.clone(),
-                override_config: plugin.get_merged_overrides_for_path(&request.file_path, &request.override_config),
+                override_config: plugin.get_merged_overrides_for_path(&real_file_path, &request.override_config),
                 on_host_format: scope.create_host_format_callback(),
                 token: request.token.clone(),
               })
