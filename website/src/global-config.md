@@ -32,7 +32,7 @@ Add plugins to your global configuration (alternatively use the `-g` alias inste
 dprint add --global typescript
 ```
 
-Download and set up the plugins in your global configuration ahead of time:
+Download and set up the plugins in your global configuration ahead of time (provide plugins to add them first, ex. `dprint install --global typescript`):
 
 ```sh
 dprint install --global

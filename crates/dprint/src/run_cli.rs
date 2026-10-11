@@ -156,12 +156,12 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
           plugin_resolver,
         )
         .await?;
-        if *install {
-          commands::install_plugins(args, environment, plugin_resolver).await?;
+        if let Some(cmd) = install {
+          commands::install_plugins(cmd, args, environment, plugin_resolver).await?;
         }
         Ok(())
       }
-      ConfigSubCommand::Install => commands::install_plugins(args, environment, plugin_resolver).await,
+      ConfigSubCommand::Install(cmd) => commands::install_plugins(cmd, args, environment, plugin_resolver).await,
       ConfigSubCommand::Update {
         yes,
         dry_run,

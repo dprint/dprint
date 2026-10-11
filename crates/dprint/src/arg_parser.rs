@@ -352,13 +352,19 @@ pub enum ConfigSubCommand {
     /// Only applies to versions dprint picks — a version the user wrote out
     /// themselves is written as-is.
     minimum_dependency_age: Option<MinimumDependencyAgeArg>,
-    /// Also download and set up the plugins in the configuration file after
-    /// adding to it (`dprint install <plugin>`).
-    install: bool,
+    /// Set when the plugins in the configuration file should also be
+    /// downloaded and set up after adding to it (`dprint install <plugin>`).
+    install: Option<InstallSubCommand>,
   },
   /// Download and set up the plugins in the configuration file.
-  Install,
+  Install(InstallSubCommand),
   Edit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallSubCommand {
+  /// Also install the plugins of the configuration files in descendant directories.
+  pub recursive: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -449,7 +455,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     })
   }
 
-  fn parse_add(matches: &ArgMatches, install: bool) -> Result<ConfigSubCommand> {
+  fn parse_add(matches: &ArgMatches, install: Option<InstallSubCommand>) -> Result<ConfigSubCommand> {
     let names = matches
       .get_many::<String>("url-or-plugin-name")
       .map(|v| v.cloned().collect())
@@ -471,10 +477,13 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
 
   /// Parses `install`, which acts like `add` when provided plugins.
   fn parse_install(matches: &ArgMatches) -> Result<ConfigSubCommand> {
+    let install = InstallSubCommand {
+      recursive: matches.get_flag("recursive"),
+    };
     if matches.contains_id("url-or-plugin-name") {
-      parse_add(matches, true)
+      parse_add(matches, Some(install))
     } else {
-      Ok(ConfigSubCommand::Install)
+      Ok(ConfigSubCommand::Install(install))
     }
   }
 
@@ -501,9 +510,8 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
   let matches = cli_parser.try_get_matches_from(&args)?;
 
   let mut is_global_config = false;
-  // whether the sub command only uses the main config file unless --recursive is provided
-  let mut ignores_descendants_by_default = false;
-  let mut is_recursive = false;
+  let mut config_update_recursive = false;
+  let mut is_config_update = false;
 
   // determine log level early so we can use it when parsing subcommands
   let log_level = if matches.get_flag("verbose") {
@@ -586,30 +594,26 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     ("init", matches) => SubCommand::Config(parse_init(matches)?),
     ("add", matches) => {
       is_global_config = matches.get_flag("global");
-      SubCommand::Config(parse_add(matches, false)?)
+      SubCommand::Config(parse_add(matches, None)?)
     }
     ("install", matches) => {
       is_global_config = matches.get_flag("global");
-      is_recursive = matches.get_flag("recursive");
-      ignores_descendants_by_default = true;
       SubCommand::Config(parse_install(matches)?)
     }
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
       ("init", matches) => parse_init(matches)?,
       ("add", matches) => {
         is_global_config = matches.get_flag("global");
-        parse_add(matches, false)?
+        parse_add(matches, None)?
       }
       ("install", matches) => {
         is_global_config = matches.get_flag("global");
-        is_recursive = matches.get_flag("recursive");
-        ignores_descendants_by_default = true;
         parse_install(matches)?
       }
       ("update", matches) => {
         is_global_config = matches.get_flag("global");
-        is_recursive = matches.get_flag("recursive");
-        ignores_descendants_by_default = true;
+        config_update_recursive = matches.get_flag("recursive");
+        is_config_update = true;
         ConfigSubCommand::Update {
           yes: *matches.get_one::<bool>("yes").unwrap(),
           dry_run: *matches.get_one::<bool>("dry-run").unwrap(),
@@ -654,6 +658,16 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     }
   };
 
+  let plugins = maybe_values_to_vec(matches.get_many("plugins"));
+  let is_install = matches!(
+    sub_command,
+    SubCommand::Config(ConfigSubCommand::Install(_) | ConfigSubCommand::Add { install: Some(_), .. })
+  );
+  if is_install && !plugins.is_empty() {
+    // it installs the plugins in the config file, which this would override
+    bail!("Cannot specify --plugins with the install sub command.");
+  }
+
   Ok(CliArgs {
     sub_command,
     log_level,
@@ -661,9 +675,9 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     reload: matches.get_one::<ReloadArg>("reload").copied().unwrap_or_default(),
     config_discovery: if is_global_config {
       Some(ConfigDiscovery::Global)
-    } else if ignores_descendants_by_default {
-      // default to ignore-descendants unless --recursive is provided
-      if is_recursive {
+    } else if is_config_update {
+      // For config update, default to ignore-descendants unless --recursive is provided
+      if config_update_recursive {
         matches.get_one::<ConfigDiscovery>("config-discovery").copied()
       } else {
         matches
@@ -674,7 +688,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     } else {
       matches.get_one::<ConfigDiscovery>("config-discovery").copied()
     },
-    plugins: maybe_values_to_vec(matches.get_many("plugins")),
+    plugins,
   })
 }
 
@@ -893,22 +907,29 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
     let mut command = add_command()
       .name("install")
       .about("Installs the plugins in the configuration file, adding any provided plugins to it first.")
+      .mut_arg("url-or-plugin-name", |arg| {
+        arg.help("Plugins to add to the configuration file before installing (name, url, or npm: specifier).")
+      })
       .mut_arg("global", |arg| arg.help("Install the plugins in the global dprint configuration file."))
-      .arg(
-        Arg::new("recursive")
-          .long("recursive")
-          .short('r')
-          .conflicts_with("config-discovery")
-          .conflicts_with("global")
-          .help("Install the plugins of the configuration files in the current directory and all descendant directories.")
-          .num_args(0)
-          .required(false),
-      );
+      .arg(recursive_arg(
+        "Install the plugins of the configuration files in the current directory and all descendant directories.",
+      ));
     // these only make sense when adding a plugin
     for name in ["no-version", "package-json", "checksum", "minimum-dependency-age"] {
       command = command.mut_arg(name, |arg| arg.requires("url-or-plugin-name"));
     }
     command
+  }
+
+  fn recursive_arg(help: &'static str) -> Arg {
+    Arg::new("recursive")
+      .long("recursive")
+      .short('r')
+      .conflicts_with("config-discovery")
+      .conflicts_with("global")
+      .help(help)
+      .num_args(0)
+      .required(false)
   }
 
   /// `--minimum-dependency-age`, shared by the commands that resolve a plugin
@@ -1131,16 +1152,7 @@ EXAMPLES:
                 .num_args(0)
                 .required(false)
             )
-            .arg(
-              Arg::new("recursive")
-                .long("recursive")
-                .short('r')
-                .conflicts_with("config-discovery")
-                .conflicts_with("global")
-                .help("Update configuration files in the current directory and all descendant directories.")
-                .num_args(0)
-                .required(false)
-            )
+            .arg(recursive_arg("Update configuration files in the current directory and all descendant directories."))
             .arg(minimum_dependency_age_arg())
         )
         .subcommand(add_command())
@@ -1838,19 +1850,27 @@ mod test {
   fn install_sub_command() {
     for prefix in [vec![], vec!["config"]] {
       let test_args = |args: Vec<&'static str>| test_args(prefix.iter().copied().chain(args).collect());
+      let install = |recursive: bool| SubCommand::Config(ConfigSubCommand::Install(InstallSubCommand { recursive }));
 
-      // no plugins installs what's in the config file
+      // no plugins installs what's in the config file, which is
+      // discovered the same way as the other sub commands
       let args = test_args(vec!["install"]).unwrap();
-      assert_eq!(args.sub_command, SubCommand::Config(ConfigSubCommand::Install));
-      assert!(matches!(args.config_discovery, Some(ConfigDiscovery::IgnoreDescendants)));
+      assert_eq!(args.sub_command, install(false));
+      assert!(args.config_discovery.is_none());
 
       let args = test_args(vec!["install", "-g"]).unwrap();
-      assert_eq!(args.sub_command, SubCommand::Config(ConfigSubCommand::Install));
+      assert_eq!(args.sub_command, install(false));
       assert!(matches!(args.config_discovery, Some(ConfigDiscovery::Global)));
 
-      let args = test_args(vec!["install", "--recursive"]).unwrap();
-      assert_eq!(args.sub_command, SubCommand::Config(ConfigSubCommand::Install));
-      assert!(args.config_discovery.is_none());
+      for flag in ["--recursive", "-r"] {
+        let args = test_args(vec!["install", flag]).unwrap();
+        assert_eq!(args.sub_command, install(true));
+        assert!(args.config_discovery.is_none());
+      }
+
+      let args = test_args(vec!["install", "--config-discovery=false"]).unwrap();
+      assert_eq!(args.sub_command, install(false));
+      assert!(matches!(args.config_discovery, Some(ConfigDiscovery::Disabled)));
 
       // providing plugins acts like `add`
       let args = test_args(vec!["install", "-g", "--checksum", "typescript", "json"]).unwrap();
@@ -1858,21 +1878,43 @@ mod test {
         SubCommand::Config(ConfigSubCommand::Add { names, checksum, install, .. }) => {
           assert_eq!(names, &["typescript", "json"]);
           assert!(*checksum);
-          assert!(*install);
+          assert_eq!(*install, Some(InstallSubCommand { recursive: false }));
         }
         _ => unreachable!(),
       }
       assert!(matches!(args.config_discovery, Some(ConfigDiscovery::Global)));
 
+      let args = test_args(vec!["install", "--recursive", "typescript"]).unwrap();
+      match &args.sub_command {
+        SubCommand::Config(ConfigSubCommand::Add { install, .. }) => {
+          assert_eq!(*install, Some(InstallSubCommand { recursive: true }));
+        }
+        _ => unreachable!(),
+      }
+      assert!(args.config_discovery.is_none());
+
       // the flags for adding a plugin need a plugin
       assert!(test_args(vec!["install", "--checksum"]).is_err());
       assert!(test_args(vec!["install", "--no-version"]).is_err());
+      assert!(test_args(vec!["install", "--package-json"]).is_err());
+      assert!(test_args(vec!["install", "--minimum-dependency-age", "P3D"]).is_err());
+
       assert!(test_args(vec!["install", "-g", "--recursive"]).is_err());
+      assert!(test_args(vec!["install", "--recursive", "--config-discovery=true"]).is_err());
+
+      // would override the plugins being installed
+      for args in [
+        vec!["install", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"],
+        vec!["install", "typescript", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"],
+      ] {
+        let err = test_args(args).err().unwrap();
+        assert_eq!(err.to_string(), "Cannot specify --plugins with the install sub command.");
+      }
     }
 
     let args = test_args(vec!["add", "typescript"]).unwrap();
     match &args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Add { install, .. }) => assert!(!*install),
+      SubCommand::Config(ConfigSubCommand::Add { install, .. }) => assert_eq!(*install, None),
       _ => unreachable!(),
     }
   }
