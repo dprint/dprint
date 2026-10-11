@@ -372,7 +372,7 @@ impl ProcessPluginCommunicator {
     let maybe_result = self
       .send_message_with_id(
         message_id,
-        MessageBody::Format(FormatMessageBody {
+        MessageBody::FormatShared(FormatMessageBody {
           file_path: request.file_path,
           file_bytes: request.file_bytes,
           range: request.range,
@@ -599,6 +599,7 @@ fn handle_stdout_message(message: ProcessPluginMessage, context: &Rc<Context>) -
       });
     }
     MessageBody::Format(_)
+    | MessageBody::FormatShared(_)
     | MessageBody::Close
     | MessageBody::GetPluginInfo
     | MessageBody::GetLicenseText

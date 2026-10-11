@@ -102,7 +102,7 @@ impl ProcessPluginMessage {
             })
           },
           config_id,
-          file_bytes: Arc::new(file_text),
+          file_bytes: file_text,
           override_config,
         })
       }
@@ -215,15 +215,8 @@ impl Message for ProcessPluginMessage {
         writer.send_u32(message_ids::CHECK_CONFIG_UPDATES_ID)?;
         writer.send_sized_bytes(body_bytes)?;
       }
-      MessageBody::Format(body) => {
-        writer.send_u32(message_ids::FORMAT_ID)?;
-        writer.send_sized_bytes(body.file_path.to_string_lossy().as_bytes())?;
-        writer.send_u32(body.range.as_ref().map(|r| r.start).unwrap_or(0) as u32)?;
-        writer.send_u32(body.range.as_ref().map(|r| r.end).unwrap_or(body.file_bytes.len()) as u32)?;
-        writer.send_u32(body.config_id.as_raw())?;
-        writer.send_sized_bytes(&body.override_config)?;
-        writer.send_sized_bytes(&body.file_bytes)?;
-      }
+      MessageBody::Format(body) => body.write(writer, &body.file_bytes)?,
+      MessageBody::FormatShared(body) => body.write(writer, &body.file_bytes)?,
       MessageBody::FormatResponse(response) => {
         writer.send_u32(message_ids::FORMAT_RESPONSE_ID)?;
         writer.send_u32(response.message_id)?;
@@ -273,6 +266,10 @@ pub enum MessageBody {
   GetResolvedConfig(FormatConfigId),
   CheckConfigUpdates(Vec<u8>),
   Format(FormatMessageBody),
+  /// A format message the host sends, which is read by the plugin as a
+  /// `Format` message. The bytes are shared so that the host can send
+  /// them without copying them when its caller keeps them.
+  FormatShared(FormatMessageBody<Arc<Vec<u8>>>),
   FormatResponse(ResponseBody<Option<Vec<u8>>>),
   CancelFormat(MessageId),
   HostFormat(HostFormatMessageBody),
@@ -303,12 +300,24 @@ pub struct CheckConfigUpdatesResponseBody {
 }
 
 #[derive(Debug)]
-pub struct FormatMessageBody {
+pub struct FormatMessageBody<TFileBytes = Vec<u8>> {
   pub file_path: PathBuf,
   pub range: FormatRange,
   pub config_id: FormatConfigId,
   pub override_config: Vec<u8>,
-  pub file_bytes: Arc<Vec<u8>>,
+  pub file_bytes: TFileBytes,
+}
+
+impl<TFileBytes> FormatMessageBody<TFileBytes> {
+  fn write<TWrite: Write + Unpin>(&self, writer: &mut MessageWriter<TWrite>, file_bytes: &[u8]) -> Result<()> {
+    writer.send_u32(message_ids::FORMAT_ID)?;
+    writer.send_sized_bytes(self.file_path.to_string_lossy().as_bytes())?;
+    writer.send_u32(self.range.as_ref().map(|r| r.start).unwrap_or(0) as u32)?;
+    writer.send_u32(self.range.as_ref().map(|r| r.end).unwrap_or(file_bytes.len()) as u32)?;
+    writer.send_u32(self.config_id.as_raw())?;
+    writer.send_sized_bytes(&self.override_config)?;
+    writer.send_sized_bytes(file_bytes)
+  }
 }
 
 #[derive(Debug)]
