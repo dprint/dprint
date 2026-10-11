@@ -111,6 +111,9 @@ struct EditorContext {
   pub id_generator: IdGenerator,
   pub writer: SingleThreadMessageWriter<EditorMessage>,
   pub cancellation_tokens: RcIdStore<Arc<CancellationToken>>,
+  /// Cancelled when a response can't be sent because the editor closed
+  /// the service's output, which is when the service should exit.
+  pub output_closed: CancellationToken,
 }
 
 struct EditorService<'a, TEnvironment: Environment> {
@@ -127,7 +130,9 @@ struct EditorService<'a, TEnvironment: Environment> {
 impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
   pub fn new(args: &'a CliArgs, environment: &'a TEnvironment, plugin_resolver: &'a Rc<PluginResolver<TEnvironment>>) -> Self {
     let stdout = environment.stdout();
-    let writer = SingleThreadMessageWriter::for_stdout(MessageWriter::new(stdout));
+    // this is the writer that doesn't panic when writing fails, which
+    // happens when the editor closes the service's output
+    let writer = SingleThreadMessageWriter::for_stdin(MessageWriter::new(stdout));
     let max_cores = environment.max_threads();
     let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
 
@@ -140,6 +145,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
         id_generator: Default::default(),
         cancellation_tokens: Default::default(),
         writer,
+        output_closed: Default::default(),
       }),
       concurrency_limiter,
       config_semaphore: Rc::new(Semaphore::new(1)),
@@ -170,7 +176,12 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       }
     });
     loop {
-      let Some(message) = rx.recv().await else { return Ok(()) };
+      let message = tokio::select! {
+        message = rx.recv() => message,
+        // there's nobody to respond to anymore
+        _ = self.context.output_closed.cancelled() => None,
+      };
+      let Some(message) = message else { return Ok(()) };
       match message.body {
         EditorMessageBody::Success(_message_id) => {}
         EditorMessageBody::Error(_message_id, _data) => {}
@@ -325,8 +336,8 @@ fn send_response_body(context: &EditorContext, body: EditorMessageBody) {
     id: context.id_generator.next(),
     body,
   };
-  if let Err(err) = context.writer.send(message) {
-    panic!("Receiver dropped. {:#}", err);
+  if context.writer.send(message).is_err() {
+    context.output_closed.cancel();
   }
 }
 
@@ -1082,6 +1093,40 @@ mod test {
     run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
 
     result.join().unwrap();
+  }
+
+  #[test]
+  fn should_not_panic_sending_response_when_output_closed() {
+    struct ClosedWriter;
+
+    impl Write for ClosedWriter {
+      fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Broken pipe."))
+      }
+
+      fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+      }
+    }
+
+    TestEnvironment::new().run_in_runtime(async move {
+      let context = super::EditorContext {
+        id_generator: Default::default(),
+        cancellation_tokens: Default::default(),
+        writer: SingleThreadMessageWriter::for_stdin(MessageWriter::new(ClosedWriter)),
+        output_closed: Default::default(),
+      };
+      // the first message fails to be written on the writer thread
+      // and then the messages after that can't be sent
+      for _ in 0..500 {
+        super::send_response_body(&context, EditorMessageBody::Success(0));
+        if context.output_closed.is_cancelled() {
+          break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+      }
+      assert!(context.output_closed.is_cancelled());
+    });
   }
 
   #[test]
