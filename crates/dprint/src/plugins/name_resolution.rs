@@ -144,10 +144,6 @@ impl PluginNameResolutionMaps {
     let Some(extension) = self.get_shebang_extension(file_path, file_bytes_start) else {
       return Cow::Borrowed(file_path);
     };
-    // only an additive plugin formats the file and that matched its real path
-    if self.claiming_plugins(file_path, None, Some(extension)).is_empty() {
-      return Cow::Borrowed(file_path);
-    }
     let mut plugin_file_path = file_path.as_os_str().to_owned();
     plugin_file_path.push(".");
     plugin_file_path.push(extension);
