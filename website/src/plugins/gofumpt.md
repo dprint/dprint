@@ -26,7 +26,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // gofumpt config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/jakebailey/gofumpt-vx.x.x.wasm"
+    "npm:@jakebailey/dprint-plugin-gofumpt@x.x.x"
   ]
 }
 ```

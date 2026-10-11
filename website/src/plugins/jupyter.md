@@ -14,8 +14,6 @@ In your project's directory with a dprint.json file, run:
 
 ```shellsession
 dprint add jupyter
-# or install from npm
-dprint add npm:@dprint/jupyter
 ```
 
 This will update your config file to have an entry for the plugin.
@@ -23,7 +21,7 @@ This will update your config file to have an entry for the plugin.
 ```json
 {
   "plugins": [
-    "https://plugins.dprint.dev/jupyter-x.x.x.wasm"
+    "npm:@dprint/jupyter@x.x.x"
   ]
 }
 ```

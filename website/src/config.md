@@ -29,26 +29,26 @@ See [Setup](/setup).
     "**/*-lock.json"
   ],
   "plugins": [
-    // You may specify any urls or file paths here that you wish.
-    "https://plugins.dprint.dev/typescript-x.x.x.wasm",
-    "https://plugins.dprint.dev/json-x.x.x.wasm",
-    "https://plugins.dprint.dev/markdown-x.x.x.wasm"
+    // You may specify any npm specifiers, urls, or file paths here that you wish.
+    "npm:@dprint/typescript@x.x.x",
+    "npm:@dprint/json@x.x.x",
+    "npm:@dprint/markdown@x.x.x"
   ]
 }
 ```
 
 ## Plugins
 
-The `plugins` property specifies which plugins to use for formatting. These may be URLs or file paths to a WebAssembly file of the plugin.
+The `plugins` property specifies which plugins to use for formatting. These may be npm specifiers, URLs, or file paths to a WebAssembly file of the plugin.
 
 ```json
 {
   // ...omitted...
   "plugins": [
-    // You may specify any urls or file paths here that you wish.
-    "https://plugins.dprint.dev/typescript-x.x.x.wasm",
-    "https://plugins.dprint.dev/json-x.x.x.wasm",
-    "https://plugins.dprint.dev/markdown-x.x.x.wasm"
+    // You may specify any npm specifiers, urls, or file paths here that you wish.
+    "npm:@dprint/typescript@x.x.x",
+    "npm:@dprint/json@x.x.x",
+    "npm:@dprint/markdown@x.x.x"
   ]
 }
 ```
@@ -173,7 +173,7 @@ Behaviour:
 - `dprint config update` will bump versioned npm specifiers to the latest published version (and compute the new checksum for process plugins). Unversioned specifiers are managed by your package manager, so they're skipped. See [Minimum Dependency Age](#minimum-dependency-age) to hold off on npm dependencies that are only days old.
 - `dprint add npm:@scope/name` resolves to the latest version and writes the pinned form, unless the package is listed in a nearby `package.json` under `devDependencies` — in which case the unversioned form is written so npm/`package-lock.json` stays the source of truth. When you don't include a plugin path, dprint inspects the package to detect whether it's a Wasm or process plugin and writes the right form automatically — for a process plugin that means `npm:@scope/name@<version>/plugin.json@<sha256>`.
 
-Available npm packages include `@dprint/typescript`, `@dprint/json`, `@dprint/markdown`, `@dprint/toml`, `@dprint/dockerfile`, `@dprint/biome`, `@dprint/oxc`, `@dprint/ruff`, `@dprint/sql`, `@dprint/mago`, `@dprint/jupyter`, `@dprint/exec`, `@dprint/prettier`, and `@dprint/roslyn`.
+Available npm packages include `@dprint/typescript`, `@dprint/json`, `@dprint/markdown`, `@dprint/toml`, `@dprint/dockerfile`, `@dprint/biome`, `@dprint/oxc`, `@dprint/ruff`, `@dprint/sql`, `@dprint/mago`, `@dprint/jupyter`, `@dprint/roslyn`, `@dprint/exec`, and `@dprint/prettier`.
 
 You can also reference a plugin file directly in `node_modules` if you prefer (`"./node_modules/@dprint/typescript/plugin.wasm"`); the `npm:` form just removes the need for that path.
 
@@ -322,7 +322,7 @@ For example:
     ]
   },
   "plugins": [
-    "https://plugins.dprint.dev/json-x.x.x.wasm"
+    "npm:@dprint/json@x.x.x"
   ]
 }
 ```
@@ -345,7 +345,7 @@ In the following example, both the TypeScript plugin and Prettier plugin support
     ]
   },
   "plugins": [
-    "https://plugins.dprint.dev/typescript-x.x.x.wasm",
+    "npm:@dprint/typescript@x.x.x",
     // side note: check the docs for the latest version of this plugin
     "https://plugins.dprint.dev/prettier-0.13.0.json@dc5d12b7c1bf1a4683eff317c2c87350e75a5a3dfcc127f3d5628931bfb534b1"
   ]
@@ -391,7 +391,7 @@ For example:
     }
   },
   "plugins": [
-    "https://plugins.dprint.dev/json-x.x.x.wasm"
+    "npm:@dprint/json@x.x.x"
   ]
 }
 ```
@@ -414,7 +414,7 @@ For multiple overrides, change it to an array:
     ]
   },
   "plugins": [
-    "https://plugins.dprint.dev/json-x.x.x.wasm"
+    "npm:@dprint/json@x.x.x"
   ]
 }
 ```
@@ -473,7 +473,7 @@ By default a nested configuration file is completely independent—it does not p
 {
   // only TOML files in ./sub-project will be formatted
   "plugins": [
-    "https://plugins.dprint.dev/toml-x.x.x.wasm"
+    "npm:@dprint/toml@x.x.x"
   ]
 }
 ```
@@ -608,8 +608,8 @@ The following would work fine:
     "propertySeparator": "comma"
   },
   "plugins": [
-    "https://plugins.dprint.dev/typescript-x.x.x.wasm",
-    "https://plugins.dprint.dev/json-x.x.x.wasm",
+    "npm:@dprint/typescript@x.x.x",
+    "npm:@dprint/json@x.x.x",
     "https://plugins.dprint.dev/my-other-plugin-0.1.0.wasm"
   ]
 }
@@ -630,8 +630,8 @@ But specifying properties in the `"typescript"` or `"json"` objects would cause 
     "propertySeparator": "comma"
   },
   "plugins": [
-    "https://plugins.dprint.dev/typescript-x.x.x.wasm",
-    "https://plugins.dprint.dev/json-x.x.x.wasm",
+    "npm:@dprint/typescript@x.x.x",
+    "npm:@dprint/json@x.x.x",
     "https://plugins.dprint.dev/my-other-plugin-0.1.0.wasm"
   ]
 }

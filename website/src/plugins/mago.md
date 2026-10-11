@@ -16,8 +16,6 @@ In your project's directory with a dprint.json file, run:
 
 ```shellsession
 dprint add mago
-# or install from npm
-dprint add npm:@dprint/mago
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"mago"` property to add configuration:
@@ -28,7 +26,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // mago's config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/mago-x.x.x.wasm"
+    "npm:@dprint/mago@x.x.x"
   ]
 }
 ```

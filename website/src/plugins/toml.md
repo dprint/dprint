@@ -14,8 +14,6 @@ In your project's directory with a dprint.json file, run:
 
 ```shellsession
 dprint add toml
-# or install from npm
-dprint add npm:@dprint/toml
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"toml"` property to add configuration:
@@ -26,7 +24,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // toml config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/toml-x.x.x.wasm"
+    "npm:@dprint/toml@x.x.x"
   ]
 }
 ```

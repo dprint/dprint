@@ -23,8 +23,6 @@ In your project's directory with a dprint.json file, run:
 
 ```shellsession
 dprint add kachick/sh
-# or install from npm
-dprint add npm:@kachick/dprint-plugin-sh
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify an `"sh"` property to add configuration:
@@ -35,7 +33,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // sh config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/kachick/sh-x.x.x.wasm"
+    "npm:@kachick/dprint-plugin-sh@x.x.x"
   ]
 }
 ```

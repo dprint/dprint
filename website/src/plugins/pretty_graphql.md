@@ -24,7 +24,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // Pretty GraphQL config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/g-plane/pretty_graphql-vx.x.x.wasm"
+    "npm:dprint-plugin-graphql@x.x.x"
   ]
 }
 ```

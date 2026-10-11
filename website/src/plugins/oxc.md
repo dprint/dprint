@@ -25,8 +25,6 @@ In your project's directory with a dprint.json file, run:
 
 ```shellsession
 dprint add oxc
-# or install from npm
-dprint add npm:@dprint/oxc
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"oxc"` property to add configuration:
@@ -37,7 +35,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // oxc's config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/oxc-x.x.x.wasm"
+    "npm:@dprint/oxc@x.x.x"
   ]
 }
 ```
@@ -56,8 +54,8 @@ This plugin formats many kinds of files, so it may match the same files as anoth
 {
   "plugins": [
     // formats .json files instead of the Oxc plugin
-    "https://plugins.dprint.dev/json-x.x.x.wasm",
-    "https://plugins.dprint.dev/oxc-x.x.x.wasm"
+    "npm:@dprint/json@x.x.x",
+    "npm:@dprint/oxc@x.x.x"
   ]
 }
 ```

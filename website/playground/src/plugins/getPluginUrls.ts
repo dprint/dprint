@@ -16,6 +16,7 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
   const oxcPlugin = json.latest.find((p: any) => p.configKey === "oxc")!;
   const magoPlugin = json.latest.find((p: any) => p.configKey === "mago")!;
   const ruffPlugin = json.latest.find((p: any) => p.configKey === "ruff")!;
+  const roslynPlugin = json.latest.find((p: any) => p.configKey === "roslyn")!;
   const malvaPlugin = json.latest.find((p: any) => p.configKey === "malva")!;
   const markupFmtPlugin = json.latest.find((p: any) => p.configKey === "markup")!;
   const prettyYamlPlugin = json.latest.find((p: any) => p.configKey === "yaml")!;
@@ -31,6 +32,7 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
     oxcPlugin.url,
     magoPlugin.url,
     ruffPlugin.url,
+    roslynPlugin.url,
     malvaPlugin.url,
     markupFmtPlugin.url,
     prettyYamlPlugin.url,
@@ -53,6 +55,7 @@ export function getPluginShortNameFromPluginUrl(url: string) {
     case "oxc":
     case "mago":
     case "ruff":
+    case "roslyn":
     case "malva":
     case "markup_fmt":
     case "pretty_yaml":
@@ -82,6 +85,8 @@ export function getLanguageFromPluginUrl(url: string) {
     case "ruff":
       // todo: specify python here eventually (probably need to upgrade the code editor)
       return "plaintext";
+    case "roslyn":
+      return "csharp";
     case "malva":
       return "css";
     case "markup_fmt":

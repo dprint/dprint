@@ -25,8 +25,6 @@ In your project's directory with a dprint.json file, run:
 
 ```shellsession
 dprint add bartlomieju/lax-markup
-# or install from npm
-dprint add npm:lax-markup
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"markup"` property to add configuration:
@@ -37,7 +35,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // markup config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/bartlomieju/lax-markup-x.x.x.wasm"
+    "npm:lax-markup@x.x.x"
   ]
 }
 ```

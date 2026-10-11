@@ -18,8 +18,6 @@ Adapter plugin that formats [many languages](https://prettier.io/docs/en/index.h
 
 ```shellsession
 dprint add prettier
-# or install from npm
-dprint add npm:@dprint/prettier
 ```
 
 ## Configuration

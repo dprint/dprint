@@ -24,7 +24,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // markup_fmt config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/g-plane/markup_fmt-vx.x.x.wasm"
+    "npm:dprint-plugin-markup@x.x.x"
   ]
 }
 ```

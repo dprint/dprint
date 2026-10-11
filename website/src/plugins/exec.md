@@ -18,8 +18,6 @@ Plugin that formats code via mostly any formatting CLI found on the host machine
 
 ```shellsession
 dprint add exec
-# or install from npm
-dprint add npm:@dprint/exec
 ```
 
 See further setup and configuration instructions at [https://github.com/dprint/dprint-plugin-exec/](https://github.com/dprint/dprint-plugin-exec/).
