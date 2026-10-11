@@ -182,9 +182,6 @@ impl ConfigKeyValue {
 
   /// Gets a hash of the configuration value. This is used for incremental formatting
   /// and the Hash trait is not implemented to discourage using this in other places.
-  ///
-  /// The lengths of strings, arrays, and objects are included so that different
-  /// values can't feed the same bytes to the hasher (ex. `[[1], 2]` and `[[1, 2]]`).
   #[allow(clippy::should_implement_trait)]
   pub fn hash(&self, hasher: &mut impl std::hash::Hasher) {
     match self {
