@@ -218,7 +218,7 @@ mod test {
           let formatted_text = communicator
             .format_text(InitializedPluginFormatRequest {
               file_path: PathBuf::from("test.txt"),
-              file_text: "testing".to_string().into_bytes(),
+              file_text: Arc::new("testing".to_string().into_bytes()),
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),
@@ -240,7 +240,7 @@ mod test {
               .format_text(InitializedPluginFormatRequest {
                 file_path: PathBuf::from("test.txt"),
                 // special text that makes it wait for cancellation
-                file_text: "wait_cancellation".to_string().into_bytes(),
+                file_text: Arc::new("wait_cancellation".to_string().into_bytes()),
                 range: None,
                 config: format_config,
                 override_config: Default::default(),
@@ -272,7 +272,7 @@ mod test {
           let formatted_text = communicator
             .format_text(InitializedPluginFormatRequest {
               file_path: PathBuf::from("test.txt"),
-              file_text: "testing".to_string().into_bytes(),
+              file_text: Arc::new("testing".to_string().into_bytes()),
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),
@@ -309,7 +309,7 @@ mod test {
         let future = communicator.format_text(InitializedPluginFormatRequest {
           file_path: PathBuf::from("test.txt"),
           // special text that makes it wait for cancellation
-          file_text: "wait_cancellation".to_string().into_bytes(),
+          file_text: Arc::new("wait_cancellation".to_string().into_bytes()),
           config: format_config.clone(),
           range: None,
           override_config: Default::default(),
@@ -355,7 +355,7 @@ mod test {
             .format_text(InitializedPluginFormatRequest {
               file_path: PathBuf::from("test.txt"),
               // special text that makes the plugin spawn a subprocess that holds its stdio pipes open
-              file_text: "spawn_pipe_holder".to_string().into_bytes(),
+              file_text: Arc::new("spawn_pipe_holder".to_string().into_bytes()),
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),

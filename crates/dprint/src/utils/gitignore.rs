@@ -88,12 +88,9 @@ impl DirEntriesHint {
       has_gitignore: false,
     };
     for entry in entries {
-      let name = match entry {
-        // `.gitignore` is a file and `.git` is usually a directory (a file in worktrees)
-        DirEntry::Directory(path) => path.file_name().and_then(|f| f.to_str()),
-        DirEntry::File { name, .. } => name.to_str(),
-      };
-      match name {
+      // `.gitignore` is a file and `.git` is usually a directory (a file in worktrees)
+      let (DirEntry::Directory(path) | DirEntry::File { path }) = entry;
+      match path.file_name().and_then(|f| f.to_str()) {
         Some(".gitignore") => hint.has_gitignore = true,
         Some(".git") => hint.has_git = true,
         _ => continue,
@@ -265,10 +262,12 @@ impl<TEnvironment: Environment> GitIgnoreTree<TEnvironment> {
     // path with glob characters in its name matches literally)
     for path in &self.options.include_paths {
       if let Ok(suffix) = path.strip_prefix(dir_path) {
-        let suffix = escape_glob_text(&suffix.to_string_lossy().replace('\\', "/"));
-        let _ignore = builder.add_line(None, &format!("!/{}", suffix));
-        if !suffix.ends_with('/') {
-          let _ignore = builder.add_line(None, &format!("!/{}/", suffix));
+        let mut line = format!("!/{}", escape_glob_text(&suffix.to_string_lossy().replace('\\', "/")));
+        let _ignore = builder.add_line(None, &line);
+        // also match it as a directory
+        if !line["!/".len()..].ends_with('/') {
+          line.push('/');
+          let _ignore = builder.add_line(None, &line);
         }
       }
     }

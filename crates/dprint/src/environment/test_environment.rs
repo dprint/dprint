@@ -719,7 +719,6 @@ impl Environment for TestEnvironment {
         entries.push(DirEntry::Directory(self.clean_path(entry.path())));
       } else if file_type.is_file() {
         entries.push(DirEntry::File {
-          name: entry.file_name().into_owned(),
           path: self.clean_path(entry.path()),
         });
       }

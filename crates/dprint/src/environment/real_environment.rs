@@ -440,10 +440,7 @@ impl Environment for RealEnvironment {
       if file_type.is_dir() {
         entries.push(DirEntry::Directory(entry.path()));
       } else if file_type.is_file() {
-        entries.push(DirEntry::File {
-          name: entry.file_name(),
-          path: entry.path(),
-        });
+        entries.push(DirEntry::File { path: entry.path() });
       }
     }
 

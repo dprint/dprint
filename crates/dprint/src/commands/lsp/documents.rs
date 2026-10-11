@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::ops::Range;
+use std::sync::Arc;
 
 use anyhow::Result;
 use anyhow::bail;
@@ -29,10 +30,12 @@ impl IndexValid {
 }
 
 pub struct Document {
-  line_index: Option<LineIndex>,
+  /// Shared along with the text so that getting the content for a request
+  /// doesn't copy them.
+  line_index: Option<Arc<LineIndex>>,
   version: i32,
   pub language_id: String,
-  pub text: String,
+  pub text: Arc<String>,
   /// The uri of the notebook when the document is a notebook cell.
   notebook_uri: Option<Uri>,
 }
@@ -60,7 +63,7 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
 
   /// Gets the text of the document, which fails with the message to log when
   /// the document isn't open.
-  pub fn get_content(&self, uri: &Uri) -> Result<(String, Option<LineIndex>)> {
+  pub fn get_content(&self, uri: &Uri) -> Result<(Arc<String>, Option<Arc<LineIndex>>)> {
     let Some(entry) = self.docs.get(uri) else {
       bail!("Missing document: {}", uri.as_str());
     };
@@ -84,12 +87,12 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
 
   /// Gets the text of the document and the range within it, which fails with
   /// the message to log when the document isn't open or the range is invalid.
-  pub fn get_content_with_range(&mut self, uri: &Uri, lsp_range: lsp_types::Range) -> Result<(String, FormatRange, LineIndex)> {
+  pub fn get_content_with_range(&mut self, uri: &Uri, lsp_range: lsp_types::Range) -> Result<(Arc<String>, FormatRange, Arc<LineIndex>)> {
     let Some(entry) = self.docs.get_mut(uri) else {
       bail!("Missing document: {}", uri.as_str());
     };
 
-    let line_index = entry.line_index.get_or_insert_with(|| LineIndex::new(&entry.text));
+    let line_index = entry.line_index.get_or_insert_with(|| Arc::new(LineIndex::new(&entry.text)));
     let range = match line_index.get_text_range(lsp_range) {
       Ok(range) => range,
       Err(err) => bail!("Invalid range for '{}'. {:#}", uri.as_str(), err),
@@ -118,8 +121,9 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
       self.docs.remove(&params.text_document.uri);
       return;
     }
-    let mut content = entry.text.to_string();
-    let mut line_index = entry.line_index.take().unwrap_or_else(|| LineIndex::new(&content));
+    // these only get copied when a request is still using them
+    let mut content = Arc::unwrap_or_clone(std::mem::take(&mut entry.text));
+    let mut line_index = entry.line_index.take().map(Arc::unwrap_or_clone).unwrap_or_else(|| LineIndex::new(&content));
     let mut index_valid = IndexValid::All;
     for change in params.content_changes {
       if let Some(range) = change.range {
@@ -152,9 +156,9 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
       }
     }
     if index_valid == IndexValid::All {
-      entry.line_index = Some(line_index);
+      entry.line_index = Some(Arc::new(line_index));
     }
-    entry.text = content;
+    entry.text = Arc::new(content);
     // so that the next change is compared against this one and not
     // against the version the document was opened at
     entry.version = params.text_document.version;
@@ -175,7 +179,7 @@ impl<TEnvironment: Environment> Documents<TEnvironment> {
         line_index: None,
         language_id: text_document_item.language_id,
         version: text_document_item.version,
-        text: text_document_item.text,
+        text: Arc::new(text_document_item.text),
         notebook_uri,
       },
     );
@@ -300,11 +304,11 @@ mod test {
     let (_, format_range, _) = documents.get_content_with_range(&uri, range).unwrap();
     assert_eq!(format_range, Some(2..3));
     change(&mut documents, &uri, vec![ranged((1, 0), (1, 1), "bbbb"), ranged((0, 0), (2, 1), "X")]);
-    assert_eq!(documents.get_content(&uri).unwrap().0, "X\n");
+    assert_eq!(documents.get_content(&uri).unwrap().0.as_str(), "X\n");
     // the line index is for the new text
     let range = lsp_types::Range::new(Position::new(0, 1), Position::new(1, 0));
     let (text, format_range, _) = documents.get_content_with_range(&uri, range).unwrap();
-    assert_eq!(text, "X\n");
+    assert_eq!(text.as_str(), "X\n");
     assert_eq!(format_range, Some(1..2));
   }
 
@@ -316,7 +320,7 @@ mod test {
     // the version doesn't need to increase by one
     change_with_version(&mut documents, &uri, 5, vec![ranged((0, 0), (0, 1), "d")]);
     change_with_version(&mut documents, &uri, 6, vec![full("e\n")]);
-    assert_eq!(documents.get_content(&uri).unwrap().0, "e\n");
+    assert_eq!(documents.get_content(&uri).unwrap().0.as_str(), "e\n");
   }
 
   #[test]
@@ -349,11 +353,11 @@ mod test {
     // the same version as when opened
     let (mut documents, uri) = open_document_with_version("a\n", 2);
     change_with_version(&mut documents, &uri, 2, vec![ranged((0, 0), (0, 1), "b")]);
-    assert_eq!(documents.get_content(&uri).unwrap().0, "b\n");
+    assert_eq!(documents.get_content(&uri).unwrap().0.as_str(), "b\n");
     // the same version as the previous change
     change_with_version(&mut documents, &uri, 3, vec![ranged((0, 0), (0, 1), "c")]);
     change_with_version(&mut documents, &uri, 3, vec![ranged((0, 0), (0, 1), "d")]);
-    assert_eq!(documents.get_content(&uri).unwrap().0, "d\n");
+    assert_eq!(documents.get_content(&uri).unwrap().0.as_str(), "d\n");
     // the version is still checked after that
     change_with_version(&mut documents, &uri, 2, vec![ranged((0, 0), (0, 1), "e")]);
     assert_eq!(
@@ -391,13 +395,13 @@ mod test {
     assert!(documents.get_content(&uri).is_err());
     // the versions are per cell
     change_with_version(&mut documents, &other_uri, 1, vec![ranged((0, 0), (0, 1), "c")]);
-    assert_eq!(documents.get_content(&other_uri).unwrap().0, "c\n");
+    assert_eq!(documents.get_content(&other_uri).unwrap().0.as_str(), "c\n");
   }
 
   fn apply_changes(text: &str, changes: Vec<TextDocumentContentChangeEvent>) -> String {
     let (mut documents, uri) = open_document(text);
     change(&mut documents, &uri, changes);
-    documents.get_content(&uri).unwrap().0
+    documents.get_content(&uri).unwrap().0.to_string()
   }
 
   fn open_document(text: &str) -> (Documents<TestEnvironment>, Uri) {

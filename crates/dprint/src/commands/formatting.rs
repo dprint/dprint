@@ -160,7 +160,7 @@ pub async fn output_format_times<TEnvironment: Environment>(
       let durations = durations.clone();
       move |file_path, _, _, start_instant, _| {
         let duration = start_instant.elapsed().as_millis();
-        durations.lock().push((file_path, duration));
+        durations.lock().push((file_path.to_path_buf(), duration));
         Ok(())
       }
     })
@@ -245,9 +245,9 @@ pub async fn check<TEnvironment: Environment>(
             if output_json {
               output_json_difference(
                 OutputJsonDifferenceOptions {
-                  file_path: &file_path,
-                  file_bytes: &file_bytes,
-                  formatted_bytes: &formatted_bytes,
+                  file_path,
+                  file_bytes,
+                  formatted_bytes,
                   diff_format,
                 },
                 &environment,
@@ -257,9 +257,9 @@ pub async fn check<TEnvironment: Environment>(
             } else {
               output_difference(
                 OutputDifferenceOptions {
-                  file_path: &file_path,
-                  file_bytes: &file_bytes,
-                  formatted_bytes: &formatted_bytes,
+                  file_path,
+                  file_bytes,
+                  formatted_bytes,
                   diff_format,
                 },
                 &environment,
@@ -275,7 +275,7 @@ pub async fn check<TEnvironment: Environment>(
             // correctly formatted file because it hasn't undergone a stable
             // formatting check
             if let Some(incremental_file) = &incremental_file {
-              incremental_file.update_file(&formatted_bytes);
+              incremental_file.update_file(formatted_bytes);
             }
           }
           Ok(())
@@ -319,7 +319,7 @@ struct OutputDifferenceOptions<'a> {
 
 fn output_difference(options: OutputDifferenceOptions, environment: &impl Environment) {
   let file_path = options.file_path;
-  let file_text = match String::from_utf8(options.file_bytes.to_vec()) {
+  let file_text = match std::str::from_utf8(options.file_bytes) {
     Ok(text) => text,
     Err(err) => {
       log_warn!(
@@ -331,7 +331,7 @@ fn output_difference(options: OutputDifferenceOptions, environment: &impl Enviro
       return;
     }
   };
-  let formatted_text = match String::from_utf8(options.formatted_bytes.to_vec()) {
+  let formatted_text = match std::str::from_utf8(options.formatted_bytes) {
     Ok(text) => text,
     Err(err) => {
       log_warn!(
@@ -345,14 +345,14 @@ fn output_difference(options: OutputDifferenceOptions, environment: &impl Enviro
   };
   match options.diff_format {
     DiffFormat::Pretty => {
-      let difference_text = get_difference(&file_text, &formatted_text);
+      let difference_text = get_difference(file_text, formatted_text);
       log_stdout_info!(environment, "{} {}:\n{}\n--", colors::red_bold("from"), file_path.display(), difference_text);
     }
     DiffFormat::Unified => {
       let display_path = get_unified_diff_display_path(file_path, environment);
       let difference_text = get_unified_difference(UnifiedDifferenceOptions {
-        old_text: &file_text,
-        new_text: &formatted_text,
+        old_text: file_text,
+        new_text: formatted_text,
         old_header: &format!("a/{}", display_path),
         new_header: &format!("b/{}", display_path),
       });
@@ -459,16 +459,16 @@ pub async fn format<TEnvironment: Environment>(
         let incremental_file = incremental_file.clone();
         move |file_path, file_bytes, formatted_bytes, _, environment| {
           if let Some(incremental_file) = &incremental_file {
-            incremental_file.update_file(&formatted_bytes);
+            incremental_file.update_file(formatted_bytes);
           }
 
           if formatted_bytes != file_bytes {
             if output_diff {
               output_difference(
                 OutputDifferenceOptions {
-                  file_path: &file_path,
-                  file_bytes: &file_bytes,
-                  formatted_bytes: &formatted_bytes,
+                  file_path,
+                  file_bytes,
+                  formatted_bytes,
                   diff_format,
                 },
                 &environment,
@@ -476,7 +476,7 @@ pub async fn format<TEnvironment: Environment>(
             }
 
             formatted_files_count.inc();
-            environment.write_file_bytes(file_path, &formatted_bytes)?;
+            environment.write_file_bytes(file_path, formatted_bytes)?;
           }
 
           Ok(())

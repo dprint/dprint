@@ -36,7 +36,7 @@ use super::CanonicalizedPathBuf;
 #[derive(Debug)]
 pub enum DirEntry {
   Directory(PathBuf),
-  File { name: std::ffi::OsString, path: PathBuf },
+  File { path: PathBuf },
 }
 
 /// The kind of entry at a path on the file system.
@@ -169,9 +169,7 @@ pub trait UrlDownloader {
 macro_rules! log_debug {
   ($logger:expr, $($arg:tt)*) => {
     if $logger.log_level().is_debug() {
-      let mut text = String::from("[DEBUG] ");
-      text.push_str(&format!($($arg)*));
-      $logger.__log_stderr__(&text);
+      $logger.__log_stderr__(&format!("[DEBUG] {}", format_args!($($arg)*)));
     }
   }
 }

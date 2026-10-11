@@ -96,7 +96,7 @@ impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
 
 struct WasmPluginFormatMessage {
   file_path: PathBuf,
-  file_bytes: Vec<u8>,
+  file_bytes: Arc<Vec<u8>>,
   range: FormatRange,
   config: Arc<FormatConfig>,
   override_config: ConfigKeyMap,
@@ -335,6 +335,9 @@ impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
                 &request.override_config,
                 request.token.clone(),
               );
+              // release the text before responding so the receiver can take
+              // ownership of it without copying when nothing else holds it
+              drop(request);
               if response.send(result).is_err() {
                 break; // disconnected
               }

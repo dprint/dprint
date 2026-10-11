@@ -247,7 +247,7 @@ impl PluginWithConfig {
 
 pub struct InitializedPluginWithConfigFormatRequest {
   pub file_path: PathBuf,
-  pub file_bytes: Vec<u8>,
+  pub file_bytes: Arc<Vec<u8>>,
   pub range: FormatRange,
   pub override_config: ConfigKeyMap,
   pub on_host_format: HostFormatCallback,
@@ -527,53 +527,18 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
   }
 
   pub fn format(self: &Rc<Self>, request: HostFormatRequest) -> LocalBoxFuture<'static, FormatResult> {
-    // owned because they outlive this scope by moving into the future below
-    let plugin_names = self
-      .plugin_name_maps
-      .get_plugin_names_from_file_path_and_bytes(&request.file_path, &request.file_bytes)
-      .into_iter()
-      .map(ToOwned::to_owned)
-      .collect::<Vec<String>>();
-    log_debug!(
-      self.environment,
-      "Host formatting {} - File length: {} - Plugins: [{}] - Range: {:?}",
-      request.file_path.display(),
-      request.file_bytes.len(),
-      plugin_names.join(", "),
-      request.range,
-    );
-    let plugin_file_path = self.plugin_name_maps.get_plugin_file_path(&request.file_path, &request.file_bytes).into_owned();
-    // a plugin might be asking to format with the file path it was given
-    let real_file_path = self.plugin_name_maps.get_real_file_path(&request.file_path).to_path_buf();
     let scope = self.clone();
     async move {
-      let mut file_text = request.file_bytes;
-      let mut had_change = false;
-      for plugin_name in plugin_names {
-        let plugin = scope.get_plugin(&plugin_name);
-        match plugin.get_or_create_checking_config_diagnostics(&scope.environment).await {
-          Ok(GetPluginResult::Success(initialized_plugin)) => {
-            let result = initialized_plugin
-              .format_text(InitializedPluginWithConfigFormatRequest {
-                file_path: plugin_file_path.clone(),
-                file_bytes: file_text.clone(),
-                range: request.range.clone(),
-                override_config: plugin.get_merged_overrides_for_path(&real_file_path, &request.override_config),
-                on_host_format: scope.create_host_format_callback(),
-                token: request.token.clone(),
-              })
-              .await;
-            if let Some(new_text) = result? {
-              file_text = new_text;
-              had_change = true;
-            }
-          }
-          Ok(GetPluginResult::HadDiagnostics(diagnostics)) => return Err(FormatError::new(PluginConfigDiagnosticsError { diagnostics })),
-          Err(err) => return Err(CriticalFormatError(FormatError::new(err)).into()),
-        }
-      }
-
-      Ok(if had_change { Some(file_text) } else { None })
+      let result = scope
+        .format_shared(SharedFormatRequest {
+          file_path: request.file_path,
+          file_bytes: Arc::new(request.file_bytes),
+          range: request.range,
+          override_config: request.override_config,
+          token: request.token,
+        })
+        .await?;
+      Ok(result.map(Arc::unwrap_or_clone))
     }
     .boxed_local()
   }
@@ -586,32 +551,33 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     if !ensure_stable_format.0 || request.range.is_some() {
       return self.format(request).await;
     }
-    let file_path = request.file_path.clone();
-    let override_config = request.override_config.clone();
-    let token = request.token.clone();
-    let original_text = request.file_bytes.clone();
-    let Some(formatted_text) = self.format(request).await? else {
+    let file_path = request.file_path;
+    let override_config = request.override_config;
+    let token = request.token;
+    let new_request = |file_bytes: Arc<Vec<u8>>| SharedFormatRequest {
+      file_path: file_path.clone(),
+      file_bytes,
+      range: None,
+      override_config: override_config.clone(),
+      token: token.clone(),
+    };
+    let original_text = Arc::new(request.file_bytes);
+    let Some(formatted_text) = self.clone().format_shared(new_request(original_text.clone())).await? else {
       return Ok(None);
     };
     // a plugin may say it changed the text without changing it
     if formatted_text == original_text {
-      return Ok(Some(formatted_text));
+      return Ok(Some(Arc::unwrap_or_clone(formatted_text)));
     }
     let stable_text = stabilize_format_text(&self.environment, &file_path, formatted_text, |text| {
       let scope = self.clone();
-      let request = HostFormatRequest {
-        file_path: file_path.clone(),
-        file_bytes: text.clone(),
-        range: None,
-        override_config: override_config.clone(),
-        token: token.clone(),
-      };
+      let request = new_request(text.clone());
       async move {
         // the result gets discarded, so stop by saying the text didn't change
         if request.token.is_cancelled() {
           return Ok(text);
         }
-        match scope.format(request).await {
+        match scope.format_shared(request).await {
           Ok(new_text) => Ok(new_text.unwrap_or(text)),
           Err(err) => Err(anyhow::anyhow!(dprint_core::plugins::error_to_string(&err))),
         }
@@ -619,8 +585,72 @@ impl<TEnvironment: Environment> PluginsScope<TEnvironment> {
     })
     .await
     .map_err(FormatError::new)?;
-    Ok(Some(stable_text))
+    Ok(Some(Arc::unwrap_or_clone(stable_text)))
   }
+
+  /// Formats text that's shared with the plugins instead of copied for each one.
+  async fn format_shared(self: Rc<Self>, request: SharedFormatRequest) -> Result<Option<Arc<Vec<u8>>>, FormatError> {
+    let SharedFormatRequest {
+      file_path,
+      file_bytes,
+      range,
+      override_config,
+      token,
+    } = request;
+    let plugins = self
+      .plugin_name_maps
+      .get_plugin_names_from_file_path_and_bytes(&file_path, &file_bytes)
+      .iter()
+      .map(|plugin_name| self.get_plugin(plugin_name))
+      .collect::<Vec<_>>();
+    log_debug!(
+      self.environment,
+      "Host formatting {} - File length: {} - Plugins: [{}] - Range: {:?}",
+      file_path.display(),
+      file_bytes.len(),
+      plugins.iter().map(|plugin| plugin.name()).collect::<Vec<_>>().join(", "),
+      range,
+    );
+    let plugin_file_path = self.plugin_name_maps.get_plugin_file_path(&file_path, &file_bytes);
+    // a plugin might be asking to format with the file path it was given
+    let real_file_path = self.plugin_name_maps.get_real_file_path(&file_path);
+    let mut file_text = file_bytes;
+    let mut had_change = false;
+    for plugin in plugins {
+      match plugin.get_or_create_checking_config_diagnostics(&self.environment).await {
+        Ok(GetPluginResult::Success(initialized_plugin)) => {
+          let result = initialized_plugin
+            .format_text(InitializedPluginWithConfigFormatRequest {
+              file_path: plugin_file_path.to_path_buf(),
+              file_bytes: file_text.clone(),
+              range: range.clone(),
+              override_config: plugin.get_merged_overrides_for_path(real_file_path, &override_config),
+              on_host_format: self.create_host_format_callback(),
+              token: token.clone(),
+            })
+            .await;
+          if let Some(new_text) = result? {
+            file_text = Arc::new(new_text);
+            had_change = true;
+          }
+        }
+        Ok(GetPluginResult::HadDiagnostics(diagnostics)) => return Err(FormatError::new(PluginConfigDiagnosticsError { diagnostics })),
+        Err(err) => return Err(CriticalFormatError(FormatError::new(err)).into()),
+      }
+    }
+
+    Ok(if had_change { Some(file_text) } else { None })
+  }
+}
+
+/// A `HostFormatRequest` whose text is shared, so formatting it with several
+/// plugins or several times doesn't copy the text.
+struct SharedFormatRequest {
+  file_path: PathBuf,
+  file_bytes: Arc<Vec<u8>>,
+  range: FormatRange,
+  override_config: ConfigKeyMap,
+  token: Arc<dyn CancellationToken>,
 }
 
 pub struct PluginsScopeAndPathsCollection<TEnvironment: Environment> {

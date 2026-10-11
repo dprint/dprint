@@ -1,8 +1,10 @@
 use anyhow::Result;
 use anyhow::bail;
 use dprint_core::async_runtime::future;
+use dprint_core::plugins::CancellationToken as FormatCancellationToken;
 use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::NullCancellationToken;
+use dprint_core::plugins::process::HostFormatCallback;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
@@ -53,15 +55,23 @@ impl EnsureStableFormat {
 /// not in here is formatted in its entirety.
 pub type LineRangesByPath = HashMap<PathBuf, Vec<LineRange>>;
 
+/// What's shared by all the files a task formats.
+struct FormatContext<TEnvironment: Environment> {
+  environment: TEnvironment,
+  scope: Rc<PluginsScope<TEnvironment>>,
+  plugins: Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>,
+  on_host_format: HostFormatCallback,
+  token: Arc<dyn FormatCancellationToken>,
+}
+
 enum FileFormatKind {
   EntireFile(EnsureStableFormat),
   LineRanges(Vec<LineRange>),
 }
 
-#[derive(Clone)]
 struct FormatFilePaths {
   /// The path of the file on disk.
-  real: PathBuf,
+  real: Arc<PathBuf>,
   /// The path to give to the plugins when it's different than the real path,
   /// which is for a file that's formatted because of its shebang line.
   plugin: Option<PathBuf>,
@@ -111,7 +121,7 @@ pub async fn run_parallelized<F, TEnvironment: Environment>(
   f: F,
 ) -> Result<(), RunParallelizedError>
 where
-  F: Fn(PathBuf, Vec<u8>, Vec<u8>, Instant, TEnvironment) -> Result<(), RunForFilePathError> + 'static + Clone + Send + Sync,
+  F: Fn(&Path, &[u8], &[u8], Instant, TEnvironment) -> Result<(), RunForFilePathError> + 'static + Clone + Send + Sync,
 {
   if let Some(config) = &scope_and_paths.scope.config {
     log_debug!(environment, "Running for config: {}", config.source.display());
@@ -185,7 +195,13 @@ where
           })
         }
 
-        let plugins = Rc::new(plugins);
+        let context = Rc::new(FormatContext {
+          on_host_format: scope.create_host_format_callback(),
+          token: Arc::new(NullCancellationToken),
+          environment,
+          plugins,
+          scope,
+        });
         let mut format_handles = Vec::with_capacity(task_work.file_paths.len());
         for file_path in task_work.file_paths.into_iter() {
           let permit = match task_work.semaphore.acquire().await {
@@ -193,36 +209,27 @@ where
             Err(_) => return, // semaphore was closed, so stop working
           };
           let semaphore = task_work.semaphore.clone();
-          let environment = environment.clone();
+          let context = context.clone();
           let incremental_file = incremental_file.clone();
           let f = f.clone();
-          let plugins = plugins.clone();
           let error_logger = error_logger.clone();
-          let scope = scope.clone();
           let line_ranges = line_ranges.clone();
           format_handles.push(dprint_core::async_runtime::spawn(async move {
-            let long_format_token = CancellationToken::new();
-            dprint_core::async_runtime::spawn({
-              let long_format_token = long_format_token.clone();
-              let environment = environment.clone();
-              let file_path = file_path.clone();
-              async move {
-                tokio::select! {
-                  _ = long_format_token.cancelled() => {
-                    // exit
-                  }
-                  _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                    log_warn!(environment, "WARNING: Formatting is slow for {}", file_path.display());
-                  }
-                }
-              }
-            });
-            let format_kind = match line_ranges.get(&file_path) {
+            let file_path = Arc::new(file_path);
+            let format_kind = match line_ranges.get(file_path.as_ref()) {
               Some(line_ranges) => FileFormatKind::LineRanges(line_ranges.clone()),
               None => FileFormatKind::EntireFile(ensure_stable_format),
             };
-            let result = run_for_file_path(environment, incremental_file, scope, plugins, file_path.clone(), format_kind, f).await;
-            long_format_token.cancel();
+            let format_future = run_for_file_path(&context, incremental_file, file_path.clone(), format_kind, f);
+            tokio::pin!(format_future);
+            let result = tokio::select! {
+              biased;
+              result = &mut format_future => result,
+              _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                log_warn!(context.environment, "WARNING: Formatting is slow for {}", file_path.display());
+                format_future.await
+              }
+            };
             if let Err(err) = result {
               match err {
                 RunForFilePathError::Stop => {
@@ -266,54 +273,55 @@ where
 
   #[inline]
   async fn run_for_file_path<F, TEnvironment: Environment>(
-    environment: TEnvironment,
+    context: &FormatContext<TEnvironment>,
     incremental_file: Option<Arc<IncrementalFile<TEnvironment>>>,
-    scope: Rc<PluginsScope<TEnvironment>>,
-    plugins: Rc<Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>>,
-    file_path: PathBuf,
+    file_path: Arc<PathBuf>,
     format_kind: FileFormatKind,
     f: F,
   ) -> Result<(), RunForFilePathError>
   where
-    F: Fn(PathBuf, Vec<u8>, Vec<u8>, Instant, TEnvironment) -> Result<(), RunForFilePathError> + 'static + Clone + Send + Sync,
+    F: Fn(&Path, &[u8], &[u8], Instant, TEnvironment) -> Result<(), RunForFilePathError> + 'static + Clone + Send + Sync,
   {
     // it's a big perf improvement to do this work on a blocking thread
-    let result = dprint_core::async_runtime::spawn_blocking(move || {
-      let file_text = environment.read_file_bytes(&file_path)?;
+    let result = dprint_core::async_runtime::spawn_blocking({
+      let environment = context.environment.clone();
+      let file_path = file_path.clone();
+      move || {
+        let file_text = environment.read_file_bytes(file_path.as_ref())?;
 
-      if let Some(incremental_file) = &incremental_file
-        && incremental_file.is_file_known_formatted(&file_text)
-      {
-        log_debug!(environment, "No change: {}", file_path.display());
-        return Ok::<_, std::io::Error>(None);
+        if let Some(incremental_file) = &incremental_file
+          && incremental_file.is_file_known_formatted(&file_text)
+        {
+          log_debug!(environment, "No change: {}", file_path.display());
+          return Ok::<_, std::io::Error>(None);
+        }
+        Ok(Some((file_text, environment)))
       }
-      Ok(Some((file_path, file_text, environment)))
     })
     .await??;
 
-    let Some((file_path, file_text, environment)) = result else {
+    let Some((file_text, environment)) = result else {
       return Ok(());
     };
 
+    // shared with the plugins so the original text can be kept without copying it
+    let file_text = Arc::new(file_text);
     // this is decided once from the file's original text because that's what
     // the plugins formatting the file were decided from
     let file_paths = FormatFilePaths {
-      plugin: match scope.plugin_name_maps.get_plugin_file_path(&file_path, &file_text) {
+      plugin: match context.scope.plugin_name_maps.get_plugin_file_path(&file_path, &file_text) {
         Cow::Borrowed(_) => None,
         Cow::Owned(plugin_file_path) => Some(plugin_file_path),
       },
-      real: file_path.clone(),
+      real: file_path,
     };
     let (start_instant, formatted_text) = match format_kind {
       // the ranges wouldn't apply to the formatted text, so only format them once
-      FileFormatKind::LineRanges(line_ranges) => {
-        run_line_ranges_for_file_path(environment.clone(), scope, plugins, file_paths, &file_text, &line_ranges).await?
-      }
+      FileFormatKind::LineRanges(line_ranges) => run_line_ranges_for_file_path(context, &file_paths, &file_text, &line_ranges).await?,
       FileFormatKind::EntireFile(ensure_stable_format) => {
-        let (start_instant, formatted_text) =
-          run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_paths.clone(), &file_text, None).await?;
+        let (start_instant, formatted_text) = run_single_pass_for_file_path(context, &file_paths, &file_text, None).await?;
         let formatted_text = if ensure_stable_format.0 && formatted_text != file_text {
-          get_stabilized_format_text(environment.clone(), scope, plugins, file_paths, formatted_text).await?
+          get_stabilized_format_text(context, &file_paths, formatted_text).await?
         } else {
           formatted_text
         };
@@ -321,80 +329,67 @@ where
       }
     };
 
-    dprint_core::async_runtime::spawn_blocking(move || f(file_path, file_text, formatted_text, start_instant, environment)).await??;
+    dprint_core::async_runtime::spawn_blocking(move || f(&file_paths.real, &file_text, &formatted_text, start_instant, environment)).await??;
 
     Ok(())
   }
 
   async fn get_stabilized_format_text<TEnvironment: Environment>(
-    environment: TEnvironment,
-    scope: Rc<PluginsScope<TEnvironment>>,
-    plugins: Rc<Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>>,
-    file_paths: FormatFilePaths,
-    formatted_text: Vec<u8>,
-  ) -> Result<Vec<u8>> {
-    stabilize_format_text(&environment, &file_paths.real, formatted_text, |text| {
-      let (environment, scope, plugins, file_paths) = (environment.clone(), scope.clone(), plugins.clone(), file_paths.clone());
-      async move {
-        run_single_pass_for_file_path(environment, scope, plugins, file_paths, &text, None)
-          .await
-          .map(|(_, text)| text)
-      }
+    context: &FormatContext<TEnvironment>,
+    file_paths: &FormatFilePaths,
+    formatted_text: Arc<Vec<u8>>,
+  ) -> Result<Arc<Vec<u8>>> {
+    stabilize_format_text(&context.environment, &file_paths.real, formatted_text, |text| async move {
+      run_single_pass_for_file_path(context, file_paths, &text, None).await.map(|(_, text)| text)
     })
     .await
   }
 
   /// Formats only the provided lines of the file.
   async fn run_line_ranges_for_file_path<TEnvironment: Environment>(
-    environment: TEnvironment,
-    scope: Rc<PluginsScope<TEnvironment>>,
-    plugins: Rc<Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>>,
-    file_paths: FormatFilePaths,
-    file_text: &[u8],
+    context: &FormatContext<TEnvironment>,
+    file_paths: &FormatFilePaths,
+    file_text: &Arc<Vec<u8>>,
     line_ranges: &[LineRange],
-  ) -> Result<(Instant, Vec<u8>)> {
+  ) -> Result<(Instant, Arc<Vec<u8>>)> {
     let start_instant = Instant::now();
-    let mut file_text = Cow::Borrowed(file_text);
+    let mut file_text = file_text.clone();
     // go from the last range to the first so that formatting a range
     // doesn't shift the lines of the ranges that are still to be formatted
     for line_range in merge_line_ranges(line_ranges).into_iter().rev() {
       let Some(range) = get_line_range_byte_range(&file_text, line_range) else {
         continue; // past the end of the text
       };
-      let (_, formatted_text) =
-        run_single_pass_for_file_path(environment.clone(), scope.clone(), plugins.clone(), file_paths.clone(), &file_text, Some(range)).await?;
-      file_text = Cow::Owned(formatted_text);
+      let (_, formatted_text) = run_single_pass_for_file_path(context, file_paths, &file_text, Some(range)).await?;
+      file_text = formatted_text;
     }
-    Ok((start_instant, file_text.into_owned()))
+    Ok((start_instant, file_text))
   }
 
   async fn run_single_pass_for_file_path<TEnvironment: Environment>(
-    environment: TEnvironment,
-    scope: Rc<PluginsScope<TEnvironment>>,
-    plugins: Rc<Vec<(Rc<PluginWithConfig>, InitializedPluginWithConfig)>>,
-    file_paths: FormatFilePaths,
-    file_text: &[u8],
+    context: &FormatContext<TEnvironment>,
+    file_paths: &FormatFilePaths,
+    original_text: &Arc<Vec<u8>>,
     range: FormatRange,
-  ) -> Result<(Instant, Vec<u8>)> {
+  ) -> Result<(Instant, Arc<Vec<u8>>)> {
     let start_instant = Instant::now();
-    let original_text = file_text;
-    let mut file_text = Cow::Borrowed(file_text);
-    let file_path = &file_paths.real;
-    let plugins_len = plugins.len();
-    for (i, (plugin, initialized_plugin)) in plugins.iter().enumerate() {
+    let mut file_text = original_text.clone();
+    let file_path = file_paths.real.as_path();
+    let plugins_len = context.plugins.len();
+    for (i, (plugin, initialized_plugin)) in context.plugins.iter().enumerate() {
       let start_instant = Instant::now();
       let format_text_result = initialized_plugin
         .format_text(InitializedPluginWithConfigFormatRequest {
           file_path: file_paths.plugin().to_path_buf(),
-          file_bytes: file_text.to_vec(),
+          file_bytes: file_text.clone(),
           range: range.clone(),
           override_config: plugin.get_config_file_overrides_for_path(file_path),
-          on_host_format: scope.create_host_format_callback(),
-          token: Arc::new(NullCancellationToken),
+          on_host_format: context.on_host_format.clone(),
+          token: context.token.clone(),
         })
         .await;
       log_debug!(
-        environment,
+        context.environment,
         "Formatted file: {} in {}ms{}",
         file_path.display(),
         start_instant.elapsed().as_millis(),
@@ -405,7 +400,7 @@ where
         },
       );
       if let Some(text) = format_text_result? {
-        file_text = Cow::Owned(text)
+        file_text = Arc::new(text)
       }
     }
 
@@ -426,7 +421,7 @@ where
       }
     }
 
-    Ok((start_instant, file_text.into_owned()))
+    Ok((start_instant, file_text))
   }
 }
 
@@ -466,12 +461,14 @@ pub fn get_line_range_byte_range(text: &[u8], line_range: LineRange) -> Option<s
 ///
 /// This should only take one more pass unless a plugin has a bug where it
 /// formats the text differently each time.
-pub async fn stabilize_format_text<TFuture: Future<Output = Result<Vec<u8>>>>(
+///
+/// The text is shared so that a pass can keep it without copying it.
+pub async fn stabilize_format_text<TFuture: Future<Output = Result<Arc<Vec<u8>>>>>(
   environment: &impl Environment,
   file_path: &Path,
-  mut formatted_text: Vec<u8>,
-  format_pass: impl Fn(Vec<u8>) -> TFuture,
-) -> Result<Vec<u8>> {
+  mut formatted_text: Arc<Vec<u8>>,
+  format_pass: impl Fn(Arc<Vec<u8>>) -> TFuture,
+) -> Result<Arc<Vec<u8>>> {
   log_debug!(environment, "Ensuring stable format: {}", file_path.display());
   let mut count = 0;
   loop {

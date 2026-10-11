@@ -3,6 +3,7 @@ use std::io::Read;
 use std::io::Result;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -101,7 +102,7 @@ impl ProcessPluginMessage {
             })
           },
           config_id,
-          file_bytes: file_text,
+          file_bytes: Arc::new(file_text),
           override_config,
         })
       }
@@ -307,7 +308,7 @@ pub struct FormatMessageBody {
   pub range: FormatRange,
   pub config_id: FormatConfigId,
   pub override_config: Vec<u8>,
-  pub file_bytes: Vec<u8>,
+  pub file_bytes: Arc<Vec<u8>>,
 }
 
 #[derive(Debug)]

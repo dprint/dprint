@@ -225,7 +225,7 @@ pub async fn handle_process_stdio_messages<THandler: AsyncPluginHandler>(handler
                 continue;
               }
             },
-            file_bytes: body.file_bytes,
+            file_bytes: Arc::unwrap_or_clone(body.file_bytes),
             token: token.clone(),
           };
 

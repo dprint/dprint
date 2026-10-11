@@ -641,7 +641,7 @@ fn scan_project_files(environment: &impl Environment) -> ProjectFiles {
             pending_dirs.push_back(path);
           }
         }
-        DirEntry::File { name, path } => {
+        DirEntry::File { path } => {
           if is_ignored(&path, false) {
             continue;
           }
@@ -649,7 +649,9 @@ fn scan_project_files(environment: &impl Environment) -> ProjectFiles {
             break 'outer;
           }
           files_remaining -= 1;
-          file_names.insert(name.to_string_lossy().into_owned());
+          if let Some(name) = path.file_name() {
+            file_names.insert(name.to_string_lossy().into_owned());
+          }
           if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
             extensions.insert(ext.to_lowercase());
           }
