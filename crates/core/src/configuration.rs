@@ -182,11 +182,15 @@ impl ConfigKeyValue {
 
   /// Gets a hash of the configuration value. This is used for incremental formatting
   /// and the Hash trait is not implemented to discourage using this in other places.
+  ///
+  /// The lengths of strings, arrays, and objects are included so that different
+  /// values can't feed the same bytes to the hasher (ex. `[[1], 2]` and `[[1, 2]]`).
   #[allow(clippy::should_implement_trait)]
   pub fn hash(&self, hasher: &mut impl std::hash::Hasher) {
     match self {
       ConfigKeyValue::String(value) => {
         hasher.write_u8(0);
+        hasher.write_usize(value.len());
         hasher.write(value.as_bytes())
       }
       ConfigKeyValue::Number(value) => {
@@ -199,13 +203,16 @@ impl ConfigKeyValue {
       }
       ConfigKeyValue::Array(values) => {
         hasher.write_u8(3);
+        hasher.write_usize(values.len());
         for value in values {
           value.hash(hasher);
         }
       }
       ConfigKeyValue::Object(key_values) => {
         hasher.write_u8(4);
+        hasher.write_usize(key_values.len());
         for (key, value) in key_values {
+          hasher.write_usize(key.len());
           hasher.write(key.as_bytes());
           value.hash(hasher);
         }
@@ -461,6 +468,50 @@ pub fn get_unknown_property_diagnostics(config: ConfigKeyMap) -> Vec<Configurati
 #[cfg(test)]
 mod test {
   use super::*;
+
+  #[test]
+  fn config_key_value_hash_includes_lengths() {
+    fn get_hash(value: ConfigKeyValue) -> u64 {
+      use std::hash::Hasher;
+      let mut hasher = std::collections::hash_map::DefaultHasher::new();
+      value.hash(&mut hasher);
+      hasher.finish()
+    }
+
+    fn string(value: &str) -> ConfigKeyValue {
+      ConfigKeyValue::String(value.to_string())
+    }
+
+    fn object(key_values: Vec<(&str, ConfigKeyValue)>) -> ConfigKeyValue {
+      ConfigKeyValue::Object(key_values.into_iter().map(|(key, value)| (key.to_string(), value)).collect())
+    }
+
+    let number = ConfigKeyValue::Number;
+    let array = ConfigKeyValue::Array;
+
+    // arrays
+    assert_ne!(
+      get_hash(array(vec![array(vec![number(1)]), number(2)])),
+      get_hash(array(vec![array(vec![number(1), number(2)])]))
+    );
+    // strings
+    assert_ne!(get_hash(array(vec![string("a"), string("b")])), get_hash(array(vec![string("a\0b")])));
+    // objects
+    assert_ne!(
+      get_hash(array(vec![object(vec![("a", number(1))]), number(2)])),
+      get_hash(array(vec![object(vec![("a", number(1)), ("\u{1}\u{2}\0\0", number(0))])]))
+    );
+    // object keys
+    assert_ne!(
+      get_hash(object(vec![("a", string("b"))])),
+      get_hash(object(vec![("a\0\u{1}\0\0\0\0\0\0\0b", ConfigKeyValue::Null)]))
+    );
+
+    assert_eq!(
+      get_hash(array(vec![string("a"), object(vec![("b", number(1))])])),
+      get_hash(array(vec![string("a"), object(vec![("b", number(1))])]))
+    );
+  }
 
   #[test]
   fn get_default_config_when_empty() {
