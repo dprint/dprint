@@ -540,7 +540,7 @@ fn resolve_line_ranges_by_path<TEnvironment: Environment>(
         bail!(
           concat!(
             "A --lines flag without a file path can only be used when formatting a single file, but {} files were found. ",
-            "Specify the file each range is for (ex. --lines path/to/file.ts:10:20).",
+            "Specify the file each range is for (ex. --lines path/to/file.ts:10-20).",
           ),
           remaining_count + 1
         );
@@ -5015,22 +5015,22 @@ text2"
     // the test plugin replaces the range with _formatted_ and
     // leaves the text alone when it ends with _formatted
     let text = "line1\nline2\nline3\nline4\n_formatted";
-    assert_eq!(run(vec!["--lines", "2:2"], text), vec!["line1\n_formatted_\nline3\nline4\n_formatted"]);
-    assert_eq!(run(vec!["--lines=2:3"], text), vec!["line1\n_formatted_\nline4\n_formatted"]);
+    assert_eq!(run(vec!["--lines", "2-2"], text), vec!["line1\n_formatted_\nline3\nline4\n_formatted"]);
+    assert_eq!(run(vec!["--lines=2-3"], text), vec!["line1\n_formatted_\nline4\n_formatted"]);
     // multiple ranges in any order
     assert_eq!(
-      run(vec!["--lines", "1", "--lines", "4:4", "--lines", "2:2"], text),
+      run(vec!["--lines", "1", "--lines", "4-4", "--lines", "2-2"], text),
       vec!["_formatted_\nline3\n_formatted_\n_formatted"]
     );
     // overlapping ranges are formatted as one
-    assert_eq!(run(vec!["--lines", "2:3", "--lines", "3:4"], text), vec!["line1\n_formatted_\n_formatted"]);
+    assert_eq!(run(vec!["--lines", "2-3", "--lines", "3-4"], text), vec!["line1\n_formatted_\n_formatted"]);
     // excludes the carriage return
     let crlf_text = "line1\r\nline2\r\n_formatted";
-    assert_eq!(run(vec!["--lines", "1:1"], crlf_text), vec!["_formatted_\r\nline2\r\n_formatted"]);
-    assert_eq!(run(vec!["--lines", "2:2"], crlf_text), vec!["line1\r\n_formatted_\r\n_formatted"]);
+    assert_eq!(run(vec!["--lines", "1-1"], crlf_text), vec!["_formatted_\r\nline2\r\n_formatted"]);
+    assert_eq!(run(vec!["--lines", "2-2"], crlf_text), vec!["line1\r\n_formatted_\r\n_formatted"]);
     // past the end of the text
-    assert_eq!(run(vec!["--lines", "6:7"], text), vec![text]);
-    assert_eq!(run(vec!["--lines", "50:60"], text), vec![text]);
+    assert_eq!(run(vec!["--lines", "6-7"], text), vec![text]);
+    assert_eq!(run(vec!["--lines", "50-60"], text), vec![text]);
   }
 
   #[test]
@@ -5040,22 +5040,22 @@ text2"
       .write_file(file_path, "line1\nline2\nline3\n_formatted")
       .write_file("/other.txt", "text")
       .build();
-    run_test_cli(vec!["fmt", "--lines", "1:1", "--lines", "3:3", file_path], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--lines", "1-1", "--lines", "3-3", file_path], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
     assert_eq!(environment.read_file(file_path).unwrap(), "_formatted_\nline2\n_formatted_\n_formatted");
 
     // nothing to format
-    run_test_cli(vec!["fmt", "--lines", "10:12", file_path], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--lines", "10-12", file_path], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), Vec::<String>::new());
     assert_eq!(environment.read_file(file_path).unwrap(), "_formatted_\nline2\n_formatted_\n_formatted");
 
     // a range without a file path needs a single file
-    let err = run_test_cli(vec!["fmt", "--lines", "1:1"], &environment).err().unwrap();
+    let err = run_test_cli(vec!["fmt", "--lines", "1-1"], &environment).err().unwrap();
     assert_eq!(
       err.to_string(),
       concat!(
         "A --lines flag without a file path can only be used when formatting a single file, but 2 files were found. ",
-        "Specify the file each range is for (ex. --lines path/to/file.ts:10:20).",
+        "Specify the file each range is for (ex. --lines path/to/file.ts:10-20).",
       )
     );
     assert_eq!(environment.read_file("/other.txt").unwrap(), "text");
@@ -5075,7 +5075,7 @@ text2"
   #[test]
   fn should_format_line_ranges_for_multiple_files() {
     let environment = build_line_ranges_environment();
-    run_test_cli(vec!["fmt", "--lines", "/a.txt:1:1,3", "--lines", "sub/b.txt:2:2"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--lines", "/a.txt:1-1,3", "--lines", "sub/b.txt:2-2"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
     assert_eq!(environment.read_file("/a.txt").unwrap(), "_formatted_\na2\n_formatted_\n_formatted");
     assert_eq!(environment.read_file("/sub/b.txt").unwrap(), "b1\n_formatted_\n_formatted");
@@ -5088,7 +5088,7 @@ text2"
   fn should_format_line_ranges_with_globs() {
     let environment = build_line_ranges_environment();
     // a file that's also matched by a glob only has its lines formatted
-    run_test_cli(vec!["fmt", "--lines", "/a.txt:2:2", "--", "/*.txt"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--lines", "/a.txt:2-2", "--", "/*.txt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
     assert_eq!(environment.read_file("/a.txt").unwrap(), "a1\n_formatted_\na3\n_formatted");
     assert_eq!(environment.read_file("/c.txt").unwrap(), "c_formatted");
@@ -5100,10 +5100,10 @@ text2"
   fn should_error_for_line_ranges_of_directory() {
     // a glob isn't tested here because the test environment's canonicalize never fails
     let environment = build_line_ranges_environment();
-    let err = run_test_cli(vec!["fmt", "--lines", "/sub:1:1"], &environment).err().unwrap();
+    let err = run_test_cli(vec!["fmt", "--lines", "/sub:1-1"], &environment).err().unwrap();
     assert_eq!(err.to_string(), "Lines can only be specified for a file path, but '/sub' is a directory.");
     let test_std_in = TestStdInReader::from(
-      "/a.txt:1:1
+      "/a.txt:1-1
 /sub:2
 ",
     );
@@ -5140,7 +5140,7 @@ _formatted"
   #[test]
   fn should_format_line_ranges_and_entire_files() {
     let environment = build_line_ranges_environment();
-    run_test_cli(vec!["fmt", "--lines", "/a.txt:2:2", "--", "/a.txt", "/c.txt"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--lines", "/a.txt:2-2", "--", "/a.txt", "/c.txt"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
     assert_eq!(environment.read_file("/a.txt").unwrap(), "a1\n_formatted_\na3\n_formatted");
     // a file without line ranges is formatted in its entirety
@@ -5152,7 +5152,7 @@ _formatted"
   #[test]
   fn should_format_line_ranges_from_stdin_files() {
     let environment = build_line_ranges_environment();
-    let test_std_in = TestStdInReader::from("/a.txt:1:1,3\n/c.txt\n/sub/b.txt:2\n");
+    let test_std_in = TestStdInReader::from("/a.txt:1-1,3\n/c.txt\n/sub/b.txt:2\n");
     run_test_cli_with_stdin(vec!["fmt", "--stdin-files"], &environment, test_std_in).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(3)]);
     assert_eq!(environment.read_file("/a.txt").unwrap(), "_formatted_\na2\n_formatted_\n_formatted");
@@ -5164,11 +5164,11 @@ _formatted"
   #[test]
   fn should_not_use_incremental_when_formatting_line_ranges() {
     let environment = build_line_ranges_environment();
-    run_test_cli(vec!["fmt", "--incremental", "--lines", "/a.txt:1:1"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--incremental", "--lines", "/a.txt:1-1"], &environment).unwrap();
     assert_eq!(environment.read_file("/a.txt").unwrap(), "_formatted_\na2\na3\n_formatted");
     environment.take_stdout_messages();
     // the other lines still get formatted afterwards
-    run_test_cli(vec!["fmt", "--incremental", "--lines", "/a.txt:2:2"], &environment).unwrap();
+    run_test_cli(vec!["fmt", "--incremental", "--lines", "/a.txt:2-2"], &environment).unwrap();
     assert_eq!(environment.read_file("/a.txt").unwrap(), "_formatted_\n_formatted_\na3\n_formatted");
     assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
   }

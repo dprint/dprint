@@ -943,7 +943,7 @@ SOFTWARE.
     assert!(get_line("'--incremental=").ends_with(r":: :(true false)' \"));
     assert!(get_line("'--reload=").ends_with(r"::config|plugins:(config plugins all)' \"));
     // the colons need to be escaped in order to not end the message
-    assert!(get_line("'*--lines=").ends_with(r":[file-path\:]first\:last[,first\:last]...:_files' \"));
+    assert!(get_line("'*--lines=").ends_with(r":[file-path\:]first-last[,first-last]...:_files' \"));
   }
 
   #[test]

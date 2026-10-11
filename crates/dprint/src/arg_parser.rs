@@ -254,17 +254,17 @@ pub struct FmtSubCommand {
   pub line_ranges: Vec<FileLineRanges>,
 }
 
-/// An inclusive range of 1-based line numbers (ex. `10:20`).
+/// An inclusive range of 1-based line numbers (ex. `10-20`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LineRange {
   pub first: usize,
   pub last: usize,
 }
 
-/// Ranges of lines to format and the file they're for (ex. `--lines src/main.ts:10:20,35:40`).
+/// Ranges of lines to format and the file they're for (ex. `--lines src/main.ts:10-20,35-40`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileLineRanges {
-  /// `None` when no file was specified (ex. `--lines 10:20`), which is for
+  /// `None` when no file was specified (ex. `--lines 10-20`), which is for
   /// the single file being formatted.
   pub path: Option<String>,
   pub ranges: Vec<LineRange>,
@@ -280,7 +280,7 @@ impl std::str::FromStr for FileLineRanges {
       }
 
       text.split(',').all(|range| {
-        let (first, last) = range.split_once(':').unwrap_or((range, range));
+        let (first, last) = range.split_once('-').unwrap_or((range, range));
         is_number(first) && is_number(last)
       })
     }
@@ -295,7 +295,7 @@ impl std::str::FromStr for FileLineRanges {
       }
 
       // a single line number is a range of that one line
-      let (first, last) = text.split_once(':').unwrap_or((text, text));
+      let (first, last) = text.split_once('-').unwrap_or((text, text));
       let (first, last) = (parse_line(first)?, parse_line(last)?);
       if first > last {
         return Err(format!("the first line ({first}) was after the last line ({last})"));
@@ -303,13 +303,13 @@ impl std::str::FromStr for FileLineRanges {
       Ok(LineRange { first, last })
     }
 
-    // the path may contain colons (ex. C:\file.ts:10:20), so the
+    // the path may contain colons (ex. C:\file.ts:10-20), so the
     // lines are the most text at the end that looks like them
     let Some(ranges_start) = std::iter::once(0)
       .chain(s.match_indices(':').map(|(i, _)| i + 1))
       .find(|start| looks_like_line_ranges(&s[*start..]))
     else {
-      return Err(format!("expected it to end with the lines to format (ex. 10:20), got '{s}'"));
+      return Err(format!("expected it to end with the lines to format (ex. 10-20), got '{s}'"));
     };
     let path = match ranges_start {
       0 => None,
@@ -726,7 +726,7 @@ fn parse_diff_format(matches: &ArgMatches, default: DiffFormat) -> DiffFormat {
 }
 
 /// Parses the line ranges for `fmt`, which come from `--lines` and the lines
-/// of `--stdin-files` (ex. `src/main.ts:10:20`). The files of the line ranges
+/// of `--stdin-files` (ex. `src/main.ts:10-20`). The files of the line ranges
 /// are added to the patterns so that they get formatted.
 fn parse_fmt_line_ranges(matches: &ArgMatches, patterns: &mut FilePatternArgs) -> Vec<FileLineRanges> {
   let mut line_ranges = parse_line_ranges(matches);
@@ -759,7 +759,7 @@ fn parse_stdin_fmt_line_ranges(matches: &ArgMatches) -> Result<Vec<LineRange>> {
   for file_line_ranges in parse_line_ranges(matches) {
     if let Some(path) = file_line_ranges.path {
       bail!(
-        "A file path can't be specified in --lines when formatting stdin (got '{}'). Use --lines <first>:<last> instead.",
+        "A file path can't be specified in --lines when formatting stdin (got '{}'). Use --lines <first>-<last> instead.",
         path
       );
     }
@@ -1068,10 +1068,10 @@ EXAMPLES:
             .long("lines")
             .value_name(match kind {
               // zsh's completions need the colons escaped
-              CliArgParserKind::ForCompletions => r"[file-path\:]first\:last[,first\:last]...",
-              _ => "[file-path:]first:last[,first:last]...",
+              CliArgParserKind::ForCompletions => r"[file-path\:]first-last[,first-last]...",
+              _ => "[file-path:]first-last[,first-last]...",
             })
-            .help("Only format the provided 1-based and inclusive ranges of lines of a file (ex. `--lines src/main.ts:10:20,35:40`). May be specified multiple times. The file path may be omitted when formatting a single file or using --stdin (ex. `--lines 10:20`). With --stdin-files, add the lines to a file path's line instead (ex. `src/main.ts:10:20,35:40`). What gets formatted is up to the plugin and plugins that don't support range formatting may format the entire file.")
+            .help("Only format the provided 1-based and inclusive ranges of lines of a file (ex. `--lines src/main.ts:10-20,35-40`). May be specified multiple times. The file path may be omitted when formatting a single file or using --stdin (ex. `--lines 10-20`). With --stdin-files, add the lines to a file path's line instead (ex. `src/main.ts:10-20,35-40`). What gets formatted is up to the plugin and plugins that don't support range formatting may format the entire file.")
             .value_parser(clap::value_parser!(FileLineRanges))
             .value_hint(clap::ValueHint::AnyPath)
             .action(clap::ArgAction::Append)
@@ -1663,7 +1663,7 @@ mod test {
 
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "file.txt"]).unwrap();
     assert_eq!(fmt_cmd.line_ranges, vec![]);
-    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--lines", "2:4,7", "--lines=10:10", "file.txt"]).unwrap();
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--lines", "2-4,7", "--lines=10-10", "file.txt"]).unwrap();
     assert_eq!(fmt_cmd.line_ranges, vec![ranges(None, &[(2, 4), (7, 7)]), ranges(None, &[(10, 10)])]);
     assert_eq!(fmt_cmd.patterns.include_patterns, Some(vec!["file.txt".to_string()]));
 
@@ -1671,15 +1671,17 @@ mod test {
     let fmt_cmd = parse_fmt_sub_command(vec![
       "fmt",
       "--lines",
-      "a.txt:2:4,8,10:12",
+      "a.txt:2-4,8,10-12",
       "--lines",
       "a.txt:20",
       "--lines",
-      r"C:\dir\b.txt:1:3",
+      r"C:\dir\b.txt:1-3",
       "--lines",
-      r"C:\dir\b.txt:5,7:9",
+      r"C:\dir\b.txt:5,7-9",
       "--lines",
-      "10:20:30",
+      "10:20-30",
+      "--lines",
+      "dir-1/file-2.txt:3-4",
     ])
     .unwrap();
     assert_eq!(
@@ -1691,24 +1693,31 @@ mod test {
         ranges(Some(r"C:\dir\b.txt"), &[(5, 5), (7, 9)]),
         // a file named 10
         ranges(Some("10"), &[(20, 30)]),
+        ranges(Some("dir-1/file-2.txt"), &[(3, 4)]),
       ]
     );
     assert_eq!(
       fmt_cmd.patterns.include_patterns,
-      Some(vec!["a.txt".to_string(), r"C:\dir\b.txt".to_string(), "10".to_string()])
+      Some(vec![
+        "a.txt".to_string(),
+        r"C:\dir\b.txt".to_string(),
+        "10".to_string(),
+        "dir-1/file-2.txt".to_string()
+      ])
     );
-    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--lines", "a.txt:2:4", "--", "a.txt", "sub"]).unwrap();
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--lines", "a.txt:2-4", "--", "a.txt", "sub"]).unwrap();
     assert_eq!(fmt_cmd.patterns.include_patterns, Some(vec!["a.txt".to_string(), "sub".to_string()]));
 
     for (value, expected) in [
-      ("0:1", "line numbers start at 1"),
-      ("a.txt:0:1", "line numbers start at 1"),
-      ("a.txt:1:2,0", "line numbers start at 1"),
-      ("4:2", "the first line (4) was after the last line (2)"),
-      ("a.txt", "expected it to end with the lines to format (ex. 10:20), got 'a.txt'"),
-      ("a.txt:1:b", "expected it to end with the lines to format (ex. 10:20), got 'a.txt:1:b'"),
-      ("a.txt:1:2,", "expected it to end with the lines to format (ex. 10:20), got 'a.txt:1:2,'"),
-      (":1:2", "expected a file path before the lines"),
+      ("0-1", "line numbers start at 1"),
+      ("a.txt:0-1", "line numbers start at 1"),
+      ("a.txt:1-2,0", "line numbers start at 1"),
+      ("4-2", "the first line (4) was after the last line (2)"),
+      ("a.txt", "expected it to end with the lines to format (ex. 10-20), got 'a.txt'"),
+      ("a.txt:1:b", "expected it to end with the lines to format (ex. 10-20), got 'a.txt:1:b'"),
+      ("a.txt:1-2-3", "expected it to end with the lines to format (ex. 10-20), got 'a.txt:1-2-3'"),
+      ("a.txt:1-2,", "expected it to end with the lines to format (ex. 10-20), got 'a.txt:1-2,'"),
+      (":1-2", "expected a file path before the lines"),
     ] {
       let err = test_args(vec!["fmt", "--lines", value, "file.txt"]).err().unwrap();
       assert!(err.to_string().contains(expected), "got: {}", err);
@@ -1722,7 +1731,7 @@ mod test {
       parse_args(args, TestStdInReader::from("text"))
     }
 
-    match parse(&["fmt", "--stdin", "file.txt", "--lines=1:3,5", "--lines", "8:9"]).unwrap().sub_command {
+    match parse(&["fmt", "--stdin", "file.txt", "--lines=1-3,5", "--lines", "8-9"]).unwrap().sub_command {
       SubCommand::StdInFmt(cmd) => assert_eq!(
         cmd.line_ranges,
         vec![
@@ -1733,17 +1742,17 @@ mod test {
       ),
       _ => unreachable!(),
     }
-    let err = parse(&["fmt", "--stdin", "file.txt", "--lines=file.txt:1:3"]).err().unwrap();
+    let err = parse(&["fmt", "--stdin", "file.txt", "--lines=file.txt:1-3"]).err().unwrap();
     assert_eq!(
       err.to_string(),
-      "A file path can't be specified in --lines when formatting stdin (got 'file.txt'). Use --lines <first>:<last> instead."
+      "A file path can't be specified in --lines when formatting stdin (got 'file.txt'). Use --lines <first>-<last> instead."
     );
   }
 
   #[test]
   fn lines_in_stdin_files() {
-    let stdin_reader = TestStdInReader::from("/file1.txt:2:4,6\n/sub dir/file 2.txt\n/file1.txt:8\n/file3.txt:1:2\n10:20\n");
-    let args = ["", "fmt", "--stdin-files", "--lines", "/file4.txt:3:3"].map(String::from).to_vec();
+    let stdin_reader = TestStdInReader::from("/file1.txt:2-4,6\n/sub dir/file 2.txt\n/file1.txt:8\n/file3.txt:1-2\n10-20\n");
+    let args = ["", "fmt", "--stdin-files", "--lines", "/file4.txt:3-3"].map(String::from).to_vec();
     let SubCommand::Fmt(cmd) = parse_args(args, stdin_reader).unwrap().sub_command else {
       unreachable!();
     };
@@ -1764,7 +1773,7 @@ mod test {
     assert_eq!(
       cmd.patterns.include_patterns,
       Some(
-        ["/file1.txt", "/sub dir/file 2.txt", "/file3.txt", "10:20", "/file4.txt"]
+        ["/file1.txt", "/sub dir/file 2.txt", "/file3.txt", "10-20", "/file4.txt"]
           .map(String::from)
           .to_vec()
       )
@@ -1772,10 +1781,10 @@ mod test {
 
     // only fmt has line ranges
     let args = ["", "check", "--stdin-files"].map(String::from).to_vec();
-    let SubCommand::Check(cmd) = parse_args(args, TestStdInReader::from("/file1.txt:2:4\n")).unwrap().sub_command else {
+    let SubCommand::Check(cmd) = parse_args(args, TestStdInReader::from("/file1.txt:2-4\n")).unwrap().sub_command else {
       unreachable!();
     };
-    assert_eq!(cmd.patterns.include_patterns, Some(vec!["/file1.txt:2:4".to_string()]));
+    assert_eq!(cmd.patterns.include_patterns, Some(vec!["/file1.txt:2-4".to_string()]));
   }
 
   #[test]
