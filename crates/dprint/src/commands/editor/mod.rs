@@ -8,6 +8,7 @@ use dprint_core::communication::SingleThreadMessageWriter;
 use dprint_core::plugins::HostFormatRequest;
 use std::io::ErrorKind;
 use std::path::Path;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -30,6 +31,7 @@ use crate::utils::Semaphore;
 
 use self::messages::EditorMessage;
 use self::messages::EditorMessageBody;
+use self::messages::FormatEditorMessageBody;
 
 pub async fn output_editor_info<TEnvironment: Environment>(
   args: &CliArgs,
@@ -111,9 +113,17 @@ struct EditorContext {
   pub id_generator: IdGenerator,
   pub writer: SingleThreadMessageWriter<EditorMessage>,
   pub cancellation_tokens: RcIdStore<Arc<CancellationToken>>,
+  /// Tokens of the format requests that are waiting to be handled.
+  pub pending_format_tokens: RcIdStore<Arc<CancellationToken>>,
   /// Cancelled when a response can't be sent because the editor closed
   /// the service's output, which is when the service should exit.
   pub output_closed: CancellationToken,
+}
+
+/// A message that needs the configuration to be handled.
+enum ConfigMessage {
+  CanFormat(u32, PathBuf),
+  Format(u32, FormatEditorMessageBody, Arc<CancellationToken>),
 }
 
 struct EditorService<'a, TEnvironment: Environment> {
@@ -144,6 +154,7 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
       context: Rc::new(EditorContext {
         id_generator: Default::default(),
         cancellation_tokens: Default::default(),
+        pending_format_tokens: Default::default(),
         writer,
         output_closed: Default::default(),
       }),
@@ -175,103 +186,140 @@ impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
         }
       }
     });
-    loop {
-      let message = tokio::select! {
-        message = rx.recv() => message,
-        // there's nobody to respond to anymore
-        _ = self.context.output_closed.cancelled() => None,
-      };
-      let Some(message) = message else { return Ok(()) };
-      match message.body {
-        EditorMessageBody::Success(_message_id) => {}
-        EditorMessageBody::Error(_message_id, _data) => {}
-        EditorMessageBody::Close => {
-          handle_message(&self.context, message.id, || Ok(EditorMessageBody::Success(message.id)));
-          return Ok(());
-        }
-        EditorMessageBody::IsAlive => {
-          handle_message(&self.context, message.id, || Ok(EditorMessageBody::Success(message.id)));
-        }
-        EditorMessageBody::CanFormat(path) => {
-          // do this on the same thread
-          let result = self.can_format(&path).await;
-          handle_message(&self.context, message.id, || {
-            result.map(|val| EditorMessageBody::CanFormatResponse(message.id, if val { 1 } else { 0 }))
-          });
-        }
-        EditorMessageBody::CanFormatResponse(_, _) => {
-          send_error_response(&self.context, message.id, anyhow!("CLI cannot handle a CanFormatResponse message."));
-        }
-        EditorMessageBody::Format(body) => {
-          if self.plugins_scope.is_none()
-            && let Err(err) = self.ensure_latest_config().await
-          {
-            // respond with the error instead of exiting so the editor can
-            // show it and the config file can be fixed without a restart
-            send_error_response(&self.context, message.id, err);
-            continue;
+    // The messages that need the configuration are handled one at a time on a
+    // separate task from the one receiving the messages. Resolving the
+    // configuration can take a long time (ex. downloading plugins), so this
+    // keeps the service responding to the other messages while that happens.
+    let (config_message_tx, mut config_message_rx) = tokio::sync::mpsc::unbounded_channel::<ConfigMessage>();
+    let context = self.context.clone();
+    let receive_messages = async move {
+      loop {
+        let message = tokio::select! {
+          message = rx.recv() => message,
+          // there's nobody to respond to anymore
+          _ = context.output_closed.cancelled() => None,
+        };
+        let Some(message) = message else { return };
+        match message.body {
+          EditorMessageBody::Success(_message_id) => {}
+          EditorMessageBody::Error(_message_id, _data) => {}
+          EditorMessageBody::Close => {
+            handle_message(&context, message.id, || Ok(EditorMessageBody::Success(message.id)));
+            return;
           }
-          let token = Arc::new(CancellationToken::new());
-          let request = HostFormatRequest {
-            // canonicalize so that it matches the canonicalized config paths (ex. for overrides)
-            file_path: self
-              .environment
-              .canonicalize_maybe_not_exists(&body.file_path)
-              .map(|p| p.into_path_buf())
-              .unwrap_or(body.file_path),
-            range: body.range,
-            override_config: if body.override_config.is_empty() {
-              Default::default()
-            } else {
-              match serde_json::from_slice(&body.override_config) {
-                Ok(config) => config,
-                Err(err) => {
-                  send_error_response(&self.context, message.id, anyhow!("Error deserializing override config. {:#}", err));
-                  continue;
-                }
-              }
-            },
-            file_bytes: body.file_bytes,
-            token: token.clone(),
-          };
-
-          let token_storage_guard = self.context.cancellation_tokens.store_with_owned_guard(message.id, token.clone());
-          let context = self.context.clone();
-          let concurrency_limiter = self.concurrency_limiter.clone();
-          let scope = self.plugins_scope.clone().unwrap();
-          let ensure_stable_format = self.ensure_stable_format;
-          let _ignore = dprint_core::async_runtime::spawn(async move {
-            let _permit = concurrency_limiter.acquire().await;
-            if token.is_cancelled() {
-              return;
-            }
-
-            let result = scope.format_stable(request, ensure_stable_format).await;
-            drop(token_storage_guard);
-            if token.is_cancelled() {
-              return;
-            }
-
-            let body = match result {
-              Ok(text) => EditorMessageBody::FormatResponse(message.id, text),
-              Err(err) => EditorMessageBody::Error(message.id, dprint_core::plugins::error_to_string(&err).into_bytes()),
-            };
-            send_response_body(&context, body);
-          });
-        }
-        EditorMessageBody::FormatResponse(_, _) => {
-          send_error_response(&self.context, message.id, anyhow!("CLI cannot handle a FormatResponse message."));
-        }
-        EditorMessageBody::CancelFormat(message_id) => {
-          if let Some(token) = self.context.cancellation_tokens.take(message_id) {
-            token.cancel();
+          EditorMessageBody::IsAlive => {
+            handle_message(&context, message.id, || Ok(EditorMessageBody::Success(message.id)));
           }
-        }
-        EditorMessageBody::Unknown(message_kind, _) => {
-          send_error_response(&self.context, message.id, anyhow!("Unknown message with kind: {}", message_kind));
+          EditorMessageBody::CanFormat(path) => {
+            let _ = config_message_tx.send(ConfigMessage::CanFormat(message.id, path));
+          }
+          EditorMessageBody::CanFormatResponse(_, _) => {
+            send_error_response(&context, message.id, anyhow!("CLI cannot handle a CanFormatResponse message."));
+          }
+          EditorMessageBody::Format(body) => {
+            // store this now so the format can be cancelled while it's waiting to be handled
+            let token = Arc::new(CancellationToken::new());
+            context.pending_format_tokens.store(message.id, token.clone());
+            let _ = config_message_tx.send(ConfigMessage::Format(message.id, body, token));
+          }
+          EditorMessageBody::FormatResponse(_, _) => {
+            send_error_response(&context, message.id, anyhow!("CLI cannot handle a FormatResponse message."));
+          }
+          EditorMessageBody::CancelFormat(message_id) => {
+            if let Some(token) = context.cancellation_tokens.take(message_id) {
+              token.cancel();
+            } else if let Some(token) = context.pending_format_tokens.get_cloned(message_id) {
+              token.cancel();
+            }
+          }
+          EditorMessageBody::Unknown(message_kind, _) => {
+            send_error_response(&context, message.id, anyhow!("Unknown message with kind: {}", message_kind));
+          }
         }
       }
+    };
+    let handle_config_messages = async {
+      while let Some(message) = config_message_rx.recv().await {
+        match message {
+          ConfigMessage::CanFormat(message_id, path) => {
+            let result = self.can_format(&path).await;
+            handle_message(&self.context, message_id, || {
+              result.map(|val| EditorMessageBody::CanFormatResponse(message_id, if val { 1 } else { 0 }))
+            });
+          }
+          ConfigMessage::Format(message_id, body, token) => {
+            self.context.pending_format_tokens.take(message_id);
+            if !token.is_cancelled() {
+              self.format(message_id, body, token).await;
+            }
+          }
+        }
+      }
+    };
+
+    tokio::select! {
+      // finished when the editor closes the service or its output
+      _ = receive_messages => {}
+      _ = handle_config_messages => {}
     }
+    Ok(())
+  }
+
+  async fn format(&mut self, message_id: u32, body: FormatEditorMessageBody, token: Arc<CancellationToken>) {
+    if self.plugins_scope.is_none()
+      && let Err(err) = self.ensure_latest_config().await
+    {
+      // respond with the error instead of exiting so the editor can
+      // show it and the config file can be fixed without a restart
+      send_error_response(&self.context, message_id, err);
+      return;
+    }
+    let request = HostFormatRequest {
+      // canonicalize so that it matches the canonicalized config paths (ex. for overrides)
+      file_path: self
+        .environment
+        .canonicalize_maybe_not_exists(&body.file_path)
+        .map(|p| p.into_path_buf())
+        .unwrap_or(body.file_path),
+      range: body.range,
+      override_config: if body.override_config.is_empty() {
+        Default::default()
+      } else {
+        match serde_json::from_slice(&body.override_config) {
+          Ok(config) => config,
+          Err(err) => {
+            send_error_response(&self.context, message_id, anyhow!("Error deserializing override config. {:#}", err));
+            return;
+          }
+        }
+      },
+      file_bytes: body.file_bytes,
+      token: token.clone(),
+    };
+
+    let token_storage_guard = self.context.cancellation_tokens.store_with_owned_guard(message_id, token.clone());
+    let context = self.context.clone();
+    let concurrency_limiter = self.concurrency_limiter.clone();
+    let scope = self.plugins_scope.clone().unwrap();
+    let ensure_stable_format = self.ensure_stable_format;
+    let _ignore = dprint_core::async_runtime::spawn(async move {
+      let _permit = concurrency_limiter.acquire().await;
+      if token.is_cancelled() {
+        return;
+      }
+
+      let result = scope.format_stable(request, ensure_stable_format).await;
+      drop(token_storage_guard);
+      if token.is_cancelled() {
+        return;
+      }
+
+      let body = match result {
+        Ok(text) => EditorMessageBody::FormatResponse(message_id, text),
+        Err(err) => EditorMessageBody::Error(message_id, dprint_core::plugins::error_to_string(&err).into_bytes()),
+      };
+      send_response_body(&context, body);
+    });
   }
 
   async fn can_format(&mut self, file_path: &Path) -> Result<bool> {
@@ -478,6 +526,19 @@ mod test {
       });
 
       communicator
+    }
+
+    pub async fn is_alive(&self) -> Result<()> {
+      let (tx, rx) = oneshot::channel::<Result<()>>();
+
+      self
+        .send_message(
+          EditorMessageBody::IsAlive,
+          MessageResponseChannel::Success(tx),
+          rx,
+          Arc::new(CancellationToken::new()),
+        )
+        .await
     }
 
     pub async fn check_file(&self, file_path: impl AsRef<Path>) -> Result<bool> {
@@ -1113,6 +1174,7 @@ mod test {
       let context = super::EditorContext {
         id_generator: Default::default(),
         cancellation_tokens: Default::default(),
+        pending_format_tokens: Default::default(),
         writer: SingleThreadMessageWriter::for_stdin(MessageWriter::new(ClosedWriter)),
         output_closed: Default::default(),
       };
@@ -1255,6 +1317,89 @@ mod test {
 
     let pid = std::process::id().to_string();
     run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_respond_while_resolving_config_for_editor_service() {
+    let plugin_url = "https://plugins.dprint.dev/test-plugin.wasm";
+    let txt_file_path = PathBuf::from("/file.txt");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file(&txt_file_path, "")
+      .build();
+    // resolving the config doesn't finish until the plugin is downloaded
+    environment.add_unresponsive_remote_file(plugin_url);
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      let environment = environment.clone();
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+          let check_file_finished = Rc::new(std::cell::Cell::new(false));
+          let check_file_handle = dprint_core::async_runtime::spawn({
+            let communicator = communicator.clone();
+            let txt_file_path = txt_file_path.clone();
+            let check_file_finished = check_file_finished.clone();
+            async move {
+              let result = communicator.check_file(&txt_file_path).await;
+              check_file_finished.set(true);
+              result
+            }
+          });
+
+          // give some time for the message to be sent
+          tokio::time::sleep(Duration::from_millis(50)).await;
+
+          // responds while the config is being resolved
+          communicator.is_alive().await.unwrap();
+          assert!(!check_file_finished.get());
+
+          // a format can be cancelled while it's waiting on the config
+          let token = CancellationToken::new();
+          let format_handle = dprint_core::async_runtime::spawn({
+            let communicator = communicator.clone();
+            let txt_file_path = txt_file_path.clone();
+            let token = token.clone();
+            async move {
+              communicator
+                .format_text(&txt_file_path, "wait_cancellation".to_string().into_bytes(), None, Default::default(), token)
+                .await
+            }
+          });
+          tokio::time::sleep(Duration::from_millis(50)).await;
+          token.cancel();
+          assert_eq!(format_handle.await.unwrap().unwrap(), None);
+          communicator.is_alive().await.unwrap();
+
+          environment.remove_unresponsive_remote_file(plugin_url);
+          assert_eq!(check_file_handle.await.unwrap().unwrap(), true);
+          assert_eq!(
+            communicator
+              .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_formatted"
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
 
     result.join().unwrap();
   }
