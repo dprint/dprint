@@ -20,6 +20,17 @@ Install using one of the methods below.
   iwr https://dprint.dev/install.ps1 -useb | iex
   ```
 
+- [npm](https://www.npmjs.com/):
+
+  ```sh
+  # globally
+  npm install -g dprint
+
+  # or for your project
+  npm install dprint
+  npx dprint help
+  ```
+
 - [Scoop](https://scoop.sh/) (Windows):
 
   ```sh
@@ -39,18 +50,6 @@ Install using one of the methods below.
   cargo install --locked dprint
   ```
 
-- [npm](https://www.npmjs.com/):
-
-  ```sh
-  # for your project
-  npm install dprint
-  npx dprint help
-
-  # or install globally
-  npm install -g dprint
-  dprint help
-  ```
-
 - python/[uv](https://docs.astral.sh/uv/) via [https://github.com/trim21/dprint-py](https://github.com/trim21/dprint-py):
 
   ```sh
@@ -61,13 +60,12 @@ Install using one of the methods below.
   [mise](https://mise.jdx.dev):
 
   ```sh
-  # for your project
+  # globally
+  mise use dprint --global
+
+  # or for your project
   mise use dprint
   mise x dprint -- dprint help
-
-  # or install globally
-  mise use dprint --global
-  dprint help
   ```
 
 - [asdf-vm](https://asdf-vm.com/) ([asdf-dprint](https://github.com/asdf-community/asdf-dprint)):
