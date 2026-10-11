@@ -191,6 +191,25 @@ dprint <span class="hljs-built_in">fmt</span> **/*.js --excludes **/data
 <h3 id="formatting-standard-input" tabindex="-1"><a class="header-anchor" href="#formatting-standard-input">Formatting Standard Input</a></h3>
 <p>Use <code>dprint fmt --stdin &lt;file-path/file-name/extension&gt;</code> and provide the input file text to stdin. The output will be directed by the CLI to stdout.</p>
 <p>Provide a full file path to format with inclusion/exclusion rules of your dprint configuration file or provide only a file name or extension to always format the file.</p>
+<h3 id="formatting-a-range-of-lines" tabindex="-1"><a class="header-anchor" href="#formatting-a-range-of-lines">Formatting a Range of Lines</a></h3>
+<p>Use the <code>--lines &lt;file-path&gt;:&lt;first&gt;:&lt;last&gt;</code> flag to only format a range of lines in a file. Line numbers are 1-based and the range is inclusive. Separate several ranges in a file with commas and specify the flag multiple times to format several files:</p>
+<pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --lines src/main.ts:10:20,35:40,52 --lines src/other.ts:5:8
+</code></pre>
+<p>The files of the ranges are formatted in addition to any other files provided on the command line, which are formatted in their entirety. When no other files are provided, only the files of the ranges are formatted.</p>
+<p>The file path may be omitted when formatting a single file or the text provided to <code>--stdin</code>:</p>
+<pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --lines 10:20,35:40 src/main.ts
+dprint <span class="hljs-built_in">fmt</span> --stdin src/main.ts --lines 10:20 &lt; src/main.ts
+</code></pre>
+<p>With <code>--stdin-files</code>, add the lines to the end of a file path instead. A file path without lines is formatted in its entirety:</p>
+<pre><code class="language-sh hljs language-bash"><span class="hljs-built_in">printf</span> <span class="hljs-string">'src/main.ts:10:20,35:40\nsrc/other.ts\n'</span> | dprint <span class="hljs-built_in">fmt</span> --stdin-files
+</code></pre>
+<p>This is useful for tools that only format modified lines. For example, with <a href="https://docs.jj-vcs.dev/latest/config/#enforce-code-formatting-on-modified-lines">Jujutsu's <code>jj fix</code></a>:</p>
+<pre><code class="language-toml hljs language-ini"><span class="hljs-section">[fix.tools.dprint]</span>
+<span class="hljs-attr">command</span> = [<span class="hljs-string">"dprint"</span>, <span class="hljs-string">"fmt"</span>, <span class="hljs-string">"--stdin"</span>, <span class="hljs-string">"$path"</span>]
+<span class="hljs-attr">line-range-args</span> = [<span class="hljs-string">"--lines=$first:$last"</span>]
+<span class="hljs-attr">patterns</span> = [<span class="hljs-string">"glob:'**/*.ts'"</span>]
+</code></pre>
+<p>The range is passed on to the plugin the same way as range formatting in the <a href="/lsp">language server</a>, so what's formatted is up to the plugin. A plugin that doesn't support range formatting may format the entire file or leave the text as-is.</p>
 <h3 id="formatting-a-list-of-files-from-standard-input" tabindex="-1"><a class="header-anchor" href="#formatting-a-list-of-files-from-standard-input">Formatting a list of files from Standard Input</a></h3>
 <p>Requires dprint &gt;= 0.55.0</p>
 <p>Use the <code>--stdin-files</code> flag to read a newline-separated list of file paths to format from stdin instead of passing them as command line arguments. This is useful when piping the output of another tool into dprint:</p>
@@ -239,6 +258,14 @@ dprint <span class="hljs-built_in">fmt</span> --diff --diff-format unified
 dprint <span class="hljs-built_in">fmt</span> --config https://dprint.dev/path/to/some/config.json
 </code></pre>
 <p>This flag is more useful for one-off commands. It is recommended to use the default configuration file location and name as that will lead to a better user experience.</p>
+<h3 id="reloading-remote-configuration-files-and-plugins" tabindex="-1"><a class="header-anchor" href="#reloading-remote-configuration-files-and-plugins">Reloading remote configuration files and plugins</a></h3>
+<p>Remote configuration files (specified via <code>--config</code> or <code>extends</code>) are cached. The cached copy is used until it expires according to the response's caching headers (ex. <code>Cache-Control: max-age</code>), or for a day when there are none, after which dprint checks the server for a newer version. When the server can't be reached, the cached copy is used and the check is tried again once it's stale again. Remote plugins are cached until the cache is cleared. Provide <code>--reload</code> to check the server for newer versions of both right away:</p>
+<pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --reload
+</code></pre>
+<p>Reloading a plugin downloads and sets it up again, so specify what to reload when only one kind changed:</p>
+<pre><code class="language-sh hljs language-bash">dprint <span class="hljs-built_in">fmt</span> --reload=config
+dprint <span class="hljs-built_in">fmt</span> --reload=plugins
+</code></pre>
 <h2 id="changing-config-discovery" tabindex="-1"><a class="header-anchor" href="#changing-config-discovery">Changing Config Discovery</a></h2>
 <p>Starting in dprint 0.50, you can change the way dprint discovers configuration files by using the <code>--config-discovery</code> flag:</p>
 <ul>
