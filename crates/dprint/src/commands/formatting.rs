@@ -6110,11 +6110,11 @@ text_formatted"
     );
     let assert_warned_and_formatted = |environment: &TestEnvironment, file_count: usize| {
       assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(file_count)]);
-      // only warns once even though the config file is also resolved
+      // warns twice because the config file is also resolved
       // for the config file that inherits from it
       let logs = environment.take_stderr_messages();
-      assert_eq!(logs.len(), 2, "{:?}", logs);
-      assert_eq!(logs.iter().filter(|log| log.ends_with(expected_warning)).count(), 1, "{:?}", logs);
+      assert_eq!(logs.len(), 3, "{:?}", logs);
+      assert_eq!(logs.iter().filter(|log| log.ends_with(expected_warning)).count(), 2, "{:?}", logs);
       assert!(
         logs.iter().any(|log| log == "Compiling https://plugins.dprint.dev/test-plugin.wasm"),
         "{:?}",
@@ -6127,13 +6127,6 @@ text_formatted"
     let environment = build_environment();
     run_test_cli(vec!["fmt"], &environment).unwrap();
     assert_warned_and_formatted(&environment, 2);
-
-    // does not warn again in the same process
-    environment.write_file(&file_path, "text").unwrap();
-    run_test_cli(vec!["fmt"], &environment).unwrap();
-    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
-    assert!(environment.take_stderr_messages().is_empty());
-    assert_eq!(environment.read_file(&file_path).unwrap(), "text_formatted");
 
     // specified config file
     let environment = build_environment();

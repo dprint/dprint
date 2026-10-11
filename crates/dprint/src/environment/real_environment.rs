@@ -77,7 +77,6 @@ pub struct RealEnvironment {
   url_downloader: Arc<RealUrlDownloader>,
   logger: Arc<Logger>,
   system: Arc<Mutex<System>>,
-  logged_once_keys: Arc<Mutex<HashSet<String>>>,
 }
 
 impl RealEnvironment {
@@ -100,7 +99,6 @@ impl RealEnvironment {
       logger,
       progress_bars,
       system: Default::default(),
-      logged_once_keys: Default::default(),
     };
 
     // ensure the cache directory is created
@@ -635,10 +633,6 @@ impl Environment for RealEnvironment {
   #[inline]
   fn log_level(&self) -> LogLevel {
     self.logger.log_level()
-  }
-
-  fn is_first_log_of(&self, key: &str) -> bool {
-    self.logged_once_keys.lock().insert(key.to_string())
   }
 
   fn compile_wasm(&self, wasm_bytes: &[u8]) -> Result<CompilationResult> {

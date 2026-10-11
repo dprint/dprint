@@ -6,7 +6,6 @@ use parking_lot::Mutex;
 use path_clean::PathClean;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::future::Future;
@@ -174,7 +173,6 @@ pub struct TestEnvironment {
   max_threads_count: Arc<Mutex<usize>>,
   current_exe_path: Arc<Mutex<PathBuf>>,
   is_terminal_interactive: Arc<Mutex<bool>>,
-  logged_once_keys: Arc<Mutex<HashSet<String>>>,
   run_command_results: Arc<Mutex<Vec<(Vec<OsString>, io::Result<Option<i32>>)>>>,
   /// Executables of processes that are pretending to be running, each paired
   /// with the number of times it will "restart" (re-lock its directory) after
@@ -229,7 +227,6 @@ impl TestEnvironment {
       max_threads_count: Arc::new(Mutex::new(std::thread::available_parallelism().map(|p| p.get()).unwrap_or(4))),
       current_exe_path: Arc::new(Mutex::new(PathBuf::from("/dprint"))),
       is_terminal_interactive: Arc::new(Mutex::new(true)),
-      logged_once_keys: Default::default(),
       run_command_results: Default::default(),
       running_processes: Default::default(),
       remove_dir_all_failures: Default::default(),
@@ -931,10 +928,6 @@ impl Environment for TestEnvironment {
 
   fn log_level(&self) -> LogLevel {
     *self.log_level.lock()
-  }
-
-  fn is_first_log_of(&self, key: &str) -> bool {
-    self.logged_once_keys.lock().insert(key.to_string())
   }
 
   fn compile_wasm(&self, bytes: &[u8]) -> Result<CompilationResult> {

@@ -3202,9 +3202,9 @@ mod test {
           );
           assert_eq!(test_client.take_messages(), vec![]);
 
-          // only warns once
+          // warns each time the config is resolved
           assert_format!(backend, file_uri, expected_edits);
-          assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+          assert_eq!(environment.take_stderr_messages().len(), 1);
 
           let file_uri = Uri::from_str("file:///scratch/file.txt").unwrap();
           let message = "The global configuration file cannot specify \"inherit\": true";

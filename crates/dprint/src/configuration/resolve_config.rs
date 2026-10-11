@@ -637,12 +637,7 @@ fn find_config_file_to_inherit(
 /// Warns that a config file specifying `"inherit": true` is being used on its
 /// own because there's no config file in an ancestor directory to inherit from.
 fn warn_no_config_to_inherit(config_source: &PathSource, environment: &impl Environment) {
-  let message = get_warn_no_config_to_inherit_message(config_source);
-  // only warn once per process because a config file may be resolved many times
-  // (ex. when other config files inherit from it or in the editor service)
-  if environment.is_first_log_of(&message) {
-    log_warn!(environment, &message);
-  }
+  log_warn!(environment, &get_warn_no_config_to_inherit_message(config_source));
 }
 
 /// Merges the lower precedence `source` config map into the higher precedence
