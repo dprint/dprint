@@ -276,6 +276,9 @@ struct ConfigEditorRequest {
   pub file_path: PathBuf,
   pub file_text: String,
   pub position: Position,
+  /// Whether to use the global config file when there's no config file in
+  /// an ancestor directory.
+  pub use_global_config: bool,
 }
 
 enum ChannelMessage {
@@ -456,14 +459,18 @@ fn start_message_handler<TEnvironment: Environment>(
         ChannelMessage::Completion(request, sender) => {
           let config_completions = config_completions.clone();
           dprint_core::async_runtime::spawn(async move {
-            let result = config_completions.completions(&request.file_path, &request.file_text, request.position).await;
+            let result = config_completions
+              .completions(&request.file_path, &request.file_text, request.position, request.use_global_config)
+              .await;
             let _ = sender.send(result);
           });
         }
         ChannelMessage::Hover(request, sender) => {
           let config_completions = config_completions.clone();
           dprint_core::async_runtime::spawn(async move {
-            let result = config_completions.hover(&request.file_path, &request.file_text, request.position).await;
+            let result = config_completions
+              .hover(&request.file_path, &request.file_text, request.position, request.use_global_config)
+              .await;
             let _ = sender.send(result);
           });
         }
@@ -957,6 +964,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       file_path,
       file_text,
       position: params.text_document_position.position,
+      use_global_config: self.state.lock().settings.use_global_config,
     };
     if self.sender.send(ChannelMessage::Completion(request, sender)).is_err() {
       return Ok(None);
@@ -980,6 +988,7 @@ impl<TEnvironment: Environment> LanguageServer for Backend<TEnvironment> {
       file_path,
       file_text,
       position: params.text_document_position_params.position,
+      use_global_config: self.state.lock().settings.use_global_config,
     };
     if self.sender.send(ChannelMessage::Hover(request, sender)).is_err() {
       return Ok(None);
@@ -3136,6 +3145,67 @@ mod test {
           (MessageType::INFO, "Server ready.".to_string())
         ]
       );
+    });
+  }
+
+  #[test]
+  fn should_error_for_inherit_without_config_to_inherit_with_lsp() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      // not allowed in the global config file
+      .with_global_config(|c| {
+        c.set_inherit(true).add_remote_wasm_plugin();
+      })
+      // no config file in an ancestor directory
+      .with_local_config("/project/dprint.json", |c| {
+        c.set_inherit(true).add_remote_wasm_plugin();
+      })
+      .build();
+    environment.set_env_var("DPRINT_EDITOR_USE_GLOBAL_CONFIG", Some("1"));
+
+    environment.clone().run_in_runtime(async move {
+      let (backend, recv_task, test_client) = setup_backend(environment.clone());
+      let backend = Rc::new(backend);
+      let run_test_task = dprint_core::async_runtime::spawn({
+        let environment = environment.clone();
+        let test_client = test_client.clone();
+        async move {
+          backend
+            .initialize(InitializeParams {
+              process_id: Some(std::process::id()),
+              ..Default::default()
+            })
+            .await
+            .unwrap();
+          backend.initialized(InitializedParams {}).await;
+          test_client.take_messages();
+
+          macro_rules! assert_error_logged {
+            ($uri:expr, $message:expr) => {
+              did_open!(backend, $uri, "testing");
+              assert_format!(backend, $uri, None);
+              let logs = environment.take_stderr_messages();
+              assert_eq!(logs.len(), 1, "{:?}", logs);
+              assert!(logs[0].contains($message), "{}", logs[0]);
+              let messages = test_client.take_messages();
+              assert_eq!(messages.len(), 1, "{:?}", messages);
+              assert_eq!(messages[0].0, MessageType::ERROR);
+              assert!(messages[0].1.contains($message), "{}", messages[0].1);
+            };
+          }
+
+          // the global config file is not inherited from
+          let file_uri = Uri::from_str("file:///project/file.txt").unwrap();
+          assert_error_logged!(file_uri, "Could not find a configuration file in an ancestor directory to inherit from.");
+
+          let file_uri = Uri::from_str("file:///scratch/file.txt").unwrap();
+          assert_error_logged!(file_uri, "The global configuration file cannot specify \"inherit\": true");
+
+          backend.shutdown().await.unwrap();
+        }
+      });
+
+      try_join!(recv_task, run_test_task).unwrap();
     });
   }
 

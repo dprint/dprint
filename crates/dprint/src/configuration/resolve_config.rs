@@ -160,12 +160,7 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
           return Err(ResolveConfigError::Other(anyhow::anyhow!("Confirmation cancelled.")));
         }
       }
-      let config_discovery = args.config_discovery(environment);
-      if config_discovery.traverse_ancestors() {
-        resolve_config_from_path_with_ancestors(&resolved_config_path, args.remote_cache_mode(), environment).await?
-      } else {
-        resolve_config_from_path_with_bytes(&resolved_config_path, args.remote_cache_mode(), environment).await?
-      }
+      resolve_config_from_path_with_ancestors(&resolved_config_path, args.remote_cache_mode(), environment).await?
     }
     None => {
       if !args.plugins.is_empty() {
@@ -213,26 +208,40 @@ pub async fn resolve_config_from_args(args: &CliArgs, environment: &impl Environ
 /// there's no config file in an ancestor directory to inherit from (the global
 /// config file is never inherited from).
 ///
-/// A remote config file has no ancestor directories, so it's used on its own.
+/// A remote config file has no ancestor directories, so it's used on its own
+/// and a warning is shown.
 pub fn resolve_config_from_path_with_ancestors<'a, TEnvironment: Environment>(
   config_file: &'a ResolvedConfigPathWithText,
   remote_cache_mode: RemoteCacheMode,
   environment: &'a TEnvironment,
 ) -> LocalBoxFuture<'a, Result<ResolvedConfig, ResolveConfigError>> {
+  resolve_config_from_path_with_ancestors_inner(config_file, remote_cache_mode, environment, Vec::new())
+}
+
+fn resolve_config_from_path_with_ancestors_inner<'a, TEnvironment: Environment>(
+  config_file: &'a ResolvedConfigPathWithText,
+  remote_cache_mode: RemoteCacheMode,
+  environment: &'a TEnvironment,
+  mut inherit_chain: Vec<PathSource>,
+) -> LocalBoxFuture<'a, Result<ResolvedConfig, ResolveConfigError>> {
+  // boxed because of recursion
   async move {
-    let config = resolve_config_from_path_with_bytes(config_file, remote_cache_mode, environment).await?;
-    if config.inherit != Some(true) || !config.source.is_local() {
+    inherit_chain.push(config_file.source.clone());
+    let config = resolve_config_from_path_with_bytes_inner(config_file, remote_cache_mode, environment, inherit_chain.clone()).await?;
+    if config.inherit != Some(true) {
       return Ok(config);
     }
-    let ancestor_config_file = match config.base_path.parent() {
-      Some(parent_dir) => get_default_config_file_in_ancestor_directories(environment, parent_dir.as_ref())?,
-      None => None,
-    };
-    let Some(ancestor_config_file) = ancestor_config_file else {
+    if !config.source.is_local() {
+      if config_file.is_first_download {
+        log_warn!(environment, &get_warn_inherit_message());
+      }
+      return Ok(config);
+    }
+    let Some(ancestor_config_file) = find_config_file_to_inherit(&config.source, environment, &inherit_chain)? else {
       return Err(new_no_config_to_inherit_error(&config.source).into());
     };
     // the ancestor config file may also inherit
-    let ancestor_config = resolve_config_from_path_with_ancestors(&ancestor_config_file, remote_cache_mode, environment).await?;
+    let ancestor_config = resolve_config_from_path_with_ancestors_inner(&ancestor_config_file, remote_cache_mode, environment, inherit_chain).await?;
     Ok(inherit_config(config, &ancestor_config)?)
   }
   .boxed_local()
@@ -240,20 +249,32 @@ pub fn resolve_config_from_path_with_ancestors<'a, TEnvironment: Environment>(
 
 /// Creates the error for a config file that specifies `"inherit": true` when
 /// there's no config file in an ancestor directory to inherit from.
-pub fn new_no_config_to_inherit_error(config_source: &PathSource) -> anyhow::Error {
-  anyhow::anyhow!(
-    concat!(
-      "Could not find a configuration file in an ancestor directory to inherit from. ",
-      "Add one or remove \"inherit\": true from the configuration file.\n    at {}"
-    ),
-    config_source.display()
-  )
+fn new_no_config_to_inherit_error(config_source: &PathSource) -> anyhow::Error {
+  anyhow::anyhow!("{}\n    at {}", NO_CONFIG_TO_INHERIT_MESSAGE, config_source.display())
 }
 
+const NO_CONFIG_TO_INHERIT_MESSAGE: &str = concat!(
+  "Could not find a configuration file in an ancestor directory to inherit from. ",
+  "Add one or remove \"inherit\": true from the configuration file."
+);
+
+/// Resolves the config of a config file without having the config file inherit
+/// from the config file of an ancestor directory. The local config files it
+/// extends still do when they specify `"inherit": true`.
 pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   config_path_and_text: &ResolvedConfigPathWithText,
   remote_cache_mode: RemoteCacheMode,
   environment: &TEnvironment,
+) -> Result<ResolvedConfig, ResolveConfigError> {
+  let inherit_chain = vec![config_path_and_text.source.clone()];
+  resolve_config_from_path_with_bytes_inner(config_path_and_text, remote_cache_mode, environment, inherit_chain).await
+}
+
+async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
+  config_path_and_text: &ResolvedConfigPathWithText,
+  remote_cache_mode: RemoteCacheMode,
+  environment: &TEnvironment,
+  inherit_chain: Vec<PathSource>,
 ) -> Result<ResolvedConfig, ResolveConfigError> {
   let base_source = config_path_and_text.source.parent();
   let mut config_map = get_config_map_from_path(ConfigPathContext {
@@ -324,6 +345,7 @@ pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   let extends_context = ExtendsContext {
     base_path: base_source,
     ancestors: vec![config_path_and_text.source.clone()],
+    inherit_chain: Rc::new(inherit_chain),
     remote_cache_mode,
     npm_resolver: Default::default(),
   };
@@ -413,6 +435,10 @@ struct ExtendsContext {
   /// The configuration file being extended followed by the configuration
   /// files that led to it being extended.
   ancestors: Vec<PathSource>,
+  /// The configuration files that are in the middle of being resolved because
+  /// of a configuration file inheriting. This is for detecting a circular
+  /// inherit, which is only possible via an extended configuration file.
+  inherit_chain: Rc<Vec<PathSource>>,
   remote_cache_mode: RemoteCacheMode,
   npm_resolver: Rc<NpmExtendsResolver>,
 }
@@ -504,6 +530,7 @@ async fn handle_config_file<TEnvironment: Environment>(
     origin: &resolved_config.source,
   })?;
   let extends = take_extends(&mut new_config_map)?;
+  let inherit = take_bool_from_config_map(&mut new_config_map, "inherit")?;
 
   let is_remote = extends_context.is_remote(&config_path_and_text.source);
 
@@ -565,10 +592,54 @@ async fn handle_config_file<TEnvironment: Environment>(
   let extends_context = ExtendsContext {
     base_path: config_path_and_text.source.parent(),
     ancestors,
+    inherit_chain: extends_context.inherit_chain.clone(),
     remote_cache_mode: extends_context.remote_cache_mode,
     npm_resolver: extends_context.npm_resolver.clone(),
   };
-  resolve_extends(resolved_config, extends, extends_context, environment.clone()).await
+  let remote_cache_mode = extends_context.remote_cache_mode;
+  let inherit_chain = extends_context.inherit_chain.clone();
+  let resolved_config = resolve_extends(resolved_config, extends, extends_context, environment.clone()).await?;
+
+  // an extended config file inherits from the config file in an ancestor
+  // directory of it, which has a lower precedence than what it extends
+  if inherit != Some(true) {
+    Ok(resolved_config)
+  } else if is_remote {
+    if config_path_and_text.is_first_download {
+      log_warn!(environment, &get_warn_inherit_message());
+    }
+    Ok(resolved_config)
+  } else {
+    let Some(ancestor_config_file) = find_config_file_to_inherit(&config_path_and_text.source, environment, &inherit_chain)? else {
+      bail!("{}", NO_CONFIG_TO_INHERIT_MESSAGE);
+    };
+    let ancestor_config = resolve_config_from_path_with_ancestors_inner(&ancestor_config_file, remote_cache_mode, environment, inherit_chain.to_vec()).await?;
+    inherit_config(resolved_config, &ancestor_config)
+  }
+}
+
+/// Finds the closest config file in the ancestor directories of the provided
+/// config file, which has specified `"inherit": true`.
+fn find_config_file_to_inherit(
+  config_source: &PathSource,
+  environment: &impl Environment,
+  inherit_chain: &[PathSource],
+) -> Result<Option<ResolvedConfigPathWithText>> {
+  let ancestor_dir = config_source.maybe_local_path().and_then(|path| path.parent()).and_then(|dir| dir.parent());
+  let Some(ancestor_dir) = ancestor_dir else {
+    return Ok(None);
+  };
+  let Some(ancestor_config_file) = get_default_config_file_in_ancestor_directories(environment, ancestor_dir.as_ref())? else {
+    return Ok(None);
+  };
+  if inherit_chain.contains(&ancestor_config_file.source) {
+    bail!(
+      "Circular inherit detected: {} -> {}",
+      inherit_chain.iter().map(|source| source.display()).collect::<Vec<_>>().join(" -> "),
+      ancestor_config_file.source.display(),
+    );
+  }
+  Ok(Some(ancestor_config_file))
 }
 
 /// Merges the lower precedence `source` config map into the higher precedence
@@ -864,6 +935,13 @@ fn filter_non_wasm_plugins(plugins: Vec<PluginSourceReference>, environment: &im
 fn get_warn_includes_message() -> String {
   format!(
     "{} The 'includes' property is ignored for security reasons on remote configuration.",
+    colors::bold("Note: "),
+  )
+}
+
+fn get_warn_inherit_message() -> String {
+  format!(
+    "{} The 'inherit' property is ignored on remote configuration because it has no ancestor directories.",
     colors::bold("Note: "),
   )
 }
