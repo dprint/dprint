@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+    <script async="" src="/scripts.3cf2392470.js"></script>
+    <meta charset="utf-8">
+    <title>Bun Plugin - dprint - Code Formatter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#1e1e1e">
+    <meta name="description" content="Documentation on the Bun code formatting plugin for dprint.">
+    <meta name="author" content="Dprint Code Formatting">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:site" content="@dprintfmt">
+    <meta name="twitter:title" content="Bun Plugin">
+    <meta name="twitter:description" content="Documentation on the Bun code formatting plugin for dprint.">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.6e51b4603c.css">
+  </head>
+  <body>
+    <nav class="site-nav" aria-label="Main">
+      <div class="nav-inner">
+        <a class="brand" href="/">dprint</a>
+        <div class="nav-links">
+          <a href="/overview">Guide</a>
+          <a href="/plugins" class="active">Plugins</a>
+          <a href="/playground">Playground</a>
+          <a href="/sponsor">Sponsor</a>
+          <a class="gh-button" href="https://github.com/dprint/dprint" rel="noopener noreferrer">GitHub <span>↗</span></a>
+        </div>
+      </div>
+    </nav>
+
+    <main class="site-main">
+      <div class="docs">
+  <aside class="doc-sidebar">
+    <details class="doc-nav" open="">
+      <summary class="doc-nav-summary">Documentation menu</summary>
+      
+
+
+<div class="doc-menu-label">Guide</div>
+<ul class="doc-menu">
+  
+    <li><a href="/overview">Overview</a></li>
+  
+    <li><a href="/install">Install</a></li>
+  
+    <li><a href="/setup">Setup</a></li>
+  
+    <li><a href="/config">Configuration</a></li>
+  
+    <li><a href="/global-config">Global Configuration</a></li>
+  
+    <li><a href="/cli">CLI</a></li>
+  
+    <li><a href="/lsp">Language Server</a></li>
+  
+    <li><a href="/ci">Continuous Integration</a></li>
+  
+</ul>
+
+<div class="doc-menu-label">Plugins</div>
+<ul class="doc-menu">
+  
+    <li><a href="/plugins">General</a></li>
+  
+    <li><a href="/plugins/typescript">TypeScript / JavaScript</a></li>
+  
+    <li><a href="/plugins/json">JSON</a></li>
+  
+    <li><a href="/plugins/markdown">Markdown</a></li>
+  
+    <li><a href="/plugins/toml">TOML</a></li>
+  
+    <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
+  
+    <li><a href="/plugins/dockerfile">Dockerfile</a></li>
+  
+    <li><a href="/plugins/rustfmt">Rustfmt</a></li>
+  
+    <li><a href="/plugins/roslyn">Roslyn (C#/VB)</a></li>
+  
+    <li><a href="/plugins/malva">Malva (CSS/SCSS/Sass/Less)</a></li>
+  
+    <li><a href="/plugins/markup_fmt">Markup_fmt (HTML/Vue/Svelte/Astro)</a></li>
+  
+    <li><a href="/plugins/prettier">Prettier</a></li>
+  
+    <li><a href="/plugins/biome">Biome (JS/TS/JSON)</a></li>
+  
+    <li><a href="/plugins/oxc">Oxc (JS/TS/JSON/CSS/GraphQL/YAML/TOML/Markdown)</a></li>
+  
+    <li><a href="/plugins/bun" class="active">Bun (JS/TS/JSON/CSS/GraphQL/YAML/TOML/Markdown/HTML/Vue)</a></li>
+  
+    <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
+  
+    <li><a href="/plugins/mago">Mago (PHP)</a></li>
+  
+    <li><a href="/plugins/ruff">Ruff (Python)</a></li>
+  
+    <li><a href="/plugins/jupyter">Jupyter</a></li>
+  
+    <li><a href="/plugins/gofumpt">Gofumpt (Go)</a></li>
+  
+    <li><a href="/plugins/panache">Panache (Quarto/Pandoc/Markdown)</a></li>
+  
+    <li><a href="/plugins/badness">Badness (LaTeX/BibTeX)</a></li>
+  
+    <li><a href="/plugins/arity">Arity (R)</a></li>
+  
+    <li><a href="/plugins/fatou">Fatou (Julia)</a></li>
+  
+    <li><a href="/plugins/typstyle">Typstyle (Typst)</a></li>
+  
+    <li><a href="/plugins/typstyle-kachick">Typstyle - kachick (Typst)</a></li>
+  
+    <li><a href="/plugins/nix">Nix</a></li>
+  
+    <li><a href="/plugins/kdl">KDL</a></li>
+  
+    <li><a href="/plugins/sh">Shell (sh/Bash/Zsh)</a></li>
+  
+    <li><a href="/plugins/lax-css">Lax CSS (CSS/SCSS/Less)</a></li>
+  
+    <li><a href="/plugins/lax-markup">Lax Markup (HTML/XML/Vue/Svelte/Astro)</a></li>
+  
+    <li><a href="/plugins/lax-sql">Lax SQL</a></li>
+  
+    <li><a href="/plugins/clang-format">clang-format (C/C++/Obj-C)</a></li>
+  
+    <li><a href="/plugins/cmakefmt">cmakefmt (CMake)</a></li>
+  
+    <li><a href="/plugins/bibtex-tidy">bibtex-tidy (BibTeX)</a></li>
+  
+    <li><a href="/plugins/swift">Swift (SwiftFormat)</a></li>
+  
+    <li><a href="/plugins/exec">Exec (Many CLIs)</a></li>
+  
+    <li><a href="/plugin-dev">Creating a Plugin</a></li>
+  
+</ul>
+
+    </details>
+  </aside>
+  <main class="doc-main doc-content">
+    
+    
+    <div class="eyebrow">// plugins</div>
+    <h1>Bun Plugin</h1>
+<p>Adapter plugin that formats files via the formatter of <a href="https://bun.com">Bun</a> (<code>bun format</code>). <code>bun format</code> prints what <a href="https://prettier.io">Prettier</a> prints.</p>
+<p>It formats the following languages:</p>
+<ul>
+<li>JavaScript and TypeScript (including JSX and Flow)</li>
+<li>JSON, JSONC, and JSON5</li>
+<li>CSS, SCSS, and Less</li>
+<li>GraphQL</li>
+<li>YAML</li>
+<li>Markdown and MDX</li>
+<li>HTML, Vue, and MJML</li>
+<li>Handlebars</li>
+<li>TOML</li>
+</ul>
+<p>Code embedded in these files is also formatted (ex. CSS in a JavaScript template literal, code blocks in Markdown, or the scripts and styles of an HTML or Vue file).</p>
+<p>You do not need Bun installed because dprint runs Bun's formatter from the .wasm file in a sandboxed environment.</p>
+<h2 id="install-and-setup" tabindex="-1"><a class="header-anchor" href="#install-and-setup">Install and Setup</a></h2>
+<p>In your project's directory with a dprint.json file, run:</p>
+<pre><code class="language-shellsession hljs language-shell">dprint add bun
+</code></pre>
+<p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"bun"</code> property to add configuration:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"bun"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-comment">// bun's config goes here</span>
+  <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-string">"npm:@dprint/bun@x.x.x"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<h2 id="configuration" tabindex="-1"><a class="header-anchor" href="#configuration">Configuration</a></h2>
+<p>See <a href="/plugins/bun/config">Configuration</a></p>
+<p>The options are the ones that <code>bun format</code> reads in a configuration file, with the same names and values: <a href="https://prettier.io/docs/options">Prettier's options</a>, or with <code>"flavor": "oxfmt"</code> the ones of an <code>.oxfmtrc.json</code>.</p>
+<p>Note that the plugin does not read a <code>.prettierrc</code>, an <code>.oxfmtrc.json</code>, an <code>.editorconfig</code>, a <code>tsconfig.json</code>, or a <code>bunfig.toml</code> because it runs sandboxed in a Wasm runtime and has no access to the file system.</p>
+<h3 id="disabling-languages" tabindex="-1"><a class="header-anchor" href="#disabling-languages">Disabling languages</a></h3>
+<p>Every language is formatted by default. To have the plugin leave the files of a language alone, set its <code>&lt;language&gt;.enabled</code> option to <code>false</code>:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"bun"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">"markdown.enabled"</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">false</span></span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">"yaml.enabled"</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">false</span></span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>The languages are <code>javascript</code>, <code>typescript</code>, <code>json</code>, <code>jsonc</code>, <code>json5</code>, <code>css</code>, <code>scss</code>, <code>less</code>, <code>yaml</code>, <code>markdown</code>, <code>mdx</code>, <code>graphql</code>, <code>handlebars</code>, <code>html</code>, <code>vue</code>, <code>mjml</code>, and <code>toml</code>. JSX is part of <code>javascript</code> and TSX is part of <code>typescript</code>. Prettier has no TOML, so it is formatted the way oxfmt formats it with every flavor.</p>
+<p>A disabled language's files are no longer matched by this plugin, so dprint formats them with the next plugin that matches them, if any. This only decides which files are formatted: code embedded in a file of an enabled language is still formatted (ex. CSS in a JavaScript template literal when <code>css.enabled</code> is <code>false</code>).</p>
+<h3 id="sorting-imports" tabindex="-1"><a class="header-anchor" href="#sorting-imports">Sorting imports</a></h3>
+<p>As in <code>bun format</code>, the three plugins of Prettier that sort imports are built in. Name one in <code>plugins</code> to sort like it, with its options:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"bun"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">"@ianvs/prettier-plugin-sort-imports"</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">"importOrder"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+      <span class="hljs-string">"&lt;BUILTIN_MODULES&gt;"</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-string">""</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-string">"&lt;THIRD_PARTY_MODULES&gt;"</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-string">""</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-string">"^@/(.*)$"</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-string">"^[./]"</span>
+    <span class="hljs-punctuation">]</span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<ul>
+<li><code>@trivago/prettier-plugin-sort-imports</code> and <code>@ianvs/prettier-plugin-sort-imports</code>, with the <code>importOrder*</code> options.</li>
+<li><code>prettier-plugin-organize-imports</code>, which also removes unused imports, with the <code>organizeImports*</code> options. It reads the JSX settings of a <code>tsconfig.json</code>, which the plugin cannot do, so set them as <code>tsconfig.jsx</code>, <code>tsconfig.jsxFactory</code>, <code>tsconfig.jsxFragmentFactory</code> and <code>tsconfig.reactNamespace</code> if a project does not use the defaults.</li>
+</ul>
+<h3 id="the-flavor-of-oxfmt" tabindex="-1"><a class="header-anchor" href="#the-flavor-of-oxfmt">The flavor of oxfmt</a></h3>
+<p>With <code>"flavor": "oxfmt"</code> the plugin prints what <a href="https://oxc.rs/docs/guide/usage/formatter">oxfmt</a> prints where that is not what Prettier prints, and has the options of oxfmt: lines are 100 wide by default, <code>package.json</code> files are sorted (<code>sortPackageJson</code>), and <code>sortImports</code>, <code>jsdoc</code> and <code>insertFinalNewline</code> are available.</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"bun"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-attr">"flavor"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"oxfmt"</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">"sortImports"</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span><span class="hljs-punctuation">,</span>
+    <span class="hljs-attr">"jsdoc"</span><span class="hljs-punctuation">:</span> <span class="hljs-literal"><span class="hljs-keyword">true</span></span>
+  <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<h3 id="what-is-not-supported" tabindex="-1"><a class="header-anchor" href="#what-is-not-supported">What is not supported</a></h3>
+<p>These need the file system or JavaScript packages, which a Wasm plugin has neither of:</p>
+<ul>
+<li><code>sortTailwindcss</code>, which asks the <code>tailwindcss</code> package of the project for the order of the classes.</li>
+<li>Plugins of Prettier other than the three above, and so the languages that only a plugin reads (ex. Svelte and Astro).</li>
+</ul>
+<h2 id="using-with-other-plugins" tabindex="-1"><a class="header-anchor" href="#using-with-other-plugins">Using with other plugins</a></h2>
+<p>This plugin formats many kinds of files, so it may match the same files as another plugin in your config file. The order of the <code>"plugins"</code> array defines the precedence, so list a plugin before this one to have it format the files they both match:</p>
+<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-comment">// formats .json files instead of the Bun plugin</span>
+    <span class="hljs-string">"npm:@dprint/json@x.x.x"</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-string">"npm:@dprint/bun@x.x.x"</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>For more fine grained control, see <a href="/config/#associations">associations</a> or see <a href="#disabling-languages">disabling languages</a>.</p>
+<h2 id="playground" tabindex="-1"><a class="header-anchor" href="#playground">Playground</a></h2>
+<p>See <a href="https://dprint.dev/playground#plugin/bun">Playground</a></p>
+<h2 id="source" tabindex="-1"><a class="header-anchor" href="#source">Source</a></h2>
+<p>See <a href="https://github.com/dprint/dprint-plugin-bun">https://github.com/dprint/dprint-plugin-bun</a></p>
+
+  </main>
+</div>
+
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <div class="footer-brand">dprint</div>
+        <div class="footer-links">
+          <a href="/">Home</a>
+          <a href="/contact">Contact</a>
+          <a href="https://twitter.com/dprintfmt">Twitter</a>
+          <a href="https://github.com/dprint">GitHub</a>
+        </div>
+        <div class="footer-tag">A code formatting platform · Rust + Wasm</div>
+      </div>
+    </footer>
+  
+
+</body></html>

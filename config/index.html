@@ -91,6 +91,8 @@
   
     <li><a href="/plugins/oxc">Oxc (JS/TS/JSON/CSS/GraphQL/YAML/TOML/Markdown)</a></li>
   
+    <li><a href="/plugins/bun">Bun (JS/TS/JSON/CSS/GraphQL/YAML/TOML/Markdown/HTML/Vue)</a></li>
+  
     <li><a href="/plugins/pretty_graphql">Pretty GraphQL</a></li>
   
     <li><a href="/plugins/mago">Mago (PHP)</a></li>
@@ -267,7 +269,7 @@
 <li><code>dprint config update</code> will bump versioned npm specifiers to the latest published version (and compute the new checksum for process plugins). Unversioned specifiers are managed by your package manager, so they're skipped. See <a href="#minimum-dependency-age">Minimum Dependency Age</a> to hold off on npm dependencies that are only days old.</li>
 <li><code>dprint add npm:@scope/name</code> resolves to the latest version and writes the pinned form, unless the package is listed in a nearby <code>package.json</code> under <code>devDependencies</code> — in which case the unversioned form is written so npm/<code>package-lock.json</code> stays the source of truth. When you don't include a plugin path, dprint inspects the package to detect whether it's a Wasm or process plugin and writes the right form automatically — for a process plugin that means <code>npm:@scope/name@&lt;version&gt;/plugin.json@&lt;sha256&gt;</code>.</li>
 </ul>
-<p>Available npm packages include <code>@dprint/typescript</code>, <code>@dprint/json</code>, <code>@dprint/markdown</code>, <code>@dprint/toml</code>, <code>@dprint/dockerfile</code>, <code>@dprint/biome</code>, <code>@dprint/oxc</code>, <code>@dprint/ruff</code>, <code>@dprint/sql</code>, <code>@dprint/mago</code>, <code>@dprint/jupyter</code>, <code>@dprint/roslyn</code>, <code>@dprint/exec</code>, and <code>@dprint/prettier</code>.</p>
+<p>Available npm packages include <code>@dprint/typescript</code>, <code>@dprint/json</code>, <code>@dprint/markdown</code>, <code>@dprint/toml</code>, <code>@dprint/dockerfile</code>, <code>@dprint/biome</code>, <code>@dprint/oxc</code>, <code>@dprint/bun</code>, <code>@dprint/ruff</code>, <code>@dprint/sql</code>, <code>@dprint/mago</code>, <code>@dprint/jupyter</code>, <code>@dprint/roslyn</code>, <code>@dprint/exec</code>, and <code>@dprint/prettier</code>.</p>
 <p>You can also reference a plugin file directly in <code>node_modules</code> if you prefer (<code>"./node_modules/@dprint/typescript/plugin.wasm"</code>); the <code>npm:</code> form just removes the need for that path.</p>
 <h4 id="private-npm-registries" tabindex="-1"><a class="header-anchor" href="#private-npm-registries">Private npm registries</a></h4>
 <p>dprint reads <code>.npmrc</code> files (walking up from the config, then <code>~/.npmrc</code>) to pick a registry and credentials. Both common auth schemes are supported:</p>
