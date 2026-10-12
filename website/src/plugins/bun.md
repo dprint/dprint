@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Bun Plugin
 
-Adapter plugin that formats files via the formatter of [Bun](https://bun.com) (`bun format`). `bun format` prints what [Prettier](https://prettier.io) prints, so this plugin is a way to get Prettier's formatting from a Wasm plugin.
+Adapter plugin that formats files via the formatter of [Bun](https://bun.com) (`bun format`). `bun format` prints what [Prettier](https://prettier.io) prints.
 
 It formats the following languages:
 
@@ -111,7 +111,6 @@ With `"flavor": "oxfmt"` the plugin prints what [oxfmt](https://oxc.rs/docs/guid
 
 These need the file system or JavaScript packages, which a Wasm plugin has neither of:
 
-- `overrides`. Use more than one dprint configuration file instead.
 - `sortTailwindcss`, which asks the `tailwindcss` package of the project for the order of the classes.
 - Plugins of Prettier other than the three above, and so the languages that only a plugin reads (ex. Svelte and Astro).
 
@@ -129,7 +128,7 @@ This plugin formats many kinds of files, so it may match the same files as anoth
 }
 ```
 
-For more fine grained control, see [associations](/config/#associations).
+For more fine grained control, see [associations](/config/#associations) or see [disabling languages](#disabling-languages).
 
 ## Playground
 
