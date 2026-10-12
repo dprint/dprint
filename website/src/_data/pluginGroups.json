@@ -49,9 +49,9 @@
     "kind": "wrapper",
     "plugins": [
       { "slug": "prettier", "name": "Prettier", "ext": "multi-language", "process": true },
-      { "slug": "bun", "name": "Bun", "ext": "JS · TS · JSON · CSS · GraphQL · YAML · TOML · Markdown · HTML · Vue" },
       { "slug": "biome", "name": "Biome", "ext": "JS · TS · JSON" },
       { "slug": "oxc", "name": "Oxc", "ext": "JS · TS · JSON · CSS · GraphQL · YAML · TOML · Markdown" },
+      { "slug": "bun", "name": "Bun", "ext": "JS · TS · JSON · CSS · GraphQL · YAML · TOML · Markdown · HTML · Vue" },
       { "slug": "ruff", "name": "Ruff", "ext": "Python" },
       { "slug": "mago", "name": "Mago", "ext": "PHP" },
       { "slug": "roslyn", "name": "Roslyn", "ext": "C# · VB" }
