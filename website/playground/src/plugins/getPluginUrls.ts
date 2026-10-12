@@ -14,6 +14,7 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
   const dockerfilePlugin = json.latest.find((p: any) => p.configKey === "dockerfile")!;
   const biomePlugin = json.latest.find((p: any) => p.configKey === "biome")!;
   const oxcPlugin = json.latest.find((p: any) => p.configKey === "oxc")!;
+  const bunPlugin = json.latest.find((p: any) => p.configKey === "bun")!;
   const magoPlugin = json.latest.find((p: any) => p.configKey === "mago")!;
   const ruffPlugin = json.latest.find((p: any) => p.configKey === "ruff")!;
   const roslynPlugin = json.latest.find((p: any) => p.configKey === "roslyn")!;
@@ -30,6 +31,7 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
     dockerfilePlugin.url,
     biomePlugin.url,
     oxcPlugin.url,
+    bunPlugin.url,
     magoPlugin.url,
     ruffPlugin.url,
     roslynPlugin.url,
@@ -53,6 +55,7 @@ export function getPluginShortNameFromPluginUrl(url: string) {
     case "dockerfile":
     case "biome":
     case "oxc":
+    case "bun":
     case "mago":
     case "ruff":
     case "roslyn":
@@ -79,6 +82,8 @@ export function getLanguageFromPluginUrl(url: string) {
     case "biome":
       return "typescript";
     case "oxc":
+      return "typescript";
+    case "bun":
       return "typescript";
     case "mago":
       return "php";

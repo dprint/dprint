@@ -8,6 +8,7 @@ export const knownPlugins = new Set([
   "dockerfile",
   "biome",
   "oxc",
+  "bun",
   "mago",
   "ruff",
   "roslyn",
