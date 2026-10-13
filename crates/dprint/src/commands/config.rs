@@ -37,6 +37,7 @@ use crate::plugins::PluginWrapper;
 use crate::plugins::ResolveNpmLatestOptions;
 use crate::plugins::detect_npm_plugin_kind_in_node_modules;
 use crate::plugins::fetch_npm_latest_info;
+use crate::plugins::parse_plugin_source_reference;
 use crate::plugins::read_info_file;
 use crate::plugins::read_update_url;
 use crate::plugins::resolve_dependency_age_cutoff;
@@ -64,6 +65,17 @@ pub struct InitConfigFileOptions<'a> {
 }
 
 pub async fn init_config_file<TEnvironment: Environment>(
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  options: InitConfigFileOptions<'_>,
+) -> Result<()> {
+  let result = init_config_file_inner(environment, plugin_resolver, options).await;
+  // a plugin may have been started in order to show its options
+  plugin_resolver.clear_and_shutdown_initialized().await;
+  result
+}
+
+async fn init_config_file_inner<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   options: InitConfigFileOptions<'_>,
@@ -106,6 +118,7 @@ pub async fn init_config_file<TEnvironment: Environment>(
       non_interactive,
       minimum_dependency_age: options.minimum_dependency_age,
       config_dir,
+      options_loader: Some(Rc::new(PluginResolverOptionsLoader::new(environment.clone(), plugin_resolver.clone()))),
     },
   )
   .await?;
@@ -124,10 +137,24 @@ pub async fn init_config_file<TEnvironment: Environment>(
   Ok(())
 }
 
+/// Lets the user change the plugins `dprint init` prefers, which is what
+/// `dprint init --preferences` does.
+pub async fn edit_init_preferences<TEnvironment: Environment>(environment: &TEnvironment, plugin_resolver: &Rc<PluginResolver<TEnvironment>>) -> Result<()> {
+  if !environment.is_terminal_interactive() {
+    bail!("Changing the plugins to prefer needs an interactive terminal.");
+  }
+  let options_loader = Rc::new(PluginResolverOptionsLoader::new(environment.clone(), plugin_resolver.clone()));
+  let result = prompt_for_init_preferences(environment, Some(options_loader)).await;
+  // a plugin may have been started in order to show its options
+  plugin_resolver.clear_and_shutdown_initialized().await;
+  result
+}
+
 /// Adds plugins to a config file that already exists, which is what `dprint
 /// init` does instead of erroring when it's run interactively in a directory
 /// that's already set up. The plugins the config file has are shown in the
-/// prompt, but can't be selected.
+/// prompt, but can't be selected. A plugin goes where the user left it among
+/// them.
 async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
   environment: &TEnvironment,
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
@@ -148,31 +175,80 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
     environment,
   )
   .await?;
-  let existing_plugin_names = get_config_file_plugin_names(environment, plugin_resolver, config.plugins).await;
+  // the plugins of the file's own `plugins` array go first in its order
+  // because that's where a plugin can be added, then the ones that come
+  // from elsewhere (ex. a config it extends)
+  let file_text = environment.read_file(&config_file_path)?;
+  let config_file_base = PathSource::new_local(config_file_path.clone()).parent();
+  let file_plugin_references = get_plugin_entries_in_config(&file_text)?
+    .into_iter()
+    .map(|entry| parse_plugin_source_reference(&entry?, &config_file_base, environment).ok())
+    .collect::<Vec<_>>();
+  let mut existing_plugins = get_config_file_plugins(plugin_resolver, config.plugins)
+    .await
+    .into_iter()
+    .filter_map(|(plugin_reference, plugin_result)| match plugin_result {
+      Ok(plugin) => {
+        // not the checksum, which may have come from another entry for the plugin
+        let file_index = file_plugin_references.iter().position(|reference| {
+          reference
+            .as_ref()
+            .is_some_and(|reference| reference.path_source == plugin_reference.path_source)
+        });
+        Some((plugin.info().name.to_string(), file_index))
+      }
+      Err(err) => {
+        log_warn!(environment, "Failed resolving plugin: {}\n\n{:#}", plugin_reference.path_source.display(), err);
+        None
+      }
+    })
+    .collect::<Vec<_>>();
+  existing_plugins.sort_by_key(|(_, file_index)| file_index.unwrap_or(usize::MAX));
   let plugins_to_add = get_init_plugins_to_add(
     environment,
     GetInitPluginsToAddOptions {
-      existing_plugin_names,
+      existing_plugin_names: existing_plugins.iter().map(|(name, _)| name.clone()).collect(),
       minimum_dependency_age: options.minimum_dependency_age.clone(),
       config_dir: config_dir.map(|dir| dir.into_path_buf()),
+      options_loader: Some(Rc::new(PluginResolverOptionsLoader::new(environment.clone(), plugin_resolver.clone()))),
     },
   )
   .await?;
-  let entries = match plugins_to_add {
+  let plugins = match plugins_to_add {
     InitPluginsToAdd::AllPluginsConfigured => {
       log_stdout_info!(environment, "{} already has every plugin dprint knows about.", config_file_path.display());
       return Ok(());
     }
-    InitPluginsToAdd::Entries(entries) => entries,
+    InitPluginsToAdd::Plugins(plugins) => plugins,
   };
-  if entries.is_empty() {
+  if plugins.is_empty() {
     log_stdout_info!(environment, "\nNo plugins were added.");
     return Ok(());
   }
+  let entries = plugins
+    .iter()
+    .map(|plugin| PluginEntryToInsert {
+      entry: plugin.entry.clone(),
+      before_index: plugin
+        .before
+        .as_ref()
+        .and_then(|before| existing_plugins.iter().find(|(name, _)| name == before))
+        .and_then(|(_, file_index)| *file_index),
+    })
+    .collect::<Vec<_>>();
+  let config_blocks = plugins.into_iter().filter_map(|plugin| plugin.config).collect::<Vec<_>>();
 
-  let file_text = environment.read_file(&config_file_path)?;
-  let file_text = add_plugins_to_config(&file_text, &[], &entries)?;
-  environment.write_file(&config_file_path, &file_text)?;
+  let file_text = insert_plugins_in_config(&file_text, &entries)?;
+  let config_blocks_result = add_plugin_config_blocks(&file_text, &config_blocks)?;
+  for config_key in &config_blocks_result.skipped_keys {
+    log_warn!(
+      environment,
+      "Did not write what was chosen for \"{}\" because {} already has a property with that name.",
+      config_key,
+      config_file_path.display()
+    );
+  }
+  environment.write_file(&config_file_path, &config_blocks_result.new_text)?;
   log_stdout_info!(
     environment,
     "\nAdded {} to {}",
@@ -1834,10 +1910,7 @@ mod test {
       }
     });
     run_test_cli(vec!["init"], &environment).unwrap();
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Select plugins (space to toggle, type to filter, enter to finish):"]
-    );
+    assert_eq!(environment.take_stderr_messages(), vec!["Select plugins:"]);
     assert_eq!(
       environment.take_stdout_messages(),
       vec![
@@ -2014,10 +2087,7 @@ mod test {
       }
     });
     run_test_cli(vec!["init", "--config", "./test.config.json"], &environment).unwrap();
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Select plugins (space to toggle, type to filter, enter to finish):"]
-    );
+    assert_eq!(environment.take_stderr_messages(), vec!["Select plugins:"]);
     assert_eq!(
       environment.take_stdout_messages(),
       vec![
@@ -2057,12 +2127,9 @@ mod test {
     run_test_cli(vec!["init"], &environment).unwrap();
     assert_eq!(
       environment.take_multi_selection_items(),
-      vec!["[ ] test-process-plugin", "[x] test-plugin — already in config (locked)"]
+      vec!["[x] test-plugin — already in config (locked)", "[ ] test-process-plugin"]
     );
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Select plugins to add (space to toggle, type to filter, enter to finish):"]
-    );
+    assert_eq!(environment.take_stderr_messages(), vec!["Select plugins to add:"]);
     assert_eq!(
       environment.take_stdout_messages(),
       vec![format!("\nAdded 1 plugin to {}", Path::new("/").join("dprint.json").display())]
@@ -2090,10 +2157,7 @@ mod test {
     let original_text = environment.read_file("./dprint.json").unwrap();
     environment.set_multi_selection_result(vec![]);
     run_test_cli(vec!["init"], &environment).unwrap();
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Select plugins to add (space to toggle, type to filter, enter to finish):"]
-    );
+    assert_eq!(environment.take_stderr_messages(), vec!["Select plugins to add:"]);
     assert_eq!(environment.take_stdout_messages(), vec!["\nNo plugins were added."]);
     assert_eq!(environment.read_file("./dprint.json").unwrap(), original_text);
   }
@@ -2152,10 +2216,7 @@ mod test {
       }
     });
     run_test_cli(vec!["init", "--global"], &environment).unwrap();
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Select plugins (space to toggle, type to filter, enter to finish):"]
-    );
+    assert_eq!(environment.take_stderr_messages(), vec!["Select plugins:"]);
     let config_path = if std::env::consts::OS == "macos" {
       Path::new("/home/.config/dprint")
     } else {
@@ -2198,10 +2259,7 @@ mod test {
       }
     });
     run_test_cli(vec!["init", "--global"], &environment).unwrap();
-    assert_eq!(
-      environment.take_stderr_messages(),
-      vec!["Select plugins (space to toggle, type to filter, enter to finish):"]
-    );
+    assert_eq!(environment.take_stderr_messages(), vec!["Select plugins:"]);
     assert_eq!(
       environment.take_stdout_messages(),
       vec![

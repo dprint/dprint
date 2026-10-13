@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use url::Url;
 
+use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::async_runtime::async_trait;
 use sys_traits::BaseEnvVar;
 use sys_traits::BaseFsCreateDir;
@@ -27,8 +28,11 @@ use sys_traits::ThreadSleep;
 use crate::plugins::CompilationResult;
 use crate::utils::BasicShowConfirmStrategy;
 use crate::utils::LogLevel;
-use crate::utils::MultiSelectItem;
+use crate::utils::MultiSelectAction;
+use crate::utils::MultiSelectState;
 use crate::utils::ProgressBars;
+use crate::utils::SettingsEditorState;
+use crate::utils::SettingsOption;
 use crate::utils::ShowConfirmStrategy;
 
 use super::CanonicalizedPathBuf;
@@ -364,9 +368,18 @@ pub trait Environment:
   fn cli_version(&self) -> String;
   fn get_time_secs(&self) -> u64;
   fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize>;
-  /// Prompts for multiple items, returning the indexes of the selected ones.
-  /// Items that aren't selectable are shown but never returned.
-  fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: Vec<MultiSelectItem>) -> Result<Vec<usize>>;
+  /// Prompts for multiple items until the user finishes or asks to open one,
+  /// in which case this should be called again with the same state once
+  /// what was opened is done with. The selection is read from the state.
+  fn get_multi_selection(&self, state: &mut MultiSelectState) -> Result<MultiSelectAction>;
+  /// Shows the settings editor until the user leaves it. The options may still
+  /// be loading, in which case leaving before `pending_options` resolves drops
+  /// it. The changes are read from the state.
+  fn edit_settings<'a>(
+    &'a self,
+    state: &'a mut SettingsEditorState,
+    pending_options: Option<LocalBoxFuture<'a, Result<Vec<SettingsOption>>>>,
+  ) -> LocalBoxFuture<'a, Result<()>>;
   fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool> {
     self.confirm_with_strategy(&BasicShowConfirmStrategy {
       prompt: prompt_message,

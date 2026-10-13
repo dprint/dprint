@@ -32,6 +32,8 @@ use sys_traits::impls::RealSys;
 use sysinfo::System;
 use url::Url;
 
+use dprint_core::async_runtime::FutureExt;
+use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::async_runtime::async_trait;
 
 use super::CanonicalizedPathBuf;
@@ -47,10 +49,14 @@ use crate::utils::FastInsecureHasher;
 use crate::utils::LogLevel;
 use crate::utils::Logger;
 use crate::utils::LoggerOptions;
-use crate::utils::MultiSelectItem;
+use crate::utils::LoggerPromptTerminal;
+use crate::utils::MultiSelectAction;
+use crate::utils::MultiSelectState;
 use crate::utils::NoProxy;
 use crate::utils::ProgressBars;
 use crate::utils::RealUrlDownloader;
+use crate::utils::SettingsEditorState;
+use crate::utils::SettingsOption;
 use crate::utils::ShowConfirmStrategy;
 use crate::utils::UnsafelyIgnoreCertificates;
 use crate::utils::is_terminal_interactive;
@@ -58,6 +64,7 @@ use crate::utils::log_action_with_progress;
 use crate::utils::show_confirm;
 use crate::utils::show_multi_select;
 use crate::utils::show_select;
+use crate::utils::show_settings_editor;
 
 // cache the cwd because it's much faster than looking it up each time
 static CACHED_CWD: OnceCell<CanonicalizedPathBuf> = OnceCell::new();
@@ -599,8 +606,16 @@ impl Environment for RealEnvironment {
     show_select(&self.logger, "dprint", prompt_message, item_indent_width, items)
   }
 
-  fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: Vec<MultiSelectItem>) -> Result<Vec<usize>> {
-    show_multi_select(&self.logger, "dprint", prompt_message, item_indent_width, items)
+  fn get_multi_selection(&self, state: &mut MultiSelectState) -> Result<MultiSelectAction> {
+    show_multi_select(&LoggerPromptTerminal::new(&self.logger), "dprint", state)
+  }
+
+  fn edit_settings<'a>(
+    &'a self,
+    state: &'a mut SettingsEditorState,
+    pending_options: Option<LocalBoxFuture<'a, Result<Vec<SettingsOption>>>>,
+  ) -> LocalBoxFuture<'a, Result<()>> {
+    async move { show_settings_editor(&LoggerPromptTerminal::new(&self.logger), state, pending_options).await }.boxed_local()
   }
 
   fn confirm_with_strategy(&self, strategy: &dyn ShowConfirmStrategy) -> Result<bool> {

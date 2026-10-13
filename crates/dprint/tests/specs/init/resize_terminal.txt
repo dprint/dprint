@@ -1,0 +1,81 @@
+The prompts are drawn again for the terminal's new size when it's resized.
+
+-- file: /src/main.ts --
+-- keys --
+resize 44x9
+right
+resize 30x6
+left
+enter
+-- output --
+[start]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [x] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[resize 44x9]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓:
+  move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-typescript (.ts, .tsx,
+       .js, .jsx)
+  [x] dprint-plugin-json (.json, .jsonc)
+  ...3 more below
+
+[right]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .ts
+  ...5 more below
+
+[resize 30x6]
+dprint-plugin-typescript
+  space: toggle, type to
+  filter, ←: back
+  ...1 more above
+> [x] .ts
+  ...5 more below
+
+[left]
+  filter, enter: finish, ★:
+  preferred (dprint init --pre
+  ferences)
+> [x] dprint-plugin-typescript
+       (.ts, .tsx, .js, .jsx)
+  ...4 more below
+
+[enter]
+Select plugins:
+ * dprint-plugin-typescript
+   (.ts, .tsx, .js, .jsx)
+ * dprint-plugin-json (.json,
+   .jsonc)
+
+# stdout
+
+Created dprint.json
+
+If you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor
+
+# /dprint.json
+{
+  "typescript": {
+  },
+  "json": {
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-1.0.0.wasm",
+    "https://plugins.dprint.dev/json-1.0.0.wasm"
+  ]
+}
+
+# /config/dprint/init.json
+(does not exist)

@@ -1,0 +1,65 @@
+The plugins to prefer have nothing to do with a config file, so a plugin the
+one in the directory already has is selected like any other and the config
+file is left alone.
+
+-- file: /notes.txt --
+-- file: /dprint.json --
+{
+  "plugins": [
+    "https://plugins.dprint.dev/test-plugin.wasm"
+  ]
+}
+-- args --
+init --preferences
+-- keys --
+"test"
+space
+enter
+-- output --
+[start]
+Select the plugins to prefer whenever running dprint init:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: save, esc:
+  cancel
+> [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+["test"]
+Select the plugins to prefer whenever running dprint init:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: save, esc:
+  cancel
+  filter: test
+> [ ] test-plugin (.txt)
+
+[space]
+Select the plugins to prefer whenever running dprint init:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: save, esc:
+  cancel
+  filter: test
+> [x] test-plugin (.txt)
+
+[enter]
+Select the plugins to prefer whenever running dprint init:
+ * test-plugin (.txt)
+
+# stdout
+
+Saved the preferred plugins to /config/dprint/init.json
+
+# /dprint.json
+{
+  "plugins": [
+    "https://plugins.dprint.dev/test-plugin.wasm"
+  ]
+}
+
+# /config/dprint/init.json
+{
+  "preferredPlugins": [
+    {
+      "name": "test-plugin"
+    }
+  ]
+}
