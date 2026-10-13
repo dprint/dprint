@@ -11,7 +11,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use url::Url;
 
-use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::async_runtime::async_trait;
 use sys_traits::BaseEnvVar;
 use sys_traits::BaseFsCreateDir;
@@ -31,8 +30,7 @@ use crate::utils::LogLevel;
 use crate::utils::MultiSelectAction;
 use crate::utils::MultiSelectState;
 use crate::utils::ProgressBars;
-use crate::utils::SettingsEditorState;
-use crate::utils::SettingsOption;
+use crate::utils::PromptTerminal;
 use crate::utils::ShowConfirmStrategy;
 
 use super::CanonicalizedPathBuf;
@@ -372,14 +370,10 @@ pub trait Environment:
   /// in which case this should be called again with the same state once
   /// what was opened is done with. The selection is read from the state.
   fn get_multi_selection(&self, state: &mut MultiSelectState) -> Result<MultiSelectAction>;
-  /// Shows the settings editor until the user leaves it. The options may still
-  /// be loading, in which case leaving before `pending_options` resolves drops
-  /// it. The changes are read from the state.
-  fn edit_settings<'a>(
-    &'a self,
-    state: &'a mut SettingsEditorState,
-    pending_options: Option<LocalBoxFuture<'a, Result<Vec<SettingsOption>>>>,
-  ) -> LocalBoxFuture<'a, Result<()>>;
+  /// The terminal that an interactive prompt draws itself on and reads keys
+  /// from, which is all a prompt uses of the terminal (ex. see
+  /// `show_settings_editor`).
+  fn prompt_terminal(&self) -> Box<dyn PromptTerminal + '_>;
   fn confirm(&self, prompt_message: &str, default_value: bool) -> Result<bool> {
     self.confirm_with_strategy(&BasicShowConfirmStrategy {
       prompt: prompt_message,

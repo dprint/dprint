@@ -250,7 +250,7 @@ pub enum MultiSelectAction {
 
 /// Shows a multi-select prompt until the user finishes or asks to open an
 /// item. The selection is read from the state.
-pub fn show_multi_select(terminal: &impl PromptTerminal, context_name: &str, state: &mut MultiSelectState) -> Result<MultiSelectAction> {
+pub fn show_multi_select(terminal: &dyn PromptTerminal, context_name: &str, state: &mut MultiSelectState) -> Result<MultiSelectAction> {
   loop {
     let visible = visible_indexes(state);
     // keep the active index and scrolling within the visible items

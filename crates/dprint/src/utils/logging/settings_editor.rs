@@ -8,6 +8,7 @@ use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::async_runtime::future;
 use dprint_core::async_runtime::future::Either;
 
+use crate::environment::Environment;
 use crate::utils::terminal::TerminalSize;
 
 use super::LoggerTextItem;
@@ -133,14 +134,17 @@ impl SettingsOption {
   }
 }
 
-/// Shows the settings editor until the user leaves it. The checkboxes can be
-/// used while `pending_options` resolves, and leaving before it does drops it
-/// (ex. cancelling a download). The changes are read from the state.
+/// Shows the settings editor in the environment's terminal until the user
+/// leaves it. The checkboxes can be used while `pending_options` resolves, and
+/// leaving before it does drops it (ex. cancelling a download). The changes
+/// are read from the state.
 pub async fn show_settings_editor(
-  terminal: &impl PromptTerminal,
+  environment: &impl Environment,
   state: &mut SettingsEditorState,
   pending_options: Option<LocalBoxFuture<'_, Result<Vec<SettingsOption>>>>,
 ) -> Result<()> {
+  let terminal = environment.prompt_terminal();
+  let terminal = terminal.as_ref();
   let result = run_settings_editor(terminal, state, pending_options).await;
   // what's shown next replaces the editor, which is nothing when it failed
   if result.is_err() {
@@ -150,7 +154,7 @@ pub async fn show_settings_editor(
 }
 
 async fn run_settings_editor(
-  terminal: &impl PromptTerminal,
+  terminal: &dyn PromptTerminal,
   state: &mut SettingsEditorState,
   mut pending_options: Option<LocalBoxFuture<'_, Result<Vec<SettingsOption>>>>,
 ) -> Result<()> {
@@ -648,6 +652,8 @@ fn update_scroll_offset(state: &mut SettingsEditorState, lines: &[Line], max_vis
 #[cfg(test)]
 mod test {
   use super::*;
+  use crate::environment::TestEnvironment;
+  use dprint_core::async_runtime::FutureExt;
   use pretty_assertions::assert_eq;
   use serde_json::json;
 
@@ -820,6 +826,56 @@ mod test {
     state.active_index = 5; // commands
     press(&mut state, KeyCode::Tab);
     assert_eq!(option_value(&state, "commands"), None);
+  }
+
+  #[test]
+  fn shows_the_options_once_they_have_loaded() {
+    let environment = TestEnvironment::new();
+    let keys = ["space", "wait", "down", "down", "space", "left"];
+    environment.set_prompt_keys(&keys, Some(TerminalSize { cols: 60, rows: 20 })).unwrap();
+    let mut state = build_state();
+    state.options = SettingsOptions::Loading("Loading...".to_string());
+    let state = environment.run_in_runtime(async {
+      let pending_options = async { Ok(vec![option("semi", SettingsOptionKind::Bool, json!(true))]) }.boxed_local();
+      show_settings_editor(&environment, &mut state, Some(pending_options)).await.unwrap();
+      state
+    });
+    // the checkbox was toggled before the options were there
+    assert!(!state.checkboxes[0].is_checked);
+    assert_eq!(option_value(&state, "semi"), Some(json!(false)));
+    let screens = environment.take_prompt_screens();
+    let screen_lines = |step: &str| screens.iter().find(|screen| screen.step == step).unwrap().lines.clone();
+    assert_eq!(
+      screen_lines("space"),
+      vec!["plugin", "  File types:", "> [ ] .ts", "  [x] .js", "  Options:", "    Loading..."]
+    );
+    assert_eq!(
+      screen_lines("wait"),
+      vec!["plugin", "  File types:", "> [ ] .ts", "  [x] .js", "  Options:", "    semi: true"]
+    );
+    // the editor stays for what's shown next to replace
+    assert_eq!(screen_lines("left").last().unwrap(), ">   semi: false");
+  }
+
+  #[test]
+  fn says_when_the_terminal_is_too_small_and_only_leaves_on_escape() {
+    let environment = TestEnvironment::new();
+    let keys = ["space", "left", "resize 60x20", "down", "resize 20x4", "esc"];
+    environment.set_prompt_keys(&keys, Some(TerminalSize { cols: 20, rows: 4 })).unwrap();
+    let mut state = build_state();
+    let state = environment.run_in_runtime(async {
+      show_settings_editor(&environment, &mut state, None).await.unwrap();
+      state
+    });
+    // nothing was toggled while it couldn't be seen
+    assert!(state.checkboxes[0].is_checked);
+    let screens = environment.take_prompt_screens();
+    let too_small = vec!["The terminal is too", "small to show this.", "Make it bigger to", "continue."];
+    assert_eq!(screens[0].lines, too_small);
+    assert_eq!(screens[2].lines, too_small);
+    assert_eq!(screens[4].lines[2], "  [x] .ts");
+    assert_eq!(screens[4].lines[3], "> [x] .js");
+    assert_eq!(screens[5].lines, too_small);
   }
 
   #[test]

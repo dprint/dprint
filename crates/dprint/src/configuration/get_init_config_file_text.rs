@@ -33,6 +33,7 @@ use crate::utils::SettingsCheckbox;
 use crate::utils::SettingsEditorState;
 use crate::utils::SettingsOptions;
 use crate::utils::resolve_global_gitignore_lines;
+use crate::utils::show_settings_editor;
 
 use super::InitPluginOptionsLoader;
 use super::InitPreferences;
@@ -602,7 +603,7 @@ async fn edit_plugin_choices(
       None
     }
   };
-  environment.edit_settings(&mut editor, pending_options).await?;
+  show_settings_editor(environment, &mut editor, pending_options).await?;
 
   choices.excluded_extensions.clear();
   choices.excluded_file_names.clear();

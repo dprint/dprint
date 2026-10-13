@@ -47,8 +47,6 @@ use sys_traits::ThreadSleep;
 use sys_traits::impls::InMemorySys;
 use url::Url;
 
-use dprint_core::async_runtime::FutureExt;
-use dprint_core::async_runtime::LocalBoxFuture;
 use dprint_core::async_runtime::async_trait;
 
 use super::CanonicalizedPathBuf;
@@ -64,14 +62,12 @@ use crate::utils::LogLevel;
 use crate::utils::MultiSelectAction;
 use crate::utils::MultiSelectState;
 use crate::utils::PromptScreen;
+use crate::utils::PromptTerminal;
 use crate::utils::ScriptedPromptTerminal;
-use crate::utils::SettingsEditorState;
-use crate::utils::SettingsOption;
 use crate::utils::ShowConfirmStrategy;
 use crate::utils::TerminalSize;
 use crate::utils::get_bytes_hash;
 use crate::utils::show_multi_select;
-use crate::utils::show_settings_editor;
 
 #[derive(Default)]
 struct BufferData {
@@ -940,20 +936,11 @@ impl Environment for TestEnvironment {
     Ok(MultiSelectAction::Done)
   }
 
-  fn edit_settings<'a>(
-    &'a self,
-    state: &'a mut SettingsEditorState,
-    pending_options: Option<LocalBoxFuture<'a, Result<Vec<SettingsOption>>>>,
-  ) -> LocalBoxFuture<'a, Result<()>> {
-    async move {
-      let prompt_terminal = self.prompt_terminal.lock().clone();
-      if let Some(prompt_terminal) = prompt_terminal {
-        return show_settings_editor(&prompt_terminal, state, pending_options).await;
-      }
-      drop(pending_options);
-      panic!("The settings editor was shown, but the test didn't say what to press in it. Use set_prompt_keys.");
+  fn prompt_terminal(&self) -> Box<dyn PromptTerminal + '_> {
+    match self.prompt_terminal.lock().clone() {
+      Some(prompt_terminal) => Box::new(prompt_terminal),
+      None => panic!("A prompt was shown, but the test didn't say what to press in it. Use set_prompt_keys."),
     }
-    .boxed_local()
   }
 
   fn confirm_with_strategy(&self, strategy: &dyn ShowConfirmStrategy) -> Result<bool> {
