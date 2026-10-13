@@ -899,6 +899,7 @@ dependencies = [
  "dirs",
  "dprint-core",
  "dunce",
+ "file_test_runner",
  "flate2",
  "fs3",
  "httpdate",

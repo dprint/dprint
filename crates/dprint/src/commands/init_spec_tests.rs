@@ -20,6 +20,9 @@
 //!   and review the result.
 //!
 //! Text ahead of the first section says what the spec is about.
+//!
+//! Only the specs with a name that has the text of the `SPEC` environment
+//! variable are run when it's set (ex. `SPEC=resize`).
 
 // the specs are real files, which is what the environment is not for
 #![allow(clippy::disallowed_methods)]
@@ -30,6 +33,11 @@ use std::path::PathBuf;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::bail;
+use file_test_runner::RunOptions;
+use file_test_runner::TestResult;
+use file_test_runner::collection::CollectOptions;
+use file_test_runner::collection::collect_tests;
+use file_test_runner::collection::strategies::TestPerFileCollectionStrategy;
 
 use crate::environment::Environment;
 use crate::environment::TestEnvironment;
@@ -42,28 +50,24 @@ use crate::utils::TerminalSize;
 #[test]
 fn init_specs() {
   let specs_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/specs/init");
-  let mut spec_paths = std::fs::read_dir(&specs_dir)
-    .unwrap_or_else(|err| panic!("Failed reading {}: {:#}", specs_dir.display(), err))
-    .map(|entry| entry.unwrap().path())
-    .filter(|path| path.extension().is_some_and(|ext| ext == "txt"))
-    .collect::<Vec<_>>();
-  spec_paths.sort();
-  assert!(!spec_paths.is_empty(), "No specs found in {}", specs_dir.display());
-
   let should_update = std::env::var("UPDATE").is_ok_and(|value| value == "1");
-  let mut failures = Vec::new();
-  for spec_path in spec_paths {
-    if let Err(err) = run_spec_file(&spec_path, should_update) {
-      failures.push(format!("{}\n{:#}", spec_path.display(), err));
-    }
-  }
-  if !failures.is_empty() {
-    panic!(
-      "{} spec(s) failed. Run with UPDATE=1 to update what they expect.\n\n{}",
-      failures.len(),
-      failures.join("\n\n")
-    );
-  }
+  let category = collect_tests(CollectOptions {
+    base: specs_dir.clone(),
+    strategy: Box::new(TestPerFileCollectionStrategy {
+      file_pattern: Some(r"\.txt$".to_string()),
+    }),
+    // not the filter of `cargo test`, which is for the name of this test
+    filter_override: Some(std::env::var("SPEC").unwrap_or_default()),
+  })
+  .unwrap_or_else(|err| panic!("Failed collecting the specs in {}: {:#}", specs_dir.display(), err));
+  assert!(category.test_count() > 0, "No specs matched in {}", specs_dir.display());
+  file_test_runner::run_tests(&category, RunOptions::default(), move |test| match run_spec_file(&test.path, should_update) {
+    Ok(()) => TestResult::Passed { duration: None },
+    Err(err) => TestResult::Failed {
+      duration: None,
+      output: format!("{:#}\n", err).into_bytes(),
+    },
+  });
 }
 
 const OUTPUT_HEADER: &str = "-- output --";
@@ -86,7 +90,7 @@ fn run_spec_file(spec_path: &Path, should_update: bool) -> Result<()> {
   }
   match expected_output {
     Some(expected_output) => bail!(
-      "The output was not what was expected.\n{}",
+      "The output was not what was expected. Run with UPDATE=1 to update it.\n{}",
       pretty_assertions::StrComparison::new(expected_output, &actual_output)
     ),
     None => bail!("The spec has no output section. Run with UPDATE=1 to add it."),
