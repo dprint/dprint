@@ -163,7 +163,9 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
 ) -> Result<()> {
   let config_file_path = environment.canonicalize(&config_file_path)?;
   let config_dir = config_file_path.parent();
-  let config = resolve_config_from_path_with_bytes(
+  // along with the config file it inherits from, since the plugins of that
+  // one are used here too
+  let config = resolve_config_from_path_with_ancestors(
     &ResolvedConfigPathWithText {
       source: PathSource::new_local(config_file_path.clone()),
       is_first_download: false,
@@ -2004,6 +2006,50 @@ mod test {
   }
 
   #[test]
+  fn should_show_the_options_of_the_version_the_minimum_dependency_age_allows() {
+    use crate::test_helpers::WASM_PLUGIN_BYTES;
+    use crate::test_helpers::create_test_npm_tarball;
+    let packument = aged_test_plugin_packument("2099-12-31T00:00:00Z");
+    // only the version that's old enough can be downloaded, so the options
+    // aren't there when it's any other that's asked for
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_file_bytes(
+        "https://registry.npmjs.org/@dprint/test-plugin/-/test-plugin-0.2.0.tgz",
+        create_test_npm_tarball(&[("package/plugin.wasm", WASM_PLUGIN_BYTES)]),
+      )
+      .add_remote_file_bytes("https://registry.npmjs.org/@dprint/test-plugin", packument.to_string().into_bytes())
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "test-plugin".to_string(),
+          version: "0.3.0".to_string(),
+          url: "https://plugins.dprint.dev/test-plugin.wasm".to_string(),
+          config_key: Some("test-plugin".to_string()),
+          file_extensions: vec!["ts".to_string()],
+          npm: Some(crate::environment::TestInfoFileNpm {
+            name: "@dprint/test-plugin".to_string(),
+            ..Default::default()
+          }),
+          ..Default::default()
+        });
+      })
+      .write_file("./file.ts", "")
+      .build();
+    environment.set_fs_time(AGE_TEST_NOW);
+    environment.set_prompt_keys(&["right", "wait", "left", "enter"], None).unwrap();
+
+    run_test_cli(vec!["init", "--minimum-dependency-age", "P3D"], &environment).unwrap();
+
+    let screens = environment.take_prompt_screens();
+    assert_eq!(screens[2].step, "wait");
+    let options_screen = screens[2].lines.join("\n");
+    assert!(options_screen.contains("ending: formatted"), "got: {options_screen}");
+    let created = environment.read_file("./dprint.json").unwrap();
+    assert!(created.contains("\"npm:@dprint/test-plugin@0.2.0\""), "got: {created}");
+    environment.take_stderr_messages();
+    environment.take_stdout_messages();
+  }
+
+  #[test]
   fn should_initialize_reading_min_release_age_from_the_config_file_directory_npmrc() {
     // with no flag the age comes from the .npmrc nearest where the config
     // file is written, which isn't the cwd when --config points elsewhere
@@ -2143,6 +2189,48 @@ mod test {
   ]
 }"#
     );
+  }
+
+  #[test]
+  fn should_not_offer_a_plugin_of_an_inherited_config_file_on_initialize() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
+      .with_info_file(|info| {
+        for (name, url) in [
+          ("test-plugin", "https://plugins.dprint.dev/test-plugin.wasm"),
+          ("test-process-plugin", "https://plugins.dprint.dev/test-plugin-3.json"),
+        ] {
+          info.add_plugin(TestInfoFilePlugin {
+            name: name.to_string(),
+            version: "0.1.0".to_string(),
+            url: url.to_string(),
+            config_key: Some(name.to_string()),
+            ..Default::default()
+          });
+        }
+      })
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .with_local_config("/sub_dir/dprint.json", |config| {
+        config.set_inherit(true);
+      })
+      .set_cwd("/sub_dir")
+      .build();
+    let original_text = environment.read_file("/sub_dir/dprint.json").unwrap();
+    environment.set_multi_selection_result(vec![]);
+    run_test_cli(vec!["init"], &environment).unwrap();
+    assert_eq!(
+      environment.take_multi_selection_items(),
+      vec!["[x] test-plugin — already in config (locked)", "[ ] test-process-plugin"]
+    );
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm", "Select plugins to add:"]
+    );
+    assert_eq!(environment.take_stdout_messages(), vec!["\nNo plugins were added."]);
+    assert_eq!(environment.read_file("/sub_dir/dprint.json").unwrap(), original_text);
   }
 
   #[test]

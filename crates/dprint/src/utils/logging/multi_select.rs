@@ -11,6 +11,7 @@ use crate::utils::terminal::TerminalSize;
 use super::LoggerTextItem;
 use super::PromptTerminal;
 use super::fits_terminal_height;
+use super::terminal_too_small_text_items;
 
 /// An item in a multi-select prompt.
 pub struct MultiSelectItem {
@@ -253,12 +254,17 @@ pub fn show_multi_select(terminal: &impl PromptTerminal, context_name: &str, sta
     }
     let terminal_size = terminal.size();
     let mut max_visible_rows = max_visible_rows(state, terminal_size);
+    let mut is_too_small = false;
     let text_items = loop {
       update_scroll_offset(state, visible.len(), max_visible_rows);
       let text_items = render_multi_select(state, &visible, max_visible_rows);
       // show less when lines wrapping would push the prompt off the screen
-      if max_visible_rows == 1 || fits_terminal_height(&text_items, terminal_size) {
+      if fits_terminal_height(&text_items, terminal_size) {
         break text_items;
+      }
+      if max_visible_rows == 1 {
+        is_too_small = true;
+        break terminal_too_small_text_items();
       }
       max_visible_rows -= 1;
     };
@@ -266,6 +272,10 @@ pub fn show_multi_select(terminal: &impl PromptTerminal, context_name: &str, sta
     terminal.draw(text_items);
 
     if let Event::Key(key_event) = terminal.read_key()? {
+      // what a key does can't be seen, so the only thing to do is cancel
+      if is_too_small && key_event.code != KeyCode::Esc {
+        continue;
+      }
       match handle_key(state, &key_event) {
         KeyOutcome::Continue => {}
         KeyOutcome::Done => break,

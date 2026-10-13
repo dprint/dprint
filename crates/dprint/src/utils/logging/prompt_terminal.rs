@@ -60,6 +60,14 @@ pub fn fits_terminal_height(text_items: &[LoggerTextItem], terminal_size: Option
     < terminal_size.rows as usize
 }
 
+/// What a prompt shows in place of itself when it can't be made to fit in
+/// the terminal, which is drawn again once the terminal is resized.
+pub fn terminal_too_small_text_items() -> Vec<LoggerTextItem> {
+  vec![LoggerTextItem::Text(
+    "The terminal is too small to show this. Make it bigger to continue.".to_string(),
+  )]
+}
+
 /// The terminal of the process, drawn to through the logger.
 pub struct LoggerPromptTerminal<'a> {
   logger: &'a Logger,

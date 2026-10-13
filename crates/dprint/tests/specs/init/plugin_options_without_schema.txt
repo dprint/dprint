@@ -119,7 +119,7 @@ test-plugin
 
 [enter]
 test-plugin
-  enter: edit, del: reset, type to filter, ←: back
+  enter: edit, del: clear, type to filter, ←: back
   Files to format:
   [x] .txt
   Options:

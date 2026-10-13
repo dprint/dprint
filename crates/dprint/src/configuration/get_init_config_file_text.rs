@@ -125,6 +125,10 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
     let order = display_order(&defaults, &[], &preferred_order);
     let ranks = plugin_ranks(latest_plugins.len(), &preferred_order);
 
+    // an .npmrc setting `min-release-age` is looked for where the config file
+    // is going to be written
+    let age_cutoff = resolve_dependency_age_cutoff(options.minimum_dependency_age.as_ref(), options.config_dir.as_deref(), environment);
+
     // the plugins go in the config file in the order they're shown in
     let selected_indexes = if options.non_interactive {
       order.iter().copied().filter(|&i| defaults[i]).collect::<Vec<_>>()
@@ -140,6 +144,7 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
           order: &order,
           ranks: &ranks,
           options_loader: options.options_loader.as_deref(),
+          age_cutoff: age_cutoff.as_ref(),
         },
         &mut choices,
         &preferences,
@@ -147,9 +152,6 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
       .await?
     };
 
-    // an .npmrc setting `min-release-age` is looked for where the config file
-    // is going to be written
-    let age_cutoff = resolve_dependency_age_cutoff(options.minimum_dependency_age.as_ref(), options.config_dir.as_deref(), environment);
     // resolve concurrently — a plugin distributed on npm costs a registry round trip
     let entries = future::join_all(
       selected_indexes
@@ -228,6 +230,8 @@ pub async fn get_init_plugins_to_add(environment: &impl Environment, options: Ge
   }
   let order = display_order(&defaults, &configured_order, &preferred_order);
   let ranks = plugin_ranks(latest_plugins.len(), &preferred_order);
+  // an .npmrc setting `min-release-age` is looked for where the config file lives
+  let age_cutoff = resolve_dependency_age_cutoff(options.minimum_dependency_age.as_ref(), options.config_dir.as_deref(), environment);
   let shown_indexes = prompt_for_plugins(
     environment,
     PluginPrompt {
@@ -239,6 +243,7 @@ pub async fn get_init_plugins_to_add(environment: &impl Environment, options: Ge
       order: &order,
       ranks: &ranks,
       options_loader: options.options_loader.as_deref(),
+      age_cutoff: age_cutoff.as_ref(),
     },
     &mut choices,
     &preferences,
@@ -256,8 +261,6 @@ pub async fn get_init_plugins_to_add(environment: &impl Environment, options: Ge
     befores.push(next_configured_index.map(|&index| latest_plugins[index].name.clone()));
   }
 
-  // an .npmrc setting `min-release-age` is looked for where the config file lives
-  let age_cutoff = resolve_dependency_age_cutoff(options.minimum_dependency_age.as_ref(), options.config_dir.as_deref(), environment);
   // resolve concurrently — a plugin distributed on npm costs a registry round trip
   let entries = future::join_all(
     selected_indexes
@@ -301,6 +304,7 @@ pub async fn prompt_for_init_preferences(environment: &impl Environment, options
   let plugins = info.latest_plugins;
   let preferences = read_init_preferences(environment);
   let no_project_files = ProjectFiles::default();
+  let age_cutoff = resolve_dependency_age_cutoff(None, None, environment);
   let mut choices = get_plugin_choices(&plugins, &preferences);
   let preferred_order = get_preferred_order(&plugins, &preferences);
   // the preferred plugins in their order, which is the order that's saved
@@ -333,7 +337,8 @@ pub async fn prompt_for_init_preferences(environment: &impl Environment, options
         let plugin = &plugins[index];
         let title = format!("{} when preferred", plugin.display_name());
         let old_choices = choices[index].clone();
-        edit_plugin_choices(environment, &title, plugin, &no_project_files, options_loader.as_deref(), &mut choices[index]).await?;
+        let options_source = options_loader.as_deref().map(|loader| (loader, age_cutoff.as_ref()));
+        edit_plugin_choices(environment, &title, plugin, &no_project_files, options_source, &mut choices[index]).await?;
         state.items[item_index].detail = plugin_prompt_detail(plugin, &choices[index], &no_project_files, false);
         // what was changed is only remembered for a preferred plugin
         if choices[index] != old_choices && !state.items[item_index].is_selected {
@@ -430,6 +435,9 @@ struct PluginPrompt<'a> {
   /// it (see [`plugin_ranks`]).
   ranks: &'a [usize],
   options_loader: Option<&'a dyn InitPluginOptionsLoader>,
+  /// What holds back the version of a plugin that's written, which is the
+  /// version to show the options of.
+  age_cutoff: Option<&'a DependencyAgeCutoff>,
 }
 
 /// Prompts for the plugins to use, letting the user move them and open one to
@@ -489,7 +497,8 @@ async fn prompt_for_plugins(
         let index = state.items[item_index].id;
         let plugin = &prompt.plugins[index];
         let title = plugin.display_name();
-        edit_plugin_choices(environment, title, plugin, prompt.project_files, prompt.options_loader, &mut choices[index]).await?;
+        let options_source = prompt.options_loader.map(|loader| (loader, prompt.age_cutoff));
+        edit_plugin_choices(environment, title, plugin, prompt.project_files, options_source, &mut choices[index]).await?;
         state.items[item_index].detail = plugin_prompt_detail(plugin, &choices[index], prompt.project_files, is_already_configured(index));
       }
     }
@@ -541,13 +550,14 @@ fn get_updated_preferences(
 
 /// Shows the files a plugin formats and its options so the user can change
 /// them. The plugin is only downloaded to get its options once the user asks
-/// for this, and leaving before that's done stops it.
+/// for this, and leaving before that's done stops it. The options are those
+/// of the version that would be written, which a dependency age holds back.
 async fn edit_plugin_choices(
   environment: &impl Environment,
   title: &str,
   plugin: &InfoFilePluginInfo,
   project_files: &ProjectFiles,
-  options_loader: Option<&dyn InitPluginOptionsLoader>,
+  options_source: Option<(&dyn InitPluginOptionsLoader, Option<&DependencyAgeCutoff>)>,
   choices: &mut PluginChoices,
 ) -> Result<()> {
   let file_types = plugin_file_types(plugin);
@@ -571,12 +581,13 @@ async fn edit_plugin_choices(
     .collect();
   editor.options_title = "Options:".to_string();
   let config = choices.config.clone();
-  let pending_options = match options_loader {
-    Some(options_loader) => {
+  let pending_options = match options_source {
+    Some((options_loader, age_cutoff)) => {
       editor.options = SettingsOptions::Loading("Downloading the plugin to get its options... (\u{2190} to cancel)".to_string());
       Some(
-        async {
-          let mut options = options_loader.load(plugin).await?;
+        async move {
+          let plugin_entry = resolve_plugin_entry(plugin, age_cutoff, environment).await?;
+          let mut options = options_loader.load(&plugin_entry).await?;
           apply_config_to_settings_options(&mut options, &config);
           Ok(options)
         }
@@ -2868,7 +2879,7 @@ mod test {
 
   #[dprint_core::async_runtime::async_trait(?Send)]
   impl InitPluginOptionsLoader for TestOptionsLoader {
-    async fn load(&self, _plugin: &InfoFilePluginInfo) -> Result<Vec<SettingsOption>> {
+    async fn load(&self, _plugin_entry: &str) -> Result<Vec<SettingsOption>> {
       self.load_count.set(self.load_count.get() + 1);
       Ok(self.options.clone())
     }

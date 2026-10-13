@@ -121,7 +121,7 @@ test-plugin
 
 [enter]
 test-plugin
-  enter: edit, del: reset, type to filter, ←: back
+  enter: edit, del: clear, type to filter, ←: back
   Files to format:
   [x] .txt
   Options:
@@ -221,7 +221,7 @@ test-plugin
 
 [enter]
 test-plugin
-  enter: edit, del: reset, type to filter, ←: back
+  enter: edit, del: clear, type to filter, ←: back
   Files to format:
   [x] .txt
   Options:
@@ -241,7 +241,7 @@ test-plugin
 
 [tab]
 test-plugin
-  enter: edit, tab: don't write default, del: reset, type to filter, ←: back
+  enter: edit, del: clear, type to filter, ←: back
   Files to format:
   [x] .txt
   Options:
@@ -251,7 +251,7 @@ test-plugin
 
 [up]
 test-plugin
-  enter: edit, del: reset, type to filter, ←: back
+  enter: edit, del: clear, type to filter, ←: back
   Files to format:
   [x] .txt
   Options:
@@ -321,7 +321,7 @@ test-plugin
 
 [enter]
 test-plugin
-  enter: edit, del: reset, type to filter, ←: back
+  enter: edit, del: clear, type to filter, ←: back
   Files to format:
   [x] .txt
   Options:

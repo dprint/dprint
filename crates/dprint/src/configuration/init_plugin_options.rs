@@ -8,9 +8,8 @@ use url::Url;
 use crate::environment::DownloadOptions;
 use crate::environment::Environment;
 use crate::plugins::FormatConfig;
-use crate::plugins::InfoFilePluginInfo;
 use crate::plugins::PluginResolver;
-use crate::plugins::PluginSourceReference;
+use crate::plugins::parse_plugin_source_reference;
 use crate::utils::PathSource;
 use crate::utils::SettingsOption;
 use crate::utils::SettingsOptionKind;
@@ -19,8 +18,9 @@ use crate::utils::SettingsOptionKind;
 /// offer to edit them.
 #[async_trait(?Send)]
 pub trait InitPluginOptionsLoader {
-  /// The plugin's options, each with its default value and nothing to write.
-  async fn load(&self, plugin: &InfoFilePluginInfo) -> Result<Vec<SettingsOption>>;
+  /// The options of the plugin that a config file's entry is for (ex. its
+  /// url), each with its default value and nothing to write.
+  async fn load(&self, plugin_entry: &str) -> Result<Vec<SettingsOption>>;
 }
 
 /// Loads a plugin's options by downloading the plugin, which is what knows
@@ -59,11 +59,9 @@ impl<TEnvironment: Environment> PluginResolverOptionsLoader<TEnvironment> {
 
 #[async_trait(?Send)]
 impl<TEnvironment: Environment> InitPluginOptionsLoader for PluginResolverOptionsLoader<TEnvironment> {
-  async fn load(&self, plugin: &InfoFilePluginInfo) -> Result<Vec<SettingsOption>> {
-    let plugin_reference = PluginSourceReference {
-      path_source: PathSource::new_remote(Url::parse(&plugin.url)?),
-      checksum: plugin.checksum.clone(),
-    };
+  async fn load(&self, plugin_entry: &str) -> Result<Vec<SettingsOption>> {
+    let base = PathSource::new_local(self.environment.cwd());
+    let plugin_reference = parse_plugin_source_reference(plugin_entry, &base, &self.environment)?;
     let plugin = self.plugin_resolver.resolve_plugin(plugin_reference).await?;
     let schema_url = plugin.info().config_schema_url.clone();
     let initialized_plugin = plugin.initialize().await?;
@@ -169,7 +167,9 @@ fn resolve_schema_ref<'a>(schema: &'a serde_json::Value, mut property: &'a serde
 
 fn kind_of_schema_property(schema: &serde_json::Value, property: &serde_json::Value) -> SettingsOptionKind {
   if let Some(values) = enum_values_of_schema_property(schema, property) {
-    return if values.iter().all(|value| value.is_boolean()) {
+    let has = |value: bool| values.contains(&serde_json::Value::Bool(value));
+    // only when it can be flipped between both, which isn't so for `[true]`
+    return if has(true) && has(false) && values.iter().all(|value| value.is_boolean()) {
       SettingsOptionKind::Bool
     } else {
       SettingsOptionKind::Enum(values)
@@ -193,7 +193,8 @@ fn kind_of_schema_property(schema: &serde_json::Value, property: &serde_json::Va
 /// `enum` or with alternatives that are each a constant.
 fn enum_values_of_schema_property(schema: &serde_json::Value, property: &serde_json::Value) -> Option<Vec<serde_json::Value>> {
   if let Some(values) = property.get("enum").and_then(|values| values.as_array()) {
-    return Some(values.clone());
+    // no values is a schema that nothing matches, so go by its type instead
+    return if values.is_empty() { None } else { Some(values.clone()) };
   }
   let alternatives = property
     .get("oneOf")
@@ -297,6 +298,31 @@ mod test {
         option("commands", SettingsOptionKind::ReadOnly, None, None),
         option("mixed", SettingsOptionKind::ReadOnly, None, None),
         option("notInSchema", SettingsOptionKind::String, Some(json!("x")), None),
+      ]
+    );
+  }
+
+  #[test]
+  fn should_only_flip_between_values_a_schema_allows_both_of() {
+    let schema = json!({
+      "properties": {
+        "both": { "enum": [true, false] },
+        "onlyTrue": { "enum": [true] },
+        "noValues": { "type": "boolean", "enum": [] },
+        "noValuesOrType": { "enum": [] },
+      }
+    });
+    let kinds = get_settings_options(Some(&schema), &Default::default())
+      .into_iter()
+      .map(|option| (option.name, option.kind))
+      .collect::<Vec<_>>();
+    assert_eq!(
+      kinds,
+      vec![
+        ("both".to_string(), SettingsOptionKind::Bool),
+        ("onlyTrue".to_string(), SettingsOptionKind::Enum(vec![json!(true)])),
+        ("noValues".to_string(), SettingsOptionKind::Bool),
+        ("noValuesOrType".to_string(), SettingsOptionKind::ReadOnly),
       ]
     );
   }

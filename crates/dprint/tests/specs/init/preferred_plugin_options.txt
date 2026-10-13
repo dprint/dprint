@@ -88,7 +88,7 @@ test-plugin when preferred
 
 [enter]
 test-plugin when preferred
-  enter: edit, del: reset, type to filter, ←: back
+  enter: edit, del: clear, type to filter, ←: back
   Files to format:
   [x] .txt
   Options:

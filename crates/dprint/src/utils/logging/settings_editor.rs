@@ -13,6 +13,7 @@ use crate::utils::terminal::TerminalSize;
 use super::LoggerTextItem;
 use super::PromptTerminal;
 use super::fits_terminal_height;
+use super::terminal_too_small_text_items;
 
 /// The state of a settings editor: some checkboxes followed by options that
 /// each have a value, which may still be loading when the editor is shown.
@@ -130,12 +131,6 @@ impl SettingsOption {
   pub fn is_pinned(&self) -> bool {
     self.value.is_some() && self.value == self.default_value
   }
-
-  /// Sets the value that applies, leaving the option unwritten when that's
-  /// its default.
-  fn set_effective_value(&mut self, value: serde_json::Value) {
-    self.value = if Some(&value) == self.default_value.as_ref() { None } else { Some(value) };
-  }
 }
 
 /// Shows the settings editor until the user leaves it. The checkboxes can be
@@ -165,11 +160,16 @@ async fn run_settings_editor(
   loop {
     let terminal_size = terminal.size();
     let mut max_visible_lines = max_visible_lines(state, terminal_size);
+    let mut is_too_small = false;
     let text_items = loop {
       let text_items = render(state, max_visible_lines);
       // show less when lines wrapping would push the title off the screen
-      if max_visible_lines == 1 || fits_terminal_height(&text_items, terminal_size) {
+      if fits_terminal_height(&text_items, terminal_size) {
         break text_items;
+      }
+      if max_visible_lines == 1 {
+        is_too_small = true;
+        break terminal_too_small_text_items();
       }
       max_visible_lines -= 1;
     };
@@ -192,10 +192,14 @@ async fn run_settings_editor(
     let Some(event) = event else {
       continue;
     };
-    if let Event::Key(key_event) = event?
-      && handle_key(state, &key_event) == KeyOutcome::Close
-    {
-      return Ok(());
+    if let Event::Key(key_event) = event? {
+      // what a key does can't be seen, so the only thing to do is leave
+      if is_too_small && key_event.code != KeyCode::Esc {
+        continue;
+      }
+      if handle_key(state, &key_event) == KeyOutcome::Close {
+        return Ok(());
+      }
     }
   }
 }
@@ -247,8 +251,6 @@ fn handle_key(state: &mut SettingsEditorState, key_event: &KeyEvent) -> KeyOutco
         } else if option.value.is_none() {
           // write the default
           option.value = option.default_value.clone();
-        } else if option.is_pinned() {
-          option.value = None;
         }
       }
     }
@@ -261,6 +263,9 @@ fn handle_key(state: &mut SettingsEditorState, key_event: &KeyEvent) -> KeyOutco
       if state.filter.pop().is_some() {
         state.active_index = 0;
         state.scroll_offset = 0;
+      } else if let Some(Row::Option(index)) = active_row {
+        // it's the key that says delete on some keyboards
+        state.loaded_options_mut()[index].value = None;
       }
     }
     KeyCode::Char(c) => {
@@ -280,13 +285,15 @@ fn handle_key(state: &mut SettingsEditorState, key_event: &KeyEvent) -> KeyOutco
 /// Changes the option the way its kind is changed: a boolean flips, an enum
 /// moves to its next value, and a number or string starts being typed (only
 /// on enter, because space is too easy to hit while moving through the list).
+/// The value it's changed to is written even when it's the default, which is
+/// what the user then asked for. Clearing the value is what leaves it out.
 fn change_option(state: &mut SettingsEditorState, index: usize, is_enter: bool) {
   let option = &mut state.loaded_options_mut()[index];
   let kind = option.kind.clone();
   match &kind {
     SettingsOptionKind::Bool => {
       let current = option.effective_value().and_then(|value| value.as_bool()).unwrap_or(false);
-      option.set_effective_value(serde_json::Value::Bool(!current));
+      option.value = Some(serde_json::Value::Bool(!current));
     }
     SettingsOptionKind::Enum(values) => {
       if values.is_empty() {
@@ -295,7 +302,7 @@ fn change_option(state: &mut SettingsEditorState, index: usize, is_enter: bool) 
       let current_index = option.effective_value().and_then(|current| values.iter().position(|value| value == current));
       let next_index = current_index.map(|index| (index + 1) % values.len()).unwrap_or(0);
       let next_value = values[next_index].clone();
-      option.set_effective_value(next_value);
+      option.value = Some(next_value);
     }
     SettingsOptionKind::Number | SettingsOptionKind::String => {
       if is_enter {
@@ -358,7 +365,7 @@ fn commit_edit(state: &mut SettingsEditorState) {
   } else {
     serde_json::Value::String(text)
   };
-  state.loaded_options_mut()[index].set_effective_value(value);
+  state.loaded_options_mut()[index].value = Some(value);
   state.edit_text = None;
   state.edit_error = None;
 }
@@ -387,15 +394,11 @@ fn key_help(state: &SettingsEditorState, active_row: Option<Row>) -> String {
         SettingsOptionKind::Number | SettingsOptionKind::String => keys.push("enter: edit"),
         SettingsOptionKind::ReadOnly => {}
       }
-      if option.kind != SettingsOptionKind::ReadOnly {
-        if option.is_pinned() {
-          keys.push("tab: don't write default");
-        } else if option.value.is_none() && option.default_value.is_some() {
-          keys.push("tab: write default");
-        }
+      if option.kind != SettingsOptionKind::ReadOnly && option.value.is_none() && option.default_value.is_some() {
+        keys.push("tab: write default");
       }
       if option.value.is_some() {
-        keys.push("del: reset");
+        keys.push("del: clear");
       }
     }
     None => {}
@@ -436,6 +439,9 @@ fn visible_rows(state: &SettingsEditorState) -> Vec<Row> {
 struct Line {
   text: String,
   indent: u16,
+  /// Whether this is the line of a row and not something about them (ex. a
+  /// section's title).
+  is_row: bool,
   /// Whether this is the line of the active row.
   is_active: bool,
 }
@@ -475,18 +481,11 @@ fn render(state: &mut SettingsEditorState, max_visible_lines: usize) -> Vec<Logg
   }
 
   let end = state.scroll_offset.saturating_add(max_visible_lines).min(lines.len());
-  if state.scroll_offset > 0 {
-    result.push(LoggerTextItem::Text(format!("  ...{} more above", state.scroll_offset)));
-  }
+  push_hidden_lines(&mut result, &lines[..state.scroll_offset], "above");
   for line in &lines[state.scroll_offset..end] {
-    result.push(LoggerTextItem::HangingText {
-      text: line.text.clone(),
-      indent: line.indent,
-    });
+    result.push(line.as_text_item());
   }
-  if end < lines.len() {
-    result.push(LoggerTextItem::Text(format!("  ...{} more below", lines.len() - end)));
-  }
+  push_hidden_lines(&mut result, &lines[end..], "below");
 
   if let Some(error) = &state.edit_error {
     result.push(LoggerTextItem::HangingText {
@@ -504,6 +503,19 @@ fn render(state: &mut SettingsEditorState, max_visible_lines: usize) -> Vec<Logg
   result
 }
 
+/// Says how many rows are in the lines that are scrolled out of view. A line
+/// on its own that isn't a row (ex. a section's title) is shown instead, since
+/// it takes up as much room as saying that it's there.
+fn push_hidden_lines(result: &mut Vec<LoggerTextItem>, hidden_lines: &[Line], direction: &str) {
+  let row_count = hidden_lines.iter().filter(|line| line.is_row).count();
+  match hidden_lines {
+    [] => {}
+    [line] if row_count == 0 => result.push(line.as_text_item()),
+    _ if row_count == 0 => result.push(LoggerTextItem::Text(format!("  ...more {}", direction))),
+    _ => result.push(LoggerTextItem::Text(format!("  ...{} more {}", row_count, direction))),
+  }
+}
+
 /// Everything in the scrollable part of the editor: each section's title
 /// followed by its rows or what's known about them.
 fn get_lines(state: &SettingsEditorState, rows: &[Row]) -> Vec<Line> {
@@ -511,11 +523,13 @@ fn get_lines(state: &SettingsEditorState, rows: &[Row]) -> Vec<Line> {
   let title_line = |title: &str| Line {
     text: format!("  {}", title),
     indent: 2,
+    is_row: false,
     is_active: false,
   };
   let note_line = |text: &str| Line {
     text: format!("    {}", colors::gray(text)),
     indent: 4,
+    is_row: false,
     is_active: false,
   };
 
@@ -538,6 +552,7 @@ fn get_lines(state: &SettingsEditorState, rows: &[Row]) -> Vec<Line> {
         lines.push(Line {
           text: format!("{} [{}] {}", prefix, if checkbox.is_checked { "x" } else { " " }, text),
           indent: 6,
+          is_row: true,
           is_active,
         });
       }
@@ -551,6 +566,7 @@ fn get_lines(state: &SettingsEditorState, rows: &[Row]) -> Vec<Line> {
         lines.push(Line {
           text: format!("{}   {}", prefix, render_option(option, edit_text)),
           indent: 6,
+          is_row: true,
           is_active,
         });
       }
@@ -603,11 +619,20 @@ fn value_text(value: &serde_json::Value) -> String {
   }
 }
 
+impl Line {
+  fn as_text_item(&self) -> LoggerTextItem {
+    LoggerTextItem::HangingText {
+      text: self.text.clone(),
+      indent: self.indent,
+    }
+  }
+}
+
 /// Adjusts the scroll offset so the active row stays within the visible
-/// window, along with its section's title when it's the first row under it.
+/// window, along with the title above the first row when there's room for both.
 fn update_scroll_offset(state: &mut SettingsEditorState, lines: &[Line], max_visible_lines: usize) {
   if let Some(active_line) = lines.iter().position(|line| line.is_active) {
-    let first_wanted_line = if active_line == 1 { 0 } else { active_line };
+    let first_wanted_line = if active_line == 1 && max_visible_lines > 1 { 0 } else { active_line };
     if first_wanted_line < state.scroll_offset {
       state.scroll_offset = first_wanted_line;
     } else if active_line >= state.scroll_offset.saturating_add(max_visible_lines) {
@@ -737,37 +762,56 @@ mod test {
   }
 
   #[test]
-  fn changing_a_value_back_to_its_default_leaves_it_unwritten() {
+  fn changing_a_value_to_its_default_writes_it_until_it_is_cleared() {
     let mut state = build_state();
     state.active_index = 2; // semi
     press(&mut state, KeyCode::Char(' '));
     assert_eq!(option_value(&state, "semi"), Some(json!(false)));
     press(&mut state, KeyCode::Char(' '));
+    assert_eq!(option_value(&state, "semi"), Some(json!(true)));
+    assert_eq!(rendered_lines(&mut state)[5], format!(">   semi: true{}", colors::gray(" (default, written)")));
+    press(&mut state, KeyCode::Delete);
     assert_eq!(option_value(&state, "semi"), None);
 
     state.active_index = 3; // quotes
     press(&mut state, KeyCode::Enter);
     assert_eq!(option_value(&state, "quotes"), Some(json!("single")));
     press(&mut state, KeyCode::Enter);
+    assert_eq!(option_value(&state, "quotes"), Some(json!("double")));
+    // the key that says delete on some keyboards
+    press(&mut state, KeyCode::Backspace);
     assert_eq!(option_value(&state, "quotes"), None);
+
+    // accepting what's there to be typed over is asking for it too
+    state.active_index = 4; // width
+    press(&mut state, KeyCode::Enter);
+    press(&mut state, KeyCode::Enter);
+    assert_eq!(option_value(&state, "width"), Some(json!(120)));
+
+    // backspace is for the filter while there is one
+    type_text(&mut state, "wid");
+    for _ in 0..3 {
+      assert_eq!(option_value(&state, "width"), Some(json!(120)));
+      press(&mut state, KeyCode::Backspace);
+    }
+    state.active_index = 4;
+    press(&mut state, KeyCode::Backspace);
+    assert_eq!(option_value(&state, "width"), None);
   }
 
   #[test]
-  fn tab_writes_the_default_and_delete_resets() {
+  fn tab_writes_the_default() {
     let mut state = build_state();
     state.active_index = 2; // semi
     press(&mut state, KeyCode::Tab);
     assert_eq!(option_value(&state, "semi"), Some(json!(true)));
     assert!(state.loaded_options()[0].is_pinned());
+    // which is left alone from then on, the same as a changed value
     press(&mut state, KeyCode::Tab);
-    assert_eq!(option_value(&state, "semi"), None);
-
-    // a changed value is left alone by tab and reset by delete
+    assert_eq!(option_value(&state, "semi"), Some(json!(true)));
     press(&mut state, KeyCode::Char(' '));
     press(&mut state, KeyCode::Tab);
     assert_eq!(option_value(&state, "semi"), Some(json!(false)));
-    press(&mut state, KeyCode::Delete);
-    assert_eq!(option_value(&state, "semi"), None);
   }
 
   #[test]
@@ -786,12 +830,9 @@ mod test {
     state.active_index = 2; // semi
     assert_eq!(key_help(&state), "space: change, tab: write default, type to filter, \u{2190}: back");
     press(&mut state, KeyCode::Tab);
-    assert_eq!(
-      key_help(&state),
-      "space: change, tab: don't write default, del: reset, type to filter, \u{2190}: back"
-    );
+    assert_eq!(key_help(&state), "space: change, del: clear, type to filter, \u{2190}: back");
     press(&mut state, KeyCode::Char(' '));
-    assert_eq!(key_help(&state), "space: change, del: reset, type to filter, \u{2190}: back");
+    assert_eq!(key_help(&state), "space: change, del: clear, type to filter, \u{2190}: back");
     state.active_index = 4; // width
     assert_eq!(key_help(&state), "enter: edit, tab: write default, type to filter, \u{2190}: back");
     press(&mut state, KeyCode::Enter);

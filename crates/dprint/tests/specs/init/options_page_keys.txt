@@ -30,7 +30,7 @@ dprint-plugin-typescript
   Files to format:
 > [x] .ts
   [x] .tsx
-  ...4 more below
+  ...2 more below
 
 [wait]
 dprint-plugin-typescript
@@ -38,24 +38,32 @@ dprint-plugin-typescript
   Files to format:
 > [x] .ts
   [x] .tsx
-  ...4 more below
-
-[pagedown]
-dprint-plugin-typescript
-  space: toggle, type to filter, ←: back
-  ...2 more above
-  [x] .tsx
-  [x] .js
-> [x] .jsx
   ...2 more below
 
 [pagedown]
 dprint-plugin-typescript
   space: toggle, type to filter, ←: back
-  ...2 more above
+  ...1 more above
   [x] .tsx
   [x] .js
 > [x] .jsx
+  ...more below
+
+[pagedown]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  ...1 more above
+  [x] .tsx
+  [x] .js
+> [x] .jsx
+  ...more below
+
+[pageup]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .ts
+  [x] .tsx
   ...2 more below
 
 [pageup]
@@ -64,15 +72,7 @@ dprint-plugin-typescript
   Files to format:
 > [x] .ts
   [x] .tsx
-  ...4 more below
-
-[pageup]
-dprint-plugin-typescript
-  space: toggle, type to filter, ←: back
-  Files to format:
-> [x] .ts
-  [x] .tsx
-  ...4 more below
+  ...2 more below
 
 [left]
 Select plugins:
