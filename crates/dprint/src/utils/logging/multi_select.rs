@@ -196,8 +196,10 @@ impl MultiSelectState {
   }
 
   /// Selects or unselects the item at this index in the items, moving it to
-  /// where it goes when the prompt keeps the selected items first. The item
-  /// stays the active one when it was.
+  /// where it goes when the prompt keeps the selected items first. That's
+  /// under the items that can't be unselected, since being above one of those
+  /// is something only the user moving an item there asks for. The item stays
+  /// the active one when it was.
   pub fn set_item_selected(&mut self, item_index: usize, is_selected: bool) {
     let was_active = visible_indexes(self).get(self.active_index) == Some(&item_index);
     self.items[item_index].is_selected = is_selected;
@@ -206,15 +208,18 @@ impl MultiSelectState {
     }
     let item = self.items.remove(item_index);
     let goes_before = |other: &MultiSelectItem| {
-      if !other.is_selectable {
-        false
-      } else if item.is_selected {
+      if item.is_selected {
         !other.is_selected || other.rank > item.rank
       } else {
         !other.is_selected && other.rank > item.rank
       }
     };
-    let new_index = self.items.iter().position(goes_before).unwrap_or(self.items.len());
+    let start_index = self.items.iter().rposition(|other| !other.is_selectable).map(|index| index + 1).unwrap_or(0);
+    let new_index = self.items[start_index..]
+      .iter()
+      .position(goes_before)
+      .map(|index| start_index + index)
+      .unwrap_or(self.items.len());
     self.items.insert(new_index, item);
     if was_active && let Some(active_index) = visible_indexes(self).iter().position(|&index| index == new_index) {
       self.active_index = active_index;
@@ -787,6 +792,31 @@ mod test {
     data.active_index = 0;
     press_with_modifiers(&mut data, KeyCode::Down, shift);
     assert_eq!(item_texts(&data), vec!["locked", "d", "b", "a", "c", "e"]);
+  }
+
+  #[test]
+  fn selecting_does_not_move_the_item_above_what_can_not_be_unselected() {
+    let mut data = selected_first_data();
+    // `d` gets moved above it
+    data.active_index = 2;
+    press_with_modifiers(&mut data, KeyCode::Up, KeyModifiers::SHIFT);
+    press_with_modifiers(&mut data, KeyCode::Up, KeyModifiers::SHIFT);
+    assert_eq!(item_texts(&data), vec!["d", "locked", "b", "a", "c", "e"]);
+    // which isn't asking for `a` or `c` to be above it, even though they go
+    // ahead of `d` otherwise
+    data.active_index = 3;
+    press(&mut data, KeyCode::Char(' '));
+    assert_eq!(item_texts(&data), vec!["d", "locked", "a", "b", "c", "e"]);
+    data.active_index = 4;
+    press(&mut data, KeyCode::Char(' '));
+    assert_eq!(item_texts(&data), vec!["d", "locked", "a", "b", "c", "e"]);
+    assert!(data.items[4].is_selected);
+
+    // unselecting what's above it goes back down
+    data.active_index = 0;
+    press(&mut data, KeyCode::Char(' '));
+    assert_eq!(item_texts(&data), vec!["locked", "a", "b", "c", "d", "e"]);
+    assert_eq!(data.active_index, 4);
   }
 
   #[test]

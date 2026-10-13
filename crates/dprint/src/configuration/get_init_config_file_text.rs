@@ -1136,18 +1136,18 @@ fn apply_choices_to_config(config: &mut serde_json::Map<String, serde_json::Valu
   if patterns.is_empty() {
     return;
   }
-  match config.get_mut("associations") {
-    Some(serde_json::Value::Array(associations)) => {
-      for pattern in patterns {
-        if !associations.contains(&pattern) {
-          associations.push(pattern);
-        }
-      }
-    }
-    _ => {
-      config.insert("associations".to_string(), serde_json::Value::Array(patterns));
+  let mut associations = match config.remove("associations") {
+    Some(serde_json::Value::Array(associations)) => associations,
+    // a single pattern doesn't need to be in an array
+    Some(association @ serde_json::Value::String(_)) => vec![association],
+    _ => Vec::new(),
+  };
+  for pattern in patterns {
+    if !associations.contains(&pattern) {
+      associations.push(pattern);
     }
   }
+  config.insert("associations".to_string(), serde_json::Value::Array(associations));
 }
 
 /// Merges `other` into `base`: objects merge recursively, arrays are
@@ -1327,6 +1327,35 @@ mod test {
         })
         .collect(),
     }
+  }
+
+  #[test]
+  fn files_left_out_are_added_to_the_associations_that_are_there() {
+    let plugin = info_plugin_with_extensions(vec!["ts", "yaml"], vec![]);
+    let choices = PluginChoices {
+      excluded_extensions: vec!["yaml".to_string()],
+      ..Default::default()
+    };
+    let apply = |config: serde_json::Value| {
+      let mut config = config.as_object().unwrap().clone();
+      apply_choices_to_config(&mut config, &plugin, &choices);
+      serde_json::Value::Object(config)
+    };
+    assert_eq!(apply(serde_json::json!({})), serde_json::json!({ "associations": ["!**/*.yaml"] }));
+    // a single pattern doesn't have to be in an array
+    assert_eq!(
+      apply(serde_json::json!({ "associations": "**/*.foo" })),
+      serde_json::json!({ "associations": ["**/*.foo", "!**/*.yaml"] })
+    );
+    assert_eq!(
+      apply(serde_json::json!({ "associations": ["**/*.foo", "!**/*.yaml"] })),
+      serde_json::json!({ "associations": ["**/*.foo", "!**/*.yaml"] })
+    );
+    // nothing is left out
+    let choices = PluginChoices::default();
+    let mut config = serde_json::json!({ "associations": "**/*.foo" }).as_object().unwrap().clone();
+    apply_choices_to_config(&mut config, &plugin, &choices);
+    assert_eq!(serde_json::Value::Object(config), serde_json::json!({ "associations": "**/*.foo" }));
   }
 
   #[test]
