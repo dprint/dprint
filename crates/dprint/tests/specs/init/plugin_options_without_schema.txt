@@ -1,0 +1,168 @@
+The options of a plugin are what it resolved when its schema can't be
+downloaded.
+
+-- file: /notes.txt --
+-- keys --
+down
+right
+wait
+down
+down
+enter
+backspace
+backspace
+backspace
+"80"
+enter
+left
+enter
+-- output --
+[start]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-json (.json, .jsonc)
+  [x] test-plugin (.txt)
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+
+[down]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  [x] dprint-plugin-json (.json, .jsonc)
+> [x] test-plugin (.txt)
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+
+[right]
+test-plugin
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .txt
+  Options:
+    Downloading the plugin to get its options... (← to cancel)
+
+[wait]
+test-plugin
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .txt
+  Options:
+    ending: formatted
+    lineWidth: 120
+
+[down]
+test-plugin
+  enter: edit, tab: write default, type to filter, ←: back
+  Files to format:
+  [x] .txt
+  Options:
+>   ending: formatted
+    lineWidth: 120
+
+[down]
+test-plugin
+  enter: edit, tab: write default, type to filter, ←: back
+  Files to format:
+  [x] .txt
+  Options:
+    ending: formatted
+>   lineWidth: 120
+
+[enter]
+test-plugin
+  enter: accept, esc: discard
+  Files to format:
+  [x] .txt
+  Options:
+    ending: formatted
+>   lineWidth: 120█
+
+[backspace]
+test-plugin
+  enter: accept, esc: discard
+  Files to format:
+  [x] .txt
+  Options:
+    ending: formatted
+>   lineWidth: 12█
+
+[backspace]
+test-plugin
+  enter: accept, esc: discard
+  Files to format:
+  [x] .txt
+  Options:
+    ending: formatted
+>   lineWidth: 1█
+
+[backspace]
+test-plugin
+  enter: accept, esc: discard
+  Files to format:
+  [x] .txt
+  Options:
+    ending: formatted
+>   lineWidth: █
+
+["80"]
+test-plugin
+  enter: accept, esc: discard
+  Files to format:
+  [x] .txt
+  Options:
+    ending: formatted
+>   lineWidth: 80█
+
+[enter]
+test-plugin
+  enter: edit, del: clear, type to filter, ←: back
+  Files to format:
+  [x] .txt
+  Options:
+    ending: formatted
+>   lineWidth: 80
+
+[left]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  [x] dprint-plugin-json (.json, .jsonc)
+> [x] test-plugin (.txt) — customized
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+
+[enter]
+Select plugins:
+ * dprint-plugin-json (.json, .jsonc)
+ * test-plugin (.txt) — customized
+
+# stdout
+
+Created dprint.json
+
+If you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor
+
+# stderr
+Compiling https://plugins.dprint.dev/test-plugin.wasm
+
+# /dprint.json
+{
+  "json": {
+  },
+  "test-plugin": {
+    "lineWidth": 80
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/json-1.0.0.wasm",
+    "https://plugins.dprint.dev/test-plugin.wasm"
+  ]
+}
+
+# /config/dprint/init.json
+(does not exist)

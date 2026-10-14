@@ -47,16 +47,16 @@ use crate::utils::FastInsecureHasher;
 use crate::utils::LogLevel;
 use crate::utils::Logger;
 use crate::utils::LoggerOptions;
-use crate::utils::MultiSelectItem;
+use crate::utils::LoggerPromptTerminal;
 use crate::utils::NoProxy;
 use crate::utils::ProgressBars;
+use crate::utils::PromptTerminal;
 use crate::utils::RealUrlDownloader;
 use crate::utils::ShowConfirmStrategy;
 use crate::utils::UnsafelyIgnoreCertificates;
 use crate::utils::is_terminal_interactive;
 use crate::utils::log_action_with_progress;
 use crate::utils::show_confirm;
-use crate::utils::show_multi_select;
 use crate::utils::show_select;
 
 // cache the cwd because it's much faster than looking it up each time
@@ -599,8 +599,8 @@ impl Environment for RealEnvironment {
     show_select(&self.logger, "dprint", prompt_message, item_indent_width, items)
   }
 
-  fn get_multi_selection(&self, prompt_message: &str, item_indent_width: u16, items: Vec<MultiSelectItem>) -> Result<Vec<usize>> {
-    show_multi_select(&self.logger, "dprint", prompt_message, item_indent_width, items)
+  fn prompt_terminal(&self) -> Box<dyn PromptTerminal + '_> {
+    Box::new(LoggerPromptTerminal::new(&self.logger))
   }
 
   fn confirm_with_strategy(&self, strategy: &dyn ShowConfirmStrategy) -> Result<bool> {

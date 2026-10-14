@@ -117,9 +117,11 @@ pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TE
     SubCommand::Lsp => commands::run_language_server(args, environment, plugin_resolver).await,
     SubCommand::ClearCache => commands::clear_cache(environment),
     SubCommand::Config(cmd) => match cmd {
+      ConfigSubCommand::Init { preferences: true, .. } => commands::edit_init_preferences(environment, plugin_resolver).await,
       ConfigSubCommand::Init {
         global,
         yes,
+        preferences: false,
         minimum_dependency_age,
       } => {
         commands::init_config_file(
