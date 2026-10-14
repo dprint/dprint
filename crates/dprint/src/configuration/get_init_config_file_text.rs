@@ -33,6 +33,7 @@ use crate::utils::SettingsCheckbox;
 use crate::utils::SettingsEditorState;
 use crate::utils::SettingsOptions;
 use crate::utils::resolve_global_gitignore_lines;
+use crate::utils::show_multi_select;
 use crate::utils::show_settings_editor;
 
 use super::InitPluginOptionsLoader;
@@ -331,7 +332,7 @@ pub async fn prompt_for_init_preferences(environment: &impl Environment, options
   };
 
   loop {
-    match environment.get_multi_selection(&mut state)? {
+    match show_multi_select(environment, "dprint", &mut state)? {
       MultiSelectAction::Done => break,
       MultiSelectAction::Open(item_index) => {
         let index = state.items[item_index].id;
@@ -492,7 +493,7 @@ async fn prompt_for_plugins(
   };
 
   loop {
-    match environment.get_multi_selection(&mut state)? {
+    match show_multi_select(environment, "dprint", &mut state)? {
       MultiSelectAction::Done => break,
       MultiSelectAction::Open(item_index) => {
         let index = state.items[item_index].id;
@@ -1429,6 +1430,7 @@ mod test {
       })
       .write_file("/Makefile", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -1449,7 +1451,7 @@ mod test {
 }
 "#
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1478,6 +1480,7 @@ mod test {
       })
       .write_file("/main.rs", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // the config item overrides cwd, keeps indentWidth, and appends commands
@@ -1501,7 +1504,7 @@ mod test {
 }
 "#
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1674,12 +1677,13 @@ mod test {
       })
       .write_file("/notes.txt", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
         let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
         // it matches the .txt file, but it's only offered rather than suggested
-        assert_eq!(environment.take_multi_selection_items(), vec!["[ ] a (.txt)"]);
+        assert_eq!(take_shown_items(&environment), vec!["[ ] a (.txt)"]);
         assert!(!text.contains("a-1.0.0.wasm"), "{text}");
         environment.take_stderr_messages();
       }
@@ -1723,6 +1727,7 @@ mod test {
       })
       .write_file("/notes.txt", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
@@ -1738,10 +1743,7 @@ mod test {
         .await
         .unwrap();
         // `a` handles .txt once it's in the config file, so `b` isn't suggested
-        assert_eq!(
-          environment.take_multi_selection_items(),
-          vec!["[x] a (.txt) — already in config (locked)", "[ ] b (.txt)"]
-        );
+        assert_eq!(take_shown_items(&environment), vec!["[x] a (.txt) — already in config", "[ ] b (.txt)"]);
         let InitPluginsToAdd::Plugins(plugins) = plugins else {
           unreachable!();
         };
@@ -1785,6 +1787,7 @@ mod test {
       })
       .write_file("/main.rs", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // exec is pre-selected by the .rs file; cwd comes from defaultConfig and the
@@ -1808,7 +1811,7 @@ mod test {
 }
 "#
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1821,6 +1824,7 @@ mod test {
       .write_file("/main.rs", "")
       .write_file("/lib.go", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // both commands are appended in info.json order
@@ -1847,7 +1851,7 @@ mod test {
 }
 "#
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1859,7 +1863,7 @@ mod test {
       })
       .build();
     // manually select exec even though no matching files are present
-    environment.set_multi_selection_result(vec![0]);
+    press_keys(&environment, &["space", "enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -1875,7 +1879,7 @@ mod test {
 }
 "#
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1912,12 +1916,13 @@ mod test {
       })
       .write_file("/main.ts", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
         let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
         // the display name is only for showing the plugin
-        assert_eq!(environment.take_multi_selection_items(), vec!["[x] someone/a (.ts)", "[ ] b (.md)"]);
+        assert_eq!(take_shown_items(&environment), vec!["[x] someone/a (.ts)", "[ ] b (.md)"]);
         assert!(text.contains("dprint_plugin_a-1.0.0.wasm"), "{text}");
         environment.take_stderr_messages();
       }
@@ -1936,6 +1941,7 @@ mod test {
       .write_file("/main.ts", "")
       .write_file("/data.json", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
@@ -1953,15 +1959,15 @@ mod test {
         // `b` is pre-selected because of the .json file, `a` is only shown for
         // context since the config file already has it (even though .ts matched)
         assert_eq!(
-          environment.take_multi_selection_items(),
-          vec!["[x] a (.ts) — already in config (locked)", "[x] b (.json)", "[ ] c (.md)"]
+          take_shown_items(&environment),
+          vec!["[x] a (.ts) — already in config", "[x] b (.json)", "[ ] c (.md)"]
         );
         let InitPluginsToAdd::Plugins(plugins) = plugins else {
           unreachable!();
         };
         let entries = plugins.into_iter().map(|plugin| plugin.entry).collect::<Vec<_>>();
         assert_eq!(entries, vec!["https://plugins.dprint.dev/b-1.0.0.wasm".to_string()]);
-        assert_eq!(environment.take_stderr_messages(), vec!["Select plugins to add:"]);
+        assert!(environment.take_stderr_messages().is_empty());
       }
     });
   }
@@ -1974,6 +1980,7 @@ mod test {
       })
       .write_file("/main.ts", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
@@ -1989,10 +1996,7 @@ mod test {
         .await
         .unwrap();
         // `a` already handles .ts, so `b` isn't pre-selected
-        assert_eq!(
-          environment.take_multi_selection_items(),
-          vec!["[x] a (.ts) — already in config (locked)", "[ ] b (.ts)"]
-        );
+        assert_eq!(take_shown_items(&environment), vec!["[x] a (.ts) — already in config", "[ ] b (.ts)"]);
         let InitPluginsToAdd::Plugins(plugins) = plugins else {
           unreachable!();
         };
@@ -2026,7 +2030,7 @@ mod test {
         .await
         .unwrap();
         assert!(matches!(plugins, InitPluginsToAdd::AllPluginsConfigured));
-        assert!(environment.take_multi_selection_items().is_empty());
+        assert!(take_shown_items(&environment).is_empty());
       }
     });
   }
@@ -2049,12 +2053,13 @@ mod test {
       })
       .write_file("/file.ts", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // only the first plugin claims `ts`
       assert!(text.contains("a-1.0.0.wasm"), "{text}");
       assert!(!text.contains("b-1.0.0.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2070,11 +2075,12 @@ mod test {
       .write_file("/file.ts", "")
       .write_file("/file.vue", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert!(text.contains("a-1.0.0.wasm"), "{text}");
       assert!(text.contains("b-1.0.0.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2090,33 +2096,34 @@ mod test {
       .write_file("/file.ts", "")
       .write_file("/file.vue", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert!(text.contains("a-1.0.0.wasm"), "{text}");
       assert!(!text.contains("b-1.0.0.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
   #[test]
   fn should_write_plugins_in_the_order_they_are_shown_in() {
-    // `b` (index 1) is the sole pre-selected plugin, so it's shown first; selecting
-    // both from the reordered list writes them the way the user saw them, since
-    // the order is theirs to change
+    // `b` is the sole pre-selected plugin, so it's shown first. Selecting `a`
+    // puts it above `b` the way dprint lists them, and moving it back down
+    // writes them the way the user left them, since the order is theirs to change
     let environment = TestEnvironmentBuilder::new()
       .with_info_file(|info| {
         info.add_plugin(wasm_plugin("a", "a", &["js"])).add_plugin(wasm_plugin("b", "b", &["ts"]));
       })
       .write_file("/file.ts", "")
       .build();
-    environment.set_multi_selection_result(vec![0, 1]); // both items, in display order
+    press_keys(&environment, &["down", "space", "shift+down", "enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       let a_pos = text.find("a-1.0.0.wasm").expect("a present");
       let b_pos = text.find("b-1.0.0.wasm").expect("b present");
-      // b was displayed first, so it's written first
+      // b was left first, so it's written first
       assert!(b_pos < a_pos, "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2137,12 +2144,13 @@ mod test {
       .write_file("/file.ts", "")
       .write_file("/file.vue", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // plugins without a config key never collide on it
       assert!(text.contains("a-1.0.0.wasm"), "{text}");
       assert!(text.contains("b-1.0.0.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2170,12 +2178,13 @@ mod test {
       .write_file("/file.ts", "")
       .write_file("/file.rs", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // `b` matches `.rs` via a config item but shares the "shared" key with `a`
       assert!(text.contains("a-1.0.0.wasm"), "{text}");
       assert!(!text.contains("b-1.0.0.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2243,6 +2252,7 @@ mod test {
       .write_file("/file.vue", "")
       .write_file("/file.rs", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -2262,7 +2272,7 @@ mod test {
           b_checksum
         )
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2281,10 +2291,11 @@ mod test {
       })
       .write_file("/file.ts", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert!(text.contains("\"https://plugins.dprint.dev/a-1.0.0.wasm\""), "{text}");
-      let mut expected_messages = get_standard_logged_messages();
+      let mut expected_messages = Vec::new();
       expected_messages.push("Failed resolving the npm package for a. Using its url instead. Failed to fetch npm packument for @dprint/a: Error downloading https://registry.npmjs.org/@dprint/a - 404 Not Found");
       assert_eq!(environment.take_stderr_messages(), expected_messages);
     });
@@ -2298,7 +2309,7 @@ mod test {
       let text = get_init_config_file_text(&environment, age_test_options("P3D")).await.unwrap();
       // 1.1.0 landed the day before "now", so the release before it is written
       assert!(text.contains("\"npm:@dprint/a@1.0.0\""), "{text}");
-      let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
+      let mut expected_messages = Vec::new();
       expected_messages.push("Using @dprint/a 1.0.0 instead of 1.1.0, which is newer than the minimum dependency age allows (--minimum-dependency-age P3D). Pass --minimum-dependency-age=0 to use the latest version.");
       assert_eq!(environment.take_stderr_messages(), expected_messages);
     });
@@ -2317,7 +2328,7 @@ mod test {
         err.to_string(),
         "No version of @dprint/a at or below 1.1.0 is old enough for the minimum dependency age (--minimum-dependency-age P400D)."
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages_no_plugin_selection());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2381,6 +2392,7 @@ mod test {
       .write_file("/file.ts", "")
       .write_file("/file.json", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -2402,7 +2414,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2417,6 +2429,7 @@ mod test {
       })
       .write_file("/readme.md", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -2434,7 +2447,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2449,6 +2462,7 @@ mod test {
       })
       .write_file("/Cargo.toml", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -2469,7 +2483,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2484,6 +2498,7 @@ mod test {
       })
       .write_file("/file.ps", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -2502,7 +2517,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2516,11 +2531,12 @@ mod test {
       })
       .write_file("/src/nested/app.ts", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // the typescript plugin is selected from the nested file
       assert!(text.contains("https://plugins.dprint.dev/typescript-0.17.2.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2536,6 +2552,7 @@ mod test {
       .write_file("/node_modules/dep/app.ts", "")
       .write_file("/.git/hooks/Cargo.toml", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // only the json plugin, which is selected for the config file itself
@@ -2553,7 +2570,7 @@ mod test {
 }
 "#
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2568,10 +2585,11 @@ mod test {
       // hidden directories other than `.git` may hold files worth formatting
       .write_file("/.github/renovate.json", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert!(text.contains("https://plugins.dprint.dev/json-0.2.3.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2588,6 +2606,7 @@ mod test {
       .write_file("/generated/app.ts", "")
       .write_file("/Cargo.toml", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // only the json plugin, which is selected for the config file itself
@@ -2605,7 +2624,7 @@ mod test {
 }
 "#
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2619,10 +2638,11 @@ mod test {
       })
       .write_file("/MAIN.TS", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert!(text.contains("https://plugins.dprint.dev/typescript-0.17.2.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2679,33 +2699,33 @@ mod test {
         }
       })
       .build();
-    environment.set_multi_selection_result(vec![0, 1, 2]);
+    press_keys(&environment, &["down", "space", "down", "down", "space", "enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
-      // the json plugin is pre-selected (the config file is JSON), so it's
-      // shown and written ahead of the ones that were selected from the rest
+      // the json plugin is pre-selected (the config file is JSON), and the
+      // ones selected from the rest go where dprint lists them among it
       assert_eq!(
         text,
         r#"{
-  "json": {
-  },
   "typescript": {
   },
+  "json": {
+  },
   "excludes": [
-    "**/*-asdf.json",
     "**/something",
+    "**/*-asdf.json",
     "**other"
   ],
   "plugins": [
-    "https://plugins.dprint.dev/json-0.2.3.wasm",
     "https://plugins.dprint.dev/typescript-0.17.2.wasm",
+    "https://plugins.dprint.dev/json-0.2.3.wasm",
     "https://plugins.dprint.dev/final-0.1.2.wasm"
   ]
 }
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2718,8 +2738,8 @@ mod test {
         }
       })
       .build();
-    // the pre-selected json plugin is shown first, so this is it
-    environment.set_multi_selection_result(vec![0]);
+    // only the json plugin is pre-selected
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -2737,7 +2757,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2750,7 +2770,7 @@ mod test {
         }
       })
       .build();
-    environment.set_multi_selection_result(vec![]);
+    press_keys(&environment, &["space", "enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -2764,7 +2784,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2777,7 +2797,8 @@ mod test {
         }
       })
       .build();
-    environment.set_multi_selection_result(vec![3]);
+    // unselects the json plugin, which is the active one, and selects the last
+    press_keys(&environment, &["space", "down", "down", "space", "enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -2791,7 +2812,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2812,7 +2833,7 @@ mod test {
 }
 "#
       );
-      let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
+      let mut expected_messages = Vec::new();
       expected_messages.push(concat!(
         "There was a problem getting the latest plugin info, so the latest plugins may not be suggested. ",
         "Error: Error downloading https://plugins.dprint.dev/info.json - 404 Not Found"
@@ -2837,7 +2858,7 @@ mod test {
       })
       .build();
     environment.set_selection_result(1);
-    environment.set_multi_selection_result(vec![0]);
+    press_keys(&environment, &["space", "enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -2855,7 +2876,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2874,7 +2895,7 @@ mod test {
         });
       })
       .build();
-    environment.set_multi_selection_result(vec![0]);
+    press_keys(&environment, &["space", "enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -2889,7 +2910,7 @@ mod test {
 }
 "#
       );
-      let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
+      let mut expected_messages = Vec::new();
       expected_messages.push(concat!(
         "You are using an old version of dprint so the latest plugins may not be suggested. ",
         "Consider upgrading to support new plugins. ",
@@ -2959,6 +2980,13 @@ mod test {
     environment.set_prompt_keys(keys, None).unwrap();
   }
 
+  /// The items of the first prompt as they were shown before a key was
+  /// pressed, without the space of the cursor.
+  fn take_shown_items(environment: &TestEnvironment) -> Vec<String> {
+    let lines = take_screens(environment).into_iter().next().unwrap_or_default();
+    lines.into_iter().map(|line| line[2..].to_string()).collect()
+  }
+
   /// What was on the screen after each key under the title and the key help,
   /// starting with what was shown before the first key.
   fn take_screens(environment: &TestEnvironment) -> Vec<Vec<String>> {
@@ -2994,6 +3022,7 @@ mod test {
       })
       .write_file("/main.ts", "")
       .build();
+    press_keys(&environment, &["enter"]);
     write_preferences(&environment, vec![preferred("b")]);
     environment.clone().run_in_runtime({
       let environment = environment.clone();
@@ -3004,7 +3033,7 @@ mod test {
 
         // shown first and marked in the prompt
         get_init_config_file_text(&environment, Default::default()).await.unwrap();
-        assert_eq!(environment.take_multi_selection_items(), vec!["[x] * b (.ts)", "[ ] a (.ts)"]);
+        assert_eq!(take_shown_items(&environment), vec!["[x] b \u{2605} (.ts)", "[ ] a (.ts)"]);
         environment.take_stderr_messages();
       }
     });
@@ -3024,6 +3053,7 @@ mod test {
       })
       .write_file("/main.ts", "")
       .build();
+    press_keys(&environment, &["enter"]);
     // `c` is preferred ahead of `b`, and there are no files for `d`
     write_preferences(&environment, vec![preferred("c"), preferred("b"), preferred("d")]);
     environment.clone().run_in_runtime({
@@ -3033,8 +3063,8 @@ mod test {
         // both preferred plugins for .ts are selected because the user asked for
         // each of them, which includes the one that's otherwise never pre-selected
         assert_eq!(
-          environment.take_multi_selection_items(),
-          vec!["[x] * c (.ts)", "[x] * b (.ts, .css)", "[ ] * d (.md)", "[ ] a (.ts)"]
+          take_shown_items(&environment),
+          vec!["[x] c \u{2605} (.ts)", "[x] b \u{2605} (.ts, .css)", "[ ] d \u{2605} (.md)", "[ ] a (.ts)"]
         );
         environment.take_stderr_messages();
       }
@@ -3049,6 +3079,7 @@ mod test {
       })
       .write_file("/main.ts", "")
       .build();
+    press_keys(&environment, &["enter"]);
     write_preferences(&environment, vec![preferred("b")]);
     environment.clone().run_in_runtime({
       let environment = environment.clone();
@@ -3065,8 +3096,8 @@ mod test {
         .await
         .unwrap();
         assert_eq!(
-          environment.take_multi_selection_items(),
-          vec!["[x] a (.ts) \u{2014} already in config (locked)", "[ ] * b (.ts)"]
+          take_shown_items(&environment),
+          vec!["[x] a (.ts) \u{2014} already in config", "[ ] b \u{2605} (.ts)"]
         );
         environment.take_stderr_messages();
       }
@@ -3084,6 +3115,7 @@ mod test {
       .write_file("/main.ts", "")
       .write_file("/data.yaml", "")
       .build();
+    press_keys(&environment, &["enter"]);
     write_preferences(
       &environment,
       vec![PreferredPlugin {
@@ -3108,8 +3140,8 @@ mod test {
         .unwrap();
         // the config file's `a` formats .yaml no matter what was remembered
         assert_eq!(
-          environment.take_multi_selection_items(),
-          vec!["[x] * a (.ts, .yaml) \u{2014} already in config (locked)", "[ ] b (.yaml)"]
+          take_shown_items(&environment),
+          vec!["[x] a \u{2605} (.ts, .yaml) \u{2014} already in config", "[ ] b (.yaml)"]
         );
         environment.take_stderr_messages();
       }
@@ -3223,6 +3255,7 @@ mod test {
       })
       .write_file("/main.ts", "")
       .build();
+    press_keys(&environment, &["enter"]);
     create_preferences_dir(&environment);
     environment.clone().run_in_runtime({
       let environment = environment.clone();
@@ -3582,14 +3615,6 @@ mod test {
     assert_eq!(display_order(&[true, true, false, true, false], &[], &[3, 1]), vec![3, 1, 0, 2, 4]);
     assert_eq!(display_order(&[true, false, false, true, false], &[], &[3, 1]), vec![3, 0, 1, 2, 4]);
     assert_eq!(display_order(&[true, false, false, false, false], &[3], &[3, 1]), vec![3, 0, 1, 2, 4]);
-  }
-
-  fn get_standard_logged_messages_no_plugin_selection() -> Vec<&'static str> {
-    vec![]
-  }
-
-  fn get_standard_logged_messages() -> Vec<&'static str> {
-    vec!["Select plugins:"]
   }
 
   fn get_multi_plugins_config() -> Vec<TestInfoFilePlugin> {

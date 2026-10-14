@@ -59,15 +59,12 @@ use super::PathKind;
 use super::UrlDownloader;
 use crate::plugins::CompilationResult;
 use crate::utils::LogLevel;
-use crate::utils::MultiSelectAction;
-use crate::utils::MultiSelectState;
 use crate::utils::PromptScreen;
 use crate::utils::PromptTerminal;
 use crate::utils::ScriptedPromptTerminal;
 use crate::utils::ShowConfirmStrategy;
 use crate::utils::TerminalSize;
 use crate::utils::get_bytes_hash;
-use crate::utils::show_multi_select;
 
 #[derive(Default)]
 struct BufferData {
@@ -164,13 +161,11 @@ pub struct TestEnvironment {
   /// URLs whose requests never get a response.
   unresponsive_remote_files: Arc<Mutex<Vec<String>>>,
   selection_result: Arc<Mutex<usize>>,
-  multi_selection_result: Arc<Mutex<Option<Vec<usize>>>>,
   /// The keys to press in the multi-selection prompts and settings editors,
   /// which are then really shown instead of being answered with the result
   /// above.
   prompt_terminal: Arc<Mutex<Option<ScriptedPromptTerminal>>>,
   /// The items of the last multi-selection prompt, rendered for assertions.
-  multi_selection_items: Arc<Mutex<Vec<String>>>,
   confirm_results: Arc<Mutex<Vec<Result<Option<bool>>>>>,
   is_stdout_machine_readable: Arc<Mutex<bool>>,
   dir_info_error: Arc<Mutex<Option<io::Error>>>,
@@ -217,9 +212,7 @@ impl TestEnvironment {
       file_read_counts: Default::default(),
       unresponsive_remote_files: Default::default(),
       selection_result: Arc::new(Mutex::new(0)),
-      multi_selection_result: Arc::new(Mutex::new(None)),
       prompt_terminal: Default::default(),
-      multi_selection_items: Default::default(),
       confirm_results: Default::default(),
       is_stdout_machine_readable: Arc::new(Mutex::new(false)),
       dir_info_error: Arc::new(Mutex::new(None)),
@@ -349,12 +342,8 @@ impl TestEnvironment {
     *self.selection_result.lock() = index;
   }
 
-  pub fn set_multi_selection_result(&self, indexes: Vec<usize>) {
-    *self.multi_selection_result.lock() = Some(indexes);
-  }
-
-  /// Shows the multi-selection prompts and settings editors on a terminal
-  /// of the provided size and presses the keys of the steps in them. See
+  /// Gives the prompts that use `prompt_terminal` a terminal of the provided
+  /// size that presses the keys of the steps. See
   /// `ScriptedPromptTerminal::new` for what a step is.
   pub fn set_prompt_keys(&self, steps: &[&str], terminal_size: Option<TerminalSize>) -> Result<()> {
     *self.prompt_terminal.lock() = Some(ScriptedPromptTerminal::new(steps, terminal_size)?);
@@ -379,12 +368,6 @@ impl TestEnvironment {
       .as_ref()
       .map(|terminal| terminal.remaining_steps())
       .unwrap_or_default()
-  }
-
-  /// The items of the last multi-selection prompt, each rendered as it would
-  /// appear in the terminal (ex. `[x] dprint-plugin-json (locked)`).
-  pub fn take_multi_selection_items(&self) -> Vec<String> {
-    std::mem::take(&mut *self.multi_selection_items.lock())
   }
 
   pub fn set_confirm_results(&self, values: Vec<Result<Option<bool>>>) {
@@ -905,35 +888,6 @@ impl Environment for TestEnvironment {
   fn get_selection(&self, prompt_message: &str, _: u16, _: &[String]) -> Result<usize> {
     self.__log_stderr__(prompt_message);
     Ok(*self.selection_result.lock())
-  }
-
-  fn get_multi_selection(&self, state: &mut MultiSelectState) -> Result<MultiSelectAction> {
-    let prompt_terminal = self.prompt_terminal.lock().clone();
-    if let Some(prompt_terminal) = prompt_terminal {
-      return show_multi_select(&prompt_terminal, "dprint", state);
-    }
-    self.__log_stderr__(&state.prompt);
-    *self.multi_selection_items.lock() = state
-      .items
-      .iter()
-      .map(|item| {
-        format!(
-          "[{}] {}{}{}",
-          if item.is_selected { "x" } else { " " },
-          if item.is_marked { "* " } else { "" },
-          item.full_text(),
-          if item.is_selectable { "" } else { " (locked)" }
-        )
-      })
-      .collect();
-    // select the items at the indexes the test asked for, which only
-    // count the items that can be selected
-    if let Some(indexes) = self.multi_selection_result.lock().clone() {
-      for (i, item) in state.items.iter_mut().filter(|item| item.is_selectable).enumerate() {
-        item.is_selected = indexes.contains(&i);
-      }
-    }
-    Ok(MultiSelectAction::Done)
   }
 
   fn prompt_terminal(&self) -> Box<dyn PromptTerminal + '_> {

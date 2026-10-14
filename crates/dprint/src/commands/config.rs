@@ -1903,6 +1903,8 @@ mod test {
           });
       })
       .build();
+    // once for the expected text and once for the command
+    environment.set_prompt_keys(&["enter", "enter"], None).unwrap();
     let expected_text = environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
@@ -1912,7 +1914,7 @@ mod test {
       }
     });
     run_test_cli(vec!["init"], &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages(), vec!["Select plugins:"]);
+    assert!(environment.take_stderr_messages().is_empty());
     assert_eq!(
       environment.take_stdout_messages(),
       vec![
@@ -2124,6 +2126,8 @@ mod test {
         });
       })
       .build();
+    // once for the expected text and once for the command
+    environment.set_prompt_keys(&["enter", "enter"], None).unwrap();
     let expected_text = environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
@@ -2133,7 +2137,7 @@ mod test {
       }
     });
     run_test_cli(vec!["init", "--config", "./test.config.json"], &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages(), vec!["Select plugins:"]);
+    assert!(environment.take_stderr_messages().is_empty());
     assert_eq!(
       environment.take_stdout_messages(),
       vec![
@@ -2169,13 +2173,13 @@ mod test {
       remote_has_process_checksum: false,
     });
     // the plugin the config file already has isn't selectable
-    environment.set_multi_selection_result(vec![0]);
+    environment.set_prompt_keys(&["space", "enter"], None).unwrap();
     run_test_cli(vec!["init"], &environment).unwrap();
     assert_eq!(
-      environment.take_multi_selection_items(),
-      vec!["[x] test-plugin — already in config (locked)", "[ ] test-process-plugin"]
+      environment.take_prompt_screens()[0].lines[2..],
+      ["  [x] test-plugin — already in config", "> [ ] test-process-plugin"]
     );
-    assert_eq!(environment.take_stderr_messages(), vec!["Select plugins to add:"]);
+    assert!(environment.take_stderr_messages().is_empty());
     assert_eq!(
       environment.take_stdout_messages(),
       vec![format!("\nAdded 1 plugin to {}", Path::new("/").join("dprint.json").display())]
@@ -2219,15 +2223,15 @@ mod test {
       .set_cwd("/sub_dir")
       .build();
     let original_text = environment.read_file("/sub_dir/dprint.json").unwrap();
-    environment.set_multi_selection_result(vec![]);
+    environment.set_prompt_keys(&["enter"], None).unwrap();
     run_test_cli(vec!["init"], &environment).unwrap();
     assert_eq!(
-      environment.take_multi_selection_items(),
-      vec!["[x] test-plugin — already in config (locked)", "[ ] test-process-plugin"]
+      environment.take_prompt_screens()[0].lines[2..],
+      ["  [x] test-plugin — already in config", "> [ ] test-process-plugin"]
     );
     assert_eq!(
       environment.take_stderr_messages(),
-      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm", "Select plugins to add:"]
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
     );
     assert_eq!(environment.take_stdout_messages(), vec!["\nNo plugins were added."]);
     assert_eq!(environment.read_file("/sub_dir/dprint.json").unwrap(), original_text);
@@ -2243,9 +2247,9 @@ mod test {
       remote_has_process_checksum: false,
     });
     let original_text = environment.read_file("./dprint.json").unwrap();
-    environment.set_multi_selection_result(vec![]);
+    environment.set_prompt_keys(&["enter"], None).unwrap();
     run_test_cli(vec!["init"], &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages(), vec!["Select plugins to add:"]);
+    assert!(environment.take_stderr_messages().is_empty());
     assert_eq!(environment.take_stdout_messages(), vec!["\nNo plugins were added."]);
     assert_eq!(environment.read_file("./dprint.json").unwrap(), original_text);
   }
@@ -2260,7 +2264,6 @@ mod test {
       remote_has_process_checksum: false,
     });
     run_test_cli(vec!["init"], &environment).unwrap();
-    assert!(environment.take_multi_selection_items().is_empty());
     assert_eq!(
       environment.take_stdout_messages(),
       vec![format!(
@@ -2295,6 +2298,8 @@ mod test {
           });
       })
       .build();
+    // once for the expected text and once for the command
+    environment.set_prompt_keys(&["enter", "enter"], None).unwrap();
     let expected_text = environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
@@ -2304,7 +2309,7 @@ mod test {
       }
     });
     run_test_cli(vec!["init", "--global"], &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages(), vec!["Select plugins:"]);
+    assert!(environment.take_stderr_messages().is_empty());
     let config_path = if std::env::consts::OS == "macos" {
       Path::new("/home/.config/dprint")
     } else {
@@ -2337,6 +2342,8 @@ mod test {
         });
       })
       .build();
+    // once for the expected text and once for the command
+    environment.set_prompt_keys(&["enter", "enter"], None).unwrap();
     environment.set_env_var("DPRINT_CONFIG_DIR", Some("/custom/config"));
     let expected_text = environment.clone().run_in_runtime({
       let environment = environment.clone();
@@ -2347,7 +2354,7 @@ mod test {
       }
     });
     run_test_cli(vec!["init", "--global"], &environment).unwrap();
-    assert_eq!(environment.take_stderr_messages(), vec!["Select plugins:"]);
+    assert!(environment.take_stderr_messages().is_empty());
     assert_eq!(
       environment.take_stdout_messages(),
       vec![

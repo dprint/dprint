@@ -6,6 +6,7 @@ use crossterm::event::KeyEvent;
 use crossterm::event::KeyModifiers;
 use deno_terminal::colors;
 
+use crate::environment::Environment;
 use crate::utils::terminal::TerminalSize;
 
 use super::LoggerTextItem;
@@ -248,9 +249,16 @@ pub enum MultiSelectAction {
   Open(usize),
 }
 
-/// Shows a multi-select prompt until the user finishes or asks to open an
-/// item. The selection is read from the state.
-pub fn show_multi_select(terminal: &dyn PromptTerminal, context_name: &str, state: &mut MultiSelectState) -> Result<MultiSelectAction> {
+/// Shows a multi-select prompt in the environment's terminal until the user
+/// finishes or asks to open an item, in which case this should be called
+/// again with the same state once what was opened is done with. The
+/// selection is read from the state.
+pub fn show_multi_select(environment: &impl Environment, context_name: &str, state: &mut MultiSelectState) -> Result<MultiSelectAction> {
+  let terminal = environment.prompt_terminal();
+  run_multi_select(terminal.as_ref(), context_name, state)
+}
+
+fn run_multi_select(terminal: &dyn PromptTerminal, context_name: &str, state: &mut MultiSelectState) -> Result<MultiSelectAction> {
   loop {
     let visible = visible_indexes(state);
     // keep the active index and scrolling within the visible items

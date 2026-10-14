@@ -48,8 +48,6 @@ use crate::utils::LogLevel;
 use crate::utils::Logger;
 use crate::utils::LoggerOptions;
 use crate::utils::LoggerPromptTerminal;
-use crate::utils::MultiSelectAction;
-use crate::utils::MultiSelectState;
 use crate::utils::NoProxy;
 use crate::utils::ProgressBars;
 use crate::utils::PromptTerminal;
@@ -59,7 +57,6 @@ use crate::utils::UnsafelyIgnoreCertificates;
 use crate::utils::is_terminal_interactive;
 use crate::utils::log_action_with_progress;
 use crate::utils::show_confirm;
-use crate::utils::show_multi_select;
 use crate::utils::show_select;
 
 // cache the cwd because it's much faster than looking it up each time
@@ -600,10 +597,6 @@ impl Environment for RealEnvironment {
 
   fn get_selection(&self, prompt_message: &str, item_indent_width: u16, items: &[String]) -> Result<usize> {
     show_select(&self.logger, "dprint", prompt_message, item_indent_width, items)
-  }
-
-  fn get_multi_selection(&self, state: &mut MultiSelectState) -> Result<MultiSelectAction> {
-    show_multi_select(&LoggerPromptTerminal::new(&self.logger), "dprint", state)
   }
 
   fn prompt_terminal(&self) -> Box<dyn PromptTerminal + '_> {
