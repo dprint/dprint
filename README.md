@@ -42,9 +42,9 @@ Repos:
 - [arity](https://github.com/jolars/dprint-plugin-arity) - R formatter.
 - [fatou](https://github.com/jolars/dprint-plugin-fatou) - Julia formatter.
 - [typstyle](https://github.com/apcamargo/dprint-plugin-typstyle) - Typst (Typstyle) formatter.
+- [dprint-plugin-typstyle (kachick)](https://github.com/kachick/dprint-plugin-typstyle) - Typst (Typstyle) formatter.
 - [bibtex-tidy](https://github.com/apcamargo/dprint-plugin-bibtex-tidy) - BibTeX (bibtex-tidy) formatter.
 - [dprint-plugin-swift](https://github.com/drluckyspin/dprint-plugin-swift) - Swift (SwiftFormat) formatter.
-- [dprint-plugin-typstyle (kachick)](https://github.com/kachick/dprint-plugin-typstyle) - Typst (Typstyle) formatter.
 - [dprint-plugin-nix](https://github.com/kachick/dprint-plugin-nix) - Nix (nixfmt-rs) formatter.
 - [dprint-plugin-kdl](https://github.com/kachick/dprint-plugin-kdl) - KDL formatter.
 - [dprint-plugin-sh](https://github.com/kachick/dprint-plugin-sh) - Shell (sh/Bash/Zsh) formatter.
