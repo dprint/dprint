@@ -26,14 +26,13 @@ pub trait PromptTerminal {
   fn clear(&self);
   /// Logs text that stays in the terminal once the prompt is gone.
   fn log(&self, text_items: &[LoggerTextItem], context_name: &str);
-  /// Waits for a key to be pressed. The event is something else when the
-  /// prompt only has to draw itself again (ex. the terminal was resized).
-  fn read_key(&self) -> Result<Event>;
   /// Waits for a key to be pressed without blocking the thread, so something
-  /// else can happen in the meantime (ex. a download). The read is not
-  /// cancelled by dropping the future, so wait on the same future again
-  /// instead of asking for another key.
-  fn read_key_async(&self) -> LocalBoxFuture<'static, Result<Event>>;
+  /// else can happen in the meantime (ex. a download). The event is
+  /// something else when the prompt only has to draw itself again (ex. the
+  /// terminal was resized). The read is not cancelled by dropping the
+  /// future, so wait on the same future again instead of asking for another
+  /// key.
+  fn read_key(&self) -> LocalBoxFuture<'static, Result<Event>>;
 }
 
 /// Whether the text items can be drawn in a terminal of the size without
@@ -96,11 +95,7 @@ impl PromptTerminal for LoggerPromptTerminal<'_> {
     self.logger.log_text_items(text_items, context_name);
   }
 
-  fn read_key(&self) -> Result<Event> {
-    read_terminal_key_press()
-  }
-
-  fn read_key_async(&self) -> LocalBoxFuture<'static, Result<Event>> {
+  fn read_key(&self) -> LocalBoxFuture<'static, Result<Event>> {
     let read = dprint_core::async_runtime::spawn_blocking(read_terminal_key_press);
     async move { read.await.map_err(|err| anyhow!("Failed reading key press: {:#}", err))? }.boxed_local()
   }
@@ -243,20 +238,13 @@ mod scripted {
       self.set_lines(text_items);
     }
 
-    fn read_key(&self) -> Result<Event> {
-      match self.0.lock().next_event(None)? {
-        Some(event) => Ok(event),
-        None => bail!("The script waits, but there's nothing loading to wait for."),
-      }
-    }
-
-    fn read_key_async(&self) -> LocalBoxFuture<'static, Result<Event>> {
+    fn read_key(&self) -> LocalBoxFuture<'static, Result<Event>> {
       let terminal = self.clone();
       let mut wait_start = None;
       std::future::poll_fn(move |cx| {
         let mut state = terminal.0.lock();
         let (draw_count, started) = *wait_start.get_or_insert_with(|| (state.draw_count, Instant::now()));
-        match state.next_event(Some(draw_count)) {
+        match state.next_event(draw_count) {
           Ok(Some(event)) => Poll::Ready(Ok(event)),
           Ok(None) if started.elapsed() > WAIT_TIMEOUT => Poll::Ready(Err(anyhow!("The script waited, but nothing finished loading."))),
           Ok(None) => {
@@ -275,7 +263,7 @@ mod scripted {
     /// Gets the next thing that happens (ex. a key being pressed), which is
     /// nothing while the script waits for a draw after the provided draw
     /// count.
-    fn next_event(&mut self, wait_draw_count: Option<usize>) -> Result<Option<Event>> {
+    fn next_event(&mut self, wait_draw_count: usize) -> Result<Option<Event>> {
       enum Next {
         Key(KeyEvent),
         Resize(TerminalSize),
@@ -297,7 +285,7 @@ mod scripted {
           Some(step.text.clone())
         };
         let next = match &mut step.kind {
-          ScriptStepKind::Wait if wait_draw_count.is_some_and(|count| count != draw_count) => Next::StepDone,
+          ScriptStepKind::Wait if wait_draw_count != draw_count => Next::StepDone,
           ScriptStepKind::Wait => Next::Waiting,
           ScriptStepKind::Resize(size) => Next::Resize(*size),
           ScriptStepKind::Keys(keys) => keys.pop_front().map(Next::Key).unwrap_or(Next::StepDone),
@@ -422,18 +410,23 @@ mod scripted {
       vec![LoggerTextItem::Text(text.to_string())]
     }
 
+    /// Reads a key the script has ready without waiting.
+    fn read_key(terminal: &ScriptedPromptTerminal) -> Result<Event> {
+      terminal.read_key().now_or_never().unwrap()
+    }
+
     #[test]
     fn keeps_the_screen_after_each_step() {
       let terminal = ScriptedPromptTerminal::new(&["down", "\"ab\"", "shift+up"], None).unwrap();
       terminal.draw(text_item("first"));
-      assert_eq!(terminal.read_key().unwrap(), Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
+      assert_eq!(read_key(&terminal).unwrap(), Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)));
       terminal.draw(text_item("second"));
       // only what's shown once all the text is typed is kept
-      assert_eq!(terminal.read_key().unwrap(), Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)));
+      assert_eq!(read_key(&terminal).unwrap(), Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)));
       terminal.draw(text_item("third"));
-      assert_eq!(terminal.read_key().unwrap(), Event::Key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE)));
+      assert_eq!(read_key(&terminal).unwrap(), Event::Key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE)));
       terminal.draw(text_item("fourth"));
-      assert_eq!(terminal.read_key().unwrap(), Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT)));
+      assert_eq!(read_key(&terminal).unwrap(), Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT)));
       terminal.clear();
       assert!(terminal.remaining_steps().is_empty());
       assert!(!terminal.is_out_of_steps());
@@ -464,7 +457,7 @@ mod scripted {
     fn errors_when_out_of_steps_or_for_an_unknown_key() {
       let terminal = ScriptedPromptTerminal::new(&[], None).unwrap();
       assert_eq!(
-        terminal.read_key().unwrap_err().to_string(),
+        read_key(&terminal).unwrap_err().to_string(),
         "A prompt is waiting for a key, but the script has no steps left."
       );
       assert!(terminal.is_out_of_steps());
@@ -481,9 +474,9 @@ mod scripted {
     #[test]
     fn resizes_the_terminal() {
       let terminal = ScriptedPromptTerminal::new(&["resize 20x5", "enter"], Some(TerminalSize { cols: 80, rows: 24 })).unwrap();
-      assert_eq!(terminal.read_key().unwrap(), Event::Resize(20, 5));
+      assert_eq!(read_key(&terminal).unwrap(), Event::Resize(20, 5));
       assert_eq!(terminal.size(), Some(TerminalSize { cols: 20, rows: 5 }));
-      assert_eq!(terminal.read_key().unwrap(), Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+      assert_eq!(read_key(&terminal).unwrap(), Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
       assert_eq!(
         ScriptedPromptTerminal::new(&["resize big"], None).err().unwrap().to_string(),
         "Expected the size as <cols>x<rows> in step 'resize big'."

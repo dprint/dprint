@@ -332,7 +332,7 @@ pub async fn prompt_for_init_preferences(environment: &impl Environment, options
   };
 
   loop {
-    match show_multi_select(environment, "dprint", &mut state)? {
+    match show_multi_select(environment, "dprint", &mut state).await? {
       MultiSelectAction::Done => break,
       MultiSelectAction::Open(item_index) => {
         let index = state.items[item_index].id;
@@ -493,7 +493,7 @@ async fn prompt_for_plugins(
   };
 
   loop {
-    match show_multi_select(environment, "dprint", &mut state)? {
+    match show_multi_select(environment, "dprint", &mut state).await? {
       MultiSelectAction::Done => break,
       MultiSelectAction::Open(item_index) => {
         let index = state.items[item_index].id;

@@ -180,7 +180,7 @@ async fn run_settings_editor(
     state.page_size = max_visible_lines;
     terminal.draw(text_items);
 
-    let mut key = pending_key.take().unwrap_or_else(|| terminal.read_key_async());
+    let mut key = pending_key.take().unwrap_or_else(|| terminal.read_key());
     let event = match pending_options.as_mut() {
       Some(options) => match future::select(&mut key, options).await {
         Either::Left((event, _)) => Some(event),

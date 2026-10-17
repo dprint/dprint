@@ -253,12 +253,12 @@ pub enum MultiSelectAction {
 /// finishes or asks to open an item, in which case this should be called
 /// again with the same state once what was opened is done with. The
 /// selection is read from the state.
-pub fn show_multi_select(environment: &impl Environment, context_name: &str, state: &mut MultiSelectState) -> Result<MultiSelectAction> {
+pub async fn show_multi_select(environment: &impl Environment, context_name: &str, state: &mut MultiSelectState) -> Result<MultiSelectAction> {
   let terminal = environment.prompt_terminal();
-  run_multi_select(terminal.as_ref(), context_name, state)
+  run_multi_select(terminal.as_ref(), context_name, state).await
 }
 
-fn run_multi_select(terminal: &dyn PromptTerminal, context_name: &str, state: &mut MultiSelectState) -> Result<MultiSelectAction> {
+async fn run_multi_select(terminal: &dyn PromptTerminal, context_name: &str, state: &mut MultiSelectState) -> Result<MultiSelectAction> {
   loop {
     let visible = visible_indexes(state);
     // keep the active index and scrolling within the visible items
@@ -284,7 +284,7 @@ fn run_multi_select(terminal: &dyn PromptTerminal, context_name: &str, state: &m
     state.page_size = max_visible_rows;
     terminal.draw(text_items);
 
-    if let Event::Key(key_event) = terminal.read_key()? {
+    if let Event::Key(key_event) = terminal.read_key().await? {
       // what a key does can't be seen, so the only thing to do is cancel
       if is_too_small && key_event.code != KeyCode::Esc {
         continue;
