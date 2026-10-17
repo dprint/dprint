@@ -31,6 +31,8 @@ export function getPluginShortNameFromPluginUrl(url: string) {
     case "ruff":
     case "roslyn":
     case "csharpier":
+    case "clang-format":
+    case "cedar":
     case "malva":
     case "markup_fmt":
     case "pretty_yaml":
@@ -72,6 +74,10 @@ export function getLanguageFromPluginUrl(url: string) {
       return "csharp";
     case "csharpier":
       return "csharp";
+    case "clang-format":
+      return "cpp";
+    case "cedar":
+      return "plaintext";
     case "malva":
     case "lax-css":
       return "css";
