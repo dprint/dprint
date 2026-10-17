@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en"><head>
-    <script async="" src="/scripts.3cf2392470.js"></script>
+    <script async="" src="/scripts.d98f0dca67.js"></script>
     <meta charset="utf-8">
     <title>cmakefmt Plugin - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -131,6 +131,8 @@
   
     <li><a href="/plugins/cmakefmt" class="active">cmakefmt (CMake)</a></li>
   
+    <li><a href="/plugins/cmakefmt-azais-corentin">cmakefmt - azais-corentin (CMake)</a></li>
+  
     <li><a href="/plugins/bibtex-tidy">bibtex-tidy (BibTeX)</a></li>
   
     <li><a href="/plugins/swift">Swift (SwiftFormat)</a></li>
@@ -156,9 +158,10 @@
 <h1>cmakefmt Plugin</h1>
 <p>Adapter plugin that formats CMake files via <a href="https://github.com/cmakefmt/cmakefmt">cmakefmt</a>.</p>
 <p>Formats CMakeLists.txt, <a href="http://CMakeLists.txt.in">CMakeLists.txt.in</a>, and .cmake files.</p>
+<p>There is also a separate <a href="/plugins/cmakefmt-azais-corentin">azais-corentin/cmakefmt</a> plugin, which is configured under the <code>"cmake"</code> key.</p>
 <h2 id="install-and-setup" tabindex="-1"><a class="header-anchor" href="#install-and-setup">Install and Setup</a></h2>
 <p>In your project's directory with a dprint.json file, run:</p>
-<pre><code class="language-shellsession hljs language-shell">dprint add sargunv/dprint-cmakefmt
+<pre><code class="language-shellsession hljs language-shell">dprint add cmakefmt/cmakefmt
 </code></pre>
 <p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"cmakefmt"</code> property to add configuration:</p>
 <pre><code class="language-jsonc hljs language-json"><span class="hljs-punctuation">{</span>
@@ -166,7 +169,7 @@
     <span class="hljs-comment">// cmakefmt config goes here</span>
   <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
   <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
-    <span class="hljs-string">"https://plugins.dprint.dev/sargunv/dprint-cmakefmt-x.x.x.wasm"</span>
+    <span class="hljs-string">"https://plugins.dprint.dev/cmakefmt/cmakefmt-vx.x.x.wasm"</span>
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
