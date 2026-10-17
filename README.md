@@ -53,6 +53,7 @@ Repos:
 - [lax-sql](https://github.com/bartlomieju/lax-sql) - SQL formatter.
 - [dprint-clang-format](https://github.com/sargunv/dprint-clang-format) - C, C++, and Objective-C (clang-format) formatter.
 - [cmakefmt](https://github.com/cmakefmt/cmakefmt) - CMake formatter.
+- [cmakefmt (azais-corentin)](https://github.com/azais-corentin/cmakefmt) - CMake formatter.
 
 ## Notes
 
