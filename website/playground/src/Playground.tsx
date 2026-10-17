@@ -4,7 +4,7 @@ import React, { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState }
 import { CodeEditor } from "./components";
 import { Spinner } from "./components";
 import * as formatterWorker from "./FormatterWorker";
-import { getLanguageFromPluginUrl, getPluginShortNameFromPluginUrl } from "./plugins";
+import { getLanguageFromPluginUrl, getPluginDisplayNameFromPluginUrl } from "./plugins";
 
 import "./Playground.css";
 
@@ -93,7 +93,7 @@ export function Playground({
   }, [onFileExtensionChanged]);
 
   const editorLanguage = getLanguageFromPluginUrl(selectedPluginUrl) ?? "plaintext";
-  const langLabel = getPluginShortNameFromPluginUrl(selectedPluginUrl) ?? "plugin";
+  const langLabel = getPluginDisplayNameFromPluginUrl(selectedPluginUrl) ?? "plugin";
 
   // draggable dividers: leftFrac is the left column's width as a fraction of the
   // panes row; inputFrac is the input pane's height as a fraction of the left column.

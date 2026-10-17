@@ -7,39 +7,10 @@ export async function getPluginUrls(signal: AbortSignal): Promise<string[]> {
     throw new Error(`Expected schema version ${expectedSchemaVersion}, but found ${json.schemaVersion}.`);
   }
 
-  const typescriptPlugin = json.latest.find((p: any) => p.configKey === "typescript")!;
-  const jsonPlugin = json.latest.find((p: any) => p.configKey === "json")!;
-  const markdownPlugin = json.latest.find((p: any) => p.configKey === "markdown")!;
-  const tomlPlugin = json.latest.find((p: any) => p.configKey === "toml")!;
-  const dockerfilePlugin = json.latest.find((p: any) => p.configKey === "dockerfile")!;
-  const biomePlugin = json.latest.find((p: any) => p.configKey === "biome")!;
-  const oxcPlugin = json.latest.find((p: any) => p.configKey === "oxc")!;
-  const bunPlugin = json.latest.find((p: any) => p.configKey === "bun")!;
-  const magoPlugin = json.latest.find((p: any) => p.configKey === "mago")!;
-  const ruffPlugin = json.latest.find((p: any) => p.configKey === "ruff")!;
-  const roslynPlugin = json.latest.find((p: any) => p.configKey === "roslyn")!;
-  const malvaPlugin = json.latest.find((p: any) => p.configKey === "malva")!;
-  const markupFmtPlugin = json.latest.find((p: any) => p.configKey === "markup")!;
-  const prettyYamlPlugin = json.latest.find((p: any) => p.configKey === "yaml")!;
-  const prettyGraphqlPlugin = json.latest.find((p: any) => p.configKey === "graphql")!;
-
-  return [
-    typescriptPlugin.url,
-    jsonPlugin.url,
-    markdownPlugin.url,
-    tomlPlugin.url,
-    dockerfilePlugin.url,
-    biomePlugin.url,
-    oxcPlugin.url,
-    bunPlugin.url,
-    magoPlugin.url,
-    ruffPlugin.url,
-    roslynPlugin.url,
-    malvaPlugin.url,
-    markupFmtPlugin.url,
-    prettyYamlPlugin.url,
-    prettyGraphqlPlugin.url,
-  ];
+  // every Wasm plugin, since process plugins can't run in the browser
+  return json.latest
+    .map((p: any) => p.url as string)
+    .filter((url: string) => url.endsWith(".wasm"));
 }
 
 const RE_PLUGIN_URL = /https:\/\/plugins\.dprint\.dev\/(?:[a-z_-]+\/)?([a-z_-]+)-v?[0-9]+\.[0-9]+\.[0-9]+\.wasm$/;
@@ -69,6 +40,12 @@ export function getPluginShortNameFromPluginUrl(url: string) {
   }
 }
 
+// the name to show for a plugin, which unlike its short name isn't
+// limited to the plugins that have a short name in shared urls
+export function getPluginDisplayNameFromPluginUrl(url: string) {
+  return RE_PLUGIN_URL.exec(url)?.[1];
+}
+
 export function getLanguageFromPluginUrl(url: string) {
   const result = RE_PLUGIN_URL.exec(url);
   const language = result?.[1];
@@ -93,8 +70,10 @@ export function getLanguageFromPluginUrl(url: string) {
     case "roslyn":
       return "csharp";
     case "malva":
+    case "lax-css":
       return "css";
     case "markup_fmt":
+    case "lax-markup":
       return "html";
     case "pretty_yaml":
       return "yaml";
