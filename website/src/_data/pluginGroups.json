@@ -55,7 +55,8 @@
       { "slug": "bun", "name": "Bun", "ext": "JS · TS · JSON · CSS · GraphQL · YAML · TOML · Markdown · HTML · Vue" },
       { "slug": "ruff", "name": "Ruff", "ext": "Python" },
       { "slug": "mago", "name": "Mago", "ext": "PHP" },
-      { "slug": "roslyn", "name": "Roslyn", "ext": "C# · VB" }
+      { "slug": "roslyn", "name": "Roslyn", "ext": "C# · VB" },
+      { "slug": "csharpier", "name": "CSharpier", "ext": "C# · XML" }
     ]
   },
   {
