@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Read;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -98,6 +99,11 @@ impl RealUrlDownloader {
     if options.fail_fast {
       *request.timeout_mut() = Some(FAIL_FAST_TIMEOUT);
     }
+    // ask for gzip and decompress it below rather than with reqwest's gzip
+    // feature, which removes the content-length the progress bar uses as its total
+    request
+      .headers_mut()
+      .insert(reqwest::header::ACCEPT_ENCODING, reqwest::header::HeaderValue::from_static("gzip"));
     if let Some(auth) = options.auth {
       // replaces the header reqwest creates for credentials in the url
       request.headers_mut().insert(reqwest::header::AUTHORIZATION, auth.parse()?);
@@ -188,6 +194,20 @@ impl RealUrlDownloader {
     }
     if let Some(progress) = progress {
       progress.finish();
+    }
+    // an empty body has nothing to decompress
+    if !content.is_empty()
+      && headers
+        .get("content-encoding")
+        .is_some_and(|encoding| encoding.trim().eq_ignore_ascii_case("gzip"))
+    {
+      content = match decompress_gzip(&content) {
+        Ok(content) => content,
+        Err(err) => bail!("Error downloading {} - Could not decompress the gzip content: {}", url, err),
+      };
+      // these described the compressed content
+      headers.remove("content-encoding");
+      headers.remove("content-length");
     }
     Ok(Some(DownloadedFile {
       headers,
@@ -442,6 +462,13 @@ fn split_proxy_scheme(proxy: &str) -> (Option<&str>, &str) {
     Some((scheme, rest)) if scheme.chars().all(|c| c.is_ascii_alphanumeric()) => (Some(scheme), rest.trim_end_matches('/')),
     _ => (None, proxy.trim_end_matches('/')),
   }
+}
+
+fn decompress_gzip(content: &[u8]) -> std::io::Result<Vec<u8>> {
+  let mut decompressed = Vec::new();
+  // a gzip body may be made of several members one after another
+  flate2::read::MultiGzDecoder::new(content).read_to_end(&mut decompressed)?;
+  Ok(decompressed)
 }
 
 #[derive(Debug, Clone)]
@@ -759,6 +786,61 @@ mod test {
   }
 
   #[tokio::test]
+  async fn downloads_gzip_content() {
+    use std::io::Write;
+
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(b"Hello there").unwrap();
+    let compressed = encoder.finish().unwrap();
+    let origin = start_test_server(move |path, headers| {
+      let accept_encoding = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("accept-encoding"))
+        .map(|(_, value)| value.as_str())
+        .unwrap_or_default();
+      let (encoding, body) = match path {
+        "/accept-encoding" => ("identity", accept_encoding.as_bytes().to_vec()),
+        "/gzip" => ("gzip", compressed.clone()),
+        "/upper-gzip" => ("GZIP", compressed.clone()),
+        "/empty" => ("gzip", Vec::new()),
+        "/invalid" => ("gzip", b"Hello there".to_vec()),
+        _ => return b"404 Not Found\r\nContent-Length: 0\r\n\r\n".to_vec(),
+      };
+      let mut response = format!(
+        "200 OK\r\nContent-Encoding: {}\r\nContent-Length: {}\r\nX-Test: value\r\n\r\n",
+        encoding,
+        body.len()
+      )
+      .into_bytes();
+      response.extend(body);
+      response
+    });
+
+    let downloader = create_direct_downloader();
+    let download = async |path: &str| {
+      let url = format!("{}{}", origin, path).parse().unwrap();
+      downloader.download(&url, Default::default()).await
+    };
+
+    let file = download("/accept-encoding").await.unwrap().unwrap();
+    assert_eq!(file.content, b"gzip");
+    // other encodings are left as is
+    assert_eq!(file.headers.get("content-encoding").map(|v| v.as_str()), Some("identity"));
+    assert_eq!(download("/empty").await.unwrap().unwrap().content, b"");
+    for path in ["/gzip", "/upper-gzip"] {
+      let file = download(path).await.unwrap().unwrap();
+      assert_eq!(file.content, b"Hello there");
+      // the headers that described the compressed content are removed
+      assert_eq!(file.headers.get("content-encoding"), None);
+      assert_eq!(file.headers.get("content-length"), None);
+      assert_eq!(file.headers.get("x-test").map(|v| v.as_str()), Some("value"));
+    }
+    let message = download("/invalid").await.err().unwrap().to_string();
+    let expected_start = format!("Error downloading {}/invalid - Could not decompress the gzip content: ", origin);
+    assert!(message.starts_with(&expected_start), "{}", message);
+  }
+
+  #[tokio::test]
   async fn downloads_through_http_proxy() {
     // a proxy that's sent a request for an http url forwards it, so act as
     // one by responding with what was requested and the credentials provided
@@ -866,8 +948,8 @@ mod test {
   }
 
   /// Starts a server that responds to each request with the provided
-  /// function's text, which is everything after the http version.
-  fn start_test_server(respond: impl Fn(&str, &[(String, String)]) -> String + Send + 'static) -> String {
+  /// function's response, which is everything after the http version.
+  fn start_test_server<R: Into<Vec<u8>>>(respond: impl Fn(&str, &[(String, String)]) -> R + Send + 'static) -> String {
     use std::io::BufRead;
     use std::io::Write;
 
@@ -895,9 +977,11 @@ mod test {
           .filter_map(|line| line.split_once(": "))
           .map(|(name, value)| (name.to_string(), value.to_string()))
           .collect::<Vec<_>>();
-        let response = respond(path, &headers).replacen("\r\n", "\r\nConnection: close\r\n", 1);
+        let response: Vec<u8> = respond(path, &headers).into();
+        let status_line_end = response.iter().position(|b| *b == b'\n').unwrap() + 1;
+        let (status_line, rest) = response.split_at(status_line_end);
         // the client may have given up on the request
-        _ = stream.write_all(format!("HTTP/1.1 {}", response).as_bytes());
+        _ = stream.write_all(&[b"HTTP/1.1 ", status_line, b"Connection: close\r\n", rest].concat());
       }
     });
     origin
