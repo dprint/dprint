@@ -22,7 +22,7 @@ Formats CMakeLists.txt, CMakeLists.txt.in, and .cmake files.
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint add sargunv/dprint-cmakefmt
+dprint add cmakefmt
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"cmakefmt"` property to add configuration:
@@ -33,7 +33,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // cmakefmt config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/sargunv/dprint-cmakefmt-x.x.x.wasm"
+    "https://plugins.dprint.dev/cmakefmt/cmakefmt-vx.x.x.wasm"
   ]
 }
 ```

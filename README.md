@@ -42,8 +42,17 @@ Repos:
 - [arity](https://github.com/jolars/dprint-plugin-arity) - R formatter.
 - [fatou](https://github.com/jolars/dprint-plugin-fatou) - Julia formatter.
 - [typstyle](https://github.com/apcamargo/dprint-plugin-typstyle) - Typst (Typstyle) formatter.
+- [dprint-plugin-typstyle (kachick)](https://github.com/kachick/dprint-plugin-typstyle) - Typst (Typstyle) formatter.
 - [bibtex-tidy](https://github.com/apcamargo/dprint-plugin-bibtex-tidy) - BibTeX (bibtex-tidy) formatter.
 - [dprint-plugin-swift](https://github.com/drluckyspin/dprint-plugin-swift) - Swift (SwiftFormat) formatter.
+- [dprint-plugin-nix](https://github.com/kachick/dprint-plugin-nix) - Nix (nixfmt-rs) formatter.
+- [dprint-plugin-kdl](https://github.com/kachick/dprint-plugin-kdl) - KDL formatter.
+- [dprint-plugin-sh](https://github.com/kachick/dprint-plugin-sh) - Shell (sh/Bash/Zsh) formatter.
+- [lax-css](https://github.com/bartlomieju/lax-css) - CSS, SCSS, and Less formatter.
+- [lax-markup](https://github.com/bartlomieju/lax-markup) - HTML, XML, SVG, Vue, Svelte, and Astro formatter.
+- [lax-sql](https://github.com/bartlomieju/lax-sql) - SQL formatter.
+- [dprint-clang-format](https://github.com/sargunv/dprint-clang-format) - C, C++, and Objective-C (clang-format) formatter.
+- [cmakefmt](https://github.com/cmakefmt/cmakefmt) - CMake formatter.
 
 ## Notes
 
