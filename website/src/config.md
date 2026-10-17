@@ -71,9 +71,10 @@ Alternatively, specify the specific name of the plugin to add based on its GitHu
 
 ```sh
 dprint add dprint/dprint-plugin-typescript
+dprint add g-plane/malva
 ```
 
-Or for the standard plugins, you can just do:
+Or for the plugins in the dprint GitHub organization, you can just do:
 
 ```sh
 dprint add typescript
