@@ -4,14 +4,6 @@ description: Documentation on the configuration file for the bibtex-tidy code fo
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/bibtex-tidy">bibtex-tidy</a></li>
-    <li><a href="/plugins/bibtex-tidy/config">Configuration</a></li>
-  </ul>
-</nav>
-
 # bibtex-tidy - Configuration
 
 Specify configuration under the `"bibtex-tidy"` key in your dprint configuration file.

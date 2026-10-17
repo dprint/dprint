@@ -4,13 +4,6 @@ description: Documentation on the Nix code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/nix">Nix</a></li>
-  </ul>
-</nav>
-
 # Nix Plugin
 
 Adapter plugin that formats Nix code via [nixfmt-rs](https://github.com/Mic92/nixfmt-rs), a Rust port of [nixfmt](https://github.com/NixOS/nixfmt).

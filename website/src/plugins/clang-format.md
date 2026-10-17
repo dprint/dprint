@@ -4,13 +4,6 @@ description: Documentation on the clang-format code formatting plugin for dprint
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/clang-format">clang-format</a></li>
-  </ul>
-</nav>
-
 # clang-format Plugin
 
 Formats C, C++, and Objective-C code via a Wasm port of [clang-format](https://clang.llvm.org/docs/ClangFormat.html).

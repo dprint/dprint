@@ -4,14 +4,6 @@ description: Documentation on the configuration file for the Arity code formatti
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/arity">Arity</a></li>
-    <li><a href="/plugins/arity/config">Configuration</a></li>
-  </ul>
-</nav>
-
 # Arity - Configuration
 
 Specify configuration under the `"arity"` key in your dprint configuration file.

@@ -4,13 +4,6 @@ description: Documentation on the bibtex-tidy code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/bibtex-tidy">bibtex-tidy</a></li>
-  </ul>
-</nav>
-
 # bibtex-tidy Plugin
 
 Adapter plugin that formats BibTeX files via [bibtex-tidy](https://github.com/FlamingTempura/bibtex-tidy).

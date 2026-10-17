@@ -4,13 +4,6 @@ description: Documentation on the Badness code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/badness">Badness</a></li>
-  </ul>
-</nav>
-
 # Badness Plugin
 
 Adapter plugin that formats LaTeX and BibTeX files via [Badness](https://badness.dev).

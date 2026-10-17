@@ -64,6 +64,10 @@
 <div class="doc-menu-label">Plugins</div>
 <ul class="doc-menu">
   {% for item in plugins %}
-    <li><a href="{{ item[1] }}" {% if url == item[1] + "/" or url == item[1] + "/config/" %}class="active"{% endif %}>{{ item[0] }}</a></li>
+    <li>
+      <a href="{{ item[1] }}" {% if url == item[1] + "/" or url == item[1] + "/config/" %}class="active"{% endif %}>{{
+        item[0] | escape | replace("/", "/<wbr>") | safe
+      }}</a>
+    </li>
   {% endfor %}
 </ul>
