@@ -27,6 +27,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const FAIL_FAST_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long to wait on a server that was connected to for each part of its response.
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
+/// How many times larger than the gzip content to reserve at most for decompressing it.
+const MAX_GZIP_RESERVE_RATIO: usize = 20;
 
 pub struct RealUrlDownloader {
   progress_bars: Option<Arc<ProgressBars>>,
@@ -466,6 +468,11 @@ fn split_proxy_scheme(proxy: &str) -> (Option<&str>, &str) {
 
 fn decompress_gzip(content: &[u8]) -> std::io::Result<Vec<u8>> {
   let mut decompressed = Vec::new();
+  // the last four bytes are the decompressed size of the last member, which
+  // comes from the server, so cap how much of it is reserved
+  if let Some(size) = content.last_chunk::<4>().map(|bytes| u32::from_le_bytes(*bytes) as usize) {
+    _ = decompressed.try_reserve_exact(size.min(content.len().saturating_mul(MAX_GZIP_RESERVE_RATIO)));
+  }
   // a gzip body may be made of several members one after another
   flate2::read::MultiGzDecoder::new(content).read_to_end(&mut decompressed)?;
   Ok(decompressed)
@@ -792,6 +799,10 @@ mod test {
     let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     encoder.write_all(b"Hello there").unwrap();
     let compressed = encoder.finish().unwrap();
+    // the decompressed size in the gzip trailer is reserved up front
+    let decompressed = super::decompress_gzip(&compressed).unwrap();
+    assert_eq!(decompressed, b"Hello there");
+    assert_eq!(decompressed.capacity(), decompressed.len());
     let origin = start_test_server(move |path, headers| {
       let accept_encoding = headers
         .iter()
