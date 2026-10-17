@@ -122,7 +122,7 @@ layout: layouts/base.njk
 
   {% for group in pluginGroups %}
     <div class="plugins-label">{{ group.label }}</div>
-    {{ pluginGrid(group, true) }}
+    {{ pluginGrid(group) }}
   {% endfor %}
 </section>
 

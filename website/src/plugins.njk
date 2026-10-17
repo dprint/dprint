@@ -29,7 +29,7 @@ layout: layouts/documentation.njk
 
 {% for group in pluginGroups %}
   <h2 id="{{ group.id }}" tabindex="-1"><a class="header-anchor" href="#{{ group.id }}">{{ group.heading }}</a></h2>
-  {{ pluginGrid(group, false) }}
+  {{ pluginGrid(group) }}
 {% endfor %}
 
 <h2 id="using-wasm-plugins-in-the-browser%2C-deno%2C-or-node.js" tabindex="-1">

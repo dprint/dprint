@@ -30,16 +30,16 @@
       { "slug": "arity", "name": "Arity", "ext": "R" },
       { "slug": "fatou", "name": "Fatou", "ext": "Julia" },
       { "slug": "typstyle", "name": "Typstyle", "ext": "Typst" },
-      { "slug": "typstyle-kachick", "name": "Typstyle (kachick)", "ext": "Typst", "home": false },
+      { "slug": "typstyle-kachick", "name": "Typstyle (kachick)", "ext": "Typst" },
       { "slug": "bibtex-tidy", "name": "bibtex-tidy", "ext": "BibTeX" },
-      { "slug": "nix", "name": "Nix", "ext": ".nix", "home": false },
-      { "slug": "kdl", "name": "KDL", "ext": ".kdl", "home": false },
-      { "slug": "sh", "name": "Shell", "ext": "sh · Bash · Zsh", "home": false },
-      { "slug": "lax-css", "name": "Lax CSS", "ext": "CSS · SCSS · Less", "home": false },
-      { "slug": "lax-markup", "name": "Lax Markup", "ext": "HTML · XML · SVG · Vue · Svelte · Astro", "home": false },
-      { "slug": "lax-sql", "name": "Lax SQL", "ext": "SQL", "home": false },
-      { "slug": "clang-format", "name": "clang-format", "ext": "C · C++ · Objective-C", "home": false },
-      { "slug": "cmakefmt", "name": "cmakefmt", "ext": "CMake", "home": false }
+      { "slug": "nix", "name": "Nix", "ext": ".nix" },
+      { "slug": "kdl", "name": "KDL", "ext": ".kdl" },
+      { "slug": "sh", "name": "Shell", "ext": "sh · Bash · Zsh" },
+      { "slug": "lax-css", "name": "Lax CSS", "ext": "CSS · SCSS · Less" },
+      { "slug": "lax-markup", "name": "Lax Markup", "ext": "HTML · XML · SVG · Vue · Svelte · Astro" },
+      { "slug": "lax-sql", "name": "Lax SQL", "ext": "SQL" },
+      { "slug": "clang-format", "name": "clang-format", "ext": "C · C++ · Objective-C" },
+      { "slug": "cmakefmt", "name": "cmakefmt", "ext": "CMake" }
     ]
   },
   {

@@ -14,8 +14,8 @@ layout: layouts/documentation.njk
 
 # cmakefmt - Configuration
 
-See the [plugin documentation](https://github.com/sargunv/dprint-cmakefmt#configure) for more details.
+See the [plugin documentation](https://github.com/cmakefmt/cmakefmt/blob/main/docs/src/content/docs/editors.md#dprint) for more details.
 
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/sargunv/dprint-cmakefmt/latest/schema.json" data-config-key="cmakefmt">
+<div class="plugin-config-table" data-url="https://plugins.dprint.dev/cmakefmt/cmakefmt/latest/schema.json" data-config-key="cmakefmt">
   Loading...
 </div>
