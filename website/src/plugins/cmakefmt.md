@@ -17,6 +17,8 @@ Adapter plugin that formats CMake files via [cmakefmt](https://github.com/cmakef
 
 Formats CMakeLists.txt, CMakeLists.txt.in, and .cmake files.
 
+There is also a separate [azais-corentin/cmakefmt](/plugins/cmakefmt-azais-corentin) plugin, which is configured under the `"cmake"` key.
+
 ## Install and Setup
 
 In your project's directory with a dprint.json file, run:

@@ -39,7 +39,8 @@
       { "slug": "lax-markup", "name": "Lax Markup", "ext": "HTML · XML · SVG · Vue · Svelte · Astro" },
       { "slug": "lax-sql", "name": "Lax SQL", "ext": "SQL" },
       { "slug": "clang-format", "name": "clang-format", "ext": "C · C++ · Objective-C" },
-      { "slug": "cmakefmt", "name": "cmakefmt", "ext": "CMake" }
+      { "slug": "cmakefmt", "name": "cmakefmt", "ext": "CMake" },
+      { "slug": "cmakefmt-azais-corentin", "name": "cmakefmt (azais-corentin)", "ext": "CMake" }
     ]
   },
   {

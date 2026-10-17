@@ -15,6 +15,7 @@ const pluginPlaceholders = new Map([
   ["\"https://plugins.dprint.dev/apcamargo/bibtex-tidy-x.x.x.wasm\"", "apcamargo/bibtex-tidy"],
   ["\"https://plugins.dprint.dev/sargunv/dprint-clang-format-x.x.x.wasm\"", "sargunv/dprint-clang-format"],
   ["\"https://plugins.dprint.dev/cmakefmt/cmakefmt-vx.x.x.wasm\"", "cmakefmt/cmakefmt"],
+  ["\"https://plugins.dprint.dev/azais-corentin/cmakefmt-vx.x.x.wasm\"", "azais-corentin/cmakefmt"],
 ]);
 
 export function replacePluginUrls() {
