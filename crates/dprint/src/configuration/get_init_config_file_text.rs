@@ -30,6 +30,7 @@ use crate::utils::MultiSelectAction;
 use crate::utils::MultiSelectDetailPart;
 use crate::utils::MultiSelectFeatures;
 use crate::utils::MultiSelectItem;
+use crate::utils::MultiSelectMark;
 use crate::utils::MultiSelectState;
 use crate::utils::SettingsCheckbox;
 use crate::utils::SettingsEditorState;
@@ -126,10 +127,11 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
     let preferences = read_init_preferences(environment);
     let mut choices = get_plugin_choices(&latest_plugins, &preferences);
     let preferred_order = get_preferred_order(&latest_plugins, &preferences);
-    let defaults = compute_default_selections(&latest_plugins, &project_files, &[], &choices, &preferred_order);
+    let avoided = get_avoided_plugins(&latest_plugins, &preferences);
+    let defaults = compute_default_selections(&latest_plugins, &project_files, &[], &choices, &preferred_order, &avoided);
+    let ranks = plugin_ranks(latest_plugins.len(), &preferred_order, &avoided);
     // show the pre-selected plugins at the top of the list
-    let order = display_order(&defaults, &[], &preferred_order);
-    let ranks = plugin_ranks(latest_plugins.len(), &preferred_order);
+    let order = display_order(&defaults, &[], &ranks);
 
     // an .npmrc setting `min-release-age` is looked for where the config file
     // is going to be written
@@ -226,7 +228,8 @@ pub async fn get_init_plugins_to_add(environment: &impl Environment, options: Ge
     *choices = Default::default();
   }
   let preferred_order = get_preferred_order(&latest_plugins, &preferences);
-  let defaults = compute_default_selections(&latest_plugins, &project_files, &already_configured, &choices, &preferred_order);
+  let avoided = get_avoided_plugins(&latest_plugins, &preferences);
+  let defaults = compute_default_selections(&latest_plugins, &project_files, &already_configured, &choices, &preferred_order, &avoided);
   // show the config file's plugins the way it has them, which is ahead of
   // what gets added, and then the pre-selected plugins. The ones the info file
   // doesn't know about are shown too so a plugin can be put ahead of them,
@@ -253,8 +256,8 @@ pub async fn get_init_plugins_to_add(environment: &impl Environment, options: Ge
     Some(plugin) => plugin.name.clone(),
     None => unknown_configured[index - latest_plugins.len()].clone(),
   };
-  let order = display_order(&defaults, &configured_order, &preferred_order);
-  let ranks = plugin_ranks(latest_plugins.len(), &preferred_order);
+  let ranks = plugin_ranks(latest_plugins.len(), &preferred_order, &avoided);
+  let order = display_order(&defaults, &configured_order, &ranks);
   // an .npmrc setting `min-release-age` is looked for where the config file lives
   let age_cutoff = resolve_dependency_age_cutoff(options.minimum_dependency_age.as_ref(), options.config_dir.as_deref(), environment);
   let loaded = LoadedPlugins::default();
@@ -320,7 +323,8 @@ pub async fn get_init_plugins_to_add(environment: &impl Environment, options: Ge
 
 /// Prompts for the plugins the user prefers, which is what `dprint init`
 /// remembers: the selected plugins in the order they're in, along with the
-/// files and options of each. It's saved when the user finishes.
+/// files and options of each, and the plugins to avoid. It's saved when the
+/// user finishes.
 ///
 /// This has nothing to do with the directory it's run in or a config file, so
 /// no file is highlighted and nothing is initialized. What's saved is what
@@ -336,26 +340,31 @@ pub async fn prompt_for_init_preferences(environment: &impl Environment, options
   let loaded = LoadedPlugins::default();
   let mut choices = get_plugin_choices(&plugins, &preferences);
   let preferred_order = get_preferred_order(&plugins, &preferences);
-  // the preferred plugins in their order, which is the order that's saved
-  let ranks = plugin_ranks(plugins.len(), &preferred_order);
+  let avoided = get_avoided_plugins(&plugins, &preferences);
+  // the preferred plugins in their order, which is the order that's saved,
+  // and the avoided ones last. One that stops being avoided goes back to
+  // where the info file has it.
+  let ranks = plugin_ranks(plugins.len(), &preferred_order, &[]);
   let mut indexes = (0..plugins.len()).collect::<Vec<_>>();
-  indexes.sort_by_key(|&index| ranks[index]);
+  indexes.sort_by_key(|&index| (avoided.contains(&index), ranks[index]));
   let items = indexes
     .into_iter()
     .map(|index| {
       let plugin = &plugins[index];
       MultiSelectItem::new(plugin.display_name().to_string(), preferred_order.contains(&index))
+        .with_rejected(avoided.contains(&index))
         .with_detail(plugin_prompt_detail(plugin, &choices[index], &no_project_files, false))
         .with_id(index)
         .with_rank(ranks[index])
     })
     .collect::<Vec<_>>();
   let mut state = MultiSelectState::new("Select the plugins to prefer whenever running dprint init:", items);
-  state.help = Some("space: toggle, \u{2192}: options, shift+\u{2191}/\u{2193}: move, type to filter, enter: save, esc: cancel".to_string());
+  state.help = Some("space: prefer/avoid/neither, \u{2192}: options, shift+\u{2191}/\u{2193}: move, type to filter, enter: save, esc: cancel".to_string());
   state.features = MultiSelectFeatures {
     can_move: true,
     can_open: true,
     selected_first: true,
+    can_reject: true,
   };
 
   loop {
@@ -381,13 +390,13 @@ pub async fn prompt_for_init_preferences(environment: &impl Environment, options
     }
   }
 
-  let new_preferences = get_updated_preferences(&preferences, &plugins, &choices, &state.selected_ids());
+  let new_preferences = get_updated_preferences(&preferences, &plugins, &choices, &state.selected_ids(), &state.rejected_ids());
   if new_preferences == preferences {
-    log_stdout_info!(environment, "\nThe preferred plugins are the same as they were.");
+    log_stdout_info!(environment, "\nThe plugin preferences are the same as they were.");
     return Ok(());
   }
   let file_path = write_init_preferences(environment, &new_preferences)?;
-  log_stdout_info!(environment, "\nSaved the preferred plugins to {}", file_path.display());
+  log_stdout_info!(environment, "\nSaved the plugin preferences to {}", file_path.display());
   Ok(())
 }
 
@@ -450,6 +459,11 @@ fn get_preferred_order(plugins: &[InfoFilePluginInfo], preferences: &InitPrefere
     }
   }
   order
+}
+
+/// Indexes of the plugins the user said to avoid.
+fn get_avoided_plugins(plugins: &[InfoFilePluginInfo], preferences: &InitPreferences) -> Vec<usize> {
+  (0..plugins.len()).filter(|&index| preferences.is_avoided(&plugins[index].name)).collect()
 }
 
 /// What to show in the plugin prompt.
@@ -522,9 +536,9 @@ struct PluginOptionsSource<'a> {
 /// stay in their order while the selected ones can be moved in between them,
 /// so the top of the list is what the config file's `plugins` ends up as.
 ///
-/// The plugins the user prefers are only marked here. They're changed in a
-/// prompt of their own (see [`prompt_for_init_preferences`]), and nothing done
-/// in either changes the other.
+/// The plugins the user prefers or avoids are only marked here. They're
+/// changed in a prompt of their own (see [`prompt_for_init_preferences`]), and
+/// nothing done in either changes the other.
 async fn prompt_for_plugins(
   environment: &impl Environment,
   prompt: PluginPrompt<'_>,
@@ -553,18 +567,26 @@ async fn prompt_for_plugins(
         .with_detail(detail)
         .with_id(i)
         .with_rank(prompt.ranks[i])
-        .with_marked(is_preferred(preferences, plugin))
+        .with_mark(plugin_mark(preferences, plugin))
     })
     .collect::<Vec<_>>();
+  // the avoided mark is only explained when there's one to see
+  let has_avoided = items.iter().any(|item| item.mark == Some(MultiSelectMark::Cross));
+  let marks = if has_avoided {
+    format!("{}: preferred, {}: avoided", MultiSelectMark::Star.text(), MultiSelectMark::Cross.text())
+  } else {
+    format!("{}: preferred", MultiSelectMark::Star.text())
+  };
   let mut state = MultiSelectState::new(prompt.message, items);
   state.help = Some(format!(
-    "space: toggle, \u{2192}: options, shift+\u{2191}/\u{2193}: move, type to filter, enter: finish, {}: preferred (dprint init --preferences)",
-    PREFERRED_MARK
+    "space: toggle, \u{2192}: options, shift+\u{2191}/\u{2193}: move, type to filter, enter: finish, {} (dprint init --preferences)",
+    marks
   ));
   state.features = MultiSelectFeatures {
     can_move: true,
     can_open: true,
     selected_first: true,
+    can_reject: false,
   };
 
   loop {
@@ -588,22 +610,28 @@ async fn prompt_for_plugins(
   Ok(state.items.iter().filter(|item| item.is_selected).map(|item| item.id).collect())
 }
 
-/// The text the plugin prompt shows after a plugin the user prefers.
-const PREFERRED_MARK: &str = "\u{2605}";
-
-fn is_preferred(preferences: &InitPreferences, plugin: &InfoFilePluginInfo) -> bool {
-  preferences.preferred_plugins.iter().any(|preferred| preferred.name == plugin.name)
+/// What the plugin prompt shows after a plugin the user prefers or avoids.
+fn plugin_mark(preferences: &InitPreferences, plugin: &InfoFilePluginInfo) -> Option<MultiSelectMark> {
+  if preferences.is_preferred(&plugin.name) {
+    Some(MultiSelectMark::Star)
+  } else if preferences.is_avoided(&plugin.name) {
+    Some(MultiSelectMark::Cross)
+  } else {
+    None
+  }
 }
 
 /// The preferences after the user selected the plugins they prefer, which
-/// are in the order they were shown in. The ones that were remembered that the
-/// info file doesn't have stay after what they were after, since the user
-/// wasn't shown those to say otherwise.
+/// are in the order they were shown in, and the ones they avoid. The ones that
+/// were remembered that the info file doesn't have are kept (the preferred
+/// ones after what they were after), since the user wasn't shown those to say
+/// otherwise.
 fn get_updated_preferences(
   old_preferences: &InitPreferences,
   plugins: &[InfoFilePluginInfo],
   choices: &[PluginChoices],
   preferred_indexes: &[usize],
+  avoided_indexes: &[usize],
 ) -> InitPreferences {
   let mut preferred_plugins = preferred_indexes
     .iter()
@@ -626,7 +654,16 @@ fn get_updated_preferences(
       .map(|index| index + 1);
     preferred_plugins.insert(index_after_previous.unwrap_or(0), unknown_plugin.clone());
   }
-  InitPreferences { preferred_plugins }
+  let is_unknown = |name: &String| !plugins.iter().any(|plugin| plugin.name == *name);
+  let avoided_plugins = avoided_indexes
+    .iter()
+    .map(|&index| plugins[index].name.clone())
+    .chain(old_preferences.avoided_plugins.iter().filter(|name| is_unknown(name)).cloned())
+    .collect();
+  InitPreferences {
+    preferred_plugins,
+    avoided_plugins,
+  }
 }
 
 /// Shows the files a plugin formats and its options so the user can change
@@ -893,6 +930,11 @@ struct ProjectFiles {
 /// handle, even when another preferred plugin claimed it or the plugin is
 /// marked `neverPreselect`. The config key rule still applies.
 ///
+/// The plugins the user avoids (`avoided`) are never pre-selected and don't
+/// claim anything, so the next plugin for their files is pre-selected
+/// instead. Being in a config file wins over that like it does for
+/// `neverPreselect`.
+///
 /// The files the user said a plugin shouldn't format (`choices`) are left out
 /// of what it matches.
 fn compute_default_selections(
@@ -901,6 +943,7 @@ fn compute_default_selections(
   already_configured: &[bool],
   choices: &[PluginChoices],
   preferred_order: &[usize],
+  avoided: &[usize],
 ) -> Vec<bool> {
   let is_already_configured = |index: usize| already_configured.get(index).copied().unwrap_or(false);
   let mut claimed_extensions: HashSet<String> = HashSet::new();
@@ -925,7 +968,7 @@ fn compute_default_selections(
   let other_indexes = (0..plugins.len()).filter(|&i| !is_preferred(i));
   for i in preferred_order.iter().copied().chain(other_indexes) {
     let plugin = &plugins[i];
-    if is_already_configured(i) || plugin.never_preselect && !is_preferred(i) {
+    if is_already_configured(i) || plugin.never_preselect && !is_preferred(i) || avoided.contains(&i) {
       continue;
     }
     // present extensions / file names that this plugin matches
@@ -996,8 +1039,7 @@ fn present_file_names(plugin: &InfoFilePluginInfo, choices: &PluginChoices, proj
 /// config file's `plugins` from the top down followed by what's left to pick
 /// from. The plugins that aren't in a config file are in the order of their
 /// rank in both groups (see [`plugin_ranks`]).
-fn display_order(defaults: &[bool], configured_order: &[usize], preferred_order: &[usize]) -> Vec<usize> {
-  let ranks = plugin_ranks(defaults.len(), preferred_order);
+fn display_order(defaults: &[bool], configured_order: &[usize], ranks: &[usize]) -> Vec<usize> {
   let mut indexes = (0..defaults.len()).filter(|index| !configured_order.contains(index)).collect::<Vec<_>>();
   indexes.sort_by_key(|&index| ranks[index]);
   let selected = indexes.iter().copied().filter(|&i| defaults[i]);
@@ -1007,11 +1049,13 @@ fn display_order(defaults: &[bool], configured_order: &[usize], preferred_order:
 
 /// Where each plugin goes among the plugins that are selected the way it is:
 /// the plugins the user prefers first in the order they prefer them, then the
-/// rest in info.json order. Lowest goes first.
-fn plugin_ranks(plugin_count: usize, preferred_order: &[usize]) -> Vec<usize> {
-  let other_indexes = (0..plugin_count).filter(|index| !preferred_order.contains(index));
+/// rest in info.json order, and then the ones the user avoids. Lowest goes
+/// first.
+fn plugin_ranks(plugin_count: usize, preferred_order: &[usize], avoided: &[usize]) -> Vec<usize> {
+  let other_indexes = (0..plugin_count).filter(|index| !preferred_order.contains(index) && !avoided.contains(index));
+  let avoided = avoided.iter().copied().filter(|index| !preferred_order.contains(index));
   let mut ranks = vec![0; plugin_count];
-  for (rank, index) in preferred_order.iter().copied().chain(other_indexes).enumerate() {
+  for (rank, index) in preferred_order.iter().copied().chain(other_indexes).chain(avoided).enumerate() {
     ranks[index] = rank;
   }
   ranks
@@ -2169,12 +2213,12 @@ mod test {
 
   #[test]
   fn display_order_lists_selected_first() {
-    assert_eq!(display_order(&[false, true, false, true], &[], &[]), vec![1, 3, 0, 2]);
-    assert_eq!(display_order(&[true, true], &[], &[]), vec![0, 1]);
-    assert_eq!(display_order(&[false, false, false], &[], &[]), vec![0, 1, 2]);
+    assert_eq!(display_order(&[false, true, false, true], &[], &[0, 1, 2, 3]), vec![1, 3, 0, 2]);
+    assert_eq!(display_order(&[true, true], &[], &[0, 1]), vec![0, 1]);
+    assert_eq!(display_order(&[false, false, false], &[], &[0, 1, 2]), vec![0, 1, 2]);
     assert_eq!(display_order(&[], &[], &[]), Vec::<usize>::new());
     // the plugins already in the config file go last
-    assert_eq!(display_order(&[false, true, false, false], &[3, 0], &[]), vec![3, 0, 1, 2]);
+    assert_eq!(display_order(&[false, true, false, false], &[3, 0], &[0, 1, 2, 3]), vec![3, 0, 1, 2]);
   }
 
   #[test]
@@ -3136,7 +3180,14 @@ mod test {
   }
 
   fn write_preferences(environment: &TestEnvironment, preferred_plugins: Vec<PreferredPlugin>) {
-    write_init_preferences(environment, &InitPreferences { preferred_plugins }).unwrap();
+    write_init_preferences(
+      environment,
+      &InitPreferences {
+        preferred_plugins,
+        ..Default::default()
+      },
+    )
+    .unwrap();
   }
 
   fn preferred(name: &str) -> PreferredPlugin {
@@ -3311,10 +3362,11 @@ mod test {
           read_init_preferences(&environment),
           InitPreferences {
             preferred_plugins: vec![preferred("c"), preferred("b")],
+            ..Default::default()
           }
         );
         let last_message = environment.take_stdout_messages().pop().unwrap();
-        assert_eq!(last_message.replace('\\', "/"), "\nSaved the preferred plugins to /config/dprint/init.json");
+        assert_eq!(last_message.replace('\\', "/"), "\nSaved the plugin preferences to /config/dprint/init.json");
 
         // the next time `b` is selected instead of `a`, and `c` has no files
         // here but keeps its place ahead of the plugins that aren't preferred
@@ -3330,6 +3382,7 @@ mod test {
           read_init_preferences(&environment),
           InitPreferences {
             preferred_plugins: vec![preferred("c"), preferred("b")],
+            ..Default::default()
           }
         );
         environment.take_stderr_messages();
@@ -3353,7 +3406,7 @@ mod test {
         // it stays where it is, so nothing was changed
         press_keys(&environment, &["enter"]);
         prompt_for_init_preferences(&environment, None).await.unwrap();
-        assert_eq!(environment.take_stdout_messages(), vec!["\nThe preferred plugins are the same as they were."]);
+        assert_eq!(environment.take_stdout_messages(), vec!["\nThe plugin preferences are the same as they were."]);
         // and it stays ahead of what's selected after it
         press_keys(&environment, &["down", "space", "enter"]);
         prompt_for_init_preferences(&environment, None).await.unwrap();
@@ -3361,18 +3414,117 @@ mod test {
           read_init_preferences(&environment),
           InitPreferences {
             preferred_plugins: vec![preferred("removed"), preferred("b"), preferred("a")],
+            ..Default::default()
           }
         );
 
-        // `b` is listed first
-        press_keys(&environment, &["space", "enter"]);
+        // `b` is listed first, and goes from preferred to avoided to neither
+        press_keys(&environment, &["space", "space", "enter"]);
         prompt_for_init_preferences(&environment, None).await.unwrap();
         assert_eq!(
           read_init_preferences(&environment),
           InitPreferences {
             preferred_plugins: vec![preferred("removed"), preferred("a")],
+            ..Default::default()
           }
         );
+        environment.take_stdout_messages();
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_not_pre_select_an_avoided_plugin_and_list_it_last() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info
+          .add_plugin(wasm_plugin("a", "a", &["ts"]))
+          .add_plugin(wasm_plugin("b", "b", &["ts"]))
+          .add_plugin(wasm_plugin("c", "c", &["md"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    press_keys(&environment, &["enter"]);
+    let preferences = InitPreferences {
+      avoided_plugins: vec!["a".to_string()],
+      ..Default::default()
+    };
+    write_init_preferences(&environment, &preferences).unwrap();
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        // `b` gets the .ts files `a` would have claimed
+        let text = get_init_config_file_text(&environment, non_interactive_options()).await.unwrap();
+        assert!(text.contains("b-1.0.0.wasm"), "{text}");
+        assert!(!text.contains("a-1.0.0.wasm"), "{text}");
+
+        // and `a` is marked under the plugins that aren't avoided
+        get_init_config_file_text(&environment, Default::default()).await.unwrap();
+        let lines = environment.take_prompt_screens().remove(0).lines;
+        assert!(
+          lines[1].ends_with("\u{2605}: preferred, \u{2717}: avoided (dprint init --preferences)"),
+          "{}",
+          lines[1]
+        );
+        assert_eq!(lines[2..], ["> [x] b (.ts)", "  [ ] c (.md)", "  [ ] a \u{2717} (.ts)"]);
+
+        // a config file that has it still has it handle its files
+        press_keys(&environment, &["enter"]);
+        get_init_plugins_to_add(
+          &environment,
+          GetInitPluginsToAddOptions {
+            existing_plugin_names: Vec::from(["a".to_string()]),
+            minimum_dependency_age: None,
+            config_dir: None,
+            options_loader: None,
+          },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+          take_shown_items(&environment),
+          vec!["[x] a \u{2717} (.ts) \u{2014} already in config", "[ ] b (.ts)", "[ ] c (.md)"]
+        );
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_remember_the_avoided_plugins_and_keep_unknown_ones() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "a", &["ts"])).add_plugin(wasm_plugin("b", "b", &["ts"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    // `removed` isn't in the info file
+    let preferences = InitPreferences {
+      preferred_plugins: vec![preferred("b")],
+      avoided_plugins: vec!["removed".to_string()],
+    };
+    write_init_preferences(&environment, &preferences).unwrap();
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        // `a` goes from neither to preferred to avoided
+        press_keys(&environment, &["down", "space", "space", "enter"]);
+        prompt_for_init_preferences(&environment, None).await.unwrap();
+        assert_eq!(take_screens(&environment)[3], vec!["  [x] b (.ts)", "> [-] a (.ts)"]);
+        assert_eq!(
+          read_init_preferences(&environment),
+          InitPreferences {
+            preferred_plugins: vec![preferred("b")],
+            avoided_plugins: vec!["a".to_string(), "removed".to_string()],
+          }
+        );
+
+        // it starts out avoided at the bottom and goes back to neither
+        press_keys(&environment, &["down", "space", "enter"]);
+        prompt_for_init_preferences(&environment, None).await.unwrap();
+        assert_eq!(take_screens(&environment)[0], vec!["> [x] b (.ts)", "  [-] a (.ts)"]);
+        assert_eq!(read_init_preferences(&environment), preferences);
         environment.take_stdout_messages();
         environment.take_stderr_messages();
       }
@@ -3411,7 +3563,7 @@ mod test {
         press_keys(&environment, &["enter"]);
         prompt_for_init_preferences(&environment, None).await.unwrap();
         assert!(!environment.path_exists(PREFERENCES_PATH));
-        assert_eq!(environment.take_stdout_messages(), vec!["\nThe preferred plugins are the same as they were."]);
+        assert_eq!(environment.take_stdout_messages(), vec!["\nThe plugin preferences are the same as they were."]);
         environment.take_stderr_messages();
       }
     });
@@ -3492,6 +3644,7 @@ mod test {
               excluded_file_extensions: vec!["yaml".to_string()],
               ..Default::default()
             }],
+            ..Default::default()
           }
         );
 
@@ -3602,6 +3755,7 @@ mod test {
             config: serde_json::json!({ "lineWidth": 80, "useTabs": false }).as_object().unwrap().clone(),
             ..Default::default()
           }],
+          ..Default::default()
         };
         assert_eq!(read_init_preferences(&environment), expected_preferences);
 
@@ -3788,9 +3942,19 @@ mod test {
   #[test]
   fn display_order_shows_preferred_plugins_first_in_each_group() {
     // 3 then 1 are preferred
-    assert_eq!(display_order(&[true, true, false, true, false], &[], &[3, 1]), vec![3, 1, 0, 2, 4]);
-    assert_eq!(display_order(&[true, false, false, true, false], &[], &[3, 1]), vec![3, 0, 1, 2, 4]);
-    assert_eq!(display_order(&[true, false, false, false, false], &[3], &[3, 1]), vec![3, 0, 1, 2, 4]);
+    let ranks = plugin_ranks(5, &[3, 1], &[]);
+    assert_eq!(display_order(&[true, true, false, true, false], &[], &ranks), vec![3, 1, 0, 2, 4]);
+    assert_eq!(display_order(&[true, false, false, true, false], &[], &ranks), vec![3, 0, 1, 2, 4]);
+    assert_eq!(display_order(&[true, false, false, false, false], &[3], &ranks), vec![3, 0, 1, 2, 4]);
+  }
+
+  #[test]
+  fn plugin_ranks_put_avoided_plugins_last() {
+    // 3 then 1 are preferred and 0 and 2 are avoided
+    assert_eq!(plugin_ranks(5, &[3, 1], &[0, 2]), vec![3, 1, 4, 0, 2]);
+    // and they're shown under the plugins that aren't avoided
+    let ranks = plugin_ranks(4, &[], &[0]);
+    assert_eq!(display_order(&[false, true, false, false], &[], &ranks), vec![1, 2, 3, 0]);
   }
 
   fn get_multi_plugins_config() -> Vec<TestInfoFilePlugin> {

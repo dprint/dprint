@@ -22,19 +22,49 @@ pub struct MultiSelectItem {
   pub detail: Vec<MultiSelectDetailPart>,
   /// Whether the item starts out selected.
   pub is_selected: bool,
+  /// Whether the user said they don't want the item, which is a third state
+  /// apart from being selected or not (see [`MultiSelectFeatures::can_reject`]).
+  /// An item is never both selected and rejected.
+  pub is_rejected: bool,
   /// Whether the user can toggle the item. A non-selectable item is shown for
   /// context (ex. a plugin that's already in the config file) and is never
   /// part of the result.
   pub is_selectable: bool,
-  /// Whether the item is marked, which is shown with a star (ex. a plugin the
-  /// user prefers). It's only there to be seen.
-  pub is_marked: bool,
+  /// What's shown after the item's text to make it stand out (ex. a star for
+  /// a plugin the user prefers). It's only there to be seen.
+  pub mark: Option<MultiSelectMark>,
   /// Identifies the item to whoever is showing the prompt, since the user may
   /// move the items around when the prompt allows it.
   pub id: usize,
   /// Where the item goes among the items that are selected the way it is
   /// when the prompt keeps the selected items first, lowest first.
   pub rank: usize,
+}
+
+/// A symbol shown after a multi-select item's text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MultiSelectMark {
+  /// A yellow star (ex. a plugin the user prefers).
+  Star,
+  /// A red cross (ex. a plugin the user said to never use).
+  Cross,
+}
+
+impl MultiSelectMark {
+  /// The symbol without any color, which is how help text can refer to it.
+  pub fn text(&self) -> &'static str {
+    match self {
+      MultiSelectMark::Star => "\u{2605}",
+      MultiSelectMark::Cross => "\u{2717}",
+    }
+  }
+
+  fn render(&self) -> String {
+    match self {
+      MultiSelectMark::Star => colors::yellow(self.text()).to_string(),
+      MultiSelectMark::Cross => colors::red(self.text()).to_string(),
+    }
+  }
 }
 
 /// A piece of the detail shown after a multi-select item's text.
@@ -60,8 +90,9 @@ impl MultiSelectItem {
       text,
       detail: Vec::new(),
       is_selected,
+      is_rejected: false,
       is_selectable: true,
-      is_marked: false,
+      mark: None,
       id: 0,
       rank: 0,
     }
@@ -73,8 +104,9 @@ impl MultiSelectItem {
       text,
       detail: Vec::new(),
       is_selected: true,
+      is_rejected: false,
       is_selectable: false,
-      is_marked: false,
+      mark: None,
       id: 0,
       rank: 0,
     }
@@ -95,8 +127,17 @@ impl MultiSelectItem {
     self
   }
 
-  pub fn with_marked(mut self, is_marked: bool) -> Self {
-    self.is_marked = is_marked;
+  pub fn with_mark(mut self, mark: Option<MultiSelectMark>) -> Self {
+    self.mark = mark;
+    self
+  }
+
+  /// Starts the item out rejected instead of selected or not.
+  pub fn with_rejected(mut self, is_rejected: bool) -> Self {
+    self.is_rejected = is_rejected;
+    if is_rejected {
+      self.is_selected = false;
+    }
     self
   }
 
@@ -112,6 +153,19 @@ impl MultiSelectItem {
     text
   }
 
+  /// Where the item goes when the selected items are kept first: the
+  /// selected ones (and the ones that can't be toggled), then the unselected
+  /// ones, and then the rejected ones.
+  fn group(&self) -> u8 {
+    if self.is_selected {
+      0
+    } else if self.is_rejected {
+      2
+    } else {
+      1
+    }
+  }
+
   /// The item as it's shown in the terminal: its detail is dimmed apart from
   /// the highlighted parts, and so is the text of an item that can't be
   /// toggled so it's clear it's only there for context.
@@ -121,9 +175,9 @@ impl MultiSelectItem {
     } else {
       colors::gray(&self.text).to_string()
     };
-    if self.is_marked {
+    if let Some(mark) = self.mark {
       text.push(' ');
-      text.push_str(&colors::yellow(MARK_TEXT).to_string());
+      text.push_str(&mark.render());
     }
     if !self.detail.is_empty() {
       text.push(' ');
@@ -156,6 +210,11 @@ pub struct MultiSelectFeatures {
   /// order they're in: they're expected to go first, and a selected item can
   /// be moved in between them.
   pub selected_first: bool,
+  /// Space cycles an item from unselected to selected to rejected and back,
+  /// which is for when not wanting an item says something too (ex. a plugin
+  /// to never use). A rejected item is shown with `[-]` and goes after the
+  /// unselected ones when the selected items are kept first.
+  pub can_reject: bool,
 }
 
 /// The state of a multi-select prompt. It's owned by the caller so the prompt
@@ -202,29 +261,13 @@ impl MultiSelectState {
   /// is something only the user moving an item there asks for. The item stays
   /// the active one when it was.
   pub fn set_item_selected(&mut self, item_index: usize, is_selected: bool) {
-    let was_active = visible_indexes(self).get(self.active_index) == Some(&item_index);
-    self.items[item_index].is_selected = is_selected;
-    if !self.features.selected_first {
-      return;
-    }
-    let item = self.items.remove(item_index);
-    let goes_before = |other: &MultiSelectItem| {
-      if item.is_selected {
-        !other.is_selected || other.rank > item.rank
-      } else {
-        !other.is_selected && other.rank > item.rank
-      }
-    };
-    let start_index = self.items.iter().rposition(|other| !other.is_selectable).map(|index| index + 1).unwrap_or(0);
-    let new_index = self.items[start_index..]
-      .iter()
-      .position(goes_before)
-      .map(|index| start_index + index)
-      .unwrap_or(self.items.len());
-    self.items.insert(new_index, item);
-    if was_active && let Some(active_index) = visible_indexes(self).iter().position(|&index| index == new_index) {
-      self.active_index = active_index;
-    }
+    self.set_item_state(item_index, is_selected, false);
+  }
+
+  /// Rejects the item at this index in the items or makes it neither
+  /// selected nor rejected, moving it like [`Self::set_item_selected`] does.
+  pub fn set_item_rejected(&mut self, item_index: usize, is_rejected: bool) {
+    self.set_item_state(item_index, false, is_rejected);
   }
 
   /// The ids of the selected items in the order they're shown in.
@@ -236,6 +279,33 @@ impl MultiSelectState {
       .filter(|item| item.is_selected && item.is_selectable)
       .map(|item| item.id)
       .collect()
+  }
+
+  /// The ids of the rejected items in the order they're shown in.
+  pub fn rejected_ids(&self) -> Vec<usize> {
+    self.items.iter().filter(|item| item.is_rejected).map(|item| item.id).collect()
+  }
+
+  fn set_item_state(&mut self, item_index: usize, is_selected: bool, is_rejected: bool) {
+    let was_active = visible_indexes(self).get(self.active_index) == Some(&item_index);
+    self.items[item_index].is_selected = is_selected;
+    self.items[item_index].is_rejected = is_rejected;
+    if !self.features.selected_first {
+      return;
+    }
+    let item = self.items.remove(item_index);
+    // selected, then unselected, then rejected, each by rank
+    let goes_before = |other: &MultiSelectItem| (other.group(), other.rank) > (item.group(), item.rank);
+    let start_index = self.items.iter().rposition(|other| !other.is_selectable).map(|index| index + 1).unwrap_or(0);
+    let new_index = self.items[start_index..]
+      .iter()
+      .position(goes_before)
+      .map(|index| start_index + index)
+      .unwrap_or(self.items.len());
+    self.items.insert(new_index, item);
+    if was_active && let Some(active_index) = visible_indexes(self).iter().position(|&index| index == new_index) {
+      self.active_index = active_index;
+    }
   }
 }
 
@@ -310,9 +380,6 @@ async fn run_multi_select(terminal: &dyn PromptTerminal, context_name: &str, sta
   Ok(MultiSelectAction::Done)
 }
 
-/// The text shown after a marked item.
-const MARK_TEXT: &str = "\u{2605}";
-
 #[derive(Debug, PartialEq, Eq)]
 enum KeyOutcome {
   Continue,
@@ -353,8 +420,16 @@ fn handle_key(state: &mut MultiSelectState, key_event: &KeyEvent) -> KeyOutcome 
       // toggle the active item's selection
       if let Some(&item_index) = visible.get(state.active_index) {
         let item = &state.items[item_index];
-        if item.is_selectable {
+        if !item.is_selectable {
+          // only there to be seen
+        } else if !state.features.can_reject {
           state.set_item_selected(item_index, !item.is_selected);
+        } else if item.is_selected {
+          state.set_item_rejected(item_index, true);
+        } else if item.is_rejected {
+          state.set_item_rejected(item_index, false);
+        } else {
+          state.set_item_selected(item_index, true);
         }
       }
     }
@@ -489,7 +564,13 @@ fn render_multi_select(data: &MultiSelectState, visible: &[usize], max_visible_r
     let mut text = String::new();
     text.push_str(if visible_pos == data.active_index { ">" } else { " " });
     text.push_str(" [");
-    text.push_str(if item.is_selected { "x" } else { " " });
+    text.push_str(if item.is_selected {
+      "x"
+    } else if item.is_rejected {
+      "-"
+    } else {
+      " "
+    });
     text.push_str("] ");
     text.push_str(&item.render());
 
@@ -506,16 +587,19 @@ fn render_multi_select(data: &MultiSelectState, visible: &[usize], max_visible_r
   result
 }
 
-/// The prompt's final state, logged once it's done: only what the user chose,
-/// since the non-selectable items were shown for context.
+/// The prompt's final state, logged once it's done: only what the user chose
+/// and then what they rejected, since the non-selectable items were shown for
+/// context.
 fn render_complete(data: &MultiSelectState) -> Vec<LoggerTextItem> {
   let mut result = Vec::new();
   let is_chosen = |item: &MultiSelectItem| item.is_selected && item.is_selectable;
-  if data.items.iter().any(is_chosen) {
+  if data.items.iter().any(|item| is_chosen(item) || item.is_rejected) {
     result.push(LoggerTextItem::Text(data.prompt.to_string()));
-    for item in data.items.iter().filter(|item| is_chosen(item)) {
+    let chosen = data.items.iter().filter(|item| is_chosen(item)).map(|item| (" * ", item));
+    let rejected = data.items.iter().filter(|item| item.is_rejected).map(|item| (" - ", item));
+    for (bullet, item) in chosen.chain(rejected) {
       result.push(LoggerTextItem::HangingText {
-        text: format!(" * {}", item.render()),
+        text: format!("{}{}", bullet, item.render()),
         indent: 3 + data.item_hanging_indent,
       });
     }
@@ -845,13 +929,69 @@ mod test {
   }
 
   #[test]
-  fn render_shows_a_star_after_a_marked_item() {
-    let data = build_data_with_items(vec![MultiSelectItem::new("alpha".to_string(), true).with_marked(true)]);
+  fn render_shows_the_mark_after_a_marked_item() {
+    let data = build_data_with_items(vec![
+      MultiSelectItem::new("alpha".to_string(), true).with_mark(Some(MultiSelectMark::Star)),
+      MultiSelectItem::new("beta".to_string(), false).with_mark(Some(MultiSelectMark::Cross)),
+    ]);
     let visible = visible_indexes(&data);
     assert_eq!(
       rendered_lines(&render_multi_select(&data, &visible, 10)),
-      vec!["Select:".to_string(), format!("> [x] alpha {}", colors::yellow(MARK_TEXT))]
+      vec![
+        "Select:".to_string(),
+        format!("> [x] alpha {}", colors::yellow("\u{2605}")),
+        format!("  [ ] beta {}", colors::red("\u{2717}")),
+      ]
     );
+  }
+
+  #[test]
+  fn space_cycles_through_rejected_when_allowed() {
+    let mut data = selected_first_data();
+    data.features.can_reject = true;
+    // `a` goes selected, then rejected after everything else, then back
+    data.active_index = 3;
+    press(&mut data, KeyCode::Char(' '));
+    assert_eq!(item_texts(&data), vec!["locked", "a", "b", "d", "c", "e"]);
+    assert_eq!(data.active_index, 1);
+    press(&mut data, KeyCode::Char(' '));
+    assert_eq!(item_texts(&data), vec!["locked", "b", "d", "c", "e", "a"]);
+    assert_eq!(data.active_index, 5);
+    assert!(data.items[5].is_rejected && !data.items[5].is_selected);
+    let visible = visible_indexes(&data);
+    assert_eq!(rendered_lines(&render_multi_select(&data, &visible, 10))[6], "> [-] a");
+    // rejected items are kept by rank too
+    data.active_index = 4;
+    press(&mut data, KeyCode::Char(' '));
+    press(&mut data, KeyCode::Char(' '));
+    assert_eq!(item_texts(&data), vec!["locked", "b", "d", "c", "a", "e"]);
+    // what's rejected can't be moved
+    press_with_modifiers(&mut data, KeyCode::Up, KeyModifiers::SHIFT);
+    assert_eq!(item_texts(&data), vec!["locked", "b", "d", "c", "a", "e"]);
+    // and goes back among the unselected items
+    data.active_index = 4;
+    press(&mut data, KeyCode::Char(' '));
+    assert_eq!(item_texts(&data), vec!["locked", "b", "d", "a", "c", "e"]);
+    assert!(!data.items[3].is_rejected && !data.items[3].is_selected);
+    // selecting what's rejected some other way un-rejects it
+    data.set_item_rejected(5, true);
+    data.set_item_selected(5, true);
+    assert_eq!(item_texts(&data), vec!["locked", "b", "d", "e", "a", "c"]);
+    assert!(data.rejected_ids().is_empty());
+  }
+
+  #[test]
+  fn render_complete_lists_what_was_rejected_after_what_was_chosen() {
+    let mut data = build_data_with_items(vec![
+      MultiSelectItem::new("a".to_string(), false).with_rejected(true),
+      MultiSelectItem::new("b".to_string(), true),
+      MultiSelectItem::new("c".to_string(), false),
+    ]);
+    assert_eq!(rendered_lines(&render_complete(&data)), vec!["Select:", " * b", " - a"]);
+    data.items[1].is_selected = false;
+    assert_eq!(rendered_lines(&render_complete(&data)), vec!["Select:", " - a"]);
+    data.items[0].is_rejected = false;
+    assert!(render_complete(&data).is_empty());
   }
 
   #[test]

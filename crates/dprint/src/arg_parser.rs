@@ -860,7 +860,7 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
         Arg::new("preferences")
           .long("preferences")
           .conflicts_with_all(["global", "yes"])
-          .help("Change the plugins to prefer whenever initializing, along with their files and options, instead of initializing a configuration file.")
+          .help("Change the plugins to prefer or avoid whenever initializing, along with the files and options of the preferred ones, instead of initializing a configuration file.")
           .num_args(0)
           .required(false),
       )

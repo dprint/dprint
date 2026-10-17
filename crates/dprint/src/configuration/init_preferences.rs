@@ -20,8 +20,22 @@ const INIT_PREFERENCES_FILE_NAME: &str = "init.json";
 pub struct InitPreferences {
   /// The plugins to select ahead of the others that format the same files, in
   /// the order they go in a config file's `plugins` array.
-  #[serde(default)]
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub preferred_plugins: Vec<PreferredPlugin>,
+  /// Names of the plugins to never pre-select, which are listed after the
+  /// others. Preferring a plugin wins when it's in both.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub avoided_plugins: Vec<String>,
+}
+
+impl InitPreferences {
+  pub fn is_preferred(&self, plugin_name: &str) -> bool {
+    self.preferred_plugins.iter().any(|preferred| preferred.name == plugin_name)
+  }
+
+  pub fn is_avoided(&self, plugin_name: &str) -> bool {
+    !self.is_preferred(plugin_name) && self.avoided_plugins.iter().any(|name| name == plugin_name)
+  }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
@@ -114,6 +128,7 @@ mod test {
           ..Default::default()
         },
       ],
+      avoided_plugins: vec!["dprint-plugin-prettier".to_string()],
     };
     write_init_preferences(&environment, &preferences).unwrap();
     assert_eq!(
@@ -132,11 +147,30 @@ mod test {
     {
       "name": "dprint-plugin-json"
     }
+  ],
+  "avoidedPlugins": [
+    "dprint-plugin-prettier"
   ]
 }
 "#
     );
     assert_eq!(read_init_preferences(&environment), preferences);
+  }
+
+  #[test]
+  fn should_prefer_a_plugin_that_is_also_avoided() {
+    let preferences = InitPreferences {
+      preferred_plugins: vec![PreferredPlugin {
+        name: "a".to_string(),
+        ..Default::default()
+      }],
+      avoided_plugins: vec!["a".to_string(), "b".to_string()],
+    };
+    assert!(preferences.is_preferred("a"));
+    assert!(!preferences.is_avoided("a"));
+    assert!(!preferences.is_preferred("b"));
+    assert!(preferences.is_avoided("b"));
+    assert!(!preferences.is_avoided("c"));
   }
 
   #[test]

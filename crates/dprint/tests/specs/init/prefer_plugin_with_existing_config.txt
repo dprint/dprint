@@ -18,8 +18,8 @@ enter
 -- output --
 [start]
 Select the plugins to prefer whenever running dprint init:
-  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: save, esc:
-  cancel
+  space: prefer/avoid/neither, →: options, shift+↑/↓: move, type to filter,
+  enter: save, esc: cancel
 > [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
   [ ] dprint-plugin-json (.json, .jsonc)
   [ ] dprint-plugin-markdown (.md, .mdx)
@@ -28,15 +28,15 @@ Select the plugins to prefer whenever running dprint init:
 
 ["test"]
 Select the plugins to prefer whenever running dprint init:
-  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: save, esc:
-  cancel
+  space: prefer/avoid/neither, →: options, shift+↑/↓: move, type to filter,
+  enter: save, esc: cancel
   filter: test
 > [ ] test-plugin (.txt)
 
 [space]
 Select the plugins to prefer whenever running dprint init:
-  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: save, esc:
-  cancel
+  space: prefer/avoid/neither, →: options, shift+↑/↓: move, type to filter,
+  enter: save, esc: cancel
   filter: test
 > [x] test-plugin (.txt)
 
@@ -46,7 +46,7 @@ Select the plugins to prefer whenever running dprint init:
 
 # stdout
 
-Saved the preferred plugins to /config/dprint/init.json
+Saved the plugin preferences to /config/dprint/init.json
 
 # /dprint.json
 {
