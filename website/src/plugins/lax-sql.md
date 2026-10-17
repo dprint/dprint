@@ -4,13 +4,6 @@ description: Documentation on the Lax SQL code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/lax-sql">Lax SQL</a></li>
-  </ul>
-</nav>
-
 # Lax SQL Plugin
 
 Formats SQL files via [lax-sql](https://github.com/bartlomieju/lax/tree/main/crates/lax-sql), a dialect-agnostic formatter that splits statements into clauses and never rewrites a token.

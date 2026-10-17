@@ -4,13 +4,6 @@ description: Documentation on the Fatou code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/fatou">Fatou</a></li>
-  </ul>
-</nav>
-
 # Fatou Plugin
 
 Adapter plugin that formats Julia code via [Fatou](https://fatou.dev).

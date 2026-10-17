@@ -4,14 +4,6 @@ description: Documentation on the configuration file for the Typstyle code forma
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/typstyle">Typstyle</a></li>
-    <li><a href="/plugins/typstyle/config">Configuration</a></li>
-  </ul>
-</nav>
-
 # Typstyle - Configuration
 
 Specify configuration under the `"typstyle"` key in your dprint configuration file.

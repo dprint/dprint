@@ -4,13 +4,6 @@ description: Documentation on the Typstyle (kachick) code formatting plugin for 
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/typstyle-kachick">Typstyle (kachick)</a></li>
-  </ul>
-</nav>
-
 # Typstyle (kachick) Plugin
 
 Adapter plugin that formats Typst files via [Typstyle](https://github.com/typstyle-rs/typstyle).

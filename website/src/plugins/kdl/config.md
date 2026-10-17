@@ -4,14 +4,6 @@ description: Documentation on the configuration file for the KDL code formatting
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/kdl">KDL</a></li>
-    <li><a href="/plugins/kdl/config">Configuration</a></li>
-  </ul>
-</nav>
-
 # KDL - Configuration
 
 See the [plugin documentation](https://github.com/kachick/dprint-plugin-kdl#configuration) for more details.

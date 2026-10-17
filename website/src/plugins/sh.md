@@ -4,13 +4,6 @@ description: Documentation on the Shell code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/sh">Shell</a></li>
-  </ul>
-</nav>
-
 # Shell Plugin
 
 Adapter plugin that formats shell scripts via [shuck-formatter](https://github.com/ewhauser/shuck).

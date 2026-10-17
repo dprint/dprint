@@ -4,14 +4,6 @@ description: Documentation on the configuration file for the Shell code formatti
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/sh">Shell</a></li>
-    <li><a href="/plugins/sh/config">Configuration</a></li>
-  </ul>
-</nav>
-
 # Shell - Configuration
 
 See the [plugin documentation](https://github.com/kachick/dprint-plugin-sh#configuration) for more details.

@@ -4,13 +4,6 @@ description: Documentation on the cmakefmt (azais-corentin) code formatting plug
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/cmakefmt-azais-corentin">cmakefmt (azais-corentin)</a></li>
-  </ul>
-</nav>
-
 # cmakefmt (azais-corentin) Plugin
 
 Adapter plugin that formats CMake files via [azais-corentin/cmakefmt](https://github.com/azais-corentin/cmakefmt).

@@ -4,14 +4,6 @@ description: Documentation on the configuration file for the Badness code format
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/badness">Badness</a></li>
-    <li><a href="/plugins/badness/config">Configuration</a></li>
-  </ul>
-</nav>
-
 # Badness - Configuration
 
 Specify configuration under the `"badness"` key in your dprint configuration file.

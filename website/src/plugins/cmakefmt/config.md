@@ -4,14 +4,6 @@ description: Documentation on the configuration file for the cmakefmt code forma
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/cmakefmt">cmakefmt</a></li>
-    <li><a href="/plugins/cmakefmt/config">Configuration</a></li>
-  </ul>
-</nav>
-
 # cmakefmt - Configuration
 
 See the [plugin documentation](https://github.com/cmakefmt/cmakefmt/blob/main/docs/src/content/docs/editors.md#dprint) for more details.

@@ -4,13 +4,6 @@ description: Documentation on the KDL code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/kdl">KDL</a></li>
-  </ul>
-</nav>
-
 # KDL Plugin
 
 Formats [KDL](https://kdl.dev) documents.

@@ -4,14 +4,6 @@ description: Documentation on the configuration file for the Fatou code formatti
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/fatou">Fatou</a></li>
-    <li><a href="/plugins/fatou/config">Configuration</a></li>
-  </ul>
-</nav>
-
 # Fatou - Configuration
 
 Specify configuration under the `"fatou"` key in your dprint configuration file.
