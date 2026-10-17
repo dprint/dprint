@@ -163,13 +163,14 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
 ) -> Result<()> {
   let config_file_path = environment.canonicalize(&config_file_path)?;
   let config_dir = config_file_path.parent();
+  let file_text = environment.read_file(&config_file_path)?;
   // along with the config file it inherits from, since the plugins of that
   // one are used here too
   let config = resolve_config_from_path_with_ancestors(
     &ResolvedConfigPathWithText {
       source: PathSource::new_local(config_file_path.clone()),
       is_first_download: false,
-      content: environment.read_file(&config_file_path)?,
+      content: file_text.clone(),
       base_path: config_dir.clone().unwrap_or_else(|| environment.cwd()),
       is_global_config: options.global,
     },
@@ -180,29 +181,22 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
   // the plugins of the file's own `plugins` array go first in its order
   // because that's where a plugin can be added, then the ones that come
   // from elsewhere (ex. a config it extends)
-  let file_text = environment.read_file(&config_file_path)?;
   let config_file_base = PathSource::new_local(config_file_path.clone()).parent();
   let file_plugin_references = get_plugin_entries_in_config(&file_text)?
     .into_iter()
     .map(|entry| parse_plugin_source_reference(&entry?, &config_file_base, environment).ok())
     .collect::<Vec<_>>();
-  let mut existing_plugins = get_config_file_plugins(plugin_resolver, config.plugins)
+  let mut existing_plugins = get_resolved_config_file_plugins(environment, plugin_resolver, config.plugins)
     .await
     .into_iter()
-    .filter_map(|(plugin_reference, plugin_result)| match plugin_result {
-      Ok(plugin) => {
-        // not the checksum, which may have come from another entry for the plugin
-        let file_index = file_plugin_references.iter().position(|reference| {
-          reference
-            .as_ref()
-            .is_some_and(|reference| reference.path_source == plugin_reference.path_source)
-        });
-        Some((plugin.info().name.to_string(), file_index))
-      }
-      Err(err) => {
-        log_warn!(environment, "Failed resolving plugin: {}\n\n{:#}", plugin_reference.path_source.display(), err);
-        None
-      }
+    .map(|(plugin_reference, plugin)| {
+      // not the checksum, which may have come from another entry for the plugin
+      let file_index = file_plugin_references.iter().position(|reference| {
+        reference
+          .as_ref()
+          .is_some_and(|reference| reference.path_source == plugin_reference.path_source)
+      });
+      (plugin.info().name.to_string(), file_index)
     })
     .collect::<Vec<_>>();
   existing_plugins.sort_by_key(|(_, file_index)| file_index.unwrap_or(usize::MAX));
@@ -1793,11 +1787,25 @@ async fn get_config_file_plugin_names<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   current_plugins: Vec<PluginSourceReference>,
 ) -> HashSet<String> {
+  get_resolved_config_file_plugins(environment, plugin_resolver, current_plugins)
+    .await
+    .into_iter()
+    .map(|(_, plugin)| plugin.info().name.to_string())
+    .collect()
+}
+
+/// Resolves the plugins of a config file, leaving out the ones that fail to
+/// resolve with a warning.
+async fn get_resolved_config_file_plugins<TEnvironment: Environment>(
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+  current_plugins: Vec<PluginSourceReference>,
+) -> Vec<(PluginSourceReference, Rc<PluginWrapper>)> {
   get_config_file_plugins(plugin_resolver, current_plugins)
     .await
     .into_iter()
     .filter_map(|(plugin_reference, plugin_result)| match plugin_result {
-      Ok(plugin) => Some(plugin.info().name.to_string()),
+      Ok(plugin) => Some((plugin_reference, plugin)),
       Err(err) => {
         log_warn!(environment, "Failed resolving plugin: {}\n\n{:#}", plugin_reference.path_source.display(), err);
         None
@@ -2190,6 +2198,46 @@ mod test {
   "plugins": [
     "https://plugins.dprint.dev/test-plugin-0.1.0.wasm",
     "https://plugins.dprint.dev/test-plugin-3.json"
+  ]
+}"#
+    );
+  }
+
+  #[test]
+  fn should_add_a_plugin_above_one_the_info_file_does_not_know_about_on_initialize() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .add_remote_process_plugin()
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "test-process-plugin".to_string(),
+          version: "0.1.0".to_string(),
+          url: "https://plugins.dprint.dev/test-plugin-3.json".to_string(),
+          config_key: Some("test-process-plugin".to_string()),
+          ..Default::default()
+        });
+      })
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .build();
+    environment.set_prompt_keys(&["space", "shift+up", "enter"], None).unwrap();
+    run_test_cli(vec!["init"], &environment).unwrap();
+    assert_eq!(
+      environment.take_prompt_screens()[0].lines[2..],
+      ["  [x] test-plugin — already in config", "> [ ] test-process-plugin"]
+    );
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
+    environment.take_stdout_messages();
+    assert_eq!(
+      environment.read_file("./dprint.json").unwrap(),
+      r#"{
+  "plugins": [
+    "https://plugins.dprint.dev/test-plugin-3.json",
+    "https://plugins.dprint.dev/test-plugin.wasm"
   ]
 }"#
     );

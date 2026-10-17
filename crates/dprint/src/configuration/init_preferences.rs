@@ -8,6 +8,7 @@ use serde::Serialize;
 use crate::environment::Environment;
 
 use super::resolve_global_config_dir;
+use super::resolve_global_config_dir_path;
 
 /// Name of the file in the global config directory that `dprint init` keeps
 /// what the user prefers in. It's only ever written by `dprint init`.
@@ -43,7 +44,8 @@ pub struct PreferredPlugin {
 /// can't be read. `dprint init` works without it, so a problem with the file
 /// is only warned about.
 pub fn read_init_preferences(environment: &impl Environment) -> InitPreferences {
-  let Some(file_path) = resolve_init_preferences_path(environment) else {
+  // nothing is created just to find out there's nothing in it
+  let Some(file_path) = resolve_global_config_dir_path(environment).map(|dir| dir.join(INIT_PREFERENCES_FILE_NAME)) else {
     return Default::default();
   };
   if !environment.path_exists(&file_path) {
