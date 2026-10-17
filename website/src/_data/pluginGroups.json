@@ -38,7 +38,6 @@
       { "slug": "lax-css", "name": "Lax CSS", "ext": "CSS · SCSS · Less" },
       { "slug": "lax-markup", "name": "Lax Markup", "ext": "HTML · XML · SVG · Vue · Svelte · Astro" },
       { "slug": "lax-sql", "name": "Lax SQL", "ext": "SQL" },
-      { "slug": "clang-format", "name": "clang-format", "ext": "C · C++ · Objective-C" },
       { "slug": "cmakefmt", "name": "cmakefmt", "ext": "CMake" },
       { "slug": "cmakefmt-azais-corentin", "name": "cmakefmt (azais-corentin)", "ext": "CMake" }
     ]
@@ -56,7 +55,9 @@
       { "slug": "ruff", "name": "Ruff", "ext": "Python" },
       { "slug": "mago", "name": "Mago", "ext": "PHP" },
       { "slug": "roslyn", "name": "Roslyn", "ext": "C# · VB" },
-      { "slug": "csharpier", "name": "CSharpier", "ext": "C# · XML" }
+      { "slug": "csharpier", "name": "CSharpier", "ext": "C# · XML" },
+      { "slug": "clang-format", "name": "clang-format", "ext": "C · C++ · Objective-C" },
+      { "slug": "cedar", "name": "Cedar", "ext": "Cedar" }
     ]
   },
   {

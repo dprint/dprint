@@ -31,6 +31,8 @@ Repos:
 - [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - Roslyn (C#/VB) wrapper plugin.
 - [dprint-plugin-csharpier](https://github.com/dprint/dprint-plugin-csharpier) - CSharpier (C#/XML) wrapper plugin.
 - [dprint-plugin-mago](https://github.com/dprint/dprint-plugin-mago) - Mago (PHP) wrapper plugin.
+- [dprint-plugin-clang-format](https://github.com/dprint/dprint-plugin-clang-format) - clang-format (C/C++/Objective-C) wrapper plugin.
+- [dprint-plugin-cedar](https://github.com/dprint/dprint-plugin-cedar) - cedar-policy-formatter (Cedar) wrapper plugin.
 - [dprint-plugin-ruff](https://github.com/dprint/dprint-plugin-ruff) - Ruff (Python) wrapper plugin.
 - [dprint-plugin-exec](https://github.com/dprint/dprint-plugin-exec) - Formats code with any CLI executable.
 - [Malva](https://github.com/g-plane/malva) - CSS, SCSS, Sass, and Less formatter
@@ -52,7 +54,6 @@ Repos:
 - [lax-css](https://github.com/bartlomieju/lax-css) - CSS, SCSS, and Less formatter.
 - [lax-markup](https://github.com/bartlomieju/lax-markup) - HTML, XML, SVG, Vue, Svelte, and Astro formatter.
 - [lax-sql](https://github.com/bartlomieju/lax-sql) - SQL formatter.
-- [dprint-clang-format](https://github.com/sargunv/dprint-clang-format) - C, C++, and Objective-C (clang-format) formatter.
 - [cmakefmt](https://github.com/cmakefmt/cmakefmt) - CMake formatter.
 - [cmakefmt (azais-corentin)](https://github.com/azais-corentin/cmakefmt) - CMake formatter.
 
