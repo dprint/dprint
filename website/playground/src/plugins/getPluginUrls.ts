@@ -30,6 +30,7 @@ export function getPluginShortNameFromPluginUrl(url: string) {
     case "mago":
     case "ruff":
     case "roslyn":
+    case "csharpier":
     case "malva":
     case "markup_fmt":
     case "pretty_yaml":
@@ -68,6 +69,8 @@ export function getLanguageFromPluginUrl(url: string) {
       // todo: specify python here eventually (probably need to upgrade the code editor)
       return "plaintext";
     case "roslyn":
+      return "csharp";
+    case "csharpier":
       return "csharp";
     case "malva":
     case "lax-css":
