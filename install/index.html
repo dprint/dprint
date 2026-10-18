@@ -279,6 +279,8 @@ cargo install --locked dprint
 <pre><code class="language-sh hljs language-bash">uv add dprint-py
 uv run dprint <span class="hljs-built_in">help</span>
 </code></pre>
+</li>
+<li>
 <p><a href="https://mise.jdx.dev">mise</a>:</p>
 <pre><code class="language-sh hljs language-bash"><span class="hljs-comment"># globally</span>
 mise use dprint --global
@@ -286,6 +288,15 @@ mise use dprint --global
 <span class="hljs-comment"># or for your project</span>
 mise use dprint
 mise x dprint -- dprint <span class="hljs-built_in">help</span>
+</code></pre>
+</li>
+<li>
+<p><a href="https://moonrepo.dev/proto">proto</a> (via its <a href="https://github.com/moonrepo/community-plugins/blob/master/tools/dprint.toml">community plugin</a>):</p>
+<pre><code class="language-sh hljs language-bash"><span class="hljs-comment"># globally</span>
+proto install dprint --pin global
+
+<span class="hljs-comment"># or for your project</span>
+proto install dprint --pin
 </code></pre>
 </li>
 <li>
