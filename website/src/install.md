@@ -57,7 +57,7 @@ Install using one of the methods below.
   uv run dprint help
   ```
 
-  [mise](https://mise.jdx.dev):
+- [mise](https://mise.jdx.dev):
 
   ```sh
   # globally
@@ -66,6 +66,16 @@ Install using one of the methods below.
   # or for your project
   mise use dprint
   mise x dprint -- dprint help
+  ```
+
+- [proto](https://moonrepo.dev/proto) (via its [community plugin](https://github.com/moonrepo/community-plugins/blob/master/tools/dprint.toml)):
+
+  ```sh
+  # globally
+  proto install dprint --pin global
+
+  # or for your project
+  proto install dprint --pin
   ```
 
 - [asdf-vm](https://asdf-vm.com/) ([asdf-dprint](https://github.com/asdf-community/asdf-dprint)):
