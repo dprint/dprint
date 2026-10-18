@@ -25,6 +25,7 @@ use crate::environment::Environment;
 use crate::patterns::ConfigPatternBases;
 use crate::patterns::new_config_glob_pattern;
 use crate::patterns::process_config_pattern;
+use crate::patterns::relative_to_descendant_dir;
 use crate::plugins::PluginSourceReference;
 use crate::plugins::parse_plugin_source_reference;
 use crate::utils::GlobPatternKind;
@@ -37,6 +38,8 @@ use crate::utils::ShowConfirmStrategy;
 use crate::utils::resolve_url_or_file_path_to_file_with_cache;
 
 use super::resolve_main_config_path::ResolvedConfigPathWithText;
+use super::resolve_main_config_path::get_config_file_anchored_patterns_dir;
+use super::resolve_main_config_path::get_config_file_base_dir;
 use super::resolve_main_config_path::get_default_config_file_in_ancestor_directories;
 use super::resolve_main_config_path::resolve_main_config_path_and_bytes;
 use super::resolve_npm_extends::NpmExtendsResolver;
@@ -321,7 +324,7 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
   let resolved_config = ResolvedConfig {
     source: config_path_and_text.source.clone(),
     base_path: config_path_and_text.base_path.clone(),
-    anchored_patterns_base_path: None,
+    anchored_patterns_base_path: get_config_file_anchored_patterns_dir(environment, config_path_and_text),
     is_global: config_path_and_text.is_global_config,
     config_map,
     extended_only_plugin_config_keys: HashSet::new(),
@@ -359,7 +362,13 @@ pub fn inherit_config(mut config: ResolvedConfig, parent: &ResolvedConfig) -> Re
   config.plugins = filter_duplicate_plugin_sources(std::mem::take(&mut config.plugins));
 
   // combine excludes, rebasing the ancestor's patterns onto this config's directory
-  config.excludes = inherit_excludes(config.excludes, parent.excludes.as_deref(), parent.pattern_bases(), &config.base_path);
+  let excludes = inherit_excludes(
+    config.excludes.take(),
+    parent.excludes.as_deref(),
+    parent.pattern_bases(),
+    config.pattern_bases(),
+  );
+  config.excludes = excludes;
 
   // inherit the incremental flag when not specified in the nested config
   if config.incremental.is_none() {
@@ -398,8 +407,11 @@ fn inherit_excludes(
   own: Option<Vec<String>>,
   ancestor: Option<&[String]>,
   ancestor_bases: ConfigPatternBases,
-  new_base: &CanonicalizedPathBuf,
+  new_bases: ConfigPatternBases,
 ) -> Option<Vec<String>> {
+  // the nested config's anchored patterns are relative to a descendant of its
+  // directory for a config file in a `.config` directory
+  let anchored_levels = new_bases.anchored.as_ref().components().count() - new_bases.floating.as_ref().components().count();
   let Some(ancestor) = ancestor else {
     return own;
   };
@@ -411,8 +423,8 @@ fn inherit_excludes(
     .flat_map(|pattern| process_config_pattern(pattern))
     .filter_map(|pattern| {
       new_config_glob_pattern(pattern, ancestor_bases)
-        .into_new_base(new_base.clone(), GlobPatternKind::Exclude)
-        .map(|p| p.relative_pattern)
+        .into_new_base(new_bases.floating.clone(), GlobPatternKind::Exclude)
+        .map(|p| relative_to_descendant_dir(p.relative_pattern, anchored_levels))
     })
     .collect::<Vec<_>>();
   if let Some(own) = own {
@@ -618,7 +630,12 @@ fn find_config_file_to_inherit(
   environment: &impl Environment,
   inherit_chain: &[PathSource],
 ) -> Result<Option<ResolvedConfigPathWithText>> {
-  let ancestor_dir = config_source.maybe_local_path().and_then(|path| path.parent()).and_then(|dir| dir.parent());
+  // the parent of the directory the config file applies to, since the config
+  // file in it would otherwise be found (ex. for `.config/dprint.json`)
+  let ancestor_dir = config_source
+    .maybe_local_path()
+    .and_then(|path| get_config_file_base_dir(environment, path))
+    .and_then(|dir| dir.parent());
   let Some(ancestor_dir) = ancestor_dir else {
     return Ok(None);
   };
@@ -2732,7 +2749,7 @@ mod tests {
         None,
         Some(&ancestor.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
         (&CanonicalizedPathBuf::new_for_testing(ancestor_base)).into(),
-        &CanonicalizedPathBuf::new_for_testing(new_base),
+        (&CanonicalizedPathBuf::new_for_testing(new_base)).into(),
       )
     }
 
@@ -2771,9 +2788,30 @@ mod tests {
         Some(vec!["own".to_string()]),
         Some(&["other/dist".to_string()]),
         (&CanonicalizedPathBuf::new_for_testing("/")).into(),
-        &CanonicalizedPathBuf::new_for_testing("/sub"),
+        (&CanonicalizedPathBuf::new_for_testing("/sub")).into(),
       ),
       Some(vec!["own".to_string()])
+    );
+    // a nested config file in a `.config` directory has its anchored patterns
+    // relative to it, so the rebased anchored patterns are expressed from there
+    let floating = CanonicalizedPathBuf::new_for_testing("/sub");
+    let anchored = CanonicalizedPathBuf::new_for_testing("/sub/.config");
+    assert_eq!(
+      inherit_excludes(
+        Some(vec!["own".to_string()]),
+        Some(&["sub/dist/out".to_string(), "!sub/dist/out/keep".to_string(), "**/node_modules".to_string()]),
+        (&CanonicalizedPathBuf::new_for_testing("/")).into(),
+        ConfigPatternBases {
+          floating: &floating,
+          anchored: &anchored,
+        },
+      ),
+      Some(vec![
+        "../dist/out".to_string(),
+        "!../dist/out/keep".to_string(),
+        "**/node_modules".to_string(),
+        "own".to_string()
+      ])
     );
   }
 

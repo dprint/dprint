@@ -35,6 +35,7 @@ use crate::configuration::RawPluginConfigOverride;
 use crate::configuration::ResolveConfigError;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
+use crate::configuration::get_config_file_base_dir;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
 use crate::configuration::get_global_config;
 use crate::configuration::get_plugin_config_map;
@@ -972,7 +973,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     }
     let config_path = ResolvedConfigPathWithText {
       content: self.environment.read_file(&config_file_path)?,
-      base_path: config_file_path.parent().unwrap(),
+      base_path: get_config_file_base_dir(self.environment, &config_file_path).unwrap(),
       source: PathSource::new_local(config_file_path),
       is_global_config: false,
       is_first_download: false,

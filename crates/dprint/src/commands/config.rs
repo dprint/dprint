@@ -93,7 +93,14 @@ async fn init_config_file_inner<TEnvironment: Environment>(
     } else if let Some(config_arg) = options.config_arg {
       Ok(Vec::from([PathBuf::from(config_arg)]))
     } else {
-      Ok(POSSIBLE_CONFIG_FILE_NAMES.iter().map(PathBuf::from).collect::<Vec<_>>())
+      // the first is what's created when none of these exist
+      Ok(
+        POSSIBLE_CONFIG_FILE_NAMES
+          .iter()
+          .map(PathBuf::from)
+          .chain(DOT_CONFIG_FILE_NAMES.iter().map(|name| Path::new(DOT_CONFIG_DIR_NAME).join(name)))
+          .collect::<Vec<_>>(),
+      )
     }
   }
 
@@ -171,7 +178,7 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
       source: PathSource::new_local(config_file_path.clone()),
       is_first_download: false,
       content: file_text.clone(),
-      base_path: config_dir.clone().unwrap_or_else(|| environment.cwd()),
+      base_path: get_config_file_base_dir(environment, &config_file_path).unwrap_or_else(|| environment.cwd()),
       is_global_config: options.global,
     },
     options.remote_cache_mode,
@@ -2169,6 +2176,21 @@ mod test {
     environment.set_terminal_interactive(false);
     let error_message = run_test_cli(vec!["init"], &environment).err().unwrap();
     assert_eq!(error_message.to_string(), "Configuration file 'dprint.json' already exists.");
+  }
+
+  #[test]
+  fn should_error_when_config_file_exists_in_dot_config_dir_on_initialize() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/.config/dprint.json", |c| {
+        c.add_includes("**/*.txt");
+      })
+      .build();
+    let error_message = run_test_cli(vec!["init", "--yes"], &environment).err().unwrap();
+    assert_eq!(
+      error_message.to_string(),
+      format!("Configuration file '{}' already exists.", Path::new(".config").join("dprint.json").display())
+    );
+    assert!(!environment.path_exists("/dprint.json"));
   }
 
   #[test]

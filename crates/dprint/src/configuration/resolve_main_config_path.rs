@@ -14,6 +14,18 @@ use crate::utils::ResolvedFilePathWithTextRef;
 use crate::utils::resolve_url_or_file_path_to_file_with_cache;
 
 pub static POSSIBLE_CONFIG_FILE_NAMES: [&str; 4] = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
+/// The directory a config file may be put in instead of the directory it
+/// applies to in order to reduce clutter there (ex. `.config/dprint.json`).
+///
+/// A `.config` directory is treated as part of its parent directory: its
+/// config file is found when searching the parent directory and applies to
+/// the parent directory, though its anchored patterns (ex. `./src/**`) are
+/// still relative to the `.config` directory. The exception is the home
+/// directory's `.config`, which is where the system's configuration goes
+/// (ex. `XDG_CONFIG_HOME`) and so is an ordinary directory.
+pub const DOT_CONFIG_DIR_NAME: &str = ".config";
+/// The config file names searched for within a `.config` directory.
+pub static DOT_CONFIG_FILE_NAMES: [&str; 2] = ["dprint.json", "dprint.jsonc"];
 
 #[derive(Debug)]
 pub struct ResolvedConfigPathWithText {
@@ -39,6 +51,11 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
 ) -> Result<Option<ResolvedConfigPathWithText>> {
   fn get_default_paths(args: &CliArgs, environment: &impl Environment) -> Result<Option<ResolvedConfigPathWithText>> {
     let start_search_dir = get_start_search_directory(args, environment)?;
+    // a `.config` directory is searched as part of its parent directory
+    let start_search_dir = match start_search_dir.parent() {
+      Some(parent) if is_dot_config_dir(environment, start_search_dir.as_ref()) => parent,
+      _ => start_search_dir,
+    };
     let maybe_config_file = get_config_file_in_dir(&start_search_dir, environment)?;
 
     if let Some((path, content)) = maybe_config_file {
@@ -79,7 +96,7 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
     // a local config file's patterns are relative to its directory, the same as
     // when it's discovered, but a remote or npm config file has no directory
     let base_path = match &resolved_file.source {
-      PathSource::Local(source) => source.path.parent().unwrap_or(cwd),
+      PathSource::Local(source) => get_config_file_base_dir(environment, &source.path).unwrap_or(cwd),
       PathSource::Remote(_) | PathSource::Npm(_) => cwd,
     };
     Ok(Some(ResolvedConfigPathWithText {
@@ -252,7 +269,8 @@ fn resolve_or_create_folder(environment: &impl Environment, path: impl AsRef<Pat
 }
 
 pub fn get_default_config_file_in_ancestor_directories(environment: &impl Environment, start_dir: &Path) -> Result<Option<ResolvedConfigPathWithText>> {
-  for ancestor_dir in start_dir.ancestors() {
+  // a `.config` directory is searched as part of its parent directory, which is next
+  for ancestor_dir in start_dir.ancestors().filter(|dir| !is_dot_config_dir(environment, dir)) {
     if let Some((ancestor_config_path, content)) = get_config_file_in_dir(ancestor_dir, environment)? {
       return Ok(Some(ResolvedConfigPathWithText {
         source: PathSource::new_local(environment.canonicalize(ancestor_config_path)?),
@@ -267,6 +285,56 @@ pub fn get_default_config_file_in_ancestor_directories(environment: &impl Enviro
   Ok(None)
 }
 
+/// Gets if the directory is a `.config` directory, which is treated as part
+/// of its parent directory (see [`DOT_CONFIG_DIR_NAME`]).
+pub fn is_dot_config_dir(environment: &impl Environment, dir: &Path) -> bool {
+  dir.file_name().is_some_and(|name| name == DOT_CONFIG_DIR_NAME) && dir.parent().is_some_and(|parent| !is_home_dir(environment, parent))
+}
+
+/// Gets the directory a local config file applies to, which is the directory
+/// it's in, except for a config file in a `.config` directory, which applies
+/// to the parent of that directory.
+pub fn get_config_file_base_dir(environment: &impl Environment, config_path: &CanonicalizedPathBuf) -> Option<CanonicalizedPathBuf> {
+  let dir = config_path.parent()?;
+  let is_dot_config_file = is_dot_config_dir(environment, dir.as_ref())
+    && config_path
+      .as_ref()
+      .file_name()
+      .and_then(|name| name.to_str())
+      .is_some_and(|name| DOT_CONFIG_FILE_NAMES.contains(&name));
+  if is_dot_config_file { dir.parent() } else { Some(dir) }
+}
+
+/// Gets the directory a config file's anchored patterns (ex. `./src/**`) are
+/// relative to when it's not the directory the config file applies to, which
+/// is the `.config` directory for a config file in one.
+pub fn get_config_file_anchored_patterns_dir(environment: &impl Environment, config_path: &ResolvedConfigPathWithText) -> Option<CanonicalizedPathBuf> {
+  if config_path.is_global_config {
+    return None;
+  }
+  let path = config_path.source.maybe_local_path()?;
+  let dir = path.parent()?;
+  if get_config_file_base_dir(environment, path).as_ref() == Some(&dir) {
+    None
+  } else {
+    Some(dir)
+  }
+}
+
+/// Gets the paths a config file may be at within the `.config` directory of
+/// the provided directory, which is empty when there's no `.config` directory.
+///
+/// Checking for the `.config` directory first means a directory without one,
+/// which is most of them, only costs a single stat.
+pub fn get_dot_config_file_paths(environment: &impl Environment, dir: &Path) -> Vec<PathBuf> {
+  let dot_config_dir = dir.join(DOT_CONFIG_DIR_NAME);
+  if environment.path_exists(&dot_config_dir) && is_dot_config_dir(environment, &dot_config_dir) {
+    DOT_CONFIG_FILE_NAMES.iter().map(|name| dot_config_dir.join(name)).collect()
+  } else {
+    Vec::new()
+  }
+}
+
 fn get_config_file_in_dir(dir: impl AsRef<Path>, environment: &impl Environment) -> std::io::Result<Option<(PathBuf, String)>> {
   for file_name in &POSSIBLE_CONFIG_FILE_NAMES {
     let config_path = dir.as_ref().join(file_name);
@@ -274,7 +342,20 @@ fn get_config_file_in_dir(dir: impl AsRef<Path>, environment: &impl Environment)
       return Ok(Some((config_path, text)));
     }
   }
+  for config_path in get_dot_config_file_paths(environment, dir.as_ref()) {
+    // check it's a file first because reading within a `.config` that's
+    // not a directory errors on some platforms rather than not finding it
+    if environment.path_is_file(&config_path)
+      && let Some(text) = environment.maybe_read_file(&config_path)?
+    {
+      return Ok(Some((config_path, text)));
+    }
+  }
   Ok(None)
+}
+
+fn is_home_dir(environment: &impl Environment, dir: &Path) -> bool {
+  environment.get_home_dir().is_some_and(|home_dir| home_dir.as_ref() == dir)
 }
 
 #[cfg(test)]

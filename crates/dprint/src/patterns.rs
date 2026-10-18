@@ -454,6 +454,19 @@ pub fn new_config_glob_pattern(pattern: String, config_bases: ConfigPatternBases
 /// Gets whether the non-negated pattern matches at any depth (ex. `**/*.ts`,
 /// `dist`) as opposed to being anchored to a directory (ex. `src/**/*.ts`,
 /// `./dist`, `../other`).
+/// Makes a config pattern relative to a directory relative to the descendant
+/// directory the provided number of levels below it instead. Only anchored
+/// patterns change because floating ones match at any depth.
+pub fn relative_to_descendant_dir(pattern: String, levels: usize) -> String {
+  let non_negated = non_negated_glob(&pattern);
+  if levels == 0 || is_floating_pattern(non_negated) {
+    return pattern;
+  }
+  let negation = if is_negated_glob(&pattern) { "!" } else { "" };
+  let path = non_negated.strip_prefix("./").unwrap_or(non_negated);
+  format!("{}{}{}", negation, "../".repeat(levels), path)
+}
+
 fn is_floating_pattern(non_negated_pattern: &str) -> bool {
   let pattern = non_negated_pattern;
   if pattern == "**" || pattern.starts_with("**/") {
@@ -587,6 +600,20 @@ mod test {
     assert_eq!(pattern("../../**/Cargo.toml"), ("./**/Cargo.toml".to_string(), "/".to_string()));
     // stops at the root directory
     assert_eq!(pattern("../../../src"), ("./src".to_string(), "/".to_string()));
+  }
+
+  #[test]
+  fn should_make_pattern_relative_to_descendant_dir() {
+    let pattern = |text: &str, levels: usize| relative_to_descendant_dir(text.to_string(), levels);
+    assert_eq!(pattern("src/**", 0), "src/**");
+    assert_eq!(pattern("src/**", 1), "../src/**");
+    assert_eq!(pattern("./src/**", 1), "../src/**");
+    assert_eq!(pattern("!./src/**", 1), "!../src/**");
+    assert_eq!(pattern("../src/**", 2), "../../../src/**");
+    // patterns matching at any depth stay the same
+    assert_eq!(pattern("**/*.ts", 1), "**/*.ts");
+    assert_eq!(pattern("dist", 1), "dist");
+    assert_eq!(pattern("!dist", 1), "!dist");
   }
 
   #[test]

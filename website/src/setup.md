@@ -63,6 +63,22 @@ Create a _dprint.json_/_dprint.jsonc_ or hidden _.dprint.json_/_.dprint.jsonc_ f
 
 The dprint CLI supports a default hidden configuration at _.dprint.json_ or _.dprint.jsonc_.
 
+## `.config` Directory
+
+To keep it out of the root directory of the project, the configuration file may instead be placed in a _.config_ directory at _.config/dprint.json_ or _.config/dprint.jsonc_. The _.config_ directory is treated as part of its parent directory, so the configuration file applies to the parent directory and is found when running dprint from anywhere within it, including from within the _.config_ directory.
+
+Patterns that match at any depth (ex. `**/*.ts` or `node_modules`) match within the parent directory, while anchored patterns stay relative to the configuration file (ex. `../src/**/*.ts` for the _src_ directory beside the _.config_ directory):
+
+```jsonc
+// .config/dprint.json
+{
+  "includes": ["**/*.ts"],
+  "excludes": ["**/node_modules", "../dist"]
+}
+```
+
+A configuration file directly in the directory takes precedence over one in its _.config_ directory. The _.config_ directory in your home directory is not searched, since that's where system-wide configuration goes.
+
 ## Custom Config File Location
 
 It is recommended to use an auto-discoverable dprint configuration file name (ex. _dprint.json_) as the location of your configuration file because it will be automatically picked up by the CLI and editor plugins. If you place it in another other location then it will need to be manually specified using the `--config <path>` or `-c <path>` flag whenever you run a command.

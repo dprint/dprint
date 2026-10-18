@@ -11,7 +11,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::arg_parser::ConfigDiscovery;
+use crate::configuration::DOT_CONFIG_DIR_NAME;
+use crate::configuration::DOT_CONFIG_FILE_NAMES;
 use crate::configuration::POSSIBLE_CONFIG_FILE_NAMES;
+use crate::configuration::get_dot_config_file_paths;
+use crate::configuration::is_dot_config_dir;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::DirEntry;
 use crate::environment::Environment;
@@ -600,12 +604,24 @@ impl<'a, TEnvironment: Environment> DirConfigFileFinder<'a, TEnvironment> {
     if let Some(result) = self.cache.get(dir) {
       return result.clone();
     }
-    let result = POSSIBLE_CONFIG_FILE_NAMES
-      .iter()
-      .map(|file_name| dir.join(file_name))
+    // a `.config` directory's config file is found via its parent directory
+    let result = if is_dot_config_dir(self.environment, dir) {
+      None
+    } else {
       // the config file already in use doesn't create a new scope
-      .filter(|path| Some(path.as_path()) != self.current_config_path.as_deref())
-      .find(|path| self.environment.path_is_file(path));
+      let is_not_current = |path: &PathBuf| Some(path.as_path()) != self.current_config_path.as_deref();
+      POSSIBLE_CONFIG_FILE_NAMES
+        .iter()
+        .map(|file_name| dir.join(file_name))
+        .filter(is_not_current)
+        .find(|path| self.environment.path_is_file(path))
+        .or_else(|| {
+          get_dot_config_file_paths(self.environment, dir)
+            .into_iter()
+            .filter(is_not_current)
+            .find(|path| self.environment.path_is_file(path))
+        })
+    };
     self.cache.insert(dir.to_path_buf(), result.clone());
     result
   }
@@ -759,30 +775,11 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
     // in `glob` handles it there so the result doesn't depend on which
     // directory dprint was run from.
     let maybe_config_file = if self.options.config_discovery.traverse_descendants() && current_dir != self.options.start_dir {
-      entries
-        .iter()
-        .filter_map(|e| match e {
-          DirEntry::Directory(_) => None,
-          DirEntry::File { path } => {
-            // the config file already in use doesn't create a new scope
-            if path
-              .file_name()
-              .and_then(|name| name.to_str())
-              .is_some_and(|name| POSSIBLE_CONFIG_FILE_NAMES.contains(&name))
-              && Some(path.as_path()) != self.options.current_config_path.as_deref()
-            {
-              Some(path)
-            } else {
-              None
-            }
-          }
-        })
-        .next()
+      self.find_config_file(&current_dir, &entries)
     } else {
       None
     };
     if let Some(config_file) = maybe_config_file {
-      let config_file = config_file.clone();
       return Ok(Some((
         entries_read,
         DirEntries {
@@ -808,6 +805,46 @@ impl<TEnvironment: Environment> ReadDirRunner<TEnvironment> {
         entries: matched_entries,
       },
     )))
+  }
+
+  /// Finds the config file in the directory from its entries, which creates
+  /// a new scope for the directory.
+  fn find_config_file(&self, dir: &Path, entries: &[DirEntry]) -> Option<PathBuf> {
+    // a `.config` directory's config file is found via its parent directory
+    if is_dot_config_dir(&self.environment, dir) {
+      return None;
+    }
+    // the config file already in use doesn't create a new scope
+    let is_not_current = |path: &PathBuf| Some(path.as_path()) != self.options.current_config_path.as_deref();
+    let mut has_dot_config_dir = false;
+    for entry in entries {
+      match entry {
+        DirEntry::Directory(path) => {
+          has_dot_config_dir |= path.file_name().is_some_and(|name| name == DOT_CONFIG_DIR_NAME);
+        }
+        DirEntry::File { path } => {
+          let is_config_file = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| POSSIBLE_CONFIG_FILE_NAMES.contains(&name));
+          if is_config_file && is_not_current(path) {
+            return Some(path.clone());
+          }
+        }
+      }
+    }
+    // the entries say whether there's a `.config` directory, so only a
+    // directory with one costs anything extra
+    let dot_config_dir = dir.join(DOT_CONFIG_DIR_NAME);
+    if has_dot_config_dir && is_dot_config_dir(&self.environment, &dot_config_dir) {
+      DOT_CONFIG_FILE_NAMES
+        .iter()
+        .map(|name| dot_config_dir.join(name))
+        .filter(is_not_current)
+        .find(|path| self.environment.path_is_file(path))
+    } else {
+      None
+    }
   }
 
   fn match_entry(&self, entry: DirEntry) -> Option<DirOrConfigEntry> {

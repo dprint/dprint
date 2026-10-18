@@ -567,7 +567,8 @@ impl Environment for RealEnvironment {
   }
 
   fn get_home_dir(&self) -> Option<CanonicalizedPathBuf> {
-    dirs::home_dir().map(|path| self.canonicalize(path).unwrap())
+    // the home directory might not exist (ex. `HOME=/nonexistent` in a container)
+    dirs::home_dir().and_then(|path| self.canonicalize(path).ok())
   }
 
   fn cpu_arch(&self) -> String {
