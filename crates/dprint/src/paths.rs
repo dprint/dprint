@@ -14,6 +14,7 @@ use crate::configuration::ResolvedConfig;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::patterns::get_all_file_patterns;
+use crate::patterns::new_config_glob_patterns;
 use crate::patterns::process_cli_path_args;
 use crate::patterns::process_config_patterns;
 use crate::plugins::PluginNameResolutionMaps;
@@ -189,7 +190,13 @@ pub async fn get_and_resolve_file_paths<'a>(
     //
     // These are based at the config dir rather than the cwd so that explicitly
     // specified paths outside the cwd (ex. ../file.txt) can still match them.
-    file_patterns.config_includes = Some(GlobPattern::new_vec(get_plugin_patterns(plugins), config.base_path.clone()));
+    // The association globs are based the same way the plugin's association
+    // matcher bases them (ex. anchored ones are relative to the `.config`
+    // directory for a config file in one).
+    let plugin_patterns = get_plugin_patterns(plugins);
+    let mut config_includes = GlobPattern::new_vec(plugin_patterns.file_matching, config.base_path.clone());
+    config_includes.extend(new_config_glob_patterns(plugin_patterns.association_globs, config.pattern_bases()));
+    file_patterns.config_includes = Some(config_includes);
   }
 
   get_and_resolve_file_patterns(config, file_patterns, args.no_gitignore, config_discovery, include_scope, environment).await
@@ -255,7 +262,14 @@ pub fn get_includes_base_dir(config_base_path: &CanonicalizedPathBuf, file_patte
   base_dir
 }
 
-fn get_plugin_patterns<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>) -> Vec<String> {
+struct PluginPatterns {
+  /// The patterns matching the plugins' default file names and extensions.
+  file_matching: Vec<String>,
+  /// The positive globs of the plugins' associations.
+  association_globs: Vec<String>,
+}
+
+fn get_plugin_patterns<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>) -> PluginPatterns {
   let mut file_names = HashSet::new();
   let mut file_exts = HashSet::new();
   let mut association_globs = Vec::new();
@@ -272,15 +286,16 @@ fn get_plugin_patterns<'a>(plugins: impl Iterator<Item = &'a PluginWithConfig>) 
       }
     }
   }
-  let mut result = Vec::new();
+  let mut file_matching = Vec::new();
   if !file_exts.is_empty() {
-    result.push(format!("**/*.{{{}}}", file_exts.into_iter().map(|s| s.as_str()).collect::<Vec<_>>().join(",")));
+    file_matching.push(format!("**/*.{{{}}}", file_exts.into_iter().map(|s| s.as_str()).collect::<Vec<_>>().join(",")));
   }
   if !file_names.is_empty() {
-    result.push(format!("**/{{{}}}", file_names.into_iter().map(|s| s.as_str()).collect::<Vec<_>>().join(",")));
+    file_matching.push(format!("**/{{{}}}", file_names.into_iter().map(|s| s.as_str()).collect::<Vec<_>>().join(",")));
   }
-  // add the association globs last as they're least likely to be matched
-  result.extend(association_globs);
-
-  result
+  // the association globs go last as they're least likely to be matched
+  PluginPatterns {
+    file_matching,
+    association_globs,
+  }
 }

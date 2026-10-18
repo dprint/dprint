@@ -80,7 +80,23 @@ async fn init_config_file_inner<TEnvironment: Environment>(
   plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   options: InitConfigFileOptions<'_>,
 ) -> Result<()> {
-  fn get_config_paths(environment: &impl Environment, options: &InitConfigFileOptions<'_>) -> Result<Vec<PathBuf>> {
+  struct ConfigPaths {
+    /// Where to look for an existing config file, in order of precedence.
+    candidates: Vec<PathBuf>,
+    /// Where to create the config file when there's no existing one.
+    create_path: PathBuf,
+  }
+
+  impl ConfigPaths {
+    fn create_first(candidates: Vec<PathBuf>) -> Self {
+      Self {
+        create_path: candidates[0].clone(),
+        candidates,
+      }
+    }
+  }
+
+  fn get_config_paths(environment: &impl Environment, options: &InitConfigFileOptions<'_>) -> Result<ConfigPaths> {
     if options.global {
       let directory = crate::configuration::resolve_global_config_dir(environment).with_context(|| {
         concat!(
@@ -89,18 +105,35 @@ async fn init_config_file_inner<TEnvironment: Environment>(
           "variable to say where to store the global dprint configuration file."
         )
       })?;
-      Ok(Vec::from([directory.join("dprint.jsonc"), directory.join("dprint.json")]))
+      Ok(ConfigPaths::create_first(Vec::from([
+        directory.join("dprint.jsonc"),
+        directory.join("dprint.json"),
+      ])))
     } else if let Some(config_arg) = options.config_arg {
-      Ok(Vec::from([PathBuf::from(config_arg)]))
+      Ok(ConfigPaths::create_first(Vec::from([PathBuf::from(config_arg)])))
     } else {
-      Ok(POSSIBLE_CONFIG_FILE_NAMES.iter().map(PathBuf::from).collect::<Vec<_>>())
+      let mut paths = ConfigPaths::create_first(POSSIBLE_CONFIG_FILE_NAMES.iter().map(PathBuf::from).collect::<Vec<_>>());
+      let dot_config_dir = environment.cwd().as_ref().join(DOT_CONFIG_DIR_NAME);
+      // the home directory's `.config` isn't searched as part of it
+      if is_dot_config_dir(environment, &dot_config_dir) {
+        let dot_config_paths = DOT_CONFIG_FILE_NAMES
+          .iter()
+          .map(|name| Path::new(DOT_CONFIG_DIR_NAME).join(name))
+          .collect::<Vec<_>>();
+        // keep the config file out of the directory when it already has a `.config` directory
+        if environment.path_exists(&dot_config_dir) && !environment.path_is_file(&dot_config_dir) {
+          paths.create_path = dot_config_paths[0].clone();
+        }
+        paths.candidates.extend(dot_config_paths);
+      }
+      Ok(paths)
     }
   }
 
-  let mut config_file_paths = get_config_paths(environment, &options)?;
+  let config_file_paths = get_config_paths(environment, &options)?;
   // skip the interactive prompt when asked to or when there's no interactive terminal (ex. CI)
   let non_interactive = options.non_interactive || !environment.is_terminal_interactive();
-  if let Some(existing_path) = config_file_paths.iter().find(|path| environment.path_exists(path)) {
+  if let Some(existing_path) = config_file_paths.candidates.iter().find(|path| environment.path_exists(path)) {
     // there's nothing to prompt with when there's no terminal, so keep telling
     // the user the file is there rather than doing something they didn't ask for
     if non_interactive {
@@ -108,7 +141,7 @@ async fn init_config_file_inner<TEnvironment: Environment>(
     }
     return add_missing_plugins_to_config_file(environment, plugin_resolver, existing_path.clone(), &options).await;
   }
-  let config_file_path = config_file_paths.remove(0);
+  let config_file_path = config_file_paths.create_path;
   // a relative path (the default file names, or a relative --config) is
   // relative to the cwd; resolved so the .npmrc walk starts from the right place
   let config_dir = environment.cwd().join(&config_file_path).parent().map(|dir| dir.to_path_buf());
@@ -161,6 +194,7 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
   config_file_path: PathBuf,
   options: &InitConfigFileOptions<'_>,
 ) -> Result<()> {
+  let dirs = resolve_local_config_file_dirs(environment, &environment.cwd().as_ref().join(&config_file_path))?;
   let config_file_path = environment.canonicalize(&config_file_path)?;
   let config_dir = config_file_path.parent();
   let file_text = environment.read_file(&config_file_path)?;
@@ -171,7 +205,8 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
       source: PathSource::new_local(config_file_path.clone()),
       is_first_download: false,
       content: file_text.clone(),
-      base_path: config_dir.clone().unwrap_or_else(|| environment.cwd()),
+      base_path: dirs.base_path,
+      anchored_patterns_base_path: dirs.anchored_patterns_base_path,
       is_global_config: options.global,
     },
     options.remote_cache_mode,
@@ -2169,6 +2204,86 @@ mod test {
     environment.set_terminal_interactive(false);
     let error_message = run_test_cli(vec!["init"], &environment).err().unwrap();
     assert_eq!(error_message.to_string(), "Configuration file 'dprint.json' already exists.");
+  }
+
+  #[test]
+  fn should_error_when_config_file_exists_in_dot_config_dir_on_initialize() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_local_config("/.config/dprint.json", |c| {
+        c.add_includes("**/*.txt");
+      })
+      .build();
+    let error_message = run_test_cli(vec!["init", "--yes"], &environment).err().unwrap();
+    assert_eq!(
+      error_message.to_string(),
+      format!("Configuration file '{}' already exists.", Path::new(".config").join("dprint.json").display())
+    );
+    assert!(!environment.path_exists("/dprint.json"));
+  }
+
+  #[test]
+  fn should_initialize_in_existing_dot_config_dir() {
+    for (dot_config_file_path, expected_path) in [
+      // the project already has a `.config` directory
+      ("/.config/dotnet-tools.json", Path::new(".config").join("dprint.json")),
+      // a `.config` file isn't a directory to put it in
+      ("/.config", std::path::PathBuf::from("dprint.json")),
+    ] {
+      let environment = TestEnvironmentBuilder::new()
+        .with_info_file(|info| {
+          info.add_plugin(TestInfoFilePlugin {
+            name: "dprint-plugin-typescript".to_string(),
+            version: "0.17.2".to_string(),
+            url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
+            config_key: Some("typescript".to_string()),
+            file_extensions: vec!["ts".to_string()],
+            config_excludes: vec![],
+            ..Default::default()
+          });
+        })
+        .write_file(dot_config_file_path, "{}")
+        .write_file("/file.ts", "")
+        .build();
+      run_test_cli(vec!["init", "--yes"], &environment).unwrap();
+      assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+      assert_eq!(
+        environment.take_stdout_messages()[0],
+        format!(
+          "
+Created {}",
+          expected_path.display()
+        )
+      );
+      let created = environment.read_file(Path::new("/").join(&expected_path)).unwrap();
+      assert!(created.contains("typescript-0.17.2.wasm"));
+    }
+  }
+
+  #[test]
+  fn should_not_find_config_file_in_home_dot_config_dir_on_initialize() {
+    // the home directory's `.config` isn't searched as part of it
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "dprint-plugin-typescript".to_string(),
+          version: "0.17.2".to_string(),
+          url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
+          config_key: Some("typescript".to_string()),
+          file_extensions: vec!["ts".to_string()],
+          config_excludes: vec![],
+          ..Default::default()
+        });
+      })
+      .with_local_config("/home/.config/dprint.json", |c| {
+        c.add_includes("**/*.txt");
+      })
+      .write_file("/home/file.ts", "")
+      .build();
+    environment.set_cwd("/home");
+    run_test_cli(vec!["init", "--yes"], &environment).unwrap();
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+    assert_eq!(environment.take_stdout_messages()[0], "\nCreated dprint.json");
+    assert!(environment.path_exists("/home/dprint.json"));
   }
 
   #[test]

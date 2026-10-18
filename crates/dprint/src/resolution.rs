@@ -41,6 +41,7 @@ use crate::configuration::get_plugin_config_map;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::resolve_config_from_path_with_ancestors;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
+use crate::configuration::resolve_local_config_file_dirs;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::format::EnsureStableFormat;
@@ -965,6 +966,7 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     patterns: Rc<FilePatternArgs>,
   ) -> Result<Vec<PluginsScopeAndPaths<TEnvironment>>> {
     log_debug!(self.environment, "Analyzing config file {}", config_file_path.display());
+    let dirs = resolve_local_config_file_dirs(self.environment, &config_file_path)?;
     let config_file_path = self.environment.canonicalize(&config_file_path)?;
     if Some(&config_file_path) == root_config_path.as_ref() {
       // config file specified via `--config` so ignore it
@@ -972,7 +974,8 @@ impl<'a, TEnvironment: Environment> PluginsAndPathsResolver<'a, TEnvironment> {
     }
     let config_path = ResolvedConfigPathWithText {
       content: self.environment.read_file(&config_file_path)?,
-      base_path: config_file_path.parent().unwrap(),
+      base_path: dirs.base_path,
+      anchored_patterns_base_path: dirs.anchored_patterns_base_path,
       source: PathSource::new_local(config_file_path),
       is_global_config: false,
       is_first_download: false,
