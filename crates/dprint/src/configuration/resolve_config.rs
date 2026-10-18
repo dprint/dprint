@@ -252,6 +252,7 @@ fn resolve_config_from_path_with_ancestors_inner<'a, TEnvironment: Environment>(
 /// Resolves the config of a config file without having the config file inherit
 /// from the config file of an ancestor directory. The local config files it
 /// extends still do when they specify `"inherit": true`.
+#[cfg(test)]
 pub async fn resolve_config_from_path_with_bytes<TEnvironment: Environment>(
   config_path_and_text: &ResolvedConfigPathWithText,
   remote_cache_mode: RemoteCacheMode,

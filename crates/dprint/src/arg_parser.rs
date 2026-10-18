@@ -327,6 +327,8 @@ pub enum ConfigSubCommand {
     global: bool,
     /// Skip the interactive plugin prompt and accept the smart defaults.
     yes: bool,
+    /// Change the plugins to prefer instead of initializing anything.
+    preferences: bool,
     minimum_dependency_age: Option<MinimumDependencyAgeArg>,
   },
   Update {
@@ -451,6 +453,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     Ok(ConfigSubCommand::Init {
       global: matches.get_flag("global"),
       yes: matches.get_flag("yes"),
+      preferences: matches.get_flag("preferences"),
       minimum_dependency_age: parse_minimum_dependency_age(matches)?,
     })
   }
@@ -850,6 +853,14 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
           .long("yes")
           .short('y')
           .help("Skip the interactive plugin prompt and accept the plugins selected based on the files in the current directory.")
+          .num_args(0)
+          .required(false),
+      )
+      .arg(
+        Arg::new("preferences")
+          .long("preferences")
+          .conflicts_with_all(["global", "yes"])
+          .help("Change the plugins to prefer or avoid whenever initializing, along with the files and options of the preferred ones, instead of initializing a configuration file.")
           .num_args(0)
           .required(false),
       )
@@ -2194,6 +2205,19 @@ mod test {
       SubCommand::Fmt(cmd) => Ok(cmd),
       _ => unreachable!(),
     }
+  }
+
+  #[test]
+  fn init_preferences_arg() {
+    let is_preferences = |args: Vec<&str>| match test_args(args).unwrap().sub_command {
+      SubCommand::Config(ConfigSubCommand::Init { preferences, .. }) => preferences,
+      _ => unreachable!(),
+    };
+    assert!(!is_preferences(vec!["init"]));
+    assert!(is_preferences(vec!["init", "--preferences"]));
+    // it doesn't initialize anything
+    assert!(test_args(vec!["init", "--preferences", "--yes"]).is_err());
+    assert!(test_args(vec!["init", "--preferences", "--global"]).is_err());
   }
 
   fn test_args(args: Vec<&str>) -> Result<CliArgs, ParseArgsError> {

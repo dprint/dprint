@@ -107,6 +107,7 @@ wasmtime = { version = "=49.0.2", default-features = false, features = [
 winreg = "=0.55.0"
 
 [dev-dependencies]
+file_test_runner = "0.12.1"
 # stay on this version because it's good enough and makes the output the same on all platforms
 path-clean = "0.1.0"
 pretty_assertions = "1.4.0"

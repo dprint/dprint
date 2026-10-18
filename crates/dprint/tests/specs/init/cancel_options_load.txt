@@ -1,0 +1,94 @@
+Leaving a plugin while its options load goes back to the plugins without
+downloading it.
+
+-- file: /notes.txt --
+-- keys --
+down
+right
+esc
+right
+left
+enter
+-- output --
+[start]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-json (.json, .jsonc)
+  [x] test-plugin (.txt)
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+
+[down]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  [x] dprint-plugin-json (.json, .jsonc)
+> [x] test-plugin (.txt)
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+
+[right]
+test-plugin
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .txt
+  Options:
+    Downloading the plugin to get its options... (← to cancel)
+
+[esc]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  [x] dprint-plugin-json (.json, .jsonc)
+> [x] test-plugin (.txt)
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+
+[right]
+test-plugin
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .txt
+  Options:
+    Downloading the plugin to get its options... (← to cancel)
+
+[left]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  [x] dprint-plugin-json (.json, .jsonc)
+> [x] test-plugin (.txt)
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+
+[enter]
+Select plugins:
+ * dprint-plugin-json (.json, .jsonc)
+ * test-plugin (.txt)
+
+# stdout
+
+Created dprint.json
+
+If you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor
+
+# /dprint.json
+{
+  "json": {
+  },
+  "test-plugin": {
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/json-1.0.0.wasm",
+    "https://plugins.dprint.dev/test-plugin.wasm"
+  ]
+}
+
+# /config/dprint/init.json
+(does not exist)

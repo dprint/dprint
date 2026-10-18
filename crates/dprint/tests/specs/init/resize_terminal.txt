@@ -1,0 +1,100 @@
+The prompts are drawn again for the terminal's new size when it's resized. One
+that's too small for them says so, and keys do nothing until it's made bigger.
+
+-- file: /src/main.ts --
+-- keys --
+resize 44x9
+right
+resize 30x6
+space
+left
+resize 44x9
+left
+enter
+-- output --
+[start]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [x] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[resize 44x9]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓:
+  move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-typescript (.ts, .tsx,
+       .js, .jsx)
+  [x] dprint-plugin-json (.json, .jsonc)
+  ...3 more below
+
+[right]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .ts
+  ...3 more below
+
+[resize 30x6]
+The terminal is too small to
+show this. Make it bigger to
+continue.
+
+[space]
+The terminal is too small to
+show this. Make it bigger to
+continue.
+
+[left]
+The terminal is too small to
+show this. Make it bigger to
+continue.
+
+[resize 44x9]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .ts
+  ...3 more below
+
+[left]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓:
+  move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-typescript (.ts, .tsx,
+       .js, .jsx)
+  [x] dprint-plugin-json (.json, .jsonc)
+  ...3 more below
+
+[enter]
+Select plugins:
+ * dprint-plugin-typescript (.ts, .tsx, .js,
+   .jsx)
+ * dprint-plugin-json (.json, .jsonc)
+
+# stdout
+
+Created dprint.json
+
+If you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor
+
+# /dprint.json
+{
+  "typescript": {
+  },
+  "json": {
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-1.0.0.wasm",
+    "https://plugins.dprint.dev/json-1.0.0.wasm"
+  ]
+}
+
+# /config/dprint/init.json
+(does not exist)

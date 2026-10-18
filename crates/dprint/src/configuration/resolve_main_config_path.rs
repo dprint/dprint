@@ -187,6 +187,18 @@ pub fn resolve_global_config_dir(environment: &impl Environment) -> std::io::Res
   }
 }
 
+/// Gets where the global config directory is without creating anything,
+/// which is for reading a file that may be in it. Unlike
+/// [`resolve_global_config_dir`], a `DPRINT_CONFIG_DIR` that doesn't exist is
+/// still where to look, since there's nothing to fall back from until
+/// something is written there.
+pub fn resolve_global_config_dir_path(environment: &impl Environment) -> Option<PathBuf> {
+  match resolve_env_var_folder(environment, "DPRINT_CONFIG_DIR") {
+    Some(folder) => Some(PathBuf::from(folder)),
+    None => resolve_system_config_dir(environment).map(|dir| dir.join("dprint")),
+  }
+}
+
 fn resolve_system_config_dir(environment: &impl Environment) -> Option<PathBuf> {
   if environment.os() == "macos" {
     resolve_mac_system_config_dir(environment)

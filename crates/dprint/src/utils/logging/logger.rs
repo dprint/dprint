@@ -5,6 +5,7 @@ use crossterm::cursor;
 use crossterm::style;
 use parking_lot::Mutex;
 use std::borrow::Cow;
+use std::io::IsTerminal;
 use std::io::Stderr;
 use std::io::Stdout;
 use std::io::Write;
@@ -188,6 +189,14 @@ impl Logger {
     if !output_text.ends_with('\n') {
       output_text.push('\n');
     }
+    let is_raw_terminal = if is_std_out {
+      is_raw_mode_terminal(&state.std_out)
+    } else {
+      is_raw_mode_terminal(&state.std_err)
+    };
+    if is_raw_terminal {
+      output_text = output_text.replace("\r\n", "\n").replace('\n', "\r\n");
+    }
 
     if is_std_out {
       if !output_text.is_empty() {
@@ -268,6 +277,14 @@ impl Logger {
     let text_items = text_items.map(|i| i.as_static_text_item()).collect::<Vec<_>>();
     state.static_text.render_items_with_size(text_items.iter(), size)
   }
+}
+
+/// Whether the stream is a terminal in raw mode, which happens when something
+/// is logged while a key is read (ex. a prompt waiting on a download). A
+/// newline doesn't go back to the start of the line there on unix, so it
+/// needs a carriage return.
+fn is_raw_mode_terminal(stream: &impl IsTerminal) -> bool {
+  crossterm::terminal::is_raw_mode_enabled().unwrap_or(false) && stream.is_terminal()
 }
 
 /// Renders the text items with the specified width.

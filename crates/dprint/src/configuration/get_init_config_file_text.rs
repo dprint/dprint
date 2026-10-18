@@ -1,9 +1,13 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use anyhow::Result;
 use anyhow::bail;
+use dprint_core::async_runtime::FutureExt;
 use dprint_core::async_runtime::future;
 use dprint_core::plugins::wasm::{self};
 use jsonc_parser::cst::CstInputValue;
@@ -22,9 +26,27 @@ use crate::utils::DirEntriesHint;
 use crate::utils::GitIgnoreTree;
 use crate::utils::GitIgnoreTreeOptions;
 use crate::utils::MinimumDependencyAgeArg;
+use crate::utils::MultiSelectAction;
 use crate::utils::MultiSelectDetailPart;
+use crate::utils::MultiSelectFeatures;
 use crate::utils::MultiSelectItem;
+use crate::utils::MultiSelectMark;
+use crate::utils::MultiSelectState;
+use crate::utils::SettingsCheckbox;
+use crate::utils::SettingsEditorState;
+use crate::utils::SettingsOption;
+use crate::utils::SettingsOptions;
 use crate::utils::resolve_global_gitignore_lines;
+use crate::utils::show_multi_select;
+use crate::utils::show_settings_editor;
+
+use super::InitPluginOptionsLoader;
+use super::InitPreferences;
+use super::PreferredPlugin;
+use super::apply_config_to_settings_options;
+use super::get_config_from_settings_options;
+use super::read_init_preferences;
+use super::write_init_preferences;
 
 /// Maximum number of files to look at when scanning the current directory to
 /// decide which plugins to pre-select. Keeps `dprint init` fast in large repos.
@@ -45,18 +67,25 @@ pub struct GetInitConfigFileTextOptions {
   /// age that applies is the one nearest the config file rather than the
   /// process cwd (which differs for `--global` and `--config`).
   pub config_dir: Option<PathBuf>,
+  /// Loads a plugin's options so they can be edited from the plugin prompt.
+  /// Without this only the files a plugin formats can be changed there.
+  pub options_loader: Option<Rc<dyn InitPluginOptionsLoader>>,
 }
 
 /// Options for [`get_init_plugins_to_add`].
 pub struct GetInitPluginsToAddOptions {
-  /// Names, as they appear in the info file, of the plugins the config file
-  /// already has. They're shown in the prompt, but can't be selected.
-  pub existing_plugin_names: HashSet<String>,
+  /// Names of the plugins the config file already has in the order it has
+  /// them, which is how the info file names the ones it knows about. They're
+  /// shown in the prompt so plugins can be added in between them, but can't
+  /// be selected.
+  pub existing_plugin_names: Vec<String>,
   /// Don't add an npm plugin version published more recently than this.
   pub minimum_dependency_age: Option<MinimumDependencyAgeArg>,
   /// Directory of the config file being added to. An .npmrc setting
   /// `min-release-age` is looked for here and in its ancestors.
   pub config_dir: Option<PathBuf>,
+  /// Loads a plugin's options so they can be edited from the plugin prompt.
+  pub options_loader: Option<Rc<dyn InitPluginOptionsLoader>>,
 }
 
 /// The outcome of prompting for plugins to add to a config file that already
@@ -65,9 +94,24 @@ pub enum InitPluginsToAdd {
   /// The config file already has every plugin the info file knows about, so
   /// there was nothing to prompt for.
   AllPluginsConfigured,
-  /// The entries to append to the config file's `plugins` array. Empty when
-  /// the user selected nothing.
-  Entries(Vec<String>),
+  /// The plugins to add to the config file in the order the user had them,
+  /// which is in between the plugins it already has. Empty when the user
+  /// selected nothing.
+  Plugins(Vec<InitPluginToAdd>),
+}
+
+/// A plugin to add to a config file that already exists.
+#[derive(Debug, PartialEq)]
+pub struct InitPluginToAdd {
+  /// The text to add to the config file's `plugins` array.
+  pub entry: String,
+  /// Name of the plugin the config file already has that the user put this
+  /// one ahead of. It goes after all of them without one.
+  pub before: Option<String>,
+  /// The plugin's config key and what the user chose for its config block,
+  /// when they chose anything. Unlike a new config file, nothing is
+  /// scaffolded for a plugin that's added to one that already exists.
+  pub config: Option<(String, serde_json::Value)>,
 }
 
 pub async fn get_init_config_file_text(environment: &impl Environment, options: GetInitConfigFileTextOptions) -> Result<String> {
@@ -80,35 +124,50 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
     // the config file about to be written is JSON, so it counts as a project
     // file even though it doesn't exist yet — a json plugin is always relevant
     project_files.extensions.insert("json".to_string());
-    let defaults = compute_default_selections(&latest_plugins, &project_files, &[]);
-
-    let mut selected_indexes = if options.non_interactive {
-      defaults.iter().enumerate().filter_map(|(i, on)| on.then_some(i)).collect::<Vec<_>>()
-    } else {
-      // show the pre-selected plugins at the top of the list
-      let order = display_order(&defaults, &[]);
-      let prompt_message = "Select plugins (space to toggle, type to filter, enter to finish):";
-      let items = order
-        .iter()
-        .map(|&i| {
-          let plugin = &latest_plugins[i];
-          MultiSelectItem::new(plugin.display_name().to_string(), defaults[i]).with_detail(plugin_display_detail(plugin, &project_files))
-        })
-        .collect::<Vec<_>>();
-      let chosen = environment.get_multi_selection(prompt_message, 0, items)?;
-      chosen.into_iter().map(|display_index| order[display_index]).collect::<Vec<_>>()
-    };
-    // keep the config file in info.json order regardless of the display order
-    selected_indexes.sort_unstable();
+    let preferences = read_init_preferences(environment);
+    let mut choices = get_plugin_choices(&latest_plugins, &preferences);
+    let preferred_order = get_preferred_order(&latest_plugins, &preferences);
+    let avoided = get_avoided_plugins(&latest_plugins, &preferences);
+    let defaults = compute_default_selections(&latest_plugins, &project_files, &[], &choices, &preferred_order, &avoided);
+    let ranks = plugin_ranks(latest_plugins.len(), &preferred_order, &avoided);
+    // show the pre-selected plugins at the top of the list
+    let order = display_order(&defaults, &[], &ranks);
 
     // an .npmrc setting `min-release-age` is looked for where the config file
     // is going to be written
     let age_cutoff = resolve_dependency_age_cutoff(options.minimum_dependency_age.as_ref(), options.config_dir.as_deref(), environment);
+    let loaded = LoadedPlugins::default();
+
+    // the plugins go in the config file in the order they're shown in
+    let selected_indexes = if options.non_interactive {
+      order.iter().copied().filter(|&i| defaults[i]).collect::<Vec<_>>()
+    } else {
+      prompt_for_plugins(
+        environment,
+        PluginPrompt {
+          message: "Select plugins:",
+          plugins: &latest_plugins,
+          project_files: &project_files,
+          defaults: &defaults,
+          already_configured: &[],
+          unknown_configured: &[],
+          order: &order,
+          ranks: &ranks,
+          options_loader: options.options_loader.as_deref(),
+          age_cutoff: age_cutoff.as_ref(),
+          loaded: &loaded,
+        },
+        &mut choices,
+        &preferences,
+      )
+      .await?
+    };
+
     // resolve concurrently — a plugin distributed on npm costs a registry round trip
     let entries = future::join_all(
       selected_indexes
         .iter()
-        .map(|&index| resolve_plugin_entry(&latest_plugins[index], age_cutoff.as_ref(), environment)),
+        .map(|&index| loaded.entry(index, &latest_plugins[index], age_cutoff.as_ref(), environment)),
     )
     .await
     .into_iter()
@@ -118,7 +177,7 @@ pub async fn get_init_config_file_text(environment: &impl Environment, options: 
       .zip(entries)
       .map(|(index, entry)| {
         let plugin = latest_plugins[index].clone();
-        let config = build_plugin_config(&plugin, &project_files);
+        let config = build_plugin_config(&plugin, &project_files, &choices[index]);
         SelectedPlugin { plugin, config, entry }
       })
       .collect::<Vec<_>>();
@@ -161,43 +220,533 @@ pub async fn get_init_plugins_to_add(environment: &impl Environment, options: Ge
   // the config file being added to is JSON, so a json plugin is always
   // relevant (the scan doesn't see it for a global config outside the cwd)
   project_files.extensions.insert("json".to_string());
-  let defaults = compute_default_selections(&latest_plugins, &project_files, &already_configured);
-  // show the pre-selected plugins at the top and the ones already in the config at the bottom
-  let order = display_order(&defaults, &already_configured);
-  let prompt_message = "Select plugins to add (space to toggle, type to filter, enter to finish):";
-  let items = order
-    .iter()
-    .map(|&i| {
-      let plugin = &latest_plugins[i];
-      let mut detail = plugin_display_detail(plugin, &project_files);
-      if already_configured[i] {
-        // shown with its extensions like the selectable items so filtering by a
-        // file type still surfaces the plugin that already handles it
-        let separator = if detail.is_empty() { "" } else { " " };
-        detail.push(MultiSelectDetailPart::new(format!("{}— already in config", separator)));
-        MultiSelectItem::non_selectable(plugin.display_name().to_string()).with_detail(detail)
-      } else {
-        MultiSelectItem::new(plugin.display_name().to_string(), defaults[i]).with_detail(detail)
-      }
-    })
-    .collect::<Vec<_>>();
-  let chosen = environment.get_multi_selection(prompt_message, 0, items)?;
-  let mut selected_indexes = chosen.into_iter().map(|display_index| order[display_index]).collect::<Vec<_>>();
-  // add them to the config file in info.json order regardless of the display order
-  selected_indexes.sort_unstable();
-
+  let preferences = read_init_preferences(environment);
+  let mut choices = get_plugin_choices(&latest_plugins, &preferences);
+  // what was remembered is what to start a plugin out with, which says
+  // nothing about how the config file has the ones it already has
+  for (choices, _) in choices.iter_mut().zip(&already_configured).filter(|(_, configured)| **configured) {
+    *choices = Default::default();
+  }
+  let preferred_order = get_preferred_order(&latest_plugins, &preferences);
+  let avoided = get_avoided_plugins(&latest_plugins, &preferences);
+  let defaults = compute_default_selections(&latest_plugins, &project_files, &already_configured, &choices, &preferred_order, &avoided);
+  // show the config file's plugins the way it has them, which is ahead of
+  // what gets added, and then the pre-selected plugins. The ones the info file
+  // doesn't know about are shown too so a plugin can be put ahead of them,
+  // and their indexes come after the info file's plugins.
+  let mut unknown_configured = Vec::new();
+  let mut configured_order = Vec::new();
+  for name in &options.existing_plugin_names {
+    let index = match latest_plugins.iter().position(|plugin| plugin.name == *name) {
+      Some(index) => index,
+      None => match unknown_configured.iter().position(|unknown| unknown == name) {
+        Some(unknown_index) => latest_plugins.len() + unknown_index,
+        None => {
+          unknown_configured.push(name.clone());
+          latest_plugins.len() + unknown_configured.len() - 1
+        }
+      },
+    };
+    if !configured_order.contains(&index) {
+      configured_order.push(index);
+    }
+  }
+  let is_configured = |index: usize| already_configured.get(index).copied().unwrap_or(true);
+  let plugin_name = |index: usize| match latest_plugins.get(index) {
+    Some(plugin) => plugin.name.clone(),
+    None => unknown_configured[index - latest_plugins.len()].clone(),
+  };
+  let ranks = plugin_ranks(latest_plugins.len(), &preferred_order, &avoided);
+  let order = display_order(&defaults, &configured_order, &ranks);
   // an .npmrc setting `min-release-age` is looked for where the config file lives
   let age_cutoff = resolve_dependency_age_cutoff(options.minimum_dependency_age.as_ref(), options.config_dir.as_deref(), environment);
+  let loaded = LoadedPlugins::default();
+  let shown_indexes = prompt_for_plugins(
+    environment,
+    PluginPrompt {
+      message: "Select plugins to add:",
+      plugins: &latest_plugins,
+      project_files: &project_files,
+      defaults: &defaults,
+      already_configured: &already_configured,
+      unknown_configured: &unknown_configured,
+      order: &order,
+      ranks: &ranks,
+      options_loader: options.options_loader.as_deref(),
+      age_cutoff: age_cutoff.as_ref(),
+      loaded: &loaded,
+    },
+    &mut choices,
+    &preferences,
+  )
+  .await?;
+  // they're added to the config file where they were left among its plugins
+  let mut selected_indexes = Vec::new();
+  let mut befores = Vec::new();
+  for (position, &index) in shown_indexes.iter().enumerate() {
+    if is_configured(index) {
+      continue;
+    }
+    let next_configured_index = shown_indexes[position + 1..].iter().find(|&&index| is_configured(index));
+    selected_indexes.push(index);
+    befores.push(next_configured_index.map(|&index| plugin_name(index)));
+  }
+
   // resolve concurrently — a plugin distributed on npm costs a registry round trip
   let entries = future::join_all(
     selected_indexes
       .iter()
-      .map(|&index| resolve_plugin_entry(&latest_plugins[index], age_cutoff.as_ref(), environment)),
+      .map(|&index| loaded.entry(index, &latest_plugins[index], age_cutoff.as_ref(), environment)),
   )
   .await
   .into_iter()
   .collect::<Result<Vec<_>>>()?;
-  Ok(InitPluginsToAdd::Entries(entries))
+  let plugins = selected_indexes
+    .into_iter()
+    .zip(entries)
+    .zip(befores)
+    .map(|((index, entry), before)| {
+      let plugin = &latest_plugins[index];
+      let mut config = serde_json::Map::new();
+      apply_choices_to_config(&mut config, plugin, &choices[index]);
+      InitPluginToAdd {
+        entry,
+        before,
+        config: config_key(plugin)
+          .filter(|_| !config.is_empty())
+          .map(|config_key| (config_key.to_string(), serde_json::Value::Object(config))),
+      }
+    })
+    .collect();
+  Ok(InitPluginsToAdd::Plugins(plugins))
+}
+
+/// Prompts for the plugins the user prefers, which is what `dprint init`
+/// remembers: the selected plugins in the order they're in, along with the
+/// files and options of each, and the plugins to avoid. It's saved when the
+/// user finishes.
+///
+/// This has nothing to do with the directory it's run in or a config file, so
+/// no file is highlighted and nothing is initialized. What's saved is what
+/// `dprint init` starts out with from then on.
+pub async fn prompt_for_init_preferences(environment: &impl Environment, options_loader: Option<Rc<dyn InitPluginOptionsLoader>>) -> Result<()> {
+  let Some(info) = read_plugin_info_file(environment).await else {
+    bail!("Could not get the latest plugin info, so there's nothing to select from.");
+  };
+  let plugins = info.latest_plugins;
+  let preferences = read_init_preferences(environment);
+  let no_project_files = ProjectFiles::default();
+  let age_cutoff = resolve_dependency_age_cutoff(None, None, environment);
+  let loaded = LoadedPlugins::default();
+  let mut choices = get_plugin_choices(&plugins, &preferences);
+  let preferred_order = get_preferred_order(&plugins, &preferences);
+  let avoided = get_avoided_plugins(&plugins, &preferences);
+  // the preferred plugins in their order, which is the order that's saved,
+  // and the avoided ones last. One that stops being avoided goes back to
+  // where the info file has it.
+  let ranks = plugin_ranks(plugins.len(), &preferred_order, &[]);
+  let mut indexes = (0..plugins.len()).collect::<Vec<_>>();
+  indexes.sort_by_key(|&index| (avoided.contains(&index), ranks[index]));
+  let items = indexes
+    .into_iter()
+    .map(|index| {
+      let plugin = &plugins[index];
+      MultiSelectItem::new(plugin.display_name().to_string(), preferred_order.contains(&index))
+        .with_rejected(avoided.contains(&index))
+        .with_detail(plugin_prompt_detail(plugin, &choices[index], &no_project_files, false))
+        .with_id(index)
+        .with_rank(ranks[index])
+    })
+    .collect::<Vec<_>>();
+  let mut state = MultiSelectState::new("Select the plugins to prefer whenever running dprint init:", items);
+  state.help = Some("space: prefer/avoid/neither, \u{2192}: options, shift+\u{2191}/\u{2193}: move, type to filter, enter: save, esc: cancel".to_string());
+  state.features = MultiSelectFeatures {
+    can_move: true,
+    can_open: true,
+    selected_first: true,
+    can_reject: true,
+  };
+
+  loop {
+    match show_multi_select(environment, "dprint", &mut state).await? {
+      MultiSelectAction::Done => break,
+      MultiSelectAction::Open(item_index) => {
+        let index = state.items[item_index].id;
+        let plugin = &plugins[index];
+        let title = format!("{} when preferred", plugin.display_name());
+        let old_choices = choices[index].clone();
+        let options_source = options_loader.as_deref().map(|loader| PluginOptionsSource {
+          loader,
+          age_cutoff: age_cutoff.as_ref(),
+          loaded: &loaded,
+        });
+        edit_plugin_choices(environment, &title, index, plugin, &no_project_files, options_source, &mut choices[index]).await?;
+        state.items[item_index].detail = plugin_prompt_detail(plugin, &choices[index], &no_project_files, false);
+        // what was changed is only remembered for a preferred plugin
+        if choices[index] != old_choices && !state.items[item_index].is_selected {
+          state.set_item_selected(item_index, true);
+        }
+      }
+    }
+  }
+
+  let new_preferences = get_updated_preferences(&preferences, &plugins, &choices, &state.selected_ids(), &state.rejected_ids());
+  if new_preferences == preferences {
+    log_stdout_info!(environment, "\nThe plugin preferences are the same as they were.");
+    return Ok(());
+  }
+  let file_path = write_init_preferences(environment, &new_preferences)?;
+  log_stdout_info!(environment, "\nSaved the plugin preferences to {}", file_path.display());
+  Ok(())
+}
+
+/// What the user chose for a plugin beyond selecting it: either for the config
+/// file being written or for what `dprint init` starts the plugin out with
+/// every time. The two are never the same value, so changing one leaves the
+/// other alone.
+#[derive(Debug, Default, Clone, PartialEq)]
+struct PluginChoices {
+  /// Lowercased file extensions the plugin matches that it shouldn't format.
+  excluded_extensions: Vec<String>,
+  /// File names the plugin matches that it shouldn't format.
+  excluded_file_names: Vec<String>,
+  /// Options to write to the plugin's config block.
+  config: serde_json::Map<String, serde_json::Value>,
+}
+
+impl PluginChoices {
+  fn excludes_extension(&self, extension: &str) -> bool {
+    let extension = extension.to_lowercase();
+    self.excluded_extensions.contains(&extension)
+  }
+
+  fn excludes_file_name(&self, file_name: &str) -> bool {
+    self.excluded_file_names.iter().any(|name| name == file_name)
+  }
+
+  /// Whether the plugin's files or options were changed.
+  fn is_customized(&self) -> bool {
+    !self.excluded_extensions.is_empty() || !self.excluded_file_names.is_empty() || !self.config.is_empty()
+  }
+}
+
+/// The choices to start each plugin of the info file out with, which is what
+/// was remembered for the plugins the user prefers.
+fn get_plugin_choices(plugins: &[InfoFilePluginInfo], preferences: &InitPreferences) -> Vec<PluginChoices> {
+  plugins
+    .iter()
+    .map(
+      |plugin| match preferences.preferred_plugins.iter().find(|preferred| preferred.name == plugin.name) {
+        Some(preferred) => PluginChoices {
+          excluded_extensions: preferred.excluded_file_extensions.iter().map(|ext| ext.to_lowercase()).collect(),
+          excluded_file_names: preferred.excluded_file_names.clone(),
+          config: preferred.config.clone(),
+        },
+        None => Default::default(),
+      },
+    )
+    .collect()
+}
+
+/// Indexes of the plugins the user prefers, in the order they prefer them.
+fn get_preferred_order(plugins: &[InfoFilePluginInfo], preferences: &InitPreferences) -> Vec<usize> {
+  let mut order = Vec::new();
+  for preferred in &preferences.preferred_plugins {
+    if let Some(index) = plugins.iter().position(|plugin| plugin.name == preferred.name)
+      && !order.contains(&index)
+    {
+      order.push(index);
+    }
+  }
+  order
+}
+
+/// Indexes of the plugins the user said to avoid.
+fn get_avoided_plugins(plugins: &[InfoFilePluginInfo], preferences: &InitPreferences) -> Vec<usize> {
+  (0..plugins.len()).filter(|&index| preferences.is_avoided(&plugins[index].name)).collect()
+}
+
+/// What to show in the plugin prompt.
+struct PluginPrompt<'a> {
+  message: &'a str,
+  plugins: &'a [InfoFilePluginInfo],
+  project_files: &'a ProjectFiles,
+  /// The plugins that start out selected.
+  defaults: &'a [bool],
+  /// The plugins a config file already has (empty when there's no config
+  /// file yet). They're shown, but can't be selected.
+  already_configured: &'a [bool],
+  /// Names of the plugins a config file already has that the info file
+  /// doesn't know about. They're shown like the ones it does, and their
+  /// indexes in `order` come after the info file's plugins.
+  unknown_configured: &'a [String],
+  /// Indexes of the plugins in the order to show them in.
+  order: &'a [usize],
+  /// Where each plugin goes among the selected plugins when the user selects
+  /// it (see [`plugin_ranks`]).
+  ranks: &'a [usize],
+  options_loader: Option<&'a dyn InitPluginOptionsLoader>,
+  /// What holds back the version of a plugin that's written, which is the
+  /// version to show the options of.
+  age_cutoff: Option<&'a DependencyAgeCutoff>,
+  loaded: &'a LoadedPlugins,
+}
+
+/// What was looked up for the info file's plugins while prompting for them,
+/// which is kept so opening a plugin again or writing it doesn't look it up
+/// again (ex. a registry round trip).
+#[derive(Default)]
+struct LoadedPlugins {
+  /// The entry each plugin is written to a config file with, by its index.
+  entries: RefCell<HashMap<usize, String>>,
+  /// The options of each plugin before anything chosen is applied to them,
+  /// by its index.
+  options: RefCell<HashMap<usize, Vec<SettingsOption>>>,
+}
+
+impl LoadedPlugins {
+  /// The entry to write the plugin with (see [`resolve_plugin_entry`]).
+  async fn entry(&self, index: usize, plugin: &InfoFilePluginInfo, age_cutoff: Option<&DependencyAgeCutoff>, environment: &impl Environment) -> Result<String> {
+    if let Some(entry) = self.entries.borrow().get(&index) {
+      return Ok(entry.clone());
+    }
+    let entry = resolve_plugin_entry(plugin, age_cutoff, environment).await?;
+    self.entries.borrow_mut().insert(index, entry.clone());
+    Ok(entry)
+  }
+}
+
+/// Where a plugin's options are loaded from.
+#[derive(Clone, Copy)]
+struct PluginOptionsSource<'a> {
+  loader: &'a dyn InitPluginOptionsLoader,
+  /// What holds back the version of the plugin to load the options of.
+  age_cutoff: Option<&'a DependencyAgeCutoff>,
+  loaded: &'a LoadedPlugins,
+}
+
+/// Prompts for the plugins to use, letting the user move them and open one to
+/// change the files it formats and its options. What they chose for each
+/// plugin is stored in `choices`. Provides the indexes of the selected plugins
+/// in the order the user left them in, along with the plugins a config file
+/// already has where they were among them.
+///
+/// The selected plugins are kept at the top in the order they're going to be
+/// in the config file. That starts out under the plugins it already has, which
+/// stay in their order while the selected ones can be moved in between them,
+/// so the top of the list is what the config file's `plugins` ends up as.
+///
+/// The plugins the user prefers or avoids are only marked here. They're
+/// changed in a prompt of their own (see [`prompt_for_init_preferences`]), and
+/// nothing done in either changes the other.
+async fn prompt_for_plugins(
+  environment: &impl Environment,
+  prompt: PluginPrompt<'_>,
+  choices: &mut [PluginChoices],
+  preferences: &InitPreferences,
+) -> Result<Vec<usize>> {
+  let is_already_configured = |index: usize| prompt.already_configured.get(index).copied().unwrap_or(false);
+  let items = prompt
+    .order
+    .iter()
+    .map(|&i| {
+      let Some(plugin) = prompt.plugins.get(i) else {
+        // nothing is known about it besides its name
+        let name = &prompt.unknown_configured[i - prompt.plugins.len()];
+        return MultiSelectItem::non_selectable(name.clone())
+          .with_detail(vec![MultiSelectDetailPart::new("\u{2014} already in config")])
+          .with_id(i);
+      };
+      let detail = plugin_prompt_detail(plugin, &choices[i], prompt.project_files, is_already_configured(i));
+      let item = if is_already_configured(i) {
+        MultiSelectItem::non_selectable(plugin.display_name().to_string())
+      } else {
+        MultiSelectItem::new(plugin.display_name().to_string(), prompt.defaults[i])
+      };
+      item
+        .with_detail(detail)
+        .with_id(i)
+        .with_rank(prompt.ranks[i])
+        .with_mark(plugin_mark(preferences, plugin))
+    })
+    .collect::<Vec<_>>();
+  // the avoided mark is only explained when there's one to see
+  let has_avoided = items.iter().any(|item| item.mark == Some(MultiSelectMark::Cross));
+  let marks = if has_avoided {
+    format!("{}: preferred, {}: avoided", MultiSelectMark::Star.text(), MultiSelectMark::Cross.text())
+  } else {
+    format!("{}: preferred", MultiSelectMark::Star.text())
+  };
+  let mut state = MultiSelectState::new(prompt.message, items);
+  state.help = Some(format!(
+    "space: toggle, \u{2192}: options, shift+\u{2191}/\u{2193}: move, type to filter, enter: finish, {} (dprint init --preferences)",
+    marks
+  ));
+  state.features = MultiSelectFeatures {
+    can_move: true,
+    can_open: true,
+    selected_first: true,
+    can_reject: false,
+  };
+
+  loop {
+    match show_multi_select(environment, "dprint", &mut state).await? {
+      MultiSelectAction::Done => break,
+      MultiSelectAction::Open(item_index) => {
+        let index = state.items[item_index].id;
+        let plugin = &prompt.plugins[index];
+        let title = plugin.display_name();
+        let options_source = prompt.options_loader.map(|loader| PluginOptionsSource {
+          loader,
+          age_cutoff: prompt.age_cutoff,
+          loaded: prompt.loaded,
+        });
+        edit_plugin_choices(environment, title, index, plugin, prompt.project_files, options_source, &mut choices[index]).await?;
+        state.items[item_index].detail = plugin_prompt_detail(plugin, &choices[index], prompt.project_files, is_already_configured(index));
+      }
+    }
+  }
+
+  Ok(state.items.iter().filter(|item| item.is_selected).map(|item| item.id).collect())
+}
+
+/// What the plugin prompt shows after a plugin the user prefers or avoids.
+fn plugin_mark(preferences: &InitPreferences, plugin: &InfoFilePluginInfo) -> Option<MultiSelectMark> {
+  if preferences.is_preferred(&plugin.name) {
+    Some(MultiSelectMark::Star)
+  } else if preferences.is_avoided(&plugin.name) {
+    Some(MultiSelectMark::Cross)
+  } else {
+    None
+  }
+}
+
+/// The preferences after the user selected the plugins they prefer, which
+/// are in the order they were shown in, and the ones they avoid. The ones that
+/// were remembered that the info file doesn't have are kept (the preferred
+/// ones after what they were after), since the user wasn't shown those to say
+/// otherwise.
+fn get_updated_preferences(
+  old_preferences: &InitPreferences,
+  plugins: &[InfoFilePluginInfo],
+  choices: &[PluginChoices],
+  preferred_indexes: &[usize],
+  avoided_indexes: &[usize],
+) -> InitPreferences {
+  let mut preferred_plugins = preferred_indexes
+    .iter()
+    .map(|&index| PreferredPlugin {
+      name: plugins[index].name.clone(),
+      excluded_file_extensions: choices[index].excluded_extensions.clone(),
+      excluded_file_names: choices[index].excluded_file_names.clone(),
+      config: choices[index].config.clone(),
+    })
+    .collect::<Vec<_>>();
+  let old_plugins = &old_preferences.preferred_plugins;
+  for (old_index, unknown_plugin) in old_plugins.iter().enumerate() {
+    if plugins.iter().any(|plugin| plugin.name == unknown_plugin.name) {
+      continue;
+    }
+    let index_after_previous = old_plugins[..old_index]
+      .iter()
+      .rev()
+      .find_map(|previous| preferred_plugins.iter().position(|preferred| preferred.name == previous.name))
+      .map(|index| index + 1);
+    preferred_plugins.insert(index_after_previous.unwrap_or(0), unknown_plugin.clone());
+  }
+  let is_unknown = |name: &String| !plugins.iter().any(|plugin| plugin.name == *name);
+  let avoided_plugins = avoided_indexes
+    .iter()
+    .map(|&index| plugins[index].name.clone())
+    .chain(old_preferences.avoided_plugins.iter().filter(|name| is_unknown(name)).cloned())
+    .collect();
+  InitPreferences {
+    preferred_plugins,
+    avoided_plugins,
+  }
+}
+
+/// Shows the files a plugin formats and its options so the user can change
+/// them. The plugin is only downloaded to get its options the first time the
+/// user asks for this, and leaving before that's done stops it. The options
+/// are those of the version that would be written, which a dependency age
+/// holds back.
+async fn edit_plugin_choices(
+  environment: &impl Environment,
+  title: &str,
+  index: usize,
+  plugin: &InfoFilePluginInfo,
+  project_files: &ProjectFiles,
+  options_source: Option<PluginOptionsSource<'_>>,
+  choices: &mut PluginChoices,
+) -> Result<()> {
+  let file_types = plugin_file_types(plugin);
+  let mut editor = SettingsEditorState::new(title);
+  editor.show_key_help = true;
+  editor.checkboxes_title = "Files to format:".to_string();
+  editor.checkboxes = file_types
+    .iter()
+    .map(|file_type| match file_type {
+      PluginFileType::Extension(ext) => SettingsCheckbox {
+        text: format!(".{}", ext),
+        is_checked: !choices.excludes_extension(ext),
+        is_highlighted: project_files.extensions.contains(&ext.to_lowercase()),
+      },
+      PluginFileType::FileName(name) => SettingsCheckbox {
+        text: name.clone(),
+        is_checked: !choices.excludes_file_name(name),
+        is_highlighted: project_files.file_names.contains(name),
+      },
+    })
+    .collect();
+  editor.options_title = "Options:".to_string();
+  let config = choices.config.clone();
+  let loaded_options = options_source.and_then(|source| source.loaded.options.borrow().get(&index).cloned());
+  let pending_options = match (options_source, loaded_options) {
+    (Some(_), Some(mut options)) => {
+      apply_config_to_settings_options(&mut options, &config);
+      editor.options = SettingsOptions::Loaded(options);
+      None
+    }
+    (Some(source), None) => {
+      editor.options = SettingsOptions::Loading("Downloading the plugin to get its options... (\u{2190} to cancel)".to_string());
+      Some(
+        async move {
+          let plugin_entry = source.loaded.entry(index, plugin, source.age_cutoff, environment).await?;
+          let mut options = source.loader.load(&plugin_entry).await?;
+          source.loaded.options.borrow_mut().insert(index, options.clone());
+          apply_config_to_settings_options(&mut options, &config);
+          Ok(options)
+        }
+        .boxed_local(),
+      )
+    }
+    (None, _) => {
+      // only what was already chosen is known
+      let mut options = Vec::new();
+      apply_config_to_settings_options(&mut options, &config);
+      editor.options = SettingsOptions::Loaded(options);
+      None
+    }
+  };
+  show_settings_editor(environment, &mut editor, pending_options).await?;
+
+  choices.excluded_extensions.clear();
+  choices.excluded_file_names.clear();
+  for (file_type, checkbox) in file_types.iter().zip(&editor.checkboxes) {
+    if checkbox.is_checked {
+      continue;
+    }
+    match file_type {
+      PluginFileType::Extension(ext) => choices.excluded_extensions.push(ext.to_lowercase()),
+      PluginFileType::FileName(name) => choices.excluded_file_names.push(name.clone()),
+    }
+  }
+  // the options that didn't load (ex. the user left before they had) are left as they were
+  if let SettingsOptions::Loaded(options) = &editor.options {
+    choices.config = get_config_from_settings_options(options);
+  }
+  Ok(())
 }
 
 /// Reads the plugin info file, logging why the command is going to be less
@@ -322,7 +871,7 @@ fn render_config_file(selected_plugins: &[SelectedPlugin]) -> String {
 }
 
 /// Converts an owned `serde_json::Value` into the CST's input value type.
-fn to_cst_input(value: serde_json::Value) -> CstInputValue {
+pub(super) fn to_cst_input(value: serde_json::Value) -> CstInputValue {
   use serde_json::Value;
   match value {
     Value::Null => CstInputValue::Null,
@@ -336,6 +885,7 @@ fn to_cst_input(value: serde_json::Value) -> CstInputValue {
 
 /// The files found while scanning the current directory, used to decide which
 /// plugins to pre-select.
+#[derive(Default)]
 struct ProjectFiles {
   /// Lowercased file extensions without the leading dot (ex. `ts`, `json`).
   extensions: HashSet<String>,
@@ -372,7 +922,29 @@ struct ProjectFiles {
 /// else and are never selected, so nothing is suggested for a file type that's
 /// already handled. That includes a `neverPreselect` plugin: once it's in a
 /// config file it handles its file types like any other.
-fn compute_default_selections(plugins: &[InfoFilePluginInfo], project_files: &ProjectFiles, already_configured: &[bool]) -> Vec<bool> {
+///
+/// The plugins the user prefers (`preferred_order`) go ahead of the others in
+/// the order they prefer them, so they claim their files first. Being preferred
+/// is the user asking for the plugin, so a preferred plugin is pre-selected
+/// whenever one of its files is present that a config file doesn't already
+/// handle, even when another preferred plugin claimed it or the plugin is
+/// marked `neverPreselect`. The config key rule still applies.
+///
+/// The plugins the user avoids (`avoided`) are never pre-selected and don't
+/// claim anything, so the next plugin for their files is pre-selected
+/// instead. Being in a config file wins over that like it does for
+/// `neverPreselect`.
+///
+/// The files the user said a plugin shouldn't format (`choices`) are left out
+/// of what it matches.
+fn compute_default_selections(
+  plugins: &[InfoFilePluginInfo],
+  project_files: &ProjectFiles,
+  already_configured: &[bool],
+  choices: &[PluginChoices],
+  preferred_order: &[usize],
+  avoided: &[usize],
+) -> Vec<bool> {
   let is_already_configured = |index: usize| already_configured.get(index).copied().unwrap_or(false);
   let mut claimed_extensions: HashSet<String> = HashSet::new();
   let mut claimed_file_names: HashSet<String> = HashSet::new();
@@ -383,20 +955,25 @@ fn compute_default_selections(plugins: &[InfoFilePluginInfo], project_files: &Pr
     if !is_already_configured(i) {
       continue;
     }
-    claimed_extensions.extend(present_extensions(plugin, project_files));
-    claimed_file_names.extend(present_file_names(plugin, project_files));
+    claimed_extensions.extend(present_extensions(plugin, &choices[i], project_files));
+    claimed_file_names.extend(present_file_names(plugin, &choices[i], project_files));
     if let Some(config_key) = config_key(plugin) {
       used_config_keys.insert(config_key);
     }
   }
+  let configured_extensions = claimed_extensions.clone();
+  let configured_file_names = claimed_file_names.clone();
 
-  for (i, plugin) in plugins.iter().enumerate() {
-    if is_already_configured(i) || plugin.never_preselect {
+  let is_preferred = |index: usize| preferred_order.contains(&index);
+  let other_indexes = (0..plugins.len()).filter(|&i| !is_preferred(i));
+  for i in preferred_order.iter().copied().chain(other_indexes) {
+    let plugin = &plugins[i];
+    if is_already_configured(i) || plugin.never_preselect && !is_preferred(i) || avoided.contains(&i) {
       continue;
     }
     // present extensions / file names that this plugin matches
-    let present_extensions = present_extensions(plugin, project_files);
-    let present_file_names = present_file_names(plugin, project_files);
+    let present_extensions = present_extensions(plugin, &choices[i], project_files);
+    let present_file_names = present_file_names(plugin, &choices[i], project_files);
 
     // an additive plugin is selected whenever one of its files is present,
     // without claiming it from the plugin that formats it
@@ -405,8 +982,14 @@ fn compute_default_selections(plugins: &[InfoFilePluginInfo], project_files: &Pr
       continue;
     }
 
-    // select a claiming plugin only if it's the first to match at least one of those
+    // select a claiming plugin only if it's the first to match at least one of
+    // those, where a preferred plugin only loses out to a config file's plugins
     if !plugin.additive {
+      let (claimed_extensions, claimed_file_names) = if is_preferred(i) {
+        (&configured_extensions, &configured_file_names)
+      } else {
+        (&claimed_extensions, &claimed_file_names)
+      };
       let claims_unclaimed =
         present_extensions.iter().any(|ext| !claimed_extensions.contains(ext)) || present_file_names.iter().any(|name| !claimed_file_names.contains(name));
       if !claims_unclaimed {
@@ -431,33 +1014,76 @@ fn compute_default_selections(plugins: &[InfoFilePluginInfo], project_files: &Pr
   selected
 }
 
-/// The extensions found in the current directory that a plugin matches.
-fn present_extensions(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> Vec<String> {
+/// The extensions found in the current directory that a plugin matches and
+/// the user didn't say to leave out.
+fn present_extensions(plugin: &InfoFilePluginInfo, choices: &PluginChoices, project_files: &ProjectFiles) -> Vec<String> {
   match_extensions(plugin)
     .into_iter()
-    .filter(|ext| project_files.extensions.contains(ext))
+    .filter(|ext| project_files.extensions.contains(ext) && !choices.excludes_extension(ext))
     .collect()
 }
 
-/// The file names found in the current directory that a plugin matches.
-fn present_file_names(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> Vec<String> {
+/// The file names found in the current directory that a plugin matches and
+/// the user didn't say to leave out.
+fn present_file_names(plugin: &InfoFilePluginInfo, choices: &PluginChoices, project_files: &ProjectFiles) -> Vec<String> {
   match_file_names(plugin)
     .into_iter()
-    .filter(|name| project_files.file_names.contains(*name))
+    .filter(|name| project_files.file_names.contains(*name) && !choices.excludes_file_name(name))
     .map(|name| name.to_string())
     .collect()
 }
 
-/// The order plugins are displayed in: the pre-selected ones first (each group
-/// in info.json order), so the relevant plugins are at the top of the list, and
-/// the ones a config file already has at the bottom since they're only there
-/// for context.
-fn display_order(defaults: &[bool], already_configured: &[bool]) -> Vec<usize> {
-  let is_already_configured = |index: usize| already_configured.get(index).copied().unwrap_or(false);
-  let selected = (0..defaults.len()).filter(|&i| defaults[i] && !is_already_configured(i));
-  let unselected = (0..defaults.len()).filter(|&i| !defaults[i] && !is_already_configured(i));
-  let already_configured = (0..defaults.len()).filter(|&i| is_already_configured(i));
-  selected.chain(unselected).chain(already_configured).collect()
+/// The order plugins are displayed in: the ones a config file already has the
+/// way it has them (`configured_order`, which is empty when there's no config
+/// file yet), then the pre-selected ones, and then the rest. That's the
+/// config file's `plugins` from the top down followed by what's left to pick
+/// from. The plugins that aren't in a config file are in the order of their
+/// rank in both groups (see [`plugin_ranks`]).
+fn display_order(defaults: &[bool], configured_order: &[usize], ranks: &[usize]) -> Vec<usize> {
+  let mut indexes = (0..defaults.len()).filter(|index| !configured_order.contains(index)).collect::<Vec<_>>();
+  indexes.sort_by_key(|&index| ranks[index]);
+  let selected = indexes.iter().copied().filter(|&i| defaults[i]);
+  let unselected = indexes.iter().copied().filter(|&i| !defaults[i]);
+  configured_order.iter().copied().chain(selected).chain(unselected).collect()
+}
+
+/// Where each plugin goes among the plugins that are selected the way it is:
+/// the plugins the user prefers first in the order they prefer them, then the
+/// rest in info.json order, and then the ones the user avoids. Lowest goes
+/// first.
+fn plugin_ranks(plugin_count: usize, preferred_order: &[usize], avoided: &[usize]) -> Vec<usize> {
+  let other_indexes = (0..plugin_count).filter(|index| !preferred_order.contains(index) && !avoided.contains(index));
+  let avoided = avoided.iter().copied().filter(|index| !preferred_order.contains(index));
+  let mut ranks = vec![0; plugin_count];
+  for (rank, index) in preferred_order.iter().copied().chain(other_indexes).chain(avoided).enumerate() {
+    ranks[index] = rank;
+  }
+  ranks
+}
+
+/// A kind of file a plugin formats, which the user can say to leave out.
+enum PluginFileType {
+  /// A file extension without the leading dot, as the info file has it.
+  Extension(String),
+  FileName(String),
+}
+
+/// The files a plugin formats: its extensions then its file names, with the
+/// ones of its config items after its own.
+fn plugin_file_types(plugin: &InfoFilePluginInfo) -> Vec<PluginFileType> {
+  let mut extensions: Vec<&String> = Vec::new();
+  let config_item_extensions = plugin.config_items.iter().flat_map(|item| item.file_extensions.iter());
+  for ext in plugin.file_extensions.iter().chain(config_item_extensions) {
+    if !extensions.iter().any(|existing| existing.eq_ignore_ascii_case(ext)) {
+      extensions.push(ext);
+    }
+  }
+  let file_names = get_unique_items(match_file_names(plugin));
+  extensions
+    .into_iter()
+    .map(|ext| PluginFileType::Extension(ext.clone()))
+    .chain(file_names.into_iter().map(|name| PluginFileType::FileName(name.to_string())))
+    .collect()
 }
 
 /// All the file extensions a plugin matches (its own plus its config items'),
@@ -492,13 +1118,37 @@ fn matches_project_files(file_extensions: &[String], file_names: &[String], proj
     || file_names.iter().any(|name| project_files.file_names.contains(name))
 }
 
+/// Everything shown dimmed after a plugin's name in the plugin prompt: the
+/// files it formats followed by what else is worth knowing about it.
+fn plugin_prompt_detail(
+  plugin: &InfoFilePluginInfo,
+  choices: &PluginChoices,
+  project_files: &ProjectFiles,
+  is_already_configured: bool,
+) -> Vec<MultiSelectDetailPart> {
+  let mut detail = plugin_display_detail(plugin, choices, project_files);
+  let mut add_note = |text: &str| {
+    let separator = if detail.is_empty() { "" } else { " " };
+    detail.push(MultiSelectDetailPart::new(format!("{}\u{2014} {}", separator, text)));
+  };
+  if choices.is_customized() {
+    add_note("customized");
+  }
+  if is_already_configured {
+    // shown with its extensions like the selectable items so filtering by a
+    // file type still surfaces the plugin that already handles it
+    add_note("already in config");
+  }
+  detail
+}
+
 /// The text shown dimmed after a plugin's name in the selection list. The files
 /// it formats are listed so unfamiliar plugins are easier to tell apart, with
 /// the ones found in the current directory highlighted whether or not the
 /// plugin is pre-selected. An additive plugin is marked because it runs
 /// alongside another plugin rather than replacing it.
-fn plugin_display_detail(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> Vec<MultiSelectDetailPart> {
-  let mut details = display_file_matches(plugin, project_files);
+fn plugin_display_detail(plugin: &InfoFilePluginInfo, choices: &PluginChoices, project_files: &ProjectFiles) -> Vec<MultiSelectDetailPart> {
+  let mut details = display_file_matches(plugin, choices, project_files);
   if plugin.additive {
     details.push(MultiSelectDetailPart::new("runs in addition to other plugins"));
   }
@@ -520,12 +1170,14 @@ fn plugin_display_detail(plugin: &InfoFilePluginInfo, project_files: &ProjectFil
 /// The files to show beside a plugin's name: its extensions, falling back to the
 /// extensions of its config items, then to the file names it matches (ex. a
 /// plugin that only formats `package.json` declares no extensions at all). The
-/// ones found in the current directory are highlighted.
-fn display_file_matches(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> Vec<MultiSelectDetailPart> {
+/// ones found in the current directory are highlighted, and the ones the user
+/// said to leave out aren't shown.
+fn display_file_matches(plugin: &InfoFilePluginInfo, choices: &PluginChoices, project_files: &ProjectFiles) -> Vec<MultiSelectDetailPart> {
   let extensions = display_extensions(plugin);
   if !extensions.is_empty() {
     return extensions
       .iter()
+      .filter(|ext| !choices.excludes_extension(ext))
       .map(|ext| MultiSelectDetailPart {
         text: format!(".{}", ext),
         is_highlighted: project_files.extensions.contains(&ext.to_lowercase()),
@@ -534,6 +1186,7 @@ fn display_file_matches(plugin: &InfoFilePluginInfo, project_files: &ProjectFile
   }
   get_unique_items(match_file_names(plugin).into_iter().map(ToOwned::to_owned).collect())
     .into_iter()
+    .filter(|name| !choices.excludes_file_name(name))
     .map(|name| MultiSelectDetailPart {
       is_highlighted: project_files.file_names.contains(&name),
       text: name,
@@ -563,19 +1216,72 @@ fn display_extensions(plugin: &InfoFilePluginInfo) -> Vec<String> {
 /// directory. Objects merge recursively and arrays are concatenated, so command
 /// lists (ex. `dprint-plugin-exec`) accumulate.
 ///
+/// A config item isn't merged in when the user said to leave out the files
+/// that would have brought it in. What the user chose for the plugin goes on
+/// top of all that (see [`apply_choices_to_config`]).
+///
 /// The order keys appear in the output relies on `serde_json`'s `preserve_order`
 /// feature (and jsonc-parser's), so config reads in the same order it's declared.
-fn build_plugin_config(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> serde_json::Value {
+fn build_plugin_config(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles, choices: &PluginChoices) -> serde_json::Value {
   let mut config = match plugin.default_config.clone() {
     Some(value @ serde_json::Value::Object(_)) => value,
     _ => serde_json::Value::Object(Default::default()),
   };
   for item in &plugin.config_items {
-    if matches_project_files(&item.file_extensions, &item.file_names, project_files) {
+    let file_extensions = item
+      .file_extensions
+      .iter()
+      .filter(|ext| !choices.excludes_extension(ext))
+      .cloned()
+      .collect::<Vec<_>>();
+    let file_names = item
+      .file_names
+      .iter()
+      .filter(|name| !choices.excludes_file_name(name))
+      .cloned()
+      .collect::<Vec<_>>();
+    if matches_project_files(&file_extensions, &file_names, project_files) {
       deep_merge(&mut config, item.config.clone());
     }
   }
+  if let serde_json::Value::Object(config) = &mut config {
+    apply_choices_to_config(config, plugin, choices);
+  }
   config
+}
+
+/// Applies what the user chose for a plugin to its config block. An option
+/// they set replaces what's there rather than being merged with it, so what
+/// gets written is exactly what they chose. The files they said to leave out
+/// that the plugin matches on its own become negated `associations`, which is
+/// how the CLI is told a plugin shouldn't format something it otherwise would.
+fn apply_choices_to_config(config: &mut serde_json::Map<String, serde_json::Value>, plugin: &InfoFilePluginInfo, choices: &PluginChoices) {
+  for (name, value) in &choices.config {
+    config.insert(name.clone(), value.clone());
+  }
+
+  let excluded_extensions = plugin.file_extensions.iter().filter(|ext| choices.excludes_extension(ext));
+  let excluded_file_names = plugin.file_names.iter().filter(|name| choices.excludes_file_name(name));
+  let patterns = excluded_extensions
+    .map(|ext| format!("!**/*.{}", ext))
+    .chain(excluded_file_names.map(|name| format!("!**/{}", name)))
+    .map(serde_json::Value::String)
+    .collect::<Vec<_>>();
+  if patterns.is_empty() {
+    return;
+  }
+  let mut associations = match config.remove("associations") {
+    Some(serde_json::Value::Array(associations)) => associations,
+    // a single pattern doesn't need to be in an array
+    Some(association @ serde_json::Value::String(_)) => vec![association],
+    _ => Vec::new(),
+  };
+  for pattern in patterns {
+    if !associations.contains(&pattern) {
+      associations.push(pattern);
+    }
+  }
+  config.insert("associations".to_string(), serde_json::Value::Array(associations));
 }
 
 /// Merges `other` into `base`: objects merge recursively, arrays are
@@ -696,6 +1402,8 @@ mod test {
   use crate::environment::TestInfoFileNpm;
   use crate::environment::TestInfoFilePlugin;
   use crate::plugins::InfoFileConfigItem;
+  use crate::utils::SettingsOption;
+  use crate::utils::SettingsOptionKind;
   use pretty_assertions::assert_eq;
 
   fn exec_info_plugin() -> TestInfoFilePlugin {
@@ -756,6 +1464,35 @@ mod test {
   }
 
   #[test]
+  fn files_left_out_are_added_to_the_associations_that_are_there() {
+    let plugin = info_plugin_with_extensions(vec!["ts", "yaml"], vec![]);
+    let choices = PluginChoices {
+      excluded_extensions: vec!["yaml".to_string()],
+      ..Default::default()
+    };
+    let apply = |config: serde_json::Value| {
+      let mut config = config.as_object().unwrap().clone();
+      apply_choices_to_config(&mut config, &plugin, &choices);
+      serde_json::Value::Object(config)
+    };
+    assert_eq!(apply(serde_json::json!({})), serde_json::json!({ "associations": ["!**/*.yaml"] }));
+    // a single pattern doesn't have to be in an array
+    assert_eq!(
+      apply(serde_json::json!({ "associations": "**/*.foo" })),
+      serde_json::json!({ "associations": ["**/*.foo", "!**/*.yaml"] })
+    );
+    assert_eq!(
+      apply(serde_json::json!({ "associations": ["**/*.foo", "!**/*.yaml"] })),
+      serde_json::json!({ "associations": ["**/*.foo", "!**/*.yaml"] })
+    );
+    // nothing is left out
+    let choices = PluginChoices::default();
+    let mut config = serde_json::json!({ "associations": "**/*.foo" }).as_object().unwrap().clone();
+    apply_choices_to_config(&mut config, &plugin, &choices);
+    assert_eq!(serde_json::Value::Object(config), serde_json::json!({ "associations": "**/*.foo" }));
+  }
+
+  #[test]
   fn plugin_display_detail_falls_back_to_config_item_extensions() {
     // a plugin's own extensions take precedence
     let plugin = info_plugin_with_extensions(vec!["ts", "tsx"], vec![vec!["rs"]]);
@@ -788,7 +1525,7 @@ mod test {
   /// The detail shown after a plugin's name, with the highlighted parts
   /// surrounded by asterisks.
   fn display_detail_text(plugin: &InfoFilePluginInfo, project_files: &ProjectFiles) -> String {
-    plugin_display_detail(plugin, project_files)
+    plugin_display_detail(plugin, &Default::default(), project_files)
       .into_iter()
       .map(|part| if part.is_highlighted { format!("*{}*", part.text) } else { part.text })
       .collect()
@@ -825,6 +1562,7 @@ mod test {
       })
       .write_file("/Makefile", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -845,7 +1583,7 @@ mod test {
 }
 "#
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -874,6 +1612,7 @@ mod test {
       })
       .write_file("/main.rs", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // the config item overrides cwd, keeps indentWidth, and appends commands
@@ -897,7 +1636,7 @@ mod test {
 }
 "#
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1070,12 +1809,13 @@ mod test {
       })
       .write_file("/notes.txt", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
         let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
         // it matches the .txt file, but it's only offered rather than suggested
-        assert_eq!(environment.take_multi_selection_items(), vec!["[ ] a (.txt)"]);
+        assert_eq!(take_shown_items(&environment), vec!["[ ] a (.txt)"]);
         assert!(!text.contains("a-1.0.0.wasm"), "{text}");
         environment.take_stderr_messages();
       }
@@ -1119,27 +1859,27 @@ mod test {
       })
       .write_file("/notes.txt", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
         let plugins = get_init_plugins_to_add(
           &environment,
           GetInitPluginsToAddOptions {
-            existing_plugin_names: HashSet::from(["a".to_string()]),
+            existing_plugin_names: Vec::from(["a".to_string()]),
             minimum_dependency_age: None,
             config_dir: None,
+            options_loader: None,
           },
         )
         .await
         .unwrap();
         // `a` handles .txt once it's in the config file, so `b` isn't suggested
-        assert_eq!(
-          environment.take_multi_selection_items(),
-          vec!["[ ] b (.txt)", "[x] a (.txt) — already in config (locked)"]
-        );
-        let InitPluginsToAdd::Entries(entries) = plugins else {
+        assert_eq!(take_shown_items(&environment), vec!["[x] a (.txt) — already in config", "[ ] b (.txt)"]);
+        let InitPluginsToAdd::Plugins(plugins) = plugins else {
           unreachable!();
         };
+        let entries = plugins.into_iter().map(|plugin| plugin.entry).collect::<Vec<_>>();
         assert!(entries.is_empty());
         environment.take_stderr_messages();
       }
@@ -1179,6 +1919,7 @@ mod test {
       })
       .write_file("/main.rs", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // exec is pre-selected by the .rs file; cwd comes from defaultConfig and the
@@ -1202,7 +1943,7 @@ mod test {
 }
 "#
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1215,6 +1956,7 @@ mod test {
       .write_file("/main.rs", "")
       .write_file("/lib.go", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // both commands are appended in info.json order
@@ -1241,7 +1983,7 @@ mod test {
 }
 "#
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1253,7 +1995,7 @@ mod test {
       })
       .build();
     // manually select exec even though no matching files are present
-    environment.set_multi_selection_result(vec![0]);
+    press_keys(&environment, &["space", "enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -1269,7 +2011,7 @@ mod test {
 }
 "#
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1306,12 +2048,13 @@ mod test {
       })
       .write_file("/main.ts", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
         let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
         // the display name is only for showing the plugin
-        assert_eq!(environment.take_multi_selection_items(), vec!["[x] someone/a (.ts)", "[ ] b (.md)"]);
+        assert_eq!(take_shown_items(&environment), vec!["[x] someone/a (.ts)", "[ ] b (.md)"]);
         assert!(text.contains("dprint_plugin_a-1.0.0.wasm"), "{text}");
         environment.take_stderr_messages();
       }
@@ -1330,15 +2073,17 @@ mod test {
       .write_file("/main.ts", "")
       .write_file("/data.json", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
         let plugins = get_init_plugins_to_add(
           &environment,
           GetInitPluginsToAddOptions {
-            existing_plugin_names: HashSet::from(["a".to_string()]),
+            existing_plugin_names: Vec::from(["a".to_string()]),
             minimum_dependency_age: None,
             config_dir: None,
+            options_loader: None,
           },
         )
         .await
@@ -1346,17 +2091,59 @@ mod test {
         // `b` is pre-selected because of the .json file, `a` is only shown for
         // context since the config file already has it (even though .ts matched)
         assert_eq!(
-          environment.take_multi_selection_items(),
-          vec!["[x] b (.json)", "[ ] c (.md)", "[x] a (.ts) — already in config (locked)"]
+          take_shown_items(&environment),
+          vec!["[x] a (.ts) — already in config", "[x] b (.json)", "[ ] c (.md)"]
         );
-        let InitPluginsToAdd::Entries(entries) = plugins else {
+        let InitPluginsToAdd::Plugins(plugins) = plugins else {
           unreachable!();
         };
+        let entries = plugins.into_iter().map(|plugin| plugin.entry).collect::<Vec<_>>();
         assert_eq!(entries, vec!["https://plugins.dprint.dev/b-1.0.0.wasm".to_string()]);
+        assert!(environment.take_stderr_messages().is_empty());
+      }
+    });
+  }
+
+  #[test]
+  fn should_show_existing_plugins_the_info_file_does_not_know_about() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "a", &["ts"])).add_plugin(wasm_plugin("b", "b", &["json"]));
+      })
+      .write_file("/data.json", "")
+      .build();
+    // move `b` above everything the config file has
+    press_keys(&environment, &["shift+up", "shift+up", "enter"]);
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let plugins = get_init_plugins_to_add(
+          &environment,
+          GetInitPluginsToAddOptions {
+            existing_plugin_names: Vec::from(["custom".to_string(), "a".to_string()]),
+            minimum_dependency_age: None,
+            config_dir: None,
+            options_loader: None,
+          },
+        )
+        .await
+        .unwrap();
         assert_eq!(
-          environment.take_stderr_messages(),
-          vec!["Select plugins to add (space to toggle, type to filter, enter to finish):"]
+          take_shown_items(&environment),
+          vec!["[x] custom — already in config", "[x] a (.ts) — already in config", "[x] b (.json)"]
         );
+        let InitPluginsToAdd::Plugins(plugins) = plugins else {
+          unreachable!();
+        };
+        assert_eq!(
+          plugins,
+          vec![InitPluginToAdd {
+            entry: "https://plugins.dprint.dev/b-1.0.0.wasm".to_string(),
+            before: Some("custom".to_string()),
+            config: None,
+          }]
+        );
+        environment.take_stderr_messages();
       }
     });
   }
@@ -1369,27 +2156,27 @@ mod test {
       })
       .write_file("/main.ts", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime({
       let environment = environment.clone();
       async move {
         let plugins = get_init_plugins_to_add(
           &environment,
           GetInitPluginsToAddOptions {
-            existing_plugin_names: HashSet::from(["a".to_string()]),
+            existing_plugin_names: Vec::from(["a".to_string()]),
             minimum_dependency_age: None,
             config_dir: None,
+            options_loader: None,
           },
         )
         .await
         .unwrap();
         // `a` already handles .ts, so `b` isn't pre-selected
-        assert_eq!(
-          environment.take_multi_selection_items(),
-          vec!["[ ] b (.ts)", "[x] a (.ts) — already in config (locked)"]
-        );
-        let InitPluginsToAdd::Entries(entries) = plugins else {
+        assert_eq!(take_shown_items(&environment), vec!["[x] a (.ts) — already in config", "[ ] b (.ts)"]);
+        let InitPluginsToAdd::Plugins(plugins) = plugins else {
           unreachable!();
         };
+        let entries = plugins.into_iter().map(|plugin| plugin.entry).collect::<Vec<_>>();
         assert!(entries.is_empty());
         environment.take_stderr_messages();
       }
@@ -1410,27 +2197,28 @@ mod test {
         let plugins = get_init_plugins_to_add(
           &environment,
           GetInitPluginsToAddOptions {
-            existing_plugin_names: HashSet::from(["a".to_string()]),
+            existing_plugin_names: Vec::from(["a".to_string()]),
             minimum_dependency_age: None,
             config_dir: None,
+            options_loader: None,
           },
         )
         .await
         .unwrap();
         assert!(matches!(plugins, InitPluginsToAdd::AllPluginsConfigured));
-        assert!(environment.take_multi_selection_items().is_empty());
+        assert!(take_shown_items(&environment).is_empty());
       }
     });
   }
 
   #[test]
   fn display_order_lists_selected_first() {
-    assert_eq!(display_order(&[false, true, false, true], &[]), vec![1, 3, 0, 2]);
-    assert_eq!(display_order(&[true, true], &[]), vec![0, 1]);
-    assert_eq!(display_order(&[false, false, false], &[]), vec![0, 1, 2]);
-    assert_eq!(display_order(&[], &[]), Vec::<usize>::new());
+    assert_eq!(display_order(&[false, true, false, true], &[], &[0, 1, 2, 3]), vec![1, 3, 0, 2]);
+    assert_eq!(display_order(&[true, true], &[], &[0, 1]), vec![0, 1]);
+    assert_eq!(display_order(&[false, false, false], &[], &[0, 1, 2]), vec![0, 1, 2]);
+    assert_eq!(display_order(&[], &[], &[]), Vec::<usize>::new());
     // the plugins already in the config file go last
-    assert_eq!(display_order(&[false, true, false], &[true, false, false]), vec![1, 2, 0]);
+    assert_eq!(display_order(&[false, true, false, false], &[3, 0], &[0, 1, 2, 3]), vec![3, 0, 1, 2]);
   }
 
   #[test]
@@ -1441,12 +2229,13 @@ mod test {
       })
       .write_file("/file.ts", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // only the first plugin claims `ts`
       assert!(text.contains("a-1.0.0.wasm"), "{text}");
       assert!(!text.contains("b-1.0.0.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1462,11 +2251,12 @@ mod test {
       .write_file("/file.ts", "")
       .write_file("/file.vue", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert!(text.contains("a-1.0.0.wasm"), "{text}");
       assert!(text.contains("b-1.0.0.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1482,32 +2272,34 @@ mod test {
       .write_file("/file.ts", "")
       .write_file("/file.vue", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert!(text.contains("a-1.0.0.wasm"), "{text}");
       assert!(!text.contains("b-1.0.0.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
   #[test]
-  fn should_map_picker_selection_back_when_display_is_reordered() {
-    // `b` (index 1) is the sole pre-selected plugin, so it's shown first; selecting
-    // both from the reordered list must still map back and output in info.json order
+  fn should_write_plugins_in_the_order_they_are_shown_in() {
+    // `b` is the sole pre-selected plugin, so it's shown first. Selecting `a`
+    // puts it above `b` the way dprint lists them, and moving it back down
+    // writes them the way the user left them, since the order is theirs to change
     let environment = TestEnvironmentBuilder::new()
       .with_info_file(|info| {
         info.add_plugin(wasm_plugin("a", "a", &["js"])).add_plugin(wasm_plugin("b", "b", &["ts"]));
       })
       .write_file("/file.ts", "")
       .build();
-    environment.set_multi_selection_result(vec![0, 1]); // both items, in display order
+    press_keys(&environment, &["down", "space", "shift+down", "enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       let a_pos = text.find("a-1.0.0.wasm").expect("a present");
       let b_pos = text.find("b-1.0.0.wasm").expect("b present");
-      // output stays in info.json order (a before b) even though b was displayed first
-      assert!(a_pos < b_pos, "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      // b was left first, so it's written first
+      assert!(b_pos < a_pos, "{text}");
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1528,12 +2320,13 @@ mod test {
       .write_file("/file.ts", "")
       .write_file("/file.vue", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // plugins without a config key never collide on it
       assert!(text.contains("a-1.0.0.wasm"), "{text}");
       assert!(text.contains("b-1.0.0.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1561,12 +2354,13 @@ mod test {
       .write_file("/file.ts", "")
       .write_file("/file.rs", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // `b` matches `.rs` via a config item but shares the "shared" key with `a`
       assert!(text.contains("a-1.0.0.wasm"), "{text}");
       assert!(!text.contains("b-1.0.0.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1634,6 +2428,7 @@ mod test {
       .write_file("/file.vue", "")
       .write_file("/file.rs", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -1653,7 +2448,7 @@ mod test {
           b_checksum
         )
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1672,10 +2467,11 @@ mod test {
       })
       .write_file("/file.ts", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert!(text.contains("\"https://plugins.dprint.dev/a-1.0.0.wasm\""), "{text}");
-      let mut expected_messages = get_standard_logged_messages();
+      let mut expected_messages = Vec::new();
       expected_messages.push("Failed resolving the npm package for a. Using its url instead. Failed to fetch npm packument for @dprint/a: Error downloading https://registry.npmjs.org/@dprint/a - 404 Not Found");
       assert_eq!(environment.take_stderr_messages(), expected_messages);
     });
@@ -1689,7 +2485,7 @@ mod test {
       let text = get_init_config_file_text(&environment, age_test_options("P3D")).await.unwrap();
       // 1.1.0 landed the day before "now", so the release before it is written
       assert!(text.contains("\"npm:@dprint/a@1.0.0\""), "{text}");
-      let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
+      let mut expected_messages = Vec::new();
       expected_messages.push("Using @dprint/a 1.0.0 instead of 1.1.0, which is newer than the minimum dependency age allows (--minimum-dependency-age P3D). Pass --minimum-dependency-age=0 to use the latest version.");
       assert_eq!(environment.take_stderr_messages(), expected_messages);
     });
@@ -1708,7 +2504,7 @@ mod test {
         err.to_string(),
         "No version of @dprint/a at or below 1.1.0 is old enough for the minimum dependency age (--minimum-dependency-age P400D)."
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages_no_plugin_selection());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1756,6 +2552,7 @@ mod test {
       non_interactive: true,
       minimum_dependency_age: Some(MinimumDependencyAgeArg::from_str(age).unwrap()),
       config_dir: None,
+      options_loader: None,
     }
   }
 
@@ -1771,6 +2568,7 @@ mod test {
       .write_file("/file.ts", "")
       .write_file("/file.json", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -1792,7 +2590,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1807,6 +2605,7 @@ mod test {
       })
       .write_file("/readme.md", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -1824,7 +2623,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1839,6 +2638,7 @@ mod test {
       })
       .write_file("/Cargo.toml", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -1859,7 +2659,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1874,6 +2674,7 @@ mod test {
       })
       .write_file("/file.ps", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -1892,7 +2693,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1906,11 +2707,12 @@ mod test {
       })
       .write_file("/src/nested/app.ts", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // the typescript plugin is selected from the nested file
       assert!(text.contains("https://plugins.dprint.dev/typescript-0.17.2.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1926,6 +2728,7 @@ mod test {
       .write_file("/node_modules/dep/app.ts", "")
       .write_file("/.git/hooks/Cargo.toml", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // only the json plugin, which is selected for the config file itself
@@ -1943,7 +2746,7 @@ mod test {
 }
 "#
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1958,10 +2761,11 @@ mod test {
       // hidden directories other than `.git` may hold files worth formatting
       .write_file("/.github/renovate.json", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert!(text.contains("https://plugins.dprint.dev/json-0.2.3.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -1978,6 +2782,7 @@ mod test {
       .write_file("/generated/app.ts", "")
       .write_file("/Cargo.toml", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       // only the json plugin, which is selected for the config file itself
@@ -1995,7 +2800,7 @@ mod test {
 }
 "#
       );
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2009,10 +2814,11 @@ mod test {
       })
       .write_file("/MAIN.TS", "")
       .build();
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert!(text.contains("https://plugins.dprint.dev/typescript-0.17.2.wasm"), "{text}");
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2069,9 +2875,11 @@ mod test {
         }
       })
       .build();
-    environment.set_multi_selection_result(vec![0, 1, 2]);
+    press_keys(&environment, &["down", "space", "down", "down", "space", "enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+      // the json plugin is pre-selected (the config file is JSON), and the
+      // ones selected from the rest go where dprint lists them among it
       assert_eq!(
         text,
         r#"{
@@ -2093,7 +2901,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2106,8 +2914,8 @@ mod test {
         }
       })
       .build();
-    // the pre-selected json plugin is shown first, so this is it
-    environment.set_multi_selection_result(vec![0]);
+    // only the json plugin is pre-selected
+    press_keys(&environment, &["enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -2125,7 +2933,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2138,7 +2946,7 @@ mod test {
         }
       })
       .build();
-    environment.set_multi_selection_result(vec![]);
+    press_keys(&environment, &["space", "enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -2152,7 +2960,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2165,7 +2973,8 @@ mod test {
         }
       })
       .build();
-    environment.set_multi_selection_result(vec![3]);
+    // unselects the json plugin, which is the active one, and selects the last
+    press_keys(&environment, &["space", "down", "down", "space", "enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -2179,7 +2988,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2200,7 +3009,7 @@ mod test {
 }
 "#
       );
-      let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
+      let mut expected_messages = Vec::new();
       expected_messages.push(concat!(
         "There was a problem getting the latest plugin info, so the latest plugins may not be suggested. ",
         "Error: Error downloading https://plugins.dprint.dev/info.json - 404 Not Found"
@@ -2225,7 +3034,7 @@ mod test {
       })
       .build();
     environment.set_selection_result(1);
-    environment.set_multi_selection_result(vec![0]);
+    press_keys(&environment, &["space", "enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -2243,7 +3052,7 @@ mod test {
 "#
       );
 
-      assert_eq!(environment.take_stderr_messages(), get_standard_logged_messages());
+      assert!(environment.take_stderr_messages().is_empty());
     });
   }
 
@@ -2262,7 +3071,7 @@ mod test {
         });
       })
       .build();
-    environment.set_multi_selection_result(vec![0]);
+    press_keys(&environment, &["space", "enter"]);
     environment.clone().run_in_runtime(async move {
       let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
       assert_eq!(
@@ -2277,7 +3086,7 @@ mod test {
 }
 "#
       );
-      let mut expected_messages = get_standard_logged_messages_no_plugin_selection();
+      let mut expected_messages = Vec::new();
       expected_messages.push(concat!(
         "You are using an old version of dprint so the latest plugins may not be suggested. ",
         "Consider upgrading to support new plugins. ",
@@ -2287,12 +3096,865 @@ mod test {
     });
   }
 
-  fn get_standard_logged_messages_no_plugin_selection() -> Vec<&'static str> {
-    vec![]
+  const PREFERENCES_PATH: &str = "/config/dprint/init.json";
+
+  /// Loads the same options for every plugin, counting how often it's asked.
+  struct TestOptionsLoader {
+    options: Vec<SettingsOption>,
+    load_count: Rc<std::cell::Cell<usize>>,
   }
 
-  fn get_standard_logged_messages() -> Vec<&'static str> {
-    vec!["Select plugins (space to toggle, type to filter, enter to finish):"]
+  #[dprint_core::async_runtime::async_trait(?Send)]
+  impl InitPluginOptionsLoader for TestOptionsLoader {
+    async fn load(&self, _plugin_entry: &str) -> Result<Vec<SettingsOption>> {
+      self.load_count.set(self.load_count.get() + 1);
+      Ok(self.options.clone())
+    }
+  }
+
+  fn test_options_loader() -> (Rc<dyn InitPluginOptionsLoader>, Rc<std::cell::Cell<usize>>) {
+    let load_count = Rc::new(std::cell::Cell::new(0));
+    let loader = TestOptionsLoader {
+      options: vec![
+        SettingsOption {
+          name: "lineWidth".to_string(),
+          kind: SettingsOptionKind::Number,
+          default_value: Some(serde_json::json!(120)),
+          value: None,
+          description: None,
+        },
+        SettingsOption {
+          name: "useTabs".to_string(),
+          kind: SettingsOptionKind::Bool,
+          default_value: Some(serde_json::json!(false)),
+          value: None,
+          description: None,
+        },
+      ],
+      load_count: load_count.clone(),
+    };
+    (Rc::new(loader), load_count)
+  }
+
+  fn options_with_loader(options_loader: Rc<dyn InitPluginOptionsLoader>) -> GetInitConfigFileTextOptions {
+    GetInitConfigFileTextOptions {
+      options_loader: Some(options_loader),
+      ..Default::default()
+    }
+  }
+
+  fn non_interactive_options() -> GetInitConfigFileTextOptions {
+    GetInitConfigFileTextOptions {
+      non_interactive: true,
+      ..Default::default()
+    }
+  }
+
+  /// Presses the keys in the prompts that get shown from here on. See
+  /// `ScriptedPromptTerminal::new` for what a key is.
+  fn press_keys(environment: &TestEnvironment, keys: &[&str]) {
+    environment.set_prompt_keys(keys, None).unwrap();
+  }
+
+  /// The items of the first prompt as they were shown before a key was
+  /// pressed, without the space of the cursor.
+  fn take_shown_items(environment: &TestEnvironment) -> Vec<String> {
+    let lines = take_screens(environment).into_iter().next().unwrap_or_default();
+    lines.into_iter().map(|line| line[2..].to_string()).collect()
+  }
+
+  /// What was on the screen after each key under the title and the key help,
+  /// starting with what was shown before the first key.
+  fn take_screens(environment: &TestEnvironment) -> Vec<Vec<String>> {
+    environment
+      .take_prompt_screens()
+      .into_iter()
+      .map(|screen| screen.lines.into_iter().skip(2).collect())
+      .collect()
+  }
+
+  /// Creates the directory of [`PREFERENCES_PATH`], which macOS only uses
+  /// when it's already there.
+  fn create_preferences_dir(environment: &TestEnvironment) {
+    environment.mk_dir_all("/config/dprint").unwrap();
+  }
+
+  fn write_preferences(environment: &TestEnvironment, preferred_plugins: Vec<PreferredPlugin>) {
+    write_init_preferences(
+      environment,
+      &InitPreferences {
+        preferred_plugins,
+        ..Default::default()
+      },
+    )
+    .unwrap();
+  }
+
+  fn preferred(name: &str) -> PreferredPlugin {
+    PreferredPlugin {
+      name: name.to_string(),
+      ..Default::default()
+    }
+  }
+
+  #[test]
+  fn should_pre_select_a_preferred_plugin_over_an_earlier_plugin_for_the_same_files() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "a", &["ts"])).add_plugin(wasm_plugin("b", "b", &["ts"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    press_keys(&environment, &["enter"]);
+    write_preferences(&environment, vec![preferred("b")]);
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let text = get_init_config_file_text(&environment, non_interactive_options()).await.unwrap();
+        assert!(text.contains("b-1.0.0.wasm"), "{text}");
+        assert!(!text.contains("a-1.0.0.wasm"), "{text}");
+
+        // shown first and marked in the prompt
+        get_init_config_file_text(&environment, Default::default()).await.unwrap();
+        assert_eq!(take_shown_items(&environment), vec!["[x] b \u{2605} (.ts)", "[ ] a (.ts)"]);
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_pre_select_preferred_plugins_only_for_files_that_are_present() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        let mut never_preselected = wasm_plugin("c", "c", &["ts"]);
+        never_preselected.never_preselect = true;
+        info
+          .add_plugin(wasm_plugin("a", "a", &["ts"]))
+          .add_plugin(wasm_plugin("b", "b", &["ts", "css"]))
+          .add_plugin(never_preselected)
+          .add_plugin(wasm_plugin("d", "d", &["md"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    press_keys(&environment, &["enter"]);
+    // `c` is preferred ahead of `b`, and there are no files for `d`
+    write_preferences(&environment, vec![preferred("c"), preferred("b"), preferred("d")]);
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        get_init_config_file_text(&environment, Default::default()).await.unwrap();
+        // both preferred plugins for .ts are selected because the user asked for
+        // each of them, which includes the one that's otherwise never pre-selected
+        assert_eq!(
+          take_shown_items(&environment),
+          vec!["[x] c \u{2605} (.ts)", "[x] b \u{2605} (.ts, .css)", "[ ] d \u{2605} (.md)", "[ ] a (.ts)"]
+        );
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_not_pre_select_a_preferred_plugin_for_files_a_config_file_already_handles() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "a", &["ts"])).add_plugin(wasm_plugin("b", "b", &["ts"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    press_keys(&environment, &["enter"]);
+    write_preferences(&environment, vec![preferred("b")]);
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        get_init_plugins_to_add(
+          &environment,
+          GetInitPluginsToAddOptions {
+            existing_plugin_names: Vec::from(["a".to_string()]),
+            minimum_dependency_age: None,
+            config_dir: None,
+            options_loader: None,
+          },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+          take_shown_items(&environment),
+          vec!["[x] a (.ts) \u{2014} already in config", "[ ] b \u{2605} (.ts)"]
+        );
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_not_use_remembered_choices_for_a_plugin_a_config_file_already_has() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info
+          .add_plugin(wasm_plugin("a", "a", &["ts", "yaml"]))
+          .add_plugin(wasm_plugin("b", "b", &["yaml"]));
+      })
+      .write_file("/main.ts", "")
+      .write_file("/data.yaml", "")
+      .build();
+    press_keys(&environment, &["enter"]);
+    write_preferences(
+      &environment,
+      vec![PreferredPlugin {
+        name: "a".to_string(),
+        excluded_file_extensions: vec!["yaml".to_string()],
+        ..Default::default()
+      }],
+    );
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        get_init_plugins_to_add(
+          &environment,
+          GetInitPluginsToAddOptions {
+            existing_plugin_names: Vec::from(["a".to_string()]),
+            minimum_dependency_age: None,
+            config_dir: None,
+            options_loader: None,
+          },
+        )
+        .await
+        .unwrap();
+        // the config file's `a` formats .yaml no matter what was remembered
+        assert_eq!(
+          take_shown_items(&environment),
+          vec!["[x] a \u{2605} (.ts, .yaml) \u{2014} already in config", "[ ] b (.yaml)"]
+        );
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_remember_the_preferred_plugins_in_the_order_they_are_left_in() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info
+          .add_plugin(wasm_plugin("a", "a", &["ts"]))
+          .add_plugin(wasm_plugin("b", "b", &["ts"]))
+          .add_plugin(wasm_plugin("c", "c", &["md"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    create_preferences_dir(&environment);
+    // select `c` and then `b`, which goes ahead of `c` the way it does in the
+    // info file until it's moved
+    press_keys(&environment, &["down", "down", "space", "down", "down", "space", "shift+down", "enter"]);
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        prompt_for_init_preferences(&environment, None).await.unwrap();
+        let screens = take_screens(&environment);
+        // nothing in the directory is highlighted or selected here
+        assert_eq!(screens[0], vec!["> [ ] a (.ts)", "  [ ] b (.ts)", "  [ ] c (.md)"]);
+        // a selected plugin goes up with the others that are
+        assert_eq!(screens[3], vec!["> [x] c (.md)", "  [ ] a (.ts)", "  [ ] b (.ts)"]);
+        assert_eq!(screens[6], vec!["> [x] b (.ts)", "  [x] c (.md)", "  [ ] a (.ts)"]);
+        assert_eq!(screens[7], vec!["  [x] c (.md)", "> [x] b (.ts)", "  [ ] a (.ts)"]);
+        assert!(!environment.path_exists("/dprint.json"));
+        assert_eq!(
+          read_init_preferences(&environment),
+          InitPreferences {
+            preferred_plugins: vec![preferred("c"), preferred("b")],
+            ..Default::default()
+          }
+        );
+        let last_message = environment.take_stdout_messages().pop().unwrap();
+        assert_eq!(last_message.replace('\\', "/"), "\nSaved the plugin preferences to /config/dprint/init.json");
+
+        // the next time `b` is selected instead of `a`, and `c` has no files
+        // here but keeps its place ahead of the plugins that aren't preferred
+        press_keys(&environment, &["enter"]);
+        get_init_config_file_text(&environment, Default::default()).await.unwrap();
+        assert_eq!(
+          take_screens(&environment)[0],
+          vec!["> [x] b \u{2605} (.ts)", "  [ ] c \u{2605} (.md)", "  [ ] a (.ts)"]
+        );
+        // which leaves the order they're preferred in alone, even though
+        // it's not the order they were shown in for this directory
+        assert_eq!(
+          read_init_preferences(&environment),
+          InitPreferences {
+            preferred_plugins: vec![preferred("c"), preferred("b")],
+            ..Default::default()
+          }
+        );
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_forget_a_plugin_that_is_no_longer_preferred_and_keep_unknown_ones() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "a", &["ts"])).add_plugin(wasm_plugin("b", "b", &["ts"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    // `removed` isn't in the info file
+    write_preferences(&environment, vec![preferred("removed"), preferred("b")]);
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        // it stays where it is, so nothing was changed
+        press_keys(&environment, &["enter"]);
+        prompt_for_init_preferences(&environment, None).await.unwrap();
+        assert_eq!(environment.take_stdout_messages(), vec!["\nThe plugin preferences are the same as they were."]);
+        // and it stays ahead of what's selected after it
+        press_keys(&environment, &["down", "space", "enter"]);
+        prompt_for_init_preferences(&environment, None).await.unwrap();
+        assert_eq!(
+          read_init_preferences(&environment),
+          InitPreferences {
+            preferred_plugins: vec![preferred("removed"), preferred("b"), preferred("a")],
+            ..Default::default()
+          }
+        );
+
+        // `b` is listed first, and goes from preferred to avoided to neither
+        press_keys(&environment, &["space", "space", "enter"]);
+        prompt_for_init_preferences(&environment, None).await.unwrap();
+        assert_eq!(
+          read_init_preferences(&environment),
+          InitPreferences {
+            preferred_plugins: vec![preferred("removed"), preferred("a")],
+            ..Default::default()
+          }
+        );
+        environment.take_stdout_messages();
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_not_pre_select_an_avoided_plugin_and_list_it_last() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info
+          .add_plugin(wasm_plugin("a", "a", &["ts"]))
+          .add_plugin(wasm_plugin("b", "b", &["ts"]))
+          .add_plugin(wasm_plugin("c", "c", &["md"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    press_keys(&environment, &["enter"]);
+    let preferences = InitPreferences {
+      avoided_plugins: vec!["a".to_string()],
+      ..Default::default()
+    };
+    write_init_preferences(&environment, &preferences).unwrap();
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        // `b` gets the .ts files `a` would have claimed
+        let text = get_init_config_file_text(&environment, non_interactive_options()).await.unwrap();
+        assert!(text.contains("b-1.0.0.wasm"), "{text}");
+        assert!(!text.contains("a-1.0.0.wasm"), "{text}");
+
+        // and `a` is marked under the plugins that aren't avoided
+        get_init_config_file_text(&environment, Default::default()).await.unwrap();
+        let lines = environment.take_prompt_screens().remove(0).lines;
+        assert!(
+          lines[1].ends_with("\u{2605}: preferred, \u{2717}: avoided (dprint init --preferences)"),
+          "{}",
+          lines[1]
+        );
+        assert_eq!(lines[2..], ["> [x] b (.ts)", "  [ ] c (.md)", "  [ ] a \u{2717} (.ts)"]);
+
+        // a config file that has it still has it handle its files
+        press_keys(&environment, &["enter"]);
+        get_init_plugins_to_add(
+          &environment,
+          GetInitPluginsToAddOptions {
+            existing_plugin_names: Vec::from(["a".to_string()]),
+            minimum_dependency_age: None,
+            config_dir: None,
+            options_loader: None,
+          },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+          take_shown_items(&environment),
+          vec!["[x] a \u{2717} (.ts) \u{2014} already in config", "[ ] b (.ts)", "[ ] c (.md)"]
+        );
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_remember_the_avoided_plugins_and_keep_unknown_ones() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "a", &["ts"])).add_plugin(wasm_plugin("b", "b", &["ts"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    // `removed` isn't in the info file
+    let preferences = InitPreferences {
+      preferred_plugins: vec![preferred("b")],
+      avoided_plugins: vec!["removed".to_string()],
+    };
+    write_init_preferences(&environment, &preferences).unwrap();
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        // `a` goes from neither to preferred to avoided
+        press_keys(&environment, &["down", "space", "space", "enter"]);
+        prompt_for_init_preferences(&environment, None).await.unwrap();
+        assert_eq!(take_screens(&environment)[3], vec!["  [x] b (.ts)", "> [-] a (.ts)"]);
+        assert_eq!(
+          read_init_preferences(&environment),
+          InitPreferences {
+            preferred_plugins: vec![preferred("b")],
+            avoided_plugins: vec!["a".to_string(), "removed".to_string()],
+          }
+        );
+
+        // it starts out avoided at the bottom and goes back to neither
+        press_keys(&environment, &["down", "space", "enter"]);
+        prompt_for_init_preferences(&environment, None).await.unwrap();
+        assert_eq!(take_screens(&environment)[0], vec!["> [x] b (.ts)", "  [-] a (.ts)"]);
+        assert_eq!(read_init_preferences(&environment), preferences);
+        environment.take_stdout_messages();
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_not_save_preferences_when_non_interactive_or_they_were_not_changed() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "a", &["ts"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    press_keys(&environment, &["enter"]);
+    create_preferences_dir(&environment);
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        get_init_config_file_text(&environment, non_interactive_options()).await.unwrap();
+        get_init_config_file_text(&environment, Default::default()).await.unwrap();
+        assert!(!environment.path_exists(PREFERENCES_PATH));
+
+        // selecting and moving the config file's plugins isn't remembered
+        press_keys(&environment, &["space", "shift+down", "enter"]);
+        get_init_config_file_text(&environment, Default::default()).await.unwrap();
+        assert!(!environment.path_exists(PREFERENCES_PATH));
+
+        // and neither is what was done to the preferred plugins before cancelling
+        press_keys(&environment, &["space", "esc"]);
+        let err = prompt_for_init_preferences(&environment, None).await.unwrap_err();
+        assert_eq!(err.to_string(), "Selection cancelled.");
+        assert!(!environment.path_exists(PREFERENCES_PATH));
+
+        // saving them unchanged doesn't write anything either
+        press_keys(&environment, &["enter"]);
+        prompt_for_init_preferences(&environment, None).await.unwrap();
+        assert!(!environment.path_exists(PREFERENCES_PATH));
+        assert_eq!(environment.take_stdout_messages(), vec!["\nThe plugin preferences are the same as they were."]);
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_write_negated_associations_for_the_files_the_user_said_to_leave_out() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        let mut plugin = wasm_plugin("a", "a", &["ts", "yaml", "YML"]);
+        plugin.file_names = Some(vec!["Dockerfile".to_string()]);
+        plugin.default_config = Some(serde_json::json!({ "associations": ["**/*.custom"] }));
+        info.add_plugin(plugin).add_plugin(wasm_plugin("b", "b", &["yaml"]));
+      })
+      .write_file("/main.ts", "")
+      .write_file("/data.yaml", "")
+      .build();
+    // open `a` and uncheck everything apart from .ts
+    press_keys(&environment, &["right", "down", "space", "down", "space", "down", "space", "left", "enter"]);
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+        let screens = take_screens(&environment);
+        // no loader was provided and nothing was chosen yet
+        assert_eq!(
+          screens[1],
+          vec!["  Files to format:", "> [x] .ts", "  [x] .yaml", "  [x] .YML", "  [x] Dockerfile"]
+        );
+        // the selection isn't changed by what was done in the editor, so `b`
+        // isn't selected for the .yaml file this time
+        assert_eq!(screens[8], vec!["> [x] a (.ts) \u{2014} customized", "  [ ] b (.yaml)"]);
+        assert_eq!(
+          text,
+          r#"{
+  "a": {
+    "associations": ["**/*.custom", "!**/*.yaml", "!**/*.YML", "!**/Dockerfile"]
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/a-1.0.0.wasm"
+  ]
+}
+"#
+        );
+        // what's chosen for the config file's plugins is never remembered
+        assert!(!environment.path_exists(PREFERENCES_PATH));
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_remember_the_files_left_out_of_a_preferred_plugin() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info
+          .add_plugin(wasm_plugin("a", "a", &["ts", "yaml"]))
+          .add_plugin(wasm_plugin("b", "b", &["yaml"]));
+      })
+      .write_file("/main.ts", "")
+      .write_file("/data.yaml", "")
+      .build();
+    // open `a` to uncheck .yaml, which selects it
+    press_keys(&environment, &["right", "down", "space", "left", "enter"]);
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        prompt_for_init_preferences(&environment, None).await.unwrap();
+        let screens = take_screens(&environment);
+        assert_eq!(screens[4], vec!["> [x] a (.ts) \u{2014} customized", "  [ ] b (.yaml)"]);
+        environment.take_stdout_messages();
+        assert_eq!(
+          read_init_preferences(&environment),
+          InitPreferences {
+            preferred_plugins: vec![PreferredPlugin {
+              name: "a".to_string(),
+              excluded_file_extensions: vec!["yaml".to_string()],
+              ..Default::default()
+            }],
+            ..Default::default()
+          }
+        );
+
+        // the next time `a` doesn't claim .yaml, so `b` is selected for it
+        let text = get_init_config_file_text(&environment, non_interactive_options()).await.unwrap();
+        assert_eq!(
+          text,
+          r#"{
+  "a": {
+    "associations": ["!**/*.yaml"]
+  },
+  "b": {
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/a-1.0.0.wasm",
+    "https://plugins.dprint.dev/b-1.0.0.wasm"
+  ]
+}
+"#
+        );
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_not_scaffold_a_config_item_for_files_the_user_said_to_leave_out() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(exec_info_plugin());
+      })
+      .write_file("/main.rs", "")
+      .write_file("/main.go", "")
+      .build();
+    // open the plugin and uncheck .go
+    press_keys(&environment, &["right", "down", "space", "left", "enter"]);
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let text = get_init_config_file_text(&environment, Default::default()).await.unwrap();
+        assert_eq!(take_screens(&environment)[1][..3], ["  Files to format:", "> [x] .rs", "  [x] .go"]);
+        // the plugin doesn't match .go on its own, so there's nothing to negate
+        assert!(text.contains("rustfmt"), "{text}");
+        assert!(!text.contains("gofmt"), "{text}");
+        assert!(!text.contains("associations"), "{text}");
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_write_and_remember_the_options_the_user_changed() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        let mut plugin = wasm_plugin("a", "a", &["ts"]);
+        plugin.default_config = Some(serde_json::json!({ "lineWidth": 100, "commands": ["x"] }));
+        info.add_plugin(plugin);
+      })
+      .write_file("/main.ts", "")
+      .build();
+    let (options_loader, load_count) = test_options_loader();
+    press_keys(
+      &environment,
+      &[
+        "right",
+        "wait",
+        // change the line width to 80
+        "down",
+        "enter",
+        "backspace",
+        "backspace",
+        "backspace",
+        "\"80\"",
+        "enter",
+        // have this written even though it's the default
+        "down",
+        "tab",
+        "left",
+        "enter",
+      ],
+    );
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        prompt_for_init_preferences(&environment, Some(options_loader.clone())).await.unwrap();
+        environment.take_stdout_messages();
+        assert_eq!(load_count.get(), 1);
+        assert_eq!(
+          take_screens(&environment)[2],
+          vec!["  Files to format:", "> [x] .ts", "  Options:", "    lineWidth: 120", "    useTabs: false"]
+        );
+        let expected_text = r#"{
+  "a": {
+    "lineWidth": 80,
+    "commands": ["x"],
+    "useTabs": false
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/a-1.0.0.wasm"
+  ]
+}
+"#;
+        let expected_preferences = InitPreferences {
+          preferred_plugins: vec![PreferredPlugin {
+            name: "a".to_string(),
+            config: serde_json::json!({ "lineWidth": 80, "useTabs": false }).as_object().unwrap().clone(),
+            ..Default::default()
+          }],
+          ..Default::default()
+        };
+        assert_eq!(read_init_preferences(&environment), expected_preferences);
+
+        // the next time it's written without anything being downloaded
+        let text = get_init_config_file_text(&environment, non_interactive_options()).await.unwrap();
+        assert_eq!(text, expected_text);
+        assert_eq!(load_count.get(), 1);
+
+        // and the editor starts out with what was remembered, where resetting
+        // the line width to its default is only for this config file
+        press_keys(&environment, &["right", "wait", "down", "delete", "left", "enter"]);
+        let text = get_init_config_file_text(&environment, options_with_loader(options_loader)).await.unwrap();
+        assert!(text.contains("\"lineWidth\": 100"), "{text}");
+        let screens = take_screens(&environment);
+        assert_eq!(
+          screens[2],
+          vec![
+            "  Files to format:",
+            "> [x] .ts",
+            "  Options:",
+            "    lineWidth: 80",
+            "    useTabs: false (default, written)"
+          ]
+        );
+        assert_eq!(screens[5], vec!["> [x] a \u{2605} (.ts) \u{2014} customized"]);
+        assert_eq!(read_init_preferences(&environment), expected_preferences);
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_keep_the_options_when_the_user_leaves_before_they_load() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "a", &["ts", "js"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    write_preferences(
+      &environment,
+      vec![PreferredPlugin {
+        name: "a".to_string(),
+        config: serde_json::json!({ "lineWidth": 80 }).as_object().unwrap().clone(),
+        ..Default::default()
+      }],
+    );
+    let (options_loader, load_count) = test_options_loader();
+    // the files can be changed while the options load
+    press_keys(&environment, &["right", "down", "space", "left", "enter"]);
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let text = get_init_config_file_text(&environment, options_with_loader(options_loader)).await.unwrap();
+        // what was loading the options was dropped without being started
+        assert_eq!(load_count.get(), 0);
+        assert_eq!(
+          take_screens(&environment)[3],
+          vec![
+            "  Files to format:",
+            "  [x] .ts",
+            "> [ ] .js",
+            "  Options:",
+            "    Downloading the plugin to get its options... (\u{2190} to cancel)"
+          ]
+        );
+        assert_eq!(
+          text,
+          r#"{
+  "a": {
+    "lineWidth": 80,
+    "associations": ["!**/*.js"]
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/a-1.0.0.wasm"
+  ]
+}
+"#
+        );
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_only_load_the_options_of_a_plugin_once() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(wasm_plugin("a", "a", &["ts"]));
+      })
+      .write_file("/main.ts", "")
+      .build();
+    let (options_loader, load_count) = test_options_loader();
+    press_keys(
+      &environment,
+      &[
+        "right",
+        "wait",
+        // change the line width to 80
+        "down",
+        "enter",
+        "backspace",
+        "backspace",
+        "backspace",
+        "\"80\"",
+        "enter",
+        "left",
+        // the options are there right away the second time
+        "right",
+        "left",
+        "enter",
+      ],
+    );
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let text = get_init_config_file_text(&environment, options_with_loader(options_loader)).await.unwrap();
+        assert_eq!(load_count.get(), 1);
+        assert_eq!(
+          take_screens(&environment)[11],
+          vec!["  Files to format:", "> [x] .ts", "  Options:", "    lineWidth: 80", "    useTabs: false"]
+        );
+        assert!(text.contains("\"lineWidth\": 80"), "{text}");
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn should_provide_what_was_chosen_for_a_plugin_added_to_an_existing_config_file() {
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        let mut plugin = wasm_plugin("b", "b", &["json", "jsonc"]);
+        // nothing is scaffolded when adding to a config file
+        plugin.default_config = Some(serde_json::json!({ "scaffolded": true }));
+        info
+          .add_plugin(wasm_plugin("a", "a", &["ts"]))
+          .add_plugin(plugin)
+          .add_plugin(wasm_plugin("c", "c", &["md"]));
+      })
+      .write_file("/README.md", "")
+      .build();
+    let (options_loader, _) = test_options_loader();
+    // open `b` to uncheck .jsonc and turn on `useTabs`
+    press_keys(&environment, &["right", "wait", "down", "space", "down", "down", "space", "left", "enter"]);
+    environment.clone().run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let plugins = get_init_plugins_to_add(
+          &environment,
+          GetInitPluginsToAddOptions {
+            existing_plugin_names: Vec::from(["a".to_string()]),
+            minimum_dependency_age: None,
+            config_dir: None,
+            options_loader: Some(options_loader),
+          },
+        )
+        .await
+        .unwrap();
+        let InitPluginsToAdd::Plugins(plugins) = plugins else {
+          unreachable!();
+        };
+        assert_eq!(
+          plugins,
+          vec![
+            InitPluginToAdd {
+              entry: "https://plugins.dprint.dev/b-1.0.0.wasm".to_string(),
+              before: None,
+              config: Some(("b".to_string(), serde_json::json!({ "useTabs": true, "associations": ["!**/*.jsonc"] }))),
+            },
+            InitPluginToAdd {
+              entry: "https://plugins.dprint.dev/c-1.0.0.wasm".to_string(),
+              before: None,
+              config: None,
+            },
+          ]
+        );
+        environment.take_stderr_messages();
+      }
+    });
+  }
+
+  #[test]
+  fn display_order_shows_preferred_plugins_first_in_each_group() {
+    // 3 then 1 are preferred
+    let ranks = plugin_ranks(5, &[3, 1], &[]);
+    assert_eq!(display_order(&[true, true, false, true, false], &[], &ranks), vec![3, 1, 0, 2, 4]);
+    assert_eq!(display_order(&[true, false, false, true, false], &[], &ranks), vec![3, 0, 1, 2, 4]);
+    assert_eq!(display_order(&[true, false, false, false, false], &[3], &ranks), vec![3, 0, 1, 2, 4]);
+  }
+
+  #[test]
+  fn plugin_ranks_put_avoided_plugins_last() {
+    // 3 then 1 are preferred and 0 and 2 are avoided
+    assert_eq!(plugin_ranks(5, &[3, 1], &[0, 2]), vec![3, 1, 4, 0, 2]);
+    // and they're shown under the plugins that aren't avoided
+    let ranks = plugin_ranks(4, &[], &[0]);
+    assert_eq!(display_order(&[false, true, false, false], &[], &ranks), vec![1, 2, 3, 0]);
   }
 
   fn get_multi_plugins_config() -> Vec<TestInfoFilePlugin> {

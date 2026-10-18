@@ -14,6 +14,7 @@ use jsonc_parser::cst::CstObject;
 use jsonc_parser::cst::CstRootNode;
 use jsonc_parser::json;
 
+use super::get_init_config_file_text::to_cst_input;
 use crate::plugins::PluginSourceReference;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
@@ -164,6 +165,100 @@ pub fn add_plugins_to_config(file_text: &str, npm_packages_to_replace: &[String]
   }
 
   Ok(root_node.to_string())
+}
+
+/// The text of each element in the config's own `plugins` array, which is
+/// nothing for an element that isn't a string.
+pub fn get_plugin_entries_in_config(file_text: &str) -> Result<Vec<Option<String>>> {
+  let root_node = CstRootNode::parse(file_text, &Default::default()).context("Failed parsing config file.")?;
+  let Some(plugins) = root_node.object_value().and_then(|obj| obj.array_value("plugins")) else {
+    return Ok(Vec::new());
+  };
+  Ok(
+    plugins
+      .elements()
+      .into_iter()
+      .map(|element| match element {
+        CstNode::Leaf(CstLeafNode::StringLit(string_lit)) => string_lit.decoded_value().ok(),
+        _ => None,
+      })
+      .collect(),
+  )
+}
+
+/// A plugin to put in a config's `plugins` array.
+pub struct PluginEntryToInsert {
+  pub entry: String,
+  /// Index of the element the array has now that this one goes ahead of. It
+  /// goes after all of them without one.
+  pub before_index: Option<usize>,
+}
+
+/// Inserts plugins into the config's `plugins` array, which is created when
+/// the config doesn't have one. The plugins need to be in the order they go
+/// in, so with the ones for the end of the array last.
+pub fn insert_plugins_in_config(file_text: &str, plugins_to_insert: &[PluginEntryToInsert]) -> Result<String> {
+  let root_node = CstRootNode::parse(file_text, &Default::default()).context("Failed parsing config file.")?;
+  if plugins_to_insert.is_empty() {
+    return Ok(root_node.to_string());
+  }
+  let plugins = root_node.object_value_or_set().array_value_or_set("plugins");
+  plugins.ensure_multiline();
+  let element_count = plugins.elements().len();
+  for (inserted_count, plugin) in plugins_to_insert.iter().enumerate() {
+    match plugin.before_index.filter(|index| *index < element_count) {
+      // everything inserted so far went ahead of this index
+      Some(index) => plugins.insert(index + inserted_count, json!(plugin.entry.as_str())),
+      None => plugins.append(json!(plugin.entry.as_str())),
+    };
+  }
+  Ok(root_node.to_string())
+}
+
+pub struct AddPluginConfigBlocksResult {
+  pub new_text: String,
+  /// The config keys of the blocks that weren't added because the config file
+  /// already has a property with that name.
+  pub skipped_keys: Vec<String>,
+}
+
+/// Adds config blocks for plugins to the config file text, each a config key
+/// and the block's value. A block goes ahead of the `excludes` and `plugins`
+/// properties when the file has them, which is where `dprint init` puts the
+/// config blocks of a new config file. A property the file already has is
+/// left alone since it's not known how the user wants the two combined.
+pub fn add_plugin_config_blocks(file_text: &str, blocks: &[(String, serde_json::Value)]) -> Result<AddPluginConfigBlocksResult> {
+  let mut skipped_keys = Vec::new();
+  if blocks.is_empty() {
+    return Ok(AddPluginConfigBlocksResult {
+      new_text: file_text.to_string(),
+      skipped_keys,
+    });
+  }
+
+  let root_node = CstRootNode::parse(file_text, &Default::default()).context("Failed parsing config file.")?;
+  let root_obj = root_node.object_value_or_set();
+  for (config_key, config) in blocks {
+    if root_obj.get(config_key).is_some() {
+      skipped_keys.push(config_key.clone());
+      continue;
+    }
+    let insert_index = ["excludes", "plugins"]
+      .into_iter()
+      .filter_map(|name| root_obj.get(name))
+      .map(|prop| prop.property_index())
+      .min();
+    let value = to_cst_input(config.clone());
+    match insert_index {
+      Some(index) => root_obj.insert(index, config_key, value),
+      None => root_obj.append(config_key, value),
+    };
+  }
+
+  Ok(AddPluginConfigBlocksResult {
+    new_text: root_node.to_string(),
+    skipped_keys,
+  })
 }
 
 #[derive(Default)]
@@ -407,6 +502,105 @@ mod test {
   use pretty_assertions::assert_eq;
 
   use super::*;
+
+  #[test]
+  fn insert_plugins_in_config_puts_them_ahead_of_the_elements_they_go_before() {
+    let to_insert = |entry: &str, before_index: Option<usize>| PluginEntryToInsert {
+      entry: entry.to_string(),
+      before_index,
+    };
+    let file_text = r#"{
+  "plugins": [
+    // the first one
+    "a",
+    "b"
+  ]
+}
+"#;
+    assert_eq!(
+      get_plugin_entries_in_config(file_text).unwrap(),
+      vec![Some("a".to_string()), Some("b".to_string())]
+    );
+    assert_eq!(
+      insert_plugins_in_config(
+        file_text,
+        &[to_insert("1", Some(0)), to_insert("2", Some(0)), to_insert("3", Some(1)), to_insert("4", None)]
+      )
+      .unwrap(),
+      r#"{
+  "plugins": [
+    "1",
+    "2",
+    // the first one
+    "a",
+    "3",
+    "b",
+    "4"
+  ]
+}
+"#
+    );
+    // an index the array doesn't have is the end of it
+    assert_eq!(
+      insert_plugins_in_config("{\n}\n", &[to_insert("1", Some(2))]).unwrap(),
+      "{\n  \"plugins\": [\n    \"1\"\n  ]\n}\n"
+    );
+    assert_eq!(get_plugin_entries_in_config("{\n}\n").unwrap(), Vec::new());
+  }
+
+  #[test]
+  fn add_plugin_config_blocks_adds_them_ahead_of_the_excludes_and_plugins() {
+    let result = add_plugin_config_blocks(
+      r#"{
+  // comment
+  "typescript": {
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-0.17.2.wasm"
+  ]
+}
+"#,
+      &[
+        ("json".to_string(), serde_json::json!({ "indentWidth": 2 })),
+        ("typescript".to_string(), serde_json::json!({ "lineWidth": 80 })),
+        ("markdown".to_string(), serde_json::json!({ "associations": ["!**/*.mdx"] })),
+      ],
+    )
+    .unwrap();
+    // the property the file already had wasn't touched
+    assert_eq!(result.skipped_keys, vec!["typescript".to_string()]);
+    assert_eq!(
+      result.new_text,
+      r#"{
+  // comment
+  "typescript": {
+  },
+  "json": {
+    "indentWidth": 2
+  },
+  "markdown": {
+    "associations": ["!**/*.mdx"]
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-0.17.2.wasm"
+  ]
+}
+"#
+    );
+  }
+
+  #[test]
+  fn add_plugin_config_blocks_appends_them_without_excludes_or_plugins() {
+    let result = add_plugin_config_blocks("{\n}\n", &[("json".to_string(), serde_json::json!({ "indentWidth": 2 }))]).unwrap();
+    assert!(result.skipped_keys.is_empty());
+    assert_eq!(result.new_text, "{\n  \"json\": {\n    \"indentWidth\": 2\n  }\n}\n");
+
+    // nothing to add
+    let result = add_plugin_config_blocks("{ not parsed", &[]).unwrap();
+    assert_eq!(result.new_text, "{ not parsed");
+  }
 
   #[test]
   fn is_change_covers_version_bumps_and_moves_to_npm() {
