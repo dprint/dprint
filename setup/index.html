@@ -92,6 +92,10 @@
     </li>
   
     <li>
+      <a href="/plugins/sql">SQL</a>
+    </li>
+  
+    <li>
       <a href="/plugins/rustfmt">Rustfmt</a>
     </li>
   
@@ -248,7 +252,19 @@
 <p>Open a terminal in the root directory of your project and run the following command:</p>
 <pre><code class="language-sh hljs language-bash">dprint init
 </code></pre>
-<p>This will create a <em>dprint.json</em> file in the current working directory. If you are connected to the internet, it will prompt you to select from the latest plugins, pre-selecting the ones that match the files found in the current directory. Use the spacebar to toggle a plugin, type to filter the list, and press enter when finished.</p>
+<p>This will create a <em>dprint.json</em> file in the current working directory. If you are connected to the internet, it will prompt you to select from the latest plugins, pre-selecting the ones that match the files found in the current directory. Use the spacebar to toggle a plugin, type to filter the list, and press enter when finished. Press the right arrow on a plugin to change which files it formats and its options, and hold shift with the up or down arrow to change the order of the selected plugins.</p>
+<p>If the directory already has a configuration file, <code>dprint init</code> adds the selected plugins to it instead.</p>
+<h3 id="init-preferences" tabindex="-1"><a class="header-anchor" href="#init-preferences">Init preferences</a></h3>
+<p>If you find yourself making the same choices every time you run <code>dprint init</code>, you can save them by running:</p>
+<pre><code class="language-sh hljs language-bash">dprint init --preferences
+</code></pre>
+<p>This opens a prompt that only changes your preferences, without creating a configuration file or looking at the files in the current directory. Press the spacebar on a plugin to cycle it between preferred, avoided, and neither.</p>
+<ul>
+<li><strong>Preferred</strong> plugins are pre-selected ahead of other plugins that format the same files, in the order you put them. For example, preferring Biome means it's selected instead of the TypeScript plugin in a project with TypeScript files. Press the right arrow on a preferred plugin to choose which files it formats and the options it's initialized with.</li>
+<li><strong>Avoided</strong> plugins are never pre-selected and are listed last, so the next plugin for their files is selected instead. They can still be selected manually.</li>
+</ul>
+<p>Press enter to save or escape to cancel. In the <code>dprint init</code> prompt, preferred plugins are marked with ★ and avoided ones with ✗.</p>
+<p>The preferences are saved to an <em>init.json</em> file in the <a href="/global-config">global configuration directory</a> and are used by <code>dprint init</code> from then on, including with <code>--yes</code>.</p>
 <h3 id="non-interactive-init" tabindex="-1"><a class="header-anchor" href="#non-interactive-init">Non-interactive init</a></h3>
 <p>Pass the <code>--yes</code> or <code>-y</code> flag to skip the prompt and accept the plugins selected based on the files in the current directory. This is useful in scripts:</p>
 <pre><code class="language-sh hljs language-bash">dprint init --<span class="hljs-built_in">yes</span>
@@ -258,6 +274,8 @@
 <p>Create a <em>dprint.json</em>/<em>dprint.jsonc</em> or hidden <em>.dprint.json</em>/<em>.dprint.jsonc</em> file in the root directory of the project and read the <a href="/config">configuration documentation</a>.</p>
 <h2 id="hidden-config-file" tabindex="-1"><a class="header-anchor" href="#hidden-config-file">Hidden Config File</a></h2>
 <p>The dprint CLI supports a default hidden configuration at <em>.dprint.json</em> or <em>.dprint.jsonc</em>.</p>
+<h2 id=".config-directory" tabindex="-1"><a class="header-anchor" href="#.config-directory"><code>.config</code> Directory</a></h2>
+<p>To keep it out of the root directory of the project, the configuration file may instead be placed in a <em>.config</em> directory at <em>.config/dprint.json</em> or <em>.config/dprint.jsonc</em>. The <em>.config</em> directory is treated as part of its parent directory, so the configuration file applies to the parent directory and is found when running dprint from anywhere within it, including from within the <em>.config</em> directory.</p>
 <h2 id="custom-config-file-location" tabindex="-1"><a class="header-anchor" href="#custom-config-file-location">Custom Config File Location</a></h2>
 <p>It is recommended to use an auto-discoverable dprint configuration file name (ex. <em>dprint.json</em>) as the location of your configuration file because it will be automatically picked up by the CLI and editor plugins. If you place it in another other location then it will need to be manually specified using the <code>--config &lt;path&gt;</code> or <code>-c &lt;path&gt;</code> flag whenever you run a command.</p>
 <h3 id="dprint-init-with-custom-config-file-location" tabindex="-1"><a class="header-anchor" href="#dprint-init-with-custom-config-file-location"><code>dprint init</code> with custom config file location</a></h3>
