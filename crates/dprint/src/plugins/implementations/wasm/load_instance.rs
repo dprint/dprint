@@ -323,6 +323,29 @@ mod tests {
   }
 
   #[test]
+  fn runs_module_with_exception_handling() {
+    // NativeAOT-LLVM plugins built with WasmEnableExceptionHandling throw and catch with exnref
+    let (mut store, instance) = load(
+      r#"(tag $e (param i32))
+         (func $thrower (param i32) (throw $e (local.get 0)))
+         (func (export "rethrows") (param i32) (result i32)
+           (block $outer (result i32)
+             (try_table (catch $e $outer)
+               (block $caught (result i32 exnref)
+                 (try_table (catch_ref $e $caught)
+                   (call $thrower (local.get 0)))
+                 (unreachable))
+               (throw_ref))
+             (i32.const -1)))"#,
+    )
+    .unwrap();
+    let mut results = [Val::I32(0)];
+    let rethrows = instance.get_function(&mut store, "rethrows").unwrap();
+    rethrows.call(&mut store, &[Val::I32(7)], &mut results).unwrap();
+    assert_eq!(results[0].unwrap_i32(), 7);
+  }
+
+  #[test]
   fn errors_for_unknown_import() {
     let err = load(r#"(import "dprint" "host_unknown" (func))"#).err().unwrap();
     let text = format!("{:#}", err);
