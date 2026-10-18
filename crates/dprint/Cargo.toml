@@ -71,9 +71,12 @@ rkyv = "=0.8.15"
 
 # wasm plugin runtime (wasmtime). default features are disabled to keep the
 # binary small — we only need to compile and run modules synchronously;
-# component-model, async, winch, the wat parser, wasm GC, the on-disk cache and
-# the pooling allocator are all unused. `parallel-compilation` compiles a
-# module's functions in parallel on the rayon pool the compile is run in.
+# component-model, async, winch, the wat parser, the on-disk cache and the
+# pooling allocator are all unused. `parallel-compilation` compiles a module's
+# functions in parallel on the rayon pool the compile is run in. `gc` is needed
+# for the exception-handling proposal, whose exceptions live on the GC heap
+# (plugins compiled with NativeAOT-LLVM's WasmEnableExceptionHandling use it);
+# `gc-drc` is the collector for them, as exceptions hold no cycles.
 
 # most targets: native Cranelift codegen.
 [target.'cfg(not(any(target_arch = "powerpc64", target_arch = "loongarch64", target_os = "android")))'.dependencies]
@@ -85,6 +88,8 @@ wasmtime = { version = "=49.0.2", default-features = false, features = [
   "anyhow",
   "demangle",
   "addr2line",
+  "gc",
+  "gc-drc",
 ] }
 
 # powerpc64/loongarch64 have no native Cranelift backend, and the Android sandbox
@@ -100,6 +105,8 @@ wasmtime = { version = "=49.0.2", default-features = false, features = [
   "anyhow",
   "demangle",
   "addr2line",
+  "gc",
+  "gc-drc",
   "pulley",
 ] }
 
