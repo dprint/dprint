@@ -481,7 +481,7 @@ A remote configuration file is cached and used until it expires according to the
 
 ## Directory Specific Configuration
 
-Useful for monorepos, you may place additional configuration files in descendant directories. When dprint searches for files to format, it stops descending into a directory once it discovers a configuration file there and uses that configuration file for the files in that subtree instead (see [changing config discovery](/cli#changing-config-discovery)).
+Useful for monorepos, you may place additional configuration files in descendant directories, including in a descendant directory's [_.config_ directory](/setup#.config-directory). When dprint searches for files to format, it stops descending into a directory once it discovers a configuration file there and uses that configuration file for the files in that subtree instead (see [changing config discovery](/cli#changing-config-discovery)).
 
 By default a nested configuration file is completely independent—it does not pick up the plugins or configuration of the ancestor configuration file:
 

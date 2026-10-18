@@ -451,9 +451,6 @@ pub fn new_config_glob_pattern(pattern: String, config_bases: ConfigPatternBases
   GlobPattern::new(relative_pattern, base_dir)
 }
 
-/// Gets whether the non-negated pattern matches at any depth (ex. `**/*.ts`,
-/// `dist`) as opposed to being anchored to a directory (ex. `src/**/*.ts`,
-/// `./dist`, `../other`).
 /// Makes a config pattern relative to a directory relative to the descendant
 /// directory the provided number of levels below it instead. Only anchored
 /// patterns change because floating ones match at any depth.
@@ -467,6 +464,9 @@ pub fn relative_to_descendant_dir(pattern: String, levels: usize) -> String {
   format!("{}{}{}", negation, "../".repeat(levels), path)
 }
 
+/// Gets whether the non-negated pattern matches at any depth (ex. `**/*.ts`,
+/// `dist`) as opposed to being anchored to a directory (ex. `src/**/*.ts`,
+/// `./dist`, `../other`).
 fn is_floating_pattern(non_negated_pattern: &str) -> bool {
   let pattern = non_negated_pattern;
   if pattern == "**" || pattern.starts_with("**/") {

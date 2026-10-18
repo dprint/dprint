@@ -77,7 +77,9 @@ Patterns that match at any depth (ex. `**/*.ts` or `node_modules`) match within 
 }
 ```
 
-A configuration file directly in the directory takes precedence over one in its _.config_ directory. The _.config_ directory in your home directory is not searched, since that's where system-wide configuration goes.
+Relative paths to plugins and in `extends` are also relative to the configuration file.
+
+A configuration file directly in the directory takes precedence over one in its _.config_ directory. The _.config_ directory in your home directory is not searched, since that's where your user configuration goes.
 
 ## Custom Config File Location
 

@@ -4681,6 +4681,48 @@ text2"
   }
 
   #[test]
+  fn should_format_with_associations_in_dot_config_dir_config() {
+    // the association globs are relative to the config file's directory the
+    // same as its includes, including for the includes derived from them
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_local_config("/.config/dprint.json", |config_file| {
+        config_file
+          .add_remote_wasm_plugin()
+          .add_config_section("test-plugin", r#"{ "associations": ["../src/**/*.other"], "ending": "wasm" }"#);
+      })
+      .initialize()
+      .write_file("/file.txt", "text")
+      .write_file("/src/file.other", "text")
+      .write_file("/.config/src/file.other", "text")
+      .write_file("/file.other", "text")
+      .build();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_plural_formatted_text(2)]);
+    assert_eq!(environment.read_file("/file.txt").unwrap(), "text_wasm");
+    assert_eq!(environment.read_file("/src/file.other").unwrap(), "text_wasm");
+    assert_eq!(environment.read_file("/.config/src/file.other").unwrap(), "text");
+    assert_eq!(environment.read_file("/file.other").unwrap(), "text");
+  }
+
+  #[test]
+  fn should_ignore_dot_config_file() {
+    // a `.config` that's a file isn't a directory to search
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|config_file| {
+        config_file.add_remote_wasm_plugin();
+      })
+      .write_file("/sub/.config", "text")
+      .write_file("/sub/file.txt", "text")
+      .build();
+    environment.set_cwd("/sub/");
+    run_test_cli(vec!["fmt", "--allow-no-files"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    assert_eq!(environment.read_file("/sub/file.txt").unwrap(), "text_formatted");
+    assert_eq!(environment.read_file("/sub/.config").unwrap(), "text");
+  }
+
+  #[test]
   fn should_not_search_dot_config_dir_of_home_dir() {
     // the home directory's `.config` is where the system's configuration goes
     let environment = TestEnvironmentBuilder::new()

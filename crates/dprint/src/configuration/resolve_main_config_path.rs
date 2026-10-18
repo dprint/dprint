@@ -33,6 +33,10 @@ pub struct ResolvedConfigPathWithText {
   pub is_first_download: bool,
   pub content: String,
   pub base_path: CanonicalizedPathBuf,
+  /// The directory the config file's anchored patterns (ex. `./src/**`) are
+  /// relative to when it's not the base path, which is the `.config`
+  /// directory for a config file in one.
+  pub anchored_patterns_base_path: Option<CanonicalizedPathBuf>,
   pub is_global_config: bool,
 }
 
@@ -59,12 +63,14 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
     let maybe_config_file = get_config_file_in_dir(&start_search_dir, environment)?;
 
     if let Some((path, content)) = maybe_config_file {
+      let anchored_patterns_base_path = get_found_config_file_anchored_patterns_dir(&start_search_dir, start_search_dir.as_ref(), &path);
       let path = environment.canonicalize(path)?;
       Ok(Some(ResolvedConfigPathWithText {
         source: PathSource::new_local(path),
         is_first_download: false,
         content,
         base_path: start_search_dir,
+        anchored_patterns_base_path,
         is_global_config: false,
       }))
     } else {
@@ -95,15 +101,28 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
       .into_text()?;
     // a local config file's patterns are relative to its directory, the same as
     // when it's discovered, but a remote or npm config file has no directory
-    let base_path = match &resolved_file.source {
-      PathSource::Local(source) => get_config_file_base_dir(environment, &source.path).unwrap_or(cwd),
-      PathSource::Remote(_) | PathSource::Npm(_) => cwd,
+    let dirs = match &resolved_file.source {
+      PathSource::Local(source) => {
+        // use the path as specified when it's a plain file path (see `resolve_local_config_file_dirs`)
+        let is_file_path = !config.starts_with("~/") && !config.starts_with("file:");
+        let specified_path = if is_file_path {
+          cwd.as_ref().join(config)
+        } else {
+          source.path.as_ref().to_path_buf()
+        };
+        resolve_local_config_file_dirs(environment, &specified_path)?
+      }
+      PathSource::Remote(_) | PathSource::Npm(_) => LocalConfigFileDirs {
+        base_path: cwd,
+        anchored_patterns_base_path: None,
+      },
     };
     Ok(Some(ResolvedConfigPathWithText {
       content: resolved_file.content,
       source: resolved_file.source,
       is_first_download: resolved_file.is_first_download,
-      base_path,
+      base_path: dirs.base_path,
+      anchored_patterns_base_path: dirs.anchored_patterns_base_path,
       is_global_config: false,
     }))
   } else if matches!(config_discovery, ConfigDiscovery::Global) {
@@ -176,6 +195,7 @@ fn resolve_global_config_path_and_text_detail(environment: &impl Environment) ->
         is_first_download: false,
         content,
         base_path: environment.cwd(),
+        anchored_patterns_base_path: None,
         is_global_config: true,
       }));
     }
@@ -272,11 +292,13 @@ pub fn get_default_config_file_in_ancestor_directories(environment: &impl Enviro
   // a `.config` directory is searched as part of its parent directory, which is next
   for ancestor_dir in start_dir.ancestors().filter(|dir| !is_dot_config_dir(environment, dir)) {
     if let Some((ancestor_config_path, content)) = get_config_file_in_dir(ancestor_dir, environment)? {
+      let base_path = environment.canonicalize(ancestor_dir)?;
       return Ok(Some(ResolvedConfigPathWithText {
-        source: PathSource::new_local(environment.canonicalize(ancestor_config_path)?),
+        source: PathSource::new_local(environment.canonicalize(&ancestor_config_path)?),
         is_first_download: false,
         content,
-        base_path: environment.canonicalize(ancestor_dir)?,
+        anchored_patterns_base_path: get_found_config_file_anchored_patterns_dir(&base_path, ancestor_dir, &ancestor_config_path),
+        base_path,
         is_global_config: false,
       }));
     }
@@ -291,33 +313,50 @@ pub fn is_dot_config_dir(environment: &impl Environment, dir: &Path) -> bool {
   dir.file_name().is_some_and(|name| name == DOT_CONFIG_DIR_NAME) && dir.parent().is_some_and(|parent| !is_home_dir(environment, parent))
 }
 
-/// Gets the directory a local config file applies to, which is the directory
-/// it's in, except for a config file in a `.config` directory, which applies
-/// to the parent of that directory.
-pub fn get_config_file_base_dir(environment: &impl Environment, config_path: &CanonicalizedPathBuf) -> Option<CanonicalizedPathBuf> {
-  let dir = config_path.parent()?;
-  let is_dot_config_file = is_dot_config_dir(environment, dir.as_ref())
-    && config_path
-      .as_ref()
-      .file_name()
-      .and_then(|name| name.to_str())
-      .is_some_and(|name| DOT_CONFIG_FILE_NAMES.contains(&name));
-  if is_dot_config_file { dir.parent() } else { Some(dir) }
+/// The directories of a local config file.
+pub struct LocalConfigFileDirs {
+  /// The directory the config file applies to.
+  pub base_path: CanonicalizedPathBuf,
+  /// The directory the config file's anchored patterns are relative to when
+  /// it's not the base path (see [`ResolvedConfigPathWithText`]).
+  pub anchored_patterns_base_path: Option<CanonicalizedPathBuf>,
 }
 
-/// Gets the directory a config file's anchored patterns (ex. `./src/**`) are
-/// relative to when it's not the directory the config file applies to, which
-/// is the `.config` directory for a config file in one.
-pub fn get_config_file_anchored_patterns_dir(environment: &impl Environment, config_path: &ResolvedConfigPathWithText) -> Option<CanonicalizedPathBuf> {
-  if config_path.is_global_config {
-    return None;
+/// Resolves the directories of a local config file from the path it was
+/// found at or specified with.
+///
+/// This uses the path before it's canonicalized because whether the config
+/// file is in a `.config` directory depends on where it was found, which the
+/// canonicalized path doesn't say when the config file or `.config` directory
+/// is a symlink (or on a case insensitive file system).
+pub fn resolve_local_config_file_dirs(environment: &impl Environment, config_path: &Path) -> std::io::Result<LocalConfigFileDirs> {
+  match get_dot_config_file_base_dir(environment, config_path) {
+    Some(base_dir) => {
+      let base_path = environment.canonicalize(base_dir)?;
+      Ok(LocalConfigFileDirs {
+        anchored_patterns_base_path: Some(base_path.join_panic_relative(DOT_CONFIG_DIR_NAME)),
+        base_path,
+      })
+    }
+    None => {
+      let config_path = environment.canonicalize(config_path)?;
+      Ok(LocalConfigFileDirs {
+        base_path: config_path.parent().unwrap_or_else(|| config_path.clone()),
+        anchored_patterns_base_path: None,
+      })
+    }
   }
-  let path = config_path.source.maybe_local_path()?;
-  let dir = path.parent()?;
-  if get_config_file_base_dir(environment, path).as_ref() == Some(&dir) {
-    None
+}
+
+/// Gets the directory a config file in a `.config` directory applies to,
+/// which is the parent of the `.config` directory.
+pub fn get_dot_config_file_base_dir<'a>(environment: &impl Environment, config_path: &'a Path) -> Option<&'a Path> {
+  let file_name = config_path.file_name()?.to_str()?;
+  let dir = config_path.parent()?;
+  if DOT_CONFIG_FILE_NAMES.contains(&file_name) && is_dot_config_dir(environment, dir) {
+    dir.parent()
   } else {
-    Some(dir)
+    None
   }
 }
 
@@ -354,8 +393,20 @@ fn get_config_file_in_dir(dir: impl AsRef<Path>, environment: &impl Environment)
   Ok(None)
 }
 
+/// Gets the directory the anchored patterns of a config file found in the
+/// provided directory by [`get_config_file_in_dir`] are relative to, which is
+/// its `.config` directory when that's where the config file was found.
+fn get_found_config_file_anchored_patterns_dir(base_path: &CanonicalizedPathBuf, dir: &Path, config_path: &Path) -> Option<CanonicalizedPathBuf> {
+  (config_path.parent() != Some(dir)).then(|| base_path.join_panic_relative(DOT_CONFIG_DIR_NAME))
+}
+
 fn is_home_dir(environment: &impl Environment, dir: &Path) -> bool {
-  environment.get_home_dir().is_some_and(|home_dir| home_dir.as_ref() == dir)
+  let Some(home_dir) = environment.get_home_dir() else {
+    return false;
+  };
+  // the directory might not be canonicalized (ex. from a uri in the lsp), but
+  // only canonicalize when necessary since this is called for every `.config`
+  home_dir.as_ref() == dir || environment.canonicalize(dir).is_ok_and(|dir| dir == home_dir)
 }
 
 #[cfg(test)]

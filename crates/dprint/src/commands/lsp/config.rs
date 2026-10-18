@@ -11,10 +11,10 @@ use anyhow::Result;
 use crate::cache::RemoteCacheMode;
 use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
-use crate::configuration::get_config_file_base_dir;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
 use crate::configuration::resolve_config_from_path_with_ancestors;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
+use crate::configuration::resolve_local_config_file_dirs;
 use crate::environment::Environment;
 use crate::plugins;
 use crate::resolution::PluginsScope;
@@ -68,10 +68,12 @@ impl<TEnvironment: Environment> LspPluginsScopeContainer<TEnvironment> {
   /// config file in an ancestor directory.
   pub async fn resolve_by_path(&self, dir_path: &Path, use_global_config: bool) -> Result<Option<Rc<PluginsScope<TEnvironment>>>> {
     let config_file_bytes = if let Some(path) = &self.config_override {
+      let dirs = resolve_local_config_file_dirs(&self.environment, &self.environment.cwd().as_ref().join(path)).context("failed resolving --config path")?;
       let path = self.environment.canonicalize(path).context("failed resolving --config path")?;
       let content = self.environment.read_file(&path).context("failed resolving --config path")?;
       Some(ResolvedConfigPathWithText {
-        base_path: get_config_file_base_dir(&self.environment, &path).unwrap_or_else(|| path.clone()),
+        base_path: dirs.base_path,
+        anchored_patterns_base_path: dirs.anchored_patterns_base_path,
         source: PathSource::new_local(path),
         is_first_download: false,
         content,

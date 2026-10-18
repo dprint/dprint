@@ -38,9 +38,8 @@ use crate::utils::ShowConfirmStrategy;
 use crate::utils::resolve_url_or_file_path_to_file_with_cache;
 
 use super::resolve_main_config_path::ResolvedConfigPathWithText;
-use super::resolve_main_config_path::get_config_file_anchored_patterns_dir;
-use super::resolve_main_config_path::get_config_file_base_dir;
 use super::resolve_main_config_path::get_default_config_file_in_ancestor_directories;
+use super::resolve_main_config_path::get_dot_config_file_base_dir;
 use super::resolve_main_config_path::resolve_main_config_path_and_bytes;
 use super::resolve_npm_extends::NpmExtendsResolver;
 
@@ -50,9 +49,9 @@ pub struct ResolvedConfig {
   /// The folder that should be considered the "root".
   pub base_path: CanonicalizedPathBuf,
   /// The directory the config file's anchored patterns (ex. `src/**/*.ts`) are
-  /// relative to when it's not the base path. This is set when a config file
-  /// specified via `--config` governs explicitly specified paths outside its
-  /// directory.
+  /// relative to when it's not the base path. This is set for a config file in
+  /// a `.config` directory and when a config file specified via `--config`
+  /// governs explicitly specified paths outside its directory.
   pub anchored_patterns_base_path: Option<CanonicalizedPathBuf>,
   /// Whether this is the user's global configuration file.
   pub is_global: bool,
@@ -241,7 +240,7 @@ fn resolve_config_from_path_with_ancestors_inner<'a, TEnvironment: Environment>(
       }
       return Ok(config);
     }
-    let Some(ancestor_config_file) = find_config_file_to_inherit(&config.source, environment, &inherit_chain)? else {
+    let Some(ancestor_config_file) = find_config_file_to_inherit(config_file.base_path.as_ref(), environment, &inherit_chain)? else {
       warn_no_config_to_inherit(&config.source, environment);
       return Ok(config);
     };
@@ -324,7 +323,7 @@ async fn resolve_config_from_path_with_bytes_inner<TEnvironment: Environment>(
   let resolved_config = ResolvedConfig {
     source: config_path_and_text.source.clone(),
     base_path: config_path_and_text.base_path.clone(),
-    anchored_patterns_base_path: get_config_file_anchored_patterns_dir(environment, config_path_and_text),
+    anchored_patterns_base_path: config_path_and_text.anchored_patterns_base_path.clone(),
     is_global: config_path_and_text.is_global_config,
     config_map,
     extended_only_plugin_config_keys: HashSet::new(),
@@ -409,12 +408,17 @@ fn inherit_excludes(
   ancestor_bases: ConfigPatternBases,
   new_bases: ConfigPatternBases,
 ) -> Option<Vec<String>> {
-  // the nested config's anchored patterns are relative to a descendant of its
-  // directory for a config file in a `.config` directory
-  let anchored_levels = new_bases.anchored.as_ref().components().count() - new_bases.floating.as_ref().components().count();
   let Some(ancestor) = ancestor else {
     return own;
   };
+  // the nested config's anchored patterns are relative to a descendant of its
+  // directory for a config file in a `.config` directory
+  let anchored_levels = new_bases
+    .anchored
+    .as_ref()
+    .strip_prefix(new_bases.floating)
+    .map(|path| path.components().count())
+    .unwrap_or(0);
   let mut result = ancestor
     .iter()
     // normalize the same way the ancestor config's own excludes are (ex. backslash
@@ -614,7 +618,16 @@ async fn handle_config_file<TEnvironment: Environment>(
     }
     Ok(resolved_config)
   } else {
-    let Some(ancestor_config_file) = find_config_file_to_inherit(&config_path_and_text.source, environment, &inherit_chain)? else {
+    // the directory the extended config file would apply to
+    let config_dir = config_path_and_text
+      .source
+      .maybe_local_path()
+      .and_then(|path| get_dot_config_file_base_dir(environment, path.as_ref()).or_else(|| path.as_ref().parent()));
+    let ancestor_config_file = match config_dir {
+      Some(config_dir) => find_config_file_to_inherit(config_dir, environment, &inherit_chain)?,
+      None => None,
+    };
+    let Some(ancestor_config_file) = ancestor_config_file else {
       warn_no_config_to_inherit(&config_path_and_text.source, environment);
       return Ok(resolved_config);
     };
@@ -623,23 +636,13 @@ async fn handle_config_file<TEnvironment: Environment>(
   }
 }
 
-/// Finds the closest config file in the ancestor directories of the provided
-/// config file, which has specified `"inherit": true`.
-fn find_config_file_to_inherit(
-  config_source: &PathSource,
-  environment: &impl Environment,
-  inherit_chain: &[PathSource],
-) -> Result<Option<ResolvedConfigPathWithText>> {
-  // the parent of the directory the config file applies to, since the config
-  // file in it would otherwise be found (ex. for `.config/dprint.json`)
-  let ancestor_dir = config_source
-    .maybe_local_path()
-    .and_then(|path| get_config_file_base_dir(environment, path))
-    .and_then(|dir| dir.parent());
-  let Some(ancestor_dir) = ancestor_dir else {
+/// Finds the closest config file in the ancestor directories of the directory
+/// a config file that has specified `"inherit": true` applies to.
+fn find_config_file_to_inherit(config_dir: &Path, environment: &impl Environment, inherit_chain: &[PathSource]) -> Result<Option<ResolvedConfigPathWithText>> {
+  let Some(ancestor_dir) = config_dir.parent() else {
     return Ok(None);
   };
-  let Some(ancestor_config_file) = get_default_config_file_in_ancestor_directories(environment, ancestor_dir.as_ref())? else {
+  let Some(ancestor_config_file) = get_default_config_file_in_ancestor_directories(environment, ancestor_dir)? else {
     return Ok(None);
   };
   if inherit_chain.contains(&ancestor_config_file.source) {
@@ -1033,6 +1036,7 @@ mod tests {
     let config_path = ResolvedConfigPathWithText {
       content: environment.read_file(&canonical).unwrap(),
       base_path: canonical.parent().unwrap(),
+      anchored_patterns_base_path: None,
       source: PathSource::new_local(canonical),
       is_global_config: false,
       is_first_download: false,
@@ -2812,6 +2816,20 @@ mod tests {
         "**/node_modules".to_string(),
         "own".to_string()
       ])
+    );
+    // an anchored base outside the directory doesn't change the patterns
+    let anchored = CanonicalizedPathBuf::new_for_testing("/other/.config");
+    assert_eq!(
+      inherit_excludes(
+        None,
+        Some(&["sub/dist".to_string()]),
+        (&CanonicalizedPathBuf::new_for_testing("/")).into(),
+        ConfigPatternBases {
+          floating: &floating,
+          anchored: &anchored,
+        },
+      ),
+      Some(vec!["dist".to_string()])
     );
   }
 

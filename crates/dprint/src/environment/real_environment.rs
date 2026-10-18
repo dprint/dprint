@@ -65,6 +65,8 @@ static CACHED_CWD: OnceCell<CanonicalizedPathBuf> = OnceCell::new();
 // and the path is stable for the process (used by the lsp and editor-service,
 // which rebuild their file matchers on every config change)
 static CACHED_GLOBAL_GITIGNORE_PATH: OnceCell<Option<PathBuf>> = OnceCell::new();
+// cache the home dir because it's looked up for every `.config` directory
+static CACHED_HOME_DIR: OnceCell<Option<CanonicalizedPathBuf>> = OnceCell::new();
 
 pub struct RealEnvironmentOptions {
   pub log_level: LogLevel,
@@ -567,8 +569,10 @@ impl Environment for RealEnvironment {
   }
 
   fn get_home_dir(&self) -> Option<CanonicalizedPathBuf> {
-    // the home directory might not exist (ex. `HOME=/nonexistent` in a container)
-    dirs::home_dir().and_then(|path| self.canonicalize(path).ok())
+    CACHED_HOME_DIR
+      // the home directory might not exist (ex. `HOME=/nonexistent` in a container)
+      .get_or_init(|| dirs::home_dir().and_then(|path| self.canonicalize(path).ok()))
+      .clone()
   }
 
   fn cpu_arch(&self) -> String {

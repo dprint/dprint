@@ -94,13 +94,12 @@ async fn init_config_file_inner<TEnvironment: Environment>(
       Ok(Vec::from([PathBuf::from(config_arg)]))
     } else {
       // the first is what's created when none of these exist
-      Ok(
-        POSSIBLE_CONFIG_FILE_NAMES
-          .iter()
-          .map(PathBuf::from)
-          .chain(DOT_CONFIG_FILE_NAMES.iter().map(|name| Path::new(DOT_CONFIG_DIR_NAME).join(name)))
-          .collect::<Vec<_>>(),
-      )
+      let mut paths = POSSIBLE_CONFIG_FILE_NAMES.iter().map(PathBuf::from).collect::<Vec<_>>();
+      // the home directory's `.config` isn't searched as part of it
+      if is_dot_config_dir(environment, &environment.cwd().as_ref().join(DOT_CONFIG_DIR_NAME)) {
+        paths.extend(DOT_CONFIG_FILE_NAMES.iter().map(|name| Path::new(DOT_CONFIG_DIR_NAME).join(name)));
+      }
+      Ok(paths)
     }
   }
 
@@ -168,6 +167,7 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
   config_file_path: PathBuf,
   options: &InitConfigFileOptions<'_>,
 ) -> Result<()> {
+  let dirs = resolve_local_config_file_dirs(environment, &environment.cwd().as_ref().join(&config_file_path))?;
   let config_file_path = environment.canonicalize(&config_file_path)?;
   let config_dir = config_file_path.parent();
   let file_text = environment.read_file(&config_file_path)?;
@@ -178,7 +178,8 @@ async fn add_missing_plugins_to_config_file<TEnvironment: Environment>(
       source: PathSource::new_local(config_file_path.clone()),
       is_first_download: false,
       content: file_text.clone(),
-      base_path: get_config_file_base_dir(environment, &config_file_path).unwrap_or_else(|| environment.cwd()),
+      base_path: dirs.base_path,
+      anchored_patterns_base_path: dirs.anchored_patterns_base_path,
       is_global_config: options.global,
     },
     options.remote_cache_mode,
@@ -2191,6 +2192,33 @@ mod test {
       format!("Configuration file '{}' already exists.", Path::new(".config").join("dprint.json").display())
     );
     assert!(!environment.path_exists("/dprint.json"));
+  }
+
+  #[test]
+  fn should_not_find_config_file_in_home_dot_config_dir_on_initialize() {
+    // the home directory's `.config` isn't searched as part of it
+    let environment = TestEnvironmentBuilder::new()
+      .with_info_file(|info| {
+        info.add_plugin(TestInfoFilePlugin {
+          name: "dprint-plugin-typescript".to_string(),
+          version: "0.17.2".to_string(),
+          url: "https://plugins.dprint.dev/typescript-0.17.2.wasm".to_string(),
+          config_key: Some("typescript".to_string()),
+          file_extensions: vec!["ts".to_string()],
+          config_excludes: vec![],
+          ..Default::default()
+        });
+      })
+      .with_local_config("/home/.config/dprint.json", |c| {
+        c.add_includes("**/*.txt");
+      })
+      .write_file("/home/file.ts", "")
+      .build();
+    environment.set_cwd("/home");
+    run_test_cli(vec!["init", "--yes"], &environment).unwrap();
+    assert_eq!(environment.take_stderr_messages(), Vec::<String>::new());
+    assert_eq!(environment.take_stdout_messages()[0], "\nCreated dprint.json");
+    assert!(environment.path_exists("/home/dprint.json"));
   }
 
   #[test]
