@@ -10,6 +10,7 @@
       { "slug": "markdown", "name": "Markdown", "ext": ".md" },
       { "slug": "toml", "name": "TOML", "ext": ".toml" },
       { "slug": "dockerfile", "name": "Dockerfile", "ext": "Dockerfile" },
+      { "slug": "sql", "name": "SQL", "ext": ".sql" },
       { "slug": "jupyter", "name": "Jupyter", "ext": ".ipynb" }
     ]
   },
