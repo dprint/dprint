@@ -79,6 +79,8 @@ Patterns that match at any depth (ex. `**/*.ts` or `node_modules`) match within 
 
 Relative paths to plugins and in `extends` are also relative to the configuration file.
 
+`dprint init` creates the configuration file at _.config/dprint.json_ when the current directory already has a _.config_ directory. To create it in the current directory instead, run `dprint init --config dprint.json`.
+
 A configuration file directly in the directory takes precedence over one in its _.config_ directory. The _.config_ directory in your home directory is not searched, since that's where your user configuration goes.
 
 ## Custom Config File Location
