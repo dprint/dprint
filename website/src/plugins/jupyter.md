@@ -4,13 +4,6 @@ description: Documentation on the Jupyter Notebook code block formatting plugin 
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/jupyter">Jupyter</a></li>
-  </ul>
-</nav>
-
 # Jupyter Plugin
 
 Formats code blocks in Jupyter Notebooks.
@@ -28,7 +21,7 @@ This will update your config file to have an entry for the plugin.
 ```json
 {
   "plugins": [
-    "https://plugins.dprint.dev/jupyter-x.x.x.wasm"
+    "npm:@dprint/jupyter@x.x.x"
   ]
 }
 ```

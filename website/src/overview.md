@@ -18,7 +18,7 @@ dprint add typescript markdown json
 # format
 dprint fmt
 
-# check to ensure code is formatted (useful on CI)
+# check to ensure code is formatted
 dprint check
 ```
 

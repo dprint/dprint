@@ -26,28 +26,31 @@ impl IncrementalFileData {
 
 pub struct IncrementalFile<TEnvironment: Environment> {
   file_path: CanonicalizedPathBuf,
-  read_data: IncrementalFileData,
+  /// The data read from the existing file, when it exists and was
+  /// created with the same plugins.
+  read_data: Option<IncrementalFileData>,
   write_data: Mutex<IncrementalFileData>,
+  /// Whether the run only covers some of the files, in which case the hashes
+  /// of the files not seen this run are kept when writing.
+  is_partial_run: bool,
   environment: TEnvironment,
 }
 
 impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
-  pub fn new(file_path: CanonicalizedPathBuf, plugins_hash: u64, environment: TEnvironment) -> Self {
-    let read_data = read_incremental(&file_path, &environment);
-    let read_data = if let Some(read_data) = read_data {
+  pub fn new(file_path: CanonicalizedPathBuf, plugins_hash: u64, is_partial_run: bool, environment: TEnvironment) -> Self {
+    let read_data = read_incremental(&file_path, &environment).and_then(|read_data| {
       if read_data.plugins_hash == plugins_hash {
-        read_data
+        Some(read_data)
       } else {
         log_debug!(environment, "Plugins changed. Creating new incremental file.");
-        IncrementalFileData::new(plugins_hash)
+        None
       }
-    } else {
-      IncrementalFileData::new(plugins_hash)
-    };
+    });
     IncrementalFile {
       file_path,
       read_data,
       write_data: Mutex::new(IncrementalFileData::new(plugins_hash)),
+      is_partial_run,
       environment,
     }
   }
@@ -55,7 +58,7 @@ impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
   /// If the file text is known to be formatted.
   pub fn is_file_known_formatted(&self, file_text: &[u8]) -> bool {
     let hash = get_bytes_hash(file_text);
-    if self.read_data.file_hashes.contains(&hash) {
+    if self.read_data.as_ref().is_some_and(|data| data.file_hashes.contains(&hash)) {
       // the file is the same, so save it in the write data
       self.add_to_write_data(hash);
       true
@@ -76,6 +79,27 @@ impl<TEnvironment: Environment> IncrementalFile<TEnvironment> {
 
   pub fn write(&self) {
     let write_data = self.write_data.lock();
+    if let Some(read_data) = &self.read_data {
+      // don't rewrite the file when nothing new was learned, which is the case
+      // when every file seen this run was already known to be formatted; this
+      // keeps the file's bytes stable so a CI cache of the cache directory can
+      // detect it hasn't changed
+      if write_data.file_hashes.is_subset(&read_data.file_hashes) {
+        log_debug!(self.environment, "Incremental file unchanged. Skipping write.");
+        return;
+      }
+      // a partial run keeps the hashes of the files it didn't see, while a full
+      // run writes only what it saw so the hashes of changed and deleted files
+      // get pruned
+      if self.is_partial_run {
+        let merged_data = IncrementalFileData {
+          plugins_hash: write_data.plugins_hash,
+          file_hashes: write_data.file_hashes.union(&read_data.file_hashes).copied().collect(),
+        };
+        write_incremental(&self.file_path, &merged_data, &self.environment);
+        return;
+      }
+    }
     write_incremental(&self.file_path, &write_data, &self.environment);
   }
 }

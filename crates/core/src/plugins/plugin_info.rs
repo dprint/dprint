@@ -25,6 +25,13 @@ pub struct PluginInfo {
   pub update_url: Option<String>,
 }
 
+/// Message for when a plugin's [`FileMatchingInfo`] can't be deserialized. A
+/// newer plugin may describe its file matching in a way this version of the CLI
+/// doesn't understand, so point at upgrading rather than leaving the user with
+/// only a deserialization error.
+pub const FILE_MATCHING_INFO_ERROR_MESSAGE: &str =
+  "Failed getting the plugin's file matching info. This plugin may require a newer version of the dprint CLI. Try running: dprint upgrade";
+
 /// The plugin file matching information based on the configuration.
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -35,4 +42,12 @@ pub struct FileMatchingInfo {
   /// The file names this plugin should format.
   #[serde(default = "Vec::new")]
   pub file_names: Vec<String>,
+  /// Whether the plugin formats a file it matches in addition to the plugin
+  /// that claims the file, rather than claiming the file itself.
+  ///
+  /// This is for plugins that do something to a file other than format it
+  /// from scratch (ex. sorting the keys of a `package.json`), which would
+  /// otherwise stop the file's usual formatter from running.
+  #[serde(default)]
+  pub additive: bool,
 }

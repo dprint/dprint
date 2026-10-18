@@ -271,6 +271,17 @@ impl<'a> Printer<'a> {
     }
   }
 
+  /// Moves an already resolved line number by `delta` lines.
+  ///
+  /// This keeps a resolution usable when whatever it refers to has shifted up or down the page
+  /// without otherwise changing, leaving it correct relative to everything around it.
+  pub fn shift_line_number(&mut self, info: LineNumber, delta: isize) {
+    let id = info.unique_id();
+    if let Some(value) = self.resolved_line_numbers.get(id) {
+      self.resolved_line_numbers.insert(id, (value as isize + delta) as u32);
+    }
+  }
+
   pub fn resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
     if !self.resolved_conditions.contains_key(&condition_reference.id) && !self.look_ahead_condition_save_points.contains_key(&condition_reference.id) {
       let save_point = self.get_save_point_for_restoring_condition(condition_reference.name());

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use crossterm::style::Stylize;
+use deno_terminal::colors;
 use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
@@ -72,10 +72,16 @@ pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
 
   let config_discovery = args.config_discovery(environment);
   if let Some(config) = &args.config {
-    let base_path = environment.cwd();
-    let resolved_file = resolve_url_or_file_path_to_file_with_cache(config, &PathSource::new_local(base_path.clone()), environment)
+    let cwd = environment.cwd();
+    let resolved_file = resolve_url_or_file_path_to_file_with_cache(config, &PathSource::new_local(cwd.clone()), args.remote_cache_mode(), environment)
       .await?
       .into_text()?;
+    // a local config file's patterns are relative to its directory, the same as
+    // when it's discovered, but a remote or npm config file has no directory
+    let base_path = match &resolved_file.source {
+      PathSource::Local(source) => source.path.parent().unwrap_or(cwd),
+      PathSource::Remote(_) | PathSource::Npm(_) => cwd,
+    };
     Ok(Some(ResolvedConfigPathWithText {
       content: resolved_file.content,
       source: resolved_file.source,
@@ -118,6 +124,22 @@ pub fn resolve_global_config_path_and_text(environment: &impl Environment) -> st
   }
 }
 
+/// Gets the global config file based at the root directory of the provided
+/// path so the path is within the resulting config's directory. The global
+/// config file is otherwise based at the cwd, and a config file only formats
+/// the files within its base directory.
+pub fn resolve_global_config_path_and_text_at_path_root(environment: &impl Environment, path: &Path) -> std::io::Result<Option<ResolvedConfigPathWithText>> {
+  let Some(config_file) = resolve_global_config_path_and_text(environment)? else {
+    return Ok(None);
+  };
+  // ex. the drive root on Windows
+  let root_dir = path.ancestors().last().unwrap_or(path);
+  Ok(Some(ResolvedConfigPathWithText {
+    base_path: environment.canonicalize(root_dir)?,
+    ..config_file
+  }))
+}
+
 enum ResolveGlobalConfigPathResult {
   Found(ResolvedConfigPathWithText),
   NotFound,
@@ -150,7 +172,7 @@ pub fn resolve_global_config_dir(environment: &impl Environment) -> std::io::Res
       log_warn!(
         environment,
         "{} Could not resolve DPRINT_CONFIG_DIR value '{}'. Falling back to system configuration directory.",
-        "Warning".yellow(),
+        colors::yellow("Warning"),
         folder.display(),
       );
       log_debug!(environment, "Reason: {:#}", err);
@@ -162,6 +184,18 @@ pub fn resolve_global_config_dir(environment: &impl Environment) -> std::io::Res
       Some(dir) => resolve_or_create_folder(environment, dir.join("dprint")),
       None => Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Could not find system config directory.")),
     }
+  }
+}
+
+/// Gets where the global config directory is without creating anything,
+/// which is for reading a file that may be in it. Unlike
+/// [`resolve_global_config_dir`], a `DPRINT_CONFIG_DIR` that doesn't exist is
+/// still where to look, since there's nothing to fall back from until
+/// something is written there.
+pub fn resolve_global_config_dir_path(environment: &impl Environment) -> Option<PathBuf> {
+  match resolve_env_var_folder(environment, "DPRINT_CONFIG_DIR") {
+    Some(folder) => Some(PathBuf::from(folder)),
+    None => resolve_system_config_dir(environment).map(|dir| dir.join("dprint")),
   }
 }
 

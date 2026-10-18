@@ -8,6 +8,7 @@ use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::FileMatchingInfo;
 use dprint_core::plugins::FormatConfigId;
+use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::plugins::process::ProcessPluginCommunicatorFormatRequest;
@@ -53,11 +54,25 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
 
   #[cfg(test)]
   pub async fn new_test_plugin_communicator(environment: TEnvironment) -> Self {
-    use crate::plugins::implementations::process::get_file_path_from_name_and_version;
+    use crate::environment::DirEntry;
     use crate::plugins::implementations::process::get_test_safe_executable_path;
 
-    let plugin_file_path = get_file_path_from_name_and_version("test-process-plugin", "0.1.0", &environment);
-    let test_plugin_file_path = get_test_safe_executable_path(plugin_file_path, &environment);
+    // find the test process plugin's extracted executable in the flat cache
+    // layout (plugins/<hash>/test-process-plugin[.exe]); get_test_safe_executable_path
+    // needs a real in-memory file to copy out and launch.
+    let exe_name = if cfg!(windows) { "test-process-plugin.exe" } else { "test-process-plugin" };
+    let plugins_dir = environment.get_cache_dir().join("plugins");
+    let plugin_file_path = environment
+      .dir_info(&plugins_dir)
+      .unwrap_or_default()
+      .into_iter()
+      .find_map(|entry| match entry {
+        DirEntry::Directory(dir) if environment.path_exists(dir.join(exe_name)) => Some(dir.join(exe_name)),
+        _ => None,
+      })
+      .expect("expected the test process plugin to be set up in the cache");
+    // the builder sets up the default (0.1.0) test process plugin
+    let test_plugin_file_path = get_test_safe_executable_path("0.1.0", plugin_file_path, &environment);
 
     Self::new("test-process-plugin".to_string(), test_plugin_file_path, environment.clone())
       .await
@@ -69,29 +84,45 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
   }
 
   pub async fn get_license_text(&self) -> Result<String> {
-    self.get_inner().await.license_text().await
+    self.get_inner().await.license_text().await.map_err(anyhow::Error::from)
   }
 
   pub async fn get_resolved_config(&self, config: &FormatConfig) -> Result<String> {
-    self.get_inner_ensure_config(config).await?.resolved_config(config.id).await
+    self
+      .get_inner_ensure_config(config)
+      .await?
+      .resolved_config(config.id)
+      .await
+      .map_err(anyhow::Error::from)
   }
 
   pub async fn get_file_matching_info(&self, config: &FormatConfig) -> Result<FileMatchingInfo> {
-    self.get_inner_ensure_config(config).await?.file_matching_info(config.id).await
+    self
+      .get_inner_ensure_config(config)
+      .await?
+      .file_matching_info(config.id)
+      .await
+      .map_err(anyhow::Error::from)
   }
 
   pub async fn get_config_diagnostics(&self, config: &FormatConfig) -> Result<Vec<ConfigurationDiagnostic>> {
-    self.get_inner_ensure_config(config).await?.config_diagnostics(config.id).await
+    self
+      .get_inner_ensure_config(config)
+      .await?
+      .config_diagnostics(config.id)
+      .await
+      .map_err(anyhow::Error::from)
   }
 
   pub async fn check_config_updates(&self, message: &CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
-    self.get_inner().await.check_config_updates(message).await
+    self.get_inner().await.check_config_updates(message).await.map_err(anyhow::Error::from)
   }
 
   pub async fn format_text(&self, request: InitializedPluginFormatRequest) -> FormatResult {
     match self
       .get_inner_ensure_config(&request.config)
-      .await?
+      .await
+      .map_err(FormatError::new)?
       .format_text(ProcessPluginCommunicatorFormatRequest {
         file_path: request.file_path,
         file_bytes: request.file_text,
@@ -112,7 +143,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
         } else {
           *inner = InnerState {
             registered_configs: Default::default(),
-            communicator: Rc::new(create_new_communicator(&self.restart_info).await?),
+            communicator: Rc::new(create_new_communicator(&self.restart_info).await.map_err(FormatError::new)?),
           };
           Err(err)
         }
@@ -187,7 +218,7 @@ mod test {
           let formatted_text = communicator
             .format_text(InitializedPluginFormatRequest {
               file_path: PathBuf::from("test.txt"),
-              file_text: "testing".to_string().into_bytes(),
+              file_text: Arc::new("testing".to_string().into_bytes()),
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),
@@ -209,7 +240,7 @@ mod test {
               .format_text(InitializedPluginFormatRequest {
                 file_path: PathBuf::from("test.txt"),
                 // special text that makes it wait for cancellation
-                file_text: "wait_cancellation".to_string().into_bytes(),
+                file_text: Arc::new("wait_cancellation".to_string().into_bytes()),
                 range: None,
                 config: format_config,
                 override_config: Default::default(),
@@ -241,7 +272,7 @@ mod test {
           let formatted_text = communicator
             .format_text(InitializedPluginFormatRequest {
               file_path: PathBuf::from("test.txt"),
-              file_text: "testing".to_string().into_bytes(),
+              file_text: Arc::new("testing".to_string().into_bytes()),
               range: None,
               config: format_config.clone(),
               override_config: Default::default(),
@@ -278,7 +309,7 @@ mod test {
         let future = communicator.format_text(InitializedPluginFormatRequest {
           file_path: PathBuf::from("test.txt"),
           // special text that makes it wait for cancellation
-          file_text: "wait_cancellation".to_string().into_bytes(),
+          file_text: Arc::new("wait_cancellation".to_string().into_bytes()),
           config: format_config.clone(),
           range: None,
           override_config: Default::default(),
@@ -302,5 +333,52 @@ mod test {
         communicator.shutdown().await;
       }
     })
+  }
+
+  #[test]
+  fn should_not_hang_when_plugin_subprocess_holds_stdio_open() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin().build();
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let test_environment = environment.clone();
+    let handle = std::thread::spawn(move || {
+      test_environment.run_in_runtime({
+        let environment = test_environment.clone();
+        async move {
+          let communicator = Rc::new(InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone()).await);
+          let format_config = Arc::new(FormatConfig {
+            id: FormatConfigId::from_raw(1),
+            plugin: Default::default(),
+            global: Default::default(),
+          });
+
+          let formatted_text = communicator
+            .format_text(InitializedPluginFormatRequest {
+              file_path: PathBuf::from("test.txt"),
+              // special text that makes the plugin spawn a subprocess that holds its stdio pipes open
+              file_text: Arc::new("spawn_pipe_holder".to_string().into_bytes()),
+              range: None,
+              config: format_config.clone(),
+              override_config: Default::default(),
+              on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
+              token: Arc::new(NullCancellationToken),
+            })
+            .await
+            .unwrap();
+          assert_eq!(
+            formatted_text.map(|t| String::from_utf8(t).unwrap()),
+            Some("spawn_pipe_holder_formatted_process".to_string())
+          );
+
+          communicator.shutdown().await;
+        }
+      });
+      tx.send(()).unwrap();
+    });
+    let completed = rx.recv_timeout(std::time::Duration::from_secs(10));
+    assert!(
+      completed.is_ok(),
+      "hung shutting down a process plugin whose spawned subprocess holds the stdio pipes open"
+    );
+    handle.join().unwrap();
   }
 }

@@ -1,0 +1,38 @@
+Escape leaves without writing a config file.
+
+-- file: /src/main.ts --
+-- keys --
+space
+esc
+-- output --
+[start]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [x] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[space]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  [x] dprint-plugin-json (.json, .jsonc)
+> [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[esc]
+(nothing)
+
+# error
+Selection cancelled.
+
+# /dprint.json
+(does not exist)
+
+# /config/dprint/init.json
+(does not exist)

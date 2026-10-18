@@ -1,5 +1,3 @@
-use anyhow::Result;
-use anyhow::bail;
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigKeyValue;
 use dprint_core::configuration::ConfigurationDiagnostic;
@@ -12,6 +10,7 @@ use dprint_core::plugins::CheckConfigUpdatesMessage;
 use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::ConfigChangeKind;
 use dprint_core::plugins::FileMatchingInfo;
+use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::PluginInfo;
 use dprint_core::plugins::PluginResolveConfigurationResult;
@@ -67,13 +66,18 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
 
     let file_extensions = get_string_vec(&mut config, "file_extensions", &mut diagnostics).unwrap_or_else(|| vec!["txt".to_string()]);
     let file_names = get_string_vec(&mut config, "file_names", &mut diagnostics).unwrap_or_else(|| vec![]);
+    let additive = get_value(&mut config, "additive", false, &mut diagnostics);
 
     diagnostics.extend(get_unknown_property_diagnostics(config));
 
     PluginResolveConfigurationResult {
       config: Configuration { ending, line_width },
       diagnostics,
-      file_matching: FileMatchingInfo { file_extensions, file_names },
+      file_matching: FileMatchingInfo {
+        file_extensions,
+        file_names,
+        additive,
+      },
     }
   }
 
@@ -92,7 +96,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
     std::str::from_utf8(include_bytes!("../LICENSE")).unwrap().into()
   }
 
-  fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+  fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>, FormatError> {
     let mut changes = Vec::new();
     if message.config.contains_key("should_add") {
       changes.extend([
@@ -135,7 +139,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
   }
 
   fn format(&mut self, request: SyncFormatRequest<Configuration>, mut format_with_host: impl FnMut(SyncHostFormatRequest) -> FormatResult) -> FormatResult {
-    fn handle_host_response(result: FormatResult, original_text: &str) -> Result<String> {
+    fn handle_host_response(result: FormatResult, original_text: &str) -> Result<String, FormatError> {
       match result {
         Ok(Some(text)) => Ok(String::from_utf8(text).unwrap()),
         Ok(None) => Ok(original_text.to_string()),
@@ -214,7 +218,7 @@ impl SyncPluginHandler<Configuration> for TestWasmPlugin {
         )?
       )
     } else if file_text == "should_error" {
-      bail!("Did error.")
+      return Err(FormatError::new("Did error."));
     } else if file_text == "should_panic" {
       self.has_panicked = true;
       panic!("Test panic")

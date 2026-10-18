@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::path::PathBuf;
+use std::time::Duration;
 use std::time::UNIX_EPOCH;
 
 use serde::Deserialize;
@@ -25,6 +26,22 @@ mod cache_file;
 // Not exactly correct since they're not unique, but this is completely fine.
 pub type HeadersMap = HashMap<String, String>;
 
+/// How long a cached response without caching headers is used before the
+/// server is checked for a newer one.
+pub const DEFAULT_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// How the cached responses of remote files are used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RemoteCacheMode {
+  /// Use a cached response while it's fresh, then check the server for a
+  /// newer one.
+  #[default]
+  Use,
+  /// Check the server for a newer response even when the cached one is fresh
+  /// (`--reload`).
+  Reload,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SerializedCachedUrlMetadata {
   pub headers: HeadersMap,
@@ -32,6 +49,60 @@ pub struct SerializedCachedUrlMetadata {
   /// Number of seconds since the UNIX epoch.
   #[serde(default)]
   pub time: Option<u64>,
+}
+
+impl SerializedCachedUrlMetadata {
+  /// Whether the response can be used at the provided time (seconds since the
+  /// UNIX epoch) without checking the server for a newer one, based on its
+  /// caching headers and when it was cached.
+  pub fn is_fresh_at(&self, now_secs: u64) -> bool {
+    // responses cached before the time was stored are always checked
+    let Some(cached_secs) = self.time else {
+      return false;
+    };
+    // the response may have already spent time in a shared cache
+    let age_when_cached = self.headers.get("age").and_then(|age| age.trim().parse::<u64>().ok()).unwrap_or(0);
+    let current_age = now_secs.saturating_sub(cached_secs).saturating_add(age_when_cached);
+    current_age < self.freshness_lifetime_secs()
+  }
+
+  /// Number of seconds the response is fresh for after being received.
+  fn freshness_lifetime_secs(&self) -> u64 {
+    if let Some(cache_control) = self.headers.get("cache-control") {
+      let directives = cache_control.split(',').map(|directive| {
+        let (name, value) = directive.split_once('=').unwrap_or((directive, ""));
+        (name.trim().to_ascii_lowercase(), value.trim().trim_matches('"'))
+      });
+      let mut max_age = None;
+      for (name, value) in directives {
+        match name.as_str() {
+          "no-cache" | "no-store" => return 0,
+          // the first one counts and an invalid value means stale
+          "max-age" if max_age.is_none() => max_age = Some(value.parse::<u64>().unwrap_or(0)),
+          _ => {}
+        }
+      }
+      if let Some(max_age) = max_age {
+        return max_age;
+      }
+    }
+    if let Some(expires) = self.headers.get("expires") {
+      // an invalid date (ex. "0") means the response is already stale
+      let Ok(expires) = httpdate::parse_http_date(expires) else {
+        return 0;
+      };
+      let Some(date) = self
+        .headers
+        .get("date")
+        .and_then(|date| httpdate::parse_http_date(date).ok())
+        .or_else(|| self.time.and_then(|secs| UNIX_EPOCH.checked_add(Duration::from_secs(secs))))
+      else {
+        return 0;
+      };
+      return expires.duration_since(date).map(|duration| duration.as_secs()).unwrap_or(0);
+    }
+    DEFAULT_MAX_AGE.as_secs()
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,7 +182,7 @@ impl<Sys: HttpCacheSys> HttpCache<Sys> {
       &cache_filepath,
       content,
       &SerializedCachedUrlMetadata {
-        time: Some(self.sys.sys_time_now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
+        time: Some(self.now_secs()),
         url: url.to_string(),
         headers,
       },
@@ -124,6 +195,23 @@ impl<Sys: HttpCacheSys> HttpCache<Sys> {
   pub fn get(&self, key: &HttpCacheItemKey) -> std::io::Result<Option<CacheEntry>> {
     cache_file::read(&self.sys, &key.file_path)
       .map_err(|err| MessagedError::new(format!("failed to get '{}' from the cache (maybe run `dprint clear-cache`)", key.url), err))
+  }
+
+  /// Writes an entry with the exact metadata, such as one an older version
+  /// wrote.
+  #[cfg(test)]
+  pub fn set_for_testing(&self, url: &Url, content: &[u8], metadata: SerializedCachedUrlMetadata) -> std::io::Result<()> {
+    cache_file::write(&self.sys, &self.local_path_for_url(url)?, content, &metadata)
+  }
+
+  /// Whether the cached response can be used now without checking the server
+  /// for a newer one.
+  pub fn is_fresh(&self, metadata: &SerializedCachedUrlMetadata) -> bool {
+    metadata.is_fresh_at(self.now_secs())
+  }
+
+  fn now_secs(&self) -> u64 {
+    self.sys.sys_time_now().duration_since(UNIX_EPOCH).unwrap().as_secs()
   }
 }
 
@@ -288,6 +376,68 @@ mod test {
       url: "https://deno.land/std/http/file_server.ts".to_string(),
     };
     assert_eq!(data, expected);
+  }
+
+  #[test]
+  fn is_fresh_at() {
+    fn metadata(time: Option<u64>, headers: &[(&str, &str)]) -> SerializedCachedUrlMetadata {
+      SerializedCachedUrlMetadata {
+        headers: headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+        url: "https://example.com/file.json".to_string(),
+        time,
+      }
+    }
+    let day = DEFAULT_MAX_AGE.as_secs();
+
+    // no caching headers uses the default max age
+    assert!(metadata(Some(1000), &[]).is_fresh_at(1000));
+    assert!(metadata(Some(1000), &[]).is_fresh_at(1000 + day - 1));
+    assert!(!metadata(Some(1000), &[]).is_fresh_at(1000 + day));
+    // cached before the time was stored
+    assert!(!metadata(None, &[]).is_fresh_at(1000));
+    // max-age
+    let max_age = metadata(Some(1000), &[("cache-control", "public, max-age=300")]);
+    assert!(max_age.is_fresh_at(1299));
+    assert!(!max_age.is_fresh_at(1300));
+    assert!(metadata(Some(1000), &[("cache-control", "Max-Age=\"300\"")]).is_fresh_at(1299));
+    assert!(metadata(Some(1000), &[("cache-control", "max-age=31536000, immutable")]).is_fresh_at(1000 + day * 300));
+    assert!(!metadata(Some(1000), &[("cache-control", "max-age=0, must-revalidate")]).is_fresh_at(1000));
+    // an invalid max-age is stale and the first max-age counts
+    assert!(!metadata(Some(1000), &[("cache-control", "max-age=-1")]).is_fresh_at(1000));
+    assert!(!metadata(Some(1000), &[("cache-control", "max-age=abc")]).is_fresh_at(1000));
+    assert!(metadata(Some(1000), &[("cache-control", "max-age=300, max-age=0")]).is_fresh_at(1299));
+    // the age in a shared cache counts
+    assert!(!metadata(Some(1000), &[("cache-control", "max-age=300"), ("age", "250")]).is_fresh_at(1050));
+    assert!(metadata(Some(1000), &[("cache-control", "max-age=300"), ("age", "250")]).is_fresh_at(1049));
+    // no-cache and no-store are never fresh
+    assert!(!metadata(Some(1000), &[("cache-control", "no-cache")]).is_fresh_at(1000));
+    assert!(!metadata(Some(1000), &[("cache-control", "max-age=300, no-store")]).is_fresh_at(1000));
+    // max-age wins over expires
+    assert!(metadata(Some(1000), &[("cache-control", "max-age=300"), ("expires", "0")]).is_fresh_at(1000));
+    // expires relative to the date header
+    let expires = metadata(
+      Some(1000),
+      &[("date", "Sun, 06 Nov 1994 08:49:37 GMT"), ("expires", "Sun, 06 Nov 1994 08:59:37 GMT")],
+    );
+    assert!(expires.is_fresh_at(1599));
+    assert!(!expires.is_fresh_at(1600));
+    // expires relative to the cached time without a date header
+    let expires = metadata(Some(784111777), &[("expires", "Sun, 06 Nov 1994 08:59:37 GMT")]);
+    assert!(expires.is_fresh_at(784111777 + 599));
+    assert!(!expires.is_fresh_at(784111777 + 600));
+    // expires in the past or invalid is stale
+    assert!(
+      !metadata(
+        Some(1000),
+        &[("expires", "Sun, 06 Nov 1994 08:49:37 GMT"), ("date", "Sun, 06 Nov 1994 08:59:37 GMT")]
+      )
+      .is_fresh_at(1000)
+    );
+    assert!(!metadata(Some(1000), &[("expires", "0")]).is_fresh_at(1000));
+    assert!(!metadata(Some(1000), &[("expires", "-1")]).is_fresh_at(1000));
+    // the clock going backwards or a corrupt time doesn't panic
+    assert!(metadata(Some(1000), &[]).is_fresh_at(500));
+    assert!(!metadata(Some(u64::MAX), &[("expires", "Sun, 06 Nov 1994 08:59:37 GMT")]).is_fresh_at(1000));
   }
 
   fn create_cache() -> HttpCache<sys_traits::impls::InMemorySys> {

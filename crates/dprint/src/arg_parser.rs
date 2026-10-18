@@ -5,8 +5,10 @@ use anyhow::bail;
 use clap::ArgMatches;
 use thiserror::Error;
 
+use crate::cache::RemoteCacheMode;
 use crate::environment::Environment;
 use crate::utils::LogLevel;
+use crate::utils::MinimumDependencyAgeArg;
 use crate::utils::StdInReader;
 
 #[derive(Debug, Clone, Copy)]
@@ -27,6 +29,29 @@ impl std::str::FromStr for ConfigDiscovery {
       "global" => Ok(ConfigDiscovery::Global),
       "ignore-descendants" => Ok(ConfigDiscovery::IgnoreDescendants),
       _ => Err(format!("expected 'default', 'ignore-descendants' or 'false', got '{s}'")),
+    }
+  }
+}
+
+/// What `--reload` checks the server for newer versions of instead of using
+/// the cached ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ReloadArg {
+  /// Remote configuration files.
+  pub config: bool,
+  /// Remote plugins.
+  pub plugins: bool,
+}
+
+impl std::str::FromStr for ReloadArg {
+  type Err = String;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    match s.to_ascii_lowercase().as_str() {
+      "all" => Ok(ReloadArg { config: true, plugins: true }),
+      "config" => Ok(ReloadArg { config: true, plugins: false }),
+      "plugins" => Ok(ReloadArg { config: false, plugins: true }),
+      _ => Err(format!("expected 'config', 'plugins' or 'all', got '{s}'")),
     }
   }
 }
@@ -60,6 +85,8 @@ pub struct CliArgs {
   pub log_level: LogLevel,
   pub plugins: Vec<String>,
   pub config: Option<String>,
+  /// What to check for newer versions of instead of using the cached ones.
+  pub reload: ReloadArg,
   config_discovery: Option<ConfigDiscovery>,
 }
 
@@ -71,6 +98,7 @@ impl CliArgs {
       log_level: LogLevel::Info,
       plugins: vec![],
       config: None,
+      reload: ReloadArg::default(),
       config_discovery: None,
     }
   }
@@ -79,7 +107,12 @@ impl CliArgs {
     // these output json or other text that's read by stdout
     matches!(
       self.sub_command,
-      SubCommand::StdInFmt(..) | SubCommand::EditorInfo | SubCommand::OutputResolvedConfig | SubCommand::Completions(..)
+      SubCommand::StdInFmt(..)
+        | SubCommand::EditorInfo
+        | SubCommand::OutputResolvedConfig(..)
+        | SubCommand::IncrementalState
+        | SubCommand::Completions(..)
+        | SubCommand::Check(CheckSubCommand { json: true, .. })
     )
   }
 
@@ -89,8 +122,13 @@ impl CliArgs {
       log_level: LogLevel::Info,
       config: None,
       plugins: Vec::new(),
+      reload: ReloadArg::default(),
       config_discovery: None,
     }
+  }
+
+  pub fn remote_cache_mode(&self) -> RemoteCacheMode {
+    if self.reload.config { RemoteCacheMode::Reload } else { RemoteCacheMode::Use }
   }
 
   pub fn config_discovery_arg_set(&self) -> bool {
@@ -117,7 +155,8 @@ pub enum SubCommand {
   Config(ConfigSubCommand),
   ClearCache,
   OutputFilePaths(OutputFilePathsSubCommand),
-  OutputResolvedConfig,
+  OutputResolvedConfig(OutputResolvedConfigSubCommand),
+  IncrementalState,
   OutputFormatTimes(OutputFormatTimesSubCommand),
   Version,
   License,
@@ -141,6 +180,17 @@ impl SubCommand {
     }
   }
 
+  /// Whether a specified path that can't be resolved should be skipped with a
+  /// warning instead of erroring (ex. a path outside the config's directory
+  /// that has no config file of its own).
+  ///
+  /// `output-file-paths` always allows this because it's the command users are
+  /// pointed at to diagnose which files dprint is finding, so it should show
+  /// what it did resolve rather than fail.
+  pub fn allow_skipping_paths(&self) -> bool {
+    self.allow_no_files() || matches!(self, SubCommand::OutputFilePaths(_))
+  }
+
   pub fn file_patterns(&self) -> Option<&FilePatternArgs> {
     match self {
       SubCommand::Check(a) => Some(&a.patterns),
@@ -150,7 +200,8 @@ impl SubCommand {
       SubCommand::OutputFormatTimes(a) => Some(&a.patterns),
       SubCommand::Config(_)
       | SubCommand::ClearCache
-      | SubCommand::OutputResolvedConfig
+      | SubCommand::OutputResolvedConfig(_)
+      | SubCommand::IncrementalState
       | SubCommand::Version
       | SubCommand::License
       | SubCommand::Help(_)
@@ -165,38 +216,168 @@ impl SubCommand {
   }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DiffFormat {
+  /// dprint's own human readable diff with line numbers and colors.
+  #[default]
+  Pretty,
+  /// Standard unified diff that can be piped to other tools or applied with `patch`.
+  Unified,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct CheckSubCommand {
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
   pub list_different: bool,
+  pub json: bool,
+  pub diff_format: DiffFormat,
   pub allow_no_files: bool,
   pub only_staged: bool,
+  pub only_dirty: bool,
   pub fail_fast: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FmtSubCommand {
   pub diff: bool,
+  pub diff_format: DiffFormat,
   pub patterns: FilePatternArgs,
   pub incremental: Option<bool>,
   pub enable_stable_format: bool,
   pub allow_no_files: bool,
   pub fail_on_change: bool,
   pub only_staged: bool,
+  pub only_dirty: bool,
+  /// Lines to limit the formatting of files to. A file without any is
+  /// formatted in its entirety.
+  pub line_ranges: Vec<FileLineRanges>,
+}
+
+/// An inclusive range of 1-based line numbers (ex. `10-20`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LineRange {
+  pub first: usize,
+  pub last: usize,
+}
+
+/// Ranges of lines to format and the file they're for (ex. `--lines src/main.ts:10-20,35-40`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileLineRanges {
+  /// `None` when no file was specified (ex. `--lines 10-20`), which is for
+  /// the single file being formatted.
+  pub path: Option<String>,
+  pub ranges: Vec<LineRange>,
+}
+
+impl std::str::FromStr for FileLineRanges {
+  type Err = String;
+
+  fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn looks_like_line_ranges(text: &str) -> bool {
+      fn is_number(text: &str) -> bool {
+        !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit())
+      }
+
+      text.split(',').all(|range| {
+        let (first, last) = range.split_once('-').unwrap_or((range, range));
+        is_number(first) && is_number(last)
+      })
+    }
+
+    fn parse_line_range(text: &str) -> Result<LineRange, String> {
+      fn parse_line(text: &str) -> Result<usize, String> {
+        match text.parse::<usize>() {
+          Ok(0) => Err("line numbers start at 1".to_string()),
+          Ok(line) => Ok(line),
+          Err(_) => Err(format!("expected a line number, got '{text}'")),
+        }
+      }
+
+      // a single line number is a range of that one line
+      let (first, last) = text.split_once('-').unwrap_or((text, text));
+      let (first, last) = (parse_line(first)?, parse_line(last)?);
+      if first > last {
+        return Err(format!("the first line ({first}) was after the last line ({last})"));
+      }
+      Ok(LineRange { first, last })
+    }
+
+    // the path may contain colons (ex. C:\file.ts:10-20), so the
+    // lines are the most text at the end that looks like them
+    let Some(ranges_start) = std::iter::once(0)
+      .chain(s.match_indices(':').map(|(i, _)| i + 1))
+      .find(|start| looks_like_line_ranges(&s[*start..]))
+    else {
+      return Err(format!("expected it to end with the lines to format (ex. 10-20), got '{s}'"));
+    };
+    let path = match ranges_start {
+      0 => None,
+      1 => return Err("expected a file path before the lines".to_string()),
+      _ => Some(s[..ranges_start - 1].to_string()),
+    };
+    let ranges = s[ranges_start..].split(',').map(parse_line_range).collect::<Result<Vec<_>, _>>()?;
+    Ok(FileLineRanges { path, ranges })
+  }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ConfigSubCommand {
-  Init { global: bool },
-  Update { yes: bool },
-  Add(Vec<String>),
+  Init {
+    global: bool,
+    /// Skip the interactive plugin prompt and accept the smart defaults.
+    yes: bool,
+    /// Change the plugins to prefer instead of initializing anything.
+    preferences: bool,
+    minimum_dependency_age: Option<MinimumDependencyAgeArg>,
+  },
+  Update {
+    yes: bool,
+    /// Print the updates that would be made without modifying any files.
+    dry_run: bool,
+    minimum_dependency_age: Option<MinimumDependencyAgeArg>,
+  },
+  Add {
+    names: Vec<String>,
+    /// Skip the auto-pin to `dist-tags.latest` for `npm:` specifiers and
+    /// write the unversioned form (deferring to node_modules / package.json).
+    no_version: bool,
+    /// Also update the nearest `package.json`'s `devDependencies` with the
+    /// resolved latest version (as a caret range). Implies `no_version`,
+    /// since pinning in dprint.json would just duplicate the version.
+    package_json: bool,
+    /// Force a checksum onto the written plugin entry, even for Wasm plugins
+    /// (which are otherwise added without one). Conflicts with `no_version` /
+    /// `package_json`, since an unversioned entry can't carry a checksum.
+    checksum: bool,
+    /// Don't resolve an npm plugin version published more recently than this.
+    /// Only applies to versions dprint picks — a version the user wrote out
+    /// themselves is written as-is.
+    minimum_dependency_age: Option<MinimumDependencyAgeArg>,
+    /// Set when the plugins in the configuration file should also be
+    /// downloaded and set up after adding to it (`dprint install <plugin>`).
+    install: Option<InstallSubCommand>,
+  },
+  /// Download and set up the plugins in the configuration file.
+  Install(InstallSubCommand),
   Edit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallSubCommand {
+  /// Also install the plugins of the configuration files in descendant directories.
+  pub recursive: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct OutputFilePathsSubCommand {
   pub patterns: FilePatternArgs,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct OutputResolvedConfigSubCommand {
+  /// When set, limits the output to only the plugins that would format this file.
+  pub file_path: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -215,6 +396,9 @@ pub struct StdInFmtSubCommand {
   pub file_name_or_path: String,
   pub file_bytes: Vec<u8>,
   pub patterns: FilePatternArgs,
+  pub enable_stable_format: bool,
+  /// Lines to limit the formatting to. Empty means format the entire text.
+  pub line_ranges: Vec<LineRange>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -226,15 +410,34 @@ pub enum HiddenSubCommand {
   WindowsUninstall(String),
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct FilePatternArgs {
-  pub include_patterns: Vec<String>,
+  /// File patterns specified on the command line or via `--stdin-files`.
+  ///
+  /// `None` means none were specified, which is different from specifying
+  /// an empty list (ex. `--stdin-files` with no lines) as that means there
+  /// are no files to format.
+  pub include_patterns: Option<Vec<String>>,
   pub include_pattern_overrides: Option<Vec<String>>,
   pub exclude_patterns: Vec<String>,
   pub exclude_pattern_overrides: Option<Vec<String>>,
   pub allow_node_modules: bool,
   pub no_gitignore: bool,
   pub only_staged: bool,
+  pub only_dirty: bool,
+}
+
+impl FilePatternArgs {
+  /// Whether the arguments limit the run to some of the files the
+  /// configuration would otherwise cover.
+  pub fn is_partial_run(&self) -> bool {
+    self.include_patterns.is_some()
+      || self.include_pattern_overrides.is_some()
+      || !self.exclude_patterns.is_empty()
+      || self.exclude_pattern_overrides.is_some()
+      || self.only_staged
+      || self.only_dirty
+  }
 }
 
 #[derive(Debug, Error)]
@@ -246,19 +449,54 @@ pub fn parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: T
 }
 
 fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader: TStdInReader) -> Result<CliArgs> {
-  fn parse_init(matches: &ArgMatches) -> ConfigSubCommand {
-    ConfigSubCommand::Init {
+  fn parse_init(matches: &ArgMatches) -> Result<ConfigSubCommand> {
+    Ok(ConfigSubCommand::Init {
       global: matches.get_flag("global"),
+      yes: matches.get_flag("yes"),
+      preferences: matches.get_flag("preferences"),
+      minimum_dependency_age: parse_minimum_dependency_age(matches)?,
+    })
+  }
+
+  fn parse_add(matches: &ArgMatches, install: Option<InstallSubCommand>) -> Result<ConfigSubCommand> {
+    let names = matches
+      .get_many::<String>("url-or-plugin-name")
+      .map(|v| v.cloned().collect())
+      .unwrap_or_default();
+    let package_json = matches.get_flag("package-json");
+    // --package-json implies --no-version: writing a pinned spec to
+    // dprint.json on top of a devDependencies entry would be duplication.
+    let no_version = package_json || matches.get_flag("no-version");
+    let checksum = matches.get_flag("checksum");
+    Ok(ConfigSubCommand::Add {
+      names,
+      no_version,
+      package_json,
+      checksum,
+      minimum_dependency_age: parse_minimum_dependency_age(matches)?,
+      install,
+    })
+  }
+
+  /// Parses `install`, which acts like `add` when provided plugins.
+  fn parse_install(matches: &ArgMatches) -> Result<ConfigSubCommand> {
+    let install = InstallSubCommand {
+      recursive: matches.get_flag("recursive"),
+    };
+    if matches.contains_id("url-or-plugin-name") {
+      parse_add(matches, Some(install))
+    } else {
+      Ok(ConfigSubCommand::Install(install))
     }
   }
 
-  fn parse_add(matches: &ArgMatches) -> ConfigSubCommand {
-    ConfigSubCommand::Add(
-      matches
-        .get_many::<String>("url-or-plugin-name")
-        .map(|v| v.cloned().collect())
-        .unwrap_or_default(),
-    )
+  /// Parses `--minimum-dependency-age`. `None` leaves the age to any
+  /// `min-release-age` an .npmrc sets.
+  fn parse_minimum_dependency_age(matches: &ArgMatches) -> Result<Option<MinimumDependencyAgeArg>> {
+    match matches.get_one::<String>("minimum-dependency-age") {
+      Some(text) => Ok(Some(MinimumDependencyAgeArg::from_str(text)?)),
+      None => Ok(None),
+    }
   }
 
   // this is all done because clap doesn't output exactly how I like
@@ -272,10 +510,7 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
   }
 
   let cli_parser = create_cli_parser(CliArgParserKind::Default);
-  let matches = match cli_parser.try_get_matches_from(&args) {
-    Ok(result) => result,
-    Err(err) => return Err(err.into()),
-  };
+  let matches = cli_parser.try_get_matches_from(&args)?;
 
   let mut is_global_config = false;
   let mut config_update_recursive = false;
@@ -309,54 +544,74 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         SubCommand::StdInFmt(StdInFmtSubCommand {
           file_name_or_path,
           file_bytes: std_in_reader.read()?,
-          patterns: parse_file_patterns(matches)?,
+          patterns: parse_file_patterns(matches, &std_in_reader)?,
+          enable_stable_format: !matches.get_flag("skip-stable-format"),
+          line_ranges: parse_stdin_fmt_line_ranges(matches)?,
         })
       } else {
         let enable_stable_format = !matches.get_flag("skip-stable-format");
+        let mut patterns = parse_file_patterns(matches, &std_in_reader)?;
+        let line_ranges = parse_fmt_line_ranges(matches, &mut patterns);
         SubCommand::Fmt(FmtSubCommand {
           diff: matches.get_flag("diff"),
-          patterns: parse_file_patterns(matches)?,
+          diff_format: parse_diff_format(matches, DiffFormat::Pretty),
+          patterns,
           incremental: if enable_stable_format { parse_incremental(matches) } else { Some(false) },
           enable_stable_format,
-          allow_no_files: if matches.get_flag("staged") {
+          allow_no_files: if matches.get_flag("staged") || matches.get_flag("dirty") {
             true
           } else {
             matches.get_flag("allow-no-files")
           },
           fail_on_change: matches.get_flag("fail-on-change"),
           only_staged: matches.get_flag("staged"),
+          only_dirty: matches.get_flag("dirty"),
+          line_ranges,
         })
       }
     }
     ("check", matches) => {
-      // when log level is silent, default fail_fast to true unless explicitly provided by user
+      let json = matches.get_flag("json");
+      // when log level is silent, default fail_fast to true unless explicitly provided by
+      // user or outputting json (which is still output when silent and should be complete)
       let fail_fast = if let Some(value) = matches.get_one::<String>("fail-fast") {
         value != "false"
       } else if matches.contains_id("fail-fast") {
         true
       } else {
-        log_level == LogLevel::Silent
+        log_level == LogLevel::Silent && !json
       };
 
       SubCommand::Check(CheckSubCommand {
-        patterns: parse_file_patterns(matches)?,
+        patterns: parse_file_patterns(matches, &std_in_reader)?,
         incremental: parse_incremental(matches),
         only_staged: matches.get_flag("staged"),
+        only_dirty: matches.get_flag("dirty"),
         list_different: matches.get_flag("list-different"),
+        json,
+        diff_format: parse_diff_format(matches, if json { DiffFormat::Unified } else { DiffFormat::Pretty }),
         allow_no_files: matches.get_flag("allow-no-files"),
         fail_fast,
       })
     }
-    ("init", matches) => SubCommand::Config(parse_init(matches)),
+    ("init", matches) => SubCommand::Config(parse_init(matches)?),
     ("add", matches) => {
       is_global_config = matches.get_flag("global");
-      SubCommand::Config(parse_add(matches))
+      SubCommand::Config(parse_add(matches, None)?)
+    }
+    ("install", matches) => {
+      is_global_config = matches.get_flag("global");
+      SubCommand::Config(parse_install(matches)?)
     }
     ("config", matches) => SubCommand::Config(match matches.subcommand().unwrap() {
-      ("init", matches) => parse_init(matches),
+      ("init", matches) => parse_init(matches)?,
       ("add", matches) => {
         is_global_config = matches.get_flag("global");
-        parse_add(matches)
+        parse_add(matches, None)?
+      }
+      ("install", matches) => {
+        is_global_config = matches.get_flag("global");
+        parse_install(matches)?
       }
       ("update", matches) => {
         is_global_config = matches.get_flag("global");
@@ -364,6 +619,8 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
         is_config_update = true;
         ConfigSubCommand::Update {
           yes: *matches.get_one::<bool>("yes").unwrap(),
+          dry_run: *matches.get_one::<bool>("dry-run").unwrap(),
+          minimum_dependency_age: parse_minimum_dependency_age(matches)?,
         }
       }
       ("edit", matches) => {
@@ -373,12 +630,15 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
       _ => unreachable!(),
     }),
     ("clear-cache", _) => SubCommand::ClearCache,
-    ("output-file-paths", matches) => SubCommand::OutputFilePaths(OutputFilePathsSubCommand {
-      patterns: parse_file_patterns(matches)?,
+    ("file-paths", matches) => SubCommand::OutputFilePaths(OutputFilePathsSubCommand {
+      patterns: parse_file_patterns(matches, &std_in_reader)?,
     }),
-    ("output-resolved-config", _) => SubCommand::OutputResolvedConfig,
-    ("output-format-times", matches) => SubCommand::OutputFormatTimes(OutputFormatTimesSubCommand {
-      patterns: parse_file_patterns(matches)?,
+    ("resolved-config", matches) => SubCommand::OutputResolvedConfig(OutputResolvedConfigSubCommand {
+      file_path: matches.get_one::<String>("file").map(String::from),
+    }),
+    ("incremental-state", _) => SubCommand::IncrementalState,
+    ("format-times", matches) => SubCommand::OutputFormatTimes(OutputFormatTimesSubCommand {
+      patterns: parse_file_patterns(matches, &std_in_reader)?,
       allow_no_files: matches.get_flag("allow-no-files"),
     }),
     ("version", _) => SubCommand::Version,
@@ -401,10 +661,20 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     }
   };
 
+  let plugins = maybe_values_to_vec(matches.get_many("plugins"));
+  let is_add_and_install = matches!(sub_command, SubCommand::Config(ConfigSubCommand::Add { install: Some(_), .. }));
+  if is_add_and_install && !plugins.is_empty() {
+    // the --plugins would be installed instead of the plugins being added
+    bail!(
+      "Cannot specify --plugins when providing plugins to add with the install sub command. Run `dprint add <plugins>` to add them to the config file or `dprint install --plugins <urls/files>` to only install plugins."
+    );
+  }
+
   Ok(CliArgs {
     sub_command,
     log_level,
     config: matches.get_one::<String>("config").map(String::from),
+    reload: matches.get_one::<ReloadArg>("reload").copied().unwrap_or_default(),
     config_discovery: if is_global_config {
       Some(ConfigDiscovery::Global)
     } else if is_config_update {
@@ -420,20 +690,26 @@ fn inner_parse_args<TStdInReader: StdInReader>(args: Vec<String>, std_in_reader:
     } else {
       matches.get_one::<ConfigDiscovery>("config-discovery").copied()
     },
-    plugins: maybe_values_to_vec(matches.get_many("plugins")),
+    plugins,
   })
 }
 
-fn parse_file_patterns(matches: &ArgMatches) -> Result<FilePatternArgs> {
+fn parse_file_patterns<TStdInReader: StdInReader>(matches: &ArgMatches, std_in_reader: &TStdInReader) -> Result<FilePatternArgs> {
   let plugins = maybe_values_to_vec(matches.get_many("plugins"));
-  let file_patterns = maybe_values_to_vec(matches.get_many("files"));
+  // these two are mutually exclusive, so only one of them provides the patterns
+  let file_patterns = if matches.get_flag("stdin-files") {
+    Some(std_in_reader.read_non_empty_lines()?)
+  } else {
+    matches.get_many("files").map(values_to_vec)
+  };
 
-  if !plugins.is_empty() && file_patterns.is_empty() {
+  if !plugins.is_empty() && file_patterns.as_ref().is_none_or(|p| p.is_empty()) {
     validate_plugin_args_when_no_files(&plugins)?;
   }
 
   Ok(FilePatternArgs {
     only_staged: matches.get_flag("staged"),
+    only_dirty: matches.get_flag("dirty"),
     allow_node_modules: matches.get_flag("allow-node-modules"),
     no_gitignore: matches.get_flag("no-gitignore"),
     include_patterns: file_patterns,
@@ -441,6 +717,64 @@ fn parse_file_patterns(matches: &ArgMatches) -> Result<FilePatternArgs> {
     exclude_patterns: maybe_values_to_vec(matches.get_many("excludes")),
     exclude_pattern_overrides: matches.get_many("excludes-override").map(values_to_vec),
   })
+}
+
+fn parse_diff_format(matches: &ArgMatches, default: DiffFormat) -> DiffFormat {
+  match matches.get_one::<String>("diff-format").map(|s| s.as_str()) {
+    Some("unified") => DiffFormat::Unified,
+    Some("pretty") => DiffFormat::Pretty,
+    _ => default,
+  }
+}
+
+/// Parses the line ranges for `fmt`, which come from `--lines` and the lines
+/// of `--stdin-files` (ex. `src/main.ts:10-20`). The files of the line ranges
+/// are added to the patterns so that they get formatted.
+fn parse_fmt_line_ranges(matches: &ArgMatches, patterns: &mut FilePatternArgs) -> Vec<FileLineRanges> {
+  let mut line_ranges = parse_line_ranges(matches);
+  if matches.get_flag("stdin-files")
+    && let Some(include_patterns) = patterns.include_patterns.as_mut()
+  {
+    for pattern in include_patterns.iter_mut() {
+      if let Ok(file_line_ranges) = pattern.parse::<FileLineRanges>()
+        && let Some(path) = &file_line_ranges.path
+      {
+        *pattern = path.clone();
+        line_ranges.push(file_line_ranges);
+      }
+    }
+    // a file may be on several lines when it has several line ranges
+    let mut seen_patterns = std::collections::HashSet::new();
+    include_patterns.retain(|pattern| seen_patterns.insert(pattern.clone()));
+  }
+  for path in line_ranges.iter().filter_map(|r| r.path.as_ref()) {
+    let include_patterns = patterns.include_patterns.get_or_insert_default();
+    if !include_patterns.contains(path) {
+      include_patterns.push(path.clone());
+    }
+  }
+  line_ranges
+}
+
+fn parse_stdin_fmt_line_ranges(matches: &ArgMatches) -> Result<Vec<LineRange>> {
+  let mut result = Vec::new();
+  for file_line_ranges in parse_line_ranges(matches) {
+    if let Some(path) = file_line_ranges.path {
+      bail!(
+        "A file path can't be specified in --lines when formatting stdin (got '{}'). Use --lines <first>-<last> instead.",
+        path
+      );
+    }
+    result.extend(file_line_ranges.ranges);
+  }
+  Ok(result)
+}
+
+fn parse_line_ranges(matches: &ArgMatches) -> Vec<FileLineRanges> {
+  matches
+    .get_many::<FileLineRanges>("lines")
+    .map(|values| values.cloned().collect())
+    .unwrap_or_default()
 }
 
 fn parse_incremental(matches: &ArgMatches) -> Option<bool> {
@@ -465,19 +799,16 @@ fn values_to_vec(values: clap::parser::ValuesRef<String>) -> Vec<String> {
 /// But it should be: dprint fmt --plugins <url1> <url2> -- <file-path>
 fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
   for (i, plugin) in plugins.iter().enumerate() {
-    let lower_plugin = plugin.to_lowercase();
-    let is_valid_plugin =
-      lower_plugin.ends_with(".wasm") || lower_plugin.ends_with(".json") || lower_plugin.contains(".wasm@") || lower_plugin.contains(".json@");
-    if !is_valid_plugin {
+    if !looks_like_plugin(plugin) {
       let start_message = format!(
-        "{} was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension.",
+        "{} was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension, or be an npm: specifier.",
         plugin
       );
       if i == 0 {
         bail!("{}", start_message);
       } else {
         bail!(
-          "{}\n\nMaybe you meant to add two dashes after the plugins?\n  --plugins {} -- [file patterns]...",
+          "{}\n\nMaybe you meant to add two dashes after the plugins?\n  --plugins {} -- [files/directories/patterns]...",
           start_message,
           plugins[..i].join(" "),
         )
@@ -485,6 +816,15 @@ fn validate_plugin_args_when_no_files(plugins: &[String]) -> Result<()> {
     }
   }
   Ok(())
+}
+
+fn looks_like_plugin(plugin: &str) -> bool {
+  // npm: specifiers don't need an extension (ex. npm:@dprint/typescript@0.96.1)
+  if plugin.starts_with("npm:") {
+    return true;
+  }
+  let lower_plugin = plugin.to_lowercase();
+  lower_plugin.ends_with(".wasm") || lower_plugin.ends_with(".json") || lower_plugin.contains(".wasm@") || lower_plugin.contains(".json@")
 }
 
 #[derive(Default, PartialEq, Eq)]
@@ -497,21 +837,45 @@ pub enum CliArgParserKind {
 
 pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
   fn init_command() -> Command {
-    Command::new("init").about("Initializes a configuration file in the current directory.").arg(
-      Arg::new("global")
-        .long("global")
-        .short('g')
-        .conflicts_with("config-discovery")
-        .help("Initialize the global dprint configuration file.")
-        .num_args(0)
-        .required(false),
-    )
+    Command::new("init")
+      .about("Initializes a configuration file in the current directory, or adds plugins to an existing one.")
+      .arg(
+        Arg::new("global")
+          .long("global")
+          .short('g')
+          .conflicts_with("config-discovery")
+          .help("Initialize the global dprint configuration file.")
+          .num_args(0)
+          .required(false),
+      )
+      .arg(
+        Arg::new("yes")
+          .long("yes")
+          .short('y')
+          .help("Skip the interactive plugin prompt and accept the plugins selected based on the files in the current directory.")
+          .num_args(0)
+          .required(false),
+      )
+      .arg(
+        Arg::new("preferences")
+          .long("preferences")
+          .conflicts_with_all(["global", "yes"])
+          .help("Change the plugins to prefer or avoid whenever initializing, along with the files and options of the preferred ones, instead of initializing a configuration file.")
+          .num_args(0)
+          .required(false),
+      )
+      .arg(minimum_dependency_age_arg())
   }
 
   fn add_command() -> Command {
     Command::new("add")
       .about("Adds a plugin to the configuration file.")
-      .arg(Arg::new("url-or-plugin-name").required(false).num_args(1..))
+      .arg(
+        Arg::new("url-or-plugin-name")
+          .required(false)
+          .num_args(1..)
+          .value_hint(clap::ValueHint::AnyPath),
+      )
       .arg(
         Arg::new("global")
           .long("global")
@@ -521,6 +885,79 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
           .num_args(0)
           .required(false),
       )
+      .arg(
+        Arg::new("no-version")
+          .long("no-version")
+          .help(
+            "For npm: specifiers, write the unversioned form instead of pinning dist-tags.latest. Defers version management to node_modules / package.json.",
+          )
+          .num_args(0)
+          .required(false),
+      )
+      .arg(
+        Arg::new("package-json")
+          .long("package-json")
+          .help("Like --no-version, and also add the package to the nearest package.json's devDependencies as a caret range.")
+          .num_args(0)
+          .required(false),
+      )
+      .arg(
+        Arg::new("checksum")
+          .long("checksum")
+          .help("Add a checksum to the plugin entry, even for Wasm plugins (which are otherwise added without one).")
+          .num_args(0)
+          .required(false)
+          .conflicts_with_all(["no-version", "package-json"]),
+      )
+      .arg(minimum_dependency_age_arg())
+  }
+
+  fn install_command() -> Command {
+    // the same as `add` when provided plugins
+    let mut command = add_command()
+      .name("install")
+      .about("Installs the plugins in the configuration file, adding any provided plugins to it first.")
+      .mut_arg("url-or-plugin-name", |arg| {
+        arg.help("Plugins to add to the configuration file before installing (name, url, or npm: specifier).")
+      })
+      .mut_arg("global", |arg| arg.help("Install the plugins in the global dprint configuration file."))
+      .arg(recursive_arg(
+        "Install the plugins of the configuration files in the current directory and all descendant directories.",
+      ));
+    // these only make sense when adding a plugin
+    for name in ["no-version", "package-json", "checksum", "minimum-dependency-age"] {
+      command = command.mut_arg(name, |arg| arg.requires("url-or-plugin-name"));
+    }
+    command
+  }
+
+  fn recursive_arg(help: &'static str) -> Arg {
+    Arg::new("recursive")
+      .long("recursive")
+      .short('r')
+      .conflicts_with("config-discovery")
+      .conflicts_with("global")
+      .help(help)
+      .num_args(0)
+      .required(false)
+  }
+
+  /// `--minimum-dependency-age`, shared by the commands that resolve a plugin
+  /// version from npm on the user's behalf.
+  fn minimum_dependency_age_arg() -> Arg {
+    Arg::new("minimum-dependency-age")
+      .long("minimum-dependency-age")
+      // undocumented alias for people used to npm's option name
+      .alias("minimum-release-age")
+      .value_name("AGE")
+      .help(concat!(
+        "Don't resolve npm plugin versions published more recently than this. Accepts an ISO-8601 duration ",
+        "(ex. 'P3D', 'PT72H'), a number of minutes (ex. '1440'), a date or RFC3339 timestamp (ex. '2026-01-15'), or '0' to disable. ",
+        "Defaults to min-release-age in .npmrc, otherwise no minimum.",
+      ))
+      .value_hint(clap::ValueHint::Other)
+      .num_args(1)
+      .required(false)
   }
 
   use clap::Arg;
@@ -540,7 +977,7 @@ pub fn create_cli_parser(kind: CliArgParserKind) -> clap::Command {
     .version(env!("CARGO_PKG_VERSION"))
     .author("Copyright 2019 by David Sherret")
     .about("Auto-formats source code based on the specified plugins.")
-    .override_usage("dprint <SUBCOMMAND> [OPTIONS] [--] [file patterns]...")
+    .override_usage("dprint <SUBCOMMAND> [OPTIONS] [--] [files/directories/patterns]...")
     .help_template(r#"{bin} {version}
 {author}
 
@@ -560,6 +997,9 @@ OPTIONS:
 ENVIRONMENT VARIABLES:
   DPRINT_MAX_THREADS   Limit the number of threads dprint uses for
                        formatting (ex. DPRINT_MAX_THREADS=4).
+  DPRINT_GLOB_READ_THREADS
+                       Number of threads used to read directories while
+                       discovering files (ex. DPRINT_GLOB_READ_THREADS=8).
   DPRINT_CACHE_DIR     Directory to store the dprint cache. Note that this
                        directory may be periodically deleted by the CLI.
   DPRINT_CONFIG_DIR    Global config directory to store a global dprint.json file.
@@ -576,8 +1016,13 @@ ENVIRONMENT VARIABLES:
                        to ignore all certificates or a comma separated list of specific
                        hosts to ignore (ex. dprint.dev,localhost,[::],127.0.0.1)
   DPRINT_EDITOR        Editor used for editing config files.
+  DPRINT_GLOBAL_GITIGNORE
+                       Set to "1" to also respect git's global excludes file
+                       (core.excludesFile). Disabled by default.
   HTTPS_PROXY          Proxy to use when downloading plugins or configuration
-                       files (also supports HTTP_PROXY and NO_PROXY).{after-help}"#)
+                       files (also supports HTTP_PROXY and NO_PROXY).
+  NO_COLOR             Disables coloured output.
+  FORCE_COLOR          Forces coloured output, even when NO_COLOR is set.{after-help}"#)
     .after_help(
             r#"GETTING STARTED:
   1. Navigate to the root directory of a code repository.
@@ -598,12 +1043,13 @@ EXAMPLES:
 
     dprint fmt --config path/to/config/dprint.json
 
-  Search for files using the specified file patterns:
+  Search for files using the specified paths or file patterns:
 
     dprint fmt "**/*.{ts,tsx,js,jsx,json}""#,
     )
     .subcommand(init_command())
     .subcommand(add_command())
+    .subcommand(install_command())
     .subcommand(
       Command::new("fmt")
         .about("Formats the source files and writes the result to the file system.")
@@ -614,6 +1060,8 @@ EXAMPLES:
             .long("stdin")
             .value_name("extension/file-name/file-path")
             .help("Format stdin and output the result to stdout. Provide an absolute file path to apply the inclusion and exclusion rules or an extension or file name to always format the text.")
+            .value_hint(clap::ValueHint::AnyPath)
+            .conflicts_with("stdin-files")
             .required(false)
             .num_args(1)
         )
@@ -624,7 +1072,24 @@ EXAMPLES:
             .num_args(0)
             .required(false)
         )
+        .add_diff_format_arg()
+        .arg(
+          Arg::new("lines")
+            .long("lines")
+            .value_name(match kind {
+              // zsh's completions need the colons escaped
+              CliArgParserKind::ForCompletions => r"[file-path\:]first-last[,first-last]...",
+              _ => "[file-path:]first-last[,first-last]...",
+            })
+            .help("Only format the provided 1-based and inclusive ranges of lines of a file (ex. `--lines src/main.ts:10-20,35-40`). May be specified multiple times. The file path may be omitted when formatting a single file or using --stdin (ex. `--lines 10-20`). With --stdin-files, add the lines to a file path's line instead (ex. `src/main.ts:10-20,35-40`). What gets formatted is up to the plugin and plugins that don't support range formatting may format the entire file.")
+            .value_parser(clap::value_parser!(FileLineRanges))
+            .value_hint(clap::ValueHint::AnyPath)
+            .action(clap::ArgAction::Append)
+            .required(false)
+            .num_args(1)
+        )
         .add_only_staged_arg()
+        .add_only_dirty_arg()
         .add_allow_no_files_arg()
         .arg(
           Arg::new("skip-stable-format")
@@ -648,12 +1113,21 @@ EXAMPLES:
         .add_incremental_arg()
         .add_allow_no_files_arg()
         .add_only_staged_arg()
+        .add_only_dirty_arg()
         .arg(
           Arg::new("list-different")
             .long("list-different")
             .help("Only outputs file paths that aren't formatted and doesn't output diffs.")
             .num_args(0)
         )
+        .arg(
+          Arg::new("json")
+            .long("json")
+            .help("Outputs a JSON object per line for each file that isn't formatted.")
+            .num_args(0)
+            .conflicts_with("list-different")
+        )
+        .add_diff_format_arg()
         .arg(
           Arg::new("fail-fast")
             .long("fail-fast")
@@ -674,6 +1148,12 @@ EXAMPLES:
             .about("Updates the plugins in the configuration file.")
             .arg(Arg::new("yes").help("Upgrade process plugins without prompting to confirm checksums.").short('y').long("yes").action(clap::ArgAction::SetTrue))
             .arg(
+              Arg::new("dry-run")
+                .long("dry-run")
+                .help("Print the updates that would be made without modifying any files.")
+                .action(clap::ArgAction::SetTrue),
+            )
+            .arg(
               Arg::new("global")
                 .long("global")
                 .short('g')
@@ -682,18 +1162,11 @@ EXAMPLES:
                 .num_args(0)
                 .required(false)
             )
-            .arg(
-              Arg::new("recursive")
-                .long("recursive")
-                .short('r')
-                .conflicts_with("config-discovery")
-                .conflicts_with("global")
-                .help("Update configuration files in the current directory and all descendant directories.")
-                .num_args(0)
-                .required(false)
-            )
+            .arg(recursive_arg("Update configuration files in the current directory and all descendant directories."))
+            .arg(minimum_dependency_age_arg())
         )
         .subcommand(add_command())
+        .subcommand(install_command())
         .subcommand(
           Command::new("edit")
             .about("Opens the configuration file in an editor.")
@@ -709,21 +1182,40 @@ EXAMPLES:
         )
     )
     .subcommand(
-      Command::new("output-file-paths")
+      // `output-` prefixed names are kept as hidden aliases for backwards compatibility
+      Command::new("file-paths")
+        .alias("output-file-paths")
         .about("Prints the resolved file paths for the plugins based on the args and configuration.")
         .add_resolve_file_path_args()
         .add_only_staged_arg()
+        .add_only_dirty_arg()
     )
     .subcommand(
-      Command::new("output-resolved-config")
+      Command::new("resolved-config")
+        .alias("output-resolved-config")
         .about("Prints the resolved configuration for the plugins based on the args and configuration.")
+        .arg(
+          Arg::new("file")
+            .long("file")
+            .value_name("file")
+            .help("Limit the output to only the plugins that would format this file.")
+            .value_hint(clap::ValueHint::AnyPath)
+            .num_args(1)
+            .required(false)
+        )
     )
     .subcommand(
-      Command::new("output-format-times")
+      Command::new("incremental-state")
+        .about("Prints the state used to determine whether the incremental cache would be invalidated.")
+    )
+    .subcommand(
+      Command::new("format-times")
+        .alias("output-format-times")
         .about("Prints the amount of time it takes to format each file. Use this for debugging.")
         .add_resolve_file_path_args()
         .add_allow_no_files_arg()
         .add_only_staged_arg()
+        .add_only_dirty_arg()
     )
     .subcommand(
       Command::new("clear-cache")
@@ -744,21 +1236,18 @@ EXAMPLES:
     .subcommand(
       Command::new("license")
         .about("Outputs the software license.")
-    )
-    .subcommand(
-      Command::new("editor-info")
-        .hide(true)
-    )
-    .subcommand(
+    );
+
+  // the generated completions include what's hidden, so leave those out of them
+  if kind != CliArgParserKind::ForCompletions {
+    app = app.subcommand(Command::new("editor-info").hide(true)).subcommand(
       Command::new("editor-service")
         .hide(true)
-        .arg(
-          Arg::new("parent-pid")
-            .long("parent-pid")
-            .required(true)
-            .num_args(1)
-        )
-    )
+        .arg(Arg::new("parent-pid").long("parent-pid").required(true).num_args(1)),
+    );
+  }
+
+  app = app
     .subcommand(
       Command::new("lsp")
       .about("Starts up a language server for formatting files.")
@@ -768,6 +1257,7 @@ EXAMPLES:
         .long("config")
         .short('c')
         .help("Path or url to JSON configuration file. Defaults to dprint.json(c) or .dprint.json(c) in current or ancestor directory when not provided.")
+        .value_hint(clap::ValueHint::AnyPath)
         .global(true)
         .num_args(1)
     )
@@ -776,7 +1266,11 @@ EXAMPLES:
         .long("config-discovery")
         .help("Sets the config discovery mode. Set to `false` to completely disable, `ignore-descendants` to avoid finding config files in child directories, or `global` to only use the global config file.")
         .global(true)
-        .value_parser(clap::value_parser!(ConfigDiscovery))
+        .value_parser(match kind {
+          // the parser accepts any text, so provide the values to complete
+          CliArgParserKind::ForCompletions => clap::builder::ValueParser::from(["true", "false", "ignore-descendants", "global"]),
+          _ => clap::value_parser!(ConfigDiscovery).into(),
+        })
         .value_name("BOOLEAN")
         .num_args(1)
         .require_equals(true)
@@ -787,8 +1281,24 @@ EXAMPLES:
         .long("plugins")
         .value_name("urls/files")
         .help("List of urls or file paths of plugins to use. This overrides what is specified in the config file.")
+        .value_hint(clap::ValueHint::AnyPath)
         .global(true)
         .num_args(1..)
+    )
+    .arg(
+      Arg::new("reload")
+        .long("reload")
+        .help("Checks for newer versions of remote configuration files and plugins instead of using the cached ones. Specify `config` or `plugins` to only check one of them.")
+        .global(true)
+        .value_parser(match kind {
+          // the parser accepts any text, so provide the values to complete
+          CliArgParserKind::ForCompletions => clap::builder::ValueParser::from(["config", "plugins", "all"]),
+          _ => clap::value_parser!(ReloadArg).into(),
+        })
+        .value_name("config|plugins")
+        .num_args(0..=1)
+        .require_equals(true)
+        .default_missing_value("all")
     )
     .arg(
       Arg::new("log-level")
@@ -798,24 +1308,27 @@ EXAMPLES:
         .value_parser(["debug", "info", "warn", "error", "silent"])
         .default_value("info")
         .global(true),
-    )
-    .arg(
+    );
+
+  if kind != CliArgParserKind::ForCompletions {
+    app = app.arg(
       Arg::new("verbose")
         .long("verbose")
         .help("Alias for --log-level=debug")
         .hide(true)
         .global(true)
         .num_args(0)
-        .conflicts_with("log-level")
+        .conflicts_with("log-level"),
     );
+  }
 
   #[cfg(target_os = "windows")]
   if kind == CliArgParserKind::Default {
     app = app.subcommand(
       Command::new("hidden")
         .hide(true)
-        .subcommand(Command::new("windows-install").arg(Arg::new("install-path").num_args(1).required(true)))
-        .subcommand(Command::new("windows-uninstall").arg(Arg::new("install-path").num_args(1).required(true))),
+        .subcommand(Command::new("windows-install").arg(Arg::new("install-path").num_args(1).required(true).value_hint(clap::ValueHint::AnyPath)))
+        .subcommand(Command::new("windows-uninstall").arg(Arg::new("install-path").num_args(1).required(true).value_hint(clap::ValueHint::AnyPath))),
     );
   }
 
@@ -826,7 +1339,9 @@ trait ClapExtensions {
   fn add_resolve_file_path_args(self) -> Self;
   fn add_incremental_arg(self) -> Self;
   fn add_allow_no_files_arg(self) -> Self;
+  fn add_diff_format_arg(self) -> Self;
   fn add_only_staged_arg(self) -> Self;
+  fn add_only_dirty_arg(self) -> Self;
 }
 
 impl ClapExtensions for clap::Command {
@@ -835,13 +1350,25 @@ impl ClapExtensions for clap::Command {
     self
       .arg(
         Arg::new("files")
-          .help("List of file patterns in quotes to format. This can be a subset of what is found in the config file.")
+          .help("List of files, directories, or file patterns to format. This can be a subset of what is found in the config file.")
+          .value_hint(clap::ValueHint::AnyPath)
           .num_args(1..),
+      )
+      .arg(
+        Arg::new("stdin-files")
+          .long("stdin-files")
+          .help("Read a newline-separated list of file paths to format from stdin instead of from the command line arguments.")
+          .conflicts_with("files")
+          .conflicts_with("staged")
+          .conflicts_with("dirty")
+          .num_args(0)
+          .required(false),
       )
       .arg(
         Arg::new("includes-override")
           .long("includes-override")
           .value_name("patterns")
+          .value_hint(clap::ValueHint::AnyPath)
           .help("List of file patterns in quotes to format. This overrides what is specified in the config file.")
           .num_args(1..),
       )
@@ -849,6 +1376,7 @@ impl ClapExtensions for clap::Command {
         Arg::new("excludes")
           .long("excludes")
           .value_name("patterns")
+          .value_hint(clap::ValueHint::AnyPath)
           .help("List of file patterns or directories in quotes to exclude when formatting. This excludes in addition to what is found in the config file.")
           .num_args(1..),
       )
@@ -856,13 +1384,16 @@ impl ClapExtensions for clap::Command {
         Arg::new("excludes-override")
           .long("excludes-override")
           .value_name("patterns")
+          .value_hint(clap::ValueHint::AnyPath)
           .help("List of file patterns or directories in quotes to exclude when formatting. This overrides what is specified in the config file.")
           .num_args(1..),
       )
       .arg(
         Arg::new("allow-node-modules")
           .long("allow-node-modules")
-          .help("Allows traversing node module directories (unstable - This flag will be renamed to be non-node specific in the future).")
+          .help(
+            "Allows traversing node module directories. This is implicit when the current working directory is within one (unstable - This flag will be renamed to be non-node specific in the future).",
+          )
           .num_args(0),
       )
       .arg(
@@ -896,12 +1427,36 @@ impl ClapExtensions for clap::Command {
     )
   }
 
+  fn add_diff_format_arg(self) -> Self {
+    use clap::Arg;
+    self.arg(
+      Arg::new("diff-format")
+        .long("diff-format")
+        .help("The format to output diffs in. Use `unified` to output a standard unified diff that can be piped to other tools or applied with `patch`. Defaults to `pretty`, or `unified` when outputting json.")
+        .num_args(1)
+        .value_parser(["pretty", "unified"])
+        .required(false),
+    )
+  }
+
   fn add_only_staged_arg(self) -> Self {
     use clap::Arg;
     self.arg(
       Arg::new("staged")
         .long("staged")
         .help("Format only the staged files.")
+        .num_args(0)
+        .required(false),
+    )
+  }
+
+  fn add_only_dirty_arg(self) -> Self {
+    use clap::Arg;
+    self.arg(
+      Arg::new("dirty")
+        .long("dirty")
+        .help("Format only the files with uncommitted changes in the git working directory (staged, unstaged, and untracked).")
+        .conflicts_with("staged")
         .num_args(0)
         .required(false),
     )
@@ -913,13 +1468,66 @@ mod test {
   use crate::utils::TestStdInReader;
 
   use super::*;
+  use crate::utils::MinimumDependencyAge;
+
+  #[test]
+  fn sub_command_help_has_global_options_last() {
+    let mut cli_parser = create_cli_parser(CliArgParserKind::Default);
+    cli_parser.build();
+    for sub_command in cli_parser.get_subcommands_mut().filter(|c| c.get_name() != "help") {
+      let help_text = sub_command.render_help().to_string();
+      let option_names = help_text
+        .lines()
+        .filter_map(|line| line.trim_start().split_once("--"))
+        .filter(|(prefix, _)| prefix.is_empty() || prefix.ends_with(", "))
+        .map(|(_, text)| text.split([' ', '=', '[']).next().unwrap())
+        .collect::<Vec<_>>();
+      let last_names = &option_names[option_names.len().saturating_sub(6)..];
+      assert_eq!(
+        last_names,
+        ["config", "config-discovery", "plugins", "reload", "log-level", "help"],
+        "help for {}",
+        sub_command.get_name()
+      );
+    }
+  }
+
+  #[test]
+  fn output_prefixed_command_aliases() {
+    // the `output-` prefixed names are kept as hidden aliases for backwards compatibility
+    fn sub_command(args: Vec<&str>) -> SubCommand {
+      test_args(args).unwrap().sub_command
+    }
+    assert!(matches!(sub_command(vec!["file-paths"]), SubCommand::OutputFilePaths(_)));
+    assert!(matches!(sub_command(vec!["output-file-paths"]), SubCommand::OutputFilePaths(_)));
+    assert!(matches!(sub_command(vec!["resolved-config"]), SubCommand::OutputResolvedConfig(_)));
+    assert!(matches!(sub_command(vec!["output-resolved-config"]), SubCommand::OutputResolvedConfig(_)));
+    assert!(matches!(sub_command(vec!["format-times"]), SubCommand::OutputFormatTimes(_)));
+    assert!(matches!(sub_command(vec!["output-format-times"]), SubCommand::OutputFormatTimes(_)));
+  }
+
+  #[test]
+  fn resolved_config_file_path_arg() {
+    fn file_path(args: Vec<&str>) -> Option<String> {
+      match test_args(args).unwrap().sub_command {
+        SubCommand::OutputResolvedConfig(cmd) => cmd.file_path,
+        _ => unreachable!(),
+      }
+    }
+    assert_eq!(file_path(vec!["resolved-config"]), None);
+    assert_eq!(file_path(vec!["resolved-config", "--file", "src/main.py"]), Some("src/main.py".to_string()));
+    assert_eq!(
+      file_path(vec!["output-resolved-config", "--file", "src/main.py"]),
+      Some("src/main.py".to_string())
+    );
+  }
 
   #[test]
   fn plugins_with_file_paths_no_dash_at_first() {
     let err = test_args(vec!["fmt", "--plugins", "test", "other.ts"]).err().unwrap();
     assert_eq!(
       err.to_string(),
-      concat!("test was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension.")
+      concat!("test was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension, or be an npm: specifier.")
     );
   }
 
@@ -931,9 +1539,30 @@ mod test {
     assert_eq!(
       err.to_string(),
       concat!(
-        "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension.\n\n",
+        "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension, or be an npm: specifier.\n\n",
         "Maybe you meant to add two dashes after the plugins?\n",
-        "  --plugins https://plugins.dprint.dev/test.wasm -- [file patterns]...",
+        "  --plugins https://plugins.dprint.dev/test.wasm -- [files/directories/patterns]...",
+      )
+    );
+  }
+
+  #[test]
+  fn plugins_npm_specifier_no_files() {
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--plugins", "npm:@dprint/json@0.25.2"]).unwrap();
+    assert_eq!(fmt_cmd.patterns.include_patterns, None);
+    let args = test_args(vec!["check", "--plugins", "npm:@dprint/typescript@0.96.1", "npm:@dprint/json"]).unwrap();
+    assert_eq!(args.plugins, vec!["npm:@dprint/typescript@0.96.1", "npm:@dprint/json"]);
+  }
+
+  #[test]
+  fn plugins_npm_specifier_with_file_paths_no_dash() {
+    let err = test_args(vec!["fmt", "--plugins", "npm:@dprint/json@0.25.2", "other.ts"]).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      concat!(
+        "other.ts was specified as a plugin, but it doesn't look like one. Plugins must have a .wasm or .json extension, or be an npm: specifier.\n\n",
+        "Maybe you meant to add two dashes after the plugins?\n",
+        "  --plugins npm:@dprint/json@0.25.2 -- [files/directories/patterns]...",
       )
     );
   }
@@ -989,6 +1618,186 @@ mod test {
   }
 
   #[test]
+  fn stdin_files_arg() {
+    let stdin_reader = TestStdInReader::from("/file1.txt\n\n/sub dir/file 2.txt\n");
+    let args = parse_args(vec!["".to_string(), "fmt".to_string(), "--stdin-files".to_string()], stdin_reader).unwrap();
+    match args.sub_command {
+      SubCommand::Fmt(cmd) => {
+        // blank lines are skipped and paths with spaces are preserved
+        assert_eq!(
+          cmd.patterns.include_patterns,
+          Some(vec!["/file1.txt".to_string(), "/sub dir/file 2.txt".to_string()])
+        );
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn stdin_files_arg_empty() {
+    let stdin_reader = TestStdInReader::from(
+      "
+
+",
+    );
+    let args = parse_args(vec!["".to_string(), "fmt".to_string(), "--stdin-files".to_string()], stdin_reader).unwrap();
+    match args.sub_command {
+      SubCommand::Fmt(cmd) => {
+        // an empty list of files is not the same as not specifying any files
+        assert_eq!(cmd.patterns.include_patterns, Some(Vec::new()));
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn stdin_files_conflicts_with_file_patterns() {
+    let stdin_reader = TestStdInReader::from("/file1.txt\n");
+    let err = parse_args(
+      vec!["".to_string(), "fmt".to_string(), "--stdin-files".to_string(), "other.txt".to_string()],
+      stdin_reader,
+    )
+    .err()
+    .unwrap();
+    assert!(err.to_string().contains("cannot be used with"));
+  }
+
+  #[test]
+  fn lines_arg() {
+    fn ranges(path: Option<&str>, ranges: &[(usize, usize)]) -> FileLineRanges {
+      FileLineRanges {
+        path: path.map(String::from),
+        ranges: ranges.iter().map(|&(first, last)| LineRange { first, last }).collect(),
+      }
+    }
+
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "file.txt"]).unwrap();
+    assert_eq!(fmt_cmd.line_ranges, vec![]);
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--lines", "2-4,7", "--lines=10-10", "file.txt"]).unwrap();
+    assert_eq!(fmt_cmd.line_ranges, vec![ranges(None, &[(2, 4), (7, 7)]), ranges(None, &[(10, 10)])]);
+    assert_eq!(fmt_cmd.patterns.include_patterns, Some(vec!["file.txt".to_string()]));
+
+    // the files of the line ranges get formatted
+    let fmt_cmd = parse_fmt_sub_command(vec![
+      "fmt",
+      "--lines",
+      "a.txt:2-4,8,10-12",
+      "--lines",
+      "a.txt:20",
+      "--lines",
+      r"C:\dir\b.txt:1-3",
+      "--lines",
+      r"C:\dir\b.txt:5,7-9",
+      "--lines",
+      "10:20-30",
+      "--lines",
+      "dir-1/file-2.txt:3-4",
+    ])
+    .unwrap();
+    assert_eq!(
+      fmt_cmd.line_ranges,
+      vec![
+        ranges(Some("a.txt"), &[(2, 4), (8, 8), (10, 12)]),
+        ranges(Some("a.txt"), &[(20, 20)]),
+        ranges(Some(r"C:\dir\b.txt"), &[(1, 3)]),
+        ranges(Some(r"C:\dir\b.txt"), &[(5, 5), (7, 9)]),
+        // a file named 10
+        ranges(Some("10"), &[(20, 30)]),
+        ranges(Some("dir-1/file-2.txt"), &[(3, 4)]),
+      ]
+    );
+    assert_eq!(
+      fmt_cmd.patterns.include_patterns,
+      Some(vec![
+        "a.txt".to_string(),
+        r"C:\dir\b.txt".to_string(),
+        "10".to_string(),
+        "dir-1/file-2.txt".to_string()
+      ])
+    );
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--lines", "a.txt:2-4", "--", "a.txt", "sub"]).unwrap();
+    assert_eq!(fmt_cmd.patterns.include_patterns, Some(vec!["a.txt".to_string(), "sub".to_string()]));
+
+    for (value, expected) in [
+      ("0-1", "line numbers start at 1"),
+      ("a.txt:0-1", "line numbers start at 1"),
+      ("a.txt:1-2,0", "line numbers start at 1"),
+      ("4-2", "the first line (4) was after the last line (2)"),
+      ("a.txt", "expected it to end with the lines to format (ex. 10-20), got 'a.txt'"),
+      ("a.txt:1:b", "expected it to end with the lines to format (ex. 10-20), got 'a.txt:1:b'"),
+      ("a.txt:1-2-3", "expected it to end with the lines to format (ex. 10-20), got 'a.txt:1-2-3'"),
+      ("a.txt:1-2,", "expected it to end with the lines to format (ex. 10-20), got 'a.txt:1-2,'"),
+      (":1-2", "expected a file path before the lines"),
+    ] {
+      let err = test_args(vec!["fmt", "--lines", value, "file.txt"]).err().unwrap();
+      assert!(err.to_string().contains(expected), "got: {}", err);
+    }
+  }
+
+  #[test]
+  fn lines_arg_with_stdin() {
+    fn parse(args: &[&str]) -> Result<CliArgs, ParseArgsError> {
+      let args = std::iter::once("").chain(args.iter().copied()).map(String::from).collect();
+      parse_args(args, TestStdInReader::from("text"))
+    }
+
+    match parse(&["fmt", "--stdin", "file.txt", "--lines=1-3,5", "--lines", "8-9"]).unwrap().sub_command {
+      SubCommand::StdInFmt(cmd) => assert_eq!(
+        cmd.line_ranges,
+        vec![
+          LineRange { first: 1, last: 3 },
+          LineRange { first: 5, last: 5 },
+          LineRange { first: 8, last: 9 }
+        ]
+      ),
+      _ => unreachable!(),
+    }
+    let err = parse(&["fmt", "--stdin", "file.txt", "--lines=file.txt:1-3"]).err().unwrap();
+    assert_eq!(
+      err.to_string(),
+      "A file path can't be specified in --lines when formatting stdin (got 'file.txt'). Use --lines <first>-<last> instead."
+    );
+  }
+
+  #[test]
+  fn lines_in_stdin_files() {
+    let stdin_reader = TestStdInReader::from("/file1.txt:2-4,6\n/sub dir/file 2.txt\n/file1.txt:8\n/file3.txt:1-2\n10-20\n");
+    let args = ["", "fmt", "--stdin-files", "--lines", "/file4.txt:3-3"].map(String::from).to_vec();
+    let SubCommand::Fmt(cmd) = parse_args(args, stdin_reader).unwrap().sub_command else {
+      unreachable!();
+    };
+    let ranges = |path: &str, ranges: &[(usize, usize)]| FileLineRanges {
+      path: Some(path.to_string()),
+      ranges: ranges.iter().map(|&(first, last)| LineRange { first, last }).collect(),
+    };
+    assert_eq!(
+      cmd.line_ranges,
+      vec![
+        ranges("/file4.txt", &[(3, 3)]),
+        ranges("/file1.txt", &[(2, 4), (6, 6)]),
+        ranges("/file1.txt", &[(8, 8)]),
+        ranges("/file3.txt", &[(1, 2)]),
+      ]
+    );
+    // a line without a file path is a file path
+    assert_eq!(
+      cmd.patterns.include_patterns,
+      Some(
+        ["/file1.txt", "/sub dir/file 2.txt", "/file3.txt", "10-20", "/file4.txt"]
+          .map(String::from)
+          .to_vec()
+      )
+    );
+
+    // only fmt has line ranges
+    let args = ["", "check", "--stdin-files"].map(String::from).to_vec();
+    let SubCommand::Check(cmd) = parse_args(args, TestStdInReader::from("/file1.txt:2-4\n")).unwrap().sub_command else {
+      unreachable!();
+    };
+    assert_eq!(cmd.patterns.include_patterns, Some(vec!["/file1.txt:2-4".to_string()]));
+  }
+
+  #[test]
   fn staged_arg() {
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt"]).unwrap();
     assert_eq!(fmt_cmd.only_staged, false);
@@ -997,9 +1806,26 @@ mod test {
   }
 
   #[test]
+  fn dirty_arg() {
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt"]).unwrap();
+    assert_eq!(fmt_cmd.only_dirty, false);
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--dirty"]).unwrap();
+    assert_eq!(fmt_cmd.only_dirty, true);
+  }
+
+  #[test]
+  fn staged_and_dirty_conflict() {
+    let err = parse_fmt_sub_command(vec!["fmt", "--staged", "--dirty"]).err().unwrap();
+    assert!(err.to_string().contains("cannot be used with"));
+  }
+
+  #[test]
   fn no_files_arg() {
     let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--staged"]).unwrap();
     assert_eq!(fmt_cmd.only_staged, true);
+    assert_eq!(fmt_cmd.allow_no_files, true);
+    let fmt_cmd = parse_fmt_sub_command(vec!["fmt", "--dirty"]).unwrap();
+    assert_eq!(fmt_cmd.only_dirty, true);
     assert_eq!(fmt_cmd.allow_no_files, true);
   }
 
@@ -1007,15 +1833,24 @@ mod test {
   fn top_level_add_alias() {
     let args = test_args(vec!["add"]).unwrap();
     match &args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Add(names)) => {
+      SubCommand::Config(ConfigSubCommand::Add {
+        names,
+        no_version,
+        package_json,
+        checksum,
+        ..
+      }) => {
         assert!(names.is_empty());
+        assert!(!no_version);
+        assert!(!package_json);
+        assert!(!checksum);
       }
       _ => unreachable!(),
     }
 
     let args = test_args(vec!["add", "typescript"]).unwrap();
     match &args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Add(names)) => {
+      SubCommand::Config(ConfigSubCommand::Add { names, .. }) => {
         assert_eq!(names, &["typescript"]);
       }
       _ => unreachable!(),
@@ -1023,8 +1858,208 @@ mod test {
 
     let args = test_args(vec!["add", "typescript", "json", "markdown"]).unwrap();
     match &args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Add(names)) => {
+      SubCommand::Config(ConfigSubCommand::Add { names, .. }) => {
         assert_eq!(names, &["typescript", "json", "markdown"]);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn install_sub_command() {
+    for prefix in [vec![], vec!["config"]] {
+      let test_args = |args: Vec<&'static str>| test_args(prefix.iter().copied().chain(args).collect());
+      let install = |recursive: bool| SubCommand::Config(ConfigSubCommand::Install(InstallSubCommand { recursive }));
+
+      // no plugins installs what's in the config file, which is
+      // discovered the same way as the other sub commands
+      let args = test_args(vec!["install"]).unwrap();
+      assert_eq!(args.sub_command, install(false));
+      assert!(args.config_discovery.is_none());
+
+      let args = test_args(vec!["install", "-g"]).unwrap();
+      assert_eq!(args.sub_command, install(false));
+      assert!(matches!(args.config_discovery, Some(ConfigDiscovery::Global)));
+
+      for flag in ["--recursive", "-r"] {
+        let args = test_args(vec!["install", flag]).unwrap();
+        assert_eq!(args.sub_command, install(true));
+        assert!(args.config_discovery.is_none());
+      }
+
+      let args = test_args(vec!["install", "--config-discovery=false"]).unwrap();
+      assert_eq!(args.sub_command, install(false));
+      assert!(matches!(args.config_discovery, Some(ConfigDiscovery::Disabled)));
+
+      // providing plugins acts like `add`
+      let args = test_args(vec!["install", "-g", "--checksum", "typescript", "json"]).unwrap();
+      match &args.sub_command {
+        SubCommand::Config(ConfigSubCommand::Add { names, checksum, install, .. }) => {
+          assert_eq!(names, &["typescript", "json"]);
+          assert!(*checksum);
+          assert_eq!(*install, Some(InstallSubCommand { recursive: false }));
+        }
+        _ => unreachable!(),
+      }
+      assert!(matches!(args.config_discovery, Some(ConfigDiscovery::Global)));
+
+      let args = test_args(vec!["install", "--recursive", "typescript"]).unwrap();
+      match &args.sub_command {
+        SubCommand::Config(ConfigSubCommand::Add { install, .. }) => {
+          assert_eq!(*install, Some(InstallSubCommand { recursive: true }));
+        }
+        _ => unreachable!(),
+      }
+      assert!(args.config_discovery.is_none());
+
+      // the flags for adding a plugin need a plugin
+      assert!(test_args(vec!["install", "--checksum"]).is_err());
+      assert!(test_args(vec!["install", "--no-version"]).is_err());
+      assert!(test_args(vec!["install", "--package-json"]).is_err());
+      assert!(test_args(vec!["install", "--minimum-dependency-age", "P3D"]).is_err());
+
+      assert!(test_args(vec!["install", "-g", "--recursive"]).is_err());
+      assert!(test_args(vec!["install", "--recursive", "--config-discovery=true"]).is_err());
+
+      // installs the provided plugins instead of the ones in the config file
+      for (flags, recursive) in [(vec![], false), (vec!["--recursive"], true)] {
+        let mut cli_args = vec!["install"];
+        cli_args.extend(flags);
+        cli_args.extend(["--plugins", "https://plugins.dprint.dev/test-plugin.wasm"]);
+        let args = test_args(cli_args).unwrap();
+        assert_eq!(args.sub_command, install(recursive));
+        assert_eq!(args.plugins, vec!["https://plugins.dprint.dev/test-plugin.wasm"]);
+      }
+
+      // would install the --plugins instead of the plugin being added
+      let err = test_args(vec!["install", "typescript", "--plugins", "https://plugins.dprint.dev/test-plugin.wasm"])
+        .err()
+        .unwrap();
+      assert_eq!(
+        err.to_string(),
+        "Cannot specify --plugins when providing plugins to add with the install sub command. Run `dprint add <plugins>` to add them to the config file or `dprint install --plugins <urls/files>` to only install plugins."
+      );
+    }
+
+    let args = test_args(vec!["add", "typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { install, .. }) => assert_eq!(*install, None),
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn add_no_version_flag() {
+    let args = test_args(vec!["add", "--no-version", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add {
+        names,
+        no_version,
+        package_json,
+        checksum,
+        ..
+      }) => {
+        assert_eq!(names, &["npm:@dprint/typescript"]);
+        assert!(*no_version);
+        assert!(!*package_json);
+        assert!(!*checksum);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn add_checksum_flag() {
+    let args = test_args(vec!["add", "--checksum", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { names, checksum, .. }) => {
+        assert_eq!(names, &["npm:@dprint/typescript"]);
+        assert!(*checksum);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn add_minimum_dependency_age_flag() {
+    let args = test_args(vec!["add", "--minimum-dependency-age", "P3D", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { minimum_dependency_age, .. }) => {
+        let arg = minimum_dependency_age.as_ref().unwrap();
+        assert_eq!(*arg.age(), MinimumDependencyAge::Age(std::time::Duration::from_secs(3 * 86400)));
+        // the text is kept as written so messages can quote it back
+        assert_eq!(arg.text(), "P3D");
+      }
+      _ => unreachable!(),
+    }
+
+    // the same flag is available on the commands that resolve a version on
+    // the user's behalf, and defaults to leaving the age to the .npmrc
+    let args = test_args(vec!["config", "update", "--minimum-dependency-age", "0"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Update { minimum_dependency_age, .. }) => {
+        assert_eq!(*minimum_dependency_age.as_ref().unwrap().age(), MinimumDependencyAge::Disabled);
+      }
+      _ => unreachable!(),
+    }
+    let args = test_args(vec!["init", "--minimum-dependency-age", "1440"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Init { minimum_dependency_age, .. }) => {
+        assert_eq!(
+          *minimum_dependency_age.as_ref().unwrap().age(),
+          MinimumDependencyAge::Age(std::time::Duration::from_secs(86400))
+        );
+      }
+      _ => unreachable!(),
+    }
+    let args = test_args(vec!["add", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { minimum_dependency_age, .. }) => {
+        assert_eq!(*minimum_dependency_age, None);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn minimum_release_age_is_an_undocumented_alias() {
+    let args = test_args(vec!["add", "--minimum-release-age", "P3D", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { minimum_dependency_age, .. }) => {
+        let arg = minimum_dependency_age.as_ref().unwrap();
+        assert_eq!(*arg.age(), MinimumDependencyAge::Age(std::time::Duration::from_secs(3 * 86400)));
+      }
+      _ => unreachable!(),
+    }
+
+    // it's an alias, so it stays out of the help text
+    let mut cli_parser = create_cli_parser(CliArgParserKind::ForOutputtingMainHelp);
+    cli_parser.try_get_matches_from_mut(vec![""]).unwrap();
+    let help_text = format!("{}", cli_parser.render_long_help());
+    assert!(!help_text.contains("minimum-release-age"), "got: {}", help_text);
+  }
+
+  #[test]
+  fn add_minimum_dependency_age_rejects_an_invalid_value() {
+    let err = test_args(vec!["add", "--minimum-dependency-age", "3 days", "npm:@dprint/typescript"])
+      .err()
+      .unwrap();
+    assert!(err.to_string().contains("Invalid minimum dependency age"), "got: {}", err);
+  }
+
+  #[test]
+  fn add_checksum_conflicts_with_no_version_and_package_json() {
+    assert!(test_args(vec!["add", "--checksum", "--no-version", "npm:@dprint/typescript"]).is_err());
+    assert!(test_args(vec!["add", "--checksum", "--package-json", "npm:@dprint/typescript"]).is_err());
+  }
+
+  #[test]
+  fn add_package_json_flag_implies_no_version() {
+    let args = test_args(vec!["add", "--package-json", "npm:@dprint/typescript"]).unwrap();
+    match &args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Add { no_version, package_json, .. }) => {
+        assert!(*no_version, "--package-json should imply --no-version");
+        assert!(*package_json);
       }
       _ => unreachable!(),
     }
@@ -1034,8 +2069,21 @@ mod test {
   fn config_upgrade_alias() {
     let args = test_args(vec!["config", "upgrade"]).unwrap();
     match args.sub_command {
-      SubCommand::Config(ConfigSubCommand::Update { yes }) => {
+      SubCommand::Config(ConfigSubCommand::Update { yes, dry_run, .. }) => {
         assert!(!yes);
+        assert!(!dry_run);
+      }
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn config_update_dry_run_arg() {
+    let args = test_args(vec!["config", "update", "--dry-run"]).unwrap();
+    match args.sub_command {
+      SubCommand::Config(ConfigSubCommand::Update { yes, dry_run, .. }) => {
+        assert!(!yes);
+        assert!(dry_run);
       }
       _ => unreachable!(),
     }
@@ -1047,6 +2095,52 @@ mod test {
     assert_eq!(check_cmd.fail_fast, false);
     let check_cmd = parse_check_sub_command(vec!["check", "--fail-fast"]).unwrap();
     assert_eq!(check_cmd.fail_fast, true);
+  }
+
+  #[test]
+  fn check_json_arg() {
+    let check_cmd = parse_check_sub_command(vec!["check"]).unwrap();
+    assert!(!check_cmd.json);
+    let check_cmd = parse_check_sub_command(vec!["check", "--json"]).unwrap();
+    assert!(check_cmd.json);
+    assert!(test_args(vec!["check", "--json"]).unwrap().is_stdout_machine_readable());
+    assert!(!test_args(vec!["check"]).unwrap().is_stdout_machine_readable());
+    assert!(test_args(vec!["check", "--json", "--list-different"]).is_err());
+    let check_cmd = parse_check_sub_command(vec!["check", "--json", "--fail-fast"]).unwrap();
+    assert!(check_cmd.fail_fast);
+  }
+
+  #[test]
+  fn diff_format_arg() {
+    let check_cmd = parse_check_sub_command(vec!["check"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Pretty);
+    let check_cmd = parse_check_sub_command(vec!["check", "--diff-format", "unified"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Unified);
+    let check_cmd = parse_check_sub_command(vec!["check", "--diff-format=pretty"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Pretty);
+    assert!(test_args(vec!["check", "--diff-format", "other"]).is_err());
+    // defaults to unified with --json
+    let check_cmd = parse_check_sub_command(vec!["check", "--json"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Unified);
+    let check_cmd = parse_check_sub_command(vec!["check", "--json", "--diff-format", "pretty"]).unwrap();
+    assert_eq!(check_cmd.diff_format, DiffFormat::Pretty);
+
+    match test_args(vec!["fmt", "--diff", "--diff-format", "unified"]).unwrap().sub_command {
+      SubCommand::Fmt(cmd) => assert_eq!(cmd.diff_format, DiffFormat::Unified),
+      _ => unreachable!(),
+    }
+    match test_args(vec!["fmt"]).unwrap().sub_command {
+      SubCommand::Fmt(cmd) => assert_eq!(cmd.diff_format, DiffFormat::Pretty),
+      _ => unreachable!(),
+    }
+  }
+
+  #[test]
+  fn check_json_does_not_default_fail_fast_with_silent_log_level() {
+    let check_cmd = parse_check_sub_command(vec!["check", "--json", "--log-level=silent"]).unwrap();
+    assert!(!check_cmd.fail_fast);
+    let check_cmd = parse_check_sub_command(vec!["check", "--json", "--log-level=silent", "--fail-fast"]).unwrap();
+    assert!(check_cmd.fail_fast);
   }
 
   #[test]
@@ -1069,6 +2163,34 @@ mod test {
     }
   }
 
+  #[test]
+  fn reload() {
+    let args = test_args(vec!["fmt"]).unwrap();
+    assert_eq!(args.reload, ReloadArg { config: false, plugins: false });
+    assert_eq!(args.remote_cache_mode(), RemoteCacheMode::Use);
+    // everything by default
+    let args = test_args(vec!["fmt", "--reload"]).unwrap();
+    assert_eq!(args.reload, ReloadArg { config: true, plugins: true });
+    assert_eq!(args.remote_cache_mode(), RemoteCacheMode::Reload);
+    let args = test_args(vec!["fmt", "--reload=all"]).unwrap();
+    assert_eq!(args.reload, ReloadArg { config: true, plugins: true });
+    // or one kind
+    let args = test_args(vec!["fmt", "--reload=config"]).unwrap();
+    assert_eq!(args.reload, ReloadArg { config: true, plugins: false });
+    assert_eq!(args.remote_cache_mode(), RemoteCacheMode::Reload);
+    let args = test_args(vec!["fmt", "--reload=plugins"]).unwrap();
+    assert_eq!(args.reload, ReloadArg { config: false, plugins: true });
+    assert_eq!(args.remote_cache_mode(), RemoteCacheMode::Use);
+    // global, so it's accepted before the sub command, and the value must use
+    // an equals sign so a file path isn't taken as the value
+    let args = test_args(vec!["--reload", "check", "file.txt"]).unwrap();
+    assert_eq!(args.reload, ReloadArg { config: true, plugins: true });
+    let args = test_args(vec!["fmt", "--reload", "file.txt"]).unwrap();
+    assert_eq!(args.reload, ReloadArg { config: true, plugins: true });
+    let err = test_args(vec!["fmt", "--reload=other"]).err().unwrap();
+    assert!(err.to_string().contains("expected 'config', 'plugins' or 'all', got 'other'"), "{err}");
+  }
+
   fn parse_check_sub_command(args: Vec<&str>) -> Result<CheckSubCommand, ParseArgsError> {
     let args = test_args(args)?;
     match args.sub_command {
@@ -1083,6 +2205,19 @@ mod test {
       SubCommand::Fmt(cmd) => Ok(cmd),
       _ => unreachable!(),
     }
+  }
+
+  #[test]
+  fn init_preferences_arg() {
+    let is_preferences = |args: Vec<&str>| match test_args(args).unwrap().sub_command {
+      SubCommand::Config(ConfigSubCommand::Init { preferences, .. }) => preferences,
+      _ => unreachable!(),
+    };
+    assert!(!is_preferences(vec!["init"]));
+    assert!(is_preferences(vec!["init", "--preferences"]));
+    // it doesn't initialize anything
+    assert!(test_args(vec!["init", "--preferences", "--yes"]).is_err());
+    assert!(test_args(vec!["init", "--preferences", "--global"]).is_err());
   }
 
   fn test_args(args: Vec<&str>) -> Result<CliArgs, ParseArgsError> {

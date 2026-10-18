@@ -7,6 +7,7 @@ use dprint_core::plugins::FormatConfigId;
 use dprint_core::plugins::PluginInfo;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use super::InitializedPlugin;
@@ -17,10 +18,12 @@ use crate::plugins::Plugin;
 use crate::plugins::PluginCache;
 use crate::plugins::PluginSourceReference;
 use crate::utils::AsyncCell;
+use crate::utils::PathSource;
 
 pub struct PluginWrapper {
   plugin: Box<dyn Plugin>,
   initialized_plugin: AsyncCell<Rc<dyn InitializedPlugin>>,
+  was_set_up: bool,
 }
 
 impl PluginWrapper {
@@ -28,7 +31,14 @@ impl PluginWrapper {
     Self {
       plugin,
       initialized_plugin: Default::default(),
+      was_set_up: false,
     }
+  }
+
+  /// Whether this process set the plugin up (downloaded, compiled, or
+  /// extracted it) instead of it already being in the cache.
+  pub fn was_set_up(&self) -> bool {
+    self.was_set_up
   }
 
   pub fn info(&self) -> &PluginInfo {
@@ -50,22 +60,34 @@ impl PluginWrapper {
   }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PluginResolverOptions {
+  /// Whether to download remote plugins again instead of using the cached
+  /// ones (`--reload`).
+  pub reload_plugins: bool,
+}
+
 pub struct PluginResolver<TEnvironment: Environment> {
   environment: TEnvironment,
   plugin_cache: PluginCache<TEnvironment>,
   memory_cache: RefCell<HashMap<PluginSourceReference, Rc<tokio::sync::OnceCell<Rc<PluginWrapper>>>>>,
   wasm_module_creator: WasmModuleCreator,
   next_config_id: IdGenerator,
+  options: PluginResolverOptions,
+  /// The plugins downloaded again, so each is only reloaded once per process.
+  reloaded: RefCell<HashSet<PluginSourceReference>>,
 }
 
 impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
-  pub fn new(environment: TEnvironment, plugin_cache: PluginCache<TEnvironment>) -> Self {
+  pub fn new(environment: TEnvironment, plugin_cache: PluginCache<TEnvironment>, options: PluginResolverOptions) -> Self {
     PluginResolver {
       environment,
       plugin_cache,
       memory_cache: Default::default(),
       wasm_module_creator: Default::default(),
       next_config_id: Default::default(),
+      options,
+      reloaded: Default::default(),
     }
   }
 
@@ -98,6 +120,25 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     Ok(plugins)
   }
 
+  /// Sets up a versioned npm plugin for `dprint add` — downloads, resolves the
+  /// plugin file (detecting it when the specifier has no path), computes the
+  /// checksum, and warms the cache — returning the resolved path + checksum to
+  /// write into config. See [`PluginCache::resolve_npm_for_add`].
+  pub async fn resolve_npm_for_add(
+    &self,
+    specifier: &crate::utils::NpmSpecifier,
+    path_was_explicit: bool,
+    base_dir: Option<&crate::environment::CanonicalizedPathBuf>,
+  ) -> Result<crate::plugins::NpmAddResolution> {
+    self.plugin_cache.resolve_npm_for_add(specifier, path_was_explicit, base_dir).await
+  }
+
+  /// Downloads a remote plugin for `dprint add`, computes its checksum, and
+  /// warms the cache. See [`PluginCache::resolve_remote_for_add`].
+  pub async fn resolve_remote_for_add(&self, plugin_reference: &PluginSourceReference) -> Result<String> {
+    self.plugin_cache.resolve_remote_for_add(plugin_reference).await
+  }
+
   pub async fn resolve_plugin(&self, plugin_reference: PluginSourceReference) -> Result<Rc<PluginWrapper>> {
     let cell = {
       let mut mem_cache = self.memory_cache.borrow_mut();
@@ -108,8 +149,18 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
     };
     cell
       .get_or_try_init(|| async {
+        if self.should_reload(&plugin_reference) {
+          self
+            .plugin_cache
+            .forget(&plugin_reference)
+            .await
+            .with_context(|| format!("Error forgetting plugin {} from the cache to reload it", plugin_reference.display()))?;
+        }
         match create_plugin(&self.plugin_cache, self.environment.clone(), &plugin_reference, &self.wasm_module_creator).await {
-          Ok(plugin) => Ok(Rc::new(PluginWrapper::new(plugin))),
+          Ok(created) => Ok(Rc::new(PluginWrapper {
+            was_set_up: created.was_set_up,
+            ..PluginWrapper::new(created.plugin)
+          })),
           Err(err) => {
             match self.plugin_cache.forget(&plugin_reference).await {
               Ok(()) => {}
@@ -128,5 +179,75 @@ impl<TEnvironment: Environment> PluginResolver<TEnvironment> {
       })
       .await
       .cloned()
+  }
+
+  /// Whether the plugin should be downloaded again, which is only once per
+  /// process even when the plugins are shut down and resolved again (ex. the
+  /// language server after a config change). Local plugins are already
+  /// checked for changes.
+  fn should_reload(&self, plugin_reference: &PluginSourceReference) -> bool {
+    self.options.reload_plugins && matches!(plugin_reference.path_source, PathSource::Remote(_)) && self.reloaded.borrow_mut().insert(plugin_reference.clone())
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+  use crate::environment::TestEnvironmentBuilder;
+
+  #[test]
+  fn should_reload_remote_plugin_once_per_process() {
+    let environment = TestEnvironmentBuilder::with_remote_wasm_plugin().build();
+    environment.run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let url = "https://plugins.dprint.dev/test-plugin.wasm";
+        let reference = PluginSourceReference {
+          path_source: PathSource::new_remote(url.parse().unwrap()),
+          checksum: None,
+        };
+
+        // cached by a previous process
+        let resolver = Rc::new(PluginResolver::new(
+          environment.clone(),
+          PluginCache::new(environment.clone()),
+          PluginResolverOptions::default(),
+        ));
+        resolver.resolve_plugins(vec![reference.clone()]).await.unwrap();
+        assert_eq!(environment.remote_file_request_count(url), 1);
+        resolver.clear_and_shutdown_initialized().await;
+
+        // reloading downloads it again, but only once in the process
+        let resolver = Rc::new(PluginResolver::new(
+          environment.clone(),
+          PluginCache::new(environment.clone()),
+          PluginResolverOptions { reload_plugins: true },
+        ));
+        resolver.resolve_plugins(vec![reference.clone()]).await.unwrap();
+        assert_eq!(environment.remote_file_request_count(url), 2);
+        resolver.clear_and_shutdown_initialized().await;
+        resolver.resolve_plugins(vec![reference.clone()]).await.unwrap();
+        assert_eq!(environment.remote_file_request_count(url), 2);
+        resolver.clear_and_shutdown_initialized().await;
+
+        // not reloading uses the cache
+        let resolver = Rc::new(PluginResolver::new(
+          environment.clone(),
+          PluginCache::new(environment.clone()),
+          PluginResolverOptions::default(),
+        ));
+        resolver.resolve_plugins(vec![reference]).await.unwrap();
+        assert_eq!(environment.remote_file_request_count(url), 2);
+        resolver.clear_and_shutdown_initialized().await;
+      }
+    });
+    // compiled for the first download and the reload only
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec![
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm",
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm"
+      ]
+    );
   }
 }

@@ -1,11 +1,12 @@
 #!/usr/bin/env -S deno run -A
 import $ from "jsr:@david/dax@0.45.0";
-import { conditions, defineMatrix, expr, type ExpressionValue, isLinting, job, step, workflow } from "jsr:@david/gagen@0.4.0";
+import { conditions, defineMatrix, expr, type ExpressionValue, isLinting, job, step, workflow } from "jsr:@david/gagen@0.6.0";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
   MacX86 = "macos-15-intel",
   Windows = "windows-latest",
+  WindowsArm = "windows-11-arm",
   Linux = "ubuntu-22.04",
   LinuxArm = "ubuntu-24.04-arm",
 }
@@ -16,6 +17,23 @@ interface ProfileData {
   runTests?: boolean;
   /** Build using cross. */
   cross?: boolean;
+  /**
+   * Run the wasm plugin smoke tests under cross's emulator. Only for cross
+   * targets that cross is able to run binaries for.
+   */
+  crossTest?: boolean;
+  /**
+   * Build by running cargo directly inside this Docker image. Used for targets
+   * cross doesn't provide an image for (e.g. riscv64gc/powerpc64le musl), where the image
+   * already bundles the toolchain.
+   */
+  muslCrossImage?: string;
+  /**
+   * Build the release binary with cargo-zigbuild targeting this glibc version
+   * so the published binary runs on older distros regardless of the runner's
+   * glibc (dprint/dprint#796).
+   */
+  zigbuildGlibc?: string;
 }
 
 const profileDataItems: ProfileData[] = [{
@@ -31,9 +49,15 @@ const profileDataItems: ProfileData[] = [{
   target: "x86_64-pc-windows-msvc",
   runTests: true,
 }, {
+  os: OperatingSystem.WindowsArm,
+  target: "aarch64-pc-windows-msvc",
+  runTests: true,
+}, {
+  // glibc 2.17 matches Rust's own minimum for this target (CentOS 7+)
   os: OperatingSystem.Linux,
   target: "x86_64-unknown-linux-gnu",
   runTests: true,
+  zigbuildGlibc: "2.17",
 }, {
   os: OperatingSystem.Linux,
   target: "x86_64-unknown-linux-musl",
@@ -41,6 +65,7 @@ const profileDataItems: ProfileData[] = [{
   os: OperatingSystem.LinuxArm,
   target: "aarch64-unknown-linux-gnu",
   runTests: true,
+  zigbuildGlibc: "2.17",
 }, {
   os: OperatingSystem.LinuxArm,
   target: "aarch64-unknown-linux-musl",
@@ -48,13 +73,68 @@ const profileDataItems: ProfileData[] = [{
   os: OperatingSystem.Linux,
   target: "riscv64gc-unknown-linux-gnu",
   cross: true,
+  crossTest: true,
+}, {
+  // cross has no riscv64gc musl image, so build directly in the prebuilt
+  // rust-musl-cross toolchain image instead (see the musl image build step).
+  os: OperatingSystem.Linux,
+  target: "riscv64gc-unknown-linux-musl",
+  muslCrossImage: "ghcr.io/rust-cross/rust-musl-cross:riscv64gc-musl",
+}, {
+  // s390x (IBM Z): built with cross. Cranelift has a native s390x backend, so
+  // no Pulley fallback is needed. This is the only big-endian target.
+  os: OperatingSystem.Linux,
+  target: "s390x-unknown-linux-gnu",
+  cross: true,
+  crossTest: true,
 }, {
   os: OperatingSystem.Linux,
   target: "loongarch64-unknown-linux-gnu",
   cross: true,
+  crossTest: true,
 }, {
   os: OperatingSystem.Linux,
   target: "loongarch64-unknown-linux-musl",
+  cross: true,
+  crossTest: true,
+}, {
+  // ppc64le: built with cross. Cranelift has no native ppc64 backend, so this
+  // compiles to wasmtime's portable Pulley bytecode (see the `use_pulley` cfg in
+  // crates/dprint/build.rs).
+  os: OperatingSystem.Linux,
+  target: "powerpc64le-unknown-linux-gnu",
+  cross: true,
+  crossTest: true,
+}, {
+  // cross has no powerpc64le musl image, so build directly in the prebuilt
+  // rust-musl-cross toolchain image instead (see the musl image build step).
+  os: OperatingSystem.Linux,
+  target: "powerpc64le-unknown-linux-musl",
+  muslCrossImage: "ghcr.io/rust-cross/rust-musl-cross:powerpc64le-musl",
+}, {
+  // android (Termux): built with cross using its built-in NDK image. The
+  // sandbox lacks the signal-based trap handling native code relies on, so it
+  // compiles to wasmtime's portable Pulley bytecode (see the `use_pulley` cfg in
+  // crates/dprint/build.rs).
+  os: OperatingSystem.Linux,
+  target: "aarch64-linux-android",
+  cross: true,
+  crossTest: true,
+}, {
+  os: OperatingSystem.Linux,
+  target: "x86_64-linux-android",
+  cross: true,
+  crossTest: true,
+}, {
+  // freebsd: built with cross against its FreeBSD 13 sysroot.
+  os: OperatingSystem.Linux,
+  target: "x86_64-unknown-freebsd",
+  cross: true,
+}, {
+  // aarch64 freebsd is a tier 3 Rust target with no prebuilt std, so cross
+  // builds std from source (see the build-std setup step).
+  os: OperatingSystem.Linux,
+  target: "aarch64-unknown-freebsd",
   cross: true,
 }];
 
@@ -88,17 +168,26 @@ const matrix = defineMatrix({
     run_tests: (profile.runTests ?? false).toString(),
     target: profile.target,
     cross: (profile.cross ?? false).toString(),
+    cross_test: (profile.crossTest ?? false).toString(),
+    musl_image: profile.muslCrossImage ?? "",
+    zigbuild_glibc: profile.zigbuildGlibc ?? "",
+    // build and test through cargo-zigbuild for zigbuild targets so the test
+    // suite links (and runs) binaries the same way as the published ones
+    cargo: profile.zigbuildGlibc != null ? "cargo-zigbuild" : "cargo",
+    cargo_target: profile.zigbuildGlibc != null ? `${profile.target}.${profile.zigbuildGlibc}` : profile.target,
   })),
 });
 
 const runTests = matrix.run_tests.equals("true");
 const runDebugTests = runTests.and(isNotTag);
 const isCross = matrix.cross.equals("true");
+const isMuslImage = matrix.musl_image.notEquals("");
+const isZigbuild = matrix.zigbuild_glibc.notEquals("");
 const isLinuxGnu = matrix.target.equals("x86_64-unknown-linux-gnu");
 
 // === build job ===
 
-const checkout = step({ name: "Checkout", uses: "actions/checkout@v6" });
+const checkout = step({ name: "Checkout", uses: "actions/checkout@v7", with: { "persist-credentials": false } });
 const setupDeno = step({
   uses: "denoland/setup-deno@v2",
   with: {
@@ -138,6 +227,30 @@ const setupRust = step({
   name: "Setup cross",
   if: isCross,
   run: "cargo install cross --git https://github.com/cross-rs/cross --rev 36c0d7810ddde073f603c82d896c2a6c886ff7a4",
+}, {
+  // aarch64 freebsd has no prebuilt std, so have cross build it from source.
+  // -Zbuild-std is nightly only, so RUSTC_BOOTSTRAP allows it on the pinned
+  // stable toolchain in order to build with the same compiler as every other
+  // target. cross refuses build-std on a non-nightly rustup toolchain, so it's
+  // told the toolchain is custom, which means it won't install rust-src itself.
+  name: "Setup build-std (aarch64 FreeBSD)",
+  if: matrix.target.equals("aarch64-unknown-freebsd"),
+  run: [
+    "rustup component add rust-src",
+    `echo "RUSTC_BOOTSTRAP=1" >> $GITHUB_ENV`,
+    `echo "CROSS_CUSTOM_TOOLCHAIN=1" >> $GITHUB_ENV`,
+    `echo "CROSS_BUILD_STD=true" >> $GITHUB_ENV`,
+    `echo "CROSS_BUILD_ENV_PASSTHROUGH=RUSTC_BOOTSTRAP" >> $GITHUB_ENV`,
+  ],
+}, {
+  name: "Setup zig",
+  if: isZigbuild,
+  uses: "mlugg/setup-zig@v2",
+  with: { version: "0.15.1" },
+}, {
+  name: "Setup cargo-zigbuild",
+  if: isZigbuild,
+  run: "cargo install cargo-zigbuild --locked --version 0.23.0",
 }).dependsOn(checkout).comesAfter(setupDeno);
 
 const lint = step.if(isLinuxGnu.and(isNotTag))(
@@ -146,7 +259,10 @@ const lint = step.if(isLinuxGnu.and(isNotTag))(
     run: "cargo clippy",
   }).dependsOn(setupRust),
   step({
-    uses: "dprint/check@v2.3",
+    uses: "dprint/check@v2",
+    with: {
+      cache: true,
+    },
   }).dependsOn(setupDeno),
   step({
     name: "Lint CI Generation",
@@ -166,56 +282,139 @@ const aarch64LinkerEnv = {
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: "aarch64-linux-gnu-gcc",
 };
 
-const buildDebug = step({
+// Builds inside the rust-musl-cross image, which bundles the toolchain and runs
+// as root (so it can install the pinned toolchain into its own /root/.rustup --
+// the reason this can't go through cross, which runs as the non-root host user).
+// The build output is then chown'd back so later steps can read/zip it.
+function muslImageRun(releaseArgs: string): string[] {
+  // the image bundles rust-std for its own toolchain, but rust-toolchain.toml
+  // pins a different one, so add the target's std to the pinned toolchain first
+  const build = `rustup target add ${matrix.target} && cargo build -p dprint --locked --target ${matrix.target}${releaseArgs}`;
+  return [
+    `docker run --rm -v "$GITHUB_WORKSPACE":/home/rust/src -w /home/rust/src ${matrix.musl_image} bash -c "${build}"`,
+    `sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/target"`,
+  ];
+}
+
+// Verifies the binary only requires symbols up to the targeted glibc version
+// so a too-new requirement never makes it into a release (dprint/dprint#796).
+function glibcCheckRun(profileDir: "debug" | "release"): string[] {
+  return [
+    `max_glibc=$(objdump -T target/${matrix.target}/${profileDir}/dprint | grep -oE 'GLIBC_[0-9]+\\.[0-9]+' | sed 's/GLIBC_//' | sort -uV | tail -1)`,
+    `echo "Binary requires glibc $max_glibc (max allowed: ${matrix.zigbuild_glibc})"`,
+    `test "$(printf '%s\\n%s\\n' "$max_glibc" "${matrix.zigbuild_glibc}" | sort -V | tail -1)" = "${matrix.zigbuild_glibc}"`,
+  ];
+}
+
+// Only for the targets that don't run the test suite. The ones that do get
+// their debug build from the test build instead (see `testBuildRun`), since a
+// `-p dprint` build resolves different features than the tests do and so
+// none of it would be reused.
+const buildDebug = step.if(isNotTag).dependsOn(setupRust)({
   name: "Build (Debug)",
-  if: isCross.not(),
+  if: runTests.not().and(isCross.not()).and(isMuslImage.not()),
   env: aarch64LinkerEnv,
   run: `cargo build -p dprint --locked --target ${matrix.target}`,
 }, {
   name: "Build cross (Debug)",
   if: isCross,
   run: `cross build -p dprint --locked --target ${matrix.target}`,
-}).dependsOn(setupRust);
+}, {
+  name: "Build musl image (Debug)",
+  if: isMuslImage,
+  run: muslImageRun(""),
+});
+
+// Builds everything the test step needs in a single invocation: the test
+// binaries along with the dprint and test-process-plugin executables the tests
+// spawn. This uses the same flags as the test step so cargo resolves the same
+// features (ones from dev-dependencies and `--all-features` included), which
+// leaves the test step with nothing to compile. Building the executables with
+// `-p <name>` instead resolves fewer features, so cargo compiles them and
+// their dependencies a second time.
+function testBuildRun(releaseArgs: string): string {
+  return `${matrix.cargo} build --locked --target ${matrix.cargo_target} --all-features --lib --bins --tests${releaseArgs}`;
+}
+
+const tests = step(
+  // debug
+  step.if(runDebugTests).dependsOn(setupRust)(
+    step({
+      name: "Build tests (Debug)",
+      run: testBuildRun(""),
+    }),
+    step({
+      // check the debug build too so PRs exercise the release toolchain
+      // (the release build only runs on tags)
+      name: "Check glibc requirement (Debug)",
+      if: isZigbuild,
+      run: glibcCheckRun("debug"),
+    }),
+    step({
+      name: "Test (Debug)",
+      run: `${matrix.cargo} test --locked --target ${matrix.cargo_target} --all-features`,
+    }),
+    step({
+      name: "Test integration",
+      if: isLinuxGnu,
+      run: `./target/${matrix.target}/debug/dprint check`,
+    }),
+  ),
+  // release
+  step.if(runTests.and(isTag)).dependsOn(setupRust)(
+    step({
+      name: "Build tests (Release)",
+      run: testBuildRun(" --release"),
+    }),
+    step({
+      name: "Test (Release)",
+      run: `${matrix.cargo} test --locked --target ${matrix.cargo_target} --all-features --release`,
+    }),
+  ),
+);
+
+// The test build leaves a dprint executable at target/<target>/release/dprint
+// that's compiled with the test suite's features, so the published binaries
+// are built after the tests in order to guarantee that's not what gets zipped.
 const buildRelease = step({
   name: "Build (Release)",
-  if: isCross.not(),
+  if: isCross.not().and(isMuslImage.not()).and(isZigbuild.not()),
   env: aarch64LinkerEnv,
   run: `cargo build -p dprint --locked --target ${matrix.target} --release`,
 }, {
   name: "Build cross (Release)",
   if: isCross,
   run: `cross build -p dprint --locked --target ${matrix.target} --release`,
-}).dependsOn(setupRust);
+}, {
+  name: "Build musl image (Release)",
+  if: isMuslImage,
+  run: muslImageRun(" --release"),
+}).dependsOn(setupRust).comesAfter(tests);
 
-const tests = step(
-  // debug
-  step.if(runDebugTests).dependsOn(buildDebug)(
-    step({
-      name: "Build test plugins (Debug)",
-      run: `cargo build -p test-process-plugin --locked --target ${matrix.target}`,
-    }),
-    step({
-      name: "Test (Debug)",
-      run: `cargo test --locked --target ${matrix.target} --all-features`,
-    }),
-    step({
-      name: "Test integration",
-      if: isLinuxGnu,
-      run: `cargo run -p dprint --locked --target ${matrix.target} -- check`,
-    }),
-  ),
-  // release
-  step.if(runTests.and(isTag)).dependsOn(buildRelease)(
-    step({
-      name: "Build test plugins (Release)",
-      run: `cargo build -p test-process-plugin --locked --target ${matrix.target} --release`,
-    }),
-    step({
-      name: "Test (Release)",
-      run: `cargo test --locked --target ${matrix.target} --all-features --release`,
-    }),
-  ),
-);
+// Runs the tests that compile and run a wasm plugin under cross's emulator for
+// the cross targets it can run binaries for. No other job executes the Pulley
+// interpreter (powerpc64le, loongarch64, android) or a big-endian host (s390x),
+// so this is what catches a broken wasm runtime on those targets. The rest of
+// the suite is skipped because it's slow under emulation and the process plugin
+// tests can't spawn binaries for the target.
+const crossTests = step({
+  name: "Test wasm plugins (cross)",
+  if: matrix.cross_test.equals("true").and(isNotTag),
+  run: `cross test -p dprint --locked --target ${matrix.target} -- should_format_single_file should_handle_wasm_plugin_erroring`,
+}).dependsOn(buildDebug);
+
+// Builds the published gnu binaries against an old glibc so they run on older
+// distros (dprint/dprint#796) -- the runner's glibc doesn't matter with zigbuild.
+// Like the other release builds, this runs after the tests.
+const buildZigbuildRelease = step({
+  name: "Build zigbuild (Release)",
+  if: isZigbuild,
+  run: `cargo zigbuild -p dprint --locked --target ${matrix.target}.${matrix.zigbuild_glibc} --release`,
+}, {
+  name: "Check glibc requirement (Release)",
+  if: isZigbuild,
+  run: glibcCheckRun("release"),
+}).dependsOn(setupRust).comesAfter(tests);
 
 const createInstaller = step.dependsOn(buildRelease)({
   name: "Create installer (Windows x86_64)",
@@ -236,6 +435,7 @@ function getPreReleaseStepForProfile(profile: typeof profiles[0]) {
           `zip -r ${profile.zipFileName} dprint`,
           `echo "ZIP_CHECKSUM=$(shasum -a 256 ${profile.zipFileName} | awk '{print $1}')" >> $GITHUB_OUTPUT`,
         ];
+      case OperatingSystem.WindowsArm:
       case OperatingSystem.Windows: {
         const installerSteps = profile.target === "x86_64-pc-windows-msvc"
           ? [
@@ -261,7 +461,7 @@ function getPreReleaseStepForProfile(profile: typeof profiles[0]) {
     id: `pre_release_${profile.target.replaceAll("-", "_")}`,
     run: getRunstep(),
     outputs: ["ZIP_CHECKSUM", "INSTALLER_CHECKSUM"] as const,
-  }).dependsOn(buildRelease);
+  }).dependsOn(buildRelease).dependsOn(buildZigbuildRelease);
   if (profile.os === OperatingSystem.Windows) {
     return result.dependsOn(createInstaller);
   } else {
@@ -287,7 +487,7 @@ const uploadArtifacts = step(...profiles.map((profile) => {
   return step.dependsOn(preReleaseStep)({
     name: `Upload artifacts (${profile.target})`,
     if: matrix.target.equals(profile.target).and(isTag),
-    uses: "actions/upload-artifact@v6",
+    uses: "actions/upload-artifact@v7",
     with: {
       name: profile.artifactsName,
       path: paths.join("\n"),
@@ -310,13 +510,16 @@ const installerTests = step.if(runDebugTests)(
     shell: "pwsh",
     run: ["cd website/src/assets", "./install.ps1"],
   },
-  step({
-    name: "Test npm",
-    run: [
-      "cd deployment/npm",
-      "deno run -A build.ts 0.51.0",
-    ],
-  }).dependsOn(setupDeno),
+  // TODO: re-enable after the next release. build.ts downloads the release
+  // artifacts for the given version, and the new powerpc64le zips won't exist
+  // until a release includes them.
+  // step({
+  //   name: "Test npm",
+  //   run: [
+  //     "cd deployment/npm",
+  //     "deno run -A build.ts 0.51.0",
+  //   ],
+  // }).dependsOn(setupDeno),
 );
 
 const buildJob = job("build", {
@@ -324,10 +527,17 @@ const buildJob = job("build", {
   runsOn: matrix.os,
   strategy: { matrix },
   defaults: { run: { shell: "bash" } },
+  permissions: {
+    contents: "read",
+  },
   env: {
     // disabled to reduce ./target size and generally it's slower enabled
     CARGO_INCREMENTAL: 0,
     RUST_BACKTRACE: "full",
+    // build lzma-sys's bundled liblzma from source instead of linking the
+    // system one -- the runner's liblzma.so requires a newer glibc than the
+    // zigbuild targets allow, and this keeps every build linking it the same way
+    LZMA_API_STATIC: 1,
   },
   steps: step.if(
     matrix.target.notEquals("aarch64-unknown-linux-gnu")
@@ -338,23 +548,111 @@ const buildJob = job("build", {
     lint,
     buildDebug,
     tests,
+    crossTests,
     uploadArtifacts,
     installerTests,
   ),
   outputs: buildJobOutputs,
 });
 
+// === test_known_plugins job ===
+
+// Starts up the latest version of every published plugin. This executes third
+// party code (process plugins don't run sandboxed), so it runs in its own job
+// that never runs for a release and doesn't save any caches. That way nothing
+// a plugin does on the runner can make its way into the release artifacts.
+const testKnownPluginsJob = job("test_known_plugins", {
+  name: "test_known_plugins",
+  runsOn: "ubuntu-latest",
+  if: isNotTag,
+  permissions: {
+    contents: "read",
+  },
+  env: {
+    CARGO_INCREMENTAL: 0,
+    RUST_BACKTRACE: "full",
+  },
+  steps: [
+    step({
+      name: "Checkout",
+      uses: "actions/checkout@v7",
+      with: { "persist-credentials": false },
+    }),
+    step({
+      uses: "denoland/setup-deno@v2",
+      with: {
+        "deno-version": "canary",
+      },
+    }),
+    step({ uses: "dsherret/rust-toolchain-file@v1" }),
+    step({
+      name: "Build",
+      run: "cargo build -p dprint --locked",
+    }),
+    step({
+      name: "Test known plugins",
+      run: "./.github/scripts/test_known_plugins.ts target/debug/dprint",
+    }),
+  ],
+});
+
 // === draft_release job ===
+
+// Builds the "## Changes" list from the commits between the previous release
+// tag and the tag being released. chore/refactor commits and the version bump
+// commit itself are noise in release notes, so they're filtered out.
+const changelog = step({
+  name: "Generate changelog",
+  id: "changelog",
+  run: [
+    `previous_tag="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"`,
+    `if [ -n "$previous_tag" ]; then`,
+    `  echo "Collecting commits since $previous_tag"`,
+    `  range="$previous_tag..HEAD"`,
+    `else`,
+    `  echo "No previous tag found -- using full history"`,
+    `  range=HEAD`,
+    `fi`,
+    `{`,
+    `  echo "changelog<<CHANGELOG_EOF"`,
+    `  git log --reverse --pretty=format:%s "$range" \\`,
+    `    | grep -Ev '^(chore|refactor|ci)(\\([^)]*\\))?!?: ' \\`,
+    `    | grep -Ev '^[0-9]+\\.[0-9]+\\.[0-9]+$' \\`,
+    `    | sed 's/^/* /'`,
+    `  echo ""`,
+    `  echo "CHANGELOG_EOF"`,
+    `} >> "$GITHUB_OUTPUT"`,
+  ],
+  outputs: ["changelog"] as const,
+});
 
 const draftReleaseJob = job("draft_release", {
   name: "draft_release",
   runsOn: "ubuntu-latest",
   needs: [buildJob],
   if: isTag,
+  // contents: drafting the release. id-token + attestations: signing the
+  // build provenance attestation. artifact-metadata: creating the artifact
+  // storage record, which actions/attest documents as required.
+  permissions: {
+    contents: "write",
+    "id-token": "write",
+    attestations: "write",
+    "artifact-metadata": "write",
+  },
   steps: [
+    // must come before the artifact download -- checkout wipes the workspace
+    // when it isn't already a git repo. Full history so the changelog step can
+    // reach the previous tag.
+    step({
+      name: "Clone repository",
+      uses: "actions/checkout@v7",
+      with: { "fetch-depth": 0, "persist-credentials": false },
+    }),
+    changelog,
     step({
       name: "Download artifacts",
-      uses: "actions/download-artifact@v6",
+      uses: "actions/download-artifact@v8",
     }),
     step({
       name: "Output checksums",
@@ -382,6 +680,13 @@ const draftReleaseJob = job("draft_release", {
       }).flat(),
     }),
     step({
+      name: "Generate artifact attestations",
+      uses: "actions/attest-build-provenance@v4",
+      with: {
+        "subject-checksums": "SHASUMS256.txt",
+      },
+    }),
+    step({
       name: "Draft release",
       uses: "softprops/action-gh-release@v2",
       env: {
@@ -404,11 +709,20 @@ const draftReleaseJob = job("draft_release", {
         ].join("\n"),
         body: `## Changes
 
-* TODO
+${changelog.outputs.changelog}
 
 ## Install
 
 Run \`dprint upgrade\` or see https://dprint.dev/install/
+
+## Verification
+
+These artifacts have [build provenance attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds).
+Verify a download with the [GitHub CLI](https://cli.github.com/):
+
+\`\`\`shell
+gh attestation verify dprint-x86_64-unknown-linux-gnu.zip --repo dprint/dprint
+\`\`\`
 
 ## Checksums
 
@@ -442,6 +756,7 @@ workflow({
     pull_request: { branches: ["main"] },
     push: { branches: ["main"], tags: ["*"] },
   },
+  permissions: {},
   concurrency: {
     // https://stackoverflow.com/a/72408109/188246
     group: "${{ github.workflow }}-${{ github.head_ref || github.run_id }}",
@@ -449,6 +764,7 @@ workflow({
   },
   jobs: [
     buildJob,
+    testKnownPluginsJob,
     draftReleaseJob,
   ],
 }).writeOrLint({

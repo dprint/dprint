@@ -8,8 +8,13 @@ export const knownPlugins = new Set([
   "dockerfile",
   "biome",
   "oxc",
+  "bun",
   "mago",
   "ruff",
+  "roslyn",
+  "csharpier",
+  "clang-format",
+  "cedar",
   // third party plugins, but user name is removed because there can't be `/` in the url
   "malva",
   "markup_fmt",

@@ -21,7 +21,19 @@ impl InfiniteReevaluationProtector {
     const MAX_COUNT: u16 = 1_000;
     let current_value = current_value.unwrap_or(false);
     if current_value == last_value {
-      self.reevaluation_count.set(reevaluation_id, 0); // reset
+      // The condition resolved to the same value it had before, so on its own
+      // it isn't flipping right now.
+      //
+      // Note: this used to reset the flip counter to zero. That allowed two (or
+      // more) conditions whose values depend on each other to ping-pong
+      // forever: each one alternates between flipping and not flipping, so its
+      // per-condition counter was reset on every other re-evaluation and never
+      // reached `MAX_COUNT`. The printer would then keep re-evaluating and
+      // backtracking indefinitely, allocating save points until it ran out of
+      // memory. Keeping the accumulated count guarantees a condition that keeps
+      // flipping is eventually stopped regardless of the cycle it's part of.
+      // A condition that is going to stabilize does so after only a handful of
+      // flips, so this never affects formatting of well-behaved files.
       true
     } else {
       // re-evaluation flipped
@@ -67,19 +79,21 @@ mod test {
   }
 
   #[test]
-  fn should_reset_after_not_flipping() {
-    let mut protector = InfiniteReevaluationProtector::with_capacity(10);
-    let mut value = false;
-    for _ in 0..998 {
-      value = !value;
-      assert!(protector.should_reevaluate(0, Some(true), false));
-    }
-    assert!(protector.should_reevaluate(0, None, false));
-
+  fn should_count_flips_cumulatively_across_non_flips() {
+    // Two conditions that depend on each other can ping-pong: a given
+    // condition alternates between flipping and resolving to the same value.
+    // The flip count must accumulate across the interspersed non-flips,
+    // otherwise such a cycle would never be stopped (see denoland/deno#26713).
+    let mut protector = InfiniteReevaluationProtector::with_capacity(1);
     for _ in 0..999 {
-      assert!(protector.should_reevaluate(0, Some(false), true));
+      // a flip...
+      assert!(protector.should_reevaluate(0, Some(true), false));
+      // ...followed by a non-flip, which must not reset the accumulated count
+      assert!(protector.should_reevaluate(0, Some(true), true));
     }
 
+    // the 1000th flip stabilizes the value and stops further re-evaluation
+    assert!(!protector.should_reevaluate(0, Some(true), false));
     assert!(!protector.should_reevaluate(0, Some(true), false));
   }
 }

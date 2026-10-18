@@ -3,7 +3,7 @@
 pub const PLUGIN_SYSTEM_SCHEMA_VERSION: u32 = 4;
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-extern "C" {
+unsafe extern "C" {
   fn fd_write(fd: i32, iovs: *const crate::plugins::wasm::Iovec, iovs_len: i32, nwritten: *mut i32) -> i32;
 }
 
@@ -118,15 +118,15 @@ pub mod macros {
       // HOST FORMATTING
 
       #[link(wasm_import_module = "dprint")]
-      extern "C" {
+      unsafe extern "C" {
         fn host_has_cancelled() -> i32;
       }
 
-      fn format_with_host(request: dprint_core::plugins::SyncHostFormatRequest) -> anyhow::Result<Option<Vec<u8>>> {
+      fn format_with_host(request: dprint_core::plugins::SyncHostFormatRequest) -> dprint_core::plugins::FormatResult {
         use std::borrow::Cow;
 
         #[link(wasm_import_module = "dprint")]
-        extern "C" {
+        unsafe extern "C" {
           fn host_write_buffer(pointer: *const u8);
           fn host_format(
             file_path_ptr: *const u8,
@@ -176,7 +176,7 @@ pub mod macros {
             // error
             let length = unsafe { host_get_error_text() };
             let error_text = get_string_from_host(length);
-            Err(anyhow::anyhow!("{}", error_text))
+            Err(error_text.into())
           }
           value => panic!("unknown host format value: {}", value),
         };
@@ -202,26 +202,26 @@ pub mod macros {
       static FORMATTED_TEXT: StaticCell<Option<Vec<u8>>> = StaticCell::new(None);
       static ERROR_TEXT: StaticCell<Option<String>> = StaticCell::new(None);
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn set_override_config() {
         let bytes = take_from_shared_bytes();
         let config = serde_json::from_slice(&bytes).unwrap();
         unsafe { OVERRIDE_CONFIG.get().replace(config) };
       }
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn set_file_path() {
         // convert windows back slashes to forward slashes so it works with PathBuf
         let text = take_string_from_shared_bytes().replace("\\", "/");
         unsafe { FILE_PATH.get().replace(std::path::PathBuf::from(text)) };
       }
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn format(config_id: u32) -> u8 {
         format_inner(config_id, None)
       }
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn format_range(config_id: u32, range_start: u32, range_end: u32) -> u8 {
         format_inner(config_id, Some(range_start as usize..range_end as usize))
       }
@@ -272,13 +272,13 @@ pub mod macros {
         }
       }
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn get_formatted_text() -> usize {
         let formatted_text = unsafe { FORMATTED_TEXT.get().take().expect("Expected to have formatted text.") };
         set_shared_bytes(formatted_text)
       }
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn get_error_text() -> usize {
         let error_text = unsafe { ERROR_TEXT.get().take().expect("Expected to have error text.") };
         set_shared_bytes_str(error_text)
@@ -290,7 +290,7 @@ pub mod macros {
         std::collections::HashMap<dprint_core::plugins::FormatConfigId, dprint_core::plugins::PluginResolveConfigurationResult<$wasm_plugin_config>>,
       > = RefStaticCell::new();
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn get_plugin_info() -> usize {
         use dprint_core::plugins::PluginInfo;
         let plugin_info = unsafe { WASM_PLUGIN.get().plugin_info() };
@@ -298,26 +298,26 @@ pub mod macros {
         set_shared_bytes_str(info_json)
       }
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn get_license_text() -> usize {
         set_shared_bytes_str(unsafe { WASM_PLUGIN.get().license_text() })
       }
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn get_resolved_config(config_id: u32) -> usize {
         let config_id = dprint_core::plugins::FormatConfigId::from_raw(config_id);
         let bytes = serde_json::to_vec(&get_resolved_config_result(config_id).config).unwrap();
         set_shared_bytes(bytes)
       }
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn get_config_diagnostics(config_id: u32) -> usize {
         let config_id = dprint_core::plugins::FormatConfigId::from_raw(config_id);
         let bytes = serde_json::to_vec(&get_resolved_config_result(config_id).diagnostics).unwrap();
         set_shared_bytes(bytes)
       }
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn get_config_file_matching(config_id: u32) -> usize {
         let config_id = dprint_core::plugins::FormatConfigId::from_raw(config_id);
         let bytes = serde_json::to_vec(&get_resolved_config_result(config_id).file_matching).unwrap();
@@ -364,7 +364,7 @@ pub mod macros {
       static UNRESOLVED_CONFIG: RefStaticCell<std::collections::HashMap<dprint_core::plugins::FormatConfigId, dprint_core::plugins::RawFormatConfig>> =
         RefStaticCell::new();
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn register_config(config_id: u32) {
         let config_id = dprint_core::plugins::FormatConfigId::from_raw(config_id);
         let bytes = take_from_shared_bytes();
@@ -375,7 +375,7 @@ pub mod macros {
         }
       }
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn release_config(config_id: u32) {
         let config_id = dprint_core::plugins::FormatConfigId::from_raw(config_id);
         unsafe {
@@ -384,9 +384,9 @@ pub mod macros {
         }
       }
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn check_config_updates() -> usize {
-        fn try_check_config_updates(bytes: &[u8]) -> anyhow::Result<serde_json::Value> {
+        fn try_check_config_updates(bytes: &[u8]) -> Result<serde_json::Value, dprint_core::plugins::FormatError> {
           let message: dprint_core::plugins::CheckConfigUpdatesMessage = serde_json::from_slice(&bytes)?;
           let result = unsafe { WASM_PLUGIN.get().check_config_updates(message) }?;
           Ok(serde_json::to_value(&result)?)
@@ -405,17 +405,17 @@ pub mod macros {
 
       static SHARED_BYTES: StaticCell<Vec<u8>> = StaticCell::new(Vec::new());
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn dprint_plugin_version_4() -> u32 {
         dprint_core::plugins::wasm::PLUGIN_SYSTEM_SCHEMA_VERSION
       }
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn get_shared_bytes_ptr() -> *const u8 {
         unsafe { SHARED_BYTES.get().as_ptr() }
       }
 
-      #[no_mangle]
+      #[unsafe(no_mangle)]
       pub fn clear_shared_bytes(size: usize) -> *const u8 {
         SHARED_BYTES.replace(vec![0; size]);
         unsafe { SHARED_BYTES.get().as_ptr() }

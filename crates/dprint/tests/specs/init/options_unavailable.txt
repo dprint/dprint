@@ -1,0 +1,196 @@
+The file types of a plugin can be changed when its options can't be loaded,
+and the ones that are unchecked are written as negated associations.
+
+-- file: /src/main.ts --
+-- file: /src/other.js --
+-- keys --
+right
+wait
+down
+space
+down
+down
+space
+"zzz"
+backspace
+backspace
+backspace
+left
+enter
+-- output --
+[start]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [x] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[right]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .ts
+  [x] .tsx
+  [x] .js
+  [x] .jsx
+  Options:
+    Downloading the plugin to get its options... (← to cancel)
+
+[wait]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .ts
+  [x] .tsx
+  [x] .js
+  [x] .jsx
+  Options:
+    Could not load the options: Error resolving plugin https://plugins.dprint.de
+    v/typescript-1.0.0.wasm: Error downloading https://plugins.dprint.dev/typesc
+    ript-1.0.0.wasm - 404 Not Found
+
+[down]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+  [x] .ts
+> [x] .tsx
+  [x] .js
+  [x] .jsx
+  Options:
+    Could not load the options: Error resolving plugin https://plugins.dprint.de
+    v/typescript-1.0.0.wasm: Error downloading https://plugins.dprint.dev/typesc
+    ript-1.0.0.wasm - 404 Not Found
+
+[space]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+  [x] .ts
+> [ ] .tsx
+  [x] .js
+  [x] .jsx
+  Options:
+    Could not load the options: Error resolving plugin https://plugins.dprint.de
+    v/typescript-1.0.0.wasm: Error downloading https://plugins.dprint.dev/typesc
+    ript-1.0.0.wasm - 404 Not Found
+
+[down]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+  [x] .ts
+  [ ] .tsx
+> [x] .js
+  [x] .jsx
+  Options:
+    Could not load the options: Error resolving plugin https://plugins.dprint.de
+    v/typescript-1.0.0.wasm: Error downloading https://plugins.dprint.dev/typesc
+    ript-1.0.0.wasm - 404 Not Found
+
+[down]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+  [x] .ts
+  [ ] .tsx
+  [x] .js
+> [x] .jsx
+  Options:
+    Could not load the options: Error resolving plugin https://plugins.dprint.de
+    v/typescript-1.0.0.wasm: Error downloading https://plugins.dprint.dev/typesc
+    ript-1.0.0.wasm - 404 Not Found
+
+[space]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+  [x] .ts
+  [ ] .tsx
+  [x] .js
+> [ ] .jsx
+  Options:
+    Could not load the options: Error resolving plugin https://plugins.dprint.de
+    v/typescript-1.0.0.wasm: Error downloading https://plugins.dprint.dev/typesc
+    ript-1.0.0.wasm - 404 Not Found
+
+["zzz"]
+dprint-plugin-typescript
+  type to filter, ←: back
+  filter: zzz
+  Options:
+    Could not load the options: Error resolving plugin https://plugins.dprint.de
+    v/typescript-1.0.0.wasm: Error downloading https://plugins.dprint.dev/typesc
+    ript-1.0.0.wasm - 404 Not Found
+
+[backspace]
+dprint-plugin-typescript
+  type to filter, ←: back
+  filter: zz
+  Options:
+    Could not load the options: Error resolving plugin https://plugins.dprint.de
+    v/typescript-1.0.0.wasm: Error downloading https://plugins.dprint.dev/typesc
+    ript-1.0.0.wasm - 404 Not Found
+
+[backspace]
+dprint-plugin-typescript
+  type to filter, ←: back
+  filter: z
+  Options:
+    Could not load the options: Error resolving plugin https://plugins.dprint.de
+    v/typescript-1.0.0.wasm: Error downloading https://plugins.dprint.dev/typesc
+    ript-1.0.0.wasm - 404 Not Found
+
+[backspace]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .ts
+  [ ] .tsx
+  [x] .js
+  [ ] .jsx
+  Options:
+    Could not load the options: Error resolving plugin https://plugins.dprint.de
+    v/typescript-1.0.0.wasm: Error downloading https://plugins.dprint.dev/typesc
+    ript-1.0.0.wasm - 404 Not Found
+
+[left]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-typescript (.ts, .js) — customized
+  [x] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[enter]
+Select plugins:
+ * dprint-plugin-typescript (.ts, .js) — customized
+ * dprint-plugin-json (.json, .jsonc)
+
+# stdout
+
+Created dprint.json
+
+If you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor
+
+# /dprint.json
+{
+  "typescript": {
+    "associations": ["!**/*.tsx", "!**/*.jsx"]
+  },
+  "json": {
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-1.0.0.wasm",
+    "https://plugins.dprint.dev/json-1.0.0.wasm"
+  ]
+}
+
+# /config/dprint/init.json
+(does not exist)

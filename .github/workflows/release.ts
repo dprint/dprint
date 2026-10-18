@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run -A
-import { expr, job, step, workflow } from "jsr:@david/gagen@0.4.0";
+import { expr, job, step, workflow } from "jsr:@david/gagen@0.6.0";
 
 workflow({
   name: "Release",
@@ -16,13 +16,15 @@ workflow({
       },
     },
   },
+  // everything runs with the bot's PAT, so the workflow token needs nothing
+  permissions: {},
   jobs: [
     job("rust", {
       name: "release",
       runsOn: "ubuntu-latest",
       timeoutMinutes: 30,
       steps: step(
-        { name: "Clone repository", uses: "actions/checkout@v6", with: { token: expr("secrets.GH_DPRINTBOT_PAT") } },
+        { name: "Clone repository", uses: "actions/checkout@v7", with: { token: expr("secrets.GH_DPRINTBOT_PAT") } },
         { uses: "denoland/setup-deno@v2" },
         { uses: "dsherret/rust-toolchain-file@v1" },
         {

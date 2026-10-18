@@ -4,13 +4,6 @@ description: Documentation on the YAML code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/pretty_yaml">Pretty YAML</a></li>
-  </ul>
-</nav>
-
 # Pretty YAML Plugin
 
 Adapter plugin that formats YAML files via [Pretty YAML](https://github.com/g-plane/pretty_yaml).
@@ -31,7 +24,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // Pretty YAML config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/g-plane/pretty_yaml-vx.x.x.wasm"
+    "npm:dprint-plugin-yaml@x.x.x"
   ]
 }
 ```
