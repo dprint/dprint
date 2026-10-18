@@ -59,13 +59,16 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
 
    impl SyncPluginHandler<Configuration> for MyPluginHandler {
      fn plugin_info(&mut self) -> PluginInfo {
+       // for config_schema_url and update_url, see schema.json and latest.json helpers at https://github.com/dprint/plugins
+       let repo_name = "your-org/your-repo";
        PluginInfo {
          name: env!("CARGO_PKG_NAME").to_string(),
          version: env!("CARGO_PKG_VERSION").to_string(),
          config_key: "keyGoesHere".to_string(),
-         help_url: "".to_string(),          // fill this in
-         config_schema_url: "".to_string(), // the schema url for your config file
-         update_url: None,                  // ex. Some("https://plugins.dprint.dev/<org>/<repo>/latest.json".to_string())
+         help_url: "".to_string(), // fill this in
+         // the schema url for your config file or "".to_string() if no config
+         config_schema_url: format!("https://plugins.dprint.dev/{repo_name}/{}/schema.json", env!("CARGO_PKG_VERSION")),
+         update_url: Some(format!("https://plugins.dprint.dev/{repo_name}/latest.json")),
        }
      }
 
