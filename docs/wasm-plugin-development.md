@@ -118,7 +118,7 @@ Implementing a Wasm plugin is easier if you're using Rust as there are several h
 5. Use the `generate_plugin_code` macro to generate the functions used by the plugin system to communicate with your struct:
 
    ```rust
-   // specify the plugin struct name and then a const expression to create it
+   // specify the plugin struct name and then an expression to create it
    generate_plugin_code!(MyPluginHandler, MyPluginHandler);
    ```
 
