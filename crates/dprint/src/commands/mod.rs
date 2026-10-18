@@ -2,6 +2,8 @@ mod config;
 mod editor;
 mod formatting;
 mod general;
+#[cfg(test)]
+mod init_spec_tests;
 mod lsp;
 mod upgrade;
 #[cfg(target_os = "windows")]

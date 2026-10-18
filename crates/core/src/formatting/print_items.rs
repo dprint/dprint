@@ -88,6 +88,18 @@ impl PrintItems {
     self.push_cow_string(Cow::Owned(item))
   }
 
+  /// Pushes a borrowed string, copying it into the printer's allocator, and computes its width at
+  /// runtime.
+  ///
+  /// Prefer `push_sc` with the `sc!` macro for text known at compile time, and
+  /// `push_str_runtime_width_computed` for a `&'static str`, since neither copies. Use this for
+  /// text the caller doesn't own: it avoids building a `String` only for the printer to copy it and
+  /// throw it away.
+  pub fn push_str(&mut self, item: &str) {
+    let string_container = thread_state::with_bump_allocator(|bump| bump.alloc_str(item));
+    self.push_item_internal(PrintItem::String(string_container));
+  }
+
   fn push_cow_string(&mut self, item: Cow<'static, str>) {
     let string_container = thread_state::with_bump_allocator(|bump| bump.alloc_string(item));
     self.push_item_internal(PrintItem::String(string_container));
@@ -151,11 +163,11 @@ impl PrintItems {
             text.push_str(&get_line(format!("Condition: {}", condition.name), &indent_text));
             if let Some(true_path) = &condition.true_path {
               text.push_str(&get_line(String::from("  true:"), &indent_text));
-              text.push_str(&get_items_as_text(true_path, format!("{}    ", &indent_text)));
+              text.push_str(&get_items_as_text(true_path, format!("{}    ", indent_text)));
             }
             if let Some(false_path) = &condition.false_path {
               text.push_str(&get_line(String::from("  false:"), &indent_text));
-              text.push_str(&get_items_as_text(false_path, format!("{}    ", &indent_text)));
+              text.push_str(&get_items_as_text(false_path, format!("{}    ", indent_text)));
             }
           }
           PrintItem::String(str_text) => text.push_str(&get_line(format!("`{}`", str_text.text), &indent_text)),
@@ -1061,6 +1073,14 @@ impl<'a, 'b> ConditionResolverContext<'a, 'b> {
   /// Clears the info from being stored.
   pub fn clear_info(&mut self, info: impl Into<Info>) {
     self.printer.clear_info(info.into())
+  }
+
+  /// Moves an already resolved line number by `delta` lines.
+  ///
+  /// Use this instead of clearing when the text the line number refers to has only moved up or down
+  /// the page, so that it stays correct relative to everything around it.
+  pub fn shift_line_number(&mut self, info: LineNumber, delta: isize) {
+    self.printer.shift_line_number(info, delta)
   }
 
   /// Gets if the printer is currently forcing no newlines.

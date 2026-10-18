@@ -2,9 +2,9 @@
 
 **DO NOT USE THIS**: dprint 0.45 introduced a `dprint lsp` command that supports formatting files over the language server protocol. Please use that instead. This editor-service will remain active for the foreseeable future as it's currently used by the vscode and intellij plugins (though vscode is switching over to `dprint lsp` in the future).
 
-Note: Schema version 5 was introduced in dprint 0.25
+Note: Schema version 5 was introduced in dprint 0.29
 
-Editor extensions communicate with the CLI using the `dprint editor-info` and `dprint editor-service` subcommand.
+Editor extensions communicate with the CLI using the `dprint editor-info` and `dprint editor-service` subcommands.
 
 ## dprint editor-info
 
@@ -24,7 +24,7 @@ Outputs something like:
     "plugins":[{
         "name": "test-plugin",
         "version": "0.1.0",
-        "config_key": "test",
+        "configKey": "test",
         "fileExtensions": ["txt"],
         "fileNames": [],
         "helpUrl": "https://dprint.dev/plugins/test-plugin",
@@ -32,7 +32,7 @@ Outputs something like:
     }, {
         "name": "javascript-plugin",
         "version": "0.2.1",
-        "config_key": "javascript",
+        "configKey": "javascript",
         "fileExtensions": ["js"],
         "fileNames": [],
         "configSchemaUrl": "https://dprint.dev/schemas/javascript-plugin.json",
@@ -78,25 +78,25 @@ This starts a long running process that can be communicated with over stdin and 
 
 Run `dprint editor-service --parent-pid <provide your current process pid here>`
 
-The editor service polls for the provided process id every 10 seconds and if it doesn't exist it will exit.
+The editor service checks every 5 seconds whether the provided process id still exists and if it doesn't it will exit.
 
 ### Messages
 
 Messages are sent in the following format:
 
 ```
-<ID><KIND>[<BODY>]<SUCCESS_BYTES>
+<ID><KIND><BODY_LENGTH>[<BODY>]<SUCCESS_BYTES>
 ```
 
 - `ID` - u32 - Identifier of the message
 - `KIND` - u32 - Kind of request
-- `BODY_LENGTH` - u32 - Size of the body
+- `BODY_LENGTH` - u32 - Size of the body (`0` when there is no body)
 - `BODY` - Depends on the kind and may be optional
 - `SUCCESS_BYTES` - 4 bytes (255, 255, 255, 255)
 
 Notes:
 
-- Messages sent from the client to the editor service may have response messages and responses need to be correlated with the ID of the message that was sent.
+- Messages sent from the client to the editor service may have response messages. A response has its own new `ID`, so correlate it with the request using the message id at the start of the response body.
 - If an unknown message kind is received, return an error (don't ignore it).
 
 ### Message Kinds
@@ -127,7 +127,7 @@ Message body: None
 
 Response: Success response and then CLI will exit process. The CLI will handle the client not accepting this response though.
 
-#### `3` - Active (Client to Service, Service to Client)
+#### `3` - Active (Client to Service)
 
 For checking if the service is healthy and can respond to messages.
 
@@ -142,7 +142,7 @@ Message body:
 - u32 - File path byte length
 - File path
 
-Response: Can format response
+Response: Can format response or an Error response (ex. the configuration failed to resolve)
 
 #### `5` - Can format response (Service to Client)
 
@@ -166,7 +166,7 @@ Message body:
 - u32 - File text content byte length
 - File text
 
-Response: Format file response
+Response: Format file response or an Error response (ex. a formatting error or the configuration changed while formatting)
 
 #### `7` - Format file response (Service to Client)
 

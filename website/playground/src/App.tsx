@@ -15,6 +15,7 @@ export default function App() {
   const [pluginUrl, setPluginUrl] = useState(initialUrl.pluginUrl);
   const [pluginInfo, setPluginInfo] = useState<PluginInfo | undefined>();
   const [fileMatchingInfo, setFileMatchingInfo] = useState<FileMatchingInfo | undefined>();
+  const [fileExtension, setFileExtension] = useState(initialUrl.ext ?? "");
   const [text, setText] = useState(initialUrl.text);
   const [configText, setConfigText] = useState(initialUrl.configText ?? "");
   const [defaultConfigText, setDefaultConfigText] = useState("");
@@ -83,8 +84,9 @@ export default function App() {
       text,
       configText: configText === defaultConfigText ? undefined : configText,
       plugin: isBuiltInLanguage ? shortName : pluginUrl,
+      ext: fileMatchingInfo?.fileExtensions.indexOf(fileExtension) === 0 ? undefined : fileExtension,
     });
-  }, [text, configText, pluginUrl, defaultConfigText]);
+  }, [text, configText, pluginUrl, defaultConfigText, fileExtension, fileMatchingInfo]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -135,6 +137,8 @@ export default function App() {
       onTextChanged={setText}
       configText={configText}
       onConfigTextChanged={setConfigText}
+      fileExtension={fileExtension}
+      onFileExtensionChanged={setFileExtension}
       formattedText={formattedText}
       pluginUrls={pluginUrls}
       selectedPluginUrl={pluginUrl}

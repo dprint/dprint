@@ -12,6 +12,8 @@ use crate::environment::Environment;
 pub struct OutputPluginConfigDiagnosticsError {
   pub plugin_name: String,
   pub diagnostic_count: usize,
+  /// The text of each diagnostic in the form it was logged.
+  pub diagnostics: Vec<String>,
 }
 
 pub async fn output_plugin_config_diagnostics<TEnvironment: Environment>(
@@ -20,17 +22,19 @@ pub async fn output_plugin_config_diagnostics<TEnvironment: Environment>(
   format_config: Arc<FormatConfig>,
   environment: &TEnvironment,
 ) -> Result<Result<(), OutputPluginConfigDiagnosticsError>> {
-  let mut diagnostic_count = 0;
+  let mut diagnostics = Vec::new();
 
   for diagnostic in plugin.config_diagnostics(format_config).await? {
-    log_warn!(environment, "[{}]: {}", plugin_name, diagnostic);
-    diagnostic_count += 1;
+    let message = format!("[{}]: {}", plugin_name, diagnostic);
+    log_warn!(environment, "{}", message);
+    diagnostics.push(message);
   }
 
-  if diagnostic_count > 0 {
+  if !diagnostics.is_empty() {
     Ok(Err(OutputPluginConfigDiagnosticsError {
       plugin_name: plugin_name.to_string(),
-      diagnostic_count,
+      diagnostic_count: diagnostics.len(),
+      diagnostics,
     }))
   } else {
     Ok(Ok(()))

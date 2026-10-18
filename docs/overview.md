@@ -1,6 +1,6 @@
 # Overview
 
-**NOTE**: This document is out of date, but outlines the basic idea of how it works.
+This document describes how the `formatting` module of the `dprint-core` crate works. Using it is not required for creating a plugin, but it's what the official Rust plugins use.
 
 1. Source code is parsed to an AST (recommended, but not required).
 2. AST is traversed and IR is generated.
@@ -8,7 +8,7 @@
 
 ## IR Generation
 
-The immediate representation describes how the nodes should be formatted. It consists of...
+The intermediate representation (IR) describes how the nodes should be formatted. It consists of...
 
 1. Texts
 1. Infos
@@ -16,21 +16,32 @@ The immediate representation describes how the nodes should be formatted. It con
 1. Signals
 1. Anchors
 
-These are referred to as "print items" in the code.
+These are referred to as "print items" in the code and are collected in a `PrintItems` struct.
 
 ### Texts
 
-Strings that the printer should print. For example `"async"`.
+Strings that the printer should print. For example `"async"`. There are a few ways to add them:
+
+- `items.push_sc(sc!("async"))` - Preferred for text known at compile time. The `sc!` macro from the [`dprint-core-macros`](https://crates.io/crates/dprint-core-macros) crate computes the width at compile time (ASCII only).
+- `items.push_str_runtime_width_computed("async")` - A `&'static str` whose width is computed at runtime.
+- `items.push_str(text)` - A borrowed string that gets copied into the printer's allocator.
+- `items.push_string(text)` - An owned `String`.
+- `items.push_space()` - A single space.
 
 ### Infos
 
 These objects are invisible in the output. They may be placed into the IR and when resolved by the printer, report the following information about where the info ended up at:
 
-- `lineNumber`
-- `columnNumber`
-- `indentLevel`
-- `lineStartIndentLevel`
-- `lineStartColumnNumber`
+- `LineNumber`
+- `ColumnNumber`
+- `IsStartOfLine`
+- `IndentLevel`
+- `LineStartIndentLevel`
+- `LineStartColumnNumber`
+
+There's also `LineAndColumn`, which resolves to both the line and column number (use `items.push_line_and_column(...)`).
+
+Each info is created with a name for debugging purposes (ex. `LineNumber::new("start")`) and its value is read in a condition resolver (ex. `context.resolved_line_number(start_ln)`).
 
 ### Conditions
 
@@ -42,16 +53,20 @@ Conditions have three main properties:
 
 #### Condition Resolver
 
-Conditions are usually resolved by looking at the value of a resolved info, other condition, or based on the original AST node.
+A condition resolver is a `ConditionResolver` (`Rc<dyn Fn(&mut ConditionResolverContext) -> Option<bool>>`). Returning `None` means the condition can't be resolved yet, which is treated as _false_.
 
-The infos & conditions that are inspected may appear before or even after the condition.
+Conditions are usually resolved by looking at the value of a resolved info, another condition (see `Condition::create_reference()`), the current writer position (`context.writer_info`), or based on the original AST node.
+
+The infos & conditions that are inspected may appear before or even after the condition. When an info that wasn't resolved yet is later reached, the printer goes back and reprints from the first condition that tried to read it.
+
+The `conditions`, `condition_resolvers`, and `condition_helpers` modules have common ones.
 
 #### Condition Re-evaluations
 
 Condition re-evaluations can be added to the graph to force a condition to be re-evaluated once the printer reaches that point. If the condition has changed then the printer will jump back to that condition.
 
 ```rs
-let condition: Condition = ...;
+let mut condition: Condition = ...;
 let condition_reevaluation = condition.create_reevaluation();
 
 let mut items = PrintItems::new();
@@ -72,6 +87,7 @@ This is an enum that signals information to the printer.
 - `PossibleNewLine` - Signal that the current location could be a newline when exceeding the line width.
 - `SpaceOrNewLine` - Signal that the current location should be a space, but could be a newline if exceeding the line width.
 - `ExpectNewLine` - Expect the next character to be a newline. If it's not, force a newline. This is useful to use at the end of single line comments in JS, for example.
+- `QueueStartIndent` - Queue a start indent to be set after the next written item.
 - `StartIndent` - Signal the start of a section that should be indented.
 - `FinishIndent` - Signal the end of a section that should be indented.
 - `StartNewLineGroup` - Signal the start of a group of print items that have a lower precedence for being broken up with a newline for exceeding the line width.
@@ -79,6 +95,11 @@ This is an enum that signals information to the printer.
 - `SingleIndent` - Signal that a single indent should occur based on the printer settings (ex. prints a tab when using tabs).
 - `StartIgnoringIndent` - Signal to the printer that it should stop using indentation.
 - `FinishIgnoringIndent` - Signal to the printer that it should start using indentation again.
+- `StartForceNoNewLines` - Signal to the printer that it shouldn't print any new lines.
+- `FinishForceNoNewLines` - Signal to the printer that it should finish not printing any new lines.
+- `SpaceIfNotTrailing` - Signal that a space should occur if not trailing.
+
+The `ir_helpers` module has helpers for common uses of these (ex. `ir_helpers::with_indent(items)`).
 
 ### Anchors
 
@@ -92,7 +113,7 @@ let end_ln = LineNumber::new("end");
 
 // ...lots of code here...
 items.push_anchor(LineNumberAnchor::new(end_ln));
-items.extend(actions::action("outputEndLine", |context| {
+items.extend(actions::action("outputEndLine", move |context| {
   eprintln!("{:?}", context.resolved_line_number(end_ln));
 }));
 // ...lots of code here...
@@ -112,14 +133,18 @@ The printer takes the IR and outputs the final code. Its main responsibilities a
 
 #### Rules
 
-The printer never checks the contents of the provided strings—it only looks at the length of the strings. For that reason there are certain rules:
+The printer never checks the contents of the provided strings—it only looks at the width of the strings. For that reason there are certain rules:
 
-1. Never use a tab in a string. Instead, use `Signal.Tab` (see _Signals_ below). Tabs increase the column width based on the indent width and need to be treated differently.
-2. Never use a newline in a string. Instead use `Signal.NewLine`.
+1. Never use a tab in a string. Instead, use `Signal::Tab` (see _Signals_ above). Tabs increase the column width based on the indent width and need to be treated differently.
+2. Never use a newline in a string. Instead use `Signal::NewLine`.
 
-Strings that include newlines or tabs should be broken up when parsed (ex. template literals in JavaScript may contain those characters).
+Strings that include newlines or tabs should be broken up when generating the IR (ex. template literals in JavaScript may contain those characters). The `ir_helpers::gen_from_string(text)` and `ir_helpers::gen_from_raw_string(text)` (ignores indentation) helpers do this.
 
-The printer will enforce these rules in non-release mode.
+The printer will enforce these rules in debug builds.
+
+#### Allocation
+
+Print items are allocated in a thread local bump allocator. Create them within the closure provided to `dprint_core::formatting::format(...)` and don't use them outside of it, since the allocator is reset once it returns.
 
 ## Example IR Generation
 
@@ -194,7 +219,7 @@ pub fn format(expr: &ArrayLiteralExpression) -> String {
       indent_width: 4,
       max_width: 10,
       use_tabs: false,
-      newline_kind: "\n",
+      new_line_text: "\n",
     },
   )
 }

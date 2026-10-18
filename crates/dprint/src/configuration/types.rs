@@ -2,11 +2,18 @@ use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigKeyValue;
 use indexmap::IndexMap;
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct RawPluginConfigOverride {
+  pub files: Vec<String>,
+  pub properties: ConfigKeyMap,
+}
+
 /// Unresolved plugin configuration.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct RawPluginConfig {
   pub associations: Option<Vec<String>>,
   pub locked: bool,
+  pub overrides: Vec<RawPluginConfigOverride>,
   pub properties: ConfigKeyMap,
 }
 

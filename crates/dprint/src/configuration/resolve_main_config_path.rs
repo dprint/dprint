@@ -1,5 +1,5 @@
 use anyhow::Result;
-use crossterm::style::Stylize;
+use deno_terminal::colors;
 use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
@@ -10,26 +10,43 @@ use crate::arg_parser::SubCommand;
 use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::utils::PathSource;
-use crate::utils::ResolvedPath;
-use crate::utils::resolve_url_or_file_path;
+use crate::utils::ResolvedFilePathWithTextRef;
+use crate::utils::resolve_url_or_file_path_to_file_with_cache;
 
 pub static POSSIBLE_CONFIG_FILE_NAMES: [&str; 4] = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"];
 
 #[derive(Debug)]
-pub struct ResolvedConfigPath {
-  pub resolved_path: ResolvedPath,
+pub struct ResolvedConfigPathWithText {
+  pub source: PathSource,
+  pub is_first_download: bool,
+  pub content: String,
   pub base_path: CanonicalizedPathBuf,
   pub is_global_config: bool,
 }
 
-pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment) -> Result<Option<ResolvedConfigPath>> {
-  fn get_default_paths(args: &CliArgs, environment: &impl Environment) -> Result<Option<ResolvedConfigPath>> {
-    let start_search_dir = get_start_search_directory(args, environment)?;
-    let config_file_path = get_config_file_in_dir(&start_search_dir, environment);
+impl ResolvedConfigPathWithText {
+  pub fn as_file_path_with_text_ref(&self) -> ResolvedFilePathWithTextRef<'_> {
+    ResolvedFilePathWithTextRef {
+      content: &self.content,
+      source: &self.source,
+    }
+  }
+}
 
-    if let Some(config_file_path) = config_file_path {
-      Ok(Some(ResolvedConfigPath {
-        resolved_path: ResolvedPath::local(environment.canonicalize(config_file_path)?),
+pub async fn resolve_main_config_path_and_bytes<TEnvironment: Environment>(
+  args: &CliArgs,
+  environment: &TEnvironment,
+) -> Result<Option<ResolvedConfigPathWithText>> {
+  fn get_default_paths(args: &CliArgs, environment: &impl Environment) -> Result<Option<ResolvedConfigPathWithText>> {
+    let start_search_dir = get_start_search_directory(args, environment)?;
+    let maybe_config_file = get_config_file_in_dir(&start_search_dir, environment)?;
+
+    if let Some((path, content)) = maybe_config_file {
+      let path = environment.canonicalize(path)?;
+      Ok(Some(ResolvedConfigPathWithText {
+        source: PathSource::new_local(path),
+        is_first_download: false,
+        content,
         base_path: start_search_dir,
         is_global_config: false,
       }))
@@ -55,10 +72,20 @@ pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs,
 
   let config_discovery = args.config_discovery(environment);
   if let Some(config) = &args.config {
-    let base_path = environment.cwd();
-    let resolved_path = resolve_url_or_file_path(config, &PathSource::new_local(base_path.clone()), environment).await?;
-    Ok(Some(ResolvedConfigPath {
-      resolved_path,
+    let cwd = environment.cwd();
+    let resolved_file = resolve_url_or_file_path_to_file_with_cache(config, &PathSource::new_local(cwd.clone()), args.remote_cache_mode(), environment)
+      .await?
+      .into_text()?;
+    // a local config file's patterns are relative to its directory, the same as
+    // when it's discovered, but a remote or npm config file has no directory
+    let base_path = match &resolved_file.source {
+      PathSource::Local(source) => source.path.parent().unwrap_or(cwd),
+      PathSource::Remote(_) | PathSource::Npm(_) => cwd,
+    };
+    Ok(Some(ResolvedConfigPathWithText {
+      content: resolved_file.content,
+      source: resolved_file.source,
+      is_first_download: resolved_file.is_first_download,
       base_path,
       is_global_config: false,
     }))
@@ -70,7 +97,7 @@ pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs,
     Ok(Some(path))
   } else if matches!(config_discovery, ConfigDiscovery::Default)
     && args.plugins.is_empty()
-    && let ResolveGlobalConfigPathResult::Found(path) = resolve_global_config_path_detail(environment)
+    && let ResolveGlobalConfigPathResult::Found(path) = resolve_global_config_path_and_text_detail(environment)?
   {
     Ok(Some(path))
   } else {
@@ -78,8 +105,8 @@ pub async fn resolve_main_config_path<TEnvironment: Environment>(args: &CliArgs,
   }
 }
 
-fn resolve_global_config_path_or_error(environment: &impl Environment) -> Result<ResolvedConfigPath> {
-  match resolve_global_config_path_detail(environment) {
+fn resolve_global_config_path_or_error(environment: &impl Environment) -> Result<ResolvedConfigPathWithText> {
+  match resolve_global_config_path_and_text_detail(environment)? {
     ResolveGlobalConfigPathResult::Found(resolved_config_path) => Ok(resolved_config_path),
     ResolveGlobalConfigPathResult::NotFound => anyhow::bail!("Could not find global dprint.json file. Create one with `dprint init --global`"),
     ResolveGlobalConfigPathResult::FailedResolvingSystemDir(err) => Err(anyhow::Error::from(err).context(concat!(
@@ -90,35 +117,53 @@ fn resolve_global_config_path_or_error(environment: &impl Environment) -> Result
   }
 }
 
-pub fn resolve_global_config_path(environment: &impl Environment) -> Option<ResolvedConfigPath> {
-  match resolve_global_config_path_detail(environment) {
-    ResolveGlobalConfigPathResult::Found(resolved_config_path) => Some(resolved_config_path),
-    ResolveGlobalConfigPathResult::NotFound | ResolveGlobalConfigPathResult::FailedResolvingSystemDir { .. } => None,
+pub fn resolve_global_config_path_and_text(environment: &impl Environment) -> std::io::Result<Option<ResolvedConfigPathWithText>> {
+  match resolve_global_config_path_and_text_detail(environment)? {
+    ResolveGlobalConfigPathResult::Found(resolved_config_text) => Ok(Some(resolved_config_text)),
+    ResolveGlobalConfigPathResult::NotFound | ResolveGlobalConfigPathResult::FailedResolvingSystemDir { .. } => Ok(None),
   }
 }
 
+/// Gets the global config file based at the root directory of the provided
+/// path so the path is within the resulting config's directory. The global
+/// config file is otherwise based at the cwd, and a config file only formats
+/// the files within its base directory.
+pub fn resolve_global_config_path_and_text_at_path_root(environment: &impl Environment, path: &Path) -> std::io::Result<Option<ResolvedConfigPathWithText>> {
+  let Some(config_file) = resolve_global_config_path_and_text(environment)? else {
+    return Ok(None);
+  };
+  // ex. the drive root on Windows
+  let root_dir = path.ancestors().last().unwrap_or(path);
+  Ok(Some(ResolvedConfigPathWithText {
+    base_path: environment.canonicalize(root_dir)?,
+    ..config_file
+  }))
+}
+
 enum ResolveGlobalConfigPathResult {
-  Found(ResolvedConfigPath),
+  Found(ResolvedConfigPathWithText),
   NotFound,
   FailedResolvingSystemDir(std::io::Error),
 }
 
-fn resolve_global_config_path_detail(environment: &impl Environment) -> ResolveGlobalConfigPathResult {
+fn resolve_global_config_path_and_text_detail(environment: &impl Environment) -> std::io::Result<ResolveGlobalConfigPathResult> {
   let global_folder = match resolve_global_config_dir(environment) {
     Ok(dir) => dir,
-    Err(err) => return ResolveGlobalConfigPathResult::FailedResolvingSystemDir(err),
+    Err(err) => return Ok(ResolveGlobalConfigPathResult::FailedResolvingSystemDir(err)),
   };
   for name in ["dprint.jsonc", "dprint.json"] {
     let file_path = global_folder.join_panic_relative(name);
-    if environment.path_exists(&file_path) {
-      return ResolveGlobalConfigPathResult::Found(ResolvedConfigPath {
+    if let Some(content) = environment.maybe_read_file(&file_path)? {
+      return Ok(ResolveGlobalConfigPathResult::Found(ResolvedConfigPathWithText {
+        source: PathSource::new_local(file_path),
+        is_first_download: false,
+        content,
         base_path: environment.cwd(),
-        resolved_path: ResolvedPath::local(file_path),
         is_global_config: true,
-      });
+      }));
     }
   }
-  ResolveGlobalConfigPathResult::NotFound
+  Ok(ResolveGlobalConfigPathResult::NotFound)
 }
 
 pub fn resolve_global_config_dir(environment: &impl Environment) -> std::io::Result<CanonicalizedPathBuf> {
@@ -127,7 +172,7 @@ pub fn resolve_global_config_dir(environment: &impl Environment) -> std::io::Res
       log_warn!(
         environment,
         "{} Could not resolve DPRINT_CONFIG_DIR value '{}'. Falling back to system configuration directory.",
-        "Warning".yellow(),
+        colors::yellow("Warning"),
         folder.display(),
       );
       log_debug!(environment, "Reason: {:#}", err);
@@ -139,6 +184,18 @@ pub fn resolve_global_config_dir(environment: &impl Environment) -> std::io::Res
       Some(dir) => resolve_or_create_folder(environment, dir.join("dprint")),
       None => Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Could not find system config directory.")),
     }
+  }
+}
+
+/// Gets where the global config directory is without creating anything,
+/// which is for reading a file that may be in it. Unlike
+/// [`resolve_global_config_dir`], a `DPRINT_CONFIG_DIR` that doesn't exist is
+/// still where to look, since there's nothing to fall back from until
+/// something is written there.
+pub fn resolve_global_config_dir_path(environment: &impl Environment) -> Option<PathBuf> {
+  match resolve_env_var_folder(environment, "DPRINT_CONFIG_DIR") {
+    Some(folder) => Some(PathBuf::from(folder)),
+    None => resolve_system_config_dir(environment).map(|dir| dir.join("dprint")),
   }
 }
 
@@ -194,11 +251,13 @@ fn resolve_or_create_folder(environment: &impl Environment, path: impl AsRef<Pat
   }
 }
 
-pub fn get_default_config_file_in_ancestor_directories(environment: &impl Environment, start_dir: &Path) -> Result<Option<ResolvedConfigPath>> {
+pub fn get_default_config_file_in_ancestor_directories(environment: &impl Environment, start_dir: &Path) -> Result<Option<ResolvedConfigPathWithText>> {
   for ancestor_dir in start_dir.ancestors() {
-    if let Some(ancestor_config_path) = get_config_file_in_dir(ancestor_dir, environment) {
-      return Ok(Some(ResolvedConfigPath {
-        resolved_path: ResolvedPath::local(environment.canonicalize(ancestor_config_path)?),
+    if let Some((ancestor_config_path, content)) = get_config_file_in_dir(ancestor_dir, environment)? {
+      return Ok(Some(ResolvedConfigPathWithText {
+        source: PathSource::new_local(environment.canonicalize(ancestor_config_path)?),
+        is_first_download: false,
+        content,
         base_path: environment.canonicalize(ancestor_dir)?,
         is_global_config: false,
       }));
@@ -208,14 +267,14 @@ pub fn get_default_config_file_in_ancestor_directories(environment: &impl Enviro
   Ok(None)
 }
 
-fn get_config_file_in_dir(dir: impl AsRef<Path>, environment: &impl Environment) -> Option<PathBuf> {
+fn get_config_file_in_dir(dir: impl AsRef<Path>, environment: &impl Environment) -> std::io::Result<Option<(PathBuf, String)>> {
   for file_name in &POSSIBLE_CONFIG_FILE_NAMES {
     let config_path = dir.as_ref().join(file_name);
-    if environment.path_exists(&config_path) {
-      return Some(config_path);
+    if let Some(text) = environment.maybe_read_file(&config_path)? {
+      return Ok(Some((config_path, text)));
     }
   }
-  None
+  Ok(None)
 }
 
 #[cfg(test)]

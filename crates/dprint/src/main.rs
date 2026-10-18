@@ -15,6 +15,7 @@ use utils::LogLevel;
 use utils::RealStdInReader;
 
 mod arg_parser;
+mod cache;
 mod commands;
 mod configuration;
 mod format;
@@ -31,7 +32,14 @@ mod test_helpers;
 
 fn main() {
   setup_exit_process_panic_hook();
-  let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+  // wasm plugins run on blocking threads and execute wasm on the native stack,
+  // so give blocking threads a stack large enough (see WASM_PLUGIN_THREAD_STACK_SIZE).
+  let rt = tokio::runtime::Builder::new_current_thread()
+    .enable_io()
+    .enable_time()
+    .thread_stack_size(crate::plugins::WASM_PLUGIN_THREAD_STACK_SIZE)
+    .build()
+    .unwrap();
   rt.block_on(async move {
     match run().await {
       Ok(_) => {}
@@ -58,7 +66,13 @@ async fn run() -> Result<(), (AppError, LogLevel)> {
   })
   .map_err(|err| (err.into(), args.log_level))?;
   let plugin_cache = plugins::PluginCache::new(environment.clone());
-  let plugin_resolver = Rc::new(plugins::PluginResolver::new(environment.clone(), plugin_cache));
+  let plugin_resolver = Rc::new(plugins::PluginResolver::new(
+    environment.clone(),
+    plugin_cache,
+    plugins::PluginResolverOptions {
+      reload_plugins: args.reload.plugins,
+    },
+  ));
 
   let result = run_cli::run_cli(&args, &environment, &plugin_resolver).await;
   plugin_resolver.clear_and_shutdown_initialized().await;

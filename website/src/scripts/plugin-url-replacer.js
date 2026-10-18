@@ -2,36 +2,58 @@
 const pluginInfoUrl = "https://plugins.dprint.dev/info.json";
 const schemaVersion = 4;
 
-// Pre-compute quoted placeholder URLs at module load time
+// placeholder npm specifiers (ex. `"npm:@dprint/typescript@x.x.x"`)
+const npmPlaceholderRe = /^"npm:(.+)@x\.x\.x"$/;
+
+// quoted placeholder URLs of the plugins that aren't distributed on npm
 const pluginPlaceholders = new Map([
-  ["\"https://plugins.dprint.dev/typescript-x.x.x.wasm\"", "dprint-plugin-typescript"],
-  ["\"https://plugins.dprint.dev/json-x.x.x.wasm\"", "dprint-plugin-json"],
-  ["\"https://plugins.dprint.dev/markdown-x.x.x.wasm\"", "dprint-plugin-markdown"],
-  ["\"https://plugins.dprint.dev/toml-x.x.x.wasm\"", "dprint-plugin-toml"],
-  ["\"https://plugins.dprint.dev/dockerfile-x.x.x.wasm\"", "dprint-plugin-dockerfile"],
-  ["\"https://plugins.dprint.dev/biome-x.x.x.wasm\"", "dprint-plugin-biome"],
-  ["\"https://plugins.dprint.dev/oxc-x.x.x.wasm\"", "dprint-plugin-oxc"],
-  ["\"https://plugins.dprint.dev/ruff-x.x.x.wasm\"", "dprint-plugin-ruff"],
-  ["\"https://plugins.dprint.dev/jupyter-x.x.x.wasm\"", "dprint-plugin-jupyter"],
-  ["\"https://plugins.dprint.dev/g-plane/malva-vx.x.x.wasm\"", "g-plane/malva"],
-  ["\"https://plugins.dprint.dev/g-plane/markup_fmt-vx.x.x.wasm\"", "g-plane/markup_fmt"],
-  ["\"https://plugins.dprint.dev/g-plane/pretty_yaml-vx.x.x.wasm\"", "g-plane/pretty_yaml"],
-  ["\"https://plugins.dprint.dev/g-plane/pretty_graphql-vx.x.x.wasm\"", "g-plane/pretty_graphql"],
+  ["\"https://plugins.dprint.dev/jolars/panache-x.x.x.wasm\"", "jolars/panache"],
+  ["\"https://plugins.dprint.dev/jolars/badness-vx.x.x.wasm\"", "jolars/badness"],
+  ["\"https://plugins.dprint.dev/jolars/arity-vx.x.x.wasm\"", "jolars/arity"],
+  ["\"https://plugins.dprint.dev/jolars/fatou-vx.x.x.wasm\"", "jolars/fatou"],
+  ["\"https://plugins.dprint.dev/apcamargo/typstyle-x.x.x.wasm\"", "apcamargo/typstyle"],
+  ["\"https://plugins.dprint.dev/apcamargo/bibtex-tidy-x.x.x.wasm\"", "apcamargo/bibtex-tidy"],
+  ["\"https://plugins.dprint.dev/sargunv/dprint-clang-format-x.x.x.wasm\"", "sargunv/dprint-clang-format"],
+  ["\"https://plugins.dprint.dev/cmakefmt/cmakefmt-vx.x.x.wasm\"", "cmakefmt/cmakefmt"],
+  ["\"https://plugins.dprint.dev/azais-corentin/cmakefmt-vx.x.x.wasm\"", "azais-corentin/cmakefmt"],
 ]);
 
 export function replacePluginUrls() {
   const elements = getPluginUrlElements();
   if (elements.length > 0) {
-    getPluginInfo().then((pluginUrls) => {
-      for (const element of getPluginUrlElements()) {
+    getPluginInfo().then(({ pluginUrls, npmVersions }) => {
+      for (const element of elements) {
+        const npmName = npmPlaceholderRe.exec(element.textContent)?.[1];
+        if (npmName != null) {
+          const version = npmVersions.get(npmName);
+          if (version != null) {
+            element.textContent = "\"npm:" + npmName + "@" + version + "\"";
+          }
+          continue;
+        }
         const pluginName = pluginPlaceholders.get(element.textContent);
         const url = pluginUrls.get(pluginName);
         if (url != null) {
           element.textContent = "\"" + url + "\"";
+        } else if (pluginName != null) {
+          // some plugins aren't listed in info.json, so
+          // fall back to the plugin's own latest.json to resolve the newest url
+          getLatestPluginUrl(pluginName).then((fallbackUrl) => {
+            if (fallbackUrl != null) {
+              element.textContent = "\"" + fallbackUrl + "\"";
+            }
+          });
         }
       }
     });
   }
+}
+
+function getLatestPluginUrl(pluginName) {
+  return fetch("https://plugins.dprint.dev/" + pluginName + "/latest.json")
+    .then((response) => (response.ok ? response.json() : null))
+    .then((data) => (data == null ? null : data.url))
+    .catch(() => null);
 }
 
 function getPluginUrlElements() {
@@ -39,7 +61,7 @@ function getPluginUrlElements() {
   const result = [];
   for (let i = 0; i < stringElements.length; i++) {
     const stringElement = stringElements.item(i);
-    if (pluginPlaceholders.has(stringElement.textContent)) {
+    if (pluginPlaceholders.has(stringElement.textContent) || npmPlaceholderRe.test(stringElement.textContent)) {
       result.push(stringElement);
     }
   }
@@ -54,10 +76,14 @@ function getPluginInfo() {
         throw new Error("Expected schema version " + schemaVersion + ", but found " + data.schemaVersion);
       }
 
-      const result = new Map();
+      const pluginUrls = new Map();
+      const npmVersions = new Map();
       for (const pluginInfo of data.latest) {
-        result.set(pluginInfo.name, pluginInfo.url);
+        pluginUrls.set(pluginInfo.name, pluginInfo.url);
+        if (pluginInfo.npm != null) {
+          npmVersions.set(pluginInfo.npm.name, pluginInfo.npm.version);
+        }
       }
-      return result;
+      return { pluginUrls, npmVersions };
     });
 }

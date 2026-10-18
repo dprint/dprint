@@ -4,13 +4,6 @@ description: Documentation on the Dockerfile code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/dockerfile">Dockerfile</a></li>
-  </ul>
-</nav>
-
 # Dockerfile Code Formatter
 
 Formats [Dockerfiles](https://docs.docker.com/engine/reference/builder).
@@ -20,7 +13,7 @@ Formats [Dockerfiles](https://docs.docker.com/engine/reference/builder).
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint config add dockerfile
+dprint add dockerfile
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"dockerfile"` property to add configuration:
@@ -31,7 +24,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // dockerfile config goes here
   },
   "plugins": [
-    "https://plugins.dprint.dev/dockerfile-x.x.x.wasm"
+    "npm:@dprint/dockerfile@x.x.x"
   ]
 }
 ```

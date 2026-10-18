@@ -1,16 +1,20 @@
 use std::rc::Rc;
 
 use anyhow::Result;
+use serde::Serialize;
 
 use crate::arg_parser::CliArgParserKind;
 use crate::arg_parser::CliArgs;
+use crate::arg_parser::FilePatternArgs;
 use crate::arg_parser::OutputFilePathsSubCommand;
 use crate::arg_parser::create_cli_parser;
+use crate::environment::CanonicalizedPathBuf;
 use crate::environment::Environment;
 use crate::plugins::PluginResolver;
 use crate::resolution::ResolvePluginsScopeAndPathsOptions;
 use crate::resolution::get_plugins_scope_from_args;
 use crate::resolution::resolve_plugins_scope_and_paths;
+use crate::utils::PathSource;
 use crate::utils::get_table_text;
 use crate::utils::is_out_of_date;
 
@@ -84,9 +88,35 @@ pub async fn output_license<TEnvironment: Environment>(
 
 pub fn clear_cache(environment: &impl Environment) -> Result<()> {
   let cache_dir = environment.get_cache_dir();
-  environment.remove_dir_all(&cache_dir)?;
+  remove_cache_dir_killing_processes(environment, &cache_dir)?;
   log_stdout_info!(environment, "Deleted {}", cache_dir.display());
   Ok(())
+}
+
+/// Removes the cache directory, killing running process plugins that block the
+/// deletion. A process plugin's executable can't be deleted while the process is
+/// still running (e.g. on Windows), so on failure we kill any process using a
+/// file in the directory and try again. The retry budget is twice the number of
+/// processes killed (and at least one) so that an editor such as the dprint
+/// VSCode extension restarting its process plugins between attempts is absorbed,
+/// while a process that never stays dead still terminates with the error surfaced.
+fn remove_cache_dir_killing_processes(environment: &impl Environment, cache_dir: &CanonicalizedPathBuf) -> std::io::Result<()> {
+  let mut err = match environment.remove_dir_all(cache_dir) {
+    Ok(()) => return Ok(()),
+    Err(err) => err,
+  };
+  let retries = std::cmp::max(1, environment.kill_processes_using_dir(cache_dir) * 2);
+  for _ in 0..retries {
+    match environment.remove_dir_all(cache_dir) {
+      Ok(()) => return Ok(()),
+      Err(e) => {
+        log_debug!(environment, "Failed deleting cache directory. Killing running processes and retrying. {:#}", e);
+        err = e;
+        environment.kill_processes_using_dir(cache_dir);
+      }
+    }
+  }
+  Err(err)
 }
 
 pub async fn output_file_paths<TEnvironment: Environment>(
@@ -110,6 +140,84 @@ pub async fn output_file_paths<TEnvironment: Environment>(
   Ok(())
 }
 
+/// Outputs the signals that determine whether the incremental cache is invalidated.
+///
+/// The incremental cache for each discovered configuration file is keyed by a
+/// hash of everything that affects formatting output (plugin names, plugin
+/// versions, resolved plugin config, associations, overrides, and global
+/// config). When that hash changes the entire cache for that config is thrown
+/// away. Comparing this output across two revisions tells you, per config,
+/// whether the cache would survive: if every config's hash is unchanged you
+/// only need to format the changed files, otherwise the affected configs need
+/// a full reformat.
+pub async fn incremental_state<TEnvironment: Environment>(
+  args: &CliArgs,
+  environment: &TEnvironment,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
+) -> Result<()> {
+  #[derive(Serialize)]
+  #[serde(rename_all = "camelCase")]
+  struct IncrementalState {
+    configs: Vec<ConfigIncrementalState>,
+  }
+
+  #[derive(Serialize)]
+  #[serde(rename_all = "camelCase")]
+  struct ConfigIncrementalState {
+    path: String,
+    hash: String,
+    plugins: Vec<PluginIncrementalState>,
+  }
+
+  #[derive(Serialize)]
+  #[serde(rename_all = "camelCase")]
+  struct PluginIncrementalState {
+    name: String,
+    version: String,
+  }
+
+  // traverse so that descendant config files are included in the state
+  let scopes = resolve_plugins_scope_and_paths(
+    args,
+    &FilePatternArgs::default(),
+    environment,
+    plugin_resolver,
+    ResolvePluginsScopeAndPathsOptions { skip_traversal: false },
+  )
+  .await?;
+
+  let cwd = environment.cwd();
+  let mut configs = Vec::new();
+  for scope_and_paths in scopes.iter() {
+    let scope = &scope_and_paths.scope;
+    let Some(config) = scope.config.as_ref() else {
+      continue;
+    };
+    scope.ensure_valid_for_cli_args(args)?;
+    configs.push(ConfigIncrementalState {
+      path: display_config_source(&config.source, &cwd),
+      // format as fixed width hex so the value is stable and easy to diff
+      hash: format!("{:016x}", scope.plugins_hash()),
+      plugins: scope
+        .plugins
+        .values()
+        .map(|plugin| PluginIncrementalState {
+          name: plugin.name().to_string(),
+          version: plugin.info().version.to_string(),
+        })
+        .collect(),
+    });
+  }
+
+  // sort by path so the output is deterministic regardless of traversal order
+  configs.sort_by(|a, b| a.path.cmp(&b.path));
+
+  let output = IncrementalState { configs };
+  environment.log_machine_readable(serde_json::to_string_pretty(&output)?.as_bytes());
+
+  Ok(())
+}
+
 pub fn completions<TEnvironment: Environment>(shell: clap_complete::Shell, environment: &TEnvironment) -> Result<()> {
   let mut cmd = create_cli_parser(CliArgParserKind::ForCompletions);
 
@@ -120,10 +228,58 @@ pub fn completions<TEnvironment: Environment>(shell: clap_complete::Shell, envir
   Ok(())
 }
 
+/// Displays a config source relative to the cwd so the output is the same
+/// regardless of where the repository is checked out.
+fn display_config_source(source: &PathSource, cwd: &CanonicalizedPathBuf) -> String {
+  match source {
+    PathSource::Local(local) => get_relative_path(cwd, &local.path).unwrap_or_else(|| local.path.to_string_lossy().replace('\\', "/")),
+    PathSource::Remote(_) | PathSource::Npm(_) => source.to_string(),
+  }
+}
+
+/// Gets a forward slashed path from `base` to `path`, or `None` when they
+/// don't share a root (ex. different Windows drives).
+fn get_relative_path(base: &CanonicalizedPathBuf, path: &CanonicalizedPathBuf) -> Option<String> {
+  use std::path::Component;
+
+  let mut base_components = base.as_ref().components().peekable();
+  let mut path_components = path.as_ref().components().peekable();
+
+  // skip the common prefix
+  while let (Some(base_component), Some(path_component)) = (base_components.peek(), path_components.peek()) {
+    if base_component != path_component {
+      break;
+    }
+    base_components.next();
+    path_components.next();
+  }
+
+  let mut parts = Vec::new();
+  for base_component in base_components {
+    match base_component {
+      // no common root, so a relative path can't be built
+      Component::Prefix(_) | Component::RootDir => return None,
+      Component::Normal(_) => parts.push(".."),
+      Component::CurDir | Component::ParentDir => {}
+    }
+  }
+  for path_component in path_components {
+    match path_component {
+      Component::Normal(part) => parts.push(part.to_str()?),
+      // the paths are canonicalized so these shouldn't happen, but bail out
+      // rather than risk displaying a wrong relative path
+      Component::Prefix(_) | Component::RootDir | Component::CurDir | Component::ParentDir => return None,
+    }
+  }
+
+  Some(parts.join("/"))
+}
+
 #[cfg(test)]
 mod test {
   use pretty_assertions::assert_eq;
 
+  use super::*;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
@@ -223,6 +379,29 @@ mod test {
     let mut logged_messages = environment.take_stdout_messages();
     logged_messages.sort();
     assert_eq!(logged_messages, vec!["/file.txt", "/file2.txt", "/file3.txt_ps"]);
+  }
+
+  #[test]
+  fn should_output_resolved_file_paths_with_shebangs() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+        );
+      })
+      .write_file("/file.txt", "text")
+      .write_file("/scripts/build", "#!/bin/sh\ntext")
+      // no matching shebang
+      .write_file("/scripts/other", "#!/bin/bash\ntext")
+      .write_file("/scripts/notes", "text")
+      .build();
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.txt", "/scripts/build"]);
   }
 
   #[test]
@@ -532,6 +711,98 @@ mod test {
   }
 
   #[test]
+  fn no_gitignore_flag() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      .write_file("/file1.txt", "")
+      .write_file("/file2.txt", "")
+      .write_file("/file3.txt", "")
+      .write_file(".gitignore", "file2.txt")
+      .build();
+    run_test_cli(vec!["output-file-paths", "--no-gitignore"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file1.txt", "/file2.txt", "/file3.txt"]);
+  }
+
+  #[test]
+  fn no_gitignore_flag_sub_dir() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      .write_file("/file1.txt", "")
+      .write_file("/sub/.gitignore", "file1.txt")
+      .write_file("/sub/file1.txt", "")
+      .write_file("/sub/file2.txt", "")
+      .build();
+    run_test_cli(vec!["output-file-paths", "--no-gitignore"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file1.txt", "/sub/file1.txt", "/sub/file2.txt"]);
+  }
+
+  #[test]
+  fn no_gitignore_flag_ignored_dir() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      .write_file("/file.txt", "")
+      .write_file("/ignored_dir/file.txt", "")
+      .write_file("/ignored_dir/sub/file.txt", "")
+      .write_file("/.gitignore", "ignored_dir")
+      .build();
+    // without the flag, the dir is ignored
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.txt"]);
+    // with the flag, the dir is traversed
+    run_test_cli(vec!["output-file-paths", "--no-gitignore"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.txt", "/ignored_dir/file.txt", "/ignored_dir/sub/file.txt"]);
+  }
+
+  #[test]
+  fn global_gitignore_env_var() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      // a `.git` dir makes the root a repository, where the global excludes apply
+      .write_file("/.git/HEAD", "")
+      .write_file("/global_ignore", "ignored.txt")
+      .write_file("/file.txt", "")
+      .write_file("/ignored.txt", "")
+      .write_file("/sub/ignored.txt", "")
+      .build();
+    environment.set_global_gitignore_path("/global_ignore");
+
+    // without the env var, the global excludes file is ignored
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.txt", "/ignored.txt", "/sub/ignored.txt"]);
+
+    // with the env var, the global excludes apply to the repo and its descendants
+    environment.set_env_var("DPRINT_GLOBAL_GITIGNORE", Some("1"));
+    run_test_cli(vec!["output-file-paths"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.txt"]);
+
+    // `--no-gitignore` disables it even when the env var is set
+    run_test_cli(vec!["output-file-paths", "--no-gitignore"], &environment).unwrap();
+    let mut logged_messages = environment.take_stdout_messages();
+    logged_messages.sort();
+    assert_eq!(logged_messages, vec!["/file.txt", "/ignored.txt", "/sub/ignored.txt"]);
+  }
+
+  #[test]
   fn should_clear_cache_directory() {
     let environment = TestEnvironment::new();
     environment.mk_dir_all("/cache").unwrap();
@@ -539,6 +810,62 @@ mod test {
     run_test_cli(vec!["clear-cache"], &environment).unwrap();
     assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
     assert_eq!(environment.path_exists("/cache"), false);
+  }
+
+  #[test]
+  fn should_clear_cache_directory_killing_running_process_plugins() {
+    let environment = TestEnvironment::new();
+    let plugin_exe = "/cache/plugins/test-plugin/0.1.0/x86_64/test-plugin.exe";
+    environment.mk_dir_all("/cache/plugins/test-plugin/0.1.0/x86_64").unwrap();
+    environment.write_file(plugin_exe, "").unwrap();
+    // pretend the process plugin is running, which locks its executable so the
+    // first deletion attempt fails until the process is killed
+    environment.add_running_process(plugin_exe);
+    run_test_cli(vec!["clear-cache"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
+    assert_eq!(environment.path_exists("/cache"), false);
+    assert_eq!(environment.is_process_running(plugin_exe), false);
+  }
+
+  #[test]
+  fn should_clear_cache_directory_retrying_when_process_plugin_restarts() {
+    let environment = TestEnvironment::new();
+    let plugin_exe = "/cache/plugins/test-plugin/0.1.0/x86_64/test-plugin.exe";
+    environment.mk_dir_all("/cache/plugins/test-plugin/0.1.0/x86_64").unwrap();
+    environment.write_file(plugin_exe, "").unwrap();
+    // the editor respawns the plugin once after it's killed before it stays
+    // dead, which the retry budget (twice the processes killed) absorbs
+    environment.add_running_process_with_restarts(plugin_exe, 1);
+    run_test_cli(vec!["clear-cache"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
+    assert_eq!(environment.path_exists("/cache"), false);
+    assert_eq!(environment.is_process_running(plugin_exe), false);
+  }
+
+  #[test]
+  fn should_clear_cache_directory_retrying_once_on_transient_failure() {
+    let environment = TestEnvironment::new();
+    environment.mk_dir_all("/cache").unwrap();
+    // a single transient deletion failure with nothing to kill should still
+    // succeed thanks to the minimum of one retry
+    environment.set_remove_dir_all_failures(1);
+    run_test_cli(vec!["clear-cache"], &environment).unwrap();
+    assert_eq!(environment.take_stdout_messages(), vec!["Deleted /cache"]);
+    assert_eq!(environment.path_exists("/cache"), false);
+  }
+
+  #[test]
+  fn should_error_clearing_cache_when_process_plugin_keeps_restarting() {
+    let environment = TestEnvironment::new();
+    let plugin_exe = "/cache/plugins/test-plugin/0.1.0/x86_64/test-plugin.exe";
+    environment.mk_dir_all("/cache/plugins/test-plugin/0.1.0/x86_64").unwrap();
+    environment.write_file(plugin_exe, "").unwrap();
+    // the plugin keeps coming back after every kill, so we exhaust our retries
+    // and surface the deletion error rather than looping forever
+    environment.add_running_process_with_restarts(plugin_exe, usize::MAX);
+    let err = run_test_cli(vec!["clear-cache"], &environment).err().unwrap();
+    assert!(err.to_string().contains("a process is using a file within it"), "{}", err);
+    assert_eq!(environment.path_exists("/cache"), true);
   }
 
   #[test]
@@ -596,7 +923,143 @@ SOFTWARE.
       run_test_cli(vec!["completions", kind], &environment).unwrap();
       let logged_messages = environment.take_stdout_messages();
       assert_eq!(logged_messages.len(), 1);
-      assert!(!logged_messages[0].contains("hidden"));
+      // nothing that's hidden should be completed
+      for hidden_text in ["hidden", "editor-info", "editor-service", "parent-pid", "verbose"] {
+        assert!(!logged_messages[0].contains(hidden_text), "{kind} completions had '{hidden_text}'");
+      }
+    }
+  }
+
+  #[test]
+  fn should_complete_arg_values_in_zsh() {
+    let environment = TestEnvironment::new();
+    run_test_cli(vec!["completions", "zsh"], &environment).unwrap();
+    let logged_messages = environment.take_stdout_messages();
+    assert_eq!(logged_messages.len(), 1);
+    let fmt_section = logged_messages[0].split("(fmt)").nth(1).unwrap().split("(check)").next().unwrap();
+    let get_line = |start_text: &str| fmt_section.lines().find(|line| line.starts_with(start_text)).unwrap();
+    assert!(get_line("'--config-discovery=").ends_with(r":BOOLEAN:(true false ignore-descendants global)' \"));
+    // the value is optional
+    assert!(get_line("'--incremental=").ends_with(r":: :(true false)' \"));
+    assert!(get_line("'--reload=").ends_with(r"::config|plugins:(config plugins all)' \"));
+    // the colons need to be escaped in order to not end the message
+    assert!(get_line("'*--lines=").ends_with(r":[file-path\:]first-last[,first-last]...:_files' \"));
+  }
+
+  #[test]
+  fn should_complete_file_paths_for_positional_args() {
+    let environment = TestEnvironment::new();
+    run_test_cli(vec!["completions", "zsh"], &environment).unwrap();
+    let logged_messages = environment.take_stdout_messages();
+    assert_eq!(logged_messages.len(), 1);
+    // the `files` positional on the `fmt` subcommand should have a file completion
+    // action so that `dprint fmt f<TAB>` completes to `dprint fmt foo.py`
+    let fmt_section = logged_messages[0].split("(fmt)").nth(1).unwrap().split("(check)").next().unwrap();
+    assert!(fmt_section.lines().any(|line| line.contains("*::files -- ") && line.contains(":_files")));
+  }
+
+  #[test]
+  fn should_output_incremental_state() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin().build();
+    run_test_cli(vec!["incremental-state"], &environment).unwrap();
+    let messages = environment.take_stdout_messages();
+    assert_eq!(messages.len(), 1);
+    let json: serde_json::Value = serde_json::from_str(&messages[0]).unwrap();
+    let configs = json["configs"].as_array().unwrap();
+    assert_eq!(configs.len(), 1);
+    let config = &configs[0];
+    assert_eq!(config["path"], "dprint.json");
+    // the hash is a stable 16 character hex string
+    assert_eq!(config["hash"].as_str().unwrap().len(), 16);
+    let mut plugins = config["plugins"]
+      .as_array()
+      .unwrap()
+      .iter()
+      .map(|p| (p["name"].as_str().unwrap().to_string(), p["version"].as_str().unwrap().to_string()))
+      .collect::<Vec<_>>();
+    plugins.sort();
+    assert_eq!(
+      plugins,
+      vec![
+        ("test-plugin".to_string(), "0.2.0".to_string()),
+        ("test-process-plugin".to_string(), "0.1.0".to_string()),
+      ]
+    );
+  }
+
+  #[test]
+  fn incremental_state_hash_is_deterministic() {
+    fn get_hash(environment: &TestEnvironment) -> String {
+      run_test_cli(vec!["incremental-state"], environment).unwrap();
+      let json: serde_json::Value = serde_json::from_str(&environment.take_stdout_messages()[0]).unwrap();
+      json["configs"][0]["hash"].as_str().unwrap().to_string()
+    }
+
+    // same config produces the same hash across runs
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin().build();
+    assert_eq!(get_hash(&environment), get_hash(&environment));
+
+    // a config change (different plugin config) produces a different hash
+    let environment_changed = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "different"
+          }"#,
+        );
+      })
+      .build();
+    assert_ne!(get_hash(&environment), get_hash(&environment_changed));
+  }
+
+  #[test]
+  fn incremental_state_with_descendant_config() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      .with_local_config("/sub/dprint.json", |c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt");
+      })
+      .write_file("/sub/file.txt", "")
+      .build();
+    run_test_cli(vec!["incremental-state"], &environment).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&environment.take_stdout_messages()[0]).unwrap();
+    let configs = json["configs"].as_array().unwrap();
+    let paths = configs.iter().map(|c| c["path"].as_str().unwrap()).collect::<Vec<_>>();
+    // sorted by path and includes both the root and descendant config
+    assert_eq!(paths, vec!["dprint.json", "sub/dprint.json"]);
+  }
+
+  #[test]
+  fn incremental_state_path_is_relative_to_cwd() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_includes("**/*.txt");
+      })
+      .write_file("/sub/dir/file.txt", "")
+      .set_cwd("/sub/dir")
+      .build();
+    run_test_cli(vec!["incremental-state", "--config", "/dprint.json"], &environment).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&environment.take_stdout_messages()[0]).unwrap();
+    assert_eq!(json["configs"][0]["path"], "../../dprint.json");
+  }
+
+  #[test]
+  fn get_relative_path_cases() {
+    fn relative(base: &str, path: &str) -> Option<String> {
+      get_relative_path(&CanonicalizedPathBuf::new_for_testing(base), &CanonicalizedPathBuf::new_for_testing(path))
+    }
+
+    assert_eq!(relative("/a/b", "/a/b/dprint.json").as_deref(), Some("dprint.json"));
+    assert_eq!(relative("/a/b", "/a/b/c/dprint.json").as_deref(), Some("c/dprint.json"));
+    assert_eq!(relative("/a/b", "/a/dprint.json").as_deref(), Some("../dprint.json"));
+    assert_eq!(relative("/a/b", "/c/d/dprint.json").as_deref(), Some("../../c/d/dprint.json"));
+    assert_eq!(relative("/", "/dprint.json").as_deref(), Some("dprint.json"));
+    if cfg!(windows) {
+      assert_eq!(relative(r"C:\a", r"C:\a\dprint.json").as_deref(), Some("dprint.json"));
+      assert_eq!(relative(r"C:\a", r"V:\dprint.json"), None);
     }
   }
 }

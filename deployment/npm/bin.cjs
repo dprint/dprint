@@ -1,0 +1,45 @@
+#!/usr/bin/env node
+
+// @ts-check
+const path = require("path");
+const child_process = require("child_process");
+const os = require("os");
+const fs = require("fs");
+
+const exePath = path.join(__dirname, os.platform() === "win32" ? "dprint.exe" : "dprint");
+
+if (!fs.existsSync(exePath)) {
+  try {
+    const resolvedExePath = require("./install_api.cjs").runInstall();
+    runDprintExe(resolvedExePath);
+  } catch (err) {
+    if (err !== undefined && typeof err.message === "string") {
+      console.error(err.message);
+    } else {
+      console.error(err);
+    }
+    process.exit(1);
+  }
+} else {
+  runDprintExe(exePath);
+}
+
+/** @param exePath {string} */
+function runDprintExe(exePath) {
+  const result = child_process.spawnSync(
+    exePath,
+    process.argv.slice(2),
+    { stdio: "inherit" },
+  );
+  if (result.error) {
+    if (!fs.existsSync(exePath)) {
+      throw new Error(
+        "Could not find exe at path '" + exePath
+          + "'. Maybe try installing dprint again.",
+      );
+    }
+    throw result.error;
+  }
+
+  process.exit(result.status ?? 1);
+}

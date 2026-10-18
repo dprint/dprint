@@ -1,0 +1,132 @@
+`dprint init --preferences` selects the plugins to prefer, which are saved in
+their order on enter. Nothing is initialized and the files of the directory
+aren't looked at.
+
+-- file: /src/main.ts --
+-- file: /README.md --
+-- args --
+init --preferences
+-- keys --
+down
+down
+down
+space
+down
+down
+space
+shift+down
+enter
+-- output --
+[start]
+Select the plugins to prefer whenever running dprint init:
+  space: prefer/avoid/neither, →: options, shift+↑/↓: move, type to filter,
+  enter: save, esc: cancel
+> [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[down]
+Select the plugins to prefer whenever running dprint init:
+  space: prefer/avoid/neither, →: options, shift+↑/↓: move, type to filter,
+  enter: save, esc: cancel
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+> [ ] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[down]
+Select the plugins to prefer whenever running dprint init:
+  space: prefer/avoid/neither, →: options, shift+↑/↓: move, type to filter,
+  enter: save, esc: cancel
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-json (.json, .jsonc)
+> [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[down]
+Select the plugins to prefer whenever running dprint init:
+  space: prefer/avoid/neither, →: options, shift+↑/↓: move, type to filter,
+  enter: save, esc: cancel
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+> [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[space]
+Select the plugins to prefer whenever running dprint init:
+  space: prefer/avoid/neither, →: options, shift+↑/↓: move, type to filter,
+  enter: save, esc: cancel
+> [x] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] test-plugin (.txt)
+
+[down]
+Select the plugins to prefer whenever running dprint init:
+  space: prefer/avoid/neither, →: options, shift+↑/↓: move, type to filter,
+  enter: save, esc: cancel
+  [x] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+> [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] test-plugin (.txt)
+
+[down]
+Select the plugins to prefer whenever running dprint init:
+  space: prefer/avoid/neither, →: options, shift+↑/↓: move, type to filter,
+  enter: save, esc: cancel
+  [x] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+> [ ] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] test-plugin (.txt)
+
+[space]
+Select the plugins to prefer whenever running dprint init:
+  space: prefer/avoid/neither, →: options, shift+↑/↓: move, type to filter,
+  enter: save, esc: cancel
+> [x] dprint-plugin-json (.json, .jsonc)
+  [x] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] test-plugin (.txt)
+
+[shift+down]
+Select the plugins to prefer whenever running dprint init:
+  space: prefer/avoid/neither, →: options, shift+↑/↓: move, type to filter,
+  enter: save, esc: cancel
+  [x] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+> [x] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] test-plugin (.txt)
+
+[enter]
+Select the plugins to prefer whenever running dprint init:
+ * dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+ * dprint-plugin-json (.json, .jsonc)
+
+# stdout
+
+Saved the plugin preferences to /config/dprint/init.json
+
+# /dprint.json
+(does not exist)
+
+# /config/dprint/init.json
+{
+  "preferredPlugins": [
+    {
+      "name": "dprint-plugin-biome"
+    },
+    {
+      "name": "dprint-plugin-json"
+    }
+  ]
+}

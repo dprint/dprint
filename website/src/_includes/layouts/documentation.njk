@@ -3,13 +3,17 @@ layout: layouts/base.njk
 isDocumentation: true
 ---
 
-<section class="section" id="content">
-  <div class="columns">
-    <aside class="menu column is-narrow doc-sidebar" style="width: 210px">
+<div class="docs">
+  <aside class="doc-sidebar">
+    <details class="doc-nav" open>
+      <summary class="doc-nav-summary">Documentation menu</summary>
       {% include "partials/doc-menu.njk" %}
-    </aside>
-    <div id="content-body" class="column documentation">
-      {{ content | safe }}
-    </div>
-  </div>
-</section>
+    </details>
+  </aside>
+  <main class="doc-main doc-content">
+    {% set eyebrowText = eyebrow %}
+    {% if not eyebrowText %}{% set eyebrowText = "plugins" if "/plugin" in url else "guide" %}{% endif %}
+    <div class="eyebrow">// {{ eyebrowText }}</div>
+    {{ content | safe }}
+  </main>
+</div>
