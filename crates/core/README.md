@@ -23,7 +23,7 @@ let result = dprint_core::formatting::format(|| {
     indent_width: 4,
     max_width: 10,
     use_tabs: false,
-    newline_kind: "\n",
+    new_line_text: "\n",
 });
 ```
 
