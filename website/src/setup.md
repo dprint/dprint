@@ -24,7 +24,26 @@ Open a terminal in the root directory of your project and run the following comm
 dprint init
 ```
 
-This will create a _dprint.json_ file in the current working directory. If you are connected to the internet, it will prompt you to select from the latest plugins, pre-selecting the ones that match the files found in the current directory. Use the spacebar to toggle a plugin, type to filter the list, and press enter when finished.
+This will create a _dprint.json_ file in the current working directory. If you are connected to the internet, it will prompt you to select from the latest plugins, pre-selecting the ones that match the files found in the current directory. Use the spacebar to toggle a plugin, type to filter the list, and press enter when finished. Press the right arrow on a plugin to change which files it formats and its options, and hold shift with the up or down arrow to change the order of the selected plugins.
+
+If the directory already has a configuration file, `dprint init` adds the selected plugins to it instead.
+
+### Init preferences
+
+If you find yourself making the same choices every time you run `dprint init`, you can save them by running:
+
+```sh
+dprint init --preferences
+```
+
+This opens a prompt that only changes your preferences, without creating a configuration file or looking at the files in the current directory. Press the spacebar on a plugin to cycle it between preferred, avoided, and neither.
+
+- **Preferred** plugins are pre-selected ahead of other plugins that format the same files, in the order you put them. For example, preferring Biome means it's selected instead of the TypeScript plugin in a project with TypeScript files. Press the right arrow on a preferred plugin to choose which files it formats and the options it's initialized with.
+- **Avoided** plugins are never pre-selected and are listed last, so the next plugin for their files is selected instead. They can still be selected manually.
+
+Press enter to save or escape to cancel. In the `dprint init` prompt, preferred plugins are marked with ★ and avoided ones with ✗.
+
+The preferences are saved to an _init.json_ file in the [global configuration directory](/global-config) and are used by `dprint init` from then on, including with `--yes`.
 
 ### Non-interactive init
 
