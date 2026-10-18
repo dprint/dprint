@@ -1,0 +1,38 @@
+---
+title: YAML Plugin
+description: Documentation on the YAML code formatting plugin for dprint.
+layout: layouts/documentation.njk
+---
+
+# Pretty YAML Plugin
+
+Adapter plugin that formats YAML files via [Pretty YAML](https://github.com/g-plane/pretty_yaml).
+
+## Install and Setup
+
+In your project's directory with a dprint.json file, run:
+
+```shellsession
+dprint add g-plane/pretty_yaml
+```
+
+This will update your config file to have an entry for the plugin. Then optionally specify a `"yaml"` property to add configuration:
+
+```json
+{
+  "yaml": { // not "pretty_yaml"
+    // Pretty YAML config goes here
+  },
+  "plugins": [
+    "npm:dprint-plugin-yaml@x.x.x"
+  ]
+}
+```
+
+## Configuration
+
+See [Configuration](/plugins/pretty_yaml/config) or read [full documentation site](https://pretty-yaml.netlify.app/) with code examples.
+
+## Playground
+
+See [Playground](https://dprint.dev/playground#plugin/pretty_yaml)

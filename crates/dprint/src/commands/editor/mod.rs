@@ -1,16 +1,16 @@
-use anyhow::anyhow;
 use anyhow::Result;
-use dprint_core::communication::ArcIdStore;
+use anyhow::anyhow;
 use dprint_core::communication::IdGenerator;
 use dprint_core::communication::MessageReader;
 use dprint_core::communication::MessageWriter;
+use dprint_core::communication::RcIdStore;
 use dprint_core::communication::SingleThreadMessageWriter;
-use dprint_core::plugins::Host;
 use dprint_core::plugins::HostFormatRequest;
-use std::io::Read;
+use std::io::ErrorKind;
 use std::path::Path;
+use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
-use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use dprint_core::plugins::process::start_parent_process_checker_task;
@@ -19,23 +19,24 @@ mod messages;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::EditorServiceSubCommand;
-use crate::arg_parser::FilePatternArgs;
-use crate::configuration::resolve_config_from_args;
 use crate::configuration::ResolvedConfig;
+use crate::configuration::resolve_config_from_args;
 use crate::environment::Environment;
-use crate::patterns::FileMatcher;
-use crate::plugins::get_plugins_from_args;
-use crate::plugins::resolve_plugins;
+use crate::format::EnsureStableFormat;
 use crate::plugins::PluginResolver;
-use crate::plugins::PluginsCollection;
+use crate::resolution::PluginsScope;
+use crate::resolution::get_plugins_scope_from_args;
+use crate::resolution::resolve_plugins_scope;
+use crate::utils::Semaphore;
 
 use self::messages::EditorMessage;
 use self::messages::EditorMessageBody;
+use self::messages::FormatEditorMessageBody;
 
 pub async fn output_editor_info<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
 ) -> Result<()> {
   #[derive(serde::Serialize)]
   #[serde(rename_all = "camelCase")]
@@ -57,27 +58,35 @@ pub async fn output_editor_info<TEnvironment: Environment>(
     #[serde(skip_serializing_if = "Option::is_none")]
     config_schema_url: Option<String>,
     help_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    update_url: Option<String>,
   }
 
   let mut plugins = Vec::new();
+  let scope = get_plugins_scope_from_args(args, environment, plugin_resolver).await?;
 
-  for plugin in get_plugins_from_args(args, environment, plugin_resolver).await? {
+  scope.ensure_no_global_config_diagnostics()?;
+
+  for plugin in scope.plugins.values() {
+    let initialized_plugin = plugin.initialize().await?;
+    let file_matching = initialized_plugin.file_matching_info().await?;
     plugins.push(EditorPluginInfo {
-      name: plugin.name().to_string(),
-      version: plugin.version().to_string(),
-      config_key: plugin.config_key().to_string(),
-      file_extensions: plugin.file_extensions().iter().map(|ext| ext.to_string()).collect(),
-      file_names: plugin.file_names().iter().map(|ext| ext.to_string()).collect(),
-      config_schema_url: if plugin.config_schema_url().trim().is_empty() {
+      name: plugin.info().name.to_string(),
+      version: plugin.info().version.to_string(),
+      config_key: plugin.info().config_key.to_string(),
+      file_extensions: file_matching.file_extensions,
+      file_names: file_matching.file_names,
+      config_schema_url: if plugin.info().config_schema_url.trim().is_empty() {
         None
       } else {
-        Some(plugin.config_schema_url().trim().to_string())
+        Some(plugin.info().config_schema_url.trim().to_string())
       },
-      help_url: plugin.help_url().to_string(),
+      help_url: plugin.info().help_url.trim().to_string(),
+      update_url: plugin.info().update_url.clone(),
     });
   }
 
-  environment.log_machine_readable(&serde_json::to_string(&EditorInfo {
+  environment.log_machine_readable(&serde_json::to_vec(&EditorInfo {
     schema_version: 5,
     cli_version: environment.cli_version(),
     config_schema_url: "https://dprint.dev/schemas/v0.json".to_string(),
@@ -90,178 +99,271 @@ pub async fn output_editor_info<TEnvironment: Environment>(
 pub async fn run_editor_service<TEnvironment: Environment>(
   args: &CliArgs,
   environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
+  plugin_resolver: &Rc<PluginResolver<TEnvironment>>,
   editor_service_cmd: &EditorServiceSubCommand,
 ) -> Result<()> {
   // poll for the existence of the parent process and terminate this process when that process no longer exists
   start_parent_process_checker_task(editor_service_cmd.parent_pid);
 
-  let mut editor_service = EditorService::new(args, environment, plugin_resolver, plugin_pools);
+  let mut editor_service = EditorService::new(args, environment, plugin_resolver);
   editor_service.run().await
 }
 
 struct EditorContext {
   pub id_generator: IdGenerator,
   pub writer: SingleThreadMessageWriter<EditorMessage>,
-  pub cancellation_tokens: ArcIdStore<Arc<CancellationToken>>,
+  pub cancellation_tokens: RcIdStore<Arc<CancellationToken>>,
+  /// Tokens of the format requests that are waiting to be handled.
+  pub pending_format_tokens: RcIdStore<Arc<CancellationToken>>,
+  /// Cancelled when a response can't be sent because the editor closed
+  /// the service's output, which is when the service should exit.
+  pub output_closed: CancellationToken,
+}
+
+/// A message that needs the configuration to be handled.
+enum ConfigMessage {
+  CanFormat(u32, PathBuf),
+  Format(u32, FormatEditorMessageBody, Arc<CancellationToken>),
 }
 
 struct EditorService<'a, TEnvironment: Environment> {
-  reader: MessageReader<Box<dyn Read + Send>>,
-  config: Option<ResolvedConfig>,
   args: &'a CliArgs,
   environment: &'a TEnvironment,
-  plugin_resolver: &'a PluginResolver<TEnvironment>,
-  plugins_collection: Arc<PluginsCollection<TEnvironment>>,
-  context: Arc<EditorContext>,
-  concurrency_limiter: Arc<Semaphore>,
+  plugin_resolver: &'a Rc<PluginResolver<TEnvironment>>,
+  plugins_scope: Option<Rc<PluginsScope<TEnvironment>>>,
+  context: Rc<EditorContext>,
+  concurrency_limiter: Rc<Semaphore>,
+  config_semaphore: Rc<Semaphore>,
+  ensure_stable_format: EnsureStableFormat,
 }
 
 impl<'a, TEnvironment: Environment> EditorService<'a, TEnvironment> {
-  pub fn new(
-    args: &'a CliArgs,
-    environment: &'a TEnvironment,
-    plugin_resolver: &'a PluginResolver<TEnvironment>,
-    plugin_pools: Arc<PluginsCollection<TEnvironment>>,
-  ) -> Self {
-    let stdin = environment.stdin();
+  pub fn new(args: &'a CliArgs, environment: &'a TEnvironment, plugin_resolver: &'a Rc<PluginResolver<TEnvironment>>) -> Self {
     let stdout = environment.stdout();
-    let reader = MessageReader::new(stdin);
-    let writer = SingleThreadMessageWriter::for_stdout(MessageWriter::new(stdout));
+    // this is the writer that doesn't panic when writing fails, which
+    // happens when the editor closes the service's output
+    let writer = SingleThreadMessageWriter::for_stdin(MessageWriter::new(stdout));
     let max_cores = environment.max_threads();
-    let concurrency_limiter = Arc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
+    let concurrency_limiter = Rc::new(Semaphore::new(std::cmp::max(1, max_cores - 1)));
 
     Self {
-      reader,
-      config: None,
       args,
       environment,
       plugin_resolver,
-      plugins_collection: plugin_pools,
-      context: Arc::new(EditorContext {
+      plugins_scope: None,
+      context: Rc::new(EditorContext {
         id_generator: Default::default(),
         cancellation_tokens: Default::default(),
+        pending_format_tokens: Default::default(),
         writer,
+        output_closed: Default::default(),
       }),
       concurrency_limiter,
+      config_semaphore: Rc::new(Semaphore::new(1)),
+      ensure_stable_format: EnsureStableFormat::for_editor(environment),
     }
   }
 
   pub async fn run(&mut self) -> Result<()> {
-    loop {
-      let message = EditorMessage::read(&mut self.reader)?;
-      match message.body {
-        EditorMessageBody::Success(_message_id) => {}
-        EditorMessageBody::Error(_message_id, _data) => {}
-        EditorMessageBody::Close => {
-          handle_message(&self.context, message.id, || Ok(EditorMessageBody::Success(message.id)));
-          return Ok(());
-        }
-        EditorMessageBody::IsAlive => {
-          handle_message(&self.context, message.id, || Ok(EditorMessageBody::Success(message.id)));
-        }
-        EditorMessageBody::CanFormat(path) => {
-          // do this on the same thread
-          let result = self.can_format(&path).await;
-          handle_message(&self.context, message.id, || {
-            result.map(|val| EditorMessageBody::CanFormatResponse(message.id, if val { 1 } else { 0 }))
-          });
-        }
-        EditorMessageBody::CanFormatResponse(_, _) => {
-          send_error_response(&self.context, message.id, anyhow!("CLI cannot handle a CanFormatResponse message."));
-        }
-        EditorMessageBody::Format(body) => {
-          if self.config.is_none() {
-            self.ensure_latest_config().await?;
+    let environment = self.environment.clone();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<EditorMessage>();
+    dprint_core::async_runtime::spawn_blocking(move || {
+      let stdin = environment.stdin();
+      let mut reader = MessageReader::new(stdin);
+      loop {
+        let read_message = match EditorMessage::read(&mut reader) {
+          Ok(message) => message,
+          Err(err) if err.kind() == ErrorKind::BrokenPipe => {
+            return;
           }
-          let token = Arc::new(CancellationToken::new());
-          let request = HostFormatRequest {
-            file_path: body.file_path,
-            range: body.range,
-            override_config: if body.override_config.is_empty() {
-              Default::default()
-            } else {
-              match serde_json::from_slice(&body.override_config) {
-                Ok(config) => config,
-                Err(err) => {
-                  send_error_response(&self.context, message.id, anyhow!("Error deserializing override config. {:#}", err));
-                  continue;
-                }
-              }
-            },
-            file_text: match String::from_utf8(body.file_text) {
-              Ok(text) => text,
-              Err(err) => {
-                send_error_response(&self.context, message.id, anyhow!("Error decoding text to utf8. {:#}", err));
-                continue;
-              }
-            },
-            token: token.clone(),
-          };
-
-          self.context.cancellation_tokens.store(message.id, token.clone());
-          let plugins_collection = self.plugins_collection.clone();
-          let context = self.context.clone();
-          let concurrency_limiter = self.concurrency_limiter.clone();
-          let _ignore = tokio::task::spawn(async move {
-            let _permit = concurrency_limiter.acquire().await;
-            if token.is_cancelled() {
-              return;
-            }
-
-            let result = plugins_collection.format(request).await;
-            context.cancellation_tokens.take(message.id);
-            if token.is_cancelled() {
-              return;
-            }
-
-            let body = match result {
-              Ok(text) => EditorMessageBody::FormatResponse(message.id, text.map(|t| t.into_bytes())),
-              Err(err) => EditorMessageBody::Error(message.id, format!("{:#}", err).into_bytes()),
-            };
-            send_response_body(&context, body);
-          });
-        }
-        EditorMessageBody::FormatResponse(_, _) => {
-          send_error_response(&self.context, message.id, anyhow!("CLI cannot handle a FormatResponse message."));
-        }
-        EditorMessageBody::CancelFormat(message_id) => {
-          if let Some(token) = self.context.cancellation_tokens.take(message_id) {
-            token.cancel();
+          Err(err) => {
+            log_error!(environment, "Editor service failed reading from stdin: {:#}", err);
+            return;
           }
-        }
-        EditorMessageBody::Unknown(message_kind, _) => {
-          send_error_response(&self.context, message.id, anyhow!("Unknown message with kind: {}", message_kind));
+        };
+        if tx.send(read_message).is_err() {
+          return; // channel disconnected
         }
       }
+    });
+    // The messages that need the configuration are handled one at a time on a
+    // separate task from the one receiving the messages. Resolving the
+    // configuration can take a long time (ex. downloading plugins), so this
+    // keeps the service responding to the other messages while that happens.
+    let (config_message_tx, mut config_message_rx) = tokio::sync::mpsc::unbounded_channel::<ConfigMessage>();
+    let context = self.context.clone();
+    let receive_messages = async move {
+      loop {
+        let message = tokio::select! {
+          message = rx.recv() => message,
+          // there's nobody to respond to anymore
+          _ = context.output_closed.cancelled() => None,
+        };
+        let Some(message) = message else { return };
+        match message.body {
+          EditorMessageBody::Success(_message_id) => {}
+          EditorMessageBody::Error(_message_id, _data) => {}
+          EditorMessageBody::Close => {
+            handle_message(&context, message.id, || Ok(EditorMessageBody::Success(message.id)));
+            return;
+          }
+          EditorMessageBody::IsAlive => {
+            handle_message(&context, message.id, || Ok(EditorMessageBody::Success(message.id)));
+          }
+          EditorMessageBody::CanFormat(path) => {
+            let _ = config_message_tx.send(ConfigMessage::CanFormat(message.id, path));
+          }
+          EditorMessageBody::CanFormatResponse(_, _) => {
+            send_error_response(&context, message.id, anyhow!("CLI cannot handle a CanFormatResponse message."));
+          }
+          EditorMessageBody::Format(body) => {
+            // store this now so the format can be cancelled while it's waiting to be handled
+            let token = Arc::new(CancellationToken::new());
+            context.pending_format_tokens.store(message.id, token.clone());
+            let _ = config_message_tx.send(ConfigMessage::Format(message.id, body, token));
+          }
+          EditorMessageBody::FormatResponse(_, _) => {
+            send_error_response(&context, message.id, anyhow!("CLI cannot handle a FormatResponse message."));
+          }
+          EditorMessageBody::CancelFormat(message_id) => {
+            if let Some(token) = context.cancellation_tokens.take(message_id) {
+              token.cancel();
+            } else if let Some(token) = context.pending_format_tokens.get_cloned(message_id) {
+              token.cancel();
+            }
+          }
+          EditorMessageBody::Unknown(message_kind, _) => {
+            send_error_response(&context, message.id, anyhow!("Unknown message with kind: {}", message_kind));
+          }
+        }
+      }
+    };
+    let handle_config_messages = async {
+      while let Some(message) = config_message_rx.recv().await {
+        match message {
+          ConfigMessage::CanFormat(message_id, path) => {
+            let result = self.can_format(&path).await;
+            handle_message(&self.context, message_id, || {
+              result.map(|val| EditorMessageBody::CanFormatResponse(message_id, if val { 1 } else { 0 }))
+            });
+          }
+          ConfigMessage::Format(message_id, body, token) => {
+            self.context.pending_format_tokens.take(message_id);
+            if !token.is_cancelled() {
+              self.format(message_id, body, token).await;
+            }
+          }
+        }
+      }
+    };
+
+    tokio::select! {
+      // finished when the editor closes the service or its output
+      _ = receive_messages => {}
+      _ = handle_config_messages => {}
     }
+    Ok(())
+  }
+
+  async fn format(&mut self, message_id: u32, body: FormatEditorMessageBody, token: Arc<CancellationToken>) {
+    if self.plugins_scope.is_none()
+      && let Err(err) = self.ensure_latest_config().await
+    {
+      // respond with the error instead of exiting so the editor can
+      // show it and the config file can be fixed without a restart
+      send_error_response(&self.context, message_id, err);
+      return;
+    }
+    let request = HostFormatRequest {
+      // canonicalize so that it matches the canonicalized config paths (ex. for overrides)
+      file_path: self
+        .environment
+        .canonicalize_maybe_not_exists(&body.file_path)
+        .map(|p| p.into_path_buf())
+        .unwrap_or(body.file_path),
+      range: body.range,
+      override_config: if body.override_config.is_empty() {
+        Default::default()
+      } else {
+        match serde_json::from_slice(&body.override_config) {
+          Ok(config) => config,
+          Err(err) => {
+            send_error_response(&self.context, message_id, anyhow!("Error deserializing override config. {:#}", err));
+            return;
+          }
+        }
+      },
+      file_bytes: body.file_bytes,
+      token: token.clone(),
+    };
+
+    let token_storage_guard = self.context.cancellation_tokens.store_with_owned_guard(message_id, token.clone());
+    let context = self.context.clone();
+    let concurrency_limiter = self.concurrency_limiter.clone();
+    let scope = self.plugins_scope.clone().unwrap();
+    let ensure_stable_format = self.ensure_stable_format;
+    let _ignore = dprint_core::async_runtime::spawn(async move {
+      let _permit = concurrency_limiter.acquire().await;
+      if token.is_cancelled() {
+        return;
+      }
+
+      let result = scope.format_stable(request, ensure_stable_format).await;
+      drop(token_storage_guard);
+      if token.is_cancelled() {
+        return;
+      }
+
+      let body = match result {
+        Ok(text) => EditorMessageBody::FormatResponse(message_id, text),
+        Err(err) => EditorMessageBody::Error(message_id, dprint_core::plugins::error_to_string(&err).into_bytes()),
+      };
+      send_response_body(&context, body);
+    });
   }
 
   async fn can_format(&mut self, file_path: &Path) -> Result<bool> {
     self.ensure_latest_config().await?;
-
-    let file_matcher = FileMatcher::new(self.config.as_ref().unwrap(), &FilePatternArgs::default(), self.environment)?;
     // canonicalize the file path, then check if it's in the list of file paths.
-    let resolved_file_path = self.environment.canonicalize(file_path)?;
-    log_verbose!(self.environment, "Checking can format: {}", resolved_file_path.display());
-    Ok(file_matcher.matches_and_dir_not_ignored(&resolved_file_path))
+    let file_path = self
+      .environment
+      .canonicalize_maybe_not_exists(file_path)
+      .map(|p| p.into_path_buf())
+      .unwrap_or(file_path.to_path_buf());
+    log_debug!(self.environment, "Checking can format: {}", file_path.display());
+    // the editor service only receives a path, so an extensionless file's
+    // shebang is resolved from the file on disk
+    Ok(self.plugins_scope.as_ref().map(|s| s.can_format_for_editor(&file_path, None)).unwrap_or(false))
   }
 
-  async fn ensure_latest_config(&mut self) -> Result<()> {
-    let last_config = self.config.take();
-    let config = resolve_config_from_args(self.args, self.environment)?;
+  async fn ensure_latest_config(&mut self) -> Result<Rc<ResolvedConfig>> {
+    let _update_permit = self.config_semaphore.acquire().await;
+    let config = Rc::new(resolve_config_from_args(self.args, self.environment).await?);
 
-    let has_config_changed = last_config.is_none() || last_config.unwrap() != config;
+    let last_config = self.plugins_scope.as_ref().and_then(|scope| scope.config.as_ref());
+    let has_config_changed = last_config.is_none() || last_config.unwrap() != &config || self.plugins_scope.is_none();
     if has_config_changed {
-      self.plugins_collection.drop_and_shutdown_initialized().await; // clear the existing plugins
-      let plugins = resolve_plugins(self.args, &config, self.environment, self.plugin_resolver).await?;
-      self.plugins_collection.set_plugins(plugins, &config.base_path)?;
+      self.plugins_scope.take();
+      let mut tokens = self.context.cancellation_tokens.take_all().into_iter().collect::<Vec<_>>();
+      tokens.sort_by_key(|(message_id, _)| *message_id);
+      for (message_id, token) in tokens {
+        token.cancel();
+        // the editor didn't ask for these to be cancelled, so respond in
+        // order to not leave it waiting on them
+        send_error_response(
+          &self.context,
+          message_id,
+          anyhow!("Formatting was cancelled because the configuration changed."),
+        );
+      }
+      self.plugin_resolver.clear_and_shutdown_initialized().await;
+
+      let scope = resolve_plugins_scope(config.clone(), self.environment, self.plugin_resolver).await?;
+      scope.ensure_no_global_config_diagnostics()?;
+      self.plugins_scope = Some(Rc::new(scope));
     }
 
-    self.config = Some(config);
-
-    Ok(())
+    Ok(self.plugins_scope.as_ref().unwrap().config.clone().unwrap())
   }
 }
 
@@ -282,22 +384,24 @@ fn send_response_body(context: &EditorContext, body: EditorMessageBody) {
     id: context.id_generator.next(),
     body,
   };
-  if let Err(err) = context.writer.send(message) {
-    panic!("Receiver dropped. {:#}", err);
+  if context.writer.send(message).is_err() {
+    context.output_closed.cancel();
   }
 }
 
 #[cfg(test)]
 mod test {
-  use anyhow::anyhow;
   use anyhow::Result;
-  use dprint_core::communication::ArcIdStore;
+  use anyhow::anyhow;
+  use dprint_core::async_runtime::DropGuardAction;
+  use dprint_core::async_runtime::future;
   use dprint_core::communication::IdGenerator;
   use dprint_core::communication::MessageReader;
   use dprint_core::communication::MessageWriter;
-  use dprint_core::communication::Poisoner;
+  use dprint_core::communication::RcIdStore;
   use dprint_core::communication::SingleThreadMessageWriter;
   use dprint_core::configuration::ConfigKeyMap;
+  use dprint_core::plugins::FormatError;
   use dprint_core::plugins::FormatRange;
   use dprint_core::plugins::FormatResult;
   use pretty_assertions::assert_eq;
@@ -305,6 +409,7 @@ mod test {
   use std::io::Write;
   use std::path::Path;
   use std::path::PathBuf;
+  use std::rc::Rc;
   use std::sync::Arc;
   use std::time::Duration;
   use tokio::sync::oneshot;
@@ -334,8 +439,36 @@ mod test {
     final_output.push_str(&environment.cli_version());
     final_output.push_str(r#"","configSchemaUrl":"https://dprint.dev/schemas/v0.json","plugins":["#);
     final_output
-      .push_str(r#"{"name":"test-plugin","version":"0.1.0","configKey":"test-plugin","fileExtensions":["txt"],"fileNames":[],"configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","helpUrl":"https://dprint.dev/plugins/test"},"#);
-    final_output.push_str(r#"{"name":"test-process-plugin","version":"0.1.0","configKey":"testProcessPlugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"],"helpUrl":"https://dprint.dev/plugins/test-process"}]}"#);
+      .push_str(r#"{"name":"test-plugin","version":"0.2.0","configKey":"test-plugin","fileExtensions":["txt"],"fileNames":[],"configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","helpUrl":"https://dprint.dev/plugins/test","updateUrl":"https://plugins.dprint.dev/dprint/test-plugin/latest.json"},"#);
+    final_output.push_str(r#"{"name":"test-process-plugin","version":"0.1.0","configKey":"testProcessPlugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"],"helpUrl":"https://dprint.dev/plugins/test-process","updateUrl":"https://plugins.dprint.dev/dprint/test-process-plugin/latest.json"}]}"#);
+    assert_eq!(environment.take_stdout_messages(), vec![final_output]);
+    let mut stderr_messages = environment.take_stderr_messages();
+    stderr_messages.sort();
+    assert_eq!(
+      stderr_messages,
+      vec![
+        "Compiling https://plugins.dprint.dev/test-plugin.wasm",
+        "Extracting zip for test-process-plugin"
+      ]
+    );
+  }
+
+  #[test]
+  fn should_output_editor_plugin_info_with_global_config() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin().add_remote_process_plugin();
+      })
+      .build();
+    run_test_cli(vec!["editor-info", "--config-discovery=global"], &environment).unwrap();
+    let mut final_output = r#"{"schemaVersion":5,"cliVersion":""#.to_string();
+    final_output.push_str(&environment.cli_version());
+    final_output.push_str(r#"","configSchemaUrl":"https://dprint.dev/schemas/v0.json","plugins":["#);
+    final_output
+      .push_str(r#"{"name":"test-plugin","version":"0.2.0","configKey":"test-plugin","fileExtensions":["txt"],"fileNames":[],"configSchemaUrl":"https://plugins.dprint.dev/test/schema.json","helpUrl":"https://dprint.dev/plugins/test","updateUrl":"https://plugins.dprint.dev/dprint/test-plugin/latest.json"},"#);
+    final_output.push_str(r#"{"name":"test-process-plugin","version":"0.1.0","configKey":"testProcessPlugin","fileExtensions":["txt_ps"],"fileNames":["test-process-plugin-exact-file"],"helpUrl":"https://dprint.dev/plugins/test-process","updateUrl":"https://plugins.dprint.dev/dprint/test-process-plugin/latest.json"}]}"#);
     assert_eq!(environment.take_stdout_messages(), vec![final_output]);
     let mut stderr_messages = environment.take_stderr_messages();
     stderr_messages.sort();
@@ -356,15 +489,15 @@ mod test {
 
   #[derive(Clone)]
   struct EditorServiceCommunicator {
-    writer: SingleThreadMessageWriter<EditorMessage>,
-    id_generator: IdGenerator,
-    messages: ArcIdStore<MessageResponseChannel>,
+    writer: Rc<SingleThreadMessageWriter<EditorMessage>>,
+    id_generator: Rc<IdGenerator>,
+    messages: RcIdStore<MessageResponseChannel>,
   }
 
   impl EditorServiceCommunicator {
     pub fn new(stdin: Box<dyn Write + Send>, stdout: Box<dyn Read + Send>) -> Self {
       let mut reader = MessageReader::new(stdout);
-      let writer = SingleThreadMessageWriter::for_stdin(MessageWriter::new(stdin), Poisoner::default());
+      let writer = Rc::new(SingleThreadMessageWriter::for_stdin(MessageWriter::new(stdin)));
 
       let communicator = EditorServiceCommunicator {
         writer,
@@ -372,16 +505,40 @@ mod test {
         messages: Default::default(),
       };
 
-      tokio::task::spawn_blocking({
-        let messages = communicator.messages.clone();
+      let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+      dprint_core::async_runtime::spawn_blocking({
         move || loop {
-          if let Err(_) = read_stdout_message(&mut reader, &messages) {
+          let message = EditorMessage::read(&mut reader);
+          let msg_was_err = message.is_err();
+          if tx.send(message).is_err() || msg_was_err {
+            break;
+          }
+        }
+      });
+
+      let messages = communicator.messages.clone();
+      dprint_core::async_runtime::spawn(async move {
+        while let Some(Ok(message)) = rx.recv().await {
+          if let Err(_) = handle_stdout_message(message, &messages) {
             break;
           }
         }
       });
 
       communicator
+    }
+
+    pub async fn is_alive(&self) -> Result<()> {
+      let (tx, rx) = oneshot::channel::<Result<()>>();
+
+      self
+        .send_message(
+          EditorMessageBody::IsAlive,
+          MessageResponseChannel::Success(tx),
+          rx,
+          Arc::new(CancellationToken::new()),
+        )
+        .await
     }
 
     pub async fn check_file(&self, file_path: impl AsRef<Path>) -> Result<bool> {
@@ -400,18 +557,18 @@ mod test {
     pub async fn format_text(
       &self,
       file_path: impl AsRef<Path>,
-      file_text: &str,
+      file_bytes: Vec<u8>,
       range: FormatRange,
       override_config: ConfigKeyMap,
       token: CancellationToken,
     ) -> FormatResult {
       let (tx, rx) = oneshot::channel::<Result<Option<Vec<u8>>>>();
 
-      let result = self
+      self
         .send_message(
           EditorMessageBody::Format(FormatEditorMessageBody {
             file_path: file_path.as_ref().to_path_buf(),
-            file_text: file_text.to_string().into_bytes(),
+            file_bytes,
             override_config: serde_json::to_vec(&override_config).unwrap(),
             range,
           }),
@@ -419,8 +576,8 @@ mod test {
           rx,
           Arc::new(token),
         )
-        .await;
-      result.map(|maybe_text| maybe_text.map(|bytes| String::from_utf8(bytes).unwrap()))
+        .await
+        .map_err(FormatError::new)
     }
 
     pub async fn exit(&self) -> Result<()> {
@@ -444,15 +601,22 @@ mod test {
       token: Arc<CancellationToken>,
     ) -> Result<T> {
       let message_id = self.id_generator.next();
+      let mut drop_guard = DropGuardAction::new(|| {
+        let _ = self.writer.send(EditorMessage {
+          id: self.id_generator.next(),
+          body: EditorMessageBody::CancelFormat(message_id),
+        });
+        self.messages.take(message_id); // clear memory
+      });
       self.messages.store(message_id, response_channel);
       self.writer.send(EditorMessage { id: message_id, body })?;
       tokio::select! {
         _ = token.cancelled() => {
-          self.writer.send(EditorMessage { id: self.id_generator.next(), body: EditorMessageBody::CancelFormat(message_id) })?;
-          self.messages.take(message_id); // clear memory
+          drop(drop_guard); // be explicit
           Ok(Default::default())
         }
         response = receiver => {
+          drop_guard.forget(); // we completed successfully, so don't run the drop guard code
           match response {
             Ok(data) => data,
             Err(err) => panic!("{:#}", err)
@@ -462,9 +626,7 @@ mod test {
     }
   }
 
-  fn read_stdout_message(reader: &mut MessageReader<Box<dyn Read + Send>>, messages: &ArcIdStore<MessageResponseChannel>) -> Result<()> {
-    let message = EditorMessage::read(reader)?;
-
+  fn handle_stdout_message(message: EditorMessage, messages: &RcIdStore<MessageResponseChannel>) -> Result<()> {
     match message.body {
       EditorMessageBody::Success(message_id) => match messages.take(message_id) {
         Some(MessageResponseChannel::Success(channel)) => {
@@ -549,15 +711,21 @@ mod test {
 
           assert_eq!(
             communicator
-              .format_text(&txt_file_path, "testing", None, Default::default(), Default::default())
+              .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
               .await
               .unwrap()
               .unwrap(),
-            "testing_formatted"
+            b"testing_formatted"
           );
           assert_eq!(
             communicator
-              .format_text(&txt_file_path, "testing_formatted", None, Default::default(), Default::default())
+              .format_text(
+                &txt_file_path,
+                "testing_formatted".to_string().into_bytes(),
+                None,
+                Default::default(),
+                Default::default()
+              )
               .await
               .unwrap()
               .is_none(),
@@ -565,23 +733,43 @@ mod test {
           ); // it is already formatted
           assert_eq!(
             communicator
-              .format_text(&other_ext_path, "testing", None, Default::default(), Default::default())
+              .format_text(
+                &other_ext_path,
+                "testing".to_string().into_bytes(),
+                None,
+                Default::default(),
+                Default::default()
+              )
               .await
               .unwrap()
               .is_none(),
             true
           ); // can't format
           assert_eq!(
-            communicator
-              .format_text(&txt_file_path, "plugin: format this text", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &txt_file_path,
+                  "plugin: format this text".to_string().into_bytes(),
+                  None,
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "plugin: format this text_formatted_process_formatted"
           );
           assert_eq!(
             communicator
-              .format_text(&txt_file_path, "should_error", None, Default::default(), Default::default())
+              .format_text(
+                &txt_file_path,
+                "should_error".to_string().into_bytes(),
+                None,
+                Default::default(),
+                Default::default()
+              )
               .await
               .err()
               .unwrap()
@@ -590,7 +778,13 @@ mod test {
           );
           assert_eq!(
             communicator
-              .format_text(&txt_file_path, "plugin: should_error", None, Default::default(), Default::default())
+              .format_text(
+                &txt_file_path,
+                "plugin: should_error".to_string().into_bytes(),
+                None,
+                Default::default(),
+                Default::default()
+              )
               .await
               .err()
               .unwrap()
@@ -598,47 +792,65 @@ mod test {
             "Did error."
           );
           assert_eq!(
-            communicator
-              .format_text(&PathBuf::from("/file.txt_ps"), "testing", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &PathBuf::from("/file.txt_ps"),
+                  "testing".to_string().into_bytes(),
+                  None,
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "testing_formatted_process"
           );
 
           // try parallelizing many things
           let mut handles = Vec::new();
           for _ in 0..50 {
-            handles.push(tokio::task::spawn({
+            handles.push(dprint_core::async_runtime::spawn({
               let communicator = communicator.clone();
               let txt_file_path = txt_file_path.clone();
               async move {
                 assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true);
               }
             }));
-            handles.push(tokio::task::spawn({
+            handles.push(dprint_core::async_runtime::spawn({
               let communicator = communicator.clone();
               let txt_file_path = txt_file_path.clone();
               async move {
                 assert_eq!(
-                  communicator
-                    .format_text(&txt_file_path, "testing", None, Default::default(), Default::default())
-                    .await
-                    .unwrap()
-                    .unwrap(),
+                  bytes_to_string(
+                    communicator
+                      .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+                      .await
+                      .unwrap()
+                      .unwrap()
+                  ),
                   "testing_formatted"
                 );
               }
             }));
-            handles.push(tokio::task::spawn({
+            handles.push(dprint_core::async_runtime::spawn({
               let communicator = communicator.clone();
               async move {
                 assert_eq!(
-                  communicator
-                    .format_text(&PathBuf::from("/file.txt_ps"), "testing", None, Default::default(), Default::default())
-                    .await
-                    .unwrap()
-                    .unwrap(),
+                  bytes_to_string(
+                    communicator
+                      .format_text(
+                        &PathBuf::from("/file.txt_ps"),
+                        "testing".to_string().into_bytes(),
+                        None,
+                        Default::default(),
+                        Default::default()
+                      )
+                      .await
+                      .unwrap()
+                      .unwrap()
+                  ),
                   "testing_formatted_process"
                 );
               }
@@ -646,59 +858,130 @@ mod test {
           }
 
           // ensure nothing panicked
-          let results = futures::future::join_all(handles).await;
+          let results = future::join_all(handles).await;
           for result in results {
             result.unwrap();
           }
 
-          // test range formatting
+          // test process range formatting
           assert_eq!(
-            communicator
-              .format_text(&PathBuf::from("/file.txt_ps"), "testing", Some(1..2), Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &PathBuf::from("/file.txt_ps"),
+                  "testing".to_string().into_bytes(),
+                  Some(1..2),
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "t_formatted_process_sting_formatted_process"
           );
+          // test process plugin host formatting with range
+          assert_eq!(
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &PathBuf::from("/file.txt_ps"),
+                  "plugin-range: testing".to_string().into_bytes(),
+                  Some(1..2),
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
+            "plugin-range: t_formatted_sting_formatted_formatted_process"
+          );
 
-          // test cancellation
-          let token = CancellationToken::new();
-          let handle = tokio::task::spawn({
-            let communicator = communicator.clone();
-            let token = token.clone();
-            async move {
-              assert_eq!(
-                communicator
-                  .format_text(&PathBuf::from("/file.txt_ps"), "wait_cancellation", None, Default::default(), token)
-                  .await
-                  .unwrap(),
-                None
-              )
-            }
-          });
+          // test wasm range formatting
+          assert_eq!(
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &PathBuf::from("/file.txt"),
+                  "testing".to_string().into_bytes(),
+                  Some(1..2),
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
+            "t_formatted_sting_formatted"
+          );
 
-          // give some time for the message to be sent
-          tokio::time::sleep(Duration::from_millis(50)).await;
-          token.cancel();
-          handle.await.unwrap();
+          // test wasm plugin host formatting with range
+          assert_eq!(
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &PathBuf::from("/file.txt"),
+                  "plugin-range: testing".to_string().into_bytes(),
+                  Some(1..2),
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
+            "plugin-range: t_formatted_process_sting_formatted_process_formatted"
+          );
+
+          // test process and wasm plugin cancellation
+          for file_name in ["/file.txt_ps", "/file.txt"] {
+            let token = CancellationToken::new();
+            let handle = dprint_core::async_runtime::spawn({
+              let communicator = communicator.clone();
+              let token = token.clone();
+              async move {
+                assert_eq!(
+                  communicator
+                    .format_text(
+                      &PathBuf::from(file_name),
+                      "wait_cancellation".to_string().into_bytes(),
+                      None,
+                      Default::default(),
+                      token
+                    )
+                    .await
+                    .unwrap(),
+                  None
+                )
+              }
+            });
+
+            // give some time for the message to be sent
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            token.cancel();
+            handle.await.unwrap();
+          }
 
           // test override config
           assert_eq!(
-            communicator
-              .format_text(
-                &PathBuf::from("/file.txt_ps"),
-                "testing",
-                Some(2..5),
-                {
-                  let mut config = ConfigKeyMap::new();
-                  config.insert("ending".to_string(), "test".into());
-                  config
-                },
-                Default::default()
-              )
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &PathBuf::from("/file.txt_ps"),
+                  "testing".to_string().into_bytes(),
+                  Some(2..5),
+                  {
+                    let mut config = ConfigKeyMap::new();
+                    config.insert("ending".to_string(), "test".into());
+                    config
+                  },
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "te_test_ng_test"
           );
 
@@ -719,11 +1002,13 @@ mod test {
           assert_eq!(communicator.check_file(&ts_file_path).await.unwrap(), false); // shouldn't match anymore
           assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true); // still ok
           assert_eq!(
-            communicator
-              .format_text(&txt_file_path, "testing", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "testing_new_ending"
           );
 
@@ -733,6 +1018,511 @@ mod test {
     });
 
     // usually this would be the editor's process id, but this is ok for testing purposes
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_inherit_ancestor_config_for_editor_service() {
+    let txt_file_path = PathBuf::from("/sub_dir/file.txt");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "root" }"#);
+      })
+      .with_local_config("/sub_dir/dprint.json", |c| {
+        c.set_inherit(true);
+      })
+      .write_file(&txt_file_path, "")
+      .initialize()
+      .set_cwd("/sub_dir")
+      .build();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+
+          assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true);
+          assert_eq!(
+            communicator
+              .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_root"
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_warn_for_inherit_without_ancestor_config_for_editor_service() {
+    let txt_file_path = PathBuf::from("/project/file.txt");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      // the global config file is not inherited from
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section("test-plugin", r#"{ "ending": "global" }"#);
+      })
+      .with_local_config("/project/dprint.json", |c| {
+        c.set_inherit(true).add_remote_wasm_plugin();
+      })
+      .write_file(&txt_file_path, "")
+      .set_cwd("/project")
+      .build();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+
+          // the config is resolved for each of these
+          assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true);
+          assert_eq!(
+            communicator
+              .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_formatted"
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+
+    // only warns once
+    let logs = environment.take_stderr_messages();
+    let logs = logs.iter().filter(|log| !log.starts_with("Compiling ")).collect::<Vec<_>>();
+    assert_eq!(logs.len(), 1, "{:?}", logs);
+    assert!(
+      logs[0].ends_with(concat!(
+        "The 'inherit' property is ignored in /project/dprint.json because there is no ",
+        "configuration file in an ancestor directory to inherit from."
+      )),
+      "{}",
+      logs[0]
+    );
+  }
+
+  #[test]
+  fn should_respond_with_error_for_format_with_config_error_for_editor_service() {
+    let txt_file_path = PathBuf::from("/file.txt");
+    let config_file_path = PathBuf::from("/dprint.json");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file(&txt_file_path, "")
+      .initialize()
+      .build();
+    let config_file_text = environment.read_file(&config_file_path).unwrap();
+    environment.write_file(&config_file_path, "{ invalid").unwrap();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      let environment = environment.clone();
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+          let format = || communicator.format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default());
+
+          // a format request is the first message some editors send
+          let err = format().await.err().unwrap();
+          assert!(err.to_string().contains("dprint.json"), "{}", err);
+          let err = format().await.err().unwrap();
+          assert!(err.to_string().contains("dprint.json"), "{}", err);
+
+          // keeps running, so formatting works once the config file is fixed
+          environment.write_file(&config_file_path, &config_file_text).unwrap();
+          assert_eq!(format().await.unwrap().unwrap(), b"testing_formatted");
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_not_panic_sending_response_when_output_closed() {
+    struct ClosedWriter;
+
+    impl Write for ClosedWriter {
+      fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Broken pipe."))
+      }
+
+      fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+      }
+    }
+
+    TestEnvironment::new().run_in_runtime(async move {
+      let context = super::EditorContext {
+        id_generator: Default::default(),
+        cancellation_tokens: Default::default(),
+        pending_format_tokens: Default::default(),
+        writer: SingleThreadMessageWriter::for_stdin(MessageWriter::new(ClosedWriter)),
+        output_closed: Default::default(),
+      };
+      // the first message fails to be written on the writer thread
+      // and then the messages after that can't be sent
+      for _ in 0..500 {
+        super::send_response_body(&context, EditorMessageBody::Success(0));
+        if context.output_closed.is_cancelled() {
+          break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+      }
+      assert!(context.output_closed.is_cancelled());
+    });
+  }
+
+  #[test]
+  fn should_clamp_format_range_to_text_for_editor_service() {
+    let txt_file_path = PathBuf::from("/file.txt");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file(&txt_file_path, "")
+      .initialize()
+      .build();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+          let format_range = |range: std::ops::Range<usize>| {
+            let communicator = communicator.clone();
+            let txt_file_path = txt_file_path.clone();
+            async move {
+              let result = communicator
+                .format_text(
+                  &txt_file_path,
+                  "testing".to_string().into_bytes(),
+                  Some(range),
+                  Default::default(),
+                  Default::default(),
+                )
+                .await;
+              String::from_utf8(result.unwrap().unwrap()).unwrap()
+            }
+          };
+
+          // end past the end of the text
+          assert_eq!(format_range(2..100).await, format_range(2..7).await);
+          // start and end past the end of the text
+          assert_eq!(format_range(50..100).await, format_range(7..7).await);
+          // start after the end
+          assert_eq!(format_range(5..2).await, format_range(2..2).await);
+          // the whole text once clamped
+          assert_eq!(format_range(0..100).await, "testing_formatted");
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_respond_to_format_cancelled_by_config_change_for_editor_service() {
+    let txt_file_path = PathBuf::from("/file.txt");
+    let config_file_path = PathBuf::from("/dprint.json");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file(&txt_file_path, "")
+      .initialize()
+      .build();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      let environment = environment.clone();
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+          assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true);
+
+          // format that doesn't finish until it's cancelled
+          let handle = dprint_core::async_runtime::spawn({
+            let communicator = communicator.clone();
+            let txt_file_path = txt_file_path.clone();
+            async move {
+              communicator
+                .format_text(
+                  &txt_file_path,
+                  "wait_cancellation".to_string().into_bytes(),
+                  None,
+                  Default::default(),
+                  Default::default(),
+                )
+                .await
+            }
+          });
+
+          // give some time for the message to be sent
+          tokio::time::sleep(Duration::from_millis(50)).await;
+
+          // the service notices the config change on the next check
+          let config_file_text = environment.read_file(&config_file_path).unwrap();
+          environment
+            .write_file(
+              &config_file_path,
+              &config_file_text.replacen('{', r#"{ "test-plugin": { "ending": "new_ending" },"#, 1),
+            )
+            .unwrap();
+          assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true);
+
+          let err = handle.await.unwrap().err().unwrap();
+          assert_eq!(err.to_string(), "Formatting was cancelled because the configuration changed.");
+
+          assert_eq!(
+            communicator
+              .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_new_ending"
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_respond_while_resolving_config_for_editor_service() {
+    let plugin_url = "https://plugins.dprint.dev/test-plugin.wasm";
+    let txt_file_path = PathBuf::from("/file.txt");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file(&txt_file_path, "")
+      .build();
+    // resolving the config doesn't finish until the plugin is downloaded
+    environment.add_unresponsive_remote_file(plugin_url);
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      let environment = environment.clone();
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+          let check_file_finished = Rc::new(std::cell::Cell::new(false));
+          let check_file_handle = dprint_core::async_runtime::spawn({
+            let communicator = communicator.clone();
+            let txt_file_path = txt_file_path.clone();
+            let check_file_finished = check_file_finished.clone();
+            async move {
+              let result = communicator.check_file(&txt_file_path).await;
+              check_file_finished.set(true);
+              result
+            }
+          });
+
+          // give some time for the message to be sent
+          tokio::time::sleep(Duration::from_millis(50)).await;
+
+          // responds while the config is being resolved
+          communicator.is_alive().await.unwrap();
+          assert!(!check_file_finished.get());
+
+          // a format can be cancelled while it's waiting on the config
+          let token = CancellationToken::new();
+          let format_handle = dprint_core::async_runtime::spawn({
+            let communicator = communicator.clone();
+            let txt_file_path = txt_file_path.clone();
+            let token = token.clone();
+            async move {
+              communicator
+                .format_text(&txt_file_path, "wait_cancellation".to_string().into_bytes(), None, Default::default(), token)
+                .await
+            }
+          });
+          tokio::time::sleep(Duration::from_millis(50)).await;
+          token.cancel();
+          assert_eq!(format_handle.await.unwrap().unwrap(), None);
+          communicator.is_alive().await.unwrap();
+
+          environment.remove_unresponsive_remote_file(plugin_url);
+          assert_eq!(check_file_handle.await.unwrap().unwrap(), true);
+          assert_eq!(
+            communicator
+              .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_formatted"
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Compiling https://plugins.dprint.dev/test-plugin.wasm"]
+    );
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_format_for_editor_service_with_global_config() {
+    let txt_file_path = PathBuf::from("/file.txt");
+    let ignored_file_path = PathBuf::from("/ignored_file.txt");
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_global_config(|c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt").add_excludes("ignored_file.txt");
+      })
+      .write_file(&txt_file_path, "")
+      .write_file(&ignored_file_path, "text")
+      .initialize()
+      .build();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+
+          // Verify that global config is being used
+          assert_eq!(communicator.check_file(&txt_file_path).await.unwrap(), true);
+          assert_eq!(communicator.check_file(&ignored_file_path).await.unwrap(), false);
+
+          // Test formatting with global config
+          assert_eq!(
+            communicator
+              .format_text(&txt_file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_formatted"
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid, "--config-discovery=global"], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_format_shebang_file_for_editor_service() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_includes("**/*.txt").add_config_section(
+          "shebangs",
+          r##"{
+            "#!/bin/sh": "txt"
+          }"##,
+        );
+      })
+      .write_file("/file.txt", "text")
+      .write_file("/scripts/build", "#!/bin/sh\ntext")
+      .write_file("/scripts/notes", "text")
+      .initialize()
+      .build();
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+
+          assert_eq!(communicator.check_file("/file.txt").await.unwrap(), true);
+          assert_eq!(communicator.check_file("/file.asdf").await.unwrap(), false);
+          assert_eq!(communicator.check_file("/scripts/build").await.unwrap(), true);
+          // an extensionless file with no shebang isn't handled by any plugin
+          assert_eq!(communicator.check_file("/scripts/notes").await.unwrap(), false);
+          // nor is one that doesn't exist on disk
+          assert_eq!(communicator.check_file("/scripts/missing").await.unwrap(), false);
+
+          // formatting resolves the plugin from the shebang in the provided bytes
+          assert_eq!(
+            bytes_to_string(
+              communicator
+                .format_text("/scripts/build", b"#!/bin/sh\ntext".to_vec(), None, Default::default(), Default::default())
+                .await
+                .unwrap()
+                .unwrap()
+            ),
+            "#!/bin/sh\ntext_formatted"
+          );
+          // no shebang -> no plugin -> no change
+          assert_eq!(
+            communicator
+              .format_text("/scripts/notes", b"text".to_vec(), None, Default::default(), Default::default())
+              .await
+              .unwrap(),
+            None
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
     let pid = std::process::id().to_string();
     run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
 
@@ -795,51 +1585,69 @@ mod test {
           assert_eq!(communicator.check_file(&file_path5).await.unwrap(), true);
 
           assert_eq!(
-            communicator
-              .format_text(&file_path1, "text", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(&file_path1, "text".to_string().into_bytes(), None, Default::default(), Default::default())
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "text_wasm_ps"
           );
           assert_eq!(
-            communicator
-              .format_text(&file_path1, "plugin: text6", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(
+                  &file_path1,
+                  "plugin: text6".to_string().into_bytes(),
+                  None,
+                  Default::default(),
+                  Default::default()
+                )
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "plugin: text6_wasm_ps_wasm_ps_ps"
           );
           assert_eq!(
-            communicator
-              .format_text(&file_path2, "text", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(&file_path2, "text".to_string().into_bytes(), None, Default::default(), Default::default())
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "text_wasm_ps"
           );
           assert_eq!(
-            communicator
-              .format_text(&file_path3, "text", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(&file_path3, "text".to_string().into_bytes(), None, Default::default(), Default::default())
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "text_ps"
           );
           assert_eq!(
-            communicator
-              .format_text(&file_path4, "text", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(&file_path4, "text".to_string().into_bytes(), None, Default::default(), Default::default())
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "text_wasm"
           );
           assert_eq!(
-            communicator
-              .format_text(&file_path5, "text", None, Default::default(), Default::default())
-              .await
-              .unwrap()
-              .unwrap(),
+            bytes_to_string(
+              communicator
+                .format_text(&file_path5, "text".to_string().into_bytes(), None, Default::default(), Default::default())
+                .await
+                .unwrap()
+                .unwrap()
+            ),
             "text_wasm_ps"
           );
 
@@ -851,5 +1659,103 @@ mod test {
     run_test_cli(vec!["editor-service", "--parent-pid", &std::process::id().to_string()], &environment).unwrap();
 
     result.join().unwrap();
+  }
+
+  #[test]
+  fn should_format_with_config_overrides_for_editor_service() {
+    let file_path = "/package.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin().add_config_section(
+          "test-plugin",
+          r#"{
+            "ending": "base",
+            "overrides": {
+              "files": "**/package.txt",
+              "ending": "package"
+            }
+          }"#,
+        );
+      })
+      .write_file(file_path, "")
+      .build();
+
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+
+          assert_eq!(communicator.check_file(&file_path).await.unwrap(), true);
+          assert_eq!(
+            communicator
+              .format_text(&file_path, "testing".to_string().into_bytes(), None, Default::default(), Default::default())
+              .await
+              .unwrap()
+              .unwrap(),
+            b"testing_package"
+          );
+
+          communicator.exit().await.unwrap();
+        });
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap();
+  }
+
+  #[test]
+  fn should_ensure_stable_format_for_editor_service() {
+    // formats once by default
+    assert_eq!(
+      format_unstable_text_with_editor_service(None).unwrap().unwrap(),
+      b"unstable_fmt_false_formatted"
+    );
+    // formats again until the output is stable, like `dprint fmt`, when opted in
+    assert_eq!(
+      format_unstable_text_with_editor_service(Some("1")).err().unwrap().to_string(),
+      "Formatting not stable. Bailed after 5 tries. This indicates a bug in the plugin where it formats the file differently each time."
+    );
+  }
+
+  fn format_unstable_text_with_editor_service(stable_format_env_var: Option<&str>) -> FormatResult {
+    let file_path = "/file.txt";
+    let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_plugin()
+      .with_default_config(|c| {
+        c.add_remote_wasm_plugin();
+      })
+      .write_file(file_path, "")
+      .build();
+    environment.set_env_var("DPRINT_EDITOR_STABLE_FORMAT", stable_format_env_var);
+
+    let stdin = environment.stdin_writer();
+    let stdout = environment.stdout_reader();
+
+    let result = std::thread::spawn({
+      move || {
+        TestEnvironment::new().run_in_runtime(async move {
+          let communicator = EditorServiceCommunicator::new(stdin, stdout);
+          let result = communicator
+            .format_text(&file_path, b"unstable_fmt_true".to_vec(), None, Default::default(), Default::default())
+            .await;
+          communicator.exit().await.unwrap();
+          result
+        })
+      }
+    });
+
+    let pid = std::process::id().to_string();
+    run_test_cli(vec!["editor-service", "--parent-pid", &pid], &environment).unwrap();
+
+    result.join().unwrap()
+  }
+
+  fn bytes_to_string(bytes: Vec<u8>) -> String {
+    String::from_utf8(bytes).unwrap()
   }
 }

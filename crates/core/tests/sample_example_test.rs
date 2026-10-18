@@ -169,7 +169,7 @@ fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
   items.push_info(start_ln);
   items.push_anchor(LineNumberAnchor::new(end_ln)); // updates the line number of end_ln when this changes
 
-  items.push_str("[");
+  items.push_str_runtime_width_computed("[");
   items.push_condition(conditions::if_true("arrayStartNewLine", is_multiple_lines.clone(), Signal::NewLine.into()));
 
   let generated_elements = gen_elements(&expr.elements, &is_multiple_lines).into_rc_path();
@@ -181,7 +181,7 @@ fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
   ));
 
   items.push_condition(conditions::if_true("arrayEndNewLine", is_multiple_lines, Signal::NewLine.into()));
-  items.push_str("]");
+  items.push_str_runtime_width_computed("]");
 
   items.push_info(end_ln);
 
@@ -195,7 +195,7 @@ fn gen_array_literal_expression(expr: &ArrayLiteralExpression) -> PrintItems {
       items.extend(gen_node(Node::ArrayElement(elem)));
 
       if i < elements_len - 1 {
-        items.push_str(",");
+        items.push_str_runtime_width_computed(",");
         items.push_condition(conditions::if_true_or(
           "afterCommaSeparator",
           is_multiple_lines.clone(),

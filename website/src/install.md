@@ -8,19 +8,27 @@ layout: layouts/documentation.njk
 
 Install using one of the methods below.
 
-- Shell (Mac, Linux, WSL):
+- Shell (Mac, Linux, FreeBSD, WSL, Termux):
 
   ```sh
   curl -fsSL https://dprint.dev/install.sh | sh
   ```
 
-- Windows Installer
-
-  [Download](https://github.com/dprint/dprint/releases/latest/download/dprint-x86_64-pc-windows-msvc-installer.exe)
 - Powershell (Windows):
 
   ```sh
   iwr https://dprint.dev/install.ps1 -useb | iex
+  ```
+
+- [npm](https://www.npmjs.com/):
+
+  ```sh
+  # globally
+  npm install -g dprint
+
+  # or for your project
+  npm install dprint
+  npx dprint help
   ```
 
 - [Scoop](https://scoop.sh/) (Windows):
@@ -42,39 +50,22 @@ Install using one of the methods below.
   cargo install --locked dprint
   ```
 
-- [Deno](https://deno.land):
-
-  For just your project, add a [deno task](https://deno.land/manual/tools/task_runner) to your deno.json file:
-
-  ```json
-  {
-    "tasks": {
-      "fmt": "deno task dprint fmt",
-      "fmt:check": "deno task dprint check",
-      "dprint": "deno run -A npm:dprint"
-    }
-  }
-  ```
-
-  Then run `deno task dprint init` to initialize and format by running: `deno task fmt`
-
-  Also, you could install it globally via Deno, but like npm it has a startup and memory cost since it needs to run Deno then run dprint. It's recommended to install it globally via another method.
+- python/[uv](https://docs.astral.sh/uv/) via [https://github.com/trim21/dprint-py](https://github.com/trim21/dprint-py):
 
   ```sh
-  deno install -A npm:dprint
-  dprint help
+  uv add dprint-py
+  uv run dprint help
   ```
 
-- [npm](https://www.npmjs.com/):
+  [mise](https://mise.jdx.dev):
 
   ```sh
-  # for your project
-  npm install dprint
-  npx dprint help
+  # globally
+  mise use dprint --global
 
-  # or install globally (not recommended because it has a startup and memory cost)
-  npm install -g dprint
-  dprint help
+  # or for your project
+  mise use dprint
+  mise x dprint -- dprint help
   ```
 
 - [asdf-vm](https://asdf-vm.com/) ([asdf-dprint](https://github.com/asdf-community/asdf-dprint)):
@@ -84,12 +75,27 @@ Install using one of the methods below.
   asdf install dprint latest
   ```
 
+- [Arch Linux](https://aur.archlinux.org/packages/dprint):
+
+  Install with any AUR helper, for example:
+
+  ```sh
+  paru -S dprint
+  ```
+
+  or binaries
+
+  ```sh
+  paru -S dprint-bin
+  ```
+
 For binaries and source, see the [GitHub releases](https://github.com/dprint/dprint/releases).
 
 ## Editor Extensions
 
 - [Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=dprint.dprint)
 - [IntelliJ](https://plugins.jetbrains.com/plugin/18192-dprint) - Thanks to the developers at [Canva](https://canva.com)
-- More to come!
+- Neovim with [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig/blob/master/doc/configs.md#dprint)
+- The `dprint lsp` subcommand provides code formatting over the language server protocol. This can be used to format in other editors such as Neovim, Helix, and Zed. See [Language Server](/lsp).
 
 Next step: [Setup](/setup)

@@ -1,5 +1,4 @@
-use crossterm::style::Stylize;
-use crossterm::tty::IsTty;
+use deno_terminal::colors;
 use parking_lot::Mutex;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -7,6 +6,7 @@ use std::time::Duration;
 use std::time::SystemTime;
 
 use crate::utils::get_terminal_size;
+use crate::utils::is_terminal_interactive;
 
 use super::Logger;
 use super::LoggerRefreshItemKind;
@@ -16,21 +16,28 @@ use super::LoggerTextItem;
 // what's going on under the hood and it works better with the multi-threading model
 // going on in dprint.
 
+/// Maximum width the bar section (elapsed text + bar) may take up.
+const MAX_BAR_SECTION_WIDTH: usize = 50;
+/// Width to assume when the terminal size can't be determined.
+const DEFAULT_TERMINAL_WIDTH: u16 = 80;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ProgressBarStyle {
   Download,
   Action,
 }
 
-#[derive(Clone)]
 pub struct ProgressBar {
   id: usize,
-  start_time: SystemTime,
-  progress_bars: ProgressBars,
-  message: String,
-  size: usize,
-  style: ProgressBarStyle,
+  logger: Arc<Logger>,
+  state: Arc<Mutex<InternalState>>,
   pos: Arc<RwLock<usize>>,
+}
+
+impl Drop for ProgressBar {
+  fn drop(&mut self) {
+    self.finish();
+  }
 }
 
 impl ProgressBar {
@@ -40,31 +47,48 @@ impl ProgressBar {
   }
 
   pub fn finish(&self) {
-    self.progress_bars.finish_progress(self.id);
+    let mut internal_state = self.state.lock();
+
+    if let Some(index) = internal_state.progress_bars.iter().position(|p| p.id == self.id) {
+      internal_state.progress_bars.remove(index);
+
+      if internal_state.progress_bars.is_empty() {
+        self.logger.remove_refresh_item(LoggerRefreshItemKind::ProgressBars);
+        internal_state.drawer_id += 1;
+      }
+    }
   }
 }
 
-#[derive(Clone)]
 pub struct ProgressBars {
-  logger: Logger,
+  logger: Arc<Logger>,
   state: Arc<Mutex<InternalState>>,
+}
+
+struct ProgressBarState {
+  id: usize,
+  start_time: SystemTime,
+  message: String,
+  size: usize,
+  style: ProgressBarStyle,
+  pos: Arc<RwLock<usize>>,
 }
 
 struct InternalState {
   // this ensures only one draw thread is running
   drawer_id: usize,
   progress_bar_counter: usize,
-  progress_bars: Vec<ProgressBar>,
+  progress_bars: Vec<ProgressBarState>,
 }
 
 impl ProgressBars {
   /// Checks if progress bars are supported
   pub fn are_supported() -> bool {
-    std::io::stderr().is_tty() && get_terminal_size().is_some()
+    is_terminal_interactive()
   }
 
   /// Creates a new ProgressBars or returns None when not supported.
-  pub fn new(logger: &Logger) -> Option<Self> {
+  pub fn new(logger: &Arc<Logger>) -> Option<Self> {
     if ProgressBars::are_supported() {
       Some(ProgressBars {
         logger: logger.clone(),
@@ -82,16 +106,22 @@ impl ProgressBars {
   pub fn add_progress(&self, message: String, style: ProgressBarStyle, total_size: usize) -> ProgressBar {
     let mut internal_state = self.state.lock();
     let id = internal_state.progress_bar_counter;
-    let pb = ProgressBar {
+    let pos = Arc::new(RwLock::new(0));
+    let pb_state = ProgressBarState {
       id,
-      progress_bars: self.clone(),
       start_time: SystemTime::now(),
       message,
       size: total_size,
       style,
-      pos: Arc::new(RwLock::new(0)),
+      pos: pos.clone(),
     };
-    internal_state.progress_bars.push(pb.clone());
+    let pb = ProgressBar {
+      id,
+      logger: self.logger.clone(),
+      state: self.state.clone(),
+      pos,
+    };
+    internal_state.progress_bars.push(pb_state);
     internal_state.progress_bar_counter += 1;
 
     if internal_state.progress_bars.len() == 1 {
@@ -101,25 +131,12 @@ impl ProgressBars {
     pb
   }
 
-  fn finish_progress(&self, progress_bar_id: usize) {
-    let mut internal_state = self.state.lock();
-
-    if let Some(index) = internal_state.progress_bars.iter().position(|p| p.id == progress_bar_id) {
-      internal_state.progress_bars.remove(index);
-
-      if internal_state.progress_bars.is_empty() {
-        self.logger.remove_refresh_item(LoggerRefreshItemKind::ProgressBars);
-        internal_state.drawer_id += 1;
-      }
-    }
-  }
-
   fn start_draw_thread(&self, internal_state: &mut InternalState) {
     internal_state.drawer_id += 1;
     let drawer_id = internal_state.drawer_id;
     let internal_state = self.state.clone();
     let logger = self.logger.clone();
-    tokio::task::spawn_blocking(move || {
+    dprint_core::async_runtime::spawn_blocking(move || {
       loop {
         {
           let internal_state = internal_state.lock();
@@ -128,7 +145,7 @@ impl ProgressBars {
             break;
           }
 
-          let terminal_width = get_terminal_size().unwrap().cols;
+          let terminal_width = get_terminal_size().map(|s| s.cols).unwrap_or(DEFAULT_TERMINAL_WIDTH);
           let mut text = String::new();
           for (i, progress_bar) in internal_state.progress_bars.iter().enumerate() {
             if i > 0 {
@@ -168,16 +185,21 @@ fn get_progress_bar_text(terminal_width: u16, pos: usize, total: usize, pb_style
   // get progress bar
   let percent = pos as f32 / total as f32;
   // don't include the bytes text in this because a string going from X.XXMB to XX.XXMB should not adjust the progress bar
-  let total_bars = (std::cmp::min(50, terminal_width - 15) as usize) - elapsed_text.len() - 1 - 2;
+  let total_bars = get_total_bars(terminal_width, elapsed_text.len());
+  if total_bars == 0 {
+    // the terminal is too narrow to draw a bar
+    text.push_str(&bytes_text);
+    return text;
+  }
   let completed_bars = (total_bars as f32 * percent).floor() as usize;
   text.push_str(" [");
   if completed_bars != total_bars {
     if completed_bars > 0 {
-      text.push_str(&format!("{}", format!("{}{}", "#".repeat(completed_bars - 1), ">").cyan()))
+      text.push_str(&format!("{}", colors::cyan(format!("{}{}", "#".repeat(completed_bars - 1), ">"))))
     }
-    text.push_str(&format!("{}", "-".repeat(total_bars - completed_bars).blue()))
+    text.push_str(&format!("{}", colors::intense_blue("-".repeat(total_bars - completed_bars))))
   } else {
-    text.push_str(&format!("{}", "#".repeat(completed_bars).cyan()))
+    text.push_str(&format!("{}", colors::cyan("#".repeat(completed_bars))))
   }
   text.push(']');
 
@@ -185,6 +207,13 @@ fn get_progress_bar_text(terminal_width: u16, pos: usize, total: usize, pb_style
   text.push_str(&bytes_text);
 
   text
+}
+
+fn get_total_bars(terminal_width: u16, elapsed_text_len: usize) -> usize {
+  // reserve some space at the end for the bytes text
+  let available_width = (terminal_width.saturating_sub(15) as usize).min(MAX_BAR_SECTION_WIDTH);
+  // the bar is surrounded by ` [` and `]`, which the elapsed text is not
+  available_width.saturating_sub(elapsed_text_len + 3)
 }
 
 fn get_bytes_text(byte_count: usize, total_bytes: usize) -> String {
@@ -214,6 +243,46 @@ fn get_elapsed_text(elapsed: Duration) -> String {
 mod test {
   use super::*;
   use std::time::Duration;
+
+  #[test]
+  fn should_get_total_bars() {
+    // "[00:00]".len() == 7
+    assert_eq!(get_total_bars(80, 7), 40);
+    assert_eq!(get_total_bars(65, 7), 40);
+    assert_eq!(get_total_bars(64, 7), 39);
+    assert_eq!(get_total_bars(40, 7), 15);
+    assert_eq!(get_total_bars(26, 7), 1);
+    assert_eq!(get_total_bars(25, 7), 0);
+    // these used to underflow and panic with a capacity overflow (#1222)
+    assert_eq!(get_total_bars(24, 7), 0);
+    assert_eq!(get_total_bars(15, 7), 0);
+    assert_eq!(get_total_bars(14, 7), 0);
+    assert_eq!(get_total_bars(0, 7), 0);
+    // "[5940:00]".len() == 9
+    assert_eq!(get_total_bars(80, 9), 38);
+    assert_eq!(get_total_bars(27, 9), 0);
+  }
+
+  #[test]
+  fn should_not_draw_bar_when_terminal_too_narrow() {
+    let text = get_progress_bar_text(20, 0, 10, ProgressBarStyle::Action, Duration::from_secs(1));
+    assert_eq!(text, "[00:01]");
+    let text = get_progress_bar_text(20, 5, 10, ProgressBarStyle::Download, Duration::from_secs(1));
+    assert_eq!(text, "[00:01] 0.00KB/0.01KB");
+  }
+
+  #[test]
+  fn should_get_progress_bar_text_for_any_terminal_width() {
+    for terminal_width in 0..=200u16 {
+      for style in [ProgressBarStyle::Action, ProgressBarStyle::Download] {
+        for (pos, total) in [(0, 0), (0, 10), (1, 10), (5, 10), (10, 10), (20, 10)] {
+          for duration in [Duration::from_secs(0), Duration::from_secs(60 * 60 * 99)] {
+            get_progress_bar_text(terminal_width, pos, total, style, duration);
+          }
+        }
+      }
+    }
+  }
 
   #[test]
   fn should_get_bytes_text() {

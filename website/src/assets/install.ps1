@@ -22,7 +22,13 @@ $BinDir = if ($DprintInstall) {
 
 $DprintZip = "$BinDir\dprint.zip"
 $DprintExe = "$BinDir\dprint.exe"
-$Target = 'x86_64-pc-windows-msvc'
+# use the OS architecture (not the process arch) so the native build is chosen
+# even when running under x64 emulation on Windows on ARM
+$Target = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64) {
+  'aarch64-pc-windows-msvc'
+} else {
+  'x86_64-pc-windows-msvc'
+}
 
 # GitHub requires TLS 1.2
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12

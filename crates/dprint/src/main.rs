@@ -1,3 +1,7 @@
+#![deny(clippy::print_stderr)]
+#![deny(clippy::print_stdout)]
+#![deny(clippy::unused_async)]
+
 #[macro_use]
 mod environment;
 
@@ -5,10 +9,13 @@ use anyhow::Result;
 use dprint_core::plugins::process::setup_exit_process_panic_hook;
 use environment::RealEnvironment;
 use environment::RealEnvironmentOptions;
-use std::sync::Arc;
+use run_cli::AppError;
+use std::rc::Rc;
+use utils::LogLevel;
 use utils::RealStdInReader;
 
 mod arg_parser;
+mod cache;
 mod commands;
 mod configuration;
 mod format;
@@ -16,6 +23,7 @@ mod incremental;
 mod paths;
 mod patterns;
 mod plugins;
+mod resolution;
 mod run_cli;
 mod utils;
 
@@ -24,31 +32,49 @@ mod test_helpers;
 
 fn main() {
   setup_exit_process_panic_hook();
-  let rt = tokio::runtime::Builder::new_multi_thread().enable_time().build().unwrap();
-  let handle = rt.handle().clone();
+  // wasm plugins run on blocking threads and execute wasm on the native stack,
+  // so give blocking threads a stack large enough (see WASM_PLUGIN_THREAD_STACK_SIZE).
+  let rt = tokio::runtime::Builder::new_current_thread()
+    .enable_io()
+    .enable_time()
+    .thread_stack_size(crate::plugins::WASM_PLUGIN_THREAD_STACK_SIZE)
+    .build()
+    .unwrap();
   rt.block_on(async move {
-    match run(handle).await {
+    match run().await {
       Ok(_) => {}
-      Err(err) => {
-        eprintln!("{:#}", err);
-        std::process::exit(1);
+      Err((err, log_level)) => {
+        if log_level != LogLevel::Silent {
+          let result = format!("{:#}", err.inner);
+          #[allow(clippy::print_stderr)]
+          if !result.is_empty() {
+            eprintln!("{}", result);
+          }
+        }
+        std::process::exit(err.exit_code);
       }
     }
   });
 }
 
-async fn run(runtime_handle: tokio::runtime::Handle) -> Result<()> {
-  let args = arg_parser::parse_args(std::env::args().collect(), RealStdInReader)?;
-  let environment = RealEnvironment::new(RealEnvironmentOptions {
-    is_verbose: args.verbose,
-    is_stdout_machine_readable: args.is_stdout_machine_readable(),
-    runtime_handle: Arc::new(runtime_handle),
-  })?;
-  let plugin_cache = Arc::new(plugins::PluginCache::new(environment.clone()));
-  let plugin_pools = Arc::new(plugins::PluginsCollection::new(environment.clone()));
-  let plugin_resolver = plugins::PluginResolver::new(environment.clone(), plugin_cache, plugin_pools.clone());
+async fn run() -> Result<(), (AppError, LogLevel)> {
+  let args = arg_parser::parse_args(std::env::args().collect(), RealStdInReader).map_err(|err| (err.into(), LogLevel::Info))?;
 
-  let result = run_cli::run_cli(&args, &environment, &plugin_resolver, plugin_pools.clone()).await;
-  plugin_pools.drop_and_shutdown_initialized().await;
-  result
+  let environment = RealEnvironment::new(RealEnvironmentOptions {
+    log_level: args.log_level,
+    is_stdout_machine_readable: args.is_stdout_machine_readable(),
+  })
+  .map_err(|err| (err.into(), args.log_level))?;
+  let plugin_cache = plugins::PluginCache::new(environment.clone());
+  let plugin_resolver = Rc::new(plugins::PluginResolver::new(
+    environment.clone(),
+    plugin_cache,
+    plugins::PluginResolverOptions {
+      reload_plugins: args.reload.plugins,
+    },
+  ));
+
+  let result = run_cli::run_cli(&args, &environment, &plugin_resolver).await;
+  plugin_resolver.clear_and_shutdown_initialized().await;
+  result.map_err(|err| (err.into(), args.log_level))
 }

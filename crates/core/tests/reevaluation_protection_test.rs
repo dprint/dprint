@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use dprint_core::formatting::conditions::if_true_or;
 use dprint_core::formatting::PrintItems;
 use dprint_core::formatting::PrintOptions;
+use dprint_core::formatting::conditions::if_true_or;
 
 #[test]
 fn should_stabilize_after_reevaluation_flipping() {

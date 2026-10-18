@@ -1,39 +1,197 @@
 use anyhow::Result;
-use std::sync::Arc;
+use std::rc::Rc;
+use thiserror::Error;
 
+use crate::arg_parser::ParseArgsError;
+use crate::commands::CheckError;
+use crate::commands::InitConfigFileOptions;
+use crate::configuration::ResolveConfigError;
 use crate::environment::Environment;
+use crate::paths::NoFilesFoundError;
 use crate::plugins::PluginResolver;
-use crate::plugins::PluginsCollection;
 
 use crate::arg_parser::CliArgs;
 use crate::arg_parser::ConfigSubCommand;
 use crate::arg_parser::SubCommand;
 use crate::commands;
+use crate::resolution::NoPluginsFoundError;
+use crate::resolution::ResolvePluginsError;
 
-pub async fn run_cli<TEnvironment: Environment>(
-  args: &CliArgs,
-  environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
-  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
-) -> Result<()> {
+#[derive(Debug, Error)]
+#[error("{inner:#}")]
+pub struct AppError {
+  pub inner: anyhow::Error,
+  pub exit_code: i32,
+}
+
+impl From<anyhow::Error> for AppError {
+  fn from(inner: anyhow::Error) -> Self {
+    let inner = match inner.downcast::<ParseArgsError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    let inner = match inner.downcast::<ResolveConfigError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    let inner = match inner.downcast::<ResolvePluginsError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    let inner = match inner.downcast::<NoPluginsFoundError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    let inner = match inner.downcast::<NoFilesFoundError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    let inner = match inner.downcast::<CheckError>() {
+      Ok(err) => return err.into(),
+      Err(err) => err,
+    };
+    AppError { inner, exit_code: 1 }
+  }
+}
+
+impl From<ParseArgsError> for AppError {
+  fn from(inner: ParseArgsError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 10,
+    }
+  }
+}
+
+impl From<ResolveConfigError> for AppError {
+  fn from(inner: ResolveConfigError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 11,
+    }
+  }
+}
+
+impl From<ResolvePluginsError> for AppError {
+  fn from(inner: ResolvePluginsError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 12,
+    }
+  }
+}
+
+impl From<NoPluginsFoundError> for AppError {
+  fn from(inner: NoPluginsFoundError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 13,
+    }
+  }
+}
+
+impl From<NoFilesFoundError> for AppError {
+  fn from(inner: NoFilesFoundError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 14,
+    }
+  }
+}
+
+impl From<CheckError> for AppError {
+  fn from(inner: CheckError) -> Self {
+    AppError {
+      inner: inner.into(),
+      exit_code: 20,
+    }
+  }
+}
+
+pub async fn run_cli<TEnvironment: Environment>(args: &CliArgs, environment: &TEnvironment, plugin_resolver: &Rc<PluginResolver<TEnvironment>>) -> Result<()> {
   match &args.sub_command {
     SubCommand::Help(help_text) => commands::output_help(args, environment, plugin_resolver, help_text).await,
     SubCommand::License => commands::output_license(args, environment, plugin_resolver).await,
     SubCommand::EditorInfo => commands::output_editor_info(args, environment, plugin_resolver).await,
-    SubCommand::EditorService(cmd) => commands::run_editor_service(args, environment, plugin_resolver, plugin_pools, cmd).await,
+    SubCommand::EditorService(cmd) => commands::run_editor_service(args, environment, plugin_resolver, cmd).await,
+    SubCommand::Lsp => commands::run_language_server(args, environment, plugin_resolver).await,
     SubCommand::ClearCache => commands::clear_cache(environment),
     SubCommand::Config(cmd) => match cmd {
-      ConfigSubCommand::Init => commands::init_config_file(environment, &args.config),
-      ConfigSubCommand::Add(plugin_name_or_url) => commands::add_plugin_config_file(args, plugin_name_or_url.as_ref(), environment, plugin_resolver).await,
-      ConfigSubCommand::Update { yes } => commands::update_plugins_config_file(args, environment, plugin_resolver, *yes).await,
+      ConfigSubCommand::Init { preferences: true, .. } => commands::edit_init_preferences(environment, plugin_resolver).await,
+      ConfigSubCommand::Init {
+        global,
+        yes,
+        preferences: false,
+        minimum_dependency_age,
+      } => {
+        commands::init_config_file(
+          environment,
+          plugin_resolver,
+          InitConfigFileOptions {
+            global: *global,
+            config_arg: args.config.as_deref(),
+            remote_cache_mode: args.remote_cache_mode(),
+            non_interactive: *yes,
+            minimum_dependency_age: minimum_dependency_age.clone(),
+          },
+        )
+        .await
+      }
+      ConfigSubCommand::Add {
+        names,
+        no_version,
+        package_json,
+        checksum,
+        minimum_dependency_age,
+        install,
+      } => {
+        commands::add_plugin_config_file(
+          args,
+          commands::AddPluginsOptions {
+            plugin_names_or_urls: names,
+            no_version: *no_version,
+            update_package_json: *package_json,
+            checksum: *checksum,
+            minimum_dependency_age: minimum_dependency_age.clone(),
+          },
+          environment,
+          plugin_resolver,
+        )
+        .await?;
+        if let Some(cmd) = install {
+          commands::install_plugins(cmd, args, environment, plugin_resolver).await?;
+        }
+        Ok(())
+      }
+      ConfigSubCommand::Install(cmd) => commands::install_plugins(cmd, args, environment, plugin_resolver).await,
+      ConfigSubCommand::Update {
+        yes,
+        dry_run,
+        minimum_dependency_age,
+      } => {
+        commands::update_plugins_config_file(
+          args,
+          environment,
+          plugin_resolver,
+          commands::UpdatePluginsOptions {
+            yes_to_prompts: *yes,
+            dry_run: *dry_run,
+            minimum_dependency_age: minimum_dependency_age.clone(),
+          },
+        )
+        .await
+      }
+      ConfigSubCommand::Edit => commands::edit_config_file(args, environment).await,
     },
     SubCommand::Version => commands::output_version(environment),
-    SubCommand::StdInFmt(cmd) => commands::stdin_fmt(cmd, args, environment, plugin_resolver, plugin_pools).await,
-    SubCommand::OutputResolvedConfig => commands::output_resolved_config(args, environment, plugin_resolver).await,
+    SubCommand::StdInFmt(cmd) => commands::stdin_fmt(cmd, args, environment, plugin_resolver).await,
+    SubCommand::OutputResolvedConfig(cmd) => commands::output_resolved_config(cmd, args, environment, plugin_resolver).await,
+    SubCommand::IncrementalState => commands::incremental_state(args, environment, plugin_resolver).await,
     SubCommand::OutputFilePaths(cmd) => commands::output_file_paths(cmd, args, environment, plugin_resolver).await,
-    SubCommand::OutputFormatTimes(cmd) => commands::output_format_times(cmd, args, environment, plugin_resolver, plugin_pools).await,
-    SubCommand::Check(cmd) => commands::check(cmd, args, environment, plugin_resolver, plugin_pools).await,
-    SubCommand::Fmt(cmd) => commands::format(cmd, args, environment, plugin_resolver, plugin_pools).await,
+    SubCommand::OutputFormatTimes(cmd) => commands::output_format_times(cmd, args, environment, plugin_resolver).await,
+    SubCommand::Check(cmd) => commands::check(cmd, args, environment, plugin_resolver).await,
+    SubCommand::Fmt(cmd) => commands::format(cmd, args, environment, plugin_resolver).await,
+    SubCommand::Completions(shell) => commands::completions(shell.to_owned(), environment),
     SubCommand::Upgrade => commands::upgrade(environment).await,
     #[cfg(target_os = "windows")]
     SubCommand::Hidden(hidden_command) => match hidden_command {

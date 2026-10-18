@@ -1,97 +1,33 @@
 mod cache;
-mod cache_manifest;
-mod collection;
+mod cache_fs_locks;
+mod cache_meta;
 mod helpers;
 mod implementations;
 mod name_resolution;
+mod npm_resolution;
 mod plugin;
 mod repo;
 mod resolver;
 mod types;
 
 pub use cache::*;
-use cache_manifest::*;
-pub use collection::*;
 pub use helpers::*;
 pub use plugin::*;
 pub use repo::*;
 pub use resolver::*;
 pub use types::*;
 
+pub use implementations::WASM_PLUGIN_THREAD_STACK_SIZE;
 pub use implementations::compile_wasm;
+pub use implementations::wasm_precompile_compatibility_hash;
 pub use name_resolution::PluginNameResolutionMaps;
-
-use anyhow::bail;
-use anyhow::Result;
-
-use crate::configuration::get_global_config;
-use crate::configuration::get_plugin_config_map;
-use crate::configuration::GetGlobalConfigOptions;
-use crate::environment::Environment;
-
-use crate::arg_parser::CliArgs;
-use crate::configuration::resolve_config_from_args;
-use crate::configuration::ResolvedConfig;
-
-pub async fn get_plugins_from_args<TEnvironment: Environment>(
-  args: &CliArgs,
-  environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<Vec<Box<dyn Plugin>>> {
-  match resolve_config_from_args(args, environment) {
-    Ok(config) => resolve_plugins(args, &config, environment, plugin_resolver).await,
-    Err(_) => Ok(Vec::new()), // ignore
-  }
-}
-
-pub async fn resolve_plugins_and_err_if_empty<TEnvironment: Environment>(
-  args: &CliArgs,
-  config: &ResolvedConfig,
-  environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<Vec<Box<dyn Plugin>>> {
-  let plugins = resolve_plugins(args, config, environment, plugin_resolver).await?;
-  if plugins.is_empty() {
-    bail!("No formatting plugins found. Ensure at least one is specified in the 'plugins' array of the configuration file.");
-  }
-  Ok(plugins)
-}
-
-pub async fn resolve_plugins<TEnvironment: Environment>(
-  args: &CliArgs,
-  config: &ResolvedConfig,
-  environment: &TEnvironment,
-  plugin_resolver: &PluginResolver<TEnvironment>,
-) -> Result<Vec<Box<dyn Plugin>>> {
-  // resolve the plugins
-  let plugins = plugin_resolver.resolve_plugins(config.plugins.clone()).await?;
-  let mut config_map = config.config_map.clone();
-
-  // resolve each plugin's configuration
-  let mut plugins_with_config = Vec::new();
-  for plugin in plugins.into_iter() {
-    plugins_with_config.push((get_plugin_config_map(&*plugin, &mut config_map)?, plugin));
-  }
-
-  // now get global config
-  let global_config = get_global_config(
-    config_map,
-    environment,
-    &GetGlobalConfigOptions {
-      // Skip checking these diagnostics when the user provides
-      // plugins from the CLI args. They may be doing this to filter
-      // to only specific plugins.
-      check_unknown_property_diagnostics: args.plugins.is_empty(),
-    },
-  )?;
-
-  // now set each plugin's config
-  let mut plugins = Vec::new();
-  for (plugin_config, plugin) in plugins_with_config {
-    let mut plugin = plugin;
-    plugin.set_config(plugin_config, global_config.clone());
-    plugins.push(plugin);
-  }
-
-  Ok(plugins)
-}
+pub use name_resolution::ResolvedPluginNames;
+pub use npm_resolution::FetchNpmLatestInfo;
+pub use npm_resolution::MinimumDependencyAgeError;
+pub use npm_resolution::NpmrcChain;
+pub use npm_resolution::detect_npm_plugin_kind_in_node_modules;
+pub use npm_resolution::ensure_npm_package_extracted;
+pub use npm_resolution::fetch_npm_latest_info;
+pub use npm_resolution::find_package_in_node_modules;
+pub use npm_resolution::resolve_dependency_age_cutoff;
+pub use npm_resolution::resolve_npm_latest_version;

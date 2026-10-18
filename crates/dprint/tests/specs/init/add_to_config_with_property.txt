@@ -1,0 +1,102 @@
+What was chosen for an added plugin isn't written over a property the config
+file already has for it.
+
+-- file: /README.md --
+-- file: /dprint.json --
+{
+  "markdown": {
+    "lineWidth": 100
+  },
+  "plugins": [
+  ]
+}
+-- keys --
+down
+right
+down
+space
+left
+enter
+-- output --
+[start]
+Select plugins to add:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-json (.json, .jsonc)
+  [x] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[down]
+Select plugins to add:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  [x] dprint-plugin-json (.json, .jsonc)
+> [x] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[right]
+dprint-plugin-markdown
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .md
+  [x] .mdx
+  Options:
+    Downloading the plugin to get its options... (← to cancel)
+
+[down]
+dprint-plugin-markdown
+  space: toggle, type to filter, ←: back
+  Files to format:
+  [x] .md
+> [x] .mdx
+  Options:
+    Downloading the plugin to get its options... (← to cancel)
+
+[space]
+dprint-plugin-markdown
+  space: toggle, type to filter, ←: back
+  Files to format:
+  [x] .md
+> [ ] .mdx
+  Options:
+    Downloading the plugin to get its options... (← to cancel)
+
+[left]
+Select plugins to add:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  [x] dprint-plugin-json (.json, .jsonc)
+> [x] dprint-plugin-markdown (.md) — customized
+  [ ] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[enter]
+Select plugins to add:
+ * dprint-plugin-json (.json, .jsonc)
+ * dprint-plugin-markdown (.md) — customized
+
+# stdout
+
+Added 2 plugins to /dprint.json
+
+# stderr
+Did not write what was chosen for "markdown" because /dprint.json already has a property with that name.
+
+# /dprint.json
+{
+  "markdown": {
+    "lineWidth": 100
+  },
+  "plugins": [
+    "https://plugins.dprint.dev/json-1.0.0.wasm",
+    "https://plugins.dprint.dev/markdown-1.0.0.wasm"
+  ]
+}
+
+# /config/dprint/init.json
+(does not exist)

@@ -1,9 +1,9 @@
-use anyhow::bail;
-use anyhow::Result;
 use dprint_core::communication::Message;
 use dprint_core::communication::MessageReader;
 use dprint_core::communication::MessageWriter;
+use std::io::ErrorKind;
 use std::io::Read;
+use std::io::Result;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -44,17 +44,20 @@ impl EditorMessage {
         let end_byte_index = reader.read_u32()?;
         let override_config = reader.read_sized_bytes()?;
         let file_text = reader.read_sized_bytes()?;
+        // clamp the range to the text because the plugins index into the text with it
+        let end_byte_index = std::cmp::min(end_byte_index as usize, file_text.len());
+        let start_byte_index = std::cmp::min(start_byte_index as usize, end_byte_index);
         EditorMessageBody::Format(FormatEditorMessageBody {
           file_path: PathBuf::from(String::from_utf8_lossy(&file_path).to_string()),
-          range: if start_byte_index == 0 && end_byte_index == file_text.len() as u32 {
+          range: if start_byte_index == 0 && end_byte_index == file_text.len() {
             None
           } else {
             Some(std::ops::Range {
-              start: start_byte_index as usize,
-              end: end_byte_index as usize,
+              start: start_byte_index,
+              end: end_byte_index,
             })
           },
-          file_text,
+          file_bytes: file_text,
           override_config,
         })
       }
@@ -64,7 +67,12 @@ impl EditorMessage {
         let data = match response_kind {
           0 => None,
           1 => Some(reader.read_sized_bytes()?),
-          _ => bail!("Unknown format response kind: {}", response_kind),
+          _ => {
+            return Err(std::io::Error::new(
+              ErrorKind::InvalidData,
+              format!("Unknown format response kind: {}", response_kind),
+            ));
+          }
         };
         EditorMessageBody::FormatResponse(message_id, data)
       }
@@ -104,9 +112,9 @@ impl Message for EditorMessage {
         let path = body.file_path.to_string_lossy().to_string();
         builder.add_owned_bytes(path.into_bytes());
         builder.add_number(body.range.as_ref().map(|r| r.start as u32).unwrap_or(0));
-        builder.add_number(body.range.as_ref().map(|r| r.end as u32).unwrap_or_else(|| body.file_text.len() as u32));
+        builder.add_number(body.range.as_ref().map(|r| r.end as u32).unwrap_or_else(|| body.file_bytes.len() as u32));
         builder.add_bytes(&body.override_config);
-        builder.add_bytes(&body.file_text);
+        builder.add_bytes(&body.file_bytes);
       }
       EditorMessageBody::FormatResponse(message_id, data) => {
         builder.add_number(*message_id);
@@ -202,6 +210,7 @@ pub enum EditorMessageBody {
   Format(FormatEditorMessageBody),
   FormatResponse(u32, Option<Vec<u8>>),
   CancelFormat(u32),
+  #[allow(dead_code)]
   Unknown(u32, Vec<u8>),
 }
 
@@ -227,5 +236,5 @@ pub struct FormatEditorMessageBody {
   pub file_path: PathBuf,
   pub range: FormatRange,
   pub override_config: Vec<u8>,
-  pub file_text: Vec<u8>,
+  pub file_bytes: Vec<u8>,
 }

@@ -38,11 +38,7 @@ where
     is_match: impl FnOnce(&'a TTokenCollection::TToken) -> bool,
   ) -> Option<&'a TTokenCollection::TToken> {
     let next_token = self.get_next_token(end)?;
-    if is_match(next_token) {
-      Some(next_token)
-    } else {
-      None
-    }
+    if is_match(next_token) { Some(next_token) } else { None }
   }
 
   #[inline]
@@ -57,11 +53,7 @@ where
     is_match: impl FnOnce(&'a TTokenCollection::TToken) -> bool,
   ) -> Option<&'a TTokenCollection::TToken> {
     let previous_token = self.get_previous_token(start)?;
-    if is_match(previous_token) {
-      Some(previous_token)
-    } else {
-      None
-    }
+    if is_match(previous_token) { Some(previous_token) } else { None }
   }
 
   #[inline]

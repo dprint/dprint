@@ -1,5 +1,7 @@
 # Developing an Editor Extension (Schema Version 5)
 
+**DO NOT USE THIS**: dprint 0.45 introduced a `dprint lsp` command that supports formatting files over the language server protocol. Please use that instead. This editor-service will remain active for the foreseeable future as it's currently used by the vscode and intellij plugins (though vscode is switching over to `dprint lsp` in the future).
+
 Note: Schema version 5 was introduced in dprint 0.25
 
 Editor extensions communicate with the CLI using the `dprint editor-info` and `dprint editor-service` subcommand.
@@ -25,7 +27,8 @@ Outputs something like:
         "config_key": "test",
         "fileExtensions": ["txt"],
         "fileNames": [],
-        "helpUrl": "https://dprint.dev/plugins/test-plugin"
+        "helpUrl": "https://dprint.dev/plugins/test-plugin",
+        "updateUrl": "https://plugins.dprint.dev/test/latest.json"
     }, {
         "name": "javascript-plugin",
         "version": "0.2.1",
@@ -33,7 +36,8 @@ Outputs something like:
         "fileExtensions": ["js"],
         "fileNames": [],
         "configSchemaUrl": "https://dprint.dev/schemas/javascript-plugin.json",
-        "helpUrl": "https://dprint.dev/plugins/javascript-plugin"
+        "helpUrl": "https://dprint.dev/plugins/javascript-plugin",
+        "updateUrl": "https://plugins.dprint.dev/javascript/latest.json"
     }]
 }
 ```
@@ -61,6 +65,8 @@ interface PluginInfo {
   // will be `undefined` when the plugin does not have a schema url
   configSchemaUrl?: string;
   helpUrl: string;
+  // will be `undefined` when the plugin does not have an update url
+  updateUrl?: string;
 }
 ```
 

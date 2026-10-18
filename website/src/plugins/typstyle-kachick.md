@@ -1,0 +1,38 @@
+---
+title: Typstyle (kachick) Plugin
+description: Documentation on the Typstyle (kachick) code formatting plugin for dprint.
+layout: layouts/documentation.njk
+---
+
+# Typstyle (kachick) Plugin
+
+Adapter plugin that formats Typst files via [Typstyle](https://github.com/typstyle-rs/typstyle).
+
+Formats .typ files.
+
+This is a separate plugin from [apcamargo/typstyle](/plugins/typstyle). It is configured under the `"typst"` key and is also published to npm.
+
+## Install and Setup
+
+In your project's directory with a dprint.json file, run:
+
+```shellsession
+dprint add kachick/typstyle
+```
+
+This will update your config file to have an entry for the plugin. Then optionally specify a `"typst"` property to add configuration:
+
+```jsonc
+{
+  "typst": {
+    // typst config goes here
+  },
+  "plugins": [
+    "npm:@kachick/dprint-plugin-typstyle@x.x.x"
+  ]
+}
+```
+
+## Configuration
+
+See [Configuration](/plugins/typstyle-kachick/config).

@@ -1,0 +1,112 @@
+Page up and page down go through a plugin's files by as much as fits in the
+terminal.
+
+-- file: /src/main.ts --
+-- terminal --
+60x10
+-- keys --
+right
+wait
+pagedown
+pagedown
+pageup
+pageup
+left
+enter
+-- output --
+[start]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to
+  filter, enter: finish, ★: preferred (dprint init
+  --preferences)
+> [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [x] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  ...2 more below
+
+[right]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .ts
+  [x] .tsx
+  ...2 more below
+
+[wait]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .ts
+  [x] .tsx
+  ...2 more below
+
+[pagedown]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  ...1 more above
+  [x] .tsx
+  [x] .js
+> [x] .jsx
+  ...more below
+
+[pagedown]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  ...1 more above
+  [x] .tsx
+  [x] .js
+> [x] .jsx
+  ...more below
+
+[pageup]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .ts
+  [x] .tsx
+  ...2 more below
+
+[pageup]
+dprint-plugin-typescript
+  space: toggle, type to filter, ←: back
+  Files to format:
+> [x] .ts
+  [x] .tsx
+  ...2 more below
+
+[left]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to
+  filter, enter: finish, ★: preferred (dprint init
+  --preferences)
+> [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [x] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  ...2 more below
+
+[enter]
+Select plugins:
+ * dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+ * dprint-plugin-json (.json, .jsonc)
+
+# stdout
+
+Created dprint.json
+
+If you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor
+
+# /dprint.json
+{
+  "typescript": {
+  },
+  "json": {
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-1.0.0.wasm",
+    "https://plugins.dprint.dev/json-1.0.0.wasm"
+  ]
+}
+
+# /config/dprint/init.json
+(does not exist)

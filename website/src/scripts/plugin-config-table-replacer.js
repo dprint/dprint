@@ -3,7 +3,8 @@ export function replaceConfigTable() {
   const items = getPluginConfigTableItems();
   if (items.length > 0) {
     items.forEach(function(item) {
-      getDprintPluginConfig(item.url).then((properties) => {
+      getDprintPluginConfig(item.url, item.configKey).then((properties) => {
+        const isOfficial = new URL(item.url).pathname.startsWith("/dprint/");
         const element = item.element;
         element.innerHTML = "<p>This information was auto generated from <a href=\"" + item.url + "\">" + item.url + "</a>.</p>";
         properties.forEach(function(property) {
@@ -12,51 +13,14 @@ export function replaceConfigTable() {
           try {
             // title
             const propertyTitle = document.createElement("h2");
-            if (property.name === "preferSingleLine") {
+            if (isOfficial && property.name === "preferSingleLine") {
               property.name += " (Very Experimental)";
             }
             propertyTitle.textContent = property.name;
             propertyContainer.appendChild(propertyTitle);
 
-            // description
-            const propertyDesc = document.createElement("p");
-            propertyDesc.textContent = property.description;
-            propertyContainer.appendChild(propertyDesc);
-
-            const infoContainer = document.createElement("ul");
-            propertyContainer.appendChild(infoContainer);
-
-            if (property.oneOf) {
-              property.oneOf.forEach(function(oneOf) {
-                const oneOfContainer = document.createElement("li");
-                infoContainer.appendChild(oneOfContainer);
-                const prefix = document.createElement("strong");
-                prefix.textContent = valueToText(oneOf.const);
-                oneOfContainer.appendChild(prefix);
-                if (oneOf.description != null && oneOf.description.length > 0) {
-                  oneOfContainer.append(" - " + oneOf.description);
-                }
-                if (oneOf.const === property.default) {
-                  oneOfContainer.append(" (Default)");
-                }
-              });
-            } else {
-              // type
-              const typeContainer = document.createElement("li");
-              infoContainer.appendChild(typeContainer);
-              const typePrefix = document.createElement("strong");
-              typePrefix.textContent = "Type: ";
-              typeContainer.appendChild(typePrefix);
-              typeContainer.append(property.type);
-
-              // default
-              const defaultContainer = document.createElement("li");
-              infoContainer.appendChild(defaultContainer);
-              const defaultPrefix = document.createElement("strong");
-              defaultPrefix.textContent = "Default: ";
-              defaultContainer.appendChild(defaultPrefix);
-              defaultContainer.append(valueToText(property.default));
-            }
+            addDescription(propertyContainer, property);
+            addInfoContainer(propertyContainer, property);
 
             if (property.astSpecificProperties != null && property.astSpecificProperties.length > 0) {
               const astSpecificPropertiesPrefix = document.createElement("p");
@@ -66,9 +30,22 @@ export function replaceConfigTable() {
               const astSpecificPropertyNamesContainer = document.createElement("ul");
               propertyContainer.appendChild(astSpecificPropertyNamesContainer);
 
-              property.astSpecificProperties.forEach(function(propName) {
+              property.astSpecificProperties.forEach(function({ propertyName, definition }) {
                 const propertyNameLi = document.createElement("li");
-                propertyNameLi.textContent = valueToText(propName);
+
+                const labelSpan = document.createElement("span");
+                labelSpan.textContent = valueToText(propertyName);
+                propertyNameLi.appendChild(labelSpan);
+
+                if (definition != null) {
+                  const definitionDiv = document.createElement("div");
+                  if (definition.description !== property.description) {
+                    addDescription(definitionDiv, definition);
+                  }
+                  addInfoContainer(definitionDiv, definition);
+                  propertyNameLi.appendChild(definitionDiv);
+                }
+
                 astSpecificPropertyNamesContainer.appendChild(propertyNameLi);
               });
             }
@@ -81,9 +58,69 @@ export function replaceConfigTable() {
           }
         });
 
+        function addDescription(propertyContainer, property) {
+          if (property.description == null) {
+            return;
+          }
+          const propertyDesc = document.createElement("p");
+          propertyDesc.textContent = property.description;
+          propertyContainer.appendChild(propertyDesc);
+        }
+
+        function addInfoContainer(propertyContainer, property) {
+          const infoContainer = document.createElement("ul");
+          propertyContainer.appendChild(infoContainer);
+
+          if (property.oneOf) {
+            property.oneOf.forEach(function(oneOf) {
+              const oneOfContainer = document.createElement("li");
+              infoContainer.appendChild(oneOfContainer);
+              const prefix = document.createElement("strong");
+              prefix.textContent = valueToText(oneOf.const);
+              oneOfContainer.appendChild(prefix);
+              if (oneOf.description != null && oneOf.description.length > 0) {
+                oneOfContainer.append(" - " + oneOf.description);
+              }
+              if (oneOf.const === property.default) {
+                oneOfContainer.append(" (Default)");
+              }
+            });
+          } else if (property.enum) {
+            property.enum.forEach(function(value) {
+              const enumContainer = document.createElement("li");
+              infoContainer.appendChild(enumContainer);
+              const prefix = document.createElement("strong");
+              prefix.textContent = valueToText(value);
+              enumContainer.appendChild(prefix);
+              if (value === property.default) {
+                enumContainer.append(" (Default)");
+              }
+            });
+          } else {
+            // type
+            const typeContainer = document.createElement("li");
+            infoContainer.appendChild(typeContainer);
+            const typePrefix = document.createElement("strong");
+            typePrefix.textContent = "Type: ";
+            typeContainer.appendChild(typePrefix);
+            typeContainer.append(property.type);
+
+            // default
+            const defaultContainer = document.createElement("li");
+            infoContainer.appendChild(defaultContainer);
+            const defaultPrefix = document.createElement("strong");
+            defaultPrefix.textContent = "Default: ";
+            defaultContainer.appendChild(defaultPrefix);
+            defaultContainer.append(valueToText(property.default));
+          }
+        }
+
         function valueToText(value) {
           if (typeof value === "string") {
             return "\"" + value + "\"";
+          }
+          if (value == null) {
+            return "<not specified>";
           }
           return value.toString();
         }
@@ -100,15 +137,19 @@ function getPluginConfigTableItems() {
     result.push({
       element,
       url: element.dataset.url,
+      // set when the schema nests the plugin config under its config key
+      configKey: element.dataset.configKey,
     });
   }
   return result;
 }
 
-function getDprintPluginConfig(configSchemaUrl) {
+function getDprintPluginConfig(configSchemaUrl, configKey) {
   return fetch(configSchemaUrl).then((response) => {
     return response.json();
-  }).then((json) => {
+  }).then((rootJson) => {
+    const json = configKey == null ? rootJson : rootJson.properties[configKey];
+    const definitions = rootJson.definitions || rootJson["$defs"] || {};
     const properties = {};
     let order = 0;
 
@@ -119,18 +160,27 @@ function getDprintPluginConfig(configSchemaUrl) {
       const property = json.properties[propertyName];
 
       if (property["$ref"]) {
-        const definition = json.definitions[propertyName];
-        if (definition != null) {
-          setDefinitionForPropertyName(propertyName, definition);
+        const derivedPropName = property["$ref"].replace(/^#\/(definitions|\$defs)\//, "");
+
+        const lastSegment = propertyName.split(".").pop();
+        let parentProperty;
+        if (derivedPropName !== propertyName && derivedPropName in json.properties) {
+          parentProperty = derivedPropName;
+        } else if (lastSegment !== propertyName && lastSegment in json.properties) {
+          parentProperty = lastSegment;
+        }
+
+        const definition = definitions[derivedPropName];
+        if (parentProperty) {
+          ensurePropertyName(parentProperty);
+          const isSameDefinition = property["$ref"] === json.properties[parentProperty]["$ref"];
+          properties[parentProperty].astSpecificProperties.push({
+            propertyName,
+            definition: isSameDefinition ? null : definition,
+          });
         } else {
-          const derivedPropName = property["$ref"].replace("#/definitions/", "");
-          if (json.properties[derivedPropName] == null) {
-            // occurs when the definition doesn't have a corresponding property
-            setDefinitionForPropertyName(propertyName, json.definitions[derivedPropName]);
-          } else {
-            ensurePropertyName(derivedPropName);
-            properties[derivedPropName].astSpecificProperties.push(propertyName);
-          }
+          // a property may specify its own default alongside the reference
+          setDefinitionForPropertyName(propertyName, Object.assign({}, definition, property));
         }
       } else {
         ensurePropertyName(propertyName);

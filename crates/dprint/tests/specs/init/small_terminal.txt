@@ -1,0 +1,123 @@
+The plugins scroll and wrap in a terminal that's too small for them. Page up
+and page down go as far as what fits.
+
+-- file: /src/main.ts --
+-- terminal --
+44x9
+-- keys --
+down
+down
+down
+down
+down
+pageup
+pagedown
+enter
+-- output --
+[start]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓:
+  move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-typescript (.ts, .tsx,
+       .js, .jsx)
+  [x] dprint-plugin-json (.json, .jsonc)
+  ...3 more below
+
+[down]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓:
+  move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  [x] dprint-plugin-typescript (.ts, .tsx,
+       .js, .jsx)
+> [x] dprint-plugin-json (.json, .jsonc)
+  ...3 more below
+
+[down]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓:
+  move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  ...1 more above
+  [x] dprint-plugin-json (.json, .jsonc)
+> [ ] dprint-plugin-markdown (.md, .mdx)
+  ...2 more below
+
+[down]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓:
+  move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  ...3 more above
+> [ ] dprint-plugin-biome (.ts, .tsx, .js,
+       .jsx, .json, .jsonc)
+  ...1 more below
+
+[down]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓:
+  move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  ...3 more above
+  [ ] dprint-plugin-biome (.ts, .tsx, .js,
+       .jsx, .json, .jsonc)
+> [ ] test-plugin (.txt)
+
+[down]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓:
+  move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-typescript (.ts, .tsx,
+       .js, .jsx)
+  [x] dprint-plugin-json (.json, .jsonc)
+  ...3 more below
+
+[pageup]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓:
+  move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-typescript (.ts, .tsx,
+       .js, .jsx)
+  [x] dprint-plugin-json (.json, .jsonc)
+  ...3 more below
+
+[pagedown]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓:
+  move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  ...1 more above
+  [x] dprint-plugin-json (.json, .jsonc)
+> [ ] dprint-plugin-markdown (.md, .mdx)
+  ...2 more below
+
+[enter]
+Select plugins:
+ * dprint-plugin-typescript (.ts, .tsx, .js,
+   .jsx)
+ * dprint-plugin-json (.json, .jsonc)
+
+# stdout
+
+Created dprint.json
+
+If you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor
+
+# /dprint.json
+{
+  "typescript": {
+  },
+  "json": {
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/typescript-1.0.0.wasm",
+    "https://plugins.dprint.dev/json-1.0.0.wasm"
+  ]
+}
+
+# /config/dprint/init.json
+(does not exist)

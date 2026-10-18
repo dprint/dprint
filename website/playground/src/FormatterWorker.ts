@@ -1,17 +1,23 @@
-// eslint-disable-next-line import/no-webpack-loader-syntax
-import createWorker from "workerize-loader!./formatter.worker";
+import type { FileMatchingInfo, PluginInfo } from "@dprint/formatter";
 
-import type { PluginInfo } from "@dprint/formatter";
-
-const formatterWorker = createWorker();
 const pluginInfoListeners: ((info: PluginInfo) => void)[] = [];
+const fileMatchingListeners: ((info: FileMatchingInfo) => void)[] = [];
 const formatListeners: ((text: string) => void)[] = [];
 const errorListeners: ((err: string) => void)[] = [];
+
+const formatterWorker = new Worker(new URL("./formatter.worker.ts", import.meta.url), {
+  type: "module",
+});
 
 formatterWorker.addEventListener("message", ev => {
   switch (ev.data.type) {
     case "PluginInfo":
       for (const listener of pluginInfoListeners) {
+        listener(ev.data.info);
+      }
+      break;
+    case "FileMatching":
+      for (const listener of fileMatchingListeners) {
         listener(ev.data.info);
       }
       break;
@@ -58,6 +64,17 @@ export function removeOnPluginInfo(listener: (info: PluginInfo) => void) {
   const index = pluginInfoListeners.indexOf(listener);
   if (index >= 0) {
     pluginInfoListeners.splice(index, 1);
+  }
+}
+
+export function addOnFileMatchingInfo(listener: (info: FileMatchingInfo) => void) {
+  fileMatchingListeners.push(listener);
+}
+
+export function removeOnFileMatchingInfo(listener: (info: FileMatchingInfo) => void) {
+  const index = fileMatchingListeners.indexOf(listener);
+  if (index >= 0) {
+    fileMatchingListeners.splice(index, 1);
   }
 }
 

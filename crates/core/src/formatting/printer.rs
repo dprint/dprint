@@ -1,14 +1,16 @@
-use bumpalo::Bump;
-use rustc_hash::FxHashMap;
+use std::hash::BuildHasherDefault;
 
+type BumpHashMap<'a, K, V> = hashbrown::HashMap<K, V, BuildHasherDefault<rustc_hash::FxHasher>, &'a bumpalo::Bump>;
+
+use super::WriteItem;
 use super::collections::*;
 use super::infinite_reevaluation_protection::InfiniteReevaluationProtector;
 use super::print_items::*;
 use super::thread_state;
+use super::thread_state::BumpAllocator;
 use super::writer::*;
-use super::WriteItem;
 
-struct SavePoint<'a> {
+pub struct SavePoint<'a> {
   #[cfg(debug_assertions)]
   /// Name for debugging purposes.
   pub name: &'static str,
@@ -17,28 +19,14 @@ struct SavePoint<'a> {
   pub writer_state: WriterState<'a>,
   pub possible_new_line_save_point: Option<&'a SavePoint<'a>>,
   pub node: Option<PrintItemPath>,
-  pub look_ahead_condition_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
-  pub look_ahead_line_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
-  pub look_ahead_column_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
-  pub look_ahead_is_start_of_line_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
-  pub look_ahead_indent_level_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
-  pub look_ahead_line_start_column_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
-  pub look_ahead_line_start_indent_level_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
-  pub next_node_stack: RcStack,
-}
-
-struct PrintItemContainer<'a> {
-  items: &'a Vec<PrintItem>,
-  index: i32,
-}
-
-impl<'a> Clone for PrintItemContainer<'a> {
-  fn clone(&self) -> PrintItemContainer<'a> {
-    PrintItemContainer {
-      items: self.items,
-      index: self.index,
-    }
-  }
+  pub look_ahead_condition_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
+  pub look_ahead_line_number_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
+  pub look_ahead_column_number_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
+  pub look_ahead_is_start_of_line_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
+  pub look_ahead_indent_level_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
+  pub look_ahead_line_start_column_number_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
+  pub look_ahead_line_start_indent_level_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
+  pub next_node_stack: NodeStack<'a>,
 }
 
 #[cfg(feature = "tracing")]
@@ -58,14 +46,14 @@ pub struct PrinterOptions {
 }
 
 pub struct Printer<'a> {
-  bump: &'a Bump,
+  bump: &'a BumpAllocator,
   possible_new_line_save_point: Option<&'a SavePoint<'a>>,
   new_line_group_depth: u16,
   force_no_newlines_depth: u8,
   current_node: Option<PrintItemPath>,
   writer: Writer<'a>,
-  // Use a regular hash map here because only some conditions are stored (not all).
-  resolved_conditions: FxHashMap<u32, Option<bool>>,
+  // Use a hash map here because only some conditions are stored (not all).
+  resolved_conditions: BumpHashMap<'a, u32, Option<bool>>,
   // Use these "VecU32Map" for resolved infos because it has much faster
   // lookups than a hash map and generally infos seem to be resolved
   // about 90% of the time, so the extra memory usage is probably not
@@ -77,16 +65,16 @@ pub struct Printer<'a> {
   resolved_indent_levels: VecU32U8Map,
   resolved_line_start_column_numbers: VecU32U32Map,
   resolved_line_start_indent_levels: VecU32U8Map,
-  look_ahead_condition_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
-  look_ahead_line_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
-  look_ahead_column_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
-  look_ahead_is_start_of_line_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
-  look_ahead_indent_level_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
-  look_ahead_line_start_column_number_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
-  look_ahead_line_start_indent_level_save_points: FxHashMap<u32, &'a SavePoint<'a>>,
+  look_ahead_condition_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
+  look_ahead_line_number_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
+  look_ahead_column_number_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
+  look_ahead_is_start_of_line_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
+  look_ahead_indent_level_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
+  look_ahead_line_start_column_number_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
+  look_ahead_line_start_indent_level_save_points: BumpHashMap<'a, u32, &'a SavePoint<'a>>,
   infinite_reevaluation_protector: InfiniteReevaluationProtector,
-  next_node_stack: RcStack,
-  stored_condition_save_points: FxHashMap<u32, (&'a Condition, &'a SavePoint<'a>)>,
+  next_node_stack: NodeStack<'a>,
+  stored_condition_save_points: BumpHashMap<'a, u32, (&'a Condition, &'a SavePoint<'a>)>,
   max_width: u32,
   skip_moving_next: bool,
   resolving_save_point: Option<&'a SavePoint<'a>>,
@@ -97,7 +85,7 @@ pub struct Printer<'a> {
 }
 
 impl<'a> Printer<'a> {
-  pub fn new(bump: &'a Bump, start_node: Option<PrintItemPath>, options: PrinterOptions) -> Printer<'a> {
+  pub fn new(bump: &'a BumpAllocator, start_node: Option<PrintItemPath>, options: PrinterOptions) -> Printer<'a> {
     Printer {
       bump,
       possible_new_line_save_point: None,
@@ -112,7 +100,7 @@ impl<'a> Printer<'a> {
           enable_tracing: options.enable_tracing,
         },
       ),
-      resolved_conditions: FxHashMap::default(),
+      resolved_conditions: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
       resolved_line_number_anchors: VecU32U32Map::with_capacity(thread_state::next_line_number_anchor_id()),
       resolved_line_numbers: VecU32U32Map::with_capacity(thread_state::next_line_number_id()),
       resolved_column_numbers: VecU32U32Map::with_capacity(thread_state::next_column_number_id()),
@@ -120,16 +108,16 @@ impl<'a> Printer<'a> {
       resolved_indent_levels: VecU32U8Map::with_capacity(thread_state::next_indent_level_id()),
       resolved_line_start_column_numbers: VecU32U32Map::with_capacity(thread_state::next_line_start_column_number_id()),
       resolved_line_start_indent_levels: VecU32U8Map::with_capacity(thread_state::next_line_start_indent_level_id()),
-      look_ahead_condition_save_points: FxHashMap::default(),
-      look_ahead_line_number_save_points: FxHashMap::default(),
-      look_ahead_column_number_save_points: FxHashMap::default(),
-      look_ahead_is_start_of_line_save_points: FxHashMap::default(),
-      look_ahead_indent_level_save_points: FxHashMap::default(),
-      look_ahead_line_start_column_number_save_points: FxHashMap::default(),
-      look_ahead_line_start_indent_level_save_points: FxHashMap::default(),
+      look_ahead_condition_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
+      look_ahead_line_number_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
+      look_ahead_column_number_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
+      look_ahead_is_start_of_line_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
+      look_ahead_indent_level_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
+      look_ahead_line_start_column_number_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
+      look_ahead_line_start_indent_level_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
       infinite_reevaluation_protector: InfiniteReevaluationProtector::with_capacity(thread_state::next_condition_reevaluation_id()),
-      stored_condition_save_points: FxHashMap::default(),
-      next_node_stack: RcStack::default(),
+      stored_condition_save_points: BumpHashMap::with_hasher_in(Default::default(), bump.inner()),
+      next_node_stack: NodeStack::default(),
       max_width: options.max_width,
       skip_moving_next: false,
       resolving_save_point: None,
@@ -283,6 +271,17 @@ impl<'a> Printer<'a> {
     }
   }
 
+  /// Moves an already resolved line number by `delta` lines.
+  ///
+  /// This keeps a resolution usable when whatever it refers to has shifted up or down the page
+  /// without otherwise changing, leaving it correct relative to everything around it.
+  pub fn shift_line_number(&mut self, info: LineNumber, delta: isize) {
+    let id = info.unique_id();
+    if let Some(value) = self.resolved_line_numbers.get(id) {
+      self.resolved_line_numbers.insert(id, (value as isize + delta) as u32);
+    }
+  }
+
   pub fn resolved_condition(&mut self, condition_reference: &ConditionReference) -> Option<bool> {
     if !self.resolved_conditions.contains_key(&condition_reference.id) && !self.look_ahead_condition_save_points.contains_key(&condition_reference.id) {
       let save_point = self.get_save_point_for_restoring_condition(condition_reference.name());
@@ -316,7 +315,7 @@ impl<'a> Printer<'a> {
   }
 
   fn create_save_point(&self, _name: &'static str, next_node: Option<PrintItemPath>) -> &'a SavePoint<'a> {
-    self.bump.alloc(SavePoint {
+    self.bump.alloc_save_point(SavePoint {
       #[cfg(debug_assertions)]
       name: _name,
       possible_new_line_save_point: self.possible_new_line_save_point,
@@ -345,10 +344,10 @@ impl<'a> Printer<'a> {
   }
 
   fn mark_possible_new_line_if_able(&mut self) {
-    if let Some(new_line_save_point) = &self.possible_new_line_save_point {
-      if self.new_line_group_depth > new_line_save_point.new_line_group_depth {
-        return;
-      }
+    if let Some(new_line_save_point) = &self.possible_new_line_save_point
+      && self.new_line_group_depth > new_line_save_point.new_line_group_depth
+    {
+      return;
     }
 
     let next_node = self.current_node.as_ref().unwrap().get_next();
@@ -366,13 +365,25 @@ impl<'a> Printer<'a> {
     self.current_node = save_point.node;
     self.new_line_group_depth = save_point.new_line_group_depth;
     self.force_no_newlines_depth = save_point.force_no_newlines_depth;
-    self.look_ahead_condition_save_points = save_point.look_ahead_condition_save_points.clone();
-    self.look_ahead_line_number_save_points = save_point.look_ahead_line_number_save_points.clone();
-    self.look_ahead_column_number_save_points = save_point.look_ahead_column_number_save_points.clone();
-    self.look_ahead_is_start_of_line_save_points = save_point.look_ahead_is_start_of_line_save_points.clone();
-    self.look_ahead_indent_level_save_points = save_point.look_ahead_indent_level_save_points.clone();
-    self.look_ahead_line_start_column_number_save_points = save_point.look_ahead_line_start_column_number_save_points.clone();
-    self.look_ahead_line_start_indent_level_save_points = save_point.look_ahead_line_start_indent_level_save_points.clone();
+    self.look_ahead_condition_save_points.clone_from(&save_point.look_ahead_condition_save_points);
+    self
+      .look_ahead_line_number_save_points
+      .clone_from(&save_point.look_ahead_line_number_save_points);
+    self
+      .look_ahead_column_number_save_points
+      .clone_from(&save_point.look_ahead_column_number_save_points);
+    self
+      .look_ahead_is_start_of_line_save_points
+      .clone_from(&save_point.look_ahead_is_start_of_line_save_points);
+    self
+      .look_ahead_indent_level_save_points
+      .clone_from(&save_point.look_ahead_indent_level_save_points);
+    self
+      .look_ahead_line_start_column_number_save_points
+      .clone_from(&save_point.look_ahead_line_start_column_number_save_points);
+    self
+      .look_ahead_line_start_indent_level_save_points
+      .clone_from(&save_point.look_ahead_line_start_indent_level_save_points);
     self.next_node_stack = save_point.next_node_stack.clone();
 
     if is_for_new_line {
@@ -404,7 +415,7 @@ impl<'a> Printer<'a> {
       Signal::SpaceOrNewLine => {
         if self.allow_new_lines() {
           if self.is_above_max_width(1) {
-            let optional_save_state = std::mem::replace(&mut self.possible_new_line_save_point, None);
+            let optional_save_state = self.possible_new_line_save_point.take();
             if optional_save_state.is_none() {
               self.write_new_line();
             } else if let Some(save_state) = optional_save_state {
@@ -518,28 +529,27 @@ impl<'a> Printer<'a> {
   #[inline]
   fn handle_condition_reevaluation(&mut self, condition_reevaluation: &ConditionReevaluation) {
     let condition_id = condition_reevaluation.condition_id;
-    if let Some((condition, save_point)) = self.stored_condition_save_points.get(&condition_id).cloned() {
-      if let Some(past_condition_value) = self.resolved_conditions.get(&condition_id).and_then(|x| x.to_owned()) {
-        self.resolving_save_point.replace(save_point);
-        let mut context = ConditionResolverContext::new(self, save_point.writer_state.writer_info(self.writer.indent_width()));
-        let latest_condition_value = condition.resolve(&mut context);
-        self.resolving_save_point.take();
+    if let Some((condition, save_point)) = self.stored_condition_save_points.get(&condition_id).cloned()
+      && let Some(past_condition_value) = self.resolved_conditions.get(&condition_id).and_then(|x| x.to_owned())
+    {
+      self.resolving_save_point.replace(save_point);
+      let mut context = ConditionResolverContext::new(self, save_point.writer_state.writer_info(self.writer.indent_width()));
+      let latest_condition_value = condition.resolve(&mut context);
+      self.resolving_save_point.take();
 
-        // Do not re-evaluate the condition if it's flipped back and forth a decent number of times.
-        // If it hits the max number of times it can flip then an error will be logged.
-        let should_reevaluate = self.infinite_reevaluation_protector.should_reevaluate(
-          condition_reevaluation.condition_reevaluation_id,
-          latest_condition_value,
-          past_condition_value,
-        );
-        if should_reevaluate {
-          if let Some(latest_condition_value) = latest_condition_value {
-            if latest_condition_value != past_condition_value {
-              self.update_state_to_save_point(save_point, false);
-            }
-          } else {
-            self.resolved_conditions.remove(&condition_id);
+      // Do not re-evaluate the condition if it's flipped back and forth a decent number of times.
+      // If it hits the max number of times it can flip then an error will be logged.
+      let should_reevaluate =
+        self
+          .infinite_reevaluation_protector
+          .should_reevaluate(condition_reevaluation.condition_reevaluation_id, latest_condition_value, past_condition_value);
+      if should_reevaluate {
+        if let Some(latest_condition_value) = latest_condition_value {
+          if latest_condition_value != past_condition_value {
+            self.update_state_to_save_point(save_point, false);
           }
+        } else {
+          self.resolved_conditions.remove(&condition_id);
         }
       }
     }
@@ -570,14 +580,14 @@ impl<'a> Printer<'a> {
       if let Some(true_path) = condition.true_path {
         self.current_node = Some(true_path);
         if let Some(path) = next_node {
-          self.next_node_stack.push(path);
+          self.next_node_stack.push(path, self.bump);
         }
         self.skip_moving_next = true;
       }
     } else if let Some(false_path) = condition.false_path {
       self.current_node = Some(false_path);
       if let Some(path) = next_node {
-        self.next_node_stack.push(path);
+        self.next_node_stack.push(path, self.bump);
       }
       self.skip_moving_next = true;
     }
@@ -586,7 +596,7 @@ impl<'a> Printer<'a> {
   #[inline]
   fn handle_rc_path(&mut self, print_item_path: &PrintItemPath, next_node: &Option<PrintItemPath>) {
     if let Some(path) = next_node {
-      self.next_node_stack.push(path);
+      self.next_node_stack.push(path, self.bump);
     }
     self.current_node = Some(print_item_path);
     self.skip_moving_next = true;
@@ -595,10 +605,10 @@ impl<'a> Printer<'a> {
   #[inline]
   fn handle_string(&mut self, text: &'a StringContainer) {
     #[cfg(debug_assertions)]
-    self.validate_string(&text.text);
+    self.validate_string(text.text);
 
     if self.possible_new_line_save_point.is_some() && self.is_above_max_width(text.char_count) && self.allow_new_lines() {
-      let save_point = std::mem::replace(&mut self.possible_new_line_save_point, Option::None);
+      let save_point = self.possible_new_line_save_point.take();
       self.update_state_to_save_point(save_point.unwrap(), true);
     } else {
       self.writer.write(text);
@@ -620,7 +630,10 @@ impl<'a> Printer<'a> {
       );
     }
     if text.contains('\n') {
-      panic!("Debug panic! Found a newline in the string. Before sending the string to the printer it needs to be broken up and the newline sent as a PrintItem::NewLine. {0}", text);
+      panic!(
+        "Debug panic! Found a newline in the string. Before sending the string to the printer it needs to be broken up and the newline sent as a PrintItem::NewLine. {0}",
+        text
+      );
     }
   }
 

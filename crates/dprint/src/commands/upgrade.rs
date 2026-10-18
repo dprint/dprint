@@ -2,10 +2,12 @@ use std::path::Path;
 use std::process::Command;
 use std::process::Stdio;
 
-use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::bail;
+use url::Url;
 
+use crate::environment::DownloadOptions;
 use crate::environment::Environment;
 use crate::environment::FilePermissions;
 use crate::utils::extract_zip;
@@ -15,17 +17,17 @@ use crate::utils::latest_cli_version;
 
 // Note: To test `dprint upgrade`, you must do so manually at the moment.
 // Update ./crates/dprint/Cargo.toml to have a version below the current
-// released one, then run `./target/debug/dprint upgrade --verbose`.
+// released one, then run `./target/debug/dprint upgrade --log-level=debug`.
 
 pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> Result<()> {
-  let latest_version = latest_cli_version(environment).context("Error fetching latest CLI version.")?;
+  let latest_version = latest_cli_version(environment).await.context("Error fetching latest CLI version.")?;
   let current_version = environment.cli_version();
   if current_version == latest_version {
-    environment.log(&format!("Already on latest version {}", latest_version));
+    log_stdout_info!(environment, "Already on latest version {}", latest_version);
     return Ok(());
   }
 
-  environment.log(&format!("Upgrading from {} to {}...", current_version, latest_version));
+  log_stdout_info!(environment, "Upgrading from {} to {}...", current_version, latest_version);
 
   let exe_path = environment.current_exe()?;
   let mut components = exe_path.components().map(|c| c.as_os_str().to_string_lossy().to_lowercase()).peekable();
@@ -48,19 +50,13 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
     bail!("You do not have write permission to {}", exe_path.display());
   }
 
-  let arch = environment.cpu_arch();
-  let os = environment.os();
-  let zip_suffix = match os.as_str() {
-    "linux" => "unknown-linux-gnu",
-    "linux-musl" => "unknown-linux-musl",
-    "macos" => "apple-darwin",
-    "windows" => "pc-windows-msvc",
-    _ => bail!("Not implemented operating system: {}", os),
-  };
-  let zip_filename = format!("dprint-{}-{}.zip", arch, zip_suffix);
-  let zip_url = format!("https://github.com/dprint/dprint/releases/download/{}/{}", latest_version, zip_filename);
+  let zip_filename = release_zip_file_name();
+  let zip_url = Url::parse(&format!(
+    "https://github.com/dprint/dprint/releases/download/{}/{}",
+    latest_version, zip_filename
+  ))?;
 
-  let zip_bytes = environment.download_file_err_404(&zip_url)?;
+  let (_, zip_file) = environment.download_file_err_404(&zip_url, DownloadOptions::default()).await?;
   let old_executable = exe_path.with_extension("old.exe");
 
   if !environment.is_real() {
@@ -78,7 +74,7 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
   }
 
   let maybe_reinstall_message = "You may need to reinstall dprint from scratch. Sorry!";
-  if let Err(err) = try_upgrade(&exe_path, &zip_bytes, permissions, environment) {
+  if let Err(err) = try_upgrade(&exe_path, &zip_file.content, permissions, environment) {
     if cfg!(windows) {
       // try to rename it back
       environment.rename(&old_executable, &exe_path).with_context(|| {
@@ -95,7 +91,7 @@ pub async fn upgrade<TEnvironment: Environment>(environment: &TEnvironment) -> R
 
   // it would be nice if we could delete the old executable here on Windows,
   // but we need it in order to keep running the current executable
-  environment.log(&format!("Upgraded to dprint {}", latest_version));
+  log_stdout_info!(environment, "Upgraded to dprint {}", latest_version);
 
   Ok(())
 }
@@ -120,7 +116,7 @@ fn try_kill_other_dprint_processes(environment: &impl Environment) {
   let pids = match get_running_pids_by_name("dprint") {
     Ok(pids) => pids,
     Err(err) => {
-      log_verbose!(environment, "Error getting dprint processes. {:#}", err);
+      log_debug!(environment, "Error getting dprint processes. {:#}", err);
       return;
     }
   };
@@ -128,12 +124,17 @@ fn try_kill_other_dprint_processes(environment: &impl Environment) {
   for pid in pids {
     // it's important to not kill the current process obviously
     if pid != current_pid {
-      log_verbose!(environment, "Killing process with pid {}...", pid);
+      log_debug!(environment, "Killing process with pid {}...", pid);
       if let Err(err) = kill_process_by_id(pid) {
-        log_verbose!(environment, "Error killing process with pid {}: {:#}", pid, err);
+        log_debug!(environment, "Error killing process with pid {}: {:#}", pid, err);
       }
     }
   }
+}
+
+/// Gets the name of the release zip for the target triple this binary was built for.
+fn release_zip_file_name() -> String {
+  format!("dprint-{}.zip", env!("TARGET"))
 }
 
 #[cfg(test)]
@@ -155,6 +156,8 @@ mod test {
   #[test]
   fn should_upgrade_and_fail_readonly() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.current_exe().unwrap().parent().unwrap()).unwrap();
+    environment.write_file(environment.current_exe().unwrap(), "").unwrap();
     environment
       .set_file_permissions(
         environment.current_exe().unwrap(),
@@ -228,6 +231,8 @@ mod test {
   #[test]
   fn should_upgrade_and_fail_different_version_no_remote_zip() {
     let environment = TestEnvironment::new();
+    environment.mk_dir_all(environment.current_exe().unwrap().parent().unwrap()).unwrap();
+    environment.write_file(environment.current_exe().unwrap(), "").unwrap();
     environment
       .set_file_permissions(environment.current_exe().unwrap(), FilePermissions::Test(Default::default()))
       .unwrap();
@@ -235,5 +240,25 @@ mod test {
     let err = run_test_cli(vec!["upgrade"], &environment).err().unwrap();
     assert!(err.to_string().starts_with("Error downloading"));
     assert_eq!(environment.take_stdout_messages(), vec!["Upgrading from 0.0.0 to 0.1.0..."]);
+  }
+
+  #[test]
+  fn release_zip_file_name_should_be_a_released_artifact() {
+    // only enforced on the CI because a local build may be for a target that isn't released
+    if std::env::var_os("CI").is_none() {
+      return;
+    }
+    // the release artifacts are named `dprint-<target>.zip` for each target in ci.ts
+    let ci_file = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/ci.ts");
+    let ci_text = std::fs::read_to_string(ci_file).unwrap();
+    let released_zip_names = ci_text
+      .lines()
+      .filter_map(|line| line.trim().strip_prefix("target: \"")?.strip_suffix("\","))
+      .map(|target| format!("dprint-{}.zip", target))
+      .collect::<Vec<_>>();
+    assert!(released_zip_names.len() > 10, "failed parsing targets from ci.ts");
+    // ex. this would fail if a cargo-zigbuild target like `x86_64-unknown-linux-gnu.2.17` leaked into the name
+    let zip_name = super::release_zip_file_name();
+    assert!(released_zip_names.contains(&zip_name), "{} is not released: {:?}", zip_name, released_zip_names);
   }
 }

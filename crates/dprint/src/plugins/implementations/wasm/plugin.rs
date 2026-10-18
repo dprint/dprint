@@ -1,424 +1,470 @@
-use anyhow::anyhow;
 use anyhow::Result;
-use dprint_core::plugins::BoxFuture;
+use anyhow::anyhow;
+use dprint_core::async_runtime::FutureExt;
+use dprint_core::async_runtime::LocalBoxFuture;
+use dprint_core::async_runtime::async_trait;
+use dprint_core::plugins::CancellationToken;
+use dprint_core::plugins::CheckConfigUpdatesMessage;
+use dprint_core::plugins::ConfigChange;
 use dprint_core::plugins::CriticalFormatError;
+use dprint_core::plugins::FileMatchingInfo;
+use dprint_core::plugins::FormatError;
+use dprint_core::plugins::FormatRange;
 use dprint_core::plugins::FormatResult;
-use futures::FutureExt;
-use parking_lot::Mutex;
-use std::path::Path;
+use dprint_core::plugins::HostFormatRequest;
+use dprint_core::plugins::process::HostFormatCallback;
+use std::cell::RefCell;
+use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Instant;
 
 use dprint_core::configuration::ConfigKeyMap;
 use dprint_core::configuration::ConfigurationDiagnostic;
-use dprint_core::configuration::GlobalConfiguration;
 use dprint_core::plugins::PluginInfo;
 
-use super::create_module;
+use super::WasmHostFormatSender;
 use super::create_pools_import_object;
+use super::instance::Store;
 use super::load_instance;
-use super::ImportObjectEnvironment;
-use super::WasmFormatResult;
-use super::WasmFunctions;
-use crate::configuration::RawPluginConfig;
+use super::load_instance::WasmInstance;
+use super::load_instance::WasmModule;
+use super::load_instance::plugin_initializes_on_start;
 use crate::environment::Environment;
+use crate::plugins::FormatConfig;
 use crate::plugins::InitializedPlugin;
 use crate::plugins::InitializedPluginFormatRequest;
 use crate::plugins::Plugin;
-use crate::plugins::PluginsCollection;
+use crate::plugins::implementations::wasm::create_wasm_plugin_instance;
 
 pub struct WasmPlugin<TEnvironment: Environment> {
-  module: wasmer::Module,
-  plugin_info: PluginInfo,
-  config: Option<(RawPluginConfig, GlobalConfiguration)>,
+  module: WasmModule,
   environment: TEnvironment,
-  plugin_pools: Arc<PluginsCollection<TEnvironment>>,
+  plugin_info: PluginInfo,
 }
 
 impl<TEnvironment: Environment> WasmPlugin<TEnvironment> {
-  pub fn new(
-    compiled_wasm_bytes: &[u8],
-    plugin_info: PluginInfo,
-    environment: TEnvironment,
-    plugin_pools: Arc<PluginsCollection<TEnvironment>>,
-  ) -> Result<Self> {
-    let module = create_module(compiled_wasm_bytes)?;
+  pub fn new(module: WasmModule, plugin_info: PluginInfo, environment: TEnvironment) -> Result<Self> {
+    let initializes_on_start = plugin_initializes_on_start(&plugin_info);
+    if initializes_on_start {
+      log_warn!(
+        environment,
+        "WARNING: {} {} will break in a future version of dprint due to an incompatibility. Please upgrade to version 0.0.19 or later.",
+        plugin_info.name,
+        plugin_info.version,
+      );
+    }
+    let module = module.with_initializes_on_start(initializes_on_start);
     Ok(WasmPlugin {
-      environment,
-      plugin_pools,
       module,
+      environment,
       plugin_info,
-      config: None,
     })
   }
 }
 
+#[async_trait(?Send)]
 impl<TEnvironment: Environment> Plugin for WasmPlugin<TEnvironment> {
-  fn name(&self) -> &str {
-    &self.plugin_info.name
-  }
-
-  fn version(&self) -> &str {
-    &self.plugin_info.version
-  }
-
-  fn config_key(&self) -> &str {
-    &self.plugin_info.config_key
-  }
-
-  fn file_extensions(&self) -> &Vec<String> {
-    &self.plugin_info.file_extensions
-  }
-
-  fn file_names(&self) -> &Vec<String> {
-    &self.plugin_info.file_names
-  }
-
-  fn help_url(&self) -> &str {
-    &self.plugin_info.help_url
-  }
-
-  fn config_schema_url(&self) -> &str {
-    &self.plugin_info.config_schema_url
-  }
-
-  fn update_url(&self) -> Option<&str> {
-    self.plugin_info.update_url.as_deref()
-  }
-
-  fn set_config(&mut self, plugin_config: RawPluginConfig, global_config: GlobalConfiguration) {
-    self.config = Some((plugin_config, global_config));
-  }
-
-  fn get_config(&self) -> &(RawPluginConfig, GlobalConfiguration) {
-    self.config.as_ref().expect("Call set_config first.")
+  fn info(&self) -> &PluginInfo {
+    &self.plugin_info
   }
 
   fn is_process_plugin(&self) -> bool {
     false
   }
 
-  fn initialize(&self) -> BoxFuture<'static, Result<Arc<dyn InitializedPlugin>>> {
-    let store = wasmer::Store::default();
-    // need to call set_config first to ensure this doesn't fail
-    let (plugin_config, global_config) = self.config.as_ref().unwrap();
-    let plugin = InitializedWasmPlugin::new(
-      self.name().to_string(),
+  async fn initialize(&self) -> Result<Rc<dyn InitializedPlugin>> {
+    let environment = self.environment.clone();
+    let plugin_name = self.info().name.clone();
+    let plugin: Rc<dyn InitializedPlugin> = Rc::new(InitializedWasmPlugin::new(
+      plugin_name.clone(),
       self.module.clone(),
       Arc::new({
-        let plugin_pools = self.plugin_pools.clone();
-        let environment = self.environment.clone();
-        move || {
-          let import_obj_env = ImportObjectEnvironment::new(environment.clone(), plugin_pools.clone());
-          create_pools_import_object(&store, &import_obj_env)
+        move |module: &WasmModule, host_format_sender| {
+          let (linker, host_state) = create_pools_import_object(environment.clone(), &plugin_name, module.version(), module.engine(), host_format_sender)?;
+          let mut store = module.new_store(host_state);
+          let instance = load_instance(&mut store, module, linker)?;
+          Ok((store, instance))
         }
       }),
-      global_config.clone(),
-      plugin_config.properties.clone(),
-    );
-    async move {
-      let result: Arc<dyn InitializedPlugin> = Arc::new(plugin);
-      Ok(result)
-    }
-    .boxed()
+      self.environment.clone(),
+    ));
+
+    Ok(plugin)
   }
 }
 
-struct InitializedWasmPluginInstance {
-  wasm_functions: WasmFunctions,
-  buffer_size: usize,
+struct WasmPluginFormatMessage {
+  file_path: PathBuf,
+  file_bytes: Arc<Vec<u8>>,
+  range: FormatRange,
+  config: Arc<FormatConfig>,
+  override_config: ConfigKeyMap,
+  token: Arc<dyn CancellationToken>,
 }
 
-impl InitializedWasmPluginInstance {
-  pub fn set_global_config(&self, global_config: &GlobalConfiguration) -> Result<()> {
-    let json = serde_json::to_string(global_config)?;
-    self.send_string(&json)?;
-    self.wasm_functions.set_global_config()?;
-    Ok(())
-  }
+type WasmResponseSender<T> = tokio::sync::oneshot::Sender<T>;
 
-  pub fn set_plugin_config(&mut self, plugin_config: &ConfigKeyMap) -> Result<()> {
-    let json = serde_json::to_string(plugin_config)?;
-    self.send_string(&json)?;
-    self.wasm_functions.set_plugin_config()?;
-    Ok(())
-  }
-
-  pub fn plugin_info(&self) -> Result<PluginInfo> {
-    let len = self.wasm_functions.get_plugin_info()?;
-    let json_text = self.receive_string(len)?;
-    Ok(serde_json::from_str(&json_text)?)
-  }
-
-  fn license_text(&self) -> Result<String> {
-    let len = self.wasm_functions.get_license_text()?;
-    self.receive_string(len)
-  }
-
-  fn resolved_config(&self) -> Result<String> {
-    let len = self.wasm_functions.get_resolved_config()?;
-    self.receive_string(len)
-  }
-
-  fn config_diagnostics(&self) -> Result<Vec<ConfigurationDiagnostic>> {
-    let len = self.wasm_functions.get_config_diagnostics()?;
-    let json_text = self.receive_string(len)?;
-    Ok(serde_json::from_str(&json_text)?)
-  }
-
-  fn format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> FormatResult {
-    match self.inner_format_text(file_path, file_text, override_config) {
-      Ok(inner) => inner,
-      Err(err) => Err(CriticalFormatError(err).into()),
-    }
-  }
-
-  fn inner_format_text(&self, file_path: &Path, file_text: &str, override_config: &ConfigKeyMap) -> Result<FormatResult> {
-    // send override config if necessary
-    if !override_config.is_empty() {
-      self.send_string(&match serde_json::to_string(override_config) {
-        Ok(text) => text,
-        Err(err) => return Ok(Err(err.into())),
-      })?;
-      self.wasm_functions.set_override_config()?;
-    }
-
-    // send file path
-    self.send_string(&file_path.to_string_lossy())?;
-    self.wasm_functions.set_file_path()?;
-
-    // send file text and format
-    self.send_string(file_text)?;
-    let response_code = self.wasm_functions.format()?;
-
-    // handle the response
-    match response_code {
-      WasmFormatResult::NoChange => Ok(Ok(None)),
-      WasmFormatResult::Change => {
-        let len = self.wasm_functions.get_formatted_text()?;
-        let text = self.receive_string(len)?;
-        Ok(Ok(Some(text)))
-      }
-      WasmFormatResult::Error => {
-        let len = self.wasm_functions.get_error_text()?;
-        let text = self.receive_string(len)?;
-        Ok(Err(anyhow!("{}", text)))
-      }
-    }
-  }
-
-  /* LOW LEVEL SENDING AND RECEIVING */
-
-  // These methods should panic when failing because that may indicate
-  // a major problem where the CLI is out of sync with the plugin.
-
-  fn send_string(&self, text: &str) -> Result<()> {
-    let mut index = 0;
-    let len = text.len();
-    let text_bytes = text.as_bytes();
-    self.wasm_functions.clear_shared_bytes(len)?;
-    while index < len {
-      let write_count = std::cmp::min(len - index, self.buffer_size);
-      self.write_bytes_to_memory_buffer(&text_bytes[index..(index + write_count)])?;
-      self.wasm_functions.add_to_shared_bytes_from_buffer(write_count)?;
-      index += write_count;
-    }
-    Ok(())
-  }
-
-  fn write_bytes_to_memory_buffer(&self, bytes: &[u8]) -> Result<()> {
-    let length = bytes.len();
-    let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr()?;
-    let memory_writer = wasm_buffer_pointer.deref(self.wasm_functions.get_memory(), 0, length as u32).unwrap();
-    for i in 0..length {
-      memory_writer[i].set(bytes[i]);
-    }
-    Ok(())
-  }
-
-  fn receive_string(&self, len: usize) -> Result<String> {
-    let mut index = 0;
-    let mut bytes: Vec<u8> = vec![0; len];
-    while index < len {
-      let read_count = std::cmp::min(len - index, self.buffer_size);
-      self.wasm_functions.set_buffer_with_shared_bytes(index, read_count)?;
-      self.read_bytes_from_memory_buffer(&mut bytes[index..(index + read_count)])?;
-      index += read_count;
-    }
-    Ok(String::from_utf8(bytes)?)
-  }
-
-  fn read_bytes_from_memory_buffer(&self, bytes: &mut [u8]) -> Result<()> {
-    let length = bytes.len();
-    let wasm_buffer_pointer = self.wasm_functions.get_wasm_memory_buffer_ptr()?;
-    let memory_reader = wasm_buffer_pointer.deref(self.wasm_functions.get_memory(), 0, length as u32).unwrap();
-    for i in 0..length {
-      bytes[i] = memory_reader[i].get();
-    }
-    Ok(())
-  }
+enum WasmPluginMessage {
+  LicenseText(WasmResponseSender<Result<String>>),
+  ResolvedConfig(Arc<FormatConfig>, WasmResponseSender<Result<String>>),
+  CheckConfigUpdates(Arc<CheckConfigUpdatesMessage>, WasmResponseSender<Result<Vec<ConfigChange>>>),
+  FileMatchingInfo(Arc<FormatConfig>, WasmResponseSender<Result<FileMatchingInfo>>),
+  ConfigDiagnostics(Arc<FormatConfig>, WasmResponseSender<Result<Vec<ConfigurationDiagnostic>>>),
+  FormatRequest(Arc<WasmPluginFormatMessage>, WasmResponseSender<FormatResult>),
 }
 
-struct InitializedWasmPluginInner {
-  name: String,
-  instances: Mutex<Vec<InitializedWasmPluginInstance>>,
-  // below is for recreating an instance after panic
-  module: wasmer::Module,
-  create_import_object: Arc<dyn Fn() -> wasmer::ImportObject + Send + Sync>,
-  global_config: GlobalConfiguration,
-  plugin_config: ConfigKeyMap,
-}
+type WasmPluginSender = std::sync::mpsc::Sender<WasmPluginMessage>;
 
 #[derive(Clone)]
-pub struct InitializedWasmPlugin(Arc<InitializedWasmPluginInner>);
+struct InstanceState {
+  host_format_callback: HostFormatCallback,
+}
 
-impl InitializedWasmPlugin {
-  pub fn new(
-    name: String,
-    module: wasmer::Module,
-    create_import_object: Arc<dyn Fn() -> wasmer::ImportObject + Send + Sync>,
-    global_config: GlobalConfiguration,
-    plugin_config: ConfigKeyMap,
-  ) -> Self {
-    Self(Arc::new(InitializedWasmPluginInner {
-      name,
-      instances: Default::default(),
-      module,
-      create_import_object,
-      global_config,
-      plugin_config,
-    }))
-  }
+struct WasmPluginSenderWithState {
+  sender: Rc<WasmPluginSender>,
+  instance_state_cell: Rc<RefCell<Option<InstanceState>>>,
+}
 
-  pub fn get_plugin_info(&self) -> Result<PluginInfo> {
-    self.with_instance(|instance| instance.plugin_info())
-  }
+type LoadInstanceFn = dyn Fn(&WasmModule, WasmHostFormatSender) -> Result<(Store, WasmInstance)> + Send + Sync;
 
-  fn with_instance<T>(&self, action: impl Fn(&InitializedWasmPluginInstance) -> Result<T>) -> Result<T> {
-    let instance = match self.get_or_create_instance() {
-      Ok(instance) => instance,
-      Err(err) => return Err(CriticalFormatError(err).into()),
+pub struct InitializedWasmPlugin<TEnvironment: Environment> {
+  name: String,
+  pending_instances: RefCell<Vec<WasmPluginSenderWithState>>,
+  module: WasmModule,
+  load_instance: Arc<LoadInstanceFn>,
+  environment: TEnvironment,
+}
+
+impl<TEnvironment: Environment> Drop for InitializedWasmPlugin<TEnvironment> {
+  fn drop(&mut self) {
+    let start = Instant::now();
+    let len = {
+      let instances = {
+        let mut instances = self.pending_instances.borrow_mut();
+        std::mem::take(&mut *instances)
+      };
+
+      instances.len()
     };
-    match action(&instance) {
+    log_debug!(
+      self.environment,
+      "Dropped {} ({} instances) in {}ms",
+      self.name,
+      len,
+      start.elapsed().as_millis()
+    );
+  }
+}
+
+impl<TEnvironment: Environment> InitializedWasmPlugin<TEnvironment> {
+  pub fn new(name: String, module: WasmModule, load_instance: Arc<LoadInstanceFn>, environment: TEnvironment) -> Self {
+    Self {
+      name,
+      pending_instances: Default::default(),
+      module,
+      load_instance,
+      environment,
+    }
+  }
+
+  async fn with_instance<T>(
+    &self,
+    instance_state: Option<InstanceState>,
+    action: impl Fn(Rc<WasmPluginSender>) -> LocalBoxFuture<'static, Result<T>>,
+  ) -> Result<T> {
+    let plugin = match self.get_or_create_instance(instance_state.clone()).await {
+      Ok(instance) => instance,
+      Err(err) => return Err(CriticalFormatError(FormatError::new(err)).into()),
+    };
+    let result = action(plugin.sender.clone()).await;
+    match result {
       Ok(result) => {
-        self.release_instance(instance);
+        self.release_instance(plugin);
         Ok(result)
       }
-      Err(original_err) if original_err.downcast_ref::<CriticalFormatError>().is_some() => {
-        let instance = match self.get_or_create_instance() {
-          Ok(instance) => instance,
-          Err(err) => return Err(CriticalFormatError(err).into()),
+      Err(original_err) if crate::plugins::maybe_critical_format_error(&original_err).is_some() => {
+        let plugin = match self.get_or_create_instance(instance_state).await {
+          Ok(plugin) => plugin,
+          Err(err) => return Err(CriticalFormatError(FormatError::new(err)).into()),
         };
 
         // try again
-        match action(&instance) {
+        let result = action(plugin.sender.clone()).await;
+        match result {
           Ok(result) => {
-            self.release_instance(instance);
+            self.release_instance(plugin);
             Ok(result)
           }
-          Err(reinitialize_err) if original_err.downcast_ref::<CriticalFormatError>().is_some() => Err(
-            CriticalFormatError(anyhow!(
+          Err(reinitialize_err) if crate::plugins::maybe_critical_format_error(&original_err).is_some() => Err(
+            CriticalFormatError(FormatError::new(anyhow!(
               concat!(
                 "Originally panicked in {}, then failed reinitialize. ",
                 "This may be a bug in the plugin, the dprint cli is out of date, or the ",
                 "plugin is out of date.\nOriginal error: {}\nReinitialize error: {}",
               ),
-              self.0.name,
+              self.name,
               original_err,
               reinitialize_err,
-            ))
+            )))
             .into(),
           ),
           Err(err) => {
-            self.release_instance(instance);
+            self.release_instance(plugin);
             Err(err)
           }
         }
       }
       Err(err) => {
-        self.release_instance(instance);
+        self.release_instance(plugin);
         Err(err)
       }
     }
   }
 
-  fn get_or_create_instance(&self) -> Result<InitializedWasmPluginInstance> {
-    match self.0.instances.lock().pop() {
-      Some(instance) => Ok(instance),
-      None => self.create_instance(),
-    }
+  async fn get_or_create_instance(&self, instance_state: Option<InstanceState>) -> Result<WasmPluginSenderWithState> {
+    let maybe_instance = self.pending_instances.borrow_mut().pop(); // needs to be on a separate line
+    let plugin_sender = match maybe_instance {
+      Some(instance) => instance,
+      None => self.create_instance().await?,
+    };
+    *plugin_sender.instance_state_cell.borrow_mut() = instance_state;
+    Ok(plugin_sender)
   }
 
-  fn release_instance(&self, plugin: InitializedWasmPluginInstance) {
-    self.0.instances.lock().push(plugin);
+  fn release_instance(&self, plugin_sender: WasmPluginSenderWithState) {
+    *plugin_sender.instance_state_cell.borrow_mut() = None;
+    self.pending_instances.borrow_mut().push(plugin_sender);
   }
 
-  fn create_instance(&self) -> Result<InitializedWasmPluginInstance> {
-    let instance = load_instance(&self.0.module, &(self.0.create_import_object)())?;
-    let wasm_functions = WasmFunctions::new(instance)?;
-    let buffer_size = wasm_functions.get_wasm_memory_buffer_size()?;
+  async fn create_instance(&self) -> Result<WasmPluginSenderWithState> {
+    let start_instant = Instant::now();
+    log_debug!(self.environment, "Creating instance of {}", self.name);
 
-    let mut instance = InitializedWasmPluginInstance { wasm_functions, buffer_size };
+    let (host_format_tx, mut host_format_rx) = tokio::sync::mpsc::unbounded_channel::<(HostFormatRequest, std::sync::mpsc::Sender<FormatResult>)>();
+    let instance_state_cell: Rc<RefCell<Option<InstanceState>>> = Default::default();
 
-    instance.set_global_config(&self.0.global_config)?;
-    instance.set_plugin_config(&self.0.plugin_config)?;
+    dprint_core::async_runtime::spawn({
+      let instance_state_cell = instance_state_cell.clone();
+      async move {
+        while let Some((request, sender)) = host_format_rx.recv().await {
+          let instance_state = instance_state_cell.borrow().clone();
+          match instance_state {
+            Some(instance_state) => {
+              let message = (instance_state.host_format_callback)(request).await;
+              if sender.send(message).is_err() {
+                return; // disconnected
+              }
+            }
+            None => {
+              if sender.send(Err(FormatError::new("Host format callback was not set."))).is_err() {
+                return; // disconnected
+              }
+            }
+          }
+        }
+      }
+    });
 
-    Ok(instance)
+    let (tx, rx) = std::sync::mpsc::channel::<WasmPluginMessage>();
+    let (initialize_tx, initialize_rx) = tokio::sync::oneshot::channel::<Result<(), anyhow::Error>>();
+
+    // spawn the wasm instance on a dedicated blocking thread to reduce issues.
+    // the runtime gives its blocking threads a large stack (see
+    // WASM_PLUGIN_THREAD_STACK_SIZE) so wasmtime can run wasm on this native
+    // stack, up to MAX_WASM_STACK_SIZE.
+    dprint_core::async_runtime::spawn_blocking({
+      let load_instance = self.load_instance.clone();
+      let module = self.module.clone();
+      move || {
+        let initialize = || {
+          let (store, instance) = (load_instance)(&module, host_format_tx)?;
+          let instance = create_wasm_plugin_instance(store, instance)?;
+          Ok(instance)
+        };
+        let mut instance = match initialize() {
+          Ok(instance) => {
+            if initialize_tx.send(Ok(())).is_err() {
+              return; // disconnected
+            }
+            instance
+          }
+          Err(err) => {
+            let _ = initialize_tx.send(Err(err));
+            return; // quit
+          }
+        };
+        while let Ok(message) = rx.recv() {
+          match message {
+            WasmPluginMessage::LicenseText(response) => {
+              let result = instance.license_text();
+              if response.send(result).is_err() {
+                break; // disconnected
+              }
+            }
+            WasmPluginMessage::CheckConfigUpdates(message, response) => {
+              let result = instance.check_config_updates(&message);
+              if response.send(result).is_err() {
+                break; // disconnected
+              }
+            }
+            WasmPluginMessage::ConfigDiagnostics(config, response) => {
+              let result = instance.config_diagnostics(&config);
+              if response.send(result).is_err() {
+                break; // disconnected
+              }
+            }
+            WasmPluginMessage::FileMatchingInfo(config, response) => {
+              let result = instance.file_matching_info(&config);
+              if response.send(result).is_err() {
+                break; // disconnected
+              }
+            }
+            WasmPluginMessage::ResolvedConfig(config, response) => {
+              let result = instance.resolved_config(&config);
+              if response.send(result).is_err() {
+                break; // disconnected
+              }
+            }
+            WasmPluginMessage::FormatRequest(request, response) => {
+              let result = instance.format_text(
+                &request.file_path,
+                &request.file_bytes,
+                request.range.clone(),
+                &request.config,
+                &request.override_config,
+                request.token.clone(),
+              );
+              // release the text before responding so the receiver can take
+              // ownership of it without copying when nothing else holds it
+              drop(request);
+              if response.send(result).is_err() {
+                break; // disconnected
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // wait for initialization
+    initialize_rx.await??;
+
+    log_debug!(
+      self.environment,
+      "Created instance of {} in {}ms",
+      self.name,
+      start_instant.elapsed().as_millis() as u64
+    );
+    Ok(WasmPluginSenderWithState {
+      sender: Rc::new(tx),
+      instance_state_cell,
+    })
   }
 }
 
-impl InitializedPlugin for InitializedWasmPlugin {
-  fn license_text(&self) -> BoxFuture<'static, Result<String>> {
-    let plugin = self.clone();
-    async move {
-      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.license_text()))
-        .await
-        .unwrap()
-    }
-    .boxed()
+#[async_trait(?Send)]
+impl<TEnvironment: Environment> InitializedPlugin for InitializedWasmPlugin<TEnvironment> {
+  async fn license_text(&self) -> Result<String> {
+    self
+      .with_instance(None, move |plugin_sender| {
+        async move {
+          let (tx, rx) = tokio::sync::oneshot::channel();
+          plugin_sender.send(WasmPluginMessage::LicenseText(tx))?;
+          rx.await?
+        }
+        .boxed_local()
+      })
+      .await
   }
 
-  fn resolved_config(&self) -> BoxFuture<'static, Result<String>> {
-    let plugin = self.clone();
-    async move {
-      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.resolved_config()))
-        .await
-        .unwrap()
-    }
-    .boxed()
+  async fn resolved_config(&self, config: Arc<FormatConfig>) -> Result<String> {
+    self
+      .with_instance(None, move |plugin_sender| {
+        let config = config.clone();
+        async move {
+          let (tx, rx) = tokio::sync::oneshot::channel();
+          plugin_sender.send(WasmPluginMessage::ResolvedConfig(config, tx))?;
+          rx.await?
+        }
+        .boxed_local()
+      })
+      .await
   }
 
-  fn config_diagnostics(&self) -> BoxFuture<'static, Result<Vec<ConfigurationDiagnostic>>> {
-    let plugin = self.clone();
-    async move {
-      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.config_diagnostics()))
-        .await
-        .unwrap()
-    }
-    .boxed()
+  async fn file_matching_info(&self, config: Arc<FormatConfig>) -> Result<FileMatchingInfo> {
+    self
+      .with_instance(None, move |plugin_sender| {
+        let config = config.clone();
+        async move {
+          let (tx, rx) = tokio::sync::oneshot::channel();
+          plugin_sender.send(WasmPluginMessage::FileMatchingInfo(config, tx))?;
+          rx.await?
+        }
+        .boxed_local()
+      })
+      .await
   }
 
-  fn format_text(&self, request: InitializedPluginFormatRequest) -> BoxFuture<'static, FormatResult> {
-    let plugin = self.clone();
-    async move {
-      let file_path = request.file_path;
-      let file_text = request.file_text;
-      let override_config = request.override_config;
-      // Wasm plugins do not currently support range formatting
-      // so always return back None for now.
-      if request.range.is_some() {
-        return Ok(None);
-      }
-      if request.token.is_cancelled() {
-        return Ok(None);
-      }
-
-      // todo: support cancellation in Wasm plugins
-      tokio::task::spawn_blocking(move || plugin.with_instance(move |instance| instance.format_text(&file_path, &file_text, &override_config))).await?
-    }
-    .boxed()
+  async fn config_diagnostics(&self, config: Arc<FormatConfig>) -> Result<Vec<ConfigurationDiagnostic>> {
+    self
+      .with_instance(None, move |plugin_sender| {
+        let config = config.clone();
+        async move {
+          let (tx, rx) = tokio::sync::oneshot::channel();
+          plugin_sender.send(WasmPluginMessage::ConfigDiagnostics(config, tx))?;
+          rx.await?
+        }
+        .boxed_local()
+      })
+      .await
   }
 
-  fn shutdown(&self) -> BoxFuture<'static, ()> {
-    Box::pin(futures::future::ready(()))
+  async fn check_config_updates(&self, message: CheckConfigUpdatesMessage) -> Result<Vec<ConfigChange>> {
+    let message = Arc::new(message);
+    self
+      .with_instance(None, move |plugin_sender| {
+        let message = message.clone();
+        async move {
+          let (tx, rx) = tokio::sync::oneshot::channel();
+          plugin_sender.send(WasmPluginMessage::CheckConfigUpdates(message, tx))?;
+          rx.await?
+        }
+        .boxed_local()
+      })
+      .await
+  }
+
+  async fn format_text(&self, request: InitializedPluginFormatRequest) -> FormatResult {
+    if request.token.is_cancelled() {
+      return Ok(None);
+    }
+    let message = Arc::new(WasmPluginFormatMessage {
+      file_path: request.file_path,
+      file_bytes: request.file_text,
+      range: request.range,
+      config: request.config,
+      override_config: request.override_config,
+      token: request.token,
+    });
+    let instance_state = InstanceState {
+      host_format_callback: request.on_host_format,
+    };
+    self
+      .with_instance(Some(instance_state), move |plugin_sender| {
+        let message = message.clone();
+        async move {
+          let (tx, rx) = tokio::sync::oneshot::channel();
+          plugin_sender.send(WasmPluginMessage::FormatRequest(message, tx))?;
+          rx.await?.map_err(anyhow::Error::from)
+        }
+        .boxed_local()
+      })
+      .await
+      .map_err(crate::plugins::anyhow_to_format_error)
+  }
+
+  async fn shutdown(&self) {
+    // do nothing
   }
 }

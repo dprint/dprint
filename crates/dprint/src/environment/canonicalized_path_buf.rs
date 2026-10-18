@@ -33,7 +33,7 @@ impl CanonicalizedPathBuf {
     self.path.starts_with(&other.path)
   }
 
-  pub fn to_string_lossy(&self) -> Cow<str> {
+  pub fn to_string_lossy(&self) -> Cow<'_, str> {
     self.path.to_string_lossy()
   }
 
@@ -47,6 +47,15 @@ impl CanonicalizedPathBuf {
 
   pub fn parent(&self) -> Option<CanonicalizedPathBuf> {
     self.path.parent().map(|p| CanonicalizedPathBuf::new(p.to_path_buf()))
+  }
+
+  /// Gets the nearest of this directory and its ancestors that the provided
+  /// path is within, along with the path relative to that directory.
+  pub fn nearest_ancestor_containing<'a>(&self, path: &'a Path) -> Option<(CanonicalizedPathBuf, &'a Path)> {
+    self.path.ancestors().find_map(|ancestor| {
+      let relative_path = path.strip_prefix(ancestor).ok()?;
+      Some((CanonicalizedPathBuf::new(ancestor.to_path_buf()), relative_path))
+    })
   }
 
   pub fn join_panic_relative(&self, path: impl AsRef<str>) -> CanonicalizedPathBuf {

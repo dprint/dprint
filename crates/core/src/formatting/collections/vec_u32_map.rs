@@ -58,7 +58,7 @@ pub struct VecU32BoolMap(Vec<u8>);
 
 impl VecU32BoolMap {
   pub fn with_capacity(capacity: u32) -> Self {
-    let len = (capacity / 4 + if capacity % 4 == 0 { 0 } else { 1 }) as usize;
+    let len = (capacity / 4 + if capacity.is_multiple_of(4) { 0 } else { 1 }) as usize;
     Self(vec![0; len])
   }
 
@@ -75,8 +75,12 @@ impl VecU32BoolMap {
     let option_bit_index = key % 4;
     let value_bit_index = option_bit_index + 4;
     let byte = self.0[byte_index];
-    let byte = byte | 1 << option_bit_index; // set on
-    let byte = if value { byte | 1 << value_bit_index } else { byte & !(1 << value_bit_index) };
+    let byte = byte | (1 << option_bit_index); // set on
+    let byte = if value {
+      byte | (1 << value_bit_index)
+    } else {
+      byte & !(1 << value_bit_index)
+    };
     self.0[byte_index] = byte;
   }
 
@@ -95,9 +99,9 @@ impl VecU32BoolMap {
     if byte_index < self.0.len() {
       let option_bit_index = key % 4;
       let byte = self.0[byte_index];
-      if (byte >> option_bit_index & 1) == 1 {
+      if ((byte >> option_bit_index) & 1) == 1 {
         let value_bit_index = option_bit_index + 4;
-        Some((byte >> value_bit_index & 1) == 1)
+        Some(((byte >> value_bit_index) & 1) == 1)
       } else {
         None
       }
@@ -130,11 +134,7 @@ impl<T: Clone + Copy + PartialEq + Display> VecU32MapWithValuedNone<T> {
 
   pub fn get(&self, key: u32) -> Option<T> {
     let value = *self.0.get(key)?;
-    if value == self.0.default {
-      None
-    } else {
-      Some(value)
-    }
+    if value == self.0.default { None } else { Some(value) }
   }
 }
 

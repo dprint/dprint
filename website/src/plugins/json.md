@@ -4,13 +4,6 @@ description: Documentation on the JSON code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/json">JSON</a></li>
-  </ul>
-</nav>
-
 # JSON/JSONC Code Formatter
 
 Supports:
@@ -20,23 +13,21 @@ Supports:
 
 ## Install and Setup
 
-In a dprint configuration file:
+In your project's directory with a dprint.json file, run:
 
-1. Specify the plugin url in the `"plugins"` array.
-2. Ensure `.json` file extensions are matched in an `"includes"` pattern.
-3. Add a `"json"` configuration property if desired.
+```shellsession
+dprint add json
+```
+
+This will update your config file to have an entry for the plugin. Then optionally specify a `"json"` property to add configuration:
 
 ```json
 {
-  // omitted...
   "json": {
     // json config goes here
   },
-  "includes": [
-    "**/*.{json}"
-  ],
   "plugins": [
-    "https://plugins.dprint.dev/json-x.x.x.wasm"
+    "npm:@dprint/json@x.x.x"
   ]
 }
 ```
@@ -47,4 +38,4 @@ See [Configuration](/plugins/json/config)
 
 ## Playground
 
-See [Playground](https://dprint.dev/playground#language/json)
+See [Playground](https://dprint.dev/playground#plugin/json)

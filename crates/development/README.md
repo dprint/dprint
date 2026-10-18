@@ -34,6 +34,22 @@ To change the configuration, use the following at the top of the file and below 
 ~~ indentWidth: 2, useTabs: true ~~
 ```
 
+### Range Formatting
+
+To format only part of the text, mark the range with `[|` and `|]`, or use `[||]` for a cursor position. The range is passed to the format function given to [`run_specs`](https://docs.rs/dprint-development/latest/dprint_development/fn.run_specs.html).
+
+```
+== formats only the selected statement ==
+const    u    =     2;
+[|const    v    =     3;|]
+
+[expect]
+const    u    =     2;
+[|const v = 3;|]
+```
+
+The expected text may also mark a range, which is used when formatting the output again to ensure it stays the same. A spec without a range in its expected text skips that since the original range no longer lines up with the formatted text.
+
 ### Test Spec Description Helpers
 
 You may change how all the tests are run by adding certain words to a test description:
@@ -43,7 +59,7 @@ You may change how all the tests are run by adding certain words to a test descr
 - `(skip-format-twice)` - Skips formatting the output again to ensure it stays the same—only formats once.
 - `(trace)` - Only runs this test and outputs the IR graph to an HTML file to view in a web browser. Must be run with `cargo test --features tracing`
 
-For example, adding `(only)` to the description will only run the first test in this example:
+For example, adding `(only)` to the description will only run the first test in this example (you'll need to filter using `cargo test` to only run that specific test though):
 
 ```
 == test 1 (only) ==
@@ -61,7 +77,7 @@ console.log(10);
 
 ### Only Running Tests In A File
 
-To only run tests in a single file, temporarily change the file name to add `_Only` at the end before the extension. For example, `CatchClause_All_Only.txt`.
+Note the name of the test that corresponds to the current file, and run with `cargo test <name of test>`
 
 ### Overwriting Failures
 

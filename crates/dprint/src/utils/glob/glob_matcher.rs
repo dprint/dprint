@@ -1,200 +1,408 @@
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::path::Path;
+use std::path::PathBuf;
 
+use anyhow::Context;
 use anyhow::Result;
+use ignore::Match;
+use ignore::gitignore::Gitignore;
+use ignore::gitignore::GitignoreBuilder;
 use ignore::overrides::Override;
 use ignore::overrides::OverrideBuilder;
-use ignore::Match;
 
 use crate::environment::CanonicalizedPathBuf;
 
 use super::GlobPattern;
+use super::GlobPatternKind;
 use super::GlobPatterns;
+use super::is_pattern;
+use super::unescape_glob_text;
 
 pub struct GlobMatcherOptions {
   pub case_sensitive: bool,
+  pub base_dir: CanonicalizedPathBuf,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum GlobMatchesDetail {
   /// Matched an includes pattern.
   Matched,
+  /// Matched and opted out of gitignore exclusion.
+  MatchedOptedOutExclude,
   /// Matched an excludes pattern.
   Excluded,
   /// Matched neither an includes or excludes pattern.
   NotMatched,
 }
 
-pub struct GlobMatcher {
-  inner: GlobMatcherInner,
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ExcludeMatchDetail {
+  Excluded,
+  OptedOutExclude,
+  NotExcluded,
 }
 
-#[allow(clippy::large_enum_variant)]
-enum GlobMatcherInner {
-  Empty,
-  Matcher {
-    base_dir: CanonicalizedPathBuf,
-    include_matcher: Override,
-    exclude_matcher: Override,
-  },
+pub struct GlobMatcher {
+  base_dir: CanonicalizedPathBuf,
+  config_include_matcher: Option<IncludeMatcher>,
+  arg_include_matcher: Option<ArgIncludeMatcher>,
+  config_exclude_matcher: ExcludeMatcher,
+  arg_exclude_matcher: Option<ExcludeMatcher>,
+  include_extensionless_files: bool,
 }
 
 impl GlobMatcher {
   pub fn new(patterns: GlobPatterns, opts: &GlobMatcherOptions) -> Result<GlobMatcher> {
-    let base_dir = get_base_dir(
-      patterns
-        .includes
-        .iter()
-        .map(|p| &p.base_dir)
-        .chain(patterns.excludes.iter().map(|p| &p.base_dir)),
-    );
-
-    let base_dir = if let Some(base_dir) = base_dir {
-      base_dir
-    } else {
-      return Ok(GlobMatcher {
-        inner: GlobMatcherInner::Empty,
-      });
-    };
+    let base_dir = patterns
+      .config_includes
+      .as_ref()
+      .and_then(|includes| get_base_dir(includes.iter().map(|p| &p.base_dir)))
+      .unwrap_or_else(|| opts.base_dir.clone());
 
     // map the includes and excludes to have a new base
-    let excludes = patterns
-      .excludes
+    let config_excludes = patterns
+      .config_excludes
       .into_iter()
-      .map(|pattern| pattern.into_non_negated().into_new_base(base_dir.clone()))
+      .filter_map(|pattern| pattern.into_new_base(base_dir.clone(), GlobPatternKind::Exclude))
       .collect::<Vec<_>>();
-    let includes = patterns
-      .includes
-      .into_iter()
-      .map(|pattern| pattern.into_new_base(base_dir.clone()))
-      .collect::<Vec<_>>();
+    let config_includes = patterns.config_includes.map(|includes| {
+      includes
+        .into_iter()
+        .filter_map(|pattern| pattern.into_new_base(base_dir.clone(), GlobPatternKind::Include))
+        .collect::<Vec<_>>()
+    });
+    let arg_includes = patterns.arg_includes.map(|includes| {
+      includes
+        .into_iter()
+        .filter_map(|pattern| pattern.into_new_base(base_dir.clone(), GlobPatternKind::Include))
+        .collect::<Vec<_>>()
+    });
+    let arg_excludes = patterns.arg_excludes.map(|excludes| {
+      excludes
+        .into_iter()
+        .filter_map(|pattern| pattern.into_new_base(base_dir.clone(), GlobPatternKind::Exclude))
+        .collect::<Vec<_>>()
+    });
 
     Ok(GlobMatcher {
-      inner: GlobMatcherInner::Matcher {
-        include_matcher: build_override(&includes, opts, &base_dir)?,
-        exclude_matcher: build_override(&excludes, opts, &base_dir)?,
-        base_dir,
+      config_include_matcher: match config_includes {
+        Some(includes) => Some(build_include_matcher(&includes, opts, &base_dir)?),
+        None => None,
       },
+      arg_include_matcher: match arg_includes {
+        Some(includes) => Some(ArgIncludeMatcher {
+          include: build_include_matcher(&includes, opts, &base_dir)?,
+          // change the arg includes to go to the deepest base in order to make it
+          // easier what directories should be ignored for traversal
+          includes: includes.into_iter().map(|p| p.into_deepest_base()).collect(),
+        }),
+        None => None,
+      },
+      config_exclude_matcher: build_exclude_matcher(&config_excludes, opts, &base_dir)?,
+      arg_exclude_matcher: match arg_excludes {
+        Some(excludes) => Some(build_exclude_matcher(&excludes, opts, &base_dir)?),
+        None => None,
+      },
+      include_extensionless_files: !patterns.shebangs.is_empty(),
+      base_dir,
     })
   }
 
-  /// Gets if the matcher only has excludes patterns.
-  pub fn has_only_excludes(&self) -> bool {
-    match &self.inner {
-      GlobMatcherInner::Empty => false,
-      GlobMatcherInner::Matcher {
-        include_matcher,
-        exclude_matcher,
-        ..
-      } => include_matcher.is_empty() && !exclude_matcher.is_empty(),
-    }
+  pub fn base_dir(&self) -> &CanonicalizedPathBuf {
+    &self.base_dir
   }
 
   pub fn matches(&self, path: impl AsRef<Path>) -> bool {
-    self.matches_detail(path) == GlobMatchesDetail::Matched
+    matches!(
+      self.matches_detail(path),
+      GlobMatchesDetail::Matched | GlobMatchesDetail::MatchedOptedOutExclude
+    )
   }
 
   pub fn matches_detail(&self, path: impl AsRef<Path>) -> GlobMatchesDetail {
-    match &self.inner {
-      GlobMatcherInner::Empty => GlobMatchesDetail::NotMatched,
-      GlobMatcherInner::Matcher {
-        base_dir,
-        include_matcher,
-        exclude_matcher,
-      } => {
-        let path = path.as_ref();
-        let path = if path.is_absolute() && path.starts_with(base_dir) {
-          if let Ok(prefix) = path.strip_prefix(base_dir) {
-            Cow::Borrowed(prefix)
-          } else {
-            // this is a very strange state that we want to know more about,
-            // so just always log directly to stderr in this scenario and maybe
-            // eventually remove this code.
-            eprintln!(
-              "WARNING: Path prefix error for {} and {}. Please report this error in issue #540.",
-              base_dir.display(),
-              path.display()
-            );
-            return GlobMatchesDetail::NotMatched;
-          }
-        } else if !path.is_absolute() {
-          Cow::Owned(base_dir.join(path))
-        } else {
-          Cow::Borrowed(path)
-        };
+    self.matches_detail_inner(path.as_ref(), self.include_extensionless_files)
+  }
 
-        if matches!(exclude_matcher.matched(&path, false), Match::Whitelist(_)) {
-          GlobMatchesDetail::Excluded
-        } else if matches!(include_matcher.matched(&path, false), Match::Whitelist(_)) {
-          GlobMatchesDetail::Matched
-        } else {
-          GlobMatchesDetail::NotMatched
-        }
-      }
+  /// Like `matches_detail`, but for a file whose first line was already checked
+  /// against the configured shebangs, so an extensionless file is only matched
+  /// regardless of the includes when it has a matching shebang.
+  pub fn matches_detail_with_shebang_checked(&self, path: impl AsRef<Path>, has_matching_shebang: bool) -> GlobMatchesDetail {
+    self.matches_detail_inner(path.as_ref(), self.include_extensionless_files && has_matching_shebang)
+  }
+
+  /// Gets whether the excludes exclude the path, opt it out of being excluded,
+  /// or don't match it, without considering the includes.
+  pub fn exclude_detail(&self, path: impl AsRef<Path>) -> ExcludeMatchDetail {
+    let path = self.base_relative_path(path.as_ref());
+    self.check_exclude(&path, false)
+  }
+
+  fn base_relative_path<'p>(&self, path: &'p Path) -> Cow<'p, Path> {
+    let path = if path.is_absolute() {
+      Cow::Borrowed(path)
+    } else {
+      Cow::Owned(self.base_dir.join(path))
+    };
+    match path {
+      Cow::Borrowed(path) => match path.strip_prefix(&self.base_dir) {
+        Ok(prefix) => Cow::Borrowed(prefix),
+        Err(_) => Cow::Borrowed(path),
+      },
+      Cow::Owned(path) => match path.strip_prefix(&self.base_dir) {
+        Ok(prefix) => Cow::Owned(prefix.to_path_buf()),
+        Err(_) => Cow::Owned(path),
+      },
     }
   }
 
-  pub fn is_dir_ignored(&self, path: impl AsRef<Path>) -> bool {
-    match &self.inner {
-      GlobMatcherInner::Empty => false,
-      GlobMatcherInner::Matcher { base_dir, exclude_matcher, .. } => {
-        if path.as_ref().starts_with(base_dir) {
-          let path = path.as_ref().strip_prefix(base_dir).unwrap();
-          matches!(exclude_matcher.matched(path, true), Match::Whitelist(_))
-        } else {
-          true
-        }
-      }
+  fn matches_detail_inner(&self, path: &Path, include_extensionless: bool) -> GlobMatchesDetail {
+    let path = self.base_relative_path(path);
+
+    let matched_result = match self.check_exclude(&path, false) {
+      ExcludeMatchDetail::Excluded => return GlobMatchesDetail::Excluded,
+      ExcludeMatchDetail::OptedOutExclude => GlobMatchesDetail::MatchedOptedOutExclude,
+      ExcludeMatchDetail::NotExcluded => GlobMatchesDetail::Matched,
+    };
+
+    if self.arg_include_matcher.as_ref().map(|m| m.include.is_match(&path)).unwrap_or(true)
+      && self
+        .config_include_matcher
+        .as_ref()
+        .map(|m| m.is_match_or_extensionless(&path, include_extensionless))
+        .unwrap_or(true)
+    {
+      matched_result
+    } else {
+      GlobMatchesDetail::NotMatched
     }
   }
 
-  /// More expensive check for if the directory is already ignored.
-  /// Prefer using `matches` if you already know the parent directory
-  /// isn't ignored as it's faster.
-  pub fn matches_and_dir_not_ignored(&self, file_path: impl AsRef<Path>) -> bool {
-    if !self.matches(&file_path) {
-      return false;
+  pub fn check_exclude(&self, path: &Path, is_dir: bool) -> ExcludeMatchDetail {
+    let mut result = self.config_exclude_matcher.matched(path, is_dir);
+    if let Some(matcher) = &self.arg_exclude_matcher {
+      // arg excludes take precedence over config excludes when they match
+      match matcher.matched(path, is_dir) {
+        ExcludeMatchDetail::NotExcluded => {}
+        arg_match => result = arg_match,
+      }
     }
+    result
+  }
 
-    match &self.inner {
-      GlobMatcherInner::Empty => false,
-      GlobMatcherInner::Matcher { base_dir, exclude_matcher, .. } => {
-        if file_path.as_ref().starts_with(base_dir) {
-          for ancestor in file_path.as_ref().ancestors() {
-            if let Ok(path) = ancestor.strip_prefix(base_dir) {
-              if matches!(exclude_matcher.matched(path, true), Match::Whitelist(_)) {
-                return false;
-              }
-            } else {
-              return true;
-            }
-          }
-          true
-        } else {
-          false
+  pub fn is_dir_ignored(&self, path: impl AsRef<Path>) -> ExcludeMatchDetail {
+    let path = path.as_ref();
+    if path.starts_with(&self.base_dir) {
+      if let Some(include) = &self.arg_include_matcher {
+        let has_any_dir = include.includes.iter().any(|base_pattern| base_pattern.matches_dir_for_traversal(path));
+        if !has_any_dir {
+          return ExcludeMatchDetail::Excluded;
         }
       }
+
+      let path = path.strip_prefix(&self.base_dir).unwrap();
+      self.check_exclude(path, true)
+    } else if self.base_dir.as_ref().starts_with(path) {
+      // an ancestor of the base directory (ex. the config directory when
+      // override args cause the base to be a deeper cwd) can't match any
+      // patterns, but it's not ignored because traversal descends through it
+      ExcludeMatchDetail::NotExcluded
+    } else {
+      ExcludeMatchDetail::Excluded
     }
   }
 }
 
-fn build_override(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir: &CanonicalizedPathBuf) -> Result<Override> {
-  let mut builder = OverrideBuilder::new(base_dir);
-  let builder = builder.case_insensitive(!opts.case_sensitive)?;
+/// The arg include matcher additionally keeps the include patterns around so
+/// that directory traversal can be pruned (see `is_dir_ignored`).
+#[derive(Debug)]
+struct ArgIncludeMatcher {
+  include: IncludeMatcher,
+  includes: Vec<GlobPattern>,
+}
 
-  for pattern in patterns {
-    // change patterns that start with ./ to be at the "root" of the globbing
-    let pattern = if pattern.relative_pattern.starts_with("!./") {
-      Cow::Owned(format!("!/{}", &pattern.relative_pattern[3..]))
-    } else if pattern.relative_pattern.starts_with("./") {
-      Cow::Owned(format!("/{}", &pattern.relative_pattern[2..]))
-    } else {
-      Cow::Borrowed(&pattern.relative_pattern)
-    };
-    builder.add(&pattern)?;
+/// Matches include patterns, with literal (non-glob) paths pulled into a hash
+/// set fast path instead of being compiled into `matcher`.
+///
+/// This keeps the compiled glob regex small when a large number of literal file
+/// paths are provided (e.g. when a shell expands a glob into thousands of
+/// paths).
+#[derive(Debug)]
+struct IncludeMatcher {
+  literal_paths: HashSet<PathBuf>,
+  matcher: Override,
+  /// Only the negated include patterns, so an extensionless file that's
+  /// included regardless of the patterns can still be excluded by them
+  /// (`Override` doesn't distinguish a negated match from no match).
+  negated_matcher: Option<Gitignore>,
+}
+
+impl IncludeMatcher {
+  fn is_match(&self, path: &Path) -> bool {
+    self.is_match_or_extensionless(path, false)
   }
 
-  Ok(builder.build()?)
+  /// Matches the include patterns, additionally matching files without an
+  /// extension when `include_extensionless` is true. A negated include pattern
+  /// still excludes an extensionless file.
+  fn is_match_or_extensionless(&self, path: &Path, include_extensionless: bool) -> bool {
+    if self.literal_paths.contains(path) || matches!(self.matcher.matched(path, false), Match::Whitelist(_)) {
+      return true;
+    }
+    include_extensionless
+      && path.extension().is_none()
+      && !self
+        .negated_matcher
+        .as_ref()
+        .is_some_and(|m| matches!(m.matched(path, false), Match::Ignore(_)))
+  }
+}
+
+/// Matches exclude patterns, with literal (non-glob) paths pulled into a hash
+/// set fast path instead of being compiled into `matcher`. See `IncludeMatcher`.
+struct ExcludeMatcher {
+  literal_paths: HashSet<PathBuf>,
+  matcher: Gitignore,
+}
+
+impl ExcludeMatcher {
+  fn matched(&self, path: &Path, is_dir: bool) -> ExcludeMatchDetail {
+    if self.literal_paths.contains(path) {
+      return ExcludeMatchDetail::Excluded;
+    }
+    match self.matcher.matched(path, is_dir) {
+      Match::None => ExcludeMatchDetail::NotExcluded,
+      Match::Ignore(_) => ExcludeMatchDetail::Excluded,
+      Match::Whitelist(_) => ExcludeMatchDetail::OptedOutExclude,
+    }
+  }
+}
+
+fn build_include_matcher(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir: &CanonicalizedPathBuf) -> Result<IncludeMatcher> {
+  let use_fast_path = can_use_literal_fast_path(patterns, opts);
+  let mut literal_paths = HashSet::new();
+  let mut builder = OverrideBuilder::new(base_dir);
+  builder.case_insensitive(!opts.case_sensitive)?;
+  let mut negated_builder: Option<GitignoreBuilder> = None;
+
+  for pattern in patterns {
+    if use_fast_path && let Some(path) = literal_relative_path(pattern) {
+      literal_paths.insert(path);
+    } else {
+      let pattern_text = get_include_pattern_text(pattern, base_dir);
+      if let Some(negated_text) = pattern_text.strip_prefix('!') {
+        let negated_builder = negated_builder.get_or_insert_with(|| {
+          let mut builder = GitignoreBuilder::new(base_dir);
+          let _ = builder.case_insensitive(!opts.case_sensitive);
+          builder
+        });
+        negated_builder.add_line(None, negated_text)?;
+      }
+      builder.add(&pattern_text)?;
+    }
+  }
+
+  Ok(IncludeMatcher {
+    literal_paths,
+    matcher: builder.build().with_context(too_many_patterns_message)?,
+    negated_matcher: match negated_builder {
+      Some(builder) => Some(builder.build().with_context(too_many_patterns_message)?),
+      None => None,
+    },
+  })
+}
+
+fn build_exclude_matcher(patterns: &[GlobPattern], opts: &GlobMatcherOptions, base_dir: &CanonicalizedPathBuf) -> Result<ExcludeMatcher> {
+  let use_fast_path = can_use_literal_fast_path(patterns, opts);
+  let mut literal_paths = HashSet::new();
+  let mut builder = GitignoreBuilder::new(base_dir);
+  builder.case_insensitive(!opts.case_sensitive)?;
+
+  for pattern in patterns {
+    if use_fast_path && let Some(path) = literal_relative_path(pattern) {
+      literal_paths.insert(path);
+    } else {
+      builder.add_line(None, &normalize_pattern(pattern))?;
+    }
+  }
+
+  Ok(ExcludeMatcher {
+    literal_paths,
+    matcher: builder.build().with_context(too_many_patterns_message)?,
+  })
+}
+
+/// Gets whether literal patterns can be pulled into the hash set fast path.
+///
+/// This is only safe when matching case sensitively (the hash set lookup is case
+/// sensitive) and when nothing is negated (a later negation can opt a literal
+/// path back out, which only the order-aware compiled matcher handles correctly).
+fn can_use_literal_fast_path(patterns: &[GlobPattern], opts: &GlobMatcherOptions) -> bool {
+  opts.case_sensitive && !patterns.iter().any(|p| p.is_negated())
+}
+
+/// Gets the base-relative path for a literal pattern that can be matched by exact
+/// path equality, or `None` when the pattern must go through the compiled matcher.
+///
+/// Only anchored patterns qualify: a bare basename (e.g. `foo.ts`) matches at any
+/// depth and a directory-only pattern (trailing slash) depends on `is_dir`, so
+/// neither is equivalent to an exact path lookup.
+fn literal_relative_path(pattern: &GlobPattern) -> Option<PathBuf> {
+  let pattern = &pattern.relative_pattern;
+  if is_pattern(pattern) {
+    return None; // glob (also excludes negated patterns, which start with `!`)
+  }
+  let (anchored, relative) = if let Some(rest) = pattern.strip_prefix("./") {
+    (true, rest)
+  } else if let Some(rest) = pattern.strip_prefix('/') {
+    (true, rest)
+  } else {
+    // anchored if it has an internal slash (a bare basename matches at any depth)
+    (pattern.trim_end_matches('/').contains('/'), pattern.as_str())
+  };
+  if !anchored || relative.is_empty() || relative.ends_with('/') {
+    return None;
+  }
+  // unescape so an escaped literal (ex. `./\[id\].svelte`) is stored as the
+  // actual file path
+  Some(PathBuf::from(unescape_glob_text(relative).as_ref()))
+}
+
+/// Gets the include pattern text to add to the override builder (only the
+/// include matcher uses overrides—excludes go straight into a gitignore matcher).
+fn get_include_pattern_text<'a>(pattern: &'a GlobPattern, base_dir: &CanonicalizedPathBuf) -> Cow<'a, str> {
+  if pattern.base_dir != *base_dir {
+    match pattern.clone().into_new_base(base_dir.clone(), GlobPatternKind::Include) {
+      // rebasing creates a new pattern, so the normalized text can't borrow from it
+      Some(pattern) => Cow::Owned(normalize_pattern(&pattern).into_owned()),
+      None => Cow::Owned(pattern.as_absolute_pattern_text()),
+    }
+  } else {
+    normalize_pattern(pattern)
+  }
+}
+
+/// Surfaces a helpful message when the compiled glob exceeds the regex size
+/// limit, which generally happens when a shell expands a glob into a huge
+/// number of paths.
+fn too_many_patterns_message() -> String {
+  concat!(
+    "Failed building glob matcher because the provided file patterns were too large to compile. ",
+    "This usually happens when your shell expands a glob into many file paths. ",
+    "Try quoting the glob so dprint expands it instead (ex. dprint fmt \"./**/*.ts\")."
+  )
+  .to_string()
+}
+
+fn normalize_pattern(pattern: &GlobPattern) -> Cow<'_, str> {
+  // change patterns that start with ./ to be at the "root" of the globbing
+  if pattern.relative_pattern.starts_with("!./") {
+    Cow::Owned(format!("!/{}", &pattern.relative_pattern[3..]))
+  } else if pattern.relative_pattern.starts_with("./") {
+    Cow::Owned(format!("/{}", &pattern.relative_pattern[2..]))
+  } else {
+    Cow::Borrowed(&pattern.relative_pattern)
+  }
 }
 
 fn get_base_dir<'a>(dirs: impl Iterator<Item = &'a CanonicalizedPathBuf>) -> Option<CanonicalizedPathBuf> {
@@ -216,20 +424,455 @@ mod test {
   use super::*;
 
   #[test]
+  fn include_extensionless_files() {
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: vec!["#!/bin/sh".to_string()],
+        arg_includes: None,
+        config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
+        arg_excludes: None,
+        config_excludes: vec![GlobPattern::new("**/excluded".to_string(), cwd.clone())],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd.clone(),
+      },
+    )
+    .unwrap();
+    assert!(glob_matcher.matches("/testing/dir/match.ts"));
+    assert!(glob_matcher.matches("/testing/dir/scripts/build"));
+    assert!(!glob_matcher.matches("/testing/dir/scripts/build.sh"));
+    // excludes still apply
+    assert!(!glob_matcher.matches("/testing/dir/scripts/excluded"));
+    // negated includes still apply
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: vec!["#!/bin/sh".to_string()],
+        arg_includes: None,
+        config_includes: Some(vec![
+          GlobPattern::new("**/*.ts".to_string(), cwd.clone()),
+          GlobPattern::new("!**/vendor/**".to_string(), cwd.clone()),
+        ]),
+        arg_excludes: None,
+        config_excludes: vec![],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd.clone(),
+      },
+    )
+    .unwrap();
+    assert!(glob_matcher.matches("/testing/dir/scripts/build"));
+    assert!(!glob_matcher.matches("/testing/dir/vendor/build"));
+    assert!(!glob_matcher.matches("/testing/dir/vendor/build.ts"));
+    // when the shebang was checked, only files with a matching shebang are included
+    assert_eq!(
+      glob_matcher.matches_detail_with_shebang_checked("/testing/dir/scripts/build", true),
+      GlobMatchesDetail::Matched
+    );
+    assert_eq!(
+      glob_matcher.matches_detail_with_shebang_checked("/testing/dir/scripts/build", false),
+      GlobMatchesDetail::NotMatched
+    );
+    assert_eq!(
+      glob_matcher.matches_detail_with_shebang_checked("/testing/dir/scripts/build.ts", false),
+      GlobMatchesDetail::Matched
+    );
+    // the arg includes still restrict the files
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: vec!["#!/bin/sh".to_string()],
+        arg_includes: Some(vec![GlobPattern::new("sub/**".to_string(), cwd.clone())]),
+        config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
+        arg_excludes: None,
+        config_excludes: vec![],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd.clone(),
+      },
+    )
+    .unwrap();
+    assert!(glob_matcher.matches("/testing/dir/sub/build"));
+    assert!(!glob_matcher.matches("/testing/dir/build"));
+  }
+
+  #[test]
   fn works() {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
-        includes: vec![GlobPattern::new("*.ts".to_string(), cwd.clone())],
-        excludes: vec![GlobPattern::new("no-match.ts".to_string(), cwd.clone())],
+        shebangs: Vec::new(),
+        arg_includes: None,
+        config_includes: Some(vec![GlobPattern::new("*.ts".to_string(), cwd.clone())]),
+        arg_excludes: None,
+        config_excludes: vec![GlobPattern::new("no-match.ts".to_string(), cwd.clone())],
       },
-      &GlobMatcherOptions { case_sensitive: true },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
     )
     .unwrap();
     assert_eq!(glob_matcher.matches_detail("/testing/dir/match.ts"), GlobMatchesDetail::Matched);
     assert_eq!(glob_matcher.matches_detail("/testing/dir/other/match.ts"), GlobMatchesDetail::Matched);
     assert_eq!(glob_matcher.matches_detail("/testing/dir/no-match.ts"), GlobMatchesDetail::Excluded);
-    assert!(!glob_matcher.has_only_excludes());
+  }
+
+  #[test]
+  fn cli_args_intersection_excludes_union() {
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: Vec::new(),
+        arg_includes: Some(vec![GlobPattern::new("src/*.ts".to_string(), cwd.clone())]),
+        config_includes: Some(vec![GlobPattern::new("*.ts".to_string(), cwd.clone())]),
+        arg_excludes: Some(vec![GlobPattern::new("no-match2.ts".to_string(), cwd.clone())]),
+        config_excludes: vec![GlobPattern::new("no-match.ts".to_string(), cwd.clone())],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/match.ts"), GlobMatchesDetail::NotMatched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/src/match.ts"), GlobMatchesDetail::Matched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/other/match.ts"), GlobMatchesDetail::NotMatched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/no-match.ts"), GlobMatchesDetail::Excluded);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/src/no-match.ts"), GlobMatchesDetail::Excluded);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/src/no-match2.ts"), GlobMatchesDetail::Excluded);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/src/no-match3.ts"), GlobMatchesDetail::Matched);
+  }
+
+  #[test]
+  fn cli_args_literal_paths_match() {
+    // literal paths passed on the command line take the hash set fast path
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: Vec::new(),
+        arg_includes: Some(vec![
+          GlobPattern::new("./a.ts".to_string(), cwd.clone()),
+          GlobPattern::new("./sub/b.ts".to_string(), cwd.clone()),
+          GlobPattern::new("./glob/*.ts".to_string(), cwd.clone()),
+        ]),
+        config_includes: None,
+        arg_excludes: None,
+        config_excludes: vec![],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/a.ts"), GlobMatchesDetail::Matched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/sub/b.ts"), GlobMatchesDetail::Matched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/glob/c.ts"), GlobMatchesDetail::Matched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/not-listed.ts"), GlobMatchesDetail::NotMatched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/sub/not-listed.ts"), GlobMatchesDetail::NotMatched);
+  }
+
+  #[test]
+  fn cli_args_many_literal_paths_do_not_exceed_regex_limit() {
+    // a shell expanding a glob into a huge number of literal paths used to
+    // overflow the compiled glob regex
+
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let arg_includes = (0..50_000)
+      .map(|i| GlobPattern::new(format!("./some/nested/directory/path/file_{i}.ts"), cwd.clone()))
+      .collect();
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: Vec::new(),
+        arg_includes: Some(arg_includes),
+        config_includes: None,
+        arg_excludes: None,
+        config_excludes: vec![],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    assert_eq!(
+      glob_matcher.matches_detail("/testing/dir/some/nested/directory/path/file_42.ts"),
+      GlobMatchesDetail::Matched
+    );
+    assert_eq!(
+      glob_matcher.matches_detail("/testing/dir/some/nested/directory/path/missing.ts"),
+      GlobMatchesDetail::NotMatched
+    );
+  }
+
+  #[test]
+  fn config_literal_includes_and_excludes_match() {
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: Vec::new(),
+        arg_includes: None,
+        config_includes: Some(vec![
+          GlobPattern::new("./a.ts".to_string(), cwd.clone()),
+          GlobPattern::new("sub/b.ts".to_string(), cwd.clone()),
+        ]),
+        arg_excludes: None,
+        config_excludes: vec![GlobPattern::new("sub/c.ts".to_string(), cwd.clone())],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/a.ts"), GlobMatchesDetail::Matched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/sub/b.ts"), GlobMatchesDetail::Matched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/sub/c.ts"), GlobMatchesDetail::Excluded);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/not-listed.ts"), GlobMatchesDetail::NotMatched);
+    // an anchored literal must not match the same name at a different depth
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/sub/a.ts"), GlobMatchesDetail::NotMatched);
+  }
+
+  #[test]
+  fn bare_basename_pattern_matches_at_any_depth() {
+    // a non-anchored literal (no internal slash) keeps gitignore semantics of
+    // matching the basename at any depth, so it must stay in the compiled matcher
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: Vec::new(),
+        arg_includes: None,
+        config_includes: Some(vec![GlobPattern::new("a.ts".to_string(), cwd.clone())]),
+        arg_excludes: None,
+        config_excludes: vec![GlobPattern::new("excluded.ts".to_string(), cwd.clone())],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/a.ts"), GlobMatchesDetail::Matched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/sub/nested/a.ts"), GlobMatchesDetail::Matched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/sub/excluded.ts"), GlobMatchesDetail::Excluded);
+  }
+
+  #[test]
+  fn literal_dir_exclude_prunes_traversal() {
+    // an anchored literal directory exclude should prune the directory during
+    // traversal (its children are matched via pruning, not per-file matching)
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: Vec::new(),
+        arg_includes: None,
+        config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
+        arg_excludes: Some(vec![GlobPattern::new("./dist".to_string(), cwd.clone())]),
+        config_excludes: vec![],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    assert_eq!(glob_matcher.is_dir_ignored("/testing/dir/dist"), ExcludeMatchDetail::Excluded);
+    assert_eq!(glob_matcher.is_dir_ignored("/testing/dir/src"), ExcludeMatchDetail::NotExcluded);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/src/a.ts"), GlobMatchesDetail::Matched);
+  }
+
+  #[test]
+  fn negated_include_falls_back_to_compiled_matcher() {
+    // a negated pattern in the group disables the literal fast path so the
+    // order-dependent opt-out semantics are preserved
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: Vec::new(),
+        arg_includes: None,
+        config_includes: Some(vec![
+          GlobPattern::new("./a.ts".to_string(), cwd.clone()),
+          GlobPattern::new("./b.ts".to_string(), cwd.clone()),
+          GlobPattern::new("!./a.ts".to_string(), cwd.clone()),
+        ]),
+        arg_excludes: None,
+        config_excludes: vec![],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    // a.ts was opted back out by the later negation
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/a.ts"), GlobMatchesDetail::NotMatched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/b.ts"), GlobMatchesDetail::Matched);
+  }
+
+  #[test]
+  fn negated_exclude_opt_out_falls_back_to_compiled_matcher() {
+    // a negation in the excludes opts a file back in; this must keep working
+    // through the compiled gitignore matcher
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: Vec::new(),
+        arg_includes: None,
+        config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
+        arg_excludes: None,
+        config_excludes: vec![
+          GlobPattern::new("**/*.ts".to_string(), cwd.clone()),
+          GlobPattern::new("!./keep.ts".to_string(), cwd.clone()),
+        ],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/keep.ts"), GlobMatchesDetail::MatchedOptedOutExclude);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/other.ts"), GlobMatchesDetail::Excluded);
+  }
+
+  #[test]
+  fn arg_exclude_takes_precedence_over_config_exclude() {
+    // a literal arg exclude opting back in should override a config exclude
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: Vec::new(),
+        arg_includes: None,
+        config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
+        arg_excludes: Some(vec![GlobPattern::new("./keep.ts".to_string(), cwd.clone()).invert()]),
+        config_excludes: vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    // config excludes everything; the arg exclude opts keep.ts back in
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/keep.ts"), GlobMatchesDetail::MatchedOptedOutExclude);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/other.ts"), GlobMatchesDetail::Excluded);
+  }
+
+  #[test]
+  fn case_insensitive_does_not_use_literal_fast_path() {
+    // the literal fast path is case sensitive, so it must not be used when
+    // matching case insensitively—matching still goes through the compiled matcher
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: Vec::new(),
+        arg_includes: None,
+        config_includes: Some(vec![GlobPattern::new("./a.ts".to_string(), cwd.clone())]),
+        arg_excludes: None,
+        config_excludes: vec![],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: false,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/a.ts"), GlobMatchesDetail::Matched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/A.TS"), GlobMatchesDetail::Matched);
+  }
+
+  #[test]
+  fn literal_pattern_with_glob_char_stays_in_matcher() {
+    // patterns containing glob metacharacters must not take the literal fast path
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: Vec::new(),
+        arg_includes: None,
+        config_includes: Some(vec![GlobPattern::new("./a?.ts".to_string(), cwd.clone())]),
+        arg_excludes: None,
+        config_excludes: vec![],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/ab.ts"), GlobMatchesDetail::Matched);
+    assert_eq!(glob_matcher.matches_detail("/testing/dir/a.ts"), GlobMatchesDetail::NotMatched);
+  }
+
+  #[test]
+  fn literal_match_with_relative_path_input() {
+    // matches_detail should resolve relative input against the base dir before
+    // the literal lookup
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: Vec::new(),
+        arg_includes: Some(vec![GlobPattern::new("./sub/a.ts".to_string(), cwd.clone())]),
+        config_includes: None,
+        arg_excludes: None,
+        config_excludes: vec![],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    assert_eq!(glob_matcher.matches_detail("sub/a.ts"), GlobMatchesDetail::Matched);
+    assert_eq!(glob_matcher.matches_detail("sub/b.ts"), GlobMatchesDetail::NotMatched);
+  }
+
+  #[cfg(target_os = "windows")]
+  #[test]
+  fn literal_match_with_backslash_separators() {
+    // the literal lookup compares paths component-wise, so a path with backslash
+    // separators must match a literal stored with forward slashes
+    let cwd = CanonicalizedPathBuf::new_for_testing("C:\\testing\\dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: Vec::new(),
+        arg_includes: Some(vec![GlobPattern::new("./sub/a.ts".to_string(), cwd.clone())]),
+        config_includes: None,
+        arg_excludes: None,
+        config_excludes: vec![],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    assert_eq!(glob_matcher.matches_detail("C:\\testing\\dir\\sub\\a.ts"), GlobMatchesDetail::Matched);
+    assert_eq!(glob_matcher.matches_detail("C:\\testing\\dir\\sub\\b.ts"), GlobMatchesDetail::NotMatched);
+  }
+
+  #[test]
+  fn cli_args_is_dir_excluded() {
+    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
+    let glob_matcher = GlobMatcher::new(
+      GlobPatterns {
+        shebangs: Vec::new(),
+        arg_includes: Some(vec![GlobPattern::new("src/*.ts".to_string(), cwd.clone())]),
+        config_includes: Some(vec![GlobPattern::new("*.ts".to_string(), cwd.clone())]),
+        arg_excludes: Some(vec![GlobPattern::new("no-match2.ts".to_string(), cwd.clone())]),
+        config_excludes: vec![GlobPattern::new("no-match.ts".to_string(), cwd.clone())],
+      },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
+    )
+    .unwrap();
+    assert_eq!(glob_matcher.is_dir_ignored("/testing/dir/src/"), ExcludeMatchDetail::NotExcluded);
+    assert_eq!(glob_matcher.is_dir_ignored("/testing/dir/other/"), ExcludeMatchDetail::Excluded);
+    assert_eq!(glob_matcher.is_dir_ignored("/testing/dir/src/sub"), ExcludeMatchDetail::Excluded);
   }
 
   #[test]
@@ -237,10 +880,16 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
-        includes: vec![GlobPattern::new("/testing/dir/*.ts".to_string(), cwd.clone())],
-        excludes: vec![GlobPattern::new("/testing/dir/no-match.ts".to_string(), cwd.clone())],
+        shebangs: Vec::new(),
+        arg_includes: None,
+        config_includes: Some(vec![GlobPattern::new("/testing/dir/*.ts".to_string(), cwd.clone())]),
+        arg_excludes: None,
+        config_excludes: vec![GlobPattern::new("/testing/dir/no-match.ts".to_string(), cwd.clone())],
       },
-      &GlobMatcherOptions { case_sensitive: true },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
     )
     .unwrap();
     assert!(!glob_matcher.matches("/some/other/dir/file.ts"));
@@ -252,31 +901,20 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("\\?\\UNC\\wsl$\\Ubuntu\\home\\david");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
-        includes: vec![GlobPattern::new("*.ts".to_string(), cwd.clone())],
-        excludes: vec![GlobPattern::new("no-match.ts".to_string(), cwd.clone())],
+        shebangs: Vec::new(),
+        arg_includes: None,
+        config_includes: Some(vec![GlobPattern::new("*.ts".to_string(), cwd.clone())]),
+        arg_excludes: None,
+        config_excludes: vec![GlobPattern::new("no-match.ts".to_string(), cwd.clone())],
       },
-      &GlobMatcherOptions { case_sensitive: true },
+      &GlobMatcherOptions {
+        case_sensitive: true,
+        base_dir: cwd,
+      },
     )
     .unwrap();
     assert!(glob_matcher.matches("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\match.ts"));
     assert!(glob_matcher.matches("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\dir\\other.ts"));
     assert!(!glob_matcher.matches("\\?\\UNC\\wsl$\\Ubuntu\\home\\david\\no-match.ts"));
-  }
-
-  #[test]
-  fn handles_ignored_dir() {
-    let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
-    let glob_matcher = GlobMatcher::new(
-      GlobPatterns {
-        includes: vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())],
-        excludes: vec![GlobPattern::new("sub-dir".to_string(), cwd.clone())],
-      },
-      &GlobMatcherOptions { case_sensitive: true },
-    )
-    .unwrap();
-    assert!(glob_matcher.matches_and_dir_not_ignored("/testing/dir/match.ts"));
-    assert!(glob_matcher.matches_and_dir_not_ignored("/testing/dir/other/match.ts"));
-    assert!(!glob_matcher.matches_and_dir_not_ignored("/testing/sub-dir/no-match.ts"));
-    assert!(!glob_matcher.matches_and_dir_not_ignored("/testing/sub-dir/nested/no-match.ts"));
   }
 }

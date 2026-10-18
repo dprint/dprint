@@ -1,0 +1,184 @@
+Shift, alt, or ctrl with an arrow moves a selected plugin among the selected
+ones, which is the order the plugins are written in. Nothing moves past the
+ends, in with the plugins that aren't selected, or while filtering.
+
+-- file: /src/main.ts --
+-- file: /data.json --
+-- keys --
+shift+up
+shift+down
+shift+down
+down
+alt+up
+space
+ctrl+up
+"json"
+shift+down
+backspace
+backspace
+backspace
+backspace
+enter
+-- output --
+[start]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [x] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[shift+up]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [x] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[shift+down]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  [x] dprint-plugin-json (.json, .jsonc)
+> [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[shift+down]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  [x] dprint-plugin-json (.json, .jsonc)
+> [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[down]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  [x] dprint-plugin-json (.json, .jsonc)
+  [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+> [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[alt+up]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  [x] dprint-plugin-json (.json, .jsonc)
+  [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+> [ ] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[space]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  [x] dprint-plugin-json (.json, .jsonc)
+  [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+> [x] dprint-plugin-markdown (.md, .mdx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[ctrl+up]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  [x] dprint-plugin-json (.json, .jsonc)
+> [x] dprint-plugin-markdown (.md, .mdx)
+  [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+["json"]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  filter: json
+> [x] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+
+[shift+down]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  filter: json
+> [x] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+
+[backspace]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  filter: jso
+> [x] dprint-plugin-json (.json, .jsonc)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+
+[backspace]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  filter: js
+> [x] dprint-plugin-json (.json, .jsonc)
+  [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+
+[backspace]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+  filter: j
+> [x] dprint-plugin-json (.json, .jsonc)
+  [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+
+[backspace]
+Select plugins:
+  space: toggle, →: options, shift+↑/↓: move, type to filter, enter: finish, ★:
+  preferred (dprint init --preferences)
+> [x] dprint-plugin-json (.json, .jsonc)
+  [x] dprint-plugin-markdown (.md, .mdx)
+  [x] dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+  [ ] dprint-plugin-biome (.ts, .tsx, .js, .jsx, .json, .jsonc)
+  [ ] test-plugin (.txt)
+
+[enter]
+Select plugins:
+ * dprint-plugin-json (.json, .jsonc)
+ * dprint-plugin-markdown (.md, .mdx)
+ * dprint-plugin-typescript (.ts, .tsx, .js, .jsx)
+
+# stdout
+
+Created dprint.json
+
+If you are working in a commercial environment please consider sponsoring dprint: https://dprint.dev/sponsor
+
+# /dprint.json
+{
+  "json": {
+  },
+  "markdown": {
+  },
+  "typescript": {
+  },
+  "excludes": [],
+  "plugins": [
+    "https://plugins.dprint.dev/json-1.0.0.wasm",
+    "https://plugins.dprint.dev/markdown-1.0.0.wasm",
+    "https://plugins.dprint.dev/typescript-1.0.0.wasm"
+  ]
+}
+
+# /config/dprint/init.json
+(does not exist)

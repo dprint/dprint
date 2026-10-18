@@ -1,18 +1,30 @@
-use indexmap::IndexMap;
+use std::ops::Range;
 
 #[derive(PartialEq, Eq, Debug)]
 pub struct Spec {
   pub file_name: String,
   pub message: String,
   pub file_text: String,
+  /// Byte range of `file_text` to format, marked in the spec with `[|` and `|]`.
+  pub range: Option<Range<usize>>,
   pub expected_text: String,
+  /// Byte range of `expected_text` to format when formatting it a second time.
+  pub expected_range: Option<Range<usize>>,
   pub is_only: bool,
   pub is_trace: bool,
   pub skip: bool,
   pub skip_format_twice: bool,
-  pub config: IndexMap<String, String>,
+  pub config: SpecConfigMap,
 }
 
+/// Marks the start of the range to format in a spec's text.
+pub const RANGE_START: &str = "[|";
+/// Marks the end of the range to format in a spec's text.
+pub const RANGE_END: &str = "|]";
+
+pub type SpecConfigMap = serde_json::Map<String, serde_json::Value>;
+
+#[derive(Debug, Clone)]
 pub struct ParseSpecOptions {
   /// The default file name for a parsed spec.
   pub default_file_name: &'static str,
@@ -47,21 +59,35 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
     (file_text["--".len()..last_index].trim().into(), file_text[(last_index + "--\n".len())..].into())
   }
 
-  fn parse_config(file_text: String) -> (IndexMap<String, String>, String) {
+  fn parse_config(file_text: String) -> (SpecConfigMap, String) {
     if !file_text.starts_with("~~") {
-      return (IndexMap::new(), file_text);
+      return (Default::default(), file_text);
     }
     let last_index = file_text.find("~~\n").expect("Could not find final ~~\\n");
 
     let config_text = file_text["~~".len()..last_index].replace('\n', "");
-    let mut config: IndexMap<String, String> = IndexMap::new();
+    let config_text = config_text.trim();
+    let mut config: SpecConfigMap = Default::default();
 
-    for item in config_text.split(',') {
-      let first_colon = item.find(':').expect("Could not find colon in config option.");
-      let key = item[0..first_colon].trim();
-      let value = item[first_colon + ":".len()..].trim();
+    if config_text.starts_with('{') {
+      config = serde_json::from_str(config_text).expect("Error parsing config json.");
+    } else {
+      for item in config_text.split(',') {
+        let first_colon = item.find(':').expect("Could not find colon in config option.");
+        let key = item[0..first_colon].trim();
+        let value = item[first_colon + ":".len()..].trim();
 
-      config.insert(key.into(), value.into());
+        config.insert(
+          key.into(),
+          match value.parse::<bool>() {
+            Ok(value) => value.into(),
+            Err(_) => match value.parse::<i32>() {
+              Ok(value) => value.into(),
+              Err(_) => value.into(),
+            },
+          },
+        );
+      }
     }
 
     (config, file_text[(last_index + "~~\n".len())..].into())
@@ -84,11 +110,15 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
     result
   }
 
-  fn parse_single_spec(file_name: &str, message_line: &str, lines: &[&str], config: &IndexMap<String, String>) -> Spec {
+  fn parse_single_spec(file_name: &str, message_line: &str, lines: &[&str], config: &SpecConfigMap) -> Spec {
     let file_text = lines.join("\n");
     let parts = file_text.split("[expect]").collect::<Vec<&str>>();
-    let start_text = parts[0][0..parts[0].len() - "\n".len()].into(); // remove last newline
-    let expected_text = parts[1]["\n".len()..].into(); // remove first newline
+    let (start_text, range) = parse_range(&parts[0][0..parts[0].len() - "\n".len()]); // remove last newline
+    let (expected_text, expected_range) = parse_range(&parts[1]["\n".len()..]); // remove first newline
+    assert!(
+      range.is_some() || expected_range.is_none(),
+      "Only a spec with a range in its text can have a range in its expected text."
+    );
     let lower_case_message_line = message_line.to_ascii_lowercase();
     let message_separator = get_message_separator(file_name);
     let is_trace = lower_case_message_line.contains("(trace)");
@@ -99,7 +129,9 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
         .trim()
         .into(),
       file_text: start_text,
+      range,
       expected_text,
+      expected_range,
       is_only: lower_case_message_line.contains("(only)") || is_trace,
       is_trace,
       skip: lower_case_message_line.contains("(skip)"),
@@ -108,12 +140,26 @@ pub fn parse_specs(file_text: String, options: &ParseSpecOptions) -> Vec<Spec> {
     }
   }
 
+  fn parse_range(text: &str) -> (String, Option<Range<usize>>) {
+    let Some(start) = text.find(RANGE_START) else {
+      assert!(!text.contains(RANGE_END), "Found {} without {}.", RANGE_END, RANGE_START);
+      return (text.to_string(), None);
+    };
+    let inner_start = start + RANGE_START.len();
+    let inner_end = text[inner_start..]
+      .find(RANGE_END)
+      .map(|index| inner_start + index)
+      .unwrap_or_else(|| panic!("Found {} without {}.", RANGE_START, RANGE_END));
+    let (before, inner, after) = (&text[..start], &text[inner_start..inner_end], &text[inner_end + RANGE_END.len()..]);
+    assert!(
+      !before.contains(RANGE_END) && !inner.contains(RANGE_START) && !after.contains(RANGE_START) && !after.contains(RANGE_END),
+      "Only one range may be specified per text."
+    );
+    (format!("{}{}{}", before, inner, after), Some(start..start + inner.len()))
+  }
+
   fn get_message_separator(file_name: &str) -> &'static str {
-    if file_name.ends_with(".md") {
-      "!!"
-    } else {
-      "=="
-    }
+    if file_name.ends_with(".md") { "!!" } else { "==" }
   }
 }
 
@@ -156,7 +202,9 @@ mod tests {
       Spec {
         file_name: "test.ts".into(),
         file_text: "start\nmultiple\n".into(),
+        range: None,
         expected_text: "expected\nmultiple\n".into(),
+        expected_range: None,
         message: "message 1".into(),
         is_only: false,
         is_trace: false,
@@ -170,7 +218,9 @@ mod tests {
       Spec {
         file_name: "test.ts".into(),
         file_text: "start2\n".into(),
+        range: None,
         expected_text: "expected2\n".into(),
+        expected_range: None,
         message: "message 2 (only) (skip) (skip-format-twice)".into(),
         is_only: true,
         is_trace: false,
@@ -184,7 +234,9 @@ mod tests {
       Spec {
         file_name: "test.ts".into(),
         file_text: "test\n".into(),
+        range: None,
         expected_text: "test\n".into(),
+        expected_range: None,
         message: "message 3 (trace)".into(),
         is_only: true,
         is_trace: true,
@@ -208,7 +260,9 @@ mod tests {
       Spec {
         file_name: "asdf.ts".into(),
         file_text: "start".into(),
+        range: None,
         expected_text: "expected".into(),
+        expected_range: None,
         message: "message".into(),
         is_only: false,
         is_trace: false,
@@ -240,18 +294,89 @@ mod tests {
       Spec {
         file_name: "asdf.ts".into(),
         file_text: "start".into(),
+        range: None,
         expected_text: "expected".into(),
+        expected_range: None,
         message: "message".into(),
         is_only: false,
         is_trace: false,
         skip: false,
         skip_format_twice: false,
-        config: [("test.test".into(), "other".into()), ("lineWidth".into(), "40".into())]
+        config: [("test.test".into(), "other".into()), ("lineWidth".into(), 40.into())]
           .iter()
           .cloned()
           .collect(),
       }
     );
+  }
+
+  #[test]
+  fn it_parses_ranges() {
+    let specs = parse_specs(
+      [
+        "== message ==",
+        "a [|b|] c",
+        "[expect]",
+        "a [|B|] c",
+        "",
+        "== cursor ==",
+        "a [||]b",
+        "[expect]",
+        "a b",
+      ]
+      .join("\n"),
+      &ParseSpecOptions { default_file_name: "test.ts" },
+    );
+
+    assert_eq!(specs.len(), 2);
+    assert_eq!(specs[0].file_text, "a b c");
+    assert_eq!(specs[0].range, Some(2..3));
+    assert_eq!(specs[0].expected_text, "a B c\n");
+    assert_eq!(specs[0].expected_range, Some(2..3));
+    assert_eq!(specs[1].file_text, "a b");
+    assert_eq!(specs[1].range, Some(2..2));
+    assert_eq!(specs[1].expected_text, "a b");
+    assert_eq!(specs[1].expected_range, None);
+  }
+
+  #[test]
+  #[should_panic(expected = "Found [| without |].")]
+  fn it_panics_on_unclosed_range() {
+    parse_range_spec("a [|b");
+  }
+
+  #[test]
+  #[should_panic(expected = "Found [| without |].")]
+  fn it_panics_on_overlapping_markers() {
+    parse_range_spec("a [|]b");
+  }
+
+  #[test]
+  #[should_panic(expected = "Only one range may be specified per text.")]
+  fn it_panics_on_end_before_start() {
+    parse_range_spec("a |] [|b|]");
+  }
+
+  #[test]
+  #[should_panic(expected = "Only one range may be specified per text.")]
+  fn it_panics_on_multiple_ranges() {
+    parse_range_spec("[|a|] [|b|]");
+  }
+
+  #[test]
+  #[should_panic(expected = "Only a spec with a range in its text can have a range in its expected text.")]
+  fn it_panics_on_range_only_in_expected() {
+    parse_specs(
+      ["== message ==", "a b", "[expect]", "a [|b|]"].join("\n"),
+      &ParseSpecOptions { default_file_name: "test.ts" },
+    );
+  }
+
+  fn parse_range_spec(text: &str) -> Vec<Spec> {
+    parse_specs(
+      ["== message ==", text, "[expect]", "a b"].join("\n"),
+      &ParseSpecOptions { default_file_name: "test.ts" },
+    )
   }
 
   #[test]
@@ -283,7 +408,9 @@ mod tests {
       Spec {
         file_name: "test.md".into(),
         file_text: "start\nmultiple\n".into(),
+        range: None,
         expected_text: "expected\nmultiple\n".into(),
+        expected_range: None,
         message: "message 1".into(),
         is_only: false,
         is_trace: false,
@@ -297,7 +424,9 @@ mod tests {
       Spec {
         file_name: "test.md".into(),
         file_text: "start2\n".into(),
+        range: None,
         expected_text: "expected2\n".into(),
+        expected_range: None,
         message: "message 2 (only) (skip) (skip-format-twice)".into(),
         is_only: true,
         is_trace: false,

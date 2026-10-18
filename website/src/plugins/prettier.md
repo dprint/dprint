@@ -4,16 +4,9 @@ description: Documentation on the Prettier code formatting plugin for dprint.
 layout: layouts/documentation.njk
 ---
 
-<nav class="breadcrumb" aria-label="breadcrumbs">
-  <ul>
-    <li><a href="/plugins">Plugins</a></li>
-    <li><a href="/plugins/prettier">Prettier</a></li>
-  </ul>
-</nav>
-
 # Prettier Plugin
 
-Wrapper plugin that formats [many languages](https://prettier.io/docs/en/index.html) via [Prettier](https://prettier.io).
+Adapter plugin that formats [many languages](https://prettier.io/docs/en/index.html) via [Prettier](https://prettier.io).
 
 <div class="message is-warning">
   <div class="message-body">
@@ -23,7 +16,9 @@ Wrapper plugin that formats [many languages](https://prettier.io/docs/en/index.h
 
 ## Install and Setup
 
-Follow the instructions at [https://github.com/dprint/dprint-plugin-prettier/releases/](https://github.com/dprint/dprint-plugin-prettier/releases/)
+```shellsession
+dprint add prettier
+```
 
 ## Configuration
 

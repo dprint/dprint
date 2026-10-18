@@ -6,8 +6,8 @@ Code for the playground.
 
 ```
 # install
-npm install
+deno install
 
 # run locally
-npm run start
+deno task dev
 ```

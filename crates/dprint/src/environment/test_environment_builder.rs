@@ -1,37 +1,43 @@
+use indexmap::IndexMap;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
-use std::path::PathBuf;
 
 use super::Environment;
 use super::TestEnvironment;
-use super::UrlDownloader;
 use crate::test_helpers;
+use crate::test_helpers::TestProcessPluginFile;
+use crate::test_helpers::WASM_PLUGIN_0_1_0_BYTES;
 use crate::utils::get_sha256_checksum;
 
 pub struct TestConfigFileBuilder {
   environment: TestEnvironment,
   incremental: Option<bool>,
+  inherit: Option<bool>,
   includes: Option<Vec<String>>,
   excludes: Option<Vec<String>>,
   plugins: Option<Vec<String>>,
-  sections: HashMap<String, String>,
+  sections: IndexMap<String, String>,
 }
 
 impl TestConfigFileBuilder {
-  fn new(environment: TestEnvironment) -> Self {
+  pub fn new(environment: TestEnvironment) -> Self {
     TestConfigFileBuilder {
       environment,
       incremental: None,
+      inherit: None,
       includes: None,
       excludes: None,
       plugins: None,
-      sections: HashMap::new(),
+      sections: Default::default(),
     }
   }
 
   pub fn to_string(&self) -> String {
     let mut parts = Vec::new();
+    if let Some(inherit) = self.inherit.as_ref() {
+      parts.push(format!(r#""inherit": {}"#, inherit));
+    }
     for (key, value) in self.sections.iter() {
       parts.push(format!("\"{}\": {}", key, value));
     }
@@ -62,6 +68,11 @@ impl TestConfigFileBuilder {
     self
   }
 
+  pub fn set_inherit(&mut self, value: bool) -> &mut Self {
+    self.inherit = Some(value);
+    self
+  }
+
   pub fn add_local_wasm_plugin(&mut self) -> &mut Self {
     self.add_plugin("/plugins/test-plugin.wasm")
   }
@@ -74,6 +85,18 @@ impl TestConfigFileBuilder {
     self.add_plugin(&format!("https://plugins.dprint.dev/test-plugin.wasm@{}", checksum))
   }
 
+  /// This is a v3 old Wasm plugin.
+  pub fn add_remote_wasm_plugin_0_1_0(&mut self) -> &mut Self {
+    self.add_plugin("https://plugins.dprint.dev/test-plugin-0.1.0.wasm")
+  }
+
+  pub fn add_remote_wasm_plugin_0_1_0_with_checksum(&mut self) -> &mut Self {
+    self.add_plugin(&format!(
+      "https://plugins.dprint.dev/test-plugin-0.1.0.wasm@{}",
+      &crate::utils::get_sha256_checksum(&WASM_PLUGIN_0_1_0_BYTES)
+    ))
+  }
+
   pub fn add_config_section(&mut self, name: &str, text: &str) -> &mut Self {
     self.sections.insert(name.to_string(), text.to_string());
     self
@@ -81,7 +104,11 @@ impl TestConfigFileBuilder {
 
   pub fn add_remote_process_plugin(&mut self) -> &mut Self {
     // get the process plugin file and check its checksum
-    let remote_file_text = self.environment.download_file_err_404("https://plugins.dprint.dev/test-process.json").unwrap();
+    let remote_file_text = self
+      .environment
+      .get_remote_file("https://plugins.dprint.dev/test-process.json")
+      .unwrap()
+      .unwrap();
     let checksum = get_sha256_checksum(&remote_file_text);
     self.add_remote_process_plugin_with_checksum(&checksum)
   }
@@ -139,10 +166,10 @@ pub struct TestInfoFileBuilder {
 #[serde(rename_all = "camelCase")]
 pub struct TestInfoFilePlugin {
   pub name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub display_name: Option<String>,
   pub version: String,
   pub url: String,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub selected: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub file_names: Option<Vec<String>>,
   pub file_extensions: Vec<String>,
@@ -151,6 +178,41 @@ pub struct TestInfoFilePlugin {
   pub config_excludes: Vec<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub checksum: Option<String>,
+  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  pub additive: bool,
+  #[serde(skip_serializing_if = "std::ops::Not::not")]
+  pub never_preselect: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub npm: Option<TestInfoFileNpm>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub default_config: Option<serde_json::Value>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub config_items: Vec<TestInfoFileConfigItem>,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TestInfoFileNpm {
+  pub name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub path: Option<String>,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TestInfoFileConfigItem {
+  #[serde(rename = "match")]
+  pub file_match: TestInfoFileMatch,
+  pub config: serde_json::Value,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TestInfoFileMatch {
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub file_extensions: Vec<String>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub file_names: Vec<String>,
 }
 
 impl TestInfoFileBuilder {
@@ -167,7 +229,7 @@ impl TestInfoFileBuilder {
   pub fn to_string(&self) -> String {
     let mut parts = Vec::new();
     parts.push("\"schemaVersion\": 4".to_string());
-    parts.push(format!("\"pluginSystemSchemaVersion\": {}", self.plugin_schema_version.unwrap_or(3)));
+    parts.push(format!("\"pluginSystemSchemaVersion\": {}", self.plugin_schema_version.unwrap_or(4)));
     let plugins_text = serde_json::to_string_pretty(&self.plugins).unwrap();
     parts.push(format!("\"latest\": {}", plugins_text));
     format!("{{\n{}\n}}", parts.join(",\n"))
@@ -246,9 +308,19 @@ impl TestEnvironmentBuilder {
   }
 
   pub fn add_remote_wasm_plugin(&mut self) -> &mut Self {
+    self.add_remote_wasm_plugin_at_url("https://plugins.dprint.dev/test-plugin.wasm");
+    self
+  }
+
+  pub fn add_remote_wasm_0_1_0_plugin(&mut self) -> &mut Self {
     self
       .environment
-      .add_remote_file("https://plugins.dprint.dev/test-plugin.wasm", test_helpers::WASM_PLUGIN_BYTES);
+      .add_remote_file("https://plugins.dprint.dev/test-plugin-0.1.0.wasm", test_helpers::WASM_PLUGIN_0_1_0_BYTES);
+    self
+  }
+
+  pub fn add_remote_wasm_plugin_at_url(&mut self, url: &str) -> &mut Self {
+    self.environment.add_remote_file(url, test_helpers::WASM_PLUGIN_BYTES);
     self
   }
 
@@ -264,6 +336,17 @@ impl TestEnvironmentBuilder {
   pub fn with_remote_config(&mut self, url: &str, func: impl FnMut(&mut TestConfigFileBuilder)) -> &mut Self {
     let config_file_text = self.with_config_get_text(url, func);
     self.add_remote_file(url, &config_file_text)
+  }
+
+  pub fn with_global_config(&mut self, func: impl FnMut(&mut TestConfigFileBuilder)) -> &mut Self {
+    // Set up the global config directory
+    let global_config_dir = "/global-config";
+    self.environment.set_env_var("DPRINT_CONFIG_DIR", Some(global_config_dir));
+
+    // Create the global config file
+    let config_file_text = self.with_config_get_text("__global_config__", func);
+    let global_config_path = format!("{}/dprint.json", global_config_dir);
+    self.write_file(&global_config_path, &config_file_text)
   }
 
   fn with_config_get_text(&mut self, key: &str, mut func: impl FnMut(&mut TestConfigFileBuilder)) -> String {
@@ -287,13 +370,32 @@ impl TestEnvironmentBuilder {
     self
   }
 
-  pub fn write_file(&mut self, file_path: impl AsRef<Path>, text: &str) -> &mut Self {
-    self.environment.write_file(file_path, text).unwrap();
+  pub fn write_file(&mut self, file_path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> &mut Self {
+    let file_path = self.environment.clean_path(file_path);
+    if let Some(parent) = file_path.parent() {
+      self.environment.mk_dir_all(parent).unwrap();
+    }
+    self.environment.write_file_bytes(file_path, bytes.as_ref()).unwrap();
+    self
+  }
+
+  pub fn add_staged_file(&mut self, file_path: impl AsRef<Path>) -> &mut Self {
+    self.environment.set_staged_file(file_path);
+    self
+  }
+
+  pub fn add_dirty_file(&mut self, file_path: impl AsRef<Path>) -> &mut Self {
+    self.environment.set_dirty_file(file_path);
     self
   }
 
   pub fn add_remote_file(&mut self, path: &str, text: &str) -> &mut Self {
     self.environment.add_remote_file_bytes(path, text.to_string().into_bytes());
+    self
+  }
+
+  pub fn add_remote_file_bytes(&mut self, path: &str, bytes: impl Into<Vec<u8>>) -> &mut Self {
+    self.environment.add_remote_file_bytes(path, bytes.into());
     self
   }
 
@@ -303,29 +405,20 @@ impl TestEnvironmentBuilder {
   }
 
   pub fn add_local_wasm_plugin(&mut self) -> &mut Self {
-    self
-      .environment
-      .write_file_bytes(&PathBuf::from("/plugins/test-plugin.wasm"), test_helpers::WASM_PLUGIN_BYTES)
-      .unwrap();
-    self
+    self.write_file("/plugins/test-plugin.wasm", test_helpers::WASM_PLUGIN_BYTES)
   }
 
   pub fn add_remote_process_plugin(&mut self) -> &mut Self {
+    self.add_remote_process_plugin_at_url("https://plugins.dprint.dev/test-process.json", &TestProcessPluginFile::default())
+  }
+
+  pub fn add_remote_process_plugin_at_url(&mut self, url: &str, file_text: &TestProcessPluginFile) -> &mut Self {
     let zip_bytes = &test_helpers::PROCESS_PLUGIN_ZIP_BYTES;
-    let zip_file_checksum = crate::utils::get_sha256_checksum(zip_bytes);
     self.environment.add_remote_file_bytes(
       "https://github.com/dprint/test-process-plugin/releases/0.1.0/test-process-plugin.zip",
       zip_bytes.to_vec(),
     );
-    self.write_process_plugin_file(&zip_file_checksum);
-    self
-  }
-
-  pub fn write_process_plugin_file(&mut self, zip_checksum: &str) -> &mut Self {
-    self.environment.add_remote_file_bytes(
-      "https://plugins.dprint.dev/test-process.json",
-      test_helpers::get_test_process_plugin_file_text(zip_checksum).into_bytes(),
-    );
+    self.environment.add_remote_file_bytes(url, file_text.text().to_string().into_bytes());
     self
   }
 }
