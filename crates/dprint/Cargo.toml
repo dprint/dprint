@@ -62,7 +62,7 @@ reqwest = { version = "=0.13.5", features = ["rustls-no-provider", "socks"], def
 rustls = { version = "=0.23.45", default-features = false, features = ["ring", "logging", "std", "tls12"] }
 rustls-native-certs = "=0.7.0"
 rustls-pemfile = "=2.1.2"
-webpki-roots = "=0.26.7"
+webpki-roots = "=1.0.10"
 
 # pin this to prevent it changing with `cargo install` because patch version
 # increases of rkyv may cause panics when deserializing data serialized with
