@@ -37,7 +37,7 @@ Repos:
 - [dprint-plugin-typstyle](https://github.com/dprint/dprint-plugin-typstyle) - Typstyle (Typst) wrapper plugin.
 - [dprint-plugin-nix](https://github.com/dprint/dprint-plugin-nix) - nixfmt-rs (Nix) wrapper plugin.
 - [dprint-plugin-kdl](https://github.com/dprint/dprint-plugin-kdl) - kdl-rs (KDL) wrapper plugin.
-- [dprint-plugin-sh](https://github.com/dprint/dprint-plugin-sh) - shuck-formatter (sh/Bash/Zsh) wrapper plugin.
+- [dprint-plugin-shuck](https://github.com/dprint/dprint-plugin-shuck) - shuck-formatter (sh/Bash/Zsh) wrapper plugin.
 - [dprint-plugin-ruff](https://github.com/dprint/dprint-plugin-ruff) - Ruff (Python) wrapper plugin.
 - [dprint-plugin-exec](https://github.com/dprint/dprint-plugin-exec) - Formats code with any CLI executable.
 - [Malva](https://github.com/g-plane/malva) - CSS, SCSS, Sass, and Less formatter

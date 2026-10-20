@@ -1,10 +1,11 @@
 ---
-title: Shell Plugin
-description: Documentation on the Shell code formatting plugin for dprint.
+title: Shuck Plugin
+description: Documentation on the Shuck (shell script) code formatting plugin for dprint.
 layout: layouts/documentation.njk
+oldUrl: /plugins/sh/
 ---
 
-# Shell Plugin
+# Shuck Plugin
 
 Wrapper plugin that formats shell scripts via [shuck-formatter](https://github.com/ewhauser/shuck).
 
@@ -15,25 +16,25 @@ Formats .sh, .bash, .zsh, .ksh, .mksh, .dash, and .bats files, along with shell 
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint add sh
+dprint add shuck
 ```
 
-This will update your config file to have an entry for the plugin. Then optionally specify an `"sh"` property to add configuration:
+This will update your config file to have an entry for the plugin. Then optionally specify a `"shuck"` property to add configuration:
 
 ```jsonc
 {
-  "sh": {
-    // sh config goes here
+  "shuck": {
+    // shuck config goes here
   },
   "plugins": [
-    "npm:@dprint/sh@x.x.x"
+    "npm:@dprint/shuck@x.x.x"
   ]
 }
 ```
 
 ## Configuration
 
-See [Configuration](/plugins/sh/config).
+See [Configuration](/plugins/shuck/config).
 
 ## Formatting Shell Code Blocks in Markdown
 
@@ -54,4 +55,4 @@ Use the `tags` option of the [Markdown plugin](/plugins/markdown) to map a code 
 
 ## Source
 
-See https://github.com/dprint/dprint-plugin-sh
+See https://github.com/dprint/dprint-plugin-shuck
