@@ -24,13 +24,6 @@
       { "slug": "markup_fmt", "name": "markup_fmt", "ext": "HTML · Vue · Svelte · Astro" },
       { "slug": "pretty_graphql", "name": "Pretty GraphQL", "ext": ".graphql" },
       { "slug": "pretty_yaml", "name": "Pretty YAML", "ext": ".yaml" },
-      { "slug": "gofumpt", "name": "Gofumpt", "ext": "Go" },
-      { "slug": "swift", "name": "Swift", "ext": ".swift", "process": true },
-      { "slug": "panache", "name": "Panache", "ext": "Quarto · Pandoc · R Markdown · Markdown" },
-      { "slug": "badness", "name": "Badness", "ext": "LaTeX · BibTeX" },
-      { "slug": "arity", "name": "Arity", "ext": "R" },
-      { "slug": "fatou", "name": "Fatou", "ext": "Julia" },
-      { "slug": "bibtex-tidy", "name": "bibtex-tidy", "ext": "BibTeX" },
       { "slug": "lax-css", "name": "Lax CSS", "ext": "CSS · SCSS · Less" },
       { "slug": "lax-markup", "name": "Lax Markup", "ext": "HTML · XML · SVG · Vue · Svelte · Astro" },
       { "slug": "lax-sql", "name": "Lax SQL", "ext": "SQL" },
@@ -39,10 +32,10 @@
     ]
   },
   {
-    "label": "Wrapper plugins",
-    "heading": "Wrapper Plugins",
-    "id": "wrapper-plugins",
-    "kind": "wrapper",
+    "label": "Adapter plugins",
+    "heading": "Adapter Plugins",
+    "id": "adapter-plugins",
+    "kind": "adapter",
     "plugins": [
       { "slug": "prettier", "name": "Prettier", "ext": "multi-language", "process": true },
       { "slug": "biome", "name": "Biome", "ext": "JS · TS · JSON" },
@@ -57,7 +50,14 @@
       { "slug": "typstyle", "name": "Typstyle", "ext": "Typst" },
       { "slug": "nix", "name": "Nix", "ext": ".nix" },
       { "slug": "kdl", "name": "KDL", "ext": ".kdl" },
-      { "slug": "sh", "name": "Shell", "ext": "sh · Bash · Zsh" }
+      { "slug": "sh", "name": "Shell", "ext": "sh · Bash · Zsh" },
+      { "slug": "gofumpt", "name": "Gofumpt", "ext": "Go" },
+      { "slug": "swift", "name": "Swift", "ext": ".swift", "process": true },
+      { "slug": "panache", "name": "Panache", "ext": "Quarto · Pandoc · R Markdown · Markdown" },
+      { "slug": "badness", "name": "Badness", "ext": "LaTeX · BibTeX" },
+      { "slug": "arity", "name": "Arity", "ext": "R" },
+      { "slug": "fatou", "name": "Fatou", "ext": "Julia" },
+      { "slug": "bibtex-tidy", "name": "bibtex-tidy", "ext": "BibTeX" }
     ]
   },
   {
