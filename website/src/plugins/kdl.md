@@ -15,7 +15,7 @@ Formats .kdl files.
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint add kachick/kdl
+dprint add kdl
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"kdl"` property to add configuration:
@@ -26,7 +26,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // kdl config goes here
   },
   "plugins": [
-    "npm:@kachick/dprint-plugin-kdl@x.x.x"
+    "npm:@dprint/kdl@x.x.x"
   ]
 }
 ```
@@ -34,3 +34,7 @@ This will update your config file to have an entry for the plugin. Then optional
 ## Configuration
 
 See [Configuration](/plugins/kdl/config).
+
+## Source
+
+See https://github.com/dprint/dprint-plugin-kdl

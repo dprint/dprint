@@ -25,16 +25,20 @@ Repos:
 - [dprint-plugin-jupyter](https://github.com/dprint/dprint-plugin-jupyter) - Jupyter notebook code block formatter.
 - [dprint-plugin-dockerfile](https://github.com/dprint/dprint-plugin-dockerfile) - Dockerfile code formatter.
 - [dprint-plugin-sql](https://github.com/dprint/dprint-plugin-sql) - SQL code formatter (PostgreSQL, MySQL, SQL Server, SQLite, Oracle, BigQuery and Snowflake).
-- [dprint-plugin-prettier](https://github.com/dprint/dprint-plugin-prettier) - Prettier wrapper plugin.
-- [dprint-plugin-biome](https://github.com/dprint/dprint-plugin-biome) - Biome (JS/TS/JSON) wrapper plugin.
-- [dprint-plugin-oxc](https://github.com/dprint/dprint-plugin-oxc) - Oxc (JS/TS/JSON/CSS/SCSS/Less/GraphQL/YAML/TOML) wrapper plugin.
-- [dprint-plugin-bun](https://github.com/dprint/dprint-plugin-bun) - Bun (JS/TS/JSON/CSS/SCSS/Less/GraphQL/YAML/Markdown/HTML/Vue/Handlebars/TOML) wrapper plugin.
-- [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - Roslyn (C#/VB) wrapper plugin.
-- [dprint-plugin-csharpier](https://github.com/dprint/dprint-plugin-csharpier) - CSharpier (C#/XML) wrapper plugin.
-- [dprint-plugin-mago](https://github.com/dprint/dprint-plugin-mago) - Mago (PHP) wrapper plugin.
-- [dprint-plugin-clang-format](https://github.com/dprint/dprint-plugin-clang-format) - clang-format (C/C++/Objective-C) wrapper plugin.
-- [dprint-plugin-cedar](https://github.com/dprint/dprint-plugin-cedar) - cedar-policy-formatter (Cedar) wrapper plugin.
-- [dprint-plugin-ruff](https://github.com/dprint/dprint-plugin-ruff) - Ruff (Python) wrapper plugin.
+- [dprint-plugin-prettier](https://github.com/dprint/dprint-plugin-prettier) - Prettier adapter plugin.
+- [dprint-plugin-biome](https://github.com/dprint/dprint-plugin-biome) - Biome (JS/TS/JSON) adapter plugin.
+- [dprint-plugin-oxc](https://github.com/dprint/dprint-plugin-oxc) - Oxc (JS/TS/JSON/CSS/SCSS/Less/GraphQL/YAML/TOML) adapter plugin.
+- [dprint-plugin-bun](https://github.com/dprint/dprint-plugin-bun) - Bun (JS/TS/JSON/CSS/SCSS/Less/GraphQL/YAML/Markdown/HTML/Vue/Handlebars/TOML) adapter plugin.
+- [dprint-plugin-roslyn](https://github.com/dprint/dprint-plugin-roslyn) - Roslyn (C#/VB) adapter plugin.
+- [dprint-plugin-csharpier](https://github.com/dprint/dprint-plugin-csharpier) - CSharpier (C#/XML) adapter plugin.
+- [dprint-plugin-mago](https://github.com/dprint/dprint-plugin-mago) - Mago (PHP) adapter plugin.
+- [dprint-plugin-clang-format](https://github.com/dprint/dprint-plugin-clang-format) - clang-format (C/C++/Objective-C) adapter plugin.
+- [dprint-plugin-cedar](https://github.com/dprint/dprint-plugin-cedar) - cedar-policy-formatter (Cedar) adapter plugin.
+- [dprint-plugin-typstyle](https://github.com/dprint/dprint-plugin-typstyle) - Typstyle (Typst) adapter plugin.
+- [dprint-plugin-nix](https://github.com/dprint/dprint-plugin-nix) - nixfmt-rs (Nix) adapter plugin.
+- [dprint-plugin-kdl](https://github.com/dprint/dprint-plugin-kdl) - kdl-rs (KDL) adapter plugin.
+- [dprint-plugin-sh](https://github.com/dprint/dprint-plugin-sh) - shuck-formatter (sh/Bash/Zsh) adapter plugin.
+- [dprint-plugin-ruff](https://github.com/dprint/dprint-plugin-ruff) - Ruff (Python) adapter plugin.
 - [dprint-plugin-exec](https://github.com/dprint/dprint-plugin-exec) - Formats code with any CLI executable.
 - [Malva](https://github.com/g-plane/malva) - CSS, SCSS, Sass, and Less formatter
 - [markup_fmt](https://github.com/g-plane/markup_fmt) - HTML, Vue, Svelte, Astro, Angular, Jinja, Twig, Nunjucks, Vento, Mustache and XML formatter.
@@ -45,13 +49,8 @@ Repos:
 - [badness](https://github.com/jolars/dprint-plugin-badness) - LaTeX and BibTeX formatter.
 - [arity](https://github.com/jolars/dprint-plugin-arity) - R formatter.
 - [fatou](https://github.com/jolars/dprint-plugin-fatou) - Julia formatter.
-- [typstyle](https://github.com/apcamargo/dprint-plugin-typstyle) - Typst (Typstyle) formatter.
-- [dprint-plugin-typstyle (kachick)](https://github.com/kachick/dprint-plugin-typstyle) - Typst (Typstyle) formatter.
 - [bibtex-tidy](https://github.com/apcamargo/dprint-plugin-bibtex-tidy) - BibTeX (bibtex-tidy) formatter.
 - [dprint-plugin-swift](https://github.com/drluckyspin/dprint-plugin-swift) - Swift (SwiftFormat) formatter.
-- [dprint-plugin-nix](https://github.com/kachick/dprint-plugin-nix) - Nix (nixfmt-rs) formatter.
-- [dprint-plugin-kdl](https://github.com/kachick/dprint-plugin-kdl) - KDL formatter.
-- [dprint-plugin-sh](https://github.com/kachick/dprint-plugin-sh) - Shell (sh/Bash/Zsh) formatter.
 - [lax-css](https://github.com/bartlomieju/lax-css) - CSS, SCSS, and Less formatter.
 - [lax-markup](https://github.com/bartlomieju/lax-markup) - HTML, XML, SVG, Vue, Svelte, and Astro formatter.
 - [lax-sql](https://github.com/bartlomieju/lax-sql) - SQL formatter.

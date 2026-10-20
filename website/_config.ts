@@ -3,6 +3,7 @@ import codeHighlight from "lume/plugins/code_highlight.ts";
 import date from "lume/plugins/date.ts";
 import esbuild from "lume/plugins/esbuild.ts";
 import nunjucks from "lume/plugins/nunjucks.ts";
+import redirects from "lume/plugins/redirects.ts";
 import sass from "lume/plugins/sass.ts";
 import anchor from "markdown-it-anchor";
 
@@ -28,6 +29,8 @@ site
   .use(sass())
   .use(date())
   .use(codeHighlight())
+  // pages list the urls they moved from as `oldUrl`, which get a page that redirects to them
+  .use(redirects())
   .use(esbuild({
     options: {
       bundle: true,

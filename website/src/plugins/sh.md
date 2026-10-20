@@ -15,7 +15,7 @@ Formats .sh, .bash, .zsh, .ksh, .mksh, .dash, and .bats files, along with shell 
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint add kachick/sh
+dprint add sh
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify an `"sh"` property to add configuration:
@@ -26,7 +26,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // sh config goes here
   },
   "plugins": [
-    "npm:@kachick/dprint-plugin-sh@x.x.x"
+    "npm:@dprint/sh@x.x.x"
   ]
 }
 ```
@@ -51,3 +51,7 @@ Use the `tags` option of the [Markdown plugin](/plugins/markdown) to map a code 
   }
 }
 ```
+
+## Source
+
+See https://github.com/dprint/dprint-plugin-sh
