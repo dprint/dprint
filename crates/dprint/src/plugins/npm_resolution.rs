@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -150,6 +151,7 @@ pub async fn fetch_npm_latest_info(args: FetchNpmLatestInfo<'_>, environment: &i
   let registry = resolve_registry_for_package(&specifier.name, start_dir, environment);
   let (packument, packument_url) = fetch_packument(&specifier.name, &registry, environment).await?;
   let latest_version = select_version_from_packument(&packument, &specifier.name, minimum_dependency_age, environment)?;
+  warn_if_deprecated(&packument, &specifier.name, &latest_version, environment);
 
   let need_tarball_sha = want_tarball_sha || specifier.plugin_kind() != PluginKind::Wasm;
   let tarball_sha256 = if need_tarball_sha {
@@ -181,7 +183,9 @@ pub async fn resolve_npm_latest_version(
 ) -> Result<String> {
   let registry = resolve_registry_for_package(name, start_dir, environment);
   let (packument, _) = fetch_packument(name, &registry, environment).await?;
-  select_version_from_packument(&packument, name, minimum_dependency_age, environment)
+  let version = select_version_from_packument(&packument, name, minimum_dependency_age, environment)?;
+  warn_if_deprecated(&packument, name, &version, environment);
+  Ok(version)
 }
 
 /// Reads the cached tarball checksum for `name@version`, if a prior setup
@@ -286,7 +290,8 @@ async fn fetch_packument(name: &str, registry: &NpmRegistryResolution, environme
 /// prereleases are passed over unless the latest tag is itself one — so a
 /// package publishing a `next` prerelease can't have it selected by a walk
 /// back the user didn't ask for, while a package with nothing but prereleases
-/// still resolves.
+/// still resolves. Deprecated versions are passed over too unless nothing
+/// else is old enough, which is what npm does when resolving a range.
 ///
 /// A version the registry reports no publish date for can't be shown to be
 /// too new, so it stays eligible and the caller is warned. Failing against a
@@ -335,7 +340,8 @@ fn select_version_from_packument(
   // prereleases to walk back through, so they're only passed over when there's
   // a stable line to walk back along
   let allow_prerelease = !latest_version.pre.is_empty();
-  let mut best: Option<(Version, &str)> = None;
+  // ranked by whether the version isn't deprecated first, then by the version
+  let mut best: Option<((bool, Version), &str)> = None;
   let mut best_is_undated = false;
   for version_text in packument.get("versions").and_then(|v| v.as_object()).into_iter().flatten().map(|(key, _)| key) {
     let Ok(version) = Version::parse_from_npm(version_text) else {
@@ -354,9 +360,10 @@ fn select_version_from_packument(
     if published.is_some_and(|published| cutoff.is_too_new(published)) {
       continue;
     }
-    if best.as_ref().is_none_or(|(best, _)| version > *best) {
+    let rank = (deprecation_message(packument, version_text).is_none(), version);
+    if best.as_ref().is_none_or(|(best, _)| rank > *best) {
       best_is_undated = published.is_none();
-      best = Some((version, version_text));
+      best = Some((rank, version_text));
     }
   }
 
@@ -409,6 +416,40 @@ fn latest_version_from_packument(packument: &serde_json::Value, name: &str) -> R
     .and_then(|v| v.as_str())
     .map(|s| s.to_string())
     .ok_or_else(|| anyhow::anyhow!("Missing dist-tags.latest for {}", name))
+}
+
+thread_local! {
+  static WARNED_DEPRECATED_NPM_PACKAGES: RefCell<HashSet<String>> = Default::default();
+}
+
+/// Warns when a packument says a version was deprecated, using the message its
+/// publisher left (ex. that the package was renamed). Warns once per version
+/// since resolving a version and then downloading it both read the packument.
+fn warn_if_deprecated(packument: &serde_json::Value, name: &str, version: &str, environment: &impl Environment) {
+  let Some(message) = deprecation_message(packument, version) else {
+    return;
+  };
+  let package = format!("{}@{}", name, version);
+  if WARNED_DEPRECATED_NPM_PACKAGES.with_borrow_mut(|warned| warned.insert(package.clone())) {
+    // the message is whatever the publisher wrote, so don't let it send escape
+    // sequences to the terminal
+    let message: String = message
+      .chars()
+      .map(|c| if c.is_control() && !matches!(c, '\n' | '\t') { '\u{FFFD}' } else { c })
+      .collect();
+    log_warn!(environment, "npm package {} is deprecated: {}", package, message);
+  }
+}
+
+/// The message a version was deprecated with, or `None` if it isn't deprecated.
+/// An empty message is how npm un-deprecates a version.
+fn deprecation_message<'a>(packument: &'a serde_json::Value, version: &str) -> Option<&'a str> {
+  packument
+    .get("versions")?
+    .get(version)?
+    .get("deprecated")?
+    .as_str()
+    .filter(|message| !message.is_empty())
 }
 
 /// Picks the plugin file a package ships at its root, preferring `plugin.wasm`
@@ -828,6 +869,7 @@ async fn fetch_npm_tarball(name: &str, version: &str, registry: &NpmRegistryReso
     .await
     .with_context(|| format!("Failed to fetch npm packument for {}", name))?;
   let packument: serde_json::Value = serde_json::from_slice(&packument_file.content).with_context(|| format!("Failed to parse npm packument for {}", name))?;
+  warn_if_deprecated(&packument, name, version, environment);
 
   let tarball_url_str = get_tarball_url_from_packument(&packument, version, name)?;
   let tarball_url = url::Url::parse(&tarball_url_str).with_context(|| format!("Failed to parse npm tarball URL: {}", tarball_url_str))?;
@@ -2073,6 +2115,159 @@ mod tests {
     assert_eq!(
       logged,
       vec!["Could not check the age of foo@1.1.0 — its registry doesn't report when it was published. Using it anyway.".to_string()]
+    );
+  }
+
+  // deprecation warnings are only given once per version on a thread, so each
+  // of these tests deprecates versions none of the others use
+
+  #[tokio::test]
+  async fn deprecated_latest_version_warns_with_its_message() {
+    let mut packument = packument_with_times("5.0.0", &[("5.0.0", Some("2024-01-01T00:00:00Z"))]);
+    packument["versions"]["5.0.0"]["deprecated"] = serde_json::json!("Use bar instead.");
+    let (version, logged) = resolve_version_with_age(packument, "P3D").await;
+    assert_eq!(version.unwrap(), "5.0.0");
+    assert_eq!(logged, vec!["npm package foo@5.0.0 is deprecated: Use bar instead.".to_string()]);
+  }
+
+  #[tokio::test]
+  async fn undeprecated_version_does_not_warn() {
+    // npm un-deprecates a version by setting an empty message
+    let mut packument = packument_with_times("5.1.0", &[("5.1.0", Some("2024-01-01T00:00:00Z"))]);
+    packument["versions"]["5.1.0"]["deprecated"] = serde_json::json!("");
+    let (version, logged) = resolve_version_with_age(packument, "P3D").await;
+    assert_eq!(version.unwrap(), "5.1.0");
+    assert!(logged.is_empty(), "expected nothing logged, got {:?}", logged);
+  }
+
+  #[tokio::test]
+  async fn minimum_dependency_age_walks_back_past_deprecated_versions() {
+    let mut packument = packument_with_times(
+      "6.2.0",
+      &[
+        ("6.0.0", Some("2024-01-01T00:00:00Z")),
+        ("6.1.0", Some("2024-02-01T00:00:00Z")),
+        ("6.2.0", Some("2024-05-09T00:00:00Z")),
+      ],
+    );
+    packument["versions"]["6.1.0"]["deprecated"] = serde_json::json!("Broken release.");
+    let (version, logged) = resolve_version_with_age(packument, "P3D").await;
+    assert_eq!(version.unwrap(), "6.0.0");
+    assert_eq!(
+      logged,
+      vec!["Using foo 6.0.0 instead of 6.2.0, which is newer than the minimum dependency age allows (--minimum-dependency-age P3D). Pass --minimum-dependency-age=0 to use the latest version.".to_string()]
+    );
+  }
+
+  #[tokio::test]
+  async fn minimum_dependency_age_walks_back_to_a_deprecated_version_when_nothing_else_is_old_enough() {
+    let mut packument = packument_with_times(
+      "7.1.0",
+      &[
+        ("7.0.0", Some("2024-01-01T00:00:00Z")),
+        ("7.0.1", Some("2024-02-01T00:00:00Z")),
+        ("7.1.0", Some("2024-05-09T00:00:00Z")),
+      ],
+    );
+    packument["versions"]["7.0.0"]["deprecated"] = serde_json::json!("Old.");
+    packument["versions"]["7.0.1"]["deprecated"] = serde_json::json!("Broken release.");
+    let (version, logged) = resolve_version_with_age(packument, "P3D").await;
+    assert_eq!(version.unwrap(), "7.0.1");
+    assert_eq!(
+      logged,
+      vec![
+        "Using foo 7.0.1 instead of 7.1.0, which is newer than the minimum dependency age allows (--minimum-dependency-age P3D). Pass --minimum-dependency-age=0 to use the latest version.".to_string(),
+        "npm package foo@7.0.1 is deprecated: Broken release.".to_string(),
+      ]
+    );
+  }
+
+  #[tokio::test]
+  async fn deprecated_version_warns_when_fetching_latest_info() {
+    use crate::environment::TestEnvironment;
+    let environment = TestEnvironment::new();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "5.2.0" },
+      "versions": { "5.2.0": {
+        "deprecated": "Use \u{1b}[31mbar\u{1b}[0m instead.",
+        "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-5.2.0.tgz" },
+      } },
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    let specifier = NpmSpecifier {
+      name: "foo".to_string(),
+      version: None,
+      path: "plugin.wasm".to_string(),
+    };
+    let info = fetch_npm_latest_info(
+      FetchNpmLatestInfo {
+        specifier: &specifier,
+        start_dir: None,
+        minimum_dependency_age: None,
+        want_tarball_sha: false,
+      },
+      &environment,
+    )
+    .await
+    .unwrap();
+    assert_eq!(info.version, "5.2.0");
+    // the escape sequences in the message are replaced
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["npm package foo@5.2.0 is deprecated: Use \u{FFFD}[31mbar\u{FFFD}[0m instead.".to_string()]
+    );
+  }
+
+  #[tokio::test]
+  async fn deprecated_version_warns_once_across_resolving_and_downloading() {
+    use crate::environment::TestEnvironment;
+    use crate::test_helpers::create_test_npm_tarball;
+
+    let environment = TestEnvironment::new();
+    let packument = serde_json::json!({
+      "dist-tags": { "latest": "8.0.0" },
+      "versions": { "8.0.0": {
+        "deprecated": "Use bar instead.",
+        "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-8.0.0.tgz" },
+      } },
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    let tarball = create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-8.0.0.tgz", tarball);
+
+    let version = resolve_npm_latest_version("foo", None, None, &environment).await.unwrap();
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["npm package foo@8.0.0 is deprecated: Use bar instead.".to_string()]
+    );
+
+    let registry = resolve_registry_for_package("foo", None, &environment);
+    let package = ensure_npm_package_extracted("foo", &version, &registry, &environment).await.unwrap();
+    assert!(package.is_first_download);
+    assert!(environment.take_stderr_messages().is_empty());
+  }
+
+  #[tokio::test]
+  async fn deprecated_version_warns_when_first_downloaded() {
+    use crate::environment::TestEnvironment;
+    use crate::test_helpers::create_test_npm_tarball;
+
+    let environment = TestEnvironment::new();
+    let packument = serde_json::json!({
+      "versions": { "9.0.0": {
+        "deprecated": "Use bar instead.",
+        "dist": { "tarball": "https://registry.npmjs.org/foo/-/foo-9.0.0.tgz" },
+      } },
+    });
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo", packument.to_string().into_bytes());
+    let tarball = create_test_npm_tarball(&[("package/plugin.wasm", b"\0asm")]);
+    environment.add_remote_file_bytes("https://registry.npmjs.org/foo/-/foo-9.0.0.tgz", tarball);
+
+    let registry = resolve_registry_for_package("foo", None, &environment);
+    ensure_npm_package_extracted("foo", "9.0.0", &registry, &environment).await.unwrap();
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["npm package foo@9.0.0 is deprecated: Use bar instead.".to_string()]
     );
   }
 
