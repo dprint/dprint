@@ -9,6 +9,10 @@ const buildJob = job("build", {
   permissions: { contents: "read" },
   steps: step(
     { name: "Checkout", uses: "actions/checkout@v7", with: { "persist-credentials": false } },
+    // CI doesn't run for docs only changes, so their formatting is checked here.
+    // Rust files are excluded because they're formatted with rustfmt, which
+    // isn't installed (CI checks them).
+    { uses: "dprint/check@v2", with: { cache: true, args: "--excludes '**/*.rs'" } },
     { uses: "denoland/setup-deno@v2", with: { cache: true, "deno-version": "canary" } },
     { name: "Install dependencies", run: "(cd website && deno install)" },
     { name: "Build playground", run: "(cd website/playground && deno task build)" },
@@ -42,6 +46,18 @@ const deployJob = job("deploy", {
   ),
 });
 
+// What the website is built from, plus the docs and markdown files that CI
+// skips so their formatting still gets checked.
+const paths = [
+  "website/**",
+  "docs/**",
+  "**.md",
+  // copied into the website by website/_config.ts
+  "crates/dprint/src/commands/lsp/config_schema.json",
+  "dprint.json",
+  ".github/workflows/website.*",
+];
+
 workflow({
   name: "Website",
   on: {
@@ -56,8 +72,8 @@ workflow({
     },
     // deploy when the drafted release is published
     release: { types: ["published"] },
-    push: { branches: ["main"] },
-    pull_request: { branches: ["main"] },
+    push: { branches: ["main"], paths },
+    pull_request: { branches: ["main"], paths },
   },
   permissions: {},
   jobs: [buildJob, deployJob],

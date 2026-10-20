@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run -A
 import $ from "jsr:@david/dax@0.45.0";
-import { conditions, defineMatrix, expr, type ExpressionValue, isLinting, job, step, workflow } from "jsr:@david/gagen@0.6.0";
+import { conditions, defineMatrix, expr, type ExpressionValue, fromJSON, isLinting, job, step, workflow } from "jsr:@david/gagen@0.6.0";
 
 enum OperatingSystem {
   Mac = "macOS-latest",
@@ -14,6 +14,11 @@ enum OperatingSystem {
 interface ProfileData {
   os: OperatingSystem;
   target: string;
+  /**
+   * Also run for pull requests. Every other target only runs on main, for
+   * tags, and for pull requests with the full CI label.
+   */
+  pr?: boolean;
   runTests?: boolean;
   /** Build using cross. */
   cross?: boolean;
@@ -43,10 +48,12 @@ const profileDataItems: ProfileData[] = [{
 }, {
   os: OperatingSystem.Mac,
   target: "aarch64-apple-darwin",
+  pr: true,
   runTests: true,
 }, {
   os: OperatingSystem.Windows,
   target: "x86_64-pc-windows-msvc",
+  pr: true,
   runTests: true,
 }, {
   os: OperatingSystem.WindowsArm,
@@ -56,6 +63,7 @@ const profileDataItems: ProfileData[] = [{
   // glibc 2.17 matches Rust's own minimum for this target (CentOS 7+)
   os: OperatingSystem.Linux,
   target: "x86_64-unknown-linux-gnu",
+  pr: true,
   runTests: true,
   zigbuildGlibc: "2.17",
 }, {
@@ -161,22 +169,37 @@ const profiles = profileDataItems.map(profile => {
 
 const isTag = conditions.isTag();
 const isNotTag = isTag.not();
+// adding this label to a PR runs everything that runs on main
+const fullCiLabel = "ci:full";
+const isFullCi = conditions.isPr().not().or(conditions.hasPrLabel(fullCiLabel));
 
-const matrix = defineMatrix({
-  include: profileDataItems.map(profile => ({
-    os: profile.os as string,
-    run_tests: (profile.runTests ?? false).toString(),
-    target: profile.target,
-    cross: (profile.cross ?? false).toString(),
-    cross_test: (profile.crossTest ?? false).toString(),
-    musl_image: profile.muslCrossImage ?? "",
-    zigbuild_glibc: profile.zigbuildGlibc ?? "",
-    // build and test through cargo-zigbuild for zigbuild targets so the test
-    // suite links (and runs) binaries the same way as the published ones
-    cargo: profile.zigbuildGlibc != null ? "cargo-zigbuild" : "cargo",
-    cargo_target: profile.zigbuildGlibc != null ? `${profile.target}.${profile.zigbuildGlibc}` : profile.target,
-  })),
-});
+const matrixEntries = profileDataItems.map(profile => ({
+  os: profile.os as string,
+  run_tests: (profile.runTests ?? false).toString(),
+  target: profile.target,
+  cross: (profile.cross ?? false).toString(),
+  cross_test: (profile.crossTest ?? false).toString(),
+  musl_image: profile.muslCrossImage ?? "",
+  zigbuild_glibc: profile.zigbuildGlibc ?? "",
+  // build and test through cargo-zigbuild for zigbuild targets so the test
+  // suite links (and runs) binaries the same way as the published ones
+  cargo: profile.zigbuildGlibc != null ? "cargo-zigbuild" : "cargo",
+  cargo_target: profile.zigbuildGlibc != null ? `${profile.target}.${profile.zigbuildGlibc}` : profile.target,
+}));
+// only used for the typed `matrix.<key>` expressions -- the job's matrix is
+// chosen when the workflow runs (see `buildJobMatrix`)
+const matrix = defineMatrix({ include: matrixEntries });
+// PRs only build the targets marked with `pr`. The matrix is picked with an
+// expression rather than by skipping steps so the other targets don't take
+// up runners, which is what slows CI down when several runs are queued.
+const prTargets = new Set(profileDataItems.filter(profile => profile.pr).map(profile => profile.target));
+const buildJobMatrix = {
+  include: fromJSON(
+    isFullCi
+      .then(JSON.stringify(matrixEntries))
+      .else(JSON.stringify(matrixEntries.filter(entry => prTargets.has(entry.target)))),
+  ),
+};
 
 const runTests = matrix.run_tests.equals("true");
 const runDebugTests = runTests.and(isNotTag);
@@ -525,7 +548,7 @@ const installerTests = step.if(runDebugTests)(
 const buildJob = job("build", {
   name: matrix.target,
   runsOn: matrix.os,
-  strategy: { matrix },
+  strategy: { matrix: buildJobMatrix },
   defaults: { run: { shell: "bash" } },
   permissions: {
     contents: "read",
@@ -539,12 +562,7 @@ const buildJob = job("build", {
     // zigbuild targets allow, and this keeps every build linking it the same way
     LZMA_API_STATIC: 1,
   },
-  steps: step.if(
-    matrix.target.notEquals("aarch64-unknown-linux-gnu")
-      .and(matrix.target.notEquals("aarch64-unknown-linux-musl"))
-      .or(conditions.isBranch("main"))
-      .or(isTag),
-  )(
+  steps: step(
     lint,
     buildDebug,
     tests,
@@ -561,10 +579,12 @@ const buildJob = job("build", {
 // party code (process plugins don't run sandboxed), so it runs in its own job
 // that never runs for a release and doesn't save any caches. That way nothing
 // a plugin does on the runner can make its way into the release artifacts.
+// It's slow and rarely affected by a change, so PRs skip it unless they have
+// the full CI label.
 const testKnownPluginsJob = job("test_known_plugins", {
   name: "test_known_plugins",
   runsOn: "ubuntu-latest",
-  if: isNotTag,
+  if: isFullCi.and(isNotTag),
   permissions: {
     contents: "read",
   },
@@ -750,16 +770,35 @@ ${
 
 // === generate ===
 
+// Changes to only these don't affect the build, so they don't run CI (the
+// website workflow checks their formatting). GitHub doesn't evaluate path
+// filters for tags, so a release always runs everything.
+const paths = [
+  "**",
+  "!website/**",
+  // tested by the installer tests
+  "website/src/assets/install.sh",
+  "website/src/assets/install.ps1",
+  "!docs/**",
+  "!**.md",
+];
+
 workflow({
   name: "CI",
   on: {
-    pull_request: { branches: ["main"] },
-    push: { branches: ["main"], tags: ["*"] },
+    pull_request: {
+      branches: ["main"],
+      // labeled so that adding the full CI label starts a run
+      types: ["opened", "synchronize", "reopened", "labeled"],
+      paths,
+    },
+    push: { branches: ["main"], tags: ["*"], paths },
   },
   permissions: {},
   concurrency: {
-    // https://stackoverflow.com/a/72408109/188246
-    group: "${{ github.workflow }}-${{ github.head_ref || github.run_id }}",
+    // the ref is unique per PR (refs/pull/<number>/merge) and per tag, while
+    // pushes to main share one so a newer push cancels the run for an older one
+    group: "${{ github.workflow }}-${{ github.ref }}",
     cancelInProgress: true,
   },
   jobs: [

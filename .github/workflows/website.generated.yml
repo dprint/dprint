@@ -14,9 +14,23 @@ on:
   push:
     branches:
       - main
+    paths:
+      - website/**
+      - docs/**
+      - "**.md"
+      - crates/dprint/src/commands/lsp/config_schema.json
+      - dprint.json
+      - .github/workflows/website.*
   pull_request:
     branches:
       - main
+    paths:
+      - website/**
+      - docs/**
+      - "**.md"
+      - crates/dprint/src/commands/lsp/config_schema.json
+      - dprint.json
+      - .github/workflows/website.*
 permissions: {}
 jobs:
   build:
@@ -28,6 +42,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+      - uses: dprint/check@7dc032d8874778fc024f6f9b4a7e6d896782c330 # v2
+        with:
+          cache: true
+          args: '--excludes ''**/*.rs'''
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
         with:
           cache: true
