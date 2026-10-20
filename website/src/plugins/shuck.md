@@ -19,12 +19,12 @@ In your project's directory with a dprint.json file, run:
 dprint add shuck
 ```
 
-This will update your config file to have an entry for the plugin. Then optionally specify an `"sh"` property to add configuration:
+This will update your config file to have an entry for the plugin. Then optionally specify a `"shuck"` property to add configuration:
 
 ```jsonc
 {
-  "sh": {
-    // sh config goes here
+  "shuck": {
+    // shuck config goes here
   },
   "plugins": [
     "npm:@dprint/shuck@x.x.x"
