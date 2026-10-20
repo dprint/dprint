@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # cmakefmt (azais-corentin) Plugin
 
-Adapter plugin that formats CMake files via [azais-corentin/cmakefmt](https://github.com/azais-corentin/cmakefmt).
+Plugin that formats CMake files via [azais-corentin/cmakefmt](https://github.com/azais-corentin/cmakefmt).
 
 Formats CMakeLists.txt and .cmake files.
 

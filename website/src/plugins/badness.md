@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Badness Plugin
 
-Adapter plugin that formats LaTeX and BibTeX files via [Badness](https://badness.dev).
+Wrapper plugin that formats LaTeX and BibTeX files via [Badness](https://badness.dev).
 
 Formats .tex, .sty, .cls, .dtx, .ins, and .bib files.
 

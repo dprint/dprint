@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Fatou Plugin
 
-Adapter plugin that formats Julia code via [Fatou](https://fatou.dev).
+Wrapper plugin that formats Julia code via [Fatou](https://fatou.dev).
 
 Formats .jl files.
 

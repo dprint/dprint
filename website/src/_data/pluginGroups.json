@@ -32,10 +32,10 @@
     ]
   },
   {
-    "label": "Adapter plugins",
-    "heading": "Adapter Plugins",
-    "id": "adapter-plugins",
-    "kind": "adapter",
+    "label": "Wrapper plugins",
+    "heading": "Wrapper Plugins",
+    "id": "wrapper-plugins",
+    "kind": "wrapper",
     "plugins": [
       { "slug": "prettier", "name": "Prettier", "ext": "multi-language", "process": true },
       { "slug": "biome", "name": "Biome", "ext": "JS · TS · JSON" },

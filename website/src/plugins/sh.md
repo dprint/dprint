@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Shell Plugin
 
-Adapter plugin that formats shell scripts via [shuck-formatter](https://github.com/ewhauser/shuck).
+Wrapper plugin that formats shell scripts via [shuck-formatter](https://github.com/ewhauser/shuck).
 
 Formats .sh, .bash, .zsh, .ksh, .mksh, .dash, and .bats files, along with shell dotfiles such as .envrc, .bashrc, .bash_profile, .profile, .zshrc, and .zshenv.
 

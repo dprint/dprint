@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Mago Plugin
 
-Adapter plugin that formats PHP code via [Mago](https://github.com/carthage-software/mago).
+Wrapper plugin that formats PHP code via [Mago](https://github.com/carthage-software/mago).
 
 Formats .php files.
 

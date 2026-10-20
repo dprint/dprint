@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Biome Plugin
 
-Adapter plugin that formats JavaScript, TypeScript, and JSON files via [Biome](https://biomejs.dev).
+Wrapper plugin that formats JavaScript, TypeScript, and JSON files via [Biome](https://biomejs.dev).
 
 ## Install and Setup
 

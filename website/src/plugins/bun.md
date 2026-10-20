@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Bun Plugin
 
-Adapter plugin that formats files via the formatter of [Bun](https://bun.com) (`bun format`). `bun format` prints what [Prettier](https://prettier.io) prints.
+Wrapper plugin that formats files via the formatter of [Bun](https://bun.com) (`bun format`). `bun format` prints what [Prettier](https://prettier.io) prints.
 
 It formats the following languages:
 

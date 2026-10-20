@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Nix Plugin
 
-Adapter plugin that formats Nix code via [nixfmt-rs](https://github.com/Mic92/nixfmt-rs), a Rust port of [nixfmt](https://github.com/NixOS/nixfmt).
+Wrapper plugin that formats Nix code via [nixfmt-rs](https://github.com/Mic92/nixfmt-rs), a Rust port of [nixfmt](https://github.com/NixOS/nixfmt).
 
 Formats .nix files.
 

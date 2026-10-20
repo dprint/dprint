@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Pretty GraphQL Plugin
 
-Adapter plugin that formats GraphQL files via [Pretty GraphQL](https://github.com/g-plane/pretty_graphql).
+Plugin that formats GraphQL files via [Pretty GraphQL](https://github.com/g-plane/pretty_graphql).
 
 ## Install and Setup
 

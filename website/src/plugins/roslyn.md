@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Roslyn Plugin
 
-Adapter plugin that formats C# and Visual Basic code via [Roslyn](https://github.com/dotnet/roslyn).
+Wrapper plugin that formats C# and Visual Basic code via [Roslyn](https://github.com/dotnet/roslyn).
 
 Formats .cs and .vb files.
 

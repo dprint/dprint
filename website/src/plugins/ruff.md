@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Ruff Plugin
 
-Adapter plugin that formats Python code via [Ruff](https://docs.astral.sh/ruff/).
+Wrapper plugin that formats Python code via [Ruff](https://docs.astral.sh/ruff/).
 
 Formats .py and .pyi files.
 

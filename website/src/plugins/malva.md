@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Malva Plugin
 
-Adapter plugin that formats CSS, SCSS, Sass (indented syntax), and Less files via [Malva](https://github.com/g-plane/malva).
+Plugin that formats CSS, SCSS, Sass (indented syntax), and Less files via [Malva](https://github.com/g-plane/malva).
 
 ## Install and Setup
 

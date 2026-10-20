@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Oxc Plugin
 
-Adapter plugin that formats files via [Oxc](https://oxc.rs). It formats the languages that Oxc's formatter formats natively in Rust:
+Wrapper plugin that formats files via [Oxc](https://oxc.rs). It formats the languages that Oxc's formatter formats natively in Rust:
 
 - JavaScript and TypeScript (including JSX)
 - JSON, JSONC, and JSON5
