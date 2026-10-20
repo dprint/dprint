@@ -41,20 +41,6 @@ This will update your config file to have an entry for the plugin. Then optional
 
 See [Configuration](/plugins/nix/config).
 
-## Formatting Nix Code Blocks in Markdown
-
-Use the `tags` option of the [Markdown plugin](/plugins/markdown) to format `nix` code blocks with this plugin:
-
-```json
-{
-  "markdown": {
-    "tags": {
-      "nix": "nix"
-    }
-  }
-}
-```
-
 ## Source
 
 See https://github.com/dprint/dprint-plugin-nix
