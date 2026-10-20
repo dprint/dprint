@@ -12,6 +12,7 @@ use dprint_core::plugins::FormatError;
 use dprint_core::plugins::FormatResult;
 use dprint_core::plugins::process::ProcessPluginCommunicator;
 use dprint_core::plugins::process::ProcessPluginCommunicatorFormatRequest;
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -31,6 +32,7 @@ struct InnerState {
 pub struct InitializedProcessPluginCommunicator<TEnvironment: Environment> {
   inner: AsyncMutex<InnerState>,
   restart_info: ProcessRestartInfo<TEnvironment>,
+  is_shutdown: Cell<bool>,
 }
 
 impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironment> {
@@ -47,6 +49,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
         communicator: Rc::new(communicator),
       }),
       restart_info,
+      is_shutdown: Cell::new(false),
     };
 
     Ok(initialized_communicator)
@@ -80,6 +83,7 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
   }
 
   pub async fn shutdown(&self) {
+    self.is_shutdown.set(true);
     self.get_inner().await.shutdown().await
   }
 
@@ -138,7 +142,8 @@ impl<TEnvironment: Environment> InitializedProcessPluginCommunicator<TEnvironmen
       Err(err) => {
         // attempt to restart the communicator if this fails and it's no longer alive
         let mut inner = self.inner.lock().await;
-        if inner.communicator.is_process_alive().await {
+        // don't restart when the failure was caused by shutting down
+        if self.is_shutdown.get() || inner.communicator.is_process_alive().await {
           Err(err)
         } else {
           *inner = InnerState {
@@ -331,6 +336,50 @@ mod test {
         assert_eq!(result.unwrap(), None);
 
         communicator.shutdown().await;
+      }
+    })
+  }
+
+  #[test]
+  fn should_not_restart_process_plugin_after_shutdown() {
+    let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin().build();
+    environment.run_in_runtime({
+      let environment = environment.clone();
+      async move {
+        let communicator = Rc::new(InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone()).await);
+        let format_config = Arc::new(FormatConfig {
+          id: FormatConfigId::from_raw(1),
+          plugin: Default::default(),
+          global: Default::default(),
+        });
+
+        // start up a format that will never finish
+        let handle = dprint_core::async_runtime::spawn({
+          let communicator = communicator.clone();
+          async move {
+            communicator
+              .format_text(InitializedPluginFormatRequest {
+                file_path: PathBuf::from("test.txt"),
+                // special text that makes it wait for cancellation
+                file_text: Arc::new("wait_cancellation".to_string().into_bytes()),
+                range: None,
+                config: format_config,
+                override_config: Default::default(),
+                on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
+                token: Arc::new(NullCancellationToken),
+              })
+              .await
+          }
+        });
+
+        // give it some time to start then shut down while it's in flight
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let inner_communicator = communicator.get_inner().await;
+        communicator.shutdown().await;
+
+        // the in-flight format should error without starting a new process
+        assert!(handle.await.unwrap().is_err());
+        assert!(Rc::ptr_eq(&inner_communicator, &communicator.get_inner().await));
       }
     })
   }
