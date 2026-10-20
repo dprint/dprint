@@ -11,6 +11,8 @@ Wrapper plugin that formats shell scripts via [shuck-formatter](https://github.c
 
 Formats .sh, .bash, .zsh, .ksh, .mksh, .dash, and .bats files, along with shell dotfiles such as .envrc, .bashrc, .bash_profile, .profile, .zshrc, and .zshenv.
 
+See also the [shfmt plugin](/plugins/shfmt), which formats exactly like the shfmt CLI.
+
 ## Install and Setup
 
 In your project's directory with a dprint.json file, run:
