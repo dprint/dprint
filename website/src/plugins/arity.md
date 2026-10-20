@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Arity Plugin
 
-Adapter plugin that formats R code via [Arity](https://arity.cc).
+Wrapper plugin that formats R code via [Arity](https://arity.cc).
 
 Formats .R and .r files.
 

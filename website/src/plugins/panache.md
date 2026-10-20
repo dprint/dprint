@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Panache Plugin
 
-Adapter plugin that formats Quarto, Pandoc, R Markdown, and Markdown files via [Panache](https://panache.bz).
+Wrapper plugin that formats Quarto, Pandoc, R Markdown, and Markdown files via [Panache](https://panache.bz).
 
 Formats .md, .qmd, .Rmd, and related files.
 

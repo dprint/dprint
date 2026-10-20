@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Swift Plugin
 
-Adapter plugin that formats Swift code via bundled [SwiftFormat](https://github.com/nicklockwood/SwiftFormat).
+Wrapper plugin that formats Swift code via bundled [SwiftFormat](https://github.com/nicklockwood/SwiftFormat).
 
 Formats `.swift` files on macOS and Linux (x86_64 and aarch64).
 

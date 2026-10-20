@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Cedar Plugin
 
-Adapter plugin that formats [Cedar](https://www.cedarpolicy.com) policy files via [cedar-policy-formatter](https://github.com/cedar-policy/cedar).
+Wrapper plugin that formats [Cedar](https://www.cedarpolicy.com) policy files via [cedar-policy-formatter](https://github.com/cedar-policy/cedar).
 
 Formats .cedar files.
 

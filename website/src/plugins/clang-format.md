@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # clang-format Plugin
 
-Adapter plugin that formats C, C++, and Objective-C code via a Wasm build of [clang-format](https://clang.llvm.org/docs/ClangFormat.html).
+Wrapper plugin that formats C, C++, and Objective-C code via a Wasm build of [clang-format](https://clang.llvm.org/docs/ClangFormat.html).
 
 Formats .c, .cc, .cpp, .cxx, .h, .hh, .hpp, .hxx, .m, and .mm files.
 

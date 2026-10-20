@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # bibtex-tidy Plugin
 
-Adapter plugin that formats BibTeX files via [bibtex-tidy](https://github.com/FlamingTempura/bibtex-tidy).
+Wrapper plugin that formats BibTeX files via [bibtex-tidy](https://github.com/FlamingTempura/bibtex-tidy).
 
 Formats .bib and .bibtex files. `dprint add` currently seeds includes for `.bib` only; add `**/*.bibtex` yourself if you use that extension.
 

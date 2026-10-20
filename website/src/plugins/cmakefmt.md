@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # cmakefmt Plugin
 
-Adapter plugin that formats CMake files via [cmakefmt](https://github.com/cmakefmt/cmakefmt).
+Plugin that formats CMake files via [cmakefmt](https://github.com/cmakefmt/cmakefmt).
 
 Formats CMakeLists.txt, CMakeLists.txt.in, and .cmake files.
 

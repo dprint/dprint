@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Gofumpt Plugin
 
-Adapter plugin that formats Go code via [gofumpt](https://github.com/mvdan/gofumpt).
+Wrapper plugin that formats Go code via [gofumpt](https://github.com/mvdan/gofumpt).
 
 Formats .go files.
 

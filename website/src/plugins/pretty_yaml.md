@@ -6,7 +6,7 @@ layout: layouts/documentation.njk
 
 # Pretty YAML Plugin
 
-Adapter plugin that formats YAML files via [Pretty YAML](https://github.com/g-plane/pretty_yaml).
+Plugin that formats YAML files via [Pretty YAML](https://github.com/g-plane/pretty_yaml).
 
 ## Install and Setup
 

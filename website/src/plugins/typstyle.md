@@ -7,7 +7,7 @@ oldUrl: /plugins/typstyle-kachick/
 
 # Typstyle Plugin
 
-Adapter plugin that formats [Typst](https://typst.app) files via [Typstyle](https://github.com/typstyle-rs/typstyle).
+Wrapper plugin that formats [Typst](https://typst.app) files via [Typstyle](https://github.com/typstyle-rs/typstyle).
 
 Formats .typ files.
 
