@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en"><head>
-    <script async="" src="/scripts.d98f0dca67.js"></script>
+    <script async="" src="/scripts.e1ebea3b09.js"></script>
     <meta charset="utf-8">
     <title>Configuration - Typstyle - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -152,6 +152,22 @@
     </li>
   
     <li>
+      <a href="/plugins/typstyle" class="active">Typstyle (Typst)</a>
+    </li>
+  
+    <li>
+      <a href="/plugins/nix">Nix</a>
+    </li>
+  
+    <li>
+      <a href="/plugins/kdl">KDL</a>
+    </li>
+  
+    <li>
+      <a href="/plugins/sh">Shell (sh/<wbr>Bash/<wbr>Zsh)</a>
+    </li>
+  
+    <li>
       <a href="/plugins/jupyter">Jupyter</a>
     </li>
   
@@ -173,26 +189,6 @@
   
     <li>
       <a href="/plugins/fatou">Fatou (Julia)</a>
-    </li>
-  
-    <li>
-      <a href="/plugins/typstyle" class="active">Typstyle (Typst)</a>
-    </li>
-  
-    <li>
-      <a href="/plugins/typstyle-kachick">Typstyle - kachick (Typst)</a>
-    </li>
-  
-    <li>
-      <a href="/plugins/nix">Nix</a>
-    </li>
-  
-    <li>
-      <a href="/plugins/kdl">KDL</a>
-    </li>
-  
-    <li>
-      <a href="/plugins/sh">Shell (sh/<wbr>Bash/<wbr>Zsh)</a>
     </li>
   
     <li>
@@ -240,57 +236,11 @@
     
     <div class="eyebrow">// plugins</div>
     <h1>Typstyle - Configuration</h1>
-<p>Specify configuration under the <code>"typstyle"</code> key in your dprint configuration file.</p>
-<table>
-<thead>
-<tr>
-<th>Property</th>
-<th>Values</th>
-<th>Default</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>lineWidth</code></td>
-<td>Integer</td>
-<td>Global <code>lineWidth</code>, or <code>80</code></td>
-</tr>
-<tr>
-<td><code>indentWidth</code></td>
-<td>Integer</td>
-<td>Global <code>indentWidth</code>, or <code>2</code></td>
-</tr>
-<tr>
-<td><code>blankLinesUpperBound</code></td>
-<td>Integer</td>
-<td><code>1</code></td>
-</tr>
-<tr>
-<td><code>collapseMarkupSpaces</code></td>
-<td>Boolean</td>
-<td><code>false</code></td>
-</tr>
-<tr>
-<td><code>reorderImportItems</code></td>
-<td>Boolean</td>
-<td><code>true</code></td>
-</tr>
-<tr>
-<td><code>wrapMode</code></td>
-<td><code>"none"</code>, <code>"fill"</code>, <code>"sentence"</code></td>
-<td><code>"none"</code></td>
-</tr>
-<tr>
-<td><code>lineEnding</code></td>
-<td><code>"lf"</code>, <code>"crlf"</code></td>
-<td>Global <code>newLineKind</code> (CRLF or LF), or <code>"lf"</code></td>
-</tr>
-</tbody>
-</table>
-<p>Typstyle always indents with spaces, so the global <code>useTabs</code> setting has no effect.
-A global <code>newLineKind</code> of <code>"auto"</code> or <code>"system"</code> is treated as <code>"lf"</code>.</p>
-<p>See the <a href="https://github.com/apcamargo/dprint-plugin-typstyle#configuration">plugin documentation</a> and
-<a href="https://plugins.dprint.dev/apcamargo/typstyle/latest/schema.json">JSON schema</a> for details.</p>
+<p>Specify configuration under the <code>"typst"</code> key in your dprint configuration file. The <code>lineWidth</code> and <code>indentWidth</code> properties use the global configuration when not specified, and otherwise default to Typstyle's 80 and 2.</p>
+<p>See the <a href="https://github.com/dprint/dprint-plugin-typstyle#configuration">plugin documentation</a> for more details.</p>
+<div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-typstyle/latest/schema.json">
+  Loading...
+</div>
 
   </main>
 </div>

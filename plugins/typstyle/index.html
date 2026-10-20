@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en"><head>
-    <script async="" src="/scripts.d98f0dca67.js"></script>
+    <script async="" src="/scripts.e1ebea3b09.js"></script>
     <meta charset="utf-8">
     <title>Typstyle Plugin - dprint - Code Formatter</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -152,6 +152,22 @@
     </li>
   
     <li>
+      <a href="/plugins/typstyle" class="active">Typstyle (Typst)</a>
+    </li>
+  
+    <li>
+      <a href="/plugins/nix">Nix</a>
+    </li>
+  
+    <li>
+      <a href="/plugins/kdl">KDL</a>
+    </li>
+  
+    <li>
+      <a href="/plugins/sh">Shell (sh/<wbr>Bash/<wbr>Zsh)</a>
+    </li>
+  
+    <li>
       <a href="/plugins/jupyter">Jupyter</a>
     </li>
   
@@ -173,26 +189,6 @@
   
     <li>
       <a href="/plugins/fatou">Fatou (Julia)</a>
-    </li>
-  
-    <li>
-      <a href="/plugins/typstyle" class="active">Typstyle (Typst)</a>
-    </li>
-  
-    <li>
-      <a href="/plugins/typstyle-kachick">Typstyle - kachick (Typst)</a>
-    </li>
-  
-    <li>
-      <a href="/plugins/nix">Nix</a>
-    </li>
-  
-    <li>
-      <a href="/plugins/kdl">KDL</a>
-    </li>
-  
-    <li>
-      <a href="/plugins/sh">Shell (sh/<wbr>Bash/<wbr>Zsh)</a>
     </li>
   
     <li>
@@ -240,25 +236,26 @@
     
     <div class="eyebrow">// plugins</div>
     <h1>Typstyle Plugin</h1>
-<p>Adapter plugin that formats Typst files via <a href="https://github.com/typstyle-rs/typstyle">Typstyle</a>.</p>
+<p>Wrapper plugin that formats <a href="https://typst.app">Typst</a> files via <a href="https://github.com/typstyle-rs/typstyle">Typstyle</a>.</p>
 <p>Formats .typ files.</p>
-<p>There is also a separate <a href="/plugins/typstyle-kachick">kachick/typstyle</a> plugin, which is configured under the <code>"typst"</code> key and published to npm.</p>
 <h2 id="install-and-setup" tabindex="-1"><a class="header-anchor" href="#install-and-setup">Install and Setup</a></h2>
 <p>In your project's directory with a dprint.json file, run:</p>
-<pre><code class="language-shellsession hljs language-shell">dprint add apcamargo/typstyle
+<pre><code class="language-shellsession hljs language-shell">dprint add typstyle
 </code></pre>
-<p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"typstyle"</code> property to add configuration:</p>
-<pre><code class="language-json hljs"><span class="hljs-punctuation">{</span>
-  <span class="hljs-attr">"typstyle"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
-    <span class="hljs-comment">// typstyle config goes here</span>
+<p>This will update your config file to have an entry for the plugin. Then optionally specify a <code>"typst"</code> property to add configuration:</p>
+<pre><code class="language-jsonc hljs language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">"typst"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span>
+    <span class="hljs-comment">// typstyle's config goes here</span>
   <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
   <span class="hljs-attr">"plugins"</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
-    <span class="hljs-string">"https://plugins.dprint.dev/apcamargo/typstyle-x.x.x.wasm"</span>
+    <span class="hljs-string">"npm:@dprint/typstyle@x.x.x"</span>
   <span class="hljs-punctuation">]</span>
 <span class="hljs-punctuation">}</span>
 </code></pre>
 <h2 id="configuration" tabindex="-1"><a class="header-anchor" href="#configuration">Configuration</a></h2>
 <p>See <a href="/plugins/typstyle/config">Configuration</a>.</p>
+<h2 id="source" tabindex="-1"><a class="header-anchor" href="#source">Source</a></h2>
+<p>See <a href="https://github.com/dprint/dprint-plugin-typstyle">https://github.com/dprint/dprint-plugin-typstyle</a></p>
 
   </main>
 </div>
