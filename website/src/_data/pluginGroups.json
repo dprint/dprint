@@ -51,6 +51,7 @@
       { "slug": "nix", "name": "Nix", "ext": ".nix" },
       { "slug": "kdl", "name": "KDL", "ext": ".kdl" },
       { "slug": "shuck", "name": "Shuck", "ext": "sh · Bash · Zsh" },
+      { "slug": "shfmt", "name": "shfmt", "ext": "sh · Bash · Zsh" },
       { "slug": "gofumpt", "name": "Gofumpt", "ext": "Go" },
       { "slug": "swift", "name": "Swift", "ext": ".swift", "process": true },
       { "slug": "panache", "name": "Panache", "ext": "Quarto · Pandoc · R Markdown · Markdown" },
