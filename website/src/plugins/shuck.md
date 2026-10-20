@@ -38,23 +38,6 @@ This will update your config file to have an entry for the plugin. Then optional
 
 See [Configuration](/plugins/shuck/config).
 
-## Formatting Shell Code Blocks in Markdown
-
-Use the `tags` option of the [Markdown plugin](/plugins/markdown) to map a code block's language tag to a file extension this plugin formats:
-
-```json
-{
-  "markdown": {
-    "tags": {
-      "sh": "sh",
-      "bash": "bash",
-      "zsh": "zsh",
-      "shell": "sh"
-    }
-  }
-}
-```
-
 ## Source
 
 See https://github.com/dprint/dprint-plugin-shuck
