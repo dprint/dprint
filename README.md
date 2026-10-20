@@ -34,6 +34,10 @@ Repos:
 - [dprint-plugin-mago](https://github.com/dprint/dprint-plugin-mago) - Mago (PHP) wrapper plugin.
 - [dprint-plugin-clang-format](https://github.com/dprint/dprint-plugin-clang-format) - clang-format (C/C++/Objective-C) wrapper plugin.
 - [dprint-plugin-cedar](https://github.com/dprint/dprint-plugin-cedar) - cedar-policy-formatter (Cedar) wrapper plugin.
+- [dprint-plugin-typstyle](https://github.com/dprint/dprint-plugin-typstyle) - Typstyle (Typst) wrapper plugin.
+- [dprint-plugin-nix](https://github.com/dprint/dprint-plugin-nix) - nixfmt-rs (Nix) wrapper plugin.
+- [dprint-plugin-kdl](https://github.com/dprint/dprint-plugin-kdl) - kdl-rs (KDL) wrapper plugin.
+- [dprint-plugin-sh](https://github.com/dprint/dprint-plugin-sh) - shuck-formatter (sh/Bash/Zsh) wrapper plugin.
 - [dprint-plugin-ruff](https://github.com/dprint/dprint-plugin-ruff) - Ruff (Python) wrapper plugin.
 - [dprint-plugin-exec](https://github.com/dprint/dprint-plugin-exec) - Formats code with any CLI executable.
 - [Malva](https://github.com/g-plane/malva) - CSS, SCSS, Sass, and Less formatter
@@ -45,13 +49,8 @@ Repos:
 - [badness](https://github.com/jolars/dprint-plugin-badness) - LaTeX and BibTeX formatter.
 - [arity](https://github.com/jolars/dprint-plugin-arity) - R formatter.
 - [fatou](https://github.com/jolars/dprint-plugin-fatou) - Julia formatter.
-- [typstyle](https://github.com/apcamargo/dprint-plugin-typstyle) - Typst (Typstyle) formatter.
-- [dprint-plugin-typstyle (kachick)](https://github.com/kachick/dprint-plugin-typstyle) - Typst (Typstyle) formatter.
 - [bibtex-tidy](https://github.com/apcamargo/dprint-plugin-bibtex-tidy) - BibTeX (bibtex-tidy) formatter.
 - [dprint-plugin-swift](https://github.com/drluckyspin/dprint-plugin-swift) - Swift (SwiftFormat) formatter.
-- [dprint-plugin-nix](https://github.com/kachick/dprint-plugin-nix) - Nix (nixfmt-rs) formatter.
-- [dprint-plugin-kdl](https://github.com/kachick/dprint-plugin-kdl) - KDL formatter.
-- [dprint-plugin-sh](https://github.com/kachick/dprint-plugin-sh) - Shell (sh/Bash/Zsh) formatter.
 - [lax-css](https://github.com/bartlomieju/lax-css) - CSS, SCSS, and Less formatter.
 - [lax-markup](https://github.com/bartlomieju/lax-markup) - HTML, XML, SVG, Vue, Svelte, and Astro formatter.
 - [lax-sql](https://github.com/bartlomieju/lax-sql) - SQL formatter.

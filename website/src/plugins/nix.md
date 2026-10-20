@@ -12,7 +12,7 @@ Formats .nix files.
 
 <div class="message is-warning">
   <div class="message-body">
-    This plugin is updated after upstream nixfmt and nixfmt-rs, so its output can lag behind the latest nixfmt. The plugin author recommends against using it for nixpkgs or other NixOS organization contributions.
+    This plugin is updated after upstream nixfmt and nixfmt-rs, so its output can lag behind the latest nixfmt. We recommend against using it for nixpkgs or other NixOS organization contributions.
   </div>
 </div>
 
@@ -21,7 +21,7 @@ Formats .nix files.
 In your project's directory with a dprint.json file, run:
 
 ```shellsession
-dprint add kachick/nix
+dprint add nix
 ```
 
 This will update your config file to have an entry for the plugin. Then optionally specify a `"nix"` property to add configuration:
@@ -32,7 +32,7 @@ This will update your config file to have an entry for the plugin. Then optional
     // nix config goes here
   },
   "plugins": [
-    "npm:@kachick/dprint-plugin-nix@x.x.x"
+    "npm:@dprint/nix@x.x.x"
   ]
 }
 ```
@@ -54,3 +54,7 @@ Use the `tags` option of the [Markdown plugin](/plugins/markdown) to format `nix
   }
 }
 ```
+
+## Source
+
+See https://github.com/dprint/dprint-plugin-nix

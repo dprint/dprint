@@ -6,8 +6,8 @@ layout: layouts/documentation.njk
 
 # Shell - Configuration
 
-See the [plugin documentation](https://github.com/kachick/dprint-plugin-sh#configuration) for more details.
+See the [plugin documentation](https://github.com/dprint/dprint-plugin-sh#configuration) for more details.
 
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/kachick/sh/latest/schema.json">
+<div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-sh/latest/schema.json">
   Loading...
 </div>

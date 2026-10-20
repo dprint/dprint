@@ -2,24 +2,15 @@
 title: Configuration - Typstyle
 description: Documentation on the configuration file for the Typstyle code formatting plugin for dprint.
 layout: layouts/documentation.njk
+oldUrl: /plugins/typstyle-kachick/config/
 ---
 
 # Typstyle - Configuration
 
-Specify configuration under the `"typstyle"` key in your dprint configuration file.
+Specify configuration under the `"typst"` key in your dprint configuration file. The `lineWidth` and `indentWidth` properties use the global configuration when not specified, and otherwise default to Typstyle's 80 and 2.
 
-| Property               | Values                           | Default                                      |
-| ---------------------- | -------------------------------- | -------------------------------------------- |
-| `lineWidth`            | Integer                          | Global `lineWidth`, or `80`                  |
-| `indentWidth`          | Integer                          | Global `indentWidth`, or `2`                 |
-| `blankLinesUpperBound` | Integer                          | `1`                                          |
-| `collapseMarkupSpaces` | Boolean                          | `false`                                      |
-| `reorderImportItems`   | Boolean                          | `true`                                       |
-| `wrapMode`             | `"none"`, `"fill"`, `"sentence"` | `"none"`                                     |
-| `lineEnding`           | `"lf"`, `"crlf"`                 | Global `newLineKind` (CRLF or LF), or `"lf"` |
+See the [plugin documentation](https://github.com/dprint/dprint-plugin-typstyle#configuration) for more details.
 
-Typstyle always indents with spaces, so the global `useTabs` setting has no effect.
-A global `newLineKind` of `"auto"` or `"system"` is treated as `"lf"`.
-
-See the [plugin documentation](https://github.com/apcamargo/dprint-plugin-typstyle#configuration) and
-[JSON schema](https://plugins.dprint.dev/apcamargo/typstyle/latest/schema.json) for details.
+<div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-typstyle/latest/schema.json">
+  Loading...
+</div>

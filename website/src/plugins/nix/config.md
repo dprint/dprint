@@ -6,8 +6,8 @@ layout: layouts/documentation.njk
 
 # Nix - Configuration
 
-See the [plugin documentation](https://github.com/kachick/dprint-plugin-nix#configuration) for more details.
+See the [plugin documentation](https://github.com/dprint/dprint-plugin-nix#configuration) for more details.
 
-<div class="plugin-config-table" data-url="https://plugins.dprint.dev/kachick/nix/latest/schema.json">
+<div class="plugin-config-table" data-url="https://plugins.dprint.dev/dprint/dprint-plugin-nix/latest/schema.json">
   Loading...
 </div>

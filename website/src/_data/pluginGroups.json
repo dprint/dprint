@@ -30,12 +30,7 @@
       { "slug": "badness", "name": "Badness", "ext": "LaTeX · BibTeX" },
       { "slug": "arity", "name": "Arity", "ext": "R" },
       { "slug": "fatou", "name": "Fatou", "ext": "Julia" },
-      { "slug": "typstyle", "name": "Typstyle", "ext": "Typst" },
-      { "slug": "typstyle-kachick", "name": "Typstyle (kachick)", "ext": "Typst" },
       { "slug": "bibtex-tidy", "name": "bibtex-tidy", "ext": "BibTeX" },
-      { "slug": "nix", "name": "Nix", "ext": ".nix" },
-      { "slug": "kdl", "name": "KDL", "ext": ".kdl" },
-      { "slug": "sh", "name": "Shell", "ext": "sh · Bash · Zsh" },
       { "slug": "lax-css", "name": "Lax CSS", "ext": "CSS · SCSS · Less" },
       { "slug": "lax-markup", "name": "Lax Markup", "ext": "HTML · XML · SVG · Vue · Svelte · Astro" },
       { "slug": "lax-sql", "name": "Lax SQL", "ext": "SQL" },
@@ -58,7 +53,11 @@
       { "slug": "roslyn", "name": "Roslyn", "ext": "C# · VB" },
       { "slug": "csharpier", "name": "CSharpier", "ext": "C# · XML" },
       { "slug": "clang-format", "name": "clang-format", "ext": "C · C++ · Objective-C" },
-      { "slug": "cedar", "name": "Cedar", "ext": "Cedar" }
+      { "slug": "cedar", "name": "Cedar", "ext": "Cedar" },
+      { "slug": "typstyle", "name": "Typstyle", "ext": "Typst" },
+      { "slug": "nix", "name": "Nix", "ext": ".nix" },
+      { "slug": "kdl", "name": "KDL", "ext": ".kdl" },
+      { "slug": "sh", "name": "Shell", "ext": "sh · Bash · Zsh" }
     ]
   },
   {
