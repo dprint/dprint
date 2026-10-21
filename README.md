@@ -39,6 +39,9 @@ Repos:
 - [dprint-plugin-kdl](https://github.com/dprint/dprint-plugin-kdl) - kdl-rs (KDL) wrapper plugin.
 - [dprint-plugin-shuck](https://github.com/dprint/dprint-plugin-shuck) - shuck-formatter (sh/Bash/Zsh) wrapper plugin.
 - [dprint-plugin-shfmt](https://github.com/dprint/dprint-plugin-shfmt) - shfmt (sh/Bash/Zsh) wrapper plugin.
+- [dprint-plugin-stylua](https://github.com/dprint/dprint-plugin-stylua) - StyLua (Lua/Luau) wrapper plugin.
+- [dprint-plugin-zig](https://github.com/dprint/dprint-plugin-zig) - zig fmt (Zig) wrapper plugin.
+- [dprint-plugin-terraform](https://github.com/dprint/dprint-plugin-terraform) - Terraform, OpenTofu and HCL formatter (tofu fmt and hclfmt).
 - [dprint-plugin-ruff](https://github.com/dprint/dprint-plugin-ruff) - Ruff (Python) wrapper plugin.
 - [dprint-plugin-exec](https://github.com/dprint/dprint-plugin-exec) - Formats code with any CLI executable.
 - [Malva](https://github.com/g-plane/malva) - CSS, SCSS, Sass, and Less formatter
