@@ -36,6 +36,7 @@ Repos:
 - [dprint-plugin-cedar](https://github.com/dprint/dprint-plugin-cedar) - cedar-policy-formatter (Cedar) wrapper plugin.
 - [dprint-plugin-typstyle](https://github.com/dprint/dprint-plugin-typstyle) - Typstyle (Typst) wrapper plugin.
 - [dprint-plugin-nix](https://github.com/dprint/dprint-plugin-nix) - nixfmt-rs (Nix) wrapper plugin.
+- [dprint-plugin-alejandra](https://github.com/dprint/dprint-plugin-alejandra) - Alejandra (Nix) wrapper plugin.
 - [dprint-plugin-kdl](https://github.com/dprint/dprint-plugin-kdl) - kdl-rs (KDL) wrapper plugin.
 - [dprint-plugin-shuck](https://github.com/dprint/dprint-plugin-shuck) - shuck-formatter (sh/Bash/Zsh) wrapper plugin.
 - [dprint-plugin-shfmt](https://github.com/dprint/dprint-plugin-shfmt) - shfmt (sh/Bash/Zsh) wrapper plugin.
