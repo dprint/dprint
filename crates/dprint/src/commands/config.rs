@@ -568,6 +568,7 @@ async fn resolve_plugin_url_to_add<TEnvironment: Environment>(
           )
         }
       };
+      plugin.warn_if_deprecated(plugin_name_or_url, environment);
       // when the plugin is distributed on npm, what gets written below comes
       // from the npm registry rather than the url and version in latest.json
       let config_dir = config_path.parent();
@@ -1577,6 +1578,9 @@ async fn get_plugins_to_update<TEnvironment: Environment>(
     }
 
     let latest = read_plugin_latest_info(environment, &plugin).await;
+    if let Some(latest) = &latest {
+      latest.warn_if_deprecated(plugin.info().name.as_str(), environment);
+    }
 
     // the plugin may have moved to npm, in which case the entry goes to its
     // package at the registry's latest version instead of following its url
@@ -2756,6 +2760,76 @@ Created {}",
   }
 
   #[test]
+  fn config_add_should_warn_when_plugin_deprecated() {
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: false,
+      config_has_wasm_checksum: false,
+      config_has_process: false,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: false,
+    });
+    environment.add_remote_file_bytes(
+      "https://plugins.dprint.dev/dprint/test-plugin/latest.json",
+      json!({
+        "schemaVersion": 1,
+        "url": "https://plugins.dprint.dev/test-plugin.wasm",
+        "version": "0.2.0",
+        "deprecated": "Use \u{1b}[31mother-plugin\u{1b}[0m instead.",
+      })
+      .to_string()
+      .into_bytes(),
+    );
+    run_test_cli(vec!["add", "test-plugin"], &environment).unwrap();
+    // still added, and the escape sequences in the message are replaced
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Plugin test-plugin is deprecated: Use \u{FFFD}[31mother-plugin\u{FFFD}[0m instead.".to_string()]
+    );
+    assert_eq!(
+      environment.read_file("./dprint.json").unwrap(),
+      r#"{
+  "plugins": [
+    "https://plugins.dprint.dev/test-plugin.wasm"
+  ]
+}"#
+    );
+  }
+
+  #[test]
+  fn config_add_should_not_warn_about_other_deprecated_plugins_in_config() {
+    let environment = get_setup_env(SetupEnvOptions {
+      config_has_wasm: true,
+      config_has_wasm_checksum: false,
+      config_has_process: false,
+      remote_has_wasm_checksum: false,
+      remote_has_process_checksum: false,
+    });
+    // the plugin already in the config is deprecated, but it's not the one being added
+    environment.add_remote_file_bytes(
+      "https://plugins.dprint.dev/dprint/test-plugin/latest.json",
+      json!({
+        "schemaVersion": 1,
+        "url": "https://plugins.dprint.dev/test-plugin.wasm",
+        "version": "0.2.0",
+        "deprecated": "Use other-plugin instead.",
+      })
+      .to_string()
+      .into_bytes(),
+    );
+    run_test_cli(vec!["add", "test-process-plugin"], &environment).unwrap();
+    assert!(environment.take_stderr_messages().is_empty());
+    assert_eq!(
+      environment.read_file("./dprint.json").unwrap(),
+      r#"{
+  "plugins": [
+    "https://plugins.dprint.dev/test-plugin-0.1.0.wasm",
+    "https://plugins.dprint.dev/test-plugin-3.json"
+  ]
+}"#
+    );
+  }
+
+  #[test]
   fn config_add_checksum_named_wasm_plugin() {
     // `--checksum` makes a named wasm add carry the registry's checksum,
     // which is otherwise omitted for wasm plugins.
@@ -3566,6 +3640,34 @@ Created {}",
     run_test_cli(vec!["config", "update"], &environment).unwrap();
     // should be empty because nothing to upgrade
     assert!(environment.take_stderr_messages().is_empty());
+  }
+
+  #[test]
+  fn config_update_should_warn_when_plugin_deprecated() {
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_wasm_plugin()
+      .with_info_file(|_| {})
+      .with_default_config(|config| {
+        config.add_remote_wasm_plugin();
+      })
+      .add_remote_file(
+        "https://plugins.dprint.dev/dprint/test-plugin/latest.json",
+        &json!({
+          "schemaVersion": 1,
+          "url": "https://plugins.dprint.dev/test-plugin.wasm",
+          "version": "0.2.0",
+          "deprecated": "Use other-plugin instead."
+        })
+        .to_string(),
+      )
+      .initialize()
+      .build();
+    run_test_cli(vec!["config", "update"], &environment).unwrap();
+    // warns even though the plugin is already at its latest version
+    assert_eq!(
+      environment.take_stderr_messages(),
+      vec!["Plugin test-plugin is deprecated: Use other-plugin instead.".to_string()]
+    );
   }
 
   #[test]

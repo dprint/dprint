@@ -31,6 +31,16 @@ pub fn is_terminal_interactive() -> bool {
   std::io::stderr().is_terminal() && get_terminal_size().is_some()
 }
 
+/// Replaces the control characters (other than newlines and tabs) in text
+/// from somewhere untrusted, such as a message a plugin's publisher wrote, so
+/// it can't send escape sequences to the terminal.
+pub fn replace_control_chars(text: &str) -> String {
+  text
+    .chars()
+    .map(|c| if c.is_control() && !matches!(c, '\n' | '\t') { '\u{FFFD}' } else { c })
+    .collect()
+}
+
 /// How long the terminal's size has to stay the same for a resize to be
 /// reported, so dragging its edge is a single resize instead of many.
 const RESIZE_SETTLE_TIME: Duration = Duration::from_millis(75);

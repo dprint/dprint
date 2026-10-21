@@ -28,6 +28,7 @@ use crate::utils::PathSource;
 use crate::utils::PluginKind;
 use crate::utils::get_sha256_checksum;
 use crate::utils::parse_rfc3339;
+use crate::utils::replace_control_chars;
 
 /// Resolved npm registry for a package, including the auth header to send
 /// with requests (if the configured `.npmrc` provides one) and the proxy to
@@ -433,11 +434,7 @@ fn warn_if_deprecated(packument: &serde_json::Value, name: &str, version: &str, 
   if WARNED_DEPRECATED_NPM_PACKAGES.with_borrow_mut(|warned| warned.insert(package.clone())) {
     // the message is whatever the publisher wrote, so don't let it send escape
     // sequences to the terminal
-    let message: String = message
-      .chars()
-      .map(|c| if c.is_control() && !matches!(c, '\n' | '\t') { '\u{FFFD}' } else { c })
-      .collect();
-    log_warn!(environment, "npm package {} is deprecated: {}", package, message);
+    log_warn!(environment, "npm package {} is deprecated: {}", package, replace_control_chars(message));
   }
 }
 
