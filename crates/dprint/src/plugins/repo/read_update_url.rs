@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::collections::HashSet;
+
 use anyhow::Result;
 use anyhow::anyhow;
 use anyhow::bail;
@@ -14,6 +17,7 @@ use crate::plugins::ResolveNpmLatestOptions;
 use crate::plugins::ResolvedNpmPlugin;
 use crate::utils::PathSource;
 use crate::utils::PluginKind;
+use crate::utils::replace_control_chars;
 
 const SCHEMA_VERSION: u8 = 1;
 
@@ -25,6 +29,9 @@ pub struct PluginUpdateUrlInfo {
   /// The npm package the plugin is published to. When present, the CLI writes
   /// an npm specifier into config files instead of the plugin's url.
   pub npm: Option<PluginNpmInfo>,
+  /// The message the plugin was deprecated with (ex. that it was replaced by
+  /// another plugin), or `None` if it isn't deprecated.
+  pub deprecated: Option<String>,
 }
 
 impl PluginUpdateUrlInfo {
@@ -62,6 +69,24 @@ impl PluginUpdateUrlInfo {
   pub fn full_url_no_wasm_checksum(&self) -> String {
     if self.is_wasm() { self.url.to_string() } else { self.full_url() }
   }
+
+  /// Warns when the plugin is deprecated, using the message its publisher
+  /// left. Warns once per plugin since several config files can use the same
+  /// plugin.
+  pub fn warn_if_deprecated(&self, plugin_name: &str, environment: &impl Environment) {
+    let Some(message) = &self.deprecated else {
+      return;
+    };
+    if WARNED_DEPRECATED_PLUGINS.with_borrow_mut(|warned| warned.insert(self.url.clone())) {
+      // the message is whatever the publisher wrote, so don't let it send
+      // escape sequences to the terminal
+      log_warn!(environment, "Plugin {} is deprecated: {}", plugin_name, replace_control_chars(message));
+    }
+  }
+}
+
+thread_local! {
+  static WARNED_DEPRECATED_PLUGINS: RefCell<HashSet<String>> = Default::default();
 }
 
 pub async fn read_update_url(downloader: &impl UrlDownloader, url: &Url) -> Result<Option<PluginUpdateUrlInfo>> {
@@ -101,12 +126,15 @@ pub async fn read_update_url(downloader: &impl UrlDownloader, url: &Url) -> Resu
   // a malformed `npm` property is ignored (keeping the url) rather than
   // failing the update lookup
   let npm = obj.take_object("npm").and_then(PluginNpmInfo::parse);
+  // like npm, an empty message means the plugin isn't deprecated
+  let deprecated = obj.take_string("deprecated").filter(|message| !message.is_empty());
 
   Ok(Some(PluginUpdateUrlInfo {
     version: version.to_string(),
     url: url.to_string(),
     checksum: checksum.map(|c| c.to_string()),
     npm,
+    deprecated: deprecated.map(|message| message.to_string()),
   }))
 }
 
@@ -138,6 +166,7 @@ mod test {
           url: "url".to_string(),
           checksum: None,
           npm: None,
+          deprecated: None,
         })
       );
       assert_eq!(
@@ -149,8 +178,36 @@ mod test {
           url: "url2".to_string(),
           checksum: Some("checksum".to_string()),
           npm: None,
+          deprecated: None,
         })
       );
+    })
+  }
+
+  #[test]
+  fn should_get_deprecation_message() {
+    let mut builder = TestEnvironmentBuilder::new();
+    builder
+      .add_remote_file(
+        "https://plugins.dprint.dev/plugin/latest.json",
+        r#"{ "schemaVersion": 1, "url": "url", "version": "version", "deprecated": "Use other-plugin instead." }"#,
+      )
+      .add_remote_file(
+        "https://plugins.dprint.dev/plugin/latest-undeprecated.json",
+        r#"{ "schemaVersion": 1, "url": "url", "version": "version", "deprecated": "" }"#,
+      );
+    let environment = builder.build();
+    environment.clone().run_in_runtime(async move {
+      let read = |url: &'static str| {
+        let environment = environment.clone();
+        async move { read_update_url(&environment, &Url::parse(url).unwrap()).await.unwrap().unwrap() }
+      };
+      assert_eq!(
+        read("https://plugins.dprint.dev/plugin/latest.json").await.deprecated,
+        Some("Use other-plugin instead.".to_string())
+      );
+      // like npm, an empty message means it isn't deprecated
+      assert_eq!(read("https://plugins.dprint.dev/plugin/latest-undeprecated.json").await.deprecated, None);
     })
   }
 
