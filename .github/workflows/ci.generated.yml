@@ -39,6 +39,7 @@ jobs:
     runs-on: "${{ matrix.os }}"
     permissions:
       contents: read
+    timeout-minutes: 35
     defaults:
       run:
         shell: bash
@@ -471,6 +472,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    timeout-minutes: 35
     env:
       CARGO_INCREMENTAL: 0
       RUST_BACKTRACE: full
@@ -498,6 +500,7 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
+    timeout-minutes: 35
     steps:
       - name: Clone repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

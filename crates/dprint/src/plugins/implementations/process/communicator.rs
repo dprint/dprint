@@ -343,45 +343,58 @@ mod test {
   #[test]
   fn should_not_restart_process_plugin_after_shutdown() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_process_plugin().build();
-    environment.run_in_runtime({
-      let environment = environment.clone();
-      async move {
-        let communicator = Rc::new(InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone()).await);
-        let format_config = Arc::new(FormatConfig {
-          id: FormatConfigId::from_raw(1),
-          plugin: Default::default(),
-          global: Default::default(),
-        });
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let test_environment = environment.clone();
+    // run on another thread so a hang fails the test instead of blocking it forever
+    let handle = std::thread::spawn(move || {
+      test_environment.run_in_runtime({
+        let environment = test_environment.clone();
+        async move {
+          let communicator = Rc::new(InitializedProcessPluginCommunicator::new_test_plugin_communicator(environment.clone()).await);
+          let format_config = Arc::new(FormatConfig {
+            id: FormatConfigId::from_raw(1),
+            plugin: Default::default(),
+            global: Default::default(),
+          });
 
-        // start up a format that will never finish
-        let handle = dprint_core::async_runtime::spawn({
-          let communicator = communicator.clone();
-          async move {
-            communicator
-              .format_text(InitializedPluginFormatRequest {
-                file_path: PathBuf::from("test.txt"),
-                // special text that makes it wait for cancellation
-                file_text: Arc::new("wait_cancellation".to_string().into_bytes()),
-                range: None,
-                config: format_config,
-                override_config: Default::default(),
-                on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
-                token: Arc::new(NullCancellationToken),
-              })
-              .await
-          }
-        });
+          // start up a format that will never finish
+          let handle = dprint_core::async_runtime::spawn({
+            let communicator = communicator.clone();
+            async move {
+              communicator
+                .format_text(InitializedPluginFormatRequest {
+                  file_path: PathBuf::from("test.txt"),
+                  // special text that makes it wait for cancellation
+                  file_text: Arc::new("wait_cancellation".to_string().into_bytes()),
+                  range: None,
+                  config: format_config,
+                  override_config: Default::default(),
+                  on_host_format: Rc::new(|_| future::ready(Ok(None)).boxed_local()),
+                  token: Arc::new(NullCancellationToken),
+                })
+                .await
+            }
+          });
 
-        // give it some time to start then shut down while it's in flight
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        let inner_communicator = communicator.get_inner().await;
-        communicator.shutdown().await;
+          // give it some time to start then shut down while it's in flight
+          tokio::time::sleep(Duration::from_millis(100)).await;
+          let inner_communicator = communicator.get_inner().await;
+          communicator.shutdown().await;
 
-        // the in-flight format should error without starting a new process
-        assert!(handle.await.unwrap().is_err());
-        assert!(Rc::ptr_eq(&inner_communicator, &communicator.get_inner().await));
-      }
-    })
+          // the in-flight format should error without starting a new process
+          assert!(handle.await.unwrap().is_err());
+          assert!(Rc::ptr_eq(&inner_communicator, &communicator.get_inner().await));
+        }
+      });
+      tx.send(()).unwrap();
+    });
+    let completed = rx.recv_timeout(std::time::Duration::from_secs(10));
+    // a disconnect means the thread panicked, which joining it reports
+    assert!(
+      !matches!(completed, Err(std::sync::mpsc::RecvTimeoutError::Timeout)),
+      "hung shutting down a process plugin with a format in flight"
+    );
+    handle.join().unwrap();
   }
 
   #[test]

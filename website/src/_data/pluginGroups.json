@@ -49,6 +49,7 @@
       { "slug": "cedar", "name": "Cedar", "ext": "Cedar" },
       { "slug": "typstyle", "name": "Typstyle", "ext": "Typst" },
       { "slug": "nix", "name": "Nix", "ext": ".nix" },
+      { "slug": "alejandra", "name": "Alejandra", "ext": ".nix" },
       { "slug": "kdl", "name": "KDL", "ext": ".kdl" },
       { "slug": "shuck", "name": "Shuck", "ext": "sh · Bash · Zsh" },
       { "slug": "shfmt", "name": "shfmt", "ext": "sh · Bash · Zsh" },
