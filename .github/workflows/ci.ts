@@ -548,6 +548,7 @@ const installerTests = step.if(runDebugTests)(
 const buildJob = job("build", {
   name: matrix.target,
   runsOn: matrix.os,
+  timeoutMinutes: 35,
   strategy: { matrix: buildJobMatrix },
   defaults: { run: { shell: "bash" } },
   permissions: {
@@ -584,6 +585,7 @@ const buildJob = job("build", {
 const testKnownPluginsJob = job("test_known_plugins", {
   name: "test_known_plugins",
   runsOn: "ubuntu-latest",
+  timeoutMinutes: 35,
   if: isFullCi.and(isNotTag),
   permissions: {
     contents: "read",
@@ -649,6 +651,7 @@ const changelog = step({
 const draftReleaseJob = job("draft_release", {
   name: "draft_release",
   runsOn: "ubuntu-latest",
+  timeoutMinutes: 35,
   needs: [buildJob],
   if: isTag,
   // contents: drafting the release. id-token + attestations: signing the
