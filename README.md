@@ -43,6 +43,7 @@ Repos:
 - [dprint-plugin-stylua](https://github.com/dprint/dprint-plugin-stylua) - StyLua (Lua/Luau) wrapper plugin.
 - [dprint-plugin-zig](https://github.com/dprint/dprint-plugin-zig) - zig fmt (Zig) wrapper plugin.
 - [dprint-plugin-terraform](https://github.com/dprint/dprint-plugin-terraform) - Terraform, OpenTofu and HCL formatter (tofu fmt and hclfmt).
+- [dprint-plugin-buildifier](https://github.com/dprint/dprint-plugin-buildifier) - buildifier (Bazel/Starlark) wrapper plugin.
 - [dprint-plugin-ruff](https://github.com/dprint/dprint-plugin-ruff) - Ruff (Python) wrapper plugin.
 - [dprint-plugin-exec](https://github.com/dprint/dprint-plugin-exec) - Formats code with any CLI executable.
 - [Malva](https://github.com/g-plane/malva) - CSS, SCSS, Sass, and Less formatter

@@ -56,6 +56,7 @@
       { "slug": "stylua", "name": "StyLua", "ext": "Lua · Luau" },
       { "slug": "zig", "name": "Zig", "ext": "Zig · ZON" },
       { "slug": "terraform", "name": "Terraform", "ext": "Terraform · OpenTofu · HCL" },
+      { "slug": "buildifier", "name": "buildifier", "ext": "Bazel · Starlark" },
       { "slug": "gofumpt", "name": "Gofumpt", "ext": "Go" },
       { "slug": "swift", "name": "Swift", "ext": ".swift", "process": true },
       { "slug": "panache", "name": "Panache", "ext": "Quarto · Pandoc · R Markdown · Markdown" },
