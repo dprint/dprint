@@ -42,7 +42,15 @@ fn main() {
     .unwrap();
   rt.block_on(async move {
     match run().await {
-      Ok(_) => {}
+      Ok(_) => {
+        // Exit instead of returning, like the error arm and the language server
+        // do. All the work is finished inside `run()` (files written, incremental
+        // cache saved, output written, plugins shut down), but returning would
+        // also free every loaded Wasm module. On macOS, wasmtime deregisters each
+        // function's unwind info from libunwind one at a time when it does that,
+        // which takes longer than formatting a file when many plugins are loaded.
+        std::process::exit(0);
+      }
       Err((err, log_level)) => {
         if log_level != LogLevel::Silent {
           let result = format!("{:#}", err.inner);
