@@ -229,7 +229,20 @@ fn new_engine() -> wasmtime::Engine {
   {
     // optimize natively compiled plugins for speed
     config.cranelift_opt_level(wasmtime::OptLevel::Speed);
+    // plugins only receive file text and return text, without network or
+    // file system access, so there's nowhere for a speculative read past a
+    // table to leak to. without the mitigation, `call_indirect` (which plugins
+    // compiled from managed languages do for every virtual call) doesn't mask
+    // its index
+    // SAFETY: the flag only changes code generation, and wasmtime validates the
+    // name and value when the engine is created
+    unsafe {
+      config.cranelift_flag_set("enable_table_access_spectre_mitigation", "false");
+    }
   }
+  // initialize tables when instantiating rather than lazily on first use, so
+  // `call_indirect` doesn't need to check whether its entry is initialized
+  config.table_lazy_init(false);
   #[cfg(use_pulley)]
   {
     // no native Cranelift backend (or signal-based traps) for this target, so
