@@ -243,6 +243,14 @@ fn new_engine() -> wasmtime::Engine {
   // initialize tables when instantiating rather than lazily on first use, so
   // `call_indirect` doesn't need to check whether its entry is initialized
   config.table_lazy_init(false);
+  // don't generate native unwind info. it only lets the system unwinder and
+  // tools like profilers walk through wasm frames (wasmtime's own wasm
+  // backtraces don't need it) and on macOS registering it when loading a
+  // module and deregistering it when freeing one happens one function at a
+  // time under a global lock, which took longer than formatting a file when
+  // several plugins were loaded. Windows requires it.
+  #[cfg(not(windows))]
+  config.native_unwind_info(false);
   #[cfg(use_pulley)]
   {
     // no native Cranelift backend (or signal-based traps) for this target, so
