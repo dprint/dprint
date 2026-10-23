@@ -1216,7 +1216,7 @@ mod test {
 
   use super::client::ClientTrait;
   use super::*;
-  use crate::configuration::get_permissions_file_path;
+  use crate::configuration::get_settings_file_path;
 
   macro_rules! did_open {
     ($backend:expr, $uri:expr, $text:expr) => {
@@ -4155,14 +4155,14 @@ mod test {
 
   fn ensure_global_config_dir(environment: &TestEnvironment) {
     // macOS only uses this directory when it's already there
-    let file_path = get_permissions_file_path(environment).unwrap();
+    let file_path = get_settings_file_path(environment).unwrap();
     environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
   }
 
   /// Requires the user to approve running process plugins.
   fn disallow_process_plugins(environment: &TestEnvironment) {
     ensure_global_config_dir(environment);
-    let file_path = get_permissions_file_path(environment).unwrap();
+    let file_path = get_settings_file_path(environment).unwrap();
     environment.write_file(&file_path, r#"{ "allowProcessPlugins": false }"#).unwrap();
   }
 

@@ -100,3 +100,20 @@ Starting in version 0.18 of the extension, a file is formatted with the closest 
 2. Run the `Dprint: Format Document (global config)` or `Dprint: Format Selection (global config)` command from the command palette to format the current file once. These commands work regardless of the `dprint.useGlobalConfig` setting and are only shown for a file that doesn't have a configuration file in an ancestor directory. When the file isn't formatted, the command says why (ex. there's no global configuration file or none of its plugins handle the file).
 
 The global configuration file is the same one the CLI uses, including when `DPRINT_CONFIG_DIR` is set. As with `dprint fmt`, a file is only formatted when the global configuration would format it—a plugin needs to handle the file and it can't be matched by the `excludes`.
+
+## Settings File
+
+dprint's settings that aren't formatting configuration go in a `settings.json` file next to the global configuration file (ex. `~/.config/dprint/settings.json`), which may have comments. It's only read from there and never from a project, so a project can't change them:
+
+<!-- dprint-ignore -->
+
+```jsonc
+{
+  // require allowing process plugins in editors
+  "allowProcessPlugins": false
+}
+```
+
+- `allowProcessPlugins` - Whether editors run [process plugins](/lsp#process-plugins) without you allowing them, which is the default for now.
+
+dprint also stores some things here: the process plugins you allowed (`approvedProcessPlugins`) and the [preferences of `dprint init`](/setup#init-preferences) (`init`). Only the property being changed is written, so the rest of the file is kept as it is.

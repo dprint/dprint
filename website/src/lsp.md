@@ -92,7 +92,7 @@ A server can't change an editor's settings, so the choice is stored in an `lsp-s
 
 ## Process Plugins
 
-Process plugins (ex. [dprint-plugin-exec](/plugins/exec)) aren't sandboxed. Opening a file isn't the same as choosing to run dprint in its directory—the file may be in a repository you just cloned or in a dependency (ex. in `node_modules`)—so you can have the server only run them once you allow them. To do so, create a `permissions.json` file in the [global configuration directory](/global-config#initializing-a-global-configuration) (ex. `~/.config/dprint/permissions.json`) with the following:
+Process plugins (ex. [dprint-plugin-exec](/plugins/exec)) aren't sandboxed. Opening a file isn't the same as choosing to run dprint in its directory—the file may be in a repository you just cloned or in a dependency (ex. in `node_modules`)—so you can have the server only run them once you allow them. To do so, set `allowProcessPlugins` to `false` in the [settings file](/global-config#settings-file) (ex. `~/.config/dprint/settings.json`):
 
 ```json
 {
@@ -104,7 +104,7 @@ Process plugins are allowed without asking by default for now. A future version 
 
 When a file is formatted with a configuration file whose process plugins you haven't allowed, the server doesn't set them up or start them and shows a message with the actions `Allow` and `Don't Allow`. This happens once per session for each configuration file. Files they would format aren't formatted until they're allowed, and the next format uses them once you select `Allow`. In a client that can't show the actions of a message, the message says that they're not allowed instead.
 
-What's allowed is the process plugins of that configuration file with its plugins and configuration. When the configuration file changes (ex. the commands of dprint-plugin-exec), you're asked again. The process plugins of the [global configuration file](/global-config) are always allowed. The choices are stored in the same `permissions.json` file.
+What's allowed is the process plugins of that configuration file with its plugins and configuration. When the configuration file changes (ex. the commands of dprint-plugin-exec), you're asked again. The process plugins of the [global configuration file](/global-config) are always allowed. The choices are stored in the same settings file.
 
 This is deliberately not a [setting](#settings) because an editor's workspace settings can come from the project (ex. `.vscode/settings.json`), which would let a project allow its own process plugins. The CLI doesn't use this file because running `dprint fmt` is choosing to run dprint in that directory.
 

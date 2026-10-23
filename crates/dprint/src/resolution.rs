@@ -42,8 +42,8 @@ use crate::configuration::ResolvedConfig;
 use crate::configuration::ResolvedConfigPathWithText;
 use crate::configuration::get_default_config_file_in_ancestor_directories;
 use crate::configuration::get_global_config;
-use crate::configuration::get_permissions_file_path;
 use crate::configuration::get_plugin_config_map;
+use crate::configuration::get_settings_file_path;
 use crate::configuration::resolve_config_from_args;
 use crate::configuration::resolve_config_from_path_with_ancestors;
 use crate::configuration::resolve_global_config_path_and_text_at_path_root;
@@ -1305,10 +1305,10 @@ pub async fn resolve_plugins_scope_with_approval<TEnvironment: Environment>(
 /// Gets the message that says how to have the process plugins of a config file
 /// run when the editor can't ask whether to allow them.
 pub fn get_cant_ask_message(environment: &impl Environment) -> String {
-  let file_path = get_permissions_file_path(environment).map(|path| path.display().to_string());
+  let file_path = get_settings_file_path(environment).map(|path| path.display().to_string());
   format!(
     "The editor can't ask whether to allow them, so they only run when \"allowProcessPlugins\" isn't false in {}.",
-    file_path.as_deref().unwrap_or("permissions.json in dprint's global config directory"),
+    file_path.as_deref().unwrap_or("settings.json in dprint's global config directory"),
   )
 }
 

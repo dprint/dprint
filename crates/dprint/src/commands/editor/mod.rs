@@ -548,7 +548,7 @@ mod test {
   use tokio::sync::oneshot;
   use tokio_util::sync::CancellationToken;
 
-  use crate::configuration::get_permissions_file_path;
+  use crate::configuration::get_settings_file_path;
   use crate::environment::Environment;
   use crate::environment::TestEnvironment;
   use crate::environment::TestEnvironmentBuilder;
@@ -636,7 +636,7 @@ mod test {
 
   /// Requires the user to approve running process plugins.
   fn disallow_process_plugins(environment: &TestEnvironment) {
-    let file_path = get_permissions_file_path(environment).unwrap();
+    let file_path = get_settings_file_path(environment).unwrap();
     // macOS only uses this directory when it's already there
     environment.mk_dir_all(file_path.parent().unwrap()).unwrap();
     environment.write_file(&file_path, r#"{ "allowProcessPlugins": false }"#).unwrap();

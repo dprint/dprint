@@ -43,7 +43,7 @@ This opens a prompt that only changes your preferences, without creating a confi
 
 Press enter to save or escape to cancel. In the `dprint init` prompt, preferred plugins are marked with ★ and avoided ones with ✗.
 
-The preferences are saved to an _init.json_ file in the [global configuration directory](/global-config) and are used by `dprint init` from then on, including with `--yes`.
+The preferences are saved to the `init` property of the [settings file](/global-config#settings-file) and are used by `dprint init` from then on, including with `--yes`. dprint 0.64 saved them to an _init.json_ file in the global configuration directory instead, which is still read until they're saved again.
 
 ### Non-interactive init
 
