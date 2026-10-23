@@ -1749,6 +1749,28 @@ mod test {
   }
 
   #[test]
+  fn should_use_process_plugins_specified_in_remote_config_extended_with_checksum() {
+    use crate::utils::get_sha256_checksum;
+
+    let environment = TestEnvironmentBuilder::new()
+      .add_remote_process_plugin()
+      .write_file("/file.txt_ps", "text")
+      .build();
+    let plugin_url = "https://plugins.dprint.dev/test-process.json";
+    let plugin_checksum = get_sha256_checksum(&environment.get_remote_file(plugin_url).unwrap().unwrap());
+    let remote_config_text = format!(r#"{{ "plugins": ["{plugin_url}@{plugin_checksum}"], "testProcessPlugin": {{ "ending": "remote" }} }}"#);
+    let checksum = get_sha256_checksum(remote_config_text.as_bytes());
+    environment.add_remote_file_bytes("https://dprint.dev/shared.json", remote_config_text.into_bytes());
+    environment
+      .write_file("/dprint.json", &format!(r#"{{ "extends": "https://dprint.dev/shared.json@{checksum}" }}"#))
+      .unwrap();
+    run_test_cli(vec!["fmt"], &environment).unwrap();
+    assert_eq!(environment.read_file("/file.txt_ps").unwrap(), "text_remote");
+    assert_eq!(environment.take_stdout_messages(), vec![get_singular_formatted_text()]);
+    environment.take_stderr_messages();
+  }
+
+  #[test]
   fn should_error_when_extended_config_checksum_does_not_match() {
     let environment = TestEnvironmentBuilder::with_initialized_remote_wasm_and_process_plugin()
       .add_remote_file("https://dprint.dev/shared.json", r#"{ "testProcessPlugin": { "ending": "remote" } }"#)

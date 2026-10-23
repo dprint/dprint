@@ -722,7 +722,7 @@ async fn handle_config_file<TEnvironment: Environment>(
     // control over what files get formatted.
     //
     // Trusted remote configuration may specify the associations and negated
-    // excludes. Its includes are still removed, though only the includes of
+    // excludes (and non-Wasm plugins below). Its includes are still removed, though only the includes of
     // the main configuration file get used anyway.
     let removed_includes = new_config_map.shift_remove("includes"); // NEVER REMOVE THIS STATEMENT
     if removed_includes.is_some() && config_path_and_text.is_first_download {
@@ -758,10 +758,15 @@ async fn handle_config_file<TEnvironment: Environment>(
     }
   }
 
-  // Also remove any non-wasm plugins, but only for remote configurations.
-  // The assumption here is that the user won't be malicious to themselves.
+  // Also remove any non-wasm plugins, but only for remote configurations that
+  // aren't trusted. The assumption here is that the user won't be malicious to
+  // themselves.
   let plugins = take_plugins_array_from_config_map(&mut new_config_map, &config_path_and_text.source.parent(), environment)?;
-  let plugins = if is_remote { filter_non_wasm_plugins(plugins, environment) } else { plugins };
+  let plugins = if is_remote && !is_trusted {
+    filter_non_wasm_plugins(plugins, environment)
+  } else {
+    plugins
+  };
   // =========
 
   // combine plugins, keeping the higher-precedence (earlier) entry when the same
