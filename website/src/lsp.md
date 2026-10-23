@@ -92,7 +92,7 @@ A server can't change an editor's settings, so the choice is stored in an `lsp-s
 
 ## Process Plugins
 
-Process plugins (ex. [dprint-plugin-exec](/plugins/exec)) aren't sandboxed. Opening a file isn't the same as choosing to run dprint in its directory—the file may be in a repository you just cloned or in a dependency (ex. in `node_modules`)—so you can have the server only run them once you allow them. To do so, set `allowProcessPlugins` to `false` in the [settings file](/global-config#settings-file) (ex. `~/.config/dprint/settings.json`):
+Process plugins (ex. [dprint-plugin-exec](/plugins/exec)) aren't sandboxed. Opening a file isn't the same as choosing to run dprint in its directory—the file may be in a repository you just cloned—so you can have the server only run them once you allow them. To do so, set `allowProcessPlugins` to `false` in the [settings file](/global-config#settings-file) (ex. `~/.config/dprint/settings.json`):
 
 ```json
 {
