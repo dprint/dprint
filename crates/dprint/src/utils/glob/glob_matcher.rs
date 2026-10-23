@@ -428,6 +428,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: vec!["#!/bin/sh".to_string()],
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
@@ -448,6 +449,7 @@ mod test {
     // negated includes still apply
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: vec!["#!/bin/sh".to_string()],
         arg_includes: None,
         config_includes: Some(vec![
@@ -482,6 +484,7 @@ mod test {
     // the arg includes still restrict the files
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: vec!["#!/bin/sh".to_string()],
         arg_includes: Some(vec![GlobPattern::new("sub/**".to_string(), cwd.clone())]),
         config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
@@ -503,6 +506,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("*.ts".to_string(), cwd.clone())]),
@@ -525,6 +529,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: Some(vec![GlobPattern::new("src/*.ts".to_string(), cwd.clone())]),
         config_includes: Some(vec![GlobPattern::new("*.ts".to_string(), cwd.clone())]),
@@ -552,6 +557,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: Some(vec![
           GlobPattern::new("./a.ts".to_string(), cwd.clone()),
@@ -586,6 +592,7 @@ mod test {
       .collect();
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: Some(arg_includes),
         config_includes: None,
@@ -613,6 +620,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![
@@ -643,6 +651,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("a.ts".to_string(), cwd.clone())]),
@@ -667,6 +676,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
@@ -691,6 +701,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![
@@ -719,6 +730,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
@@ -744,6 +756,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("**/*.ts".to_string(), cwd.clone())]),
@@ -768,6 +781,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("./a.ts".to_string(), cwd.clone())]),
@@ -790,6 +804,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("./a?.ts".to_string(), cwd.clone())]),
@@ -813,6 +828,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: Some(vec![GlobPattern::new("./sub/a.ts".to_string(), cwd.clone())]),
         config_includes: None,
@@ -837,6 +853,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("C:\\testing\\dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: Some(vec![GlobPattern::new("./sub/a.ts".to_string(), cwd.clone())]),
         config_includes: None,
@@ -858,6 +875,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: Some(vec![GlobPattern::new("src/*.ts".to_string(), cwd.clone())]),
         config_includes: Some(vec![GlobPattern::new("*.ts".to_string(), cwd.clone())]),
@@ -880,6 +898,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("/testing/dir");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("/testing/dir/*.ts".to_string(), cwd.clone())]),
@@ -901,6 +920,7 @@ mod test {
     let cwd = CanonicalizedPathBuf::new_for_testing("\\?\\UNC\\wsl$\\Ubuntu\\home\\david");
     let glob_matcher = GlobMatcher::new(
       GlobPatterns {
+        config_includes_from_plugins: false,
         shebangs: Vec::new(),
         arg_includes: None,
         config_includes: Some(vec![GlobPattern::new("*.ts".to_string(), cwd.clone())]),
